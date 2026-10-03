@@ -27,3 +27,11 @@ it.each([
 it('allows creation after all prerequisites are resolved without module-specific rules', () => {
   expect(recordCreationReadiness(ready)).toEqual({ ready: true });
 });
+
+it('explains that an existing draft remains editable while another creation is blocked', () => {
+  expect(recordCreationReadiness({ ...ready, editing: true })).toMatchObject({
+    ready: false,
+    reason: 'DRAFT_ACTIVE',
+    message: expect.stringContaining('可继续编辑'),
+  });
+});

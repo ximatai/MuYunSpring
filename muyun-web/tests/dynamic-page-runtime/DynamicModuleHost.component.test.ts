@@ -3318,7 +3318,12 @@ describe('ModulePageHost', () => {
         expect(proposal.presentation.lines.find((line) => line.startsWith('取货时间：'))).not.toContain(
           'T07:00:00Z',
         );
-        await proposal.execute();
+        const savedPresentation = await proposal.execute();
+        expect(savedPresentation.lines.join(' ')).not.toContain('记录标识');
+        expect(savedPresentation.details).toEqual({
+          title: '保存详情',
+          lines: [`记录标识：${persisted.id}`],
+        });
         expect(writes).toHaveLength(1);
         expect(writes[0]).toMatchObject({
           payload: {
@@ -4357,7 +4362,9 @@ describe('ModulePageHost', () => {
     expect(session.recordCreationState().ready).toBe(true);
     if (source === 'user') navigator.vm.$emit('create');
     else {
-      expect(session.assistantNavigatorCreationTargets()).toEqual([{ key: 'scheme', title: '菜单方案' }]);
+      expect(session.assistantNavigatorCreationTargets()).toEqual([
+        { key: 'scheme', title: '菜单方案', moduleAlias: 'platform.menu_scheme' },
+      ]);
       (await session.prepareAssistantNavigatorCreate('scheme'))();
     }
     await flushPromises();

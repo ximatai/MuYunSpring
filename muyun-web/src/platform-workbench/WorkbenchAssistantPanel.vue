@@ -253,7 +253,9 @@ function close() {
               >
               <UiButton :disabled="busy" @click="cancelOperation(item)">继续修改或取消</UiButton>
             </template>
-            <span v-else-if="item.confirmationState === 'expired'">内容或范围已变化，请重新准备确认。</span>
+            <span v-else-if="item.confirmationState === 'expired'"
+              >内容或操作对象已变化，请重新核对并确认最新内容。</span
+            >
             <span v-else>已取消本次确认，草稿保留。</span>
           </section>
           <AssistantSelectionCard
@@ -305,7 +307,11 @@ function close() {
         <small>继续处理会先核实进度并建议下一步，保存仍需重新确认。</small>
       </div>
       <div v-if="recoveryRequest && !busy" class="assistant-panel__welcome">
-        <span>本轮已暂停。继续前会核实当前状态，保存仍需确认。</span>
+        <span
+          >本轮已暂停。可点击下方“{{
+            recoveryReadOnly ? '继续核实' : '继续处理'
+          }}”核对当前状态和剩余事项，或从页面接手操作。</span
+        >
         <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="continueConversation">{{
           recoveryReadOnly ? '继续核实' : '继续处理'
         }}</UiButton>

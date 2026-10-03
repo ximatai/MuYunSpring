@@ -12,6 +12,7 @@ import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.v
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
 import ModuleBusinessPreview from './ModuleBusinessPreview.vue';
+import ModuleMenuGovernanceSurface from '../platform-admin-runtime/module-menu/ModuleMenuGovernanceSurface.vue';
 import { moduleGovernanceTabs, type ModuleGovernanceTab } from './moduleGovernanceWorkspaceView';
 
 defineOptions({ name: 'ModuleGovernanceView' });
@@ -46,6 +47,7 @@ const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
   { key: 'actions', title: '动作' },
   { key: 'rules', title: '业务规则' },
   { key: 'ui', title: '页面配置' },
+  { key: 'menu', title: '业务入口' },
   { key: 'preview', title: '业务预览' },
 ];
 
@@ -67,6 +69,8 @@ const activePanel = computed<{ component: Component; props: Record<string, unkno
       return { component: BusinessRuleGovernanceSurface, props: moduleProps };
     case 'ui':
       return { component: PageCompositionWorkspace, props: moduleProps };
+    case 'menu':
+      return { component: ModuleMenuGovernanceSurface, props: moduleProps };
     case 'preview':
       return { component: ModuleBusinessPreview, props: moduleProps };
     case 'overview':

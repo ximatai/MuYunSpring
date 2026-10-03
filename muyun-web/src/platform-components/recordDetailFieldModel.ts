@@ -2,6 +2,7 @@ import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
+import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
 import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
@@ -20,6 +21,8 @@ export function resolveRecordDetailDisplayValue(
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
     optionItems?: OptionItemDescriptor[];
+    /** Editable display defaults are not facts about an absent saved value. */
+    draft?: boolean;
   } = {},
 ) {
   const emptyText = options.emptyText ?? '-';
@@ -27,6 +30,9 @@ export function resolveRecordDetailDisplayValue(
   const customValue = options.displayOf?.(field.fieldName, value, record, field);
   if (isPresent(customValue)) {
     return String(customValue);
+  }
+  if (options.draft && field.controlType === 'enabledStatus') {
+    return resolveRecordEnabledStatusValue(value) ? '启用' : '停用';
   }
   const optionTitle = field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {

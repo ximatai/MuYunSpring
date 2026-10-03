@@ -1,15 +1,18 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
+import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 import ModuleMenuDrawer from '@/platform-admin-runtime/module-menu/ModuleMenuDrawer.vue';
 import { provideWorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
-import { provideModuleContextConfig } from '@/web-core';
+import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
+import { AppError, provideModuleContextConfig } from '@/web-core';
 import { UiInput } from '@/vue-ui-antdv';
 
 function setup(
   kind: 'static' | 'dynamic',
   options: {
     failSave?: boolean;
+    transportLoss?: boolean;
     failRefresh?: boolean;
     hidden?: boolean;
     entry?: Record<string, unknown>;
@@ -25,28 +28,50 @@ function setup(
     openMode: 'tab',
   };
   const mine = [{ record: menu, children: [] }];
-  let rejectSave = options.failSave;
-  const request = vi.fn(async ({ path }: { path: string }) => {
-    if (path.endsWith('/context'))
-      return {
-        moduleAlias: 'crm.customer',
-        capabilities: [],
-        actions: [],
-        uiDescriptor: { page: { template: 'management' } },
-        ...options.entry,
-      };
-    if (path === '/platform.menu_scheme/query')
-      return { records: [{ id: 'scheme', title: '业务菜单' }], total: 1 };
-    if (path === '/platform.menu/mine') return { records: [] };
-    if (path === '/platform.menu/tree/query') return { records: [] };
-    if (path === '/platform.menu/insert') {
-      if (rejectSave) {
-        rejectSave = false;
-        throw new Error('暂时无法保存');
+  let rejectSave = options.failSave || options.transportLoss;
+  let reference: unknown;
+  const request = vi.fn(
+    async ({ path, body, method }: { path: string; body?: { valueJson?: string }; method?: string }) => {
+      if (path.startsWith('/platform.user-preference/')) {
+        if (method === 'POST') reference = JSON.parse(body!.valueJson!);
+        if (method === 'DELETE') reference = undefined;
+        return reference ? { valueJson: JSON.stringify(reference) } : undefined;
       }
-      return menu;
-    }
-    throw new Error(path);
+      if (path.endsWith('/context'))
+        return {
+          moduleAlias: 'crm.customer',
+          title: '客户',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { page: { template: 'management' } },
+          ...options.entry,
+        };
+      if (path === '/platform.menu_scheme/query')
+        return { records: [{ id: 'scheme', title: '业务菜单' }], total: 1 };
+      if (path === '/platform.menu/mine') return { records: [] };
+      if (path === '/platform.menu/tree/query') return { records: [] };
+      if (path.startsWith('/platform.menu/save-receipts/')) return { committed: true, recordId: 'new' };
+      if (path === '/platform.menu/insert') {
+        if (rejectSave) {
+          rejectSave = false;
+          if (options.transportLoss) throw new Error('connection lost');
+          throw new AppError('暂时无法保存', { status: 400 });
+        }
+        return menu;
+      }
+      throw new Error(path);
+    },
+  );
+  configureUserPreferenceBackend({
+    load: async (key) =>
+      ((await request({ path: `/platform.user-preference/${key}` })) as { valueJson?: string } | undefined)
+        ?.valueJson,
+    save: async (key, valueJson) => {
+      await request({ path: `/platform.user-preference/${key}`, method: 'POST', body: { valueJson } });
+    },
+    remove: async (key) => {
+      await request({ path: `/platform.user-preference/${key}`, method: 'DELETE' });
+    },
   });
   const openMenu = vi.fn();
   const refreshMenus = vi.fn(async () => {
@@ -64,6 +89,7 @@ function setup(
   const wrapper = mount(
     defineComponent({
       setup() {
+        provideCurrentUserContext(ref({ userId: 'admin', system: true } as never));
         provideModuleContextConfig({ http: { request: request as never } });
         provideWorkbenchNavigation({ openMenu, refreshMenus } as never);
         return () => h(ModuleMenuDrawer, { context: context as never });
@@ -103,7 +129,7 @@ describe('adding a module menu', () => {
     test.wrapper.unmount();
   });
 
-  it('blocks a module without a published or declared page and provides a return action', async () => {
+  it('blocks a module without a published or declared page and explains the missing configuration', async () => {
     const test = setup('dynamic', { entry: { uiDescriptor: null } });
     await flushPromises();
     expect(test.context.setTitleActions.mock.lastCall![0][0].disabled).toBe(true);
@@ -133,6 +159,22 @@ describe('adding a module menu', () => {
     expect(test.wrapper.findComponent(UiInput).props('value')).toBe('我的客户');
     await test.save();
     expect(test.wrapper.text()).toContain('已添加到菜单');
+    test.wrapper.unmount();
+  });
+
+  it('replaces resubmission with original-request lookup after transport loss', async () => {
+    const test = setup('dynamic', { transportLoss: true });
+    await flushPromises();
+    await test.save();
+    expect(test.context.setTitleActions.mock.lastCall![0]).toEqual([]);
+    expect(test.wrapper.text()).toContain('查询保存结果');
+    await test.wrapper
+      .findAll('button')
+      .find((button) => button.text().replace(/\s/g, '') === '查询保存结果')!
+      .trigger('click');
+    await flushPromises();
+    expect(test.wrapper.text()).toContain('已添加到菜单');
+    expect(test.request.mock.calls.filter(([call]) => call.path.endsWith('/insert'))).toHaveLength(1);
     test.wrapper.unmount();
   });
 

@@ -236,4 +236,25 @@ class AssistantWebControllerTest {
         verify(service).turn(command.capture());
         assertThat(command.getValue().selectionResponse().optionId()).isEqualTo("production");
     }
+    @Test
+    void carriesDecisionFeedbackThroughJsonWithoutTreatingItAsACapabilityResult() throws Exception {
+        var service = mock(AssistantTurnService.class);
+        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AssistantTurnResult("ready", List.of(), null, "stop", "request"));
+        var request = new com.fasterxml.jackson.databind.ObjectMapper().readValue("""
+                {"message":"continue","context":{},"capabilities":[],"results":[],
+                 "decisionFeedback":"undeclared-tool"}
+                """, AssistantTurnWebRequest.class);
+        var controller = new AssistantWebController(service);
+        try {
+            controller.turn(request);
+            var command = ArgumentCaptor.forClass(AssistantTurnCommand.class);
+            verify(service).turn(command.capture());
+            assertThat(command.getValue().decisionFeedback()).isEqualTo("undeclared-tool");
+            assertThat(command.getValue().results()).isEmpty();
+        } finally {
+            controller.closeStreams();
+        }
+    }
+
 }

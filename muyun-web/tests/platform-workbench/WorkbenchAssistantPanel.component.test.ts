@@ -41,6 +41,9 @@ it.each([
     await flushPromises();
     expect(wrapper.text()).toContain(explanation);
     expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.text()).toContain('如此前已有保存结果');
+    expect(wrapper.text()).toContain('可点击下方');
+    expect(wrapper.text()).not.toContain('已确认的保存结果仍有效');
     if (['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(code))
       expect(wrapper.text()).toContain('请核实当前页面后继续处理');
     expect(wrapper.text()).not.toContain('opaque diagnostic');
@@ -824,7 +827,11 @@ it('renders trusted capability presentations without knowing the capability code
 });
 
 it('executes the trusted reviewed proposal from chat without requesting another model turn', async () => {
-  const execute = vi.fn(async () => ({ title: '保存成功', lines: ['记录 42'] }));
+  const execute = vi.fn(async () => ({
+    title: '保存成功',
+    lines: ['客户已保存'],
+    details: { title: '保存详情', lines: ['记录标识：record-42'] },
+  }));
   const requestTurn = vi.fn(async () => ({
     toolCalls: [{ id: 'save', code: 'form.prepare-save', input: {} }],
   }));
@@ -857,6 +864,10 @@ it('executes the trusted reviewed proposal from chat without requesting another 
   expect(execute).toHaveBeenCalledOnce();
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(wrapper.text()).toContain('保存成功');
+  const resultDetails = wrapper.findAll('details').find((detail) => detail.text().includes('保存详情'));
+  expect(resultDetails).toBeDefined();
+  expect(resultDetails!.attributes('open')).toBeUndefined();
+  expect(resultDetails!.text()).toContain('记录标识：record-42');
   wrapper.unmount();
 });
 
@@ -894,7 +905,7 @@ it('expires a prepared operation when its page surface is replaced', async () =>
     },
   });
   await flushPromises();
-  expect(wrapper.text()).toContain('内容或范围已变化');
+  expect(wrapper.text()).toContain('内容或操作对象已变化');
   expect(execute).not.toHaveBeenCalled();
   wrapper.unmount();
 });
@@ -1034,7 +1045,7 @@ it.each([undefined, '保存当前单据，尚未执行。'])(
       .trigger('click');
     await flushPromises();
     expect(execute).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('内容或范围已变化');
+    expect(wrapper.text()).toContain('内容或操作对象已变化');
     wrapper.unmount();
   },
 );
@@ -1084,7 +1095,7 @@ it('expires an old confirmation when a later draft operation changes its content
   await flushPromises();
   expect(registry.snapshot()?.token).toEqual(token);
   expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(false);
-  expect(wrapper.text()).toContain('内容或范围已变化');
+  expect(wrapper.text()).toContain('内容或操作对象已变化');
   expect(execute).not.toHaveBeenCalled();
   wrapper.unmount();
 });
@@ -1494,6 +1505,8 @@ it('resumes the original request with a fresh budget without inventing a new use
   await flushPromises();
   expect(wrapper.text()).toContain('订单部分还需核实');
   expect(wrapper.text()).toContain('读取信息不代表修改或保存');
+  expect(wrapper.text()).toContain('核对当前状态和剩余事项');
+  expect(wrapper.text()).not.toContain('保存仍需确认');
   expect(wrapper.text()).not.toContain('草稿修改会保留');
   expect(read).toHaveBeenCalledTimes(3);
   requestTurn.mockResolvedValue({ text: '已重新核实当前配置', toolCalls: [] });
@@ -1536,6 +1549,9 @@ it.each([
       expect(requestTurn).toHaveBeenCalledOnce();
     }
     expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.text()).toContain('如此前已有保存结果');
+    expect(wrapper.text()).toContain('可点击下方');
+    expect(wrapper.text()).not.toContain('已确认的保存结果仍有效');
     requestTurn.mockResolvedValue({ text: '核实当前需求', toolCalls: [] } as never);
     await wrapper
       .findAll('button')
@@ -1669,7 +1685,7 @@ it('keeps the same archived conversation across governance navigation and expire
   registry.activate('governance');
   await flushPromises();
   expect(wrapper.text()).toContain('准备保存当前记录');
-  expect(wrapper.text()).toContain('内容或范围已变化');
+  expect(wrapper.text()).toContain('内容或操作对象已变化');
   expect(write).not.toHaveBeenCalled();
   expect(new Set(save.mock.calls.map(([savedId]) => savedId))).toEqual(new Set([id]));
   identity.value = 'another-owner';

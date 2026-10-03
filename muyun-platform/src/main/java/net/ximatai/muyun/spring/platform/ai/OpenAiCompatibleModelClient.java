@@ -601,7 +601,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         for (int index = 0; index < tools.size(); index++) {
             if (providerToolName(tools.get(index).code()).equals(name)) return index;
         }
-        throw new PlatformException("AI model requested an undeclared tool");
+        throw new PlatformException("AI_MODEL_UNDECLARED_TOOL", 502, "AI model requested an undeclared tool");
     }
 
     /** Retry only before accepting a successful response; never replay a partially consumed stream. */

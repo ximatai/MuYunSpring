@@ -1,4 +1,10 @@
-import { createMenuClient, createModuleCrudClient, withHttpHeaders, type HttpClient } from '@muyun/web-core';
+import {
+  createMenuClient,
+  createModuleCrudClient,
+  withHttpHeaders,
+  type HttpClient,
+  type ModuleRuntimeContext,
+} from '@muyun/web-core';
 import type { MenuRecord, MenuScheme, MenuTreeNode, WebListResponse } from '@muyun/web-contracts';
 import type { UiTreeSelectNode } from '@muyun/vue-ui-antdv';
 
@@ -28,17 +34,42 @@ export function createModuleMenuClient(http: HttpClient) {
       });
       return result.records;
     },
-    insert(schemeId: string, record: MenuRecord) {
+    context(moduleAlias: string) {
+      return http.request<ModuleRuntimeContext>({
+        path: `/platform.module/${encodeURIComponent(moduleAlias)}/context`,
+      });
+    },
+    insert(schemeId: string, record: MenuRecord, requestId: string) {
       return createModuleCrudClient<MenuRecord>(
         withHttpHeaders(http, { 'X-MuYun-Page-Context': JSON.stringify({ scheme: schemeId }) }),
         { moduleAlias: 'platform.menu' },
-      ).insert(record);
+      ).insert(record, { requestId });
+    },
+    view(schemeId: string, recordId: string) {
+      return createModuleCrudClient<MenuRecord>(
+        withHttpHeaders(http, { 'X-MuYun-Page-Context': JSON.stringify({ scheme: schemeId }) }),
+        { moduleAlias: 'platform.menu' },
+      ).view(recordId);
+    },
+    receipt(schemeId: string, requestId: string) {
+      return createModuleCrudClient<MenuRecord>(
+        withHttpHeaders(http, { 'X-MuYun-Page-Context': JSON.stringify({ scheme: schemeId }) }),
+        { moduleAlias: 'platform.menu' },
+      ).saveReceipt!(requestId);
     },
     visible: () =>
       createMenuClient(http)
         .mine()
         .then((result) => result.records),
   };
+}
+
+export function menuSchemeScopeLabel(scheme?: MenuScheme) {
+  if (!scheme) return '尚未确定';
+  if (scheme.scopeType === 'system') return '系统配置用户';
+  if (scheme.organizationId) return `机构 ${scheme.organizationId} 的用户`;
+  if (scheme.tenantId) return `租户 ${scheme.tenantId} 的用户`;
+  return '尚未声明适用范围';
 }
 
 export function menuPlacements(nodes: MenuTreeNode[], parentPath = ''): MenuPlacement[] {

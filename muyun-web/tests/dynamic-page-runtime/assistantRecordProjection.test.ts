@@ -32,6 +32,35 @@ const relation = {
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
 
+it('distinguishes viewing from an editing restriction using the current aggregate state', () => {
+  const record = { members: [{ name: '陈晨' }] };
+  const read = assistantRelationProjection(descriptor, [relation], record)[0]!;
+  expect(read.assistantWritable).toBe(false);
+  expect(read.operationBoundary).toContain('record.start-edit');
+  const blocked = assistantRelationProjection(descriptor, [relation], record, { draft: true })[0]!;
+  expect(blocked.assistantWritable).toBe(false);
+  expect(blocked.operationBoundary).toContain('当前草稿未开放');
+  const edit = assistantRelationProjection(descriptor, [relation], record, {
+    draft: true,
+    editableRelations: new Set(['members']),
+  })[0]!;
+  expect(edit.assistantWritable).toBe(true);
+  expect(edit.operationBoundary).toContain('relation.describe');
+});
+
+it('shows editor enablement defaults in confirmation without inventing saved or ordinary boolean values', async () => {
+  const enabled = resolveRecordFormFieldState('enabled', {
+    fallback: { enabled: { controlType: 'enabledStatus', label: '启用状态' } },
+  });
+  const ordinary = resolveRecordFormFieldState('checked', {
+    fallback: { checked: { controlType: 'switch', label: '选择' } },
+  });
+  expect(await assistantResolvedFieldDisplay(enabled, {})).toBe('启用');
+  expect(await assistantResolvedFieldDisplay(enabled, { enabled: false })).toBe('停用');
+  expect(await assistantResolvedFieldDisplay(ordinary, {})).toBe('空');
+  expect(assistantFieldDisplay(enabled, {})).toBe('空');
+});
+
 it('does not resolve a stale computed reference for save confirmation', async () => {
   const fields = resolveRecordFormFields({
     defaultEditor: {
@@ -225,4 +254,17 @@ it('retains authorized belonging context in a same-title reference confirmation'
     provider: { resolve: async () => [{ id: 'north', title: '客户', subtitle: '北店' }] },
   } as never;
   expect(await assistantResolvedFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
+});
+
+it('excludes declared identity fields only from historical display observations', () => {
+  const ui = structuredClone(descriptor);
+  ui.editorContributions![0]!.editor.fields.push(
+    { fieldRef: { fieldName: 'id' }, label: '行标识', visible: { constant: true } },
+    { fieldRef: { fieldName: 'version' }, label: '行版本', visible: { constant: true } },
+  );
+  const record = { members: [{ id: 'line-private-id', version: 91, name: '墨水' }] };
+  const observed = assistantRelationProjection(ui, [relation], record, { purpose: 'observation' });
+  expect(observed[0]!.rows[0]!.values).toEqual([{ label: '学生', value: '墨水' }]);
+  expect(JSON.stringify(observed)).not.toContain('line-private-id');
+  expect(JSON.stringify(assistantRelationProjection(ui, [relation], record))).toContain('line-private-id');
 });

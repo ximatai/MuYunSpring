@@ -19,6 +19,10 @@ import {
 } from './views/pageCompositionWorkspace';
 import { createMetadataWorkspace, provideMetadataWorkspace } from './views/metadataWorkspace';
 import { createBusinessRuleWorkspace, provideBusinessRuleWorkspace } from './views/businessRuleWorkspace';
+import {
+  createModuleMenuWorkspace,
+  provideModuleMenuWorkspace,
+} from './platform-admin-runtime/module-menu/moduleMenuWorkspace';
 import { type RouteLocationNormalizedLoaded } from 'vue-router';
 import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
@@ -215,7 +219,7 @@ const configurationIdentity = () =>
   ]);
 function openConfigurationEditor(
   moduleAlias: string,
-  governanceTab: 'rules' | 'metadata' | 'ui',
+  governanceTab: 'rules' | 'metadata' | 'ui' | 'menu',
   moduleTitle?: string,
 ) {
   handleOpenRoute(
@@ -237,6 +241,7 @@ const businessRuleWorkspace = createBusinessRuleWorkspace(
   () => {
     metadataWorkspace.clearFocus();
     pageCompositionWorkspace.clearFocus();
+    moduleMenuWorkspace.clearFocus();
   },
 );
 const metadataWorkspace = createMetadataWorkspace(
@@ -247,6 +252,7 @@ const metadataWorkspace = createMetadataWorkspace(
   () => {
     businessRuleWorkspace.clearFocus();
     pageCompositionWorkspace.clearFocus();
+    moduleMenuWorkspace.clearFocus();
   },
   (alias, title) => openConfigurationEditor(alias, 'ui', title),
 );
@@ -258,27 +264,46 @@ const pageCompositionWorkspace = createPageCompositionWorkspace(
   () => {
     metadataWorkspace.clearFocus();
     businessRuleWorkspace.clearFocus();
+    moduleMenuWorkspace.clearFocus();
   },
 );
+const moduleMenuWorkspace = createModuleMenuWorkspace(
+  createBackendHttpClient(),
+  configurationIdentity,
+  () => Boolean(currentUser.value),
+  (alias) => openConfigurationEditor(alias, 'menu'),
+  () => {
+    metadataWorkspace.clearFocus();
+    businessRuleWorkspace.clearFocus();
+    pageCompositionWorkspace.clearFocus();
+  },
+  () => refreshWorkbenchMenus(),
+);
+provideModuleMenuWorkspace(moduleMenuWorkspace);
 providePageCompositionWorkspace(pageCompositionWorkspace);
 provideBusinessRuleWorkspace(businessRuleWorkspace);
 provideMetadataWorkspace(metadataWorkspace);
 const configurationWorkspace = {
   editor: () =>
-    metadataWorkspace.editor() ?? businessRuleWorkspace.editor() ?? pageCompositionWorkspace.editor(),
+    metadataWorkspace.editor() ??
+    businessRuleWorkspace.editor() ??
+    pageCompositionWorkspace.editor() ??
+    moduleMenuWorkspace.editor(),
   current() {
     const rules = businessRuleWorkspace.current();
     const metadata = metadataWorkspace.current();
     const pages = pageCompositionWorkspace.current();
+    const menus = moduleMenuWorkspace.current();
     return {
-      revision: JSON.stringify([rules.revision, metadata.revision, pages.revision]),
-      facts: { ...rules.facts, ...metadata.facts, ...pages.facts },
+      revision: JSON.stringify([rules.revision, metadata.revision, pages.revision, menus.revision]),
+      facts: { ...rules.facts, ...metadata.facts, ...pages.facts, ...menus.facts },
     };
   },
   capabilities: (settle?: Parameters<typeof metadataWorkspace.capabilities>[0]) => [
     ...businessRuleWorkspace.capabilities(settle),
     ...metadataWorkspace.capabilities(settle),
     ...pageCompositionWorkspace.capabilities(),
+    ...moduleMenuWorkspace.capabilities(settle),
   ],
 };
 watch(currentUser, () => configurationWorkspace.current(), { flush: 'sync' });
@@ -286,6 +311,7 @@ onUnmounted(() => {
   metadataWorkspace.dispose();
   pageCompositionWorkspace.dispose();
   businessRuleWorkspace.dispose();
+  moduleMenuWorkspace.dispose();
 });
 
 // A script HMR update can replace this module's local connection handle before Vue unmounts it.

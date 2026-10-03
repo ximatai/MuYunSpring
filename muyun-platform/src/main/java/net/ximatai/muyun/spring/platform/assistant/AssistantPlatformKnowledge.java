@@ -59,9 +59,10 @@ final class AssistantPlatformKnowledge {
                     dependency changes its scope. Reuse current observations; do not reread facts already supplied.
                     """,
             "workbench", """
-                    MuYun workbench navigation: compare with pageContext.title and facts.moduleAlias.
-                    Find visible menus; open only an exact returned menuId. Use the correct module; never ask users to navigate manually.
-                    Missing tools: find the matching business entry. Configuration governance requires an explicit configuration goal.
+                    MuYun workbench navigation: match pageContext.title and facts.moduleAlias; open exact returned menuIds.
+                    Current-list absence is not global absence. For missing existing records, find matching visible menus
+                    and clarify ambiguous scope before offering creation. Preserve the user's explicit business scope.
+                    Never ask users to navigate manually. Configuration governance requires an explicit configuration goal.
                     """,
             "configuration", """
                     For existing-module configuration, read facts.workspace.configurationTask. This task preference
@@ -85,17 +86,20 @@ final class AssistantPlatformKnowledge {
                     module does not require a new construction plan. Configuration candidates use standard governance.
                     """,
             "module-page", """
-                    This is a standard MuYun record workspace. Start drafts only when the user asked to create or change data;
+                    A standard MuYun record workspace. Start drafts only when the user asked to create or change data;
                     navigation is already complete and must not start a draft.
-                    navigatorCreationTargets: navigator.start-create; record.start-create opens main drafts. editorOwner owns the form.
+                    navigatorCreationTargets: navigator.start-create uses them; record.start-create uses facts.moduleAlias.
+                    editorOwner owns the form. creation.ready only controls opening another draft; fill an existing writable form.
                     Reuse facts; patch known ordinary fields together before resolving remaining references.
                     Opening is not filling. Tree children need saved parents; aggregate children save together.
                     References use capabilities; currentValue is a label, not empty. Search is not consent.
-                    relations includes children without main fields; assistantWritable=false means page row edits.
-                    Leave drafts unsaved; form.prepare-save or page save; only human confirmation saves.
+                    Use CURRENT edit facts. Select writable relation rows; row tools appear after selection.
+                    For requested review/save use form.prepare-save if available (load if indexed): it prepares review without writing;
+                    only human confirmation saves. Do not replace an available confirmation with page-save instructions.
+                    If no preparation capability is declared,
+                    hand off to the page save action, never a selection card. Draft-only requests remain unsaved.
                     Missing values: ask one concise question. Never copy scope/reference answers into unrelated fields.
-                    Missing form fields: say what remains unsaved and preserve saved records. Do not offer schema changes
-                    for a business data request. Configuration needs a separate explicit goal and authorized capabilities.
+                    Missing form fields: say what remains unsaved. Do not offer schema changes; preserve saved records.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,

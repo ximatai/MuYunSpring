@@ -8,6 +8,8 @@ import {
 } from '@muyun/dynamic-page-runtime';
 import { createAssistantSurfaceRegistry, AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
+import type { AssistantTurnInput } from '@muyun/web-contracts';
+import { createRelationDraftRegistry } from '@/dynamic-page-runtime/relationDraftController';
 
 function viewFixture(): ModulePageSessionView {
   return {
@@ -60,6 +62,167 @@ function viewFixture(): ModulePageSessionView {
 }
 
 describe('module page assistant surface', () => {
+  it('declares the selected row schemas and retains the main save boundary when form focus changes', async () => {
+    const view = viewFixture();
+    view.assistantSaveAvailable = true;
+    const rows = new Map(['a', 'b'].map((key) => [key, { ...viewFixture(), contextRevision: () => 'one' }]));
+    view.relationDrafts = createRelationDraftRegistry();
+    const unregister = view.relationDrafts.register({
+      code: 'lines',
+      title: '明细',
+      revision: () => 'one',
+      settle: async () => {},
+      rowKeys: () => [...rows.keys()],
+      form: (key) => rows.get(key),
+      add: vi.fn(),
+      remove: vi.fn(),
+    });
+    const requestTurn = vi.fn<(input: AssistantTurnInput) => Promise<{ toolCalls: [] }>>(async () => ({
+      toolCalls: [],
+    }));
+    const extensions = Array.from({ length: 18 }, (_, n) => ({
+      effect: 'read' as const,
+      descriptor: { code: `extension-${n}`, description: 'Extension', inputSchema: {} },
+      parseInput: (input: unknown) => input,
+      execute: vi.fn(async () => ({})),
+    }));
+    const surface = createModulePageAssistantSurface(view, requestTurn, () => extensions);
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'rows',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface,
+    });
+    registry.activate('rows');
+    const input = async () => {
+      await registry.requestTurn({ message: '填写当前对象' }, registry.snapshot()!.token);
+      return requestTurn.mock.calls.at(-1)![0];
+    };
+    expect((await input()).capabilities.map(({ code }) => code)).toEqual([
+      'assistant.load-capabilities',
+      'form.describe',
+      'form.patch-draft',
+      'form.prepare-save',
+    ]);
+    for (const key of ['a', 'b']) {
+      await registry.invoke(
+        { id: `select-${key}`, code: 'relation.select-row', input: { relationCode: 'lines', rowKey: key } },
+        registry.snapshot()!.token,
+      );
+      const current = await input();
+      expect(current.context.facts.activeRelationRow).toEqual({ relationCode: 'lines', rowKey: key });
+      expect(current.capabilities.map(({ code }) => code)).toEqual([
+        'assistant.load-capabilities',
+        'relation.form.describe',
+        'relation.form.patch-draft',
+        'form.prepare-save',
+      ]);
+      await registry.invoke(
+        {
+          id: `patch-${key}`,
+          code: 'relation.form.patch-draft',
+          input: { changes: [{ fieldName: 'summary', value: key }] },
+        },
+        registry.snapshot()!.token,
+      );
+      expect(rows.get(key)!.updateDraftFields).toHaveBeenCalledWith(
+        [{ fieldName: 'summary', value: key }],
+        'assistant',
+      );
+    }
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+    unregister();
+    const main = await input();
+    expect(main.context.facts).not.toHaveProperty('activeRelationRow');
+    expect(main.capabilities.map(({ code }) => code)).toContain('form.patch-draft');
+    await expect(
+      registry.invoke(
+        {
+          id: 'removed-row',
+          code: 'relation.form.patch-draft',
+          input: { changes: [{ fieldName: 'summary', value: 'stale' }] },
+        },
+        registry.snapshot()!.token,
+      ),
+    ).rejects.toThrow();
+  });
+  it('declares the current standard form and save schemas alongside a large extension index', async () => {
+    const view = viewFixture();
+    view.assistantSaveAvailable = true;
+    const requestTurn = vi.fn<(input: AssistantTurnInput) => Promise<{ toolCalls: [] }>>(async () => ({
+      toolCalls: [],
+    }));
+    const extensions = Array.from({ length: 18 }, (_, n) => ({
+      effect: 'read' as const,
+      descriptor: { code: `extension-${n}`, description: 'Extension', inputSchema: {} },
+      parseInput: (input: unknown) => input,
+      execute: vi.fn(async () => ({})),
+    }));
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'form',
+      contextRevision: () => String(view.assistantContextRevision),
+      surface: createModulePageAssistantSurface(view, requestTurn, () => extensions),
+    });
+    registry.activate('form');
+    await registry.requestTurn({ message: '填写当前草稿' }, registry.snapshot()!.token);
+    const input = requestTurn.mock.calls[0]![0];
+    expect(input.capabilities.map(({ code }) => code)).toEqual([
+      'assistant.load-capabilities',
+      'form.describe',
+      'form.patch-draft',
+      'form.prepare-save',
+    ]);
+    expect(input.capabilities.find(({ code }) => code === 'form.patch-draft')!.inputSchema).toMatchObject({
+      required: ['changes'],
+    });
+    expect(input.context.facts.capabilityIndex).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'extension-0' })]),
+    );
+    expect(extensions.every((item) => item.execute.mock.calls.length === 0)).toBe(true);
+  });
+
+  it.each([undefined, true, false])(
+    'projects visible enablement %s without defaulting ordinary booleans or changing the draft',
+    async (enabled) => {
+      const view = viewFixture();
+      view.editingRecord = { ...view.editingRecord, enabled };
+      view.formFields.set('enabled', {
+        fieldRef: { fieldName: 'enabled' },
+        uiType: 'enabledStatus',
+        label: '启用状态',
+      } as never);
+      view.formFields.set('checked', {
+        fieldRef: { fieldName: 'checked' },
+        uiType: 'switch',
+        label: '选择',
+      } as never);
+      const before = structuredClone(view.editingRecord);
+      const surface = createModulePageAssistantSurface(view, vi.fn());
+      const describe = () =>
+        surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+      const result = (await describe().execute({}, executionContext())) as {
+        fields: Array<{ fieldName: string; currentValue?: unknown }>;
+      };
+      expect(result.fields.find(({ fieldName }) => fieldName === 'enabled')!.currentValue).toBe(
+        enabled !== false,
+      );
+      expect(result.fields.find(({ fieldName }) => fieldName === 'checked')).not.toHaveProperty(
+        'currentValue',
+      );
+      expect(view.editingRecord).toEqual(before);
+      expect(view.updateDraftFields).not.toHaveBeenCalled();
+      view.editorMode = 'view';
+      view.recordDetailReady = () => true;
+      view.detailDisplayFields = view.formFields;
+      view.selectedRecord = before;
+      const saved = (await describe().execute({}, executionContext())) as {
+        fields: Array<{ fieldName: string; currentValue?: unknown }>;
+      };
+      expect(saved.fields.find(({ fieldName }) => fieldName === 'enabled')!.currentValue).toBe(enabled);
+    },
+  );
+
   it('leaves only unchanged editors through the standard cancel operation and rechecks stale calls', async () => {
     const view = viewFixture();
     view.canLeaveUnchangedEditor = () =>
@@ -406,7 +569,18 @@ describe('module page assistant surface', () => {
 
   it('preserves visible scope facts while a draft disables scope selection', () => {
     const view = viewFixture();
-    view.visibleNavigatorLevels = [{ descriptor: { key: 'application', title: '应用' } }] as never;
+    view.visibleNavigatorLevels = [
+      {
+        descriptor: { key: 'application', title: '应用' },
+        context: {
+          runtime: {
+            snapshot: () => ({
+              uiDescriptor: { defaultEditor: { fields: [{ fieldRef: { fieldName: 'title' } }] } },
+            }),
+          },
+        },
+      },
+    ] as never;
     view.selectedNavigatorRecords = {
       application: { id: 'private-id', title: '青禾文具店' },
       hidden: { id: 'hidden-id', title: 'Hidden scope' },
@@ -422,6 +596,95 @@ describe('module page assistant surface', () => {
     );
     view.visibleNavigatorLevels = [];
     expect(surface.describe().facts).not.toHaveProperty('navigatorScopes');
+  });
+
+  it('projects a selected navigator business alias only through its authorized visible field contract', () => {
+    const view = viewFixture();
+    let field = {
+      fieldRef: { fieldName: 'alias' },
+      assistantPolicy: 'READ_ONLY',
+      visible: { constant: true },
+    };
+    view.visibleNavigatorLevels = [
+      {
+        descriptor: { key: 'owner', title: '归属' },
+        context: {
+          moduleAlias: 'work.owner',
+          runtime: {
+            snapshot: () => ({
+              uiDescriptor: { defaultEditor: { fields: [field, { fieldRef: { fieldName: 'title' } }] } },
+            }),
+          },
+        },
+      },
+    ] as never;
+    view.selectedNavigatorRecords = {
+      owner: { id: 'internal-id', alias: 'known_owner', title: '业务归属', password: 'hidden' },
+    };
+    view.assistantNavigatorScopes = vi.fn(() => []);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const scope = () => (surface.describe().facts.navigatorScopes as Array<Record<string, unknown>>)[0];
+    expect(surface.describe().facts.navigatorScopes).toEqual([
+      {
+        key: 'owner',
+        title: '归属',
+        moduleAlias: 'work.owner',
+        selected: '业务归属',
+        selectedAlias: 'known_owner',
+      },
+    ]);
+    expect(JSON.stringify(surface.describe().facts.navigatorScopes)).not.toMatch(
+      /internal-id|password|hidden/,
+    );
+    for (const policy of ['HIDDEN', 'DESCRIBE']) {
+      field = { ...field, assistantPolicy: policy };
+      expect(scope()).not.toHaveProperty('selectedAlias');
+    }
+    field = { ...field, assistantPolicy: 'READ_ONLY', visible: { constant: false } };
+    expect(scope()).not.toHaveProperty('selectedAlias');
+    delete view.selectedNavigatorRecords.owner;
+    expect(scope()).toMatchObject({ selected: null });
+    expect(scope()).not.toHaveProperty('selectedAlias');
+  });
+
+  it('uses only readable display fields for navigator title fallback, including alias-only records', () => {
+    const view = viewFixture();
+    let displayFields: Array<Record<string, unknown>> = [
+      { fieldRef: { fieldName: 'alias' }, assistantPolicy: 'READ_ONLY' },
+    ];
+    view.visibleNavigatorLevels = [
+      {
+        descriptor: { key: 'owner', title: '归属' },
+        context: {
+          runtime: {
+            snapshot: () => ({
+              uiDescriptor: {
+                page: { detail: { display: { fields: displayFields } } },
+                defaultEditor: { fields: [{ fieldRef: { fieldName: 'title' } }] },
+              },
+            }),
+          },
+        },
+      },
+    ] as never;
+    view.selectedNavigatorRecords = { owner: { alias: 'business_owner', title: 'editor-only-secret' } };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const scope = () => (surface.describe().facts.navigatorScopes as Array<Record<string, unknown>>)[0];
+    expect(scope()).toMatchObject({ selected: 'business_owner', selectedAlias: 'business_owner' });
+    for (const restriction of [
+      { assistantPolicy: 'HIDDEN' },
+      { assistantPolicy: 'DESCRIBE' },
+      { visible: { constant: false } },
+      { fieldControl: { alias: 'password' } },
+    ]) {
+      displayFields = [{ fieldRef: { fieldName: 'alias' }, ...restriction }];
+      expect(scope()).toMatchObject({ selected: null });
+      expect(scope()).not.toHaveProperty('selectedAlias');
+      expect(JSON.stringify(scope())).not.toMatch(/business_owner|editor-only-secret/);
+    }
+    displayFields = [];
+    expect(scope()).toMatchObject({ selected: null });
+    expect(scope()).not.toHaveProperty('selectedAlias');
   });
 
   it('keeps same-page reactive changes inside the serialized assistant turn', () => {
@@ -1291,6 +1554,77 @@ describe('module page assistant surface', () => {
     await expect(describe.execute({}, executionContext())).rejects.toThrow('不可读取');
   });
 
+  it('projects only current authorized display values for departed-page observations', () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.selectedRecord = {
+      id: 'private-id',
+      version: 42,
+      remark: '正式备注',
+      hidden: 'secret',
+      described: 'private',
+      password: 'password-secret',
+      customer: 'reference-id',
+      customerTitle: '晴岚文具店',
+    };
+    view.detailDisplayFields = new Map([
+      ['remark', { fieldRef: { fieldName: 'remark' }, label: '备注' }],
+      ['hidden', { fieldRef: { fieldName: 'hidden' }, assistantPolicy: 'HIDDEN' }],
+      ['described', { fieldRef: { fieldName: 'described' }, assistantPolicy: 'DESCRIBE' }],
+      [
+        'password',
+        {
+          fieldRef: { fieldName: 'password' },
+          fieldControl: { alias: 'password', rendererType: 'INPUT', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    view.recordDetailReady = () => true;
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot: () => ({
+        mode: 'normal',
+        status: 'ready',
+        quickSearchEnabled: true,
+        appliedQuickSearch: '',
+        quickSearchFields: [],
+        pageNum: 1,
+        pageSize: 20,
+        total: 100,
+        totalKnown: true,
+        truncated: true,
+        rows: [
+          {
+            id: 'list-private-id',
+            cells: [
+              { fieldName: 'remark', title: '备注', value: '列表备注' },
+              { fieldName: 'hidden', title: '保密', value: 'secret' },
+              { fieldName: 'id', title: '内部标识', value: 'explicit-id' },
+            ],
+          },
+        ],
+      }),
+      applyQuickSearch: vi.fn(),
+      settle: vi.fn(),
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const text = surface.observationSummary!()!;
+    expect(text).toContain('来源页面：Daily report');
+    expect(text).toContain('备注：正式备注');
+    expect(text).toContain('备注：列表备注');
+    expect(text).toContain('观察已截断');
+    expect(text).not.toMatch(
+      /secret|private|reference-id|explicit-id|stale draft|assistantWritable|capability/,
+    );
+    expect(view.listQueryController!.settle).not.toHaveBeenCalled();
+    view.editorMode = 'edit';
+    expect(surface.observationSummary!()).toBeUndefined();
+    view.editorMode = 'view';
+    view.recordDetailReady = () => false;
+    view.listQueryController = undefined;
+    expect(surface.observationSummary!()).toBeUndefined();
+  });
+
   it('bounds the total current values projected for a large form', async () => {
     const view = viewFixture();
     const draft = { ...view.editingRecord } as Record<string, unknown>;
@@ -1723,7 +2057,7 @@ describe('module page assistant surface', () => {
         resolveAndPatch.parseInput({ fieldName: 'tenantId', title: 'Missing Tenant' }),
         executionContext(),
       ),
-    ).rejects.toThrow('Reference title is not a unique exact match');
+    ).rejects.toThrow('No reference candidates matched this title');
     await expect(
       patch.execute(
         patch.parseInput({ selectionKey: searchResult.options[0]!.selectionKey }),

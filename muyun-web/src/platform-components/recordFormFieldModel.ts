@@ -580,6 +580,11 @@ export function resolveRecordBooleanStatusValue(value: unknown): RecordBooleanSt
   return typeof value === 'boolean' ? value : undefined;
 }
 
+/** The standard editor's opt-out enablement display; does not initialize record data. */
+export function resolveRecordEnabledStatusValue(value: unknown): boolean {
+  return value !== false;
+}
+
 function controlTypeOf(
   field: RecordFormFieldDescriptor | undefined,
   fallback: RecordFormFieldFallback | undefined,

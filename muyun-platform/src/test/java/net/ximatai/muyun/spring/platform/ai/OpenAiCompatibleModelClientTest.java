@@ -573,7 +573,8 @@ class OpenAiCompatibleModelClientTest {
 
         assertThatThrownBy(() -> client.complete(route(), request))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("undeclared tool");
+                .hasMessageContaining("undeclared tool")
+                .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_UNDECLARED_TOOL"));
     }
 
     @Test

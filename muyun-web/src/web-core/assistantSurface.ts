@@ -17,6 +17,8 @@ import type { AssistantTurnProgress } from './assistantTurnClient';
 
 export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   descriptor: AssistantCapabilityDescriptor;
+  /** Trusted adapter hint for a small current-surface schema set; never execution authority. */
+  schemaDiscovery?: 'eager';
   /** Trusted implementation effect boundary; read capabilities cannot mutate the page. */
   effect: 'read' | 'page' | 'draft' | 'configuration-draft';
   present?(output: TOutput): AssistantResultPresentation;
@@ -56,6 +58,8 @@ export interface AssistantCapabilityExecutionContext {
 
 export interface AssistantSurface {
   describe(): AssistantSurfaceContext;
+  /** Authorized display facts only: no extra queries, execution inputs, IDs or authority. */
+  observationSummary?(): string | undefined;
   capabilities(): AssistantCapability[];
   requestTurn(
     input: AssistantTurnInput,
@@ -106,6 +110,8 @@ export interface AssistantInvocationToken {
 export interface AssistantSurfaceSnapshot {
   token: AssistantInvocationToken;
   context: AssistantSurfaceContext;
+  /** Historical display evidence; never an executable context or capability. */
+  observationSummary?: string;
   capabilities: AssistantCapabilityDescriptor[];
 }
 
@@ -308,6 +314,7 @@ export function createAssistantSurfaceRegistry(
     return {
       token: tokenOf(registration),
       context: describe(registration),
+      observationSummary: registration.surface.observationSummary?.(),
       capabilities: validateAssistantCapabilities(registration.surface.capabilities()).map(
         ({ descriptor }) => descriptor,
       ),

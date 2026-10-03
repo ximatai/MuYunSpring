@@ -1,5 +1,9 @@
 import { createRelationDraftAssistantCapabilities } from './relationDraftAssistantCapabilities';
-import { assistantRelationProjection } from './assistantRecordProjection';
+import {
+  assistantRelationProjection,
+  assistantReadableField,
+  assistantFieldDisplay,
+} from './assistantRecordProjection';
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
@@ -11,7 +15,11 @@ import {
   parseEmptyAssistantCapabilityInput,
   pageAssistantCatalog,
 } from '@muyun/web-core';
-import type { RecordQueryListQuerySnapshot } from '@muyun/platform-components';
+import {
+  resolveRecordDetailFields,
+  resolveRecordFormFieldState,
+  type RecordQueryListQuerySnapshot,
+} from '@muyun/platform-components';
 import {
   createRecordFormAssistantCapabilities,
   formFieldState,
@@ -98,28 +106,39 @@ export function createModulePageAssistantSurface(
       updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
       updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
     },
-    { canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true },
+    {
+      canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true,
+      schemaDiscovery: 'eager',
+    },
   );
   const relationCapabilities = view.relationDrafts
     ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
         modulePageAssistantContextRevision(view),
       )
-    : () => [];
+    : Object.assign(() => [], { selection: () => undefined });
   const scopeCandidates = new Map<string, AssistantScopeCandidate>();
-  const capabilities = (): AssistantCapability[] => [
-    ...contributedCapabilities(),
-    ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
-    ...navigatorCreationCapabilities(view),
-    ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
-    ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
-    ...recordEditorCapabilities(view),
-    ...cleanEditorExitCapabilities(view),
-    ...(!view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : []),
-    ...(view.assistantNavigatorEditor?.busy ? [] : formCapabilities()),
-    ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
-      ? [formSaveProposalCapability(view)]
-      : []),
-  ];
+  const capabilities = (): AssistantCapability[] => {
+    const relations = !view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : [];
+    const rowSelected = relations.some(({ descriptor }) => descriptor.code === 'relation.form.describe');
+    return [
+      ...contributedCapabilities(),
+      ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
+      ...navigatorCreationCapabilities(view),
+      ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
+      ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
+      ...recordEditorCapabilities(view),
+      ...cleanEditorExitCapabilities(view),
+      ...relations,
+      ...(view.assistantNavigatorEditor?.busy
+        ? []
+        : formCapabilities().map((capability) =>
+            rowSelected ? { ...capability, schemaDiscovery: undefined } : capability,
+          )),
+      ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
+        ? [formSaveProposalCapability(view)]
+        : []),
+    ];
+  };
   return {
     describe: () => {
       const context = surfaceContext(view, tenantScope);
@@ -127,13 +146,76 @@ export function createModulePageAssistantSurface(
         ...context,
         facts: {
           ...context.facts,
+          ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && relationCapabilities.selection()
+            ? { activeRelationRow: relationCapabilities.selection() }
+            : {}),
           scopeCandidates: modulePageScopeCandidateFacts(view, tenantScope, scopeCandidates),
         },
       };
     },
+    observationSummary: () => modulePageObservationSummary(view),
     capabilities,
     requestTurn,
   };
+}
+
+/** A display-only account of this page; runtime bounds how many departed pages it retains. */
+function modulePageObservationSummary(view: ModulePageSessionView): string | undefined {
+  if (view.assistantNavigatorEditor || view.editorMode !== 'view') return undefined;
+  const lines: string[] = [];
+  let truncated = false;
+  const displayValue = (value: unknown) => {
+    const text = String(value ?? '空');
+    truncated ||= text.length > 300;
+    return text.slice(0, 300);
+  };
+  const append = (text: string) => {
+    if (lines.join('\n').length + text.length > 1_900) {
+      truncated = true;
+      return;
+    }
+    lines.push(text);
+  };
+  if (view.recordDetailReady?.() === true && view.selectedRecord) {
+    append('当时打开的正式记录：');
+    for (const name of view.detailDisplayFields.keys()) {
+      if (name === 'id' || name === 'version') continue;
+      const field = resolveRecordFormFieldState(name, {
+        fields: view.detailDisplayFields,
+        record: view.selectedRecord,
+        mode: 'view',
+      });
+      if (assistantReadableField(field))
+        append(`${field.label}：${displayValue(assistantFieldDisplay(field, view.selectedRecord))}`);
+    }
+    for (const relation of assistantRelationFacts(view, 'observation')) {
+      append(
+        `${relation.title}：${relation.loaded ? `当时已加载 ${relation.count} 行` : '当时未加载，数量未知'}`,
+      );
+      for (const row of relation.rows)
+        append(row.values.map(({ label, value }) => `${label}：${displayValue(value)}`).join('；'));
+      truncated ||= relation.truncated;
+    }
+  }
+  const query = view.listQueryController?.snapshot();
+  if (query?.status === 'ready') {
+    const projection = assistantQueryContext(view, query);
+    append('列表当时显示的部分记录（不能据此判断其他页或筛选外的数据）：');
+    for (const row of projection.rows) {
+      const values = projection.columns.flatMap(({ fieldName, title }, index) =>
+        fieldName === 'id' || fieldName === 'version' ? [] : [`${title}：${displayValue(row.values[index])}`],
+      );
+      append(values.join('；'));
+    }
+    truncated ||= projection.truncated;
+  }
+  return lines.length
+    ? [
+        `来源页面：${view.modulePageTitle.slice(0, 100)}（${view.context.moduleAlias}）`,
+        ...lines,
+        ...(truncated ? ['（观察已截断）'] : []),
+      ].join('\n')
+    : undefined;
 }
 
 function navigatorCreationCapabilities(view: ModulePageSessionView): AssistantCapability[] {
@@ -145,7 +227,7 @@ function navigatorCreationCapabilities(view: ModulePageSessionView): AssistantCa
       descriptor: {
         code: 'navigator.start-create',
         description:
-          'Open the standard new-record form for a manageable navigator shown in facts.navigatorCreationTargets. Use its scopeKey, not the main module create action. Then describe and fill the active form. This only prepares a visible unsaved draft; the user reviews and saves using the standard editor. It neither creates a main record nor changes the current selection.',
+          'Open a new record in the navigator target module identified by facts.navigatorCreationTargets, only when that is the object the user wants to create. To create in the main facts.moduleAlias, use record.start-create instead. Use the target key as scopeKey; then describe and fill its active form. This prepares an unsaved draft, not a main record, and preserves the current selection. Human review and save remain required.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -455,11 +537,23 @@ function surfaceContext(
   // A draft locks scope changes, but its visible ownership remains a readable fact.
   const navigatorScopes = (view.visibleNavigatorLevels ?? []).map((level) => {
     const selected = view.selectedNavigatorRecords[level.descriptor.key];
-    const selectedTitle = selected ? recordTitle(selected) : undefined;
+    const fields = resolveRecordDetailFields(level.context?.runtime?.snapshot()?.uiDescriptor);
+    const readableValue = (name: string) => {
+      if (!selected || !fields.has(name)) return undefined;
+      const field = resolveRecordFormFieldState(name, { fields, record: selected, mode: 'view' });
+      return assistantReadableField(field) ? selected[name] : undefined;
+    };
+    const selectedTitle = ['title', 'name', 'code', 'alias']
+      .map(readableValue)
+      .find((value) => value !== undefined && value !== null);
+    const alias = readableValue('alias');
+    const selectedAlias = typeof alias === 'string' ? alias.slice(0, 128) : undefined;
     return {
       key: level.descriptor.key,
       title: level.descriptor.title,
-      selected: selectedTitle ?? null,
+      ...(level.context?.moduleAlias ? { moduleAlias: level.context.moduleAlias } : {}),
+      selected: selectedTitle == null ? null : String(selectedTitle).slice(0, 500),
+      ...(selectedAlias !== undefined ? { selectedAlias } : {}),
     };
   });
   return {
@@ -501,13 +595,14 @@ function surfaceContext(
   };
 }
 
-function assistantRelationFacts(view: ModulePageSessionView) {
+function assistantRelationFacts(view: ModulePageSessionView, purpose: 'context' | 'observation' = 'context') {
   return assistantRelationProjection(
     view.runtimeUiDescriptor,
     view.executableDetailRelations ?? [],
     view.assistantDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
     {
       baseline: view.selectedRecord,
+      purpose,
       draft: view.editorMode !== 'view',
       relationOptions: view.assistantRelationOptions,
       editableRelations: new Set(view.relationDrafts?.list().map((item) => item.code) ?? []),
@@ -529,6 +624,15 @@ function assistantReadableName(view: ModulePageSessionView, name: string): boole
   if (name.includes('.')) return false;
   const field = formFieldState(view, name);
   if (field && (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE')) return false;
+  const detailField = view.detailDisplayFields?.get(name);
+  if (
+    detailField &&
+    (detailField.assistantPolicy === 'HIDDEN' ||
+      detailField.assistantPolicy === 'DESCRIBE' ||
+      detailField.fieldControl?.alias === 'password' ||
+      detailField.fileReference)
+  )
+    return false;
   // Display-only fields need the same protection ceiling as editor fields.
   const descriptor = view.context.runtime?.snapshot()?.uiDescriptor;
   const page = view.runtimePage ?? descriptor?.page;
@@ -607,9 +711,11 @@ function formSaveProposalCapability(view: ModulePageSessionView): AssistantCapab
   let proposal: Awaited<ReturnType<ModulePageSessionView['prepareAssistantSave']>> | undefined;
   return {
     effect: 'read',
+    schemaDiscovery: 'eager',
     descriptor: {
       code: 'form.prepare-save',
-      description: '准备当前标准表单的保存确认卡片。用户在对话中审阅并点击确认后才保存；本工具不会保存。',
+      description:
+        '当前草稿填写完成、需要审阅或保存时，准备对话内的保存确认卡片。卡片只展示当前字段与明细；标记保存后计算的值仍待计算，准备卡片不会提前产生正式计算结果。用户审阅并点击确认后才保存，再读回正式结果。',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,

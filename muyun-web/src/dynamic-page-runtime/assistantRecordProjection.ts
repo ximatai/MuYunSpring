@@ -18,6 +18,7 @@ export function assistantFieldDisplay(
   field: RecordFormFieldState,
   record: RecordFormRecord,
   optionItems?: OptionItemDescriptor[],
+  draft = false,
 ): string {
   if (field.calculationPending) return '保存后计算';
   if (field.reference) {
@@ -28,7 +29,7 @@ export function assistantFieldDisplay(
     const display = resolveRecordDetailDisplayValue(field, record, { emptyText: '未选择' });
     return display === String(value) ? '已选择（名称暂不可用）' : display;
   }
-  return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems });
+  return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems, draft });
 }
 
 /** Resolve display labels through the same authorized provider used by the picker. */
@@ -36,7 +37,7 @@ export async function assistantResolvedFieldDisplay(field: RecordFormFieldState,
   if (field.calculationPending) return assistantFieldDisplay(field, record);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
-    return assistantFieldDisplay(field, record);
+    return assistantFieldDisplay(field, record, undefined, true);
   const ids = (Array.isArray(value) ? value : [value]).map(String);
   if (!ids.length) return '未选择';
   const candidates = await field.pickerConfig.provider.resolve(ids);
@@ -76,7 +77,7 @@ export function assistantRelationProjection(
     draft?: boolean;
     editableRelations?: ReadonlySet<string>;
     baseline?: RecordFormRecord;
-    purpose?: 'context' | 'confirmation';
+    purpose?: 'context' | 'confirmation' | 'observation';
     relationOptions?: Record<string, Record<string, OptionItemDescriptor[]>>;
   } = {},
 ) {
@@ -99,6 +100,7 @@ export function assistantRelationProjection(
     const project = (row: RecordFormRecord, index: number, pending = draft) => ({
       row: index + 1,
       values: [...fields.keys()].flatMap((name) => {
+        if (purpose === 'observation' && (name === 'id' || name === 'version')) return [];
         const field = resolveRecordFormFieldState(name, {
           fields,
           record: row,
@@ -112,7 +114,7 @@ export function assistantRelationProjection(
                     ?.title ??
                   field.label ??
                   name,
-                value: assistantFieldDisplay(field, row, relationOptions[key]?.[name]).slice(
+                value: assistantFieldDisplay(field, row, relationOptions[key]?.[name], pending).slice(
                   0,
                   confirmation ? undefined : 2000,
                 ),
@@ -128,9 +130,11 @@ export function assistantRelationProjection(
         assistantWritable: editableRelations.has(relation.code),
         operationBoundary: editableRelations.has(relation.code)
           ? '可通过 relation.describe 读取和编辑明细草稿；最后审阅并保存整单。'
-          : loaded
-            ? '明细存在且随整单保存；当前助手仅能读取，请在页面增改明细后回到对话确认保存。'
-            : '已声明明细，但当前没有完整行数据，不能据此判断为空。',
+          : !loaded
+            ? '已声明明细，但当前没有完整行数据，不能据此判断为空。'
+            : !draft
+              ? '当前展示只读明细；若用户要求修改且 record.start-edit 可用，先打开主记录编辑草稿，再核实当前明细编辑能力。'
+              : '当前草稿未开放助手明细写入；请在页面增改明细后回到对话确认保存整单。',
         loaded,
         count: loaded ? rows.length : null,
         removedCount: removed.length,

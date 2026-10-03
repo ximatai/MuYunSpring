@@ -259,6 +259,7 @@ export {
   resolveRecordDetailFields,
   resolveRecordFormFieldNames,
   resolveRecordBooleanStatusValue,
+  resolveRecordEnabledStatusValue,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
   evaluateUiFormula,

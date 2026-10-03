@@ -20,23 +20,26 @@ export function createRelationDraftAssistantCapabilities(
     active = {
       controller,
       rowKey,
-      capabilities: createRecordFormAssistantCapabilities({
-        get editorMode() {
-          return form.editorMode;
+      capabilities: createRecordFormAssistantCapabilities(
+        {
+          get editorMode() {
+            return form.editorMode;
+          },
+          get editingRecord() {
+            return form.editingRecord;
+          },
+          get formFields() {
+            return form.formFields;
+          },
+          get referencePickerConfigs() {
+            return form.referencePickerConfigs;
+          },
+          contextRevision,
+          updateDraftFields: (...args) => form.updateDraftFields(...args),
+          updateDraftReference: (...args) => form.updateDraftReference(...args),
         },
-        get editingRecord() {
-          return form.editingRecord;
-        },
-        get formFields() {
-          return form.formFields;
-        },
-        get referencePickerConfigs() {
-          return form.referencePickerConfigs;
-        },
-        contextRevision,
-        updateDraftFields: (...args) => form.updateDraftFields(...args),
-        updateDraftReference: (...args) => form.updateDraftReference(...args),
-      }),
+        { schemaDiscovery: 'eager' },
+      ),
     };
   };
   const current = () =>
@@ -95,7 +98,7 @@ export function createRelationDraftAssistantCapabilities(
       return { relationCode, rowKey: selected, saved: false };
     },
   });
-  return (): AssistantCapability[] => {
+  const capabilities = (): AssistantCapability[] => {
     if (!registry.list().length) return [];
     const selected = current();
     return [
@@ -195,4 +198,10 @@ export function createRelationDraftAssistantCapabilities(
       })) ?? []),
     ];
   };
+  return Object.assign(capabilities, {
+    selection: () => {
+      const selected = current();
+      return selected ? { relationCode: selected.controller.code, rowKey: selected.rowKey } : undefined;
+    },
+  });
 }

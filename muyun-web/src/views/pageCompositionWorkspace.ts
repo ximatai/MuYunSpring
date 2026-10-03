@@ -129,7 +129,7 @@ export function createPageCompositionWorkspace(
                 moduleAlias: {
                   type: 'string',
                   maxLength: 128,
-                  pattern: '^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$',
+                  description: 'Exact existing module alias from observed facts. Do not guess an alias.',
                 },
               },
             },
