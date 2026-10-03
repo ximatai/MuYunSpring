@@ -107,6 +107,9 @@ it.each([1440, 980])(
       wrapper.unmount();
     }
   },
+  // This real workspace scenario exercises drawers, three preview modes and both panel
+  // toggles. Keep every layout assertion, but allow the full flow on the slower CI runner.
+  30_000,
 );
 
 it('configures and previews list summaries in the real Chromium footer', async () => {
