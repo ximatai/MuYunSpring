@@ -198,7 +198,7 @@ public class DynamicImportFacade {
         if (executionResult.errorRows().isEmpty()) {
             return null;
         }
-        ExcelWorkbookPlan errorWorkbook = errorWorkbookBuilder.build(plan, executionResult.errorRows(), workbook.meta());
+        ExcelWorkbookPlan errorWorkbook = errorWorkbookBuilder.buildRetryWorkbook(plan, executionResult.errorRows(), workbook);
         return workbookWriter.writeToBytes(errorWorkbook);
     }
 }

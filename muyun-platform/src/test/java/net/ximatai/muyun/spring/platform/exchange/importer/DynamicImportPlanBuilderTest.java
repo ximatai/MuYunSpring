@@ -60,6 +60,20 @@ class DynamicImportPlanBuilderTest {
     }
 
     @Test
+    void shouldReadDiagnosticColumnsWithoutMakingThemWritableOrMatchable() {
+        ParsedWorkbook parsed = workbook(new ParsedSheet("Order", "order",
+                columns("order", "orderNo", "errorReason"), List.of(List.of("R-1", "SO-1", "旧错误"))));
+        DynamicImportPlan plan = builder.build(descriptor(), parsed, command(List.of()));
+        assertThat(plan.mainSheet().fields()).extracting(DynamicImportPlan.FieldPlan::fieldName)
+                .containsExactly("relateId", "orderNo");
+        assertThat(new ImportWorkbookGrouper().group(plan, parsed).groups().get("R-1")
+                .mainRow().convertedValues()).containsOnlyKeys("orderNo");
+        assertThatThrownBy(() -> builder.build(descriptor(), parsed,
+                new BuildDynamicImportPlanCommand("sales.order", "errorReason", ImportDuplicateStrategy.SKIP, List.of())))
+                .hasMessageContaining("business field");
+    }
+
+    @Test
     void shouldRejectUnknownSheet() {
         assertThatThrownBy(() -> builder.build(descriptor(), workbook(
                 sheet("Order", "order", "orderNo"),

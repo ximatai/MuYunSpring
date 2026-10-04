@@ -97,8 +97,14 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     public void beforeUpdate(MetadataField field) {
         assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         normalizeAndValidate(field);
+        validateConfigurationFieldChange(select(field.getId()), field);
         var references = referenceConfigServiceProvider.getIfAvailable();
         if (references != null) references.validateAffectFieldChange(select(field.getId()), field);
+    }
+
+    public void validateConfigurationFieldChange(MetadataField existing, MetadataField proposed) {
+        var guard = referenceGuardProvider.getIfAvailable();
+        if (guard != null) guard.assertCanChangeField(existing, proposed);
     }
 
     @Override

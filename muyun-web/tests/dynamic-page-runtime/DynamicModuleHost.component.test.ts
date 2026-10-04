@@ -39,6 +39,58 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModuleHttpProvider;
   });
 
+  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'])(
+    'mounts exchange tools in the %s standard toolbar and blocks concurrent mutations',
+    async (template) => {
+      globalThis.fetch = async () =>
+        Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'dynamic',
+          capabilities: ['EXCHANGE'],
+          actions: [
+            { actionCode: 'import', authorized: true },
+            { actionCode: 'export', authorized: true },
+          ],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page({ template }) },
+        });
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'module-page-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: {
+          stubs: {
+            ManagementWorkspace: { template: '<section><slot /></section>' },
+            StaticManagementLayout: {
+              template: '<section><slot name="explorer-actions" /><slot name="explorer" /></section>',
+            },
+            RecordQueryListPanel: { template: '<section><slot name="operations" /></section>' },
+            ModuleDataExchangeSurface: false,
+          },
+        },
+      });
+      await flushPromises();
+      const exchange = wrapper.findComponent({ name: 'ModuleDataExchangeSurface' });
+      expect(exchange.exists()).toBe(true);
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      exchange.vm.$emit('busy', true);
+      await flushPromises();
+      expect(session.saving).toBe(true);
+      exchange.vm.$emit('busy', false);
+      await flushPromises();
+      expect(session.saving).toBe(false);
+      wrapper.unmount();
+    },
+  );
+
   it.each([true, false])('executes a placed action only through its issued binding (%s)', async (bound) => {
     const calls: Array<{ path: string; method: string; body: unknown }> = [];
     globalThis.fetch = async (input, options) => {

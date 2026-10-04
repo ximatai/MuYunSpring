@@ -190,6 +190,9 @@ public class DynamicImportPlanBuilder {
 
         List<DynamicImportPlan.FieldPlan> fields = new ArrayList<>();
         for (ParsedColumn column : sheet.columns()) {
+            // The platform error workbook carries diagnostics, never a writable business field.
+            if (DynamicImportErrorWorkbookBuilder.ERROR_FIELD.equals(column.fieldName())
+                    && !fieldsByName.containsKey(column.fieldName())) continue;
             boolean relateId = Objects.equals(ExcelExchangeProtocol.RELATE_ID_FIELD, column.fieldName());
             boolean companion = companionFieldNames.contains(column.fieldName());
             DynamicFieldDescriptor fieldDescriptor = fieldsByName.get(column.fieldName());

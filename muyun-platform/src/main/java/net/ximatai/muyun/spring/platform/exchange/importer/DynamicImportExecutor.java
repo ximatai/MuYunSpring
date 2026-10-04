@@ -47,11 +47,23 @@ public class DynamicImportExecutor {
         DynamicRecordActionGateway records = recordService.recordsForAction(
                 plan.moduleAlias(), PlatformAction.IMPORT, IMPORT_TRACE_ID);
 
+        for (ImportErrorRow error : workbook.errorRows()) {
+            DynamicImportPlan.SheetPlan sheet = sheetPlansByKey.get(error.sheetKey());
+            if (sheet != null) summaries.compute(sheet.entityAlias(),
+                    (key, summary) -> currentSummary(key, summary).addError());
+        }
         DynamicImportPlan.SheetPlan mainSheet = plan.mainSheet();
         for (ImportGroup group : workbook.groups().values()) {
             WriteDecision mainDecision = executeRow(records, plan.moduleAlias(), mainSheet, group.mainRow(), null, errorRows,
                     group.groupKey(), summaries);
             if (!mainDecision.success()) {
+                for (List<ParsedImportRow> children : group.childRowsBySheetKey().values()) {
+                    for (ParsedImportRow child : children) {
+                        DynamicImportPlan.SheetPlan childSheet = sheetPlansByKey.get(child.sheetKey());
+                        addError(childSheet.entityAlias(), summaries, errorRows,
+                                ImportErrorRow.of(child, "主表未成功处理，子表未执行", group.groupKey()));
+                    }
+                }
                 continue;
             }
             for (Map.Entry<String, List<ParsedImportRow>> entry : group.childRowsBySheetKey().entrySet()) {

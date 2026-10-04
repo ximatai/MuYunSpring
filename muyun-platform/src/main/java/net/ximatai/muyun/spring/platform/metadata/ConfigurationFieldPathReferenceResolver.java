@@ -1,4 +1,4 @@
-package net.ximatai.muyun.spring.platform.ui;
+package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -6,17 +6,6 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
-import net.ximatai.muyun.spring.platform.metadata.Metadata;
-import net.ximatai.muyun.spring.platform.metadata.MetadataField;
-import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
-import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataService;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataField;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
-import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.LinkedHashSet;
@@ -25,15 +14,15 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Resolves one persisted page field path to its configuration identities.
+ * Resolves one persisted configuration field path to its configuration identities.
  *
- * <p>The resolver deliberately starts from a page's persisted main relation and consumes field
+ * <p>The resolver deliberately starts from the owning persisted relation and consumes field
  * reference declarations before consulting the runtime. This keeps deletion governance available
  * while a dynamic runtime is stale or temporarily unavailable. Runtime plans remain necessary for
  * a static intermediate entity, because its outgoing fields are Java declarations rather than
  * metadata rows.</p>
  */
-final class PresentationFieldPathReferenceResolver {
+public final class ConfigurationFieldPathReferenceResolver {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final ObjectProvider<MetadataService> metadata;
@@ -42,7 +31,7 @@ final class PresentationFieldPathReferenceResolver {
     private final ObjectProvider<ModuleMetadataRelationService> relations;
     private final ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigs;
 
-    PresentationFieldPathReferenceResolver(ObjectProvider<MetadataService> metadata,
+    public ConfigurationFieldPathReferenceResolver(ObjectProvider<MetadataService> metadata,
                                            ObjectProvider<MetadataFieldService> fields,
                                            ObjectProvider<ModuleMetadataFieldService> moduleFields,
                                            ObjectProvider<ModuleMetadataRelationService> relations,
@@ -54,7 +43,7 @@ final class PresentationFieldPathReferenceResolver {
         this.referenceConfigs = referenceConfigs;
     }
 
-    boolean uses(ModuleMetadataRelation source, String fieldPath, String metadataFieldId,
+    public boolean uses(ModuleMetadataRelation source, String fieldPath, String metadataFieldId,
                  String moduleMetadataFieldId, String relationId) {
         if (source == null || fieldPath == null || fieldPath.isBlank()) return false;
         PathReferences references = resolve(source, fieldPath);
@@ -82,7 +71,20 @@ final class PresentationFieldPathReferenceResolver {
                 continue;
             }
             MetadataField field = field(node.relation().getMetadataId(), segment);
-            if (field == null) break;
+            if (field == null) {
+                if (index == 0 && segments.size() > 1) {
+                    ModuleMetadataRelation child = relations.getObject().list(Criteria.of()
+                                    .eq("moduleAlias", source.getModuleAlias())
+                                    .eq("parentMetadataId", source.getMetadataId()).eq("relationAlias", segment), ALL)
+                            .stream().findFirst().orElse(null);
+                    if (child != null) {
+                        relationIds.add(child.getId());
+                        node = Node.dynamic(child);
+                        continue;
+                    }
+                }
+                break;
+            }
             metadataFieldIds.add(field.getId());
             relationIds.add(node.relation().getId());
             ModuleMetadataField moduleField = moduleField(node.relation().getId(), field.getId());

@@ -181,6 +181,48 @@ class DynamicImportErrorWorkbookBuilderTest {
                 .containsExactly("relateId", "sku", "qty", "errorReason");
     }
 
+    @Test
+    void shouldPreserveOnlyAffectedWholeGroupsForCorrectedWorkbookRetry() {
+        DynamicImportPlan plan = plan();
+        List<ExcelSheetPlan> sourceSheets = List.of(
+                new ExcelSheetPlan("Order", "order", true,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("orderNo", "Order No"),
+                                new ExcelColumnPlan("placedAt", "Placed At")),
+                        List.of(List.of("R-1", "SO-1", "2026-06-08T01:30:00Z"), List.of("R-2", "SO-2", "2026-06-08T01:30:00Z"))),
+                new ExcelSheetPlan("Order Line", "orderLine", false,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("sku", "SKU"), new ExcelColumnPlan("qty", "Qty")),
+                        List.of(List.of("R-1", "SKU-ok", "1"), List.of("R-1", "SKU-bad", "bad"), List.of("R-2", "SKU-other", "2"))),
+                new ExcelSheetPlan("Shipment", "shipment", false,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("carrier", "Carrier")),
+                        List.of(List.of("R-1", ""), List.of("R-2", ""))));
+        ExcelWorkbookParser parser = new ExcelWorkbookParser();
+        ExcelWorkbookPlanWriter writer = new ExcelWorkbookPlanWriter();
+        ParsedWorkbook source = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(sourceSheets)));
+        var retry = builder.buildRetryWorkbook(plan, List.of(errorRow("Order Line",
+                rawValues("关联标识", "R-1", "SKU", "SKU-bad", "Qty", "bad"), "Qty must be a number")), source);
+        assertThat(retry.sheets().get(0).rows()).hasSize(1);
+        assertThat(retry.sheets().get(1).rows()).hasSize(2);
+        assertThat(retry.sheets().get(2).rows()).hasSize(1);
+        assertThat(retry.sheets().get(1).rows().get(1).getLast()).isEqualTo("Qty must be a number");
+        // Correct the value in the actual error workbook, retaining the diagnostic column.
+        List<ExcelSheetPlan> corrected = retry.sheets().stream().map(sheet -> {
+            List<List<Object>> rows = sheet.rows().stream().map(row -> {
+                var copy = new java.util.ArrayList<>(row);
+                if (sheet.entityAlias().equals("orderLine") && copy.get(1).equals("SKU-bad")) copy.set(2, "3");
+                return (List<Object>) copy;
+            }).toList();
+            return new ExcelSheetPlan(sheet.sheetName(), sheet.entityAlias(), sheet.main(), sheet.columns(), rows);
+        }).toList();
+        ParsedWorkbook reparsed = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(corrected)));
+        // The execution plan intentionally omits the diagnostic column; coverage-only rows remain coverage-only.
+        GroupedWorkbook grouped = new ImportWorkbookGrouper().group(plan, reparsed);
+        assertThat(grouped.errorRows()).isEmpty();
+        assertThat(grouped.groups()).containsOnlyKeys("R-1");
+        assertThat(grouped.groups().get("R-1").childRowsBySheetKey().get("Order Line"))
+                .extracting(row -> row.convertedValues().get("qty")).containsExactly(1, 3);
+        assertThat(grouped.groups().get("R-1").isChildSheetCovered("Shipment")).isTrue();
+    }
+
     private DynamicImportPlan plan() {
         return new DynamicImportPlan(
                 "sales.order",
@@ -196,7 +238,7 @@ class DynamicImportErrorWorkbookBuilderTest {
                                 List.of(
                                         relateIdField("order"),
                                         field("order", "orderNo", "Order No", FieldType.STRING),
-                                        field("order", "placedAt", "Placed At", FieldType.ZONED_TIMESTAMP)
+                                        field("order", "placedAt", "Placed At", FieldType.TIMESTAMP)
                                 )
                         ),
                         new DynamicImportPlan.SheetPlan(

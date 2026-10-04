@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookMeta;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
+import net.ximatai.muyun.spring.platform.exchange.model.ParsedWorkbook;
+import net.ximatai.muyun.spring.platform.exchange.model.ParsedSheet;
 import net.ximatai.muyun.spring.platform.exchange.protocol.ExcelExchangeProtocol;
 
 import java.util.ArrayList;
@@ -46,6 +48,56 @@ public class DynamicImportErrorWorkbookBuilder {
             ));
         }
         return new ExcelWorkbookPlan(meta == null ? defaultMeta(plan) : meta, sheets);
+    }
+
+    /** Retains affected aggregates so a corrected file can be retried with SKIP for successful rows. */
+    public ExcelWorkbookPlan buildRetryWorkbook(DynamicImportPlan plan, List<ImportErrorRow> errors,
+                                                ParsedWorkbook source) {
+        Map<String, List<ImportErrorRow>> bySheet = groupErrorRowsBySheetKey(plan, errors);
+        Set<String> affectedGroups = new LinkedHashSet<>();
+        for (DynamicImportPlan.SheetPlan sheet : plan.sheets()) {
+            String groupTitle = sheet.fields().stream().filter(DynamicImportPlan.FieldPlan::relateId)
+                    .map(DynamicImportPlan.FieldPlan::title).findFirst().orElse(null);
+            for (ImportErrorRow error : bySheet.getOrDefault(sheet.sheetKey(), List.of())) {
+                String group = normalize(error.rawValues().get(groupTitle));
+                if (group != null) affectedGroups.add(group);
+            }
+        }
+        List<ExcelSheetPlan> sheets = new ArrayList<>();
+        for (DynamicImportPlan.SheetPlan sheet : plan.sheets()) {
+            ParsedSheet parsed = source.sheets().stream()
+                    .filter(candidate -> candidate.entityAlias().equals(sheet.entityAlias())).findFirst().orElseThrow();
+            Map<String, Integer> columnIndexes = new LinkedHashMap<>();
+            parsed.columns().forEach(column -> columnIndexes.putIfAbsent(column.fieldName(), column.columnIndex()));
+            Map<Map<String, String>, Set<String>> messagesByRow = new LinkedHashMap<>();
+            for (ImportErrorRow error : bySheet.getOrDefault(sheet.sheetKey(), List.of())) {
+                messagesByRow.computeIfAbsent(error.rawValues(), ignored -> new LinkedHashSet<>()).add(error.message());
+            }
+            List<List<Object>> rows = new ArrayList<>();
+            for (List<String> row : parsed.rows()) {
+                LinkedHashMap<String, String> raw = new LinkedHashMap<>();
+                String group = null;
+                for (DynamicImportPlan.FieldPlan field : sheet.fields()) {
+                    int index = columnIndexes.get(field.fieldName());
+                    String value = index < row.size() ? normalize(row.get(index)) : null;
+                    raw.put(field.title(), value);
+                    if (field.relateId()) group = value;
+                }
+                Set<String> messages = messagesByRow.getOrDefault(raw, Set.of());
+                if (!messages.isEmpty() || (group != null && affectedGroups.contains(group))) {
+                    String message = messages.isEmpty()
+                            ? "同组重试数据；已成功记录请选择跳过，需更正已有记录时选择覆盖"
+                            : String.join("；", messages);
+                    rows.add(toWorkbookRow(sheet, new ImportErrorRow(sheet.sheetKey(), raw, message, group)));
+                }
+            }
+            sheets.add(new ExcelSheetPlan(sheet.sheetName(), sheet.entityAlias(), sheet.main(), buildColumns(sheet), rows));
+        }
+        return new ExcelWorkbookPlan(source.meta() == null ? defaultMeta(plan) : source.meta(), sheets);
+    }
+
+    private String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private Map<String, List<ImportErrorRow>> groupErrorRowsBySheetKey(DynamicImportPlan plan,

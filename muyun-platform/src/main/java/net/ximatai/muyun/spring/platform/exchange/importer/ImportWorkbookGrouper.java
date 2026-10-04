@@ -150,7 +150,10 @@ public class ImportWorkbookGrouper {
                 try {
                     parsedRow = valueConverter.convert(sheetPlan, parsedSheet, row, temporalContext);
                 } catch (PlatformException ex) {
-                    errorRows.add(buildParseErrorRow(sheetPlan, parsedSheet, row, ex.getMessage(), null));
+                    String groupKey = readRowByField(parsedSheet, row).get(ExcelExchangeProtocol.RELATE_ID_FIELD);
+                    ImportGroup group = groups.get(groupKey);
+                    if (group != null) group.markChildSheetCovered(sheetPlan.sheetKey());
+                    errorRows.add(buildParseErrorRow(sheetPlan, parsedSheet, row, ex.getMessage(), groupKey));
                     continue;
                 }
                 String relateId = normalizeKey(parsedRow.valuesByFieldName().get(ExcelExchangeProtocol.RELATE_ID_FIELD));
@@ -163,7 +166,7 @@ public class ImportWorkbookGrouper {
                     errorRows.add(ImportErrorRow.of(parsedRow, "子表未找到对应主表关联标识: " + relateId, relateId));
                     continue;
                 }
-                if (isCoverageOnlyChildRow(parsedRow)) {
+                if (isCoverageOnlyChildRow(sheetPlan, parsedRow)) {
                     group.markChildSheetCovered(sheetPlan.sheetKey());
                     continue;
                 }
@@ -212,11 +215,7 @@ public class ImportWorkbookGrouper {
         LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row);
         for (DynamicImportPlan.FieldPlan field : sheetPlan.fields()) {
             String raw = normalizeText(valuesByFieldName.get(field.fieldName()));
-            if (field.relateId()) {
-                rawValues.put(field.title(), raw);
-            } else {
-                rawValues.put(field.title(), raw);
-            }
+            rawValues.put(field.title(), raw);
             valuesByFieldName.put(field.fieldName(), raw);
         }
         return ImportErrorRow.of(new ParsedImportRow(sheetPlan.sheetKey(), rawValues, valuesByFieldName),
@@ -233,12 +232,12 @@ public class ImportWorkbookGrouper {
         return valuesByField;
     }
 
-    private boolean isCoverageOnlyChildRow(ParsedImportRow parsedRow) {
-        for (Map.Entry<String, String> entry : parsedRow.valuesByFieldName().entrySet()) {
-            if (Objects.equals(entry.getKey(), ExcelExchangeProtocol.RELATE_ID_FIELD)) {
+    private boolean isCoverageOnlyChildRow(DynamicImportPlan.SheetPlan plan, ParsedImportRow parsedRow) {
+        for (DynamicImportPlan.FieldPlan field : plan.fields()) {
+            if (field.relateId()) {
                 continue;
             }
-            if (!isBlank(entry.getValue())) {
+            if (!isBlank(parsedRow.valuesByFieldName().get(field.fieldName()))) {
                 return false;
             }
         }

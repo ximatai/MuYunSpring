@@ -4320,6 +4320,10 @@ export function useModulePageSession(
    * Public, state-preserving list refresh for business-owned triggers.
    * RecordQueryListPanel observes reloadKey and only re-runs loadRecords().
    */
+  function setDataExchangeBusy(value: boolean) {
+    saving.value = value;
+  }
+
   function refreshList() {
     if (persistentTreeDetail.value) {
       treeReloadKey.value += 1;
@@ -4555,6 +4559,7 @@ export function useModulePageSession(
     listQueryController,
     treeQueryController,
     bindListQueryController,
+    setDataExchangeBusy,
     bindNavigatorQueryController,
     bindTreeQueryController,
     formValidationRequestKey,

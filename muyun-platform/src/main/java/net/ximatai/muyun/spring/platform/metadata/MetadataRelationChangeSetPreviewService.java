@@ -257,6 +257,12 @@ public class MetadataRelationChangeSetPreviewService {
                     "首批发布仅允许修改业务展示和约束属性，不能修改字段结构、归属或平台管理属性。");
             return;
         }
+        try {
+            fieldService.validateConfigurationFieldChange(existing, overlayBusinessAttributes(existing, field));
+        } catch (RuntimeException exception) {
+            error(errors, "FIELD_CONFIGURATION_IN_USE", existing.getFieldName(), exception.getMessage());
+            return;
+        }
         if (!same(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
                 && !validateFieldSpecChange(context, existing, field, errors)) return;
         MetadataField normalized = overlayBusinessAttributes(existing, field);

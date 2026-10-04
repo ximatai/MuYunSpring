@@ -73,6 +73,18 @@ class DynamicImportExecutorTest {
     }
 
     @Test
+    void shouldReportChildrenNotExecutedWhenTheirParentFails() {
+        when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(orderRecord("existing", "SO-1")));
+        var result = executor.execute(command(plan(ImportDuplicateStrategy.ERROR, ImportDuplicateStrategy.SKIP),
+                workbook(group("R-1", mainRow("R-1", "SO-1"), List.of(childRow("R-1", "SKU-1", 2))))));
+        assertThat(result.errorRows()).extracting(ImportErrorRow::sheetKey)
+                .containsExactly("order", "orderLine");
+        assertThat(result.summaries().get("orderLine").errors()).isEqualTo(1);
+        verify(records, never()).create(eq("orderLine"), any());
+    }
+
+    @Test
     void shouldResolveReferenceTitleBeforeCreatingRecord() {
         when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of());

@@ -13,5 +13,8 @@ public interface ConfigurationReferenceContributor {
         return reference().resourceName();
     }
 
+    /** Whether changing a referenced field's identity, type or enabled state invalidates this configuration. */
+    default boolean protectsFieldEvolution() { return false; }
+
     Optional<String> findReferenceId(String targetId);
 }
