@@ -164,6 +164,10 @@ class DynamicImportWebControllerTest {
                 .andExpect(jsonPath("$.updated").value(2))
                 .andExpect(jsonPath("$.skipped").value(3))
                 .andExpect(jsonPath("$.errorCount").value(1))
+                .andExpect(jsonPath("$.summaries.order.created").value(1))
+                .andExpect(jsonPath("$.summaries.order.updated").value(2))
+                .andExpect(jsonPath("$.summaries.order.skipped").value(3))
+                .andExpect(jsonPath("$.summaries.order.errors").value(1))
                 .andExpect(jsonPath("$.partialSuccess").value(true))
                 .andExpect(jsonPath("$.errorFileName").value("sales_order-import-errors.xlsx"))
                 .andExpect(jsonPath("$.errorFileToken").isNotEmpty());
@@ -265,7 +269,7 @@ class DynamicImportWebControllerTest {
                 2,
                 3,
                 List.of(new ImportErrorRow("order", new LinkedHashMap<>(), "invalid", null)),
-                Map.of()
+                Map.of("order", new net.ximatai.muyun.spring.platform.exchange.importer.ImportEntityExecutionSummary("order", 1, 2, 3, 1))
         );
         return new DynamicImportResult(plan, new GroupedWorkbook(new LinkedHashMap<>(), List.of()),
                 execution, new byte[]{7, 8, 9});

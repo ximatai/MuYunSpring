@@ -269,6 +269,7 @@ const runtimeListView = ref<ResolvedViewDescriptor>();
 const descriptorLoadError = ref(false);
 const recordsLoadError = ref<string>();
 const quickSearchKeyword = ref('');
+const successfulRequest = ref<WebQueryRequest>();
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
 /** Once opened, retain the draft editor while collapsed so reference resolution cannot be discarded. */
@@ -723,6 +724,7 @@ async function loadRecords(updateLoading = true) {
   queryControllerRevision += 1;
   const requestSeq = ++recordsRequestSeq;
   if (!queryReady.value) {
+    successfulRequest.value = undefined;
     records.value = [];
     total.value = 0;
     totalKnown.value = true;
@@ -789,6 +791,7 @@ async function loadRecords(updateLoading = true) {
     pageNum.value = response.pageNum;
     pageSize.value = response.pageSize;
     emit('loaded', response.records);
+    successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
     emit('queried', request);
     refreshRecycleBinSummary();
     return true;
@@ -1380,6 +1383,9 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
         : 'ready';
   return {
     mode: props.mode,
+    ...(status === 'ready' && successfulRequest.value
+      ? { request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest }
+      : {}),
     status,
     quickSearchEnabled:
       queryReady.value && !descriptorLoadError.value && props.mode === 'normal' && quickSearchEnabled.value,

@@ -31,6 +31,7 @@ import {
 } from '@muyun/platform-components';
 
 import ModulePageBusinessState from './ModulePageBusinessState.vue';
+import ModuleDataExchangeSurface from './ModuleDataExchangeSurface.vue';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue';
@@ -71,6 +72,7 @@ export default defineComponent({
     TreeRecordExplorer,
     UiModal,
     ModulePageBusinessState,
+    ModuleDataExchangeSurface,
     ModuleRecordDetailActions,
     ModulePageDetailRelations,
     ModulePageListExpansionSurface,
@@ -345,6 +347,14 @@ export default defineComponent({
       </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
         <template v-if="businessVisible">
+          <ModuleDataExchangeSurface
+            :context="context"
+            :query-controller="listQueryController"
+            :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
+            :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
+            @busy="setDataExchangeBusy"
+            @changed="refreshList"
+          />
           <RecordActionBar
             v-if="placedPageActions.length"
             :context="context"
@@ -668,6 +678,16 @@ export default defineComponent({
             (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
           "
         >
+          <template v-if="listMode !== 'recycleBin'" #operations>
+            <ModuleDataExchangeSurface
+              :context="context"
+              :query-controller="listQueryController"
+              :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
+              :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
+              @busy="setDataExchangeBusy"
+              @changed="refreshList"
+            />
+          </template>
           <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
             <ModulePageListExpansionSurface
               :source-context="context"
@@ -1180,6 +1200,16 @@ export default defineComponent({
             (action, records, _event, clearSelection) => handleBatchAction(action, records, clearSelection)
           "
         >
+          <template v-if="listMode !== 'recycleBin'" #operations>
+            <ModuleDataExchangeSurface
+              :context="context"
+              :query-controller="listQueryController"
+              :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
+              :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
+              @busy="setDataExchangeBusy"
+              @changed="refreshList"
+            />
+          </template>
           <template v-if="listRowExpansionEnabled" #expandedRow="{ record }">
             <ModulePageListExpansionSurface
               :source-context="context"

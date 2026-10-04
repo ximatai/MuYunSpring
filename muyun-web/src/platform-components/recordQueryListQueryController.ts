@@ -1,4 +1,10 @@
-import type { QueryValueType, QueryOperator, QueryCriteriaCondition, WebSort } from '@muyun/web-contracts';
+import type {
+  QueryValueType,
+  QueryOperator,
+  QueryCriteriaCondition,
+  WebSort,
+  WebQueryRequest,
+} from '@muyun/web-contracts';
 import type { QuerySettlementController } from './querySettlementController';
 
 export interface RecordQueryListQueryField {
@@ -17,6 +23,8 @@ export interface RecordQueryListResultRow {
 }
 
 export interface RecordQueryListQuerySnapshot {
+  /** The last successful server query, shared by exports without reconstructing filters. */
+  request?: WebQueryRequest;
   mode: 'normal' | 'recycleBin';
   status: 'waiting' | 'loading' | 'ready' | 'error';
   quickSearchEnabled: boolean;

@@ -289,10 +289,10 @@ class DynamicImportFacadeTest {
     }
 
     private ImportErrorRow errorRow(String relateId, String orderNo, String message) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
-        rawValues.put("关联标识", relateId);
-        rawValues.put("Order No", orderNo);
-        return new ImportErrorRow("order", rawValues, message, relateId);
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
+        rawValuesByFieldName.put("relateId", relateId);
+        rawValuesByFieldName.put("orderNo", orderNo);
+        return new ImportErrorRow("order", rawValuesByFieldName, message, relateId);
     }
 
     private static class RecordingParser extends ExcelWorkbookParser {

@@ -154,9 +154,10 @@ public class DynamicImportWebController {
                 execution.skipped(),
                 errorCount,
                 writtenCount > 0 && errorCount > 0,
-                errorCount == 0 ? "import completed" : "import completed with errors",
+                errorCount == 0 ? "导入完成" : "导入完成，请修正异常数据后重试",
                 errorFileName,
-                errorFileToken
+                errorFileToken,
+                execution.summaries()
         );
     }
 

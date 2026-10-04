@@ -73,6 +73,18 @@ class DynamicImportExecutorTest {
     }
 
     @Test
+    void shouldReportChildrenNotExecutedWhenTheirParentFails() {
+        when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(orderRecord("existing", "SO-1")));
+        var result = executor.execute(command(plan(ImportDuplicateStrategy.ERROR, ImportDuplicateStrategy.SKIP),
+                workbook(group("R-1", mainRow("R-1", "SO-1"), List.of(childRow("R-1", "SKU-1", 2))))));
+        assertThat(result.errorRows()).extracting(ImportErrorRow::sheetKey)
+                .containsExactly("order", "orderLine");
+        assertThat(result.summaries().get("orderLine").errors()).isEqualTo(1);
+        verify(records, never()).create(eq("orderLine"), any());
+    }
+
+    @Test
     void shouldResolveReferenceTitleBeforeCreatingRecord() {
         when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of());
@@ -365,10 +377,10 @@ class DynamicImportExecutorTest {
     }
 
     private ParsedImportRow mainRow(String relateId, String orderNo) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
-        rawValues.put("关联标识", relateId);
-        rawValues.put("Order No", orderNo);
-        rawValues.put("Order No TimeZone", "Asia/Shanghai");
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
+        rawValuesByFieldName.put("relateId", relateId);
+        rawValuesByFieldName.put("orderNo", orderNo);
+        rawValuesByFieldName.put("orderNoTimeZone", "Asia/Shanghai");
         LinkedHashMap<String, String> valuesByFieldName = new LinkedHashMap<>();
         valuesByFieldName.put("relateId", relateId);
         valuesByFieldName.put("orderNo", orderNo);
@@ -376,12 +388,12 @@ class DynamicImportExecutorTest {
         LinkedHashMap<String, Object> convertedValues = new LinkedHashMap<>();
         convertedValues.put("orderNo", orderNo);
         convertedValues.put("orderNoTimeZone", "Asia/Shanghai");
-        return new ParsedImportRow("order", rawValues, valuesByFieldName, convertedValues);
+        return new ParsedImportRow("order", rawValuesByFieldName, valuesByFieldName, convertedValues);
     }
 
     private ParsedImportRow mainRowWithReference(String relateId, String orderNo, String customerTitle) {
         ParsedImportRow row = mainRow(relateId, orderNo);
-        row.rawValues().put("Customer", customerTitle);
+        row.rawValuesByFieldName().put("customerId", customerTitle);
         row.valuesByFieldName().put("customerId", customerTitle);
         row.convertedValues().put("customerId", customerTitle);
         return row;
@@ -389,7 +401,7 @@ class DynamicImportExecutorTest {
 
     private ParsedImportRow mainRowWithManyReference(String relateId, String orderNo, String tagTitles) {
         ParsedImportRow row = mainRow(relateId, orderNo);
-        row.rawValues().put("Tags", tagTitles);
+        row.rawValuesByFieldName().put("tagIds", tagTitles);
         row.valuesByFieldName().put("tagIds", tagTitles);
         row.convertedValues().put("tagIds", tagTitles);
         return row;
@@ -444,10 +456,10 @@ class DynamicImportExecutorTest {
     }
 
     private ParsedImportRow childRow(String relateId, String sku, Integer qty) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
-        rawValues.put("关联标识", relateId);
-        rawValues.put("SKU", sku);
-        rawValues.put("Qty", String.valueOf(qty));
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
+        rawValuesByFieldName.put("relateId", relateId);
+        rawValuesByFieldName.put("sku", sku);
+        rawValuesByFieldName.put("qty", String.valueOf(qty));
         LinkedHashMap<String, String> valuesByFieldName = new LinkedHashMap<>();
         valuesByFieldName.put("relateId", relateId);
         valuesByFieldName.put("sku", sku);
@@ -455,7 +467,7 @@ class DynamicImportExecutorTest {
         LinkedHashMap<String, Object> convertedValues = new LinkedHashMap<>();
         convertedValues.put("sku", sku);
         convertedValues.put("qty", qty);
-        return new ParsedImportRow("orderLine", rawValues, valuesByFieldName, convertedValues);
+        return new ParsedImportRow("orderLine", rawValuesByFieldName, valuesByFieldName, convertedValues);
     }
 
     private DynamicRecord orderRecord(String id, String orderNo) {

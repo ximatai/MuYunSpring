@@ -25,7 +25,7 @@ public record ParsedSheet(
             return List.of();
         }
         return rows.stream()
-                .map(row -> row == null ? List.<String>of() : List.copyOf(row))
+                .map(row -> row == null ? List.<String>of() : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(row)))
                 .toList();
     }
 

@@ -29,15 +29,15 @@ class DynamicImportErrorWorkbookBuilderTest {
         ExcelWorkbookMeta meta = new ExcelWorkbookMeta("2", "sales.order", "custom-plan", "Custom Plan", "UTC");
 
         ExcelWorkbookPlan workbook = builder.build(plan(), List.of(
-                errorRow("Order", rawValues(
-                        "关联标识", "R-1",
-                        "Order No", "SO-001",
-                        "Placed At", "2026-06-08 09:30:00"
+                errorRow("Order", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "orderNo", "SO-001",
+                        "placedAt", "2026-06-08 09:30:00"
                 ), "Order No already exists"),
-                errorRow("Order Line", rawValues(
-                        "关联标识", "R-1",
-                        "SKU", "SKU-01",
-                        "Qty", "bad"
+                errorRow("Order Line", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "sku", "SKU-01",
+                        "qty", "bad"
                 ), "Qty must be a number")
         ), meta);
 
@@ -109,7 +109,7 @@ class DynamicImportErrorWorkbookBuilderTest {
     @Test
     void shouldRejectUnknownErrorRowSheetKey() {
         assertThatThrownBy(() -> builder.build(plan(), List.of(
-                errorRow("Unknown", rawValues("Order No", "SO-001"), "bad sheet")
+                errorRow("Unknown", rawValuesByFieldName("orderNo", "SO-001"), "bad sheet")
         )))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("sheetKey does not belong to plan")
@@ -145,10 +145,10 @@ class DynamicImportErrorWorkbookBuilderTest {
     @Test
     void shouldWriteAndParseErrorWorkbookWithErrorColumn() {
         ExcelWorkbookPlan workbook = builder.build(plan(), List.of(
-                errorRow("Order", rawValues(
-                        "关联标识", "R-1",
-                        "Order No", "SO-001",
-                        "Placed At", "2026-06-08 09:30:00"
+                errorRow("Order", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "orderNo", "SO-001",
+                        "placedAt", "2026-06-08 09:30:00"
                 ), "Order No already exists")
         ));
 
@@ -181,6 +181,81 @@ class DynamicImportErrorWorkbookBuilderTest {
                 .containsExactly("relateId", "sku", "qty", "errorReason");
     }
 
+    @Test
+    void shouldPreserveOnlyAffectedWholeGroupsForCorrectedWorkbookRetry() {
+        DynamicImportPlan plan = plan();
+        List<ExcelSheetPlan> sourceSheets = List.of(
+                new ExcelSheetPlan("Order", "order", true,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("orderNo", "Order No"),
+                                new ExcelColumnPlan("placedAt", "Placed At")),
+                        List.of(List.of("R-1", "SO-1", "2026-06-08T01:30:00Z"), List.of("R-2", "SO-2", "2026-06-08T01:30:00Z"))),
+                new ExcelSheetPlan("Order Line", "orderLine", false,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("sku", "SKU"), new ExcelColumnPlan("qty", "Qty")),
+                        List.of(List.of("R-1", "SKU-ok", "1"), List.of("R-1", "SKU-bad", "bad"), List.of("R-2", "SKU-other", "2"))),
+                new ExcelSheetPlan("Shipment", "shipment", false,
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("carrier", "Carrier")),
+                        List.of(List.of("R-1", ""), List.of("R-2", ""))));
+        ExcelWorkbookParser parser = new ExcelWorkbookParser();
+        ExcelWorkbookPlanWriter writer = new ExcelWorkbookPlanWriter();
+        ParsedWorkbook source = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(sourceSheets)));
+        var retry = builder.buildRetryWorkbook(plan, List.of(errorRow("Order Line",
+                rawValuesByFieldName("relateId", "R-1", "sku", "SKU-bad", "qty", "bad"), "Qty must be a number")), source);
+        assertThat(retry.sheets().get(0).rows()).hasSize(1);
+        assertThat(retry.sheets().get(1).rows()).hasSize(2);
+        assertThat(retry.sheets().get(2).rows()).hasSize(1);
+        assertThat(retry.sheets().get(1).rows().get(1).getLast()).isEqualTo("Qty must be a number");
+        // Correct the value in the actual error workbook, retaining the diagnostic column.
+        List<ExcelSheetPlan> corrected = retry.sheets().stream().map(sheet -> {
+            List<List<Object>> rows = sheet.rows().stream().map(row -> {
+                var copy = new java.util.ArrayList<>(row);
+                if (sheet.entityAlias().equals("orderLine") && copy.get(1).equals("SKU-bad")) copy.set(2, "3");
+                return (List<Object>) copy;
+            }).toList();
+            return new ExcelSheetPlan(sheet.sheetName(), sheet.entityAlias(), sheet.main(), sheet.columns(), rows);
+        }).toList();
+        ParsedWorkbook reparsed = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(corrected)));
+        // The execution plan intentionally omits the diagnostic column; coverage-only rows remain coverage-only.
+        GroupedWorkbook grouped = new ImportWorkbookGrouper().group(plan, reparsed);
+        assertThat(grouped.errorRows()).isEmpty();
+        assertThat(grouped.groups()).containsOnlyKeys("R-1");
+        assertThat(grouped.groups().get("R-1").childRowsBySheetKey().get("Order Line"))
+                .extracting(row -> row.convertedValues().get("qty")).containsExactly(1, 3);
+        assertThat(grouped.groups().get("R-1").isChildSheetCovered("Shipment")).isTrue();
+    }
+
+    @Test
+    void shouldPreserveTechnicalFieldIdentityWhenTitlesCollide() {
+        var sheet = new DynamicImportPlan.SheetPlan("Order", "order", "Order", true, "orderNo",
+                ImportDuplicateStrategy.SKIP, List.of(relateIdField("order"),
+                        field("order", "orderNo", "编号", FieldType.STRING),
+                        field("order", "customerNo", "编号", FieldType.STRING),
+                        field("order", "memo", "关联标识", FieldType.STRING)));
+        var plan = new DynamicImportPlan("sales.order", "order-import", List.of(sheet));
+        var writer = new ExcelWorkbookPlanWriter();
+        var parser = new ExcelWorkbookParser();
+        var source = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(List.of(
+                new ExcelSheetPlan("Order", "order", true,
+                        sheet.fields().stream().map(field -> new ExcelColumnPlan(field.fieldName(), field.title())).toList(),
+                        List.of(List.of("R-1", "SO-1", "C-1", "")))))));
+        var parsedRow = new DynamicImportValueConverter().convert(sheet, source.sheets().getFirst(),
+                source.sheets().getFirst().rows().getFirst(), ImportTemporalContext.UTC);
+        var error = ImportErrorRow.of(parsedRow, "需要修正", "R-1");
+        assertThat(error.rawValuesByFieldName()).containsEntry("orderNo", "SO-1")
+                .containsEntry("customerNo", "C-1").containsEntry("memo", null);
+
+        for (var workbook : List.of(builder.build(plan, List.of(error)),
+                builder.buildRetryWorkbook(plan, List.of(error), source))) {
+            var reparsed = parser.parse(writer.writeToBytes(workbook));
+            assertThat(reparsed.sheets().getFirst().rows().getFirst())
+                    .containsExactly("R-1", "SO-1", "C-1", null, "需要修正");
+            var regrouped = new ImportWorkbookGrouper().group(plan, reparsed);
+            assertThat(regrouped.errorRows()).isEmpty();
+            assertThat(regrouped.groups()).containsOnlyKeys("R-1");
+            assertThat(regrouped.groups().get("R-1").mainRow().valuesByFieldName())
+                    .containsEntry("orderNo", "SO-1").containsEntry("customerNo", "C-1");
+        }
+    }
+
     private DynamicImportPlan plan() {
         return new DynamicImportPlan(
                 "sales.order",
@@ -196,7 +271,7 @@ class DynamicImportErrorWorkbookBuilderTest {
                                 List.of(
                                         relateIdField("order"),
                                         field("order", "orderNo", "Order No", FieldType.STRING),
-                                        field("order", "placedAt", "Placed At", FieldType.ZONED_TIMESTAMP)
+                                        field("order", "placedAt", "Placed At", FieldType.TIMESTAMP)
                                 )
                         ),
                         new DynamicImportPlan.SheetPlan(
@@ -244,15 +319,15 @@ class DynamicImportErrorWorkbookBuilderTest {
         return new DynamicImportPlan.FieldPlan(entityAlias, fieldName, title, fieldType, false, true, false);
     }
 
-    private ImportErrorRow errorRow(String sheetKey, LinkedHashMap<String, String> rawValues, String message) {
-        return new ImportErrorRow(sheetKey, rawValues, message, "R-1");
+    private ImportErrorRow errorRow(String sheetKey, LinkedHashMap<String, String> rawValuesByFieldName, String message) {
+        return new ImportErrorRow(sheetKey, rawValuesByFieldName, message, "R-1");
     }
 
-    private LinkedHashMap<String, String> rawValues(String... values) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
+    private LinkedHashMap<String, String> rawValuesByFieldName(String... values) {
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         for (int index = 0; index < values.length; index += 2) {
-            rawValues.put(values[index], values[index + 1]);
+            rawValuesByFieldName.put(values[index], values[index + 1]);
         }
-        return rawValues;
+        return rawValuesByFieldName;
     }
 }

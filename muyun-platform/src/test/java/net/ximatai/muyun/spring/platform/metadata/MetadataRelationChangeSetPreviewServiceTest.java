@@ -124,6 +124,24 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldRejectFormulaDependentEvolutionBeforeSchemaPreflightIncludingDisable() {
+        for (boolean disable : List.of(false, true)) {
+            MetadataField existing = businessField("note", "note", "string");
+            existing.setVersion(2);
+            existing.setEnabled(true);
+            Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+            doThrow(new net.ximatai.muyun.spring.common.exception.PlatformException("公式依赖该字段，不能修改"))
+                    .when(fixture.fieldService).validateConfigurationFieldChange(any(), any());
+            MetadataField proposed = businessField("note", "note", disable ? "string" : "integer");
+            proposed.setEnabled(!disable);
+            var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, proposed))));
+            assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("FIELD_CONFIGURATION_IN_USE");
+            verify(fixture.schemaFacts, never()).countPhysicalRecords(anyString(), anyString(), any());
+        }
+    }
+
+    @Test
     void shouldAllowAnyFieldSpecChangeWhenEntityHasNoData() {
         MetadataField existing = businessField("note", "note", "string");
         existing.setVersion(2);

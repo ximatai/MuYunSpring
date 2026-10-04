@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReference;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationFieldPathReferenceResolver;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceContributor;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
@@ -33,7 +34,7 @@ public class PresentationConfigurationReferences {
     private final ObjectProvider<MetadataFieldService> fields;
     private final ObjectProvider<ModuleMetadataFieldService> moduleFields;
     private final ObjectProvider<ModuleMetadataRelationService> relations;
-    private final PresentationFieldPathReferenceResolver pathReferences;
+    private final ConfigurationFieldPathReferenceResolver pathReferences;
     private final ObjectProvider<PlatformPageDefinitionService> pages;
     private final ObjectProvider<PlatformPresentationVariantService> variants;
     private final ObjectProvider<PlatformPresentationRevisionService> revisions;
@@ -49,7 +50,7 @@ public class PresentationConfigurationReferences {
         this.fields = fields;
         this.moduleFields = moduleFields;
         this.relations = relations;
-        this.pathReferences = new PresentationFieldPathReferenceResolver(metadata, fields, moduleFields, relations,
+        this.pathReferences = new ConfigurationFieldPathReferenceResolver(metadata, fields, moduleFields, relations,
                 referenceConfigs);
         this.pages = pages;
         this.variants = variants;

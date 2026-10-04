@@ -15,6 +15,7 @@ export interface HttpRequestOptions {
   path: string;
   query?: Record<string, RouteQueryValue>;
   body?: unknown;
+  responseType?: 'json' | 'blob';
   headers?: Record<string, string>;
   /** Cancels the underlying Fetch request, including a long-lived response stream. */
   signal?: AbortSignal;
@@ -109,7 +110,7 @@ export function createHttpClient(context: RequestContext = {}): StreamingHttpCli
         return throwFailedResponse(context, response);
       }
 
-      return (await responseBody(response)) as T;
+      return (options.responseType === 'blob' ? await response.blob() : await responseBody(response)) as T;
     },
     async stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>> {
       // SSE is the default stream representation. A caller may select another

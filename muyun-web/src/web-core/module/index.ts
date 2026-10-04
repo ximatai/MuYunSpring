@@ -12,3 +12,5 @@ export type { ModuleAbilityClients, ModuleAbilities } from './abilities';
 export * from './moduleContext';
 
 export * from './pageActionEntries';
+
+export * from './dataExchangeClient';

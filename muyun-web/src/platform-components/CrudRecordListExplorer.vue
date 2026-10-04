@@ -102,6 +102,7 @@ const loadedTotalKnown = ref(false);
 const pageNum = ref(1);
 const pageSize = ref(200);
 const pages = ref(1);
+const successfulRequest = ref<WebQueryRequest>();
 const appliedKeyword = ref('');
 interface QueryControllerSettlement {
   resolve(): void;
@@ -261,6 +262,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     pageSize.value = response.pageSize;
     pages.value = Math.max(1, response.pages);
     appliedKeyword.value = keyword;
+    successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
     emit('loaded', response.records, response.totalKnown === false ? undefined : response.total);
     if (canQueryRecycleBin(context)) void recycleBinState.refreshSummary();
   } catch (cause) {
@@ -314,6 +316,9 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   const total = loadedTotal.value ?? records.value.length;
   return {
     mode: props.mode,
+    ...(!loading.value && !loadError.value && successfulRequest.value
+      ? { request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest }
+      : {}),
     status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
     quickSearchEnabled: props.mode === 'normal' && !loadError.value && props.queryQuickSearchEnabled,
     quickSearchFields: [

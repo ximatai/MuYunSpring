@@ -35,12 +35,12 @@ public class DynamicImportValueConverter {
         ImportTemporalContext effectiveTemporalContext =
                 temporalContext == null ? ImportTemporalContext.UTC : temporalContext;
         LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row);
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         LinkedHashMap<String, Object> convertedValues = new LinkedHashMap<>();
 
         for (DynamicImportPlan.FieldPlan field : sheetPlan.fields()) {
             String raw = normalizeText(valuesByFieldName.get(field.fieldName()));
-            rawValues.put(field.title(), raw);
+            rawValuesByFieldName.put(field.fieldName(), raw);
             valuesByFieldName.put(field.fieldName(), raw);
         }
         for (DynamicImportPlan.FieldPlan field : sheetPlan.fields()) {
@@ -60,7 +60,7 @@ public class DynamicImportValueConverter {
                 }
             }
         }
-        return new ParsedImportRow(sheetPlan.sheetKey(), rawValues, valuesByFieldName, convertedValues);
+        return new ParsedImportRow(sheetPlan.sheetKey(), rawValuesByFieldName, valuesByFieldName, convertedValues);
     }
 
     private void validateCompanionOnlyValue(DynamicImportPlan.FieldPlan field,
