@@ -23,6 +23,8 @@ import net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -52,11 +54,12 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
     @Autowired DynamicRecordService records;
     @Autowired DynamicImportFacade imports;
 
-    @Test
-    void correctedErrorWorkbookRetriesWithoutDuplicatingSuccessfulParentsOrChildren() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void correctedErrorWorkbookRetriesWithoutDuplicatingSuccessfulParentsOrChildren(boolean duplicateTitles) throws Exception {
         String module = module();
         try (var ignored = TenantContext.use("import-owner")) {
-            var first = imports.importWorkbook(command(module, workbook("bad"), ImportDuplicateStrategy.ERROR));
+            var first = imports.importWorkbook(command(module, workbook("bad", duplicateTitles), ImportDuplicateStrategy.ERROR));
             assertThat(first.executionResult().created()).isEqualTo(2);
             assertThat(first.executionResult().errorRows()).hasSize(1);
             assertThat(first.executionResult().summaries().get("line").errors()).isEqualTo(1);
@@ -64,6 +67,8 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(first.errorWorkbookBytes()));
                  var output = new ByteArrayOutputStream()) {
                 assertThat(workbook.getSheet("订单").getLastRowNum()).isEqualTo(2);
+                assertThat(workbook.getSheet("订单").getRow(2).getCell(1).getStringCellValue()).isEqualTo("SO-1");
+                assertThat(workbook.getSheet("订单").getRow(2).getCell(2).getStringCellValue()).isEqualTo("C-1");
                 var child = workbook.getSheet("明细");
                 assertThat(child.getLastRowNum()).isEqualTo(3);
                 child.getRow(3).getCell(2).setCellValue("3");
@@ -136,7 +141,8 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
         refresher.refresh(ModuleDefinition.builder(alias, "导入往返")
                 .entities(List.of(
                         new EntityDefinition("order", "import_order_" + suffix, "订单",
-                                List.of(FieldDefinition.string("orderNo", "订单号").column("order_no").length(32).required()), Set.of(EntityCapability.EXCHANGE)),
+                                List.of(FieldDefinition.string("orderNo", "订单号").column("order_no").length(32).required(),
+                                        FieldDefinition.string("customerNo", "客户号").column("customer_no")), Set.of(EntityCapability.EXCHANGE)),
                         new EntityDefinition("line", "import_line_" + suffix, "明细",
                                 List.of(FieldDefinition.string("orderId", "订单").column("order_id").required(),
                                         FieldDefinition.string("sku", "商品").required(), FieldDefinition.integer("qty", "数量")))))
@@ -150,13 +156,17 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
                         parsed.sheets().stream().filter(sheet -> !sheet.main())
                                 .map(sheet -> new BuildDynamicImportPlanCommand.ChildSheetCommand(sheet.entityAlias(), "sku", strategy)).toList()));
     }
-    private byte[] workbook(String badQty) {
+    private byte[] workbook(String badQty, boolean duplicateTitles) {
         return new ExcelWorkbookPlanWriter().writeToBytes(new ExcelWorkbookPlan(List.of(
                 new ExcelSheetPlan("订单", "order", true,
-                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("orderNo", "订单号")),
-                        List.of(List.of("R-1", "SO-1"))),
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"),
+                                new ExcelColumnPlan("orderNo", duplicateTitles ? "编号" : "订单号"),
+                                new ExcelColumnPlan("customerNo", duplicateTitles ? "编号" : "客户号")),
+                        List.of(List.of("R-1", "SO-1", "C-1"))),
                 new ExcelSheetPlan("明细", "line", false,
-                        List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("sku", "商品"), new ExcelColumnPlan("qty", "数量")),
+                        List.of(new ExcelColumnPlan("relateId", "关联标识"),
+                                new ExcelColumnPlan("sku", duplicateTitles ? "值" : "商品"),
+                                new ExcelColumnPlan("qty", duplicateTitles ? "值" : "数量")),
                         List.of(List.of("R-1", "ok", "1"), List.of("R-1", "fix", badQty))))));
     }
     @SpringBootConfiguration @EnableAutoConfiguration @EnableTransactionManagement

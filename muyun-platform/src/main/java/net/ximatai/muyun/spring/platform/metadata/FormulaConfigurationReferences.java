@@ -66,7 +66,7 @@ public class FormulaConfigurationReferences {
                     }
                     if (rule.getTargetField() != null && !rule.getTargetField().isBlank()) fields.add(rule.getTargetField());
                     for (String field : fields) {
-                        if (paths.uses(relation, field,
+                        if (paths.usesFormulaPath(relation, field,
                                 target == ConfigurationReferenceTarget.METADATA_FIELD ? id : null,
                                 target == ConfigurationReferenceTarget.MODULE_METADATA_FIELD ? id : null,
                                 target == ConfigurationReferenceTarget.MODULE_METADATA_RELATION ? id : null)) {

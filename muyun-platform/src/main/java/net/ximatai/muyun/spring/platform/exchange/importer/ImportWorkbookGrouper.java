@@ -211,14 +211,14 @@ public class ImportWorkbookGrouper {
                                               List<String> row,
                                               String message,
                                               String groupIdentity) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row);
         for (DynamicImportPlan.FieldPlan field : sheetPlan.fields()) {
             String raw = normalizeText(valuesByFieldName.get(field.fieldName()));
-            rawValues.put(field.title(), raw);
+            rawValuesByFieldName.put(field.fieldName(), raw);
             valuesByFieldName.put(field.fieldName(), raw);
         }
-        return ImportErrorRow.of(new ParsedImportRow(sheetPlan.sheetKey(), rawValues, valuesByFieldName),
+        return ImportErrorRow.of(new ParsedImportRow(sheetPlan.sheetKey(), rawValuesByFieldName, valuesByFieldName),
                 message, groupIdentity);
     }
 

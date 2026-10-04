@@ -45,14 +45,25 @@ public final class ConfigurationFieldPathReferenceResolver {
 
     public boolean uses(ModuleMetadataRelation source, String fieldPath, String metadataFieldId,
                  String moduleMetadataFieldId, String relationId) {
+        return uses(source, fieldPath, metadataFieldId, moduleMetadataFieldId, relationId, false);
+    }
+
+    /** Formula runtime reserves direct child prefixes before interpreting scalar reference paths. */
+    public boolean usesFormulaPath(ModuleMetadataRelation source, String fieldPath, String metadataFieldId,
+                                   String moduleMetadataFieldId, String relationId) {
+        return uses(source, fieldPath, metadataFieldId, moduleMetadataFieldId, relationId, true);
+    }
+
+    private boolean uses(ModuleMetadataRelation source, String fieldPath, String metadataFieldId,
+                         String moduleMetadataFieldId, String relationId, boolean childPrefixesFirst) {
         if (source == null || fieldPath == null || fieldPath.isBlank()) return false;
-        PathReferences references = resolve(source, fieldPath);
+        PathReferences references = resolve(source, fieldPath, childPrefixesFirst);
         return metadataFieldId != null && references.metadataFieldIds().contains(metadataFieldId)
                 || moduleMetadataFieldId != null && references.moduleMetadataFieldIds().contains(moduleMetadataFieldId)
                 || relationId != null && references.relationIds().contains(relationId);
     }
 
-    private PathReferences resolve(ModuleMetadataRelation source, String fieldPath) {
+    private PathReferences resolve(ModuleMetadataRelation source, String fieldPath, boolean childPrefixesFirst) {
         List<String> segments = List.of(fieldPath.split("\\.", -1));
         if (segments.isEmpty() || segments.stream().anyMatch(segment -> segment.isBlank())) {
             return PathReferences.EMPTY;
@@ -71,20 +82,18 @@ public final class ConfigurationFieldPathReferenceResolver {
                 continue;
             }
             MetadataField field = field(node.relation().getMetadataId(), segment);
-            if (field == null) {
-                if (index == 0 && segments.size() > 1) {
-                    ModuleMetadataRelation child = relations.getObject().list(Criteria.of()
-                                    .eq("moduleAlias", source.getModuleAlias())
-                                    .eq("parentMetadataId", source.getMetadataId()).eq("relationAlias", segment), ALL)
-                            .stream().findFirst().orElse(null);
-                    if (child != null) {
-                        relationIds.add(child.getId());
-                        node = Node.dynamic(child);
-                        continue;
-                    }
+            if (index == 0 && segments.size() > 1 && (childPrefixesFirst || field == null)) {
+                ModuleMetadataRelation child = relations.getObject().list(Criteria.of()
+                                .eq("moduleAlias", source.getModuleAlias())
+                                .eq("parentMetadataId", source.getMetadataId()).eq("relationAlias", segment), ALL)
+                        .stream().findFirst().orElse(null);
+                if (child != null) {
+                    relationIds.add(child.getId());
+                    node = Node.dynamic(child);
+                    continue;
                 }
-                break;
             }
+            if (field == null) break;
             metadataFieldIds.add(field.getId());
             relationIds.add(node.relation().getId());
             ModuleMetadataField moduleField = moduleField(node.relation().getId(), field.getId());

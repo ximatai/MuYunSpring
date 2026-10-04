@@ -56,10 +56,10 @@ public class DynamicImportErrorWorkbookBuilder {
         Map<String, List<ImportErrorRow>> bySheet = groupErrorRowsBySheetKey(plan, errors);
         Set<String> affectedGroups = new LinkedHashSet<>();
         for (DynamicImportPlan.SheetPlan sheet : plan.sheets()) {
-            String groupTitle = sheet.fields().stream().filter(DynamicImportPlan.FieldPlan::relateId)
-                    .map(DynamicImportPlan.FieldPlan::title).findFirst().orElse(null);
+            String groupField = sheet.fields().stream().filter(DynamicImportPlan.FieldPlan::relateId)
+                    .map(DynamicImportPlan.FieldPlan::fieldName).findFirst().orElse(null);
             for (ImportErrorRow error : bySheet.getOrDefault(sheet.sheetKey(), List.of())) {
-                String group = normalize(error.rawValues().get(groupTitle));
+                String group = normalize(error.rawValuesByFieldName().get(groupField));
                 if (group != null) affectedGroups.add(group);
             }
         }
@@ -71,7 +71,7 @@ public class DynamicImportErrorWorkbookBuilder {
             parsed.columns().forEach(column -> columnIndexes.putIfAbsent(column.fieldName(), column.columnIndex()));
             Map<Map<String, String>, Set<String>> messagesByRow = new LinkedHashMap<>();
             for (ImportErrorRow error : bySheet.getOrDefault(sheet.sheetKey(), List.of())) {
-                messagesByRow.computeIfAbsent(error.rawValues(), ignored -> new LinkedHashSet<>()).add(error.message());
+                messagesByRow.computeIfAbsent(error.rawValuesByFieldName(), ignored -> new LinkedHashSet<>()).add(error.message());
             }
             List<List<Object>> rows = new ArrayList<>();
             for (List<String> row : parsed.rows()) {
@@ -80,7 +80,7 @@ public class DynamicImportErrorWorkbookBuilder {
                 for (DynamicImportPlan.FieldPlan field : sheet.fields()) {
                     int index = columnIndexes.get(field.fieldName());
                     String value = index < row.size() ? normalize(row.get(index)) : null;
-                    raw.put(field.title(), value);
+                    raw.put(field.fieldName(), value);
                     if (field.relateId()) group = value;
                 }
                 Set<String> messages = messagesByRow.getOrDefault(raw, Set.of());
@@ -137,7 +137,7 @@ public class DynamicImportErrorWorkbookBuilder {
     private List<Object> toWorkbookRow(DynamicImportPlan.SheetPlan sheet, ImportErrorRow errorRow) {
         List<Object> row = new ArrayList<>();
         for (DynamicImportPlan.FieldPlan field : sheet.fields()) {
-            row.add(errorRow.rawValues().get(field.title()));
+            row.add(errorRow.rawValuesByFieldName().get(field.fieldName()));
         }
         row.add(errorRow.message());
         return row;

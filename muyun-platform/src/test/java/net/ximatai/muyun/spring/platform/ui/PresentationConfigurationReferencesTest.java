@@ -29,6 +29,8 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.mockito.Mockito;
 
@@ -186,6 +188,67 @@ class PresentationConfigurationReferencesTest {
         assertThat(formulas.formulaMetadataFieldReference().findReferenceId("field-qty")).contains("formula-1");
         assertThat(formulas.formulaMetadataFieldReference().findReferenceId("field-supplier")).contains("formula-1");
         assertThat(formulas.formulaRelationPathReference().findReferenceId("relation-line")).contains("formula-1");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void formulaChildPrefixesTakePrecedenceOverSameNamedMainFields(boolean referenceField) {
+        Fixture fixture = new Fixture(referenceField ? "lines.organizationId.title" : "lines");
+        fixture.field("field-lines", "metadata-order", "lines");
+        fixture.moduleField("module-field-lines", "relation-order", "field-lines");
+        if (referenceField) {
+            fixture.reference("reference-lines", "field-lines", "relation-order", "supply.supplier", "metadata-supplier");
+        }
+        fixture.metadata("metadata-line", "line");
+        fixture.relation("relation-line", "purchase.order", "metadata-line");
+        ModuleMetadataRelation line = fixture.relationService.select("relation-line");
+        line.setParentMetadataId("metadata-order");
+        line.setRelationAlias("lines");
+        line.setRelationRole(RelationRole.CHILD);
+        fixture.relationDao.updateById(line);
+        fixture.field("field-qty", "metadata-line", "qty");
+        fixture.moduleField("module-field-qty", "relation-line", "field-qty");
+
+        var formulas = formulaReferences(fixture, "SUM({lines.qty})", null);
+        var fieldReference = formulas.formulaMetadataFieldReference();
+        assertThat(fieldReference.findReferenceId("field-qty")).contains("formula-1");
+        assertThat(fieldReference.findReferenceId("field-lines")).isEmpty();
+        assertThat(formulas.formulaModuleFieldReference().findReferenceId("module-field-qty")).contains("formula-1");
+        assertThat(formulas.formulaModuleFieldReference().findReferenceId("module-field-lines")).isEmpty();
+        assertThat(formulas.formulaRelationPathReference().findReferenceId("relation-line")).contains("formula-1");
+
+        var guard = new ConfigurationReferenceDeletionGuard(java.util.List.of(fieldReference,
+                formulas.formulaModuleFieldReference(), formulas.formulaRelationPathReference()));
+        assertThatThrownBy(() -> guard.assertCanDelete(
+                net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget.METADATA_FIELD, "field-qty"))
+                .hasMessageContaining("不能删除");
+        assertThatThrownBy(() -> guard.assertCanDelete(
+                net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget.MODULE_METADATA_FIELD, "module-field-qty"))
+                .hasMessageContaining("不能删除");
+        assertThatThrownBy(() -> guard.assertCanDelete(
+                net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget.MODULE_METADATA_RELATION, "relation-line"))
+                .hasMessageContaining("不能删除");
+        MetadataField existing = fixture.fieldService.select("field-qty");
+        MetadataField changed = new MetadataField();
+        changed.setFieldName("renamedQty");
+        assertThatThrownBy(() -> guard.assertCanChangeField(existing, changed)).hasMessageContaining("不能修改");
+        changed.setFieldName(existing.getFieldName());
+        changed.setFieldSpecAlias("integer");
+        assertThatThrownBy(() -> guard.assertCanChangeField(existing, changed)).hasMessageContaining("不能修改");
+        changed.setFieldSpecAlias(existing.getFieldSpecAlias());
+        changed.setEnabled(false);
+        assertThatThrownBy(() -> guard.assertCanChangeField(existing, changed)).hasMessageContaining("停用");
+        assertThatCode(() -> guard.assertCanDelete(
+                net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget.METADATA_FIELD, "field-lines"))
+                .doesNotThrowAnyException();
+
+        // A bare field and a page reference path retain their own identities despite the child prefix.
+        var bareField = formulaReferences(fixture, "{lines} != ''", null);
+        assertThat(bareField.formulaMetadataFieldReference().findReferenceId("field-lines")).contains("formula-1");
+        assertThat(bareField.formulaMetadataFieldReference().findReferenceId("field-qty")).isEmpty();
+        assertReferenced(fixture.fieldReferences(), "field-lines");
+        if (referenceField) assertReferenced(fixture.fieldReferences(), "field-organization-title");
+        assertThat(fixture.fieldReferences().findReferenceId("field-qty")).isEmpty();
     }
 
     private FormulaConfigurationReferences formulaReferences(Fixture fixture, String expression, String target) {

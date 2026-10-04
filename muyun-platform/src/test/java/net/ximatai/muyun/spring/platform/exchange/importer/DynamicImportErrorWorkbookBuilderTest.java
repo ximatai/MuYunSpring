@@ -29,15 +29,15 @@ class DynamicImportErrorWorkbookBuilderTest {
         ExcelWorkbookMeta meta = new ExcelWorkbookMeta("2", "sales.order", "custom-plan", "Custom Plan", "UTC");
 
         ExcelWorkbookPlan workbook = builder.build(plan(), List.of(
-                errorRow("Order", rawValues(
-                        "关联标识", "R-1",
-                        "Order No", "SO-001",
-                        "Placed At", "2026-06-08 09:30:00"
+                errorRow("Order", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "orderNo", "SO-001",
+                        "placedAt", "2026-06-08 09:30:00"
                 ), "Order No already exists"),
-                errorRow("Order Line", rawValues(
-                        "关联标识", "R-1",
-                        "SKU", "SKU-01",
-                        "Qty", "bad"
+                errorRow("Order Line", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "sku", "SKU-01",
+                        "qty", "bad"
                 ), "Qty must be a number")
         ), meta);
 
@@ -109,7 +109,7 @@ class DynamicImportErrorWorkbookBuilderTest {
     @Test
     void shouldRejectUnknownErrorRowSheetKey() {
         assertThatThrownBy(() -> builder.build(plan(), List.of(
-                errorRow("Unknown", rawValues("Order No", "SO-001"), "bad sheet")
+                errorRow("Unknown", rawValuesByFieldName("orderNo", "SO-001"), "bad sheet")
         )))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("sheetKey does not belong to plan")
@@ -145,10 +145,10 @@ class DynamicImportErrorWorkbookBuilderTest {
     @Test
     void shouldWriteAndParseErrorWorkbookWithErrorColumn() {
         ExcelWorkbookPlan workbook = builder.build(plan(), List.of(
-                errorRow("Order", rawValues(
-                        "关联标识", "R-1",
-                        "Order No", "SO-001",
-                        "Placed At", "2026-06-08 09:30:00"
+                errorRow("Order", rawValuesByFieldName(
+                        "relateId", "R-1",
+                        "orderNo", "SO-001",
+                        "placedAt", "2026-06-08 09:30:00"
                 ), "Order No already exists")
         ));
 
@@ -199,7 +199,7 @@ class DynamicImportErrorWorkbookBuilderTest {
         ExcelWorkbookPlanWriter writer = new ExcelWorkbookPlanWriter();
         ParsedWorkbook source = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(sourceSheets)));
         var retry = builder.buildRetryWorkbook(plan, List.of(errorRow("Order Line",
-                rawValues("关联标识", "R-1", "SKU", "SKU-bad", "Qty", "bad"), "Qty must be a number")), source);
+                rawValuesByFieldName("relateId", "R-1", "sku", "SKU-bad", "qty", "bad"), "Qty must be a number")), source);
         assertThat(retry.sheets().get(0).rows()).hasSize(1);
         assertThat(retry.sheets().get(1).rows()).hasSize(2);
         assertThat(retry.sheets().get(2).rows()).hasSize(1);
@@ -221,6 +221,39 @@ class DynamicImportErrorWorkbookBuilderTest {
         assertThat(grouped.groups().get("R-1").childRowsBySheetKey().get("Order Line"))
                 .extracting(row -> row.convertedValues().get("qty")).containsExactly(1, 3);
         assertThat(grouped.groups().get("R-1").isChildSheetCovered("Shipment")).isTrue();
+    }
+
+    @Test
+    void shouldPreserveTechnicalFieldIdentityWhenTitlesCollide() {
+        var sheet = new DynamicImportPlan.SheetPlan("Order", "order", "Order", true, "orderNo",
+                ImportDuplicateStrategy.SKIP, List.of(relateIdField("order"),
+                        field("order", "orderNo", "编号", FieldType.STRING),
+                        field("order", "customerNo", "编号", FieldType.STRING),
+                        field("order", "memo", "关联标识", FieldType.STRING)));
+        var plan = new DynamicImportPlan("sales.order", "order-import", List.of(sheet));
+        var writer = new ExcelWorkbookPlanWriter();
+        var parser = new ExcelWorkbookParser();
+        var source = parser.parse(writer.writeToBytes(new ExcelWorkbookPlan(List.of(
+                new ExcelSheetPlan("Order", "order", true,
+                        sheet.fields().stream().map(field -> new ExcelColumnPlan(field.fieldName(), field.title())).toList(),
+                        List.of(List.of("R-1", "SO-1", "C-1", "")))))));
+        var parsedRow = new DynamicImportValueConverter().convert(sheet, source.sheets().getFirst(),
+                source.sheets().getFirst().rows().getFirst(), ImportTemporalContext.UTC);
+        var error = ImportErrorRow.of(parsedRow, "需要修正", "R-1");
+        assertThat(error.rawValuesByFieldName()).containsEntry("orderNo", "SO-1")
+                .containsEntry("customerNo", "C-1").containsEntry("memo", null);
+
+        for (var workbook : List.of(builder.build(plan, List.of(error)),
+                builder.buildRetryWorkbook(plan, List.of(error), source))) {
+            var reparsed = parser.parse(writer.writeToBytes(workbook));
+            assertThat(reparsed.sheets().getFirst().rows().getFirst())
+                    .containsExactly("R-1", "SO-1", "C-1", null, "需要修正");
+            var regrouped = new ImportWorkbookGrouper().group(plan, reparsed);
+            assertThat(regrouped.errorRows()).isEmpty();
+            assertThat(regrouped.groups()).containsOnlyKeys("R-1");
+            assertThat(regrouped.groups().get("R-1").mainRow().valuesByFieldName())
+                    .containsEntry("orderNo", "SO-1").containsEntry("customerNo", "C-1");
+        }
     }
 
     private DynamicImportPlan plan() {
@@ -286,15 +319,15 @@ class DynamicImportErrorWorkbookBuilderTest {
         return new DynamicImportPlan.FieldPlan(entityAlias, fieldName, title, fieldType, false, true, false);
     }
 
-    private ImportErrorRow errorRow(String sheetKey, LinkedHashMap<String, String> rawValues, String message) {
-        return new ImportErrorRow(sheetKey, rawValues, message, "R-1");
+    private ImportErrorRow errorRow(String sheetKey, LinkedHashMap<String, String> rawValuesByFieldName, String message) {
+        return new ImportErrorRow(sheetKey, rawValuesByFieldName, message, "R-1");
     }
 
-    private LinkedHashMap<String, String> rawValues(String... values) {
-        LinkedHashMap<String, String> rawValues = new LinkedHashMap<>();
+    private LinkedHashMap<String, String> rawValuesByFieldName(String... values) {
+        LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         for (int index = 0; index < values.length; index += 2) {
-            rawValues.put(values[index], values[index + 1]);
+            rawValuesByFieldName.put(values[index], values[index + 1]);
         }
-        return rawValues;
+        return rawValuesByFieldName;
     }
 }
