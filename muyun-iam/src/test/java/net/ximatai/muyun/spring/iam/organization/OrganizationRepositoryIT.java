@@ -15,6 +15,8 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,6 +105,37 @@ class OrganizationRepositoryIT {
             assertThat(organizationService.delete(rootId)).isEqualTo(1);
             assertThat(organizationService.select(rootId)).isNull();
             assertThat(organizationService.count(Criteria.of())).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void organizationCodeShouldBeUniqueWithinTenantOnly() throws Exception {
+        String code = "TENANT-UNIQUE-CONTRACT";
+        try (var ignored = TenantContext.use("unique-contract-a")) {
+            Organization first = new Organization();
+            first.setCode(code);
+            first.setTitle("First tenant");
+            organizationService.insert(first);
+
+            Organization duplicate = new Organization();
+            duplicate.setCode(code);
+            duplicate.setTitle("Duplicate in first tenant");
+            assertThatThrownBy(() -> organizationService.insert(duplicate))
+                    .isInstanceOf(PlatformException.class)
+                    .satisfies(failure -> assertThat(((PlatformException) failure).code())
+                            .isEqualTo(PlatformErrorCodes.CONFLICT_UNIQUE));
+        }
+        try (var ignored = TenantContext.use("unique-contract-b")) {
+            Organization second = new Organization();
+            second.setCode(code);
+            second.setTitle("Second tenant");
+            String id = organizationService.insert(second);
+            assertThat(organizationService.select(id).getCode()).isEqualTo(code);
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            assertThat(organizationUniqueIndexColumns(connection))
+                    .contains(List.of("tenant_id", "code"))
+                    .doesNotContain(List.of("code"));
         }
     }
 
