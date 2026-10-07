@@ -15,7 +15,7 @@ public record ApplicationConstructionRequirement(Section section, int index, Str
         }
     }
     public ApplicationConstructionRequirement {
-        if (section == null || index < 0 || index >= 16 || mode == null
+        if (section == null || index < 0 || index >= ApplicationConstructionPlanContent.MAX_TEXT_ITEMS || mode == null
                 || objectKey == null || !objectKey.matches("[a-z][a-z0-9_-]{0,63}"))
             throw new IllegalArgumentException("需求兑现项身份无效");
         if (explanation == null || explanation.isBlank() || explanation.length() > 500)

@@ -99,9 +99,8 @@ class ConstructionFieldsIT {
                     .contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE)
                     .doesNotContain(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
             publishStandardPage(planId, new PageLayout("entry", "登记", List.of("title"), List.of("title"), List.of("title")));
-            var proposal = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
-                    "登记", List.of(), List.of(), List.of());
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), proposal, delivery.preview(planId, proposal).fingerprint()));
+            createStandardEntry(moduleAlias, "登记");
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
             var acceptance = delivery.previewAcceptance(planId, "entry");
             delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", acceptance.fingerprint()));
@@ -260,10 +259,11 @@ class ConstructionFieldsIT {
             String manualMenuId = constructionMenus.insert(manualMenu);
             assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
             assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
-            assertThatThrownBy(() -> delivery.preview(planId, entry)).hasMessageContaining("已有访问入口");
+            assertThatThrownBy(() -> delivery.preview(planId, entry)).hasMessageContaining("共享菜单治理");
             var disabledMenu = constructionMenus.select(manualMenuId); disabledMenu.setEnabled(false); constructionMenus.update(disabledMenu);
             assertThat(delivery.progress(planId, "entry").entryVisible()).isFalse();
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            createStandardEntry(binding.moduleAlias(), "订单登记");
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.VERIFY_BUSINESS);
             var acceptance = delivery.previewAcceptance(planId, "entry");
             var nextRevisionId = presentationRevisions.insert(standardRevision(variantId, 2, "订单资料"));
@@ -336,14 +336,12 @@ class ConstructionFieldsIT {
 
             var entryProposal = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
                     "订单登记", List.of(), List.of(), List.of());
-            var entryPreview = delivery.preview(planId, entryProposal);
-            var entryCommand = new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entryProposal, entryPreview.fingerprint());
-            var entryReceipt = delivery.confirm(planId, entryCommand);
-            assertThat(delivery.confirm(planId, entryCommand)).isEqualTo(entryReceipt);
+            createStandardEntry(binding.moduleAlias(), "订单登记");
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.VERIFY_BUSINESS);
             assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
-            assertThatThrownBy(() -> delivery.preview(planId, entryProposal)).hasMessageContaining("已有访问入口");
+            assertThatThrownBy(() -> delivery.preview(planId, entryProposal)).hasMessageContaining("共享菜单治理");
             var businessTenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
             businessTenant.setTitle("建设验收租户"); businessTenant.setAlias("accept_" + planId.substring(0, 10));
             String tenantId = tenants.insert(businessTenant);
@@ -540,9 +538,8 @@ class ConstructionFieldsIT {
             assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
             assertThat(delivery.progress(planId, "entry").requirements()).allSatisfy(item ->
                     assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
-            var entry = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
-                    "订货单", List.of(), List.of(), List.of());
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            createStandardEntry(binding.moduleAlias(), "订货单");
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             var acceptance = delivery.previewAcceptance(planId, "entry");
             // Changing the formula without changing its target must invalidate the previous approval baseline.
             var revisedRules = List.of(rules.getFirst(), new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
@@ -651,9 +648,8 @@ class ConstructionFieldsIT {
                     "订单登记", List.of("number", "customerId", "total"), List.of("number", "customerId", "total"), List.of(),
                     java.util.Map.of("lines", List.of("productId", "quantity", "price", "amount")));
             publishStandardPage(planId, page);
-            var entry = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY,
-                    "订单登记", List.of(), List.of(), List.of());
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            createStandardEntry(order.moduleAlias(), "订单登记");
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             // Configuration readiness is distinct from acceptance of actual tenant business behavior.
             var progress = delivery.progress(planId, "order");
             assertThat(progress.pagePublished()).isTrue();
@@ -758,6 +754,45 @@ class ConstructionFieldsIT {
                     UUID.randomUUID().toString(), "order", acceptance.fingerprint()));
             assertThat(delivery.task(planId).objects()).filteredOn(item -> item.objectKey().equals("order"))
                     .singleElement().satisfies(item -> assertThat(item.complete()).isTrue());
+        }
+    }
+
+    /** Exercise the same scoped CRUD save and durable receipt used by shared menu governance. */
+    private String createStandardEntry(String moduleAlias, String title) {
+        try {
+            String schemeId = constructionMenuSchemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow()).getId();
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            String context = mapper.writeValueAsString(java.util.Map.of("scheme", schemeId));
+            String requestId = UUID.randomUUID().toString();
+            String body = mapper.writeValueAsString(java.util.Map.of("schemeId", schemeId,
+                    "parentId", net.ximatai.muyun.spring.ability.TreeAbility.ROOT_ID, "title", title,
+                    "moduleAlias", moduleAlias, "enabled", true, "openMode", "tab", "pageMode", "LIST"));
+            var mvc = webAppContextSetup(webApplicationContext).build();
+            var response = mvc.perform(post("/platform.menu/insert").header("X-MuYun-Page-Context", context)
+                    .header("X-Muyun-Save-Request", requestId).contentType("application/json").content(body))
+                    .andReturn().getResponse();
+            assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(201);
+            var root = mapper.readTree(response.getContentAsString());
+            String id = (root.has("data") ? root.path("data") : root).path("id").asText();
+            assertThat(id).isNotBlank();
+            var repeated = mvc.perform(post("/platform.menu/insert").header("X-MuYun-Page-Context", context)
+                    .header("X-Muyun-Save-Request", requestId).contentType("application/json").content(body))
+                    .andReturn().getResponse();
+            assertThat(repeated.getStatus()).as(repeated.getContentAsString()).isEqualTo(201);
+            var repeatedRoot = mapper.readTree(repeated.getContentAsString());
+            assertThat((repeatedRoot.has("data") ? repeatedRoot.path("data") : repeatedRoot).path("id").asText()).isEqualTo(id);
+            assertThat(constructionMenus.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("schemeId", schemeId).eq("moduleAlias", moduleAlias).eq("enabled", true),
+                    net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10))).hasSize(1);
+            var receipt = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .get("/platform.menu/save-receipts/" + requestId).header("X-MuYun-Page-Context", context))
+                    .andReturn().getResponse();
+            assertThat(receipt.getStatus()).as(receipt.getContentAsString()).isEqualTo(200);
+            assertThat(mapper.readTree(receipt.getContentAsString()).path("committed").asBoolean()).isTrue();
+            assertThat(mapper.readTree(receipt.getContentAsString()).path("recordId").asText()).isEqualTo(id);
+            return id;
+        } catch (Exception failure) {
+            throw new AssertionError("Standard menu governance failed", failure);
         }
     }
 

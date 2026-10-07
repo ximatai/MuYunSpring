@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -8,6 +10,10 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
+import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -21,8 +27,140 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.nullable;
 
 class MetadataRelationChangeSetPreviewServiceTest {
+    @Test
+    void shouldRejectDefaultsOutsideTheInheritedPhysicalShapeBeforePublication() {
+        MetadataField existing = businessField("code", "code", "string"); existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        FieldSpec spec = new FieldSpec(); spec.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+        spec.setDefaultLength(128);
+        when(fixture.fieldSpecService.requireFieldType("string")).thenReturn(spec);
+        MetadataFieldConfig base = new MetadataFieldConfig(); base.setVersion(5); base.setFieldLength(3);
+        when(fixture.fieldConfigService.findByMetadataFieldId("field-0")).thenReturn(base);
+        var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, existing,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null,
+                                new MetadataFieldFixedDefaultDraft("ABCD", 5))))));
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::message).anyMatch(message -> message.contains("field length"));
+    }
+
+    @Test
+    void shouldValidateDictionaryDefaultCodesAndSelectionShapeBeforePublication() {
+        for (var mode : net.ximatai.muyun.spring.common.option.OptionSelectionMode.values()) {
+            Fixture fixture = fixture(RelationRole.MAIN, List.of());
+            boolean multiple = mode == net.ximatai.muyun.spring.common.option.OptionSelectionMode.MULTIPLE;
+            FieldSpec spec = new FieldSpec(); spec.setFieldType(multiple
+                    ? net.ximatai.muyun.spring.dynamic.metadata.FieldType.JSON
+                    : net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+            when(fixture.fieldSpecService.requireFieldType("status")).thenReturn(spec);
+            when(fixture.dictionaryItems.resolveEnabledItem("crm", "state", "NEW"))
+                    .thenReturn(new net.ximatai.muyun.spring.platform.dictionary.DictionaryItem());
+            MetadataFieldConfig dictionary = new MetadataFieldConfig(); dictionary.setDictionaryApplicationAlias("crm");
+            dictionary.setDictionaryCategoryAlias("state"); dictionary.setSelectionMode(mode);
+            java.util.function.Function<String, MetadataRelationChangeSetPreview> preview = value -> fixture.service.preview(
+                    "crm.customer", "main", command(3, Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                            MetadataFieldChangeSetDraft.Operation.ADD, null, null, businessField("status", "status", "status"),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null, dictionary,
+                                    new MetadataFieldFixedDefaultDraft(value, null))))));
+            assertThat(preview.apply(multiple ? "[\"NEW\"]" : "NEW").errors()).isEmpty();
+            assertThat(preview.apply(multiple ? "[\"UNKNOWN\"]" : "UNKNOWN").errors())
+                    .extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+            if (multiple) {
+                for (String invalid : List.of("NEW", "\"NEW\"", "{\"code\":\"NEW\"}", "[\"NEW\",\"NEW\"]", "[1]")) {
+                    assertThat(preview.apply(invalid).errors()).extracting(MetadataChangeSetValidationIssue::code)
+                            .contains("INVALID_FIXED_DEFAULT");
+                }
+            }
+        }
+    }
+    @Test
+    void shouldValidateDefaultUsingTheSameInheritedNormalizationAsRuntime() {
+        MetadataField existing = businessField("code", "code", "string"); existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        var string = new FieldSpec(); string.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+        when(fixture.fieldSpecService.requireFieldType("string")).thenReturn(string);
+        var base = new MetadataFieldConfig(); base.setVersion(5); base.setValidationRegex("[A-Z]+");
+        base.setTextNormalization(net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);
+        when(fixture.fieldConfigService.findByMetadataFieldId("field-0")).thenReturn(base);
+        var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, existing,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null,
+                                new MetadataFieldFixedDefaultDraft(" ABC ", 5))))));
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void shouldValidateFixedDefaultsBeforePublicationAndBindTheValueToConfirmation() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        FieldSpec decimal = new FieldSpec();
+        decimal.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.DECIMAL);
+        when(fixture.fieldSpecService.requireFieldType("decimal")).thenReturn(decimal);
+        MetadataField field = businessField("rate", "rate", "decimal");
+        java.util.function.Function<String, MetadataRelationChangeSetPreview> preview = value -> fixture.service.preview(
+                "crm.customer", "main", command(3, Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                        MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null,
+                                new MetadataFieldFixedDefaultDraft(value, null))))));
+        var one = preview.apply("1");
+        assertThat(one.errors()).isEmpty();
+        assertThat(one.plan().fieldMutations().getFirst().property().fixedDefault().value()).isEqualTo("1");
+        assertThat(preview.apply("0.9").proposalFingerprint()).isNotEqualTo(one.proposalFingerprint());
+        assertThat(preview.apply("not a number").errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("INVALID_FIXED_DEFAULT");
+        verify(fixture.fieldConfigService, never()).insert(any());
+    }
+
+    @Test
+    void shouldRejectStaleDefaultsAndUnsupportedRemovalOfInheritedOrLegacyValues() {
+        MetadataField existing = businessField("rate", "rate", "decimal");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        FieldSpec decimal = new FieldSpec();
+        decimal.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.DECIMAL);
+        when(fixture.fieldSpecService.requireFieldType("decimal")).thenReturn(decimal);
+        MetadataFieldConfig base = new MetadataFieldConfig();
+        base.setVersion(5);
+        base.setDefaultValue("1");
+        when(fixture.fieldConfigService.findByMetadataFieldId("field-0")).thenReturn(base);
+        for (MetadataFieldFixedDefaultDraft value : List.of(new MetadataFieldFixedDefaultDraft("0.9", 4),
+                new MetadataFieldFixedDefaultDraft(null, 5))) {
+            var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                    new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, existing,
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null, value)))));
+            assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        }
+        ModuleMetadataField legacy = new ModuleMetadataField();
+        legacy.setDefaultValue("0.8");
+        when(fixture.moduleFieldService.findByRelationAndField("main", "field-0")).thenReturn(legacy);
+        var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, existing,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC, null, null, null,
+                                new MetadataFieldFixedDefaultDraft("0.9", 5))))));
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::message).anyMatch(value -> value.contains("旧模块字段"));
+    }
+    @Test
+    void shouldRejectCapabilityOwnedBusinessFieldsBeforePublicationEvenWithoutDeclarations() {
+        for (MetadataField field : List.of(businessField("enabled", "enabled", "boolean"),
+                businessField("parentId", "parent_id", "string"),
+                businessField("ranking", "sort_order", "integer"))) {
+            Fixture fixture = fixture(RelationRole.MAIN, List.of());
+            fixture.metadataService.select("metadata-1").setCapabilityDeclarations(java.util.Set.of());
+            for (Map<EntityCapability, Boolean> selections : List.of(Map.<EntityCapability, Boolean>of(),
+                    Map.of(EntityCapability.ENABLE, true))) {
+                var result = fixture.service.preview("crm.customer", "main", command(3, selections,
+                        List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, field))));
+                assertThat(result.valid()).isFalse();
+                assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                        .contains("CAPABILITY_FIELD_CONFLICT");
+                assertThat(result.plan().fieldMutations()).isEmpty();
+            }
+        }
+    }
+
     @Test
     void shouldPreviewFinalAdditiveModelWithoutWritingAnything() {
         Fixture fixture = fixture(RelationRole.MAIN, List.of(businessField("title", "title", "string")));
@@ -103,7 +241,9 @@ class MetadataRelationChangeSetPreviewServiceTest {
 
             assertThat(result.valid()).as(name).isFalse();
             assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::message)
-                    .anyMatch(message -> message.contains("STRING") && message.contains("title"));
+                    .anyMatch(message -> name.equals("title")
+                            ? message.contains("STRING") && message.contains("TEXT") && !message.contains("物理列")
+                            : message.contains("title") && message.contains("物理列") && !message.contains("TEXT"));
         }
     }
 
@@ -373,6 +513,17 @@ class MetadataRelationChangeSetPreviewServiceTest {
         FieldSpecService fieldSpecService = mock(FieldSpecService.class);
         MetadataFieldReferenceConfigService referenceConfigService = mock(MetadataFieldReferenceConfigService.class);
         MetadataFieldConfigService fieldConfigService = mock(MetadataFieldConfigService.class);
+        DictionaryItemService dictionaryItems = mock(DictionaryItemService.class);
+        MetadataFieldConfigService behaviorValidator = new MetadataFieldConfigService(new TestMemoryDao<>(), fieldService,
+                metadataService, fieldSpecService, mock(DictionaryCategoryService.class),
+                new DictionaryFieldValueValidator(dictionaryItems), relationService,
+                mock(MetadataFieldProtectionConfigService.class), java.util.Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
+        doAnswer(call -> {
+            behaviorValidator.validateEffectiveBehavior(call.getArgument(0), call.getArgument(1), call.getArgument(2), call.getArgument(3));
+            return null;
+        }).when(fieldConfigService).validateEffectiveBehavior(any(MetadataField.class), nullable(MetadataFieldConfig.class),
+                nullable(MetadataFieldConfig.class), nullable(ModuleMetadataField.class));
         ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         DynamicRecordService recordService = mock(DynamicRecordService.class);
         DynamicSchemaGovernanceFacts schemaFacts = mock(DynamicSchemaGovernanceFacts.class);
@@ -398,11 +549,13 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(metadataService.select("metadata-1")).thenReturn(metadata);
         when(relationService.count(any(Criteria.class))).thenReturn(0L);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
-        when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
+        var string = new FieldSpec();
+        string.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+        when(fieldSpecService.requireFieldType(anyString())).thenReturn(string);
         when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
                 fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService), metadataService, fieldService,
-                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService, schemaFacts);
+                fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService, schemaFacts, dictionaryItems);
     }
 
     private MetadataField businessField(String name, String column, String spec) {
@@ -419,6 +572,6 @@ class MetadataRelationChangeSetPreviewServiceTest {
                            MetadataService metadataService, MetadataFieldService fieldService,
                            FieldSpecService fieldSpecService, MetadataFieldReferenceConfigService referenceConfigService,
                            MetadataFieldConfigService fieldConfigService, ModuleMetadataFieldService moduleFieldService,
-                           DynamicRecordService recordService, DynamicSchemaGovernanceFacts schemaFacts) {
+                           DynamicRecordService recordService, DynamicSchemaGovernanceFacts schemaFacts, DictionaryItemService dictionaryItems) {
     }
 }

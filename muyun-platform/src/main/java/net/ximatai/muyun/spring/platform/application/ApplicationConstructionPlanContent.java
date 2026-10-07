@@ -9,6 +9,8 @@ public record ApplicationConstructionPlanContent(
         List<BusinessObject> objects, List<String> relationships, List<String> rules,
         List<String> questions, List<String> assumptions, List<Decision> decisions,
         List<String> acceptanceExamples, List<ApplicationConstructionRequirement> requirements) {
+    public static final int MAX_TEXT_ITEMS = 64;
+    public static final int MAX_CONTENT_BYTES = 32 * 1024;
     public ApplicationConstructionPlanContent {
         title = text(title, 120); goal = text(goal, 1500);
         inScope = texts(inScope); outOfScope = texts(outOfScope);
@@ -66,6 +68,8 @@ public record ApplicationConstructionPlanContent(
         return List.copyOf(values);
     }
     private static List<String> texts(List<String> values) {
-        return items(values).stream().map(value -> text(value, 500)).toList();
+        if (values == null || values.size() > MAX_TEXT_ITEMS || values.stream().anyMatch(java.util.Objects::isNull))
+            throw new IllegalArgumentException("每组业务条目最多 " + MAX_TEXT_ITEMS + " 项，不能包含空项");
+        return values.stream().map(value -> text(value, 500)).toList();
     }
 }

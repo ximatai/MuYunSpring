@@ -66,6 +66,7 @@ public class AiModelConfigurationWebController
                                     .field("title", field -> field.label("配置名称").readOnly())
                                     .field("provider", field -> field.label("模型供应商").readOnly())
                                     .field("modelId", field -> field.label("模型 ID").readOnly())
+                                    .field("reasoningEffort", field -> field.label("推理强度（留空使用供应商默认）").readOnly())
                                     .field("contextWindowTokens", field -> field.label("上下文容量（token，未知留空）").readOnly())
                                     .field("maxOutputTokens", field -> field.label("最大输出容量（token，未知留空）").readOnly())
                                     .field("defaultOutputTokens", field -> field.label("默认输出预算（token，留空使用平台默认）").readOnly())
@@ -85,6 +86,7 @@ public class AiModelConfigurationWebController
                                     .field("title", field -> field.label("配置名称"))
                                     .field("provider", field -> field.label("模型供应商").required().recordPicker())
                                     .field("modelId", field -> field.label("模型 ID").required())
+                                    .field("reasoningEffort", field -> field.label("推理强度（留空使用供应商默认）").select())
                                     .group("model_limits", "模型容量与使用预算",
                                             "按当前模型部署填写容量，未知时留空；更换模型后请重新核对。默认输出留空时使用 8192，并受最大输出容量约束。测试连接不验证容量上限。",
                                             group -> group

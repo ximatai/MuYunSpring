@@ -1,5 +1,9 @@
 export type BusinessRuleKind = 'CALCULATION' | 'VALIDATION' | 'UI_CONTROL';
 
+/** Save-validation behavior shared by manual editing and assistant rule inputs. */
+export const businessRuleValidationHelp =
+  '公式为真时允许保存，为假时阻止保存并显示失败提示；当前编辑器不支持只提醒而仍允许保存的规则。';
+
 export interface BusinessRuleEditableField {
   fieldName: string;
   title: string;

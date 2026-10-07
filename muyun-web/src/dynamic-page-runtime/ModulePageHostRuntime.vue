@@ -220,6 +220,7 @@ export default defineComponent({
       "
       :mode="editorMode"
       :detail-title="businessVisible ? detailTitle : ''"
+      :detail-subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
       :navigator-count="navigatorExplorerCount + tenantScopeExplorerCount"
       @update:explorer-search-keyword="flatManagementSearchKeyword = $event"
       @refresh="businessVisible && flatManagementRecycleBin.refresh()"
@@ -503,7 +504,7 @@ export default defineComponent({
           :form-session-key="formSessionKey"
           :validation-request-key="formValidationRequestKey"
           :picker-configs="referencePickerConfigs"
-          :saving="saving"
+          :saving="detailActionBusy"
           :ui-descriptor="runtimeUiDescriptor"
           :relations="executableDetailRelations"
           :relations-available="detailRelationsAvailable"
@@ -514,6 +515,7 @@ export default defineComponent({
           :form-contributions="formContributions"
           :form-field-policies="formFieldPolicies"
           @update:field="updateDraftField"
+          @reference-display-change="updateReferenceDisplay"
           @validity-change="updateMainFormValidity"
           @children-change="updateEmbeddedChildren"
           @relations-validity-change="updateRelationDraftValidity"
@@ -713,6 +715,7 @@ export default defineComponent({
         v-if="!detailSurfaceUsesDrawer"
         class="module-list-detail-card"
         :title="businessVisible ? detailTitle : ''"
+        :subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
       >
         <template v-if="businessVisible && hasCardAssistantAt('outside', 'top')" #outside-top>
           <aside class="module-card-assistant module-card-assistant--outside">
@@ -736,6 +739,8 @@ export default defineComponent({
         </template>
         <template v-if="businessVisible" #actions>
           <ModuleRecordDetailActions
+            :save-needs-check="recordSaveNeedsCheck"
+            :checking-save="saving"
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
@@ -750,6 +755,7 @@ export default defineComponent({
             :managed-actions="managedPageActions"
             :workspace-available="detailWorkspaceAvailable"
             @cancel="cancelDetailEditing"
+            @check-save="checkRecordSave"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
@@ -801,6 +807,7 @@ export default defineComponent({
             :form-contributions="formContributions"
             :form-field-policies="formFieldPolicies"
             @update:field="updateDraftField"
+            @reference-display-change="updateReferenceDisplay"
             @validity-change="updateMainFormValidity"
             @children-change="updateEmbeddedChildren"
             @relations-validity-change="updateRelationDraftValidity"
@@ -1027,7 +1034,11 @@ export default defineComponent({
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
 
-      <RecordDetailPanel class="module-tree-card" :title="businessVisible ? detailTitle : ''">
+      <RecordDetailPanel
+        class="module-tree-card"
+        :title="businessVisible ? detailTitle : ''"
+        :subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
+      >
         <template v-if="businessVisible && hasCardAssistantAt('outside', 'top')" #outside-top>
           <aside class="module-card-assistant module-card-assistant--outside">
             <component :is="enhancementCardAssistant!.component" :context="cardAssistantContext" />
@@ -1040,6 +1051,8 @@ export default defineComponent({
         </template>
         <template v-if="businessVisible" #actions>
           <ModuleRecordDetailActions
+            :save-needs-check="recordSaveNeedsCheck"
+            :checking-save="saving"
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
@@ -1055,6 +1068,7 @@ export default defineComponent({
             :create-child-available="!managedPageActions"
             :create-child-disabled="!selectedRecord || context.can('create') !== true"
             @cancel="closeTreeCardEditor"
+            @check-save="checkRecordSave"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
@@ -1117,6 +1131,7 @@ export default defineComponent({
                 :picker-configs="referencePickerConfigs"
                 :exclude-field-names="['enabled']"
                 @update:field="updateDraftField"
+                @reference-display-change="updateReferenceDisplay"
                 @validity-change="updateMainFormValidity"
               />
             </div>
@@ -1246,6 +1261,7 @@ export default defineComponent({
         "
         :open="detailOpen"
         :title="businessVisible ? detailTitle : ''"
+        :subtitle="businessVisible && editorMode !== 'view' ? recordFormScopeContext : undefined"
         :render-mode="props.recordOnly?.renderMode ?? 'inline'"
         :scope="props.recordOnly?.scope ?? 'tab'"
         :width="detailDrawerWidth"
@@ -1296,6 +1312,8 @@ export default defineComponent({
         </template>
         <template v-if="!enhancementDetailDrawer || enhancementDetailActions.length > 0" #operation>
           <ModuleRecordDetailActions
+            :save-needs-check="recordSaveNeedsCheck"
+            :checking-save="saving"
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
@@ -1310,6 +1328,7 @@ export default defineComponent({
             :managed-actions="managedPageActions"
             :show-standard-view-actions="!enhancementDetailDrawer"
             @cancel="cancelDetailEditing"
+            @check-save="checkRecordSave"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
@@ -1337,7 +1356,7 @@ export default defineComponent({
               :form-session-key="formSessionKey"
               :validation-request-key="formValidationRequestKey"
               :picker-configs="referencePickerConfigs"
-              :saving="saving"
+              :saving="detailActionBusy"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
               :relations-available="detailRelationsAvailable"
@@ -1348,6 +1367,7 @@ export default defineComponent({
               :form-contributions="formContributions"
               :form-field-policies="formFieldPolicies"
               @update:field="updateDraftField"
+              @reference-display-change="updateReferenceDisplay"
               @validity-change="updateMainFormValidity"
               @children-change="updateEmbeddedChildren"
               @relations-validity-change="updateRelationDraftValidity"
@@ -1367,7 +1387,7 @@ export default defineComponent({
             :form-session-key="formSessionKey"
             :validation-request-key="formValidationRequestKey"
             :picker-configs="referencePickerConfigs"
-            :saving="saving"
+            :saving="detailActionBusy"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :relations-available="detailRelationsAvailable"
@@ -1378,6 +1398,7 @@ export default defineComponent({
             :form-contributions="formContributions"
             :form-field-policies="formFieldPolicies"
             @update:field="updateDraftField"
+            @reference-display-change="updateReferenceDisplay"
             @validity-change="updateMainFormValidity"
             @children-change="updateEmbeddedChildren"
             @relations-validity-change="updateRelationDraftValidity"

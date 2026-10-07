@@ -61,9 +61,11 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             platform.setContextWindowTokens(131072);
             platform.setMaxOutputTokens(32768);
             platform.setDefaultOutputTokens(16384);
+            platform.setReasoningEffort(AiModelReasoningEffort.NONE);
             String platformId = configurations.insert(platform);
             assertThat(AiModelLimits.from(dao.findById(platformId)))
                     .isEqualTo(new AiModelLimits(131072, 32768, 16384));
+            assertThat(dao.findById(platformId).getReasoningEffort()).isEqualTo(AiModelReasoningEffort.NONE);
             assertThat(dao.findById(platformId).getApiKey()).isNull();
             assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
             var credential = new java.util.concurrent.atomic.AtomicReference<>("environment-key");
@@ -77,6 +79,7 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             var captured = org.mockito.ArgumentCaptor.forClass(ResolvedAiModelRoute.class);
             org.mockito.Mockito.verify(client).generate(captured.capture(), org.mockito.ArgumentMatchers.any(AiTextRequest.class));
             assertThat(captured.getValue().apiKey()).isEqualTo("environment-key");
+            assertThat(captured.getValue().reasoningEffort()).isEqualTo(AiModelReasoningEffort.NONE);
             org.mockito.Mockito.verify(client).stream(captured.capture(), org.mockito.ArgumentMatchers.any(AiTextRequest.class),
                     org.mockito.ArgumentMatchers.any(AiTextStreamConsumer.class));
             assertThat(captured.getValue().apiKey()).isEqualTo("rotated-environment-key");

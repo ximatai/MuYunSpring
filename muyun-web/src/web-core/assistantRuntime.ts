@@ -1,3 +1,4 @@
+import type { AssistantModelRequestObservation } from './assistantTurnClient';
 import { ASSISTANT_CAPABILITY_LOAD_CODE } from './assistantCapabilityCatalog';
 import { AppError, platformErrorCodes } from './errors';
 import type { AssistantOperationConfirmation } from './assistantConfirmation';
@@ -15,6 +16,7 @@ import {
   sameAssistantInvocationToken,
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
+  type AssistantCapabilitySelection,
   type AssistantExecutionPolicy,
   type AssistantSurfaceRegistry,
 } from './assistantSurface';
@@ -43,9 +45,63 @@ export function boundedAssistantConversationHistory(
     retain(index);
     requests += 1;
   }
+  // Small followups such as “continue” must not evict the original business goal.
+  // Keep it as dialogue within the same budget; later corrections and cancellations take precedence.
+  const original = history.findIndex((item) => item.role === 'user');
+  if (original >= 0) retain(original);
   for (let index = history.length - 1; index >= 0 && selected.size < 12; index -= 1) retain(index);
   return [...selected].sort(([left], [right]) => left - right).map(([, item]) => item);
 }
+
+/** Ephemeral, display-only evidence within the existing conversation budget. Never archived or executable. */
+export function createAssistantDisplayObservations() {
+  let scope: string | undefined;
+  const observations: Array<{ pageInstanceKey: string; text: string }> = [];
+  function clear() {
+    scope = undefined;
+    observations.length = 0;
+  }
+  function forScope(token: AssistantInvocationToken | undefined) {
+    if (
+      !token ||
+      token.fallback ||
+      token.executionScopePending ||
+      token.identityScopeKey === undefined ||
+      token.executionScopeKey === undefined
+    ) {
+      clear();
+      return [];
+    }
+    const currentScope = JSON.stringify([token.identityScopeKey, token.executionScopeKey]);
+    if (scope !== currentScope) {
+      clear();
+      scope = currentScope;
+    }
+    return observations.map(({ text }) => ({ role: 'status' as const, text }));
+  }
+  return {
+    clear,
+    forScope,
+    record(token: AssistantInvocationToken, observation: { pageInstanceKey: string; text: string }) {
+      forScope(token);
+      if (scope === undefined) return;
+      const existing = observations.findIndex(
+        ({ pageInstanceKey }) => pageInstanceKey === observation.pageInstanceKey,
+      );
+      if (existing >= 0) observations.splice(existing, 1);
+      observations.push({
+        pageInstanceKey: observation.pageInstanceKey,
+        text:
+          '本次任务的此前页面观察（读取时的显示值，可用于汇总回答；不能作为当前操作参数、权限或保存依据）：\n' +
+          observation.text.slice(0, 2_000) +
+          (observation.text.length > 2_000 ? '\n（观察已截断）' : ''),
+      });
+      if (observations.length > 4) observations.shift();
+    },
+  };
+}
+
+export type AssistantDisplayObservations = ReturnType<typeof createAssistantDisplayObservations>;
 
 function capabilityFailure(error: unknown) {
   if (error instanceof AssistantCapabilityUsageError)
@@ -113,7 +169,14 @@ function withReadContext(
   const keys = new Set(current.map((result) => JSON.stringify([result.capabilityCode, result.input])));
   let budget = 12_000;
   const retained: AssistantCapabilityResult[] = [];
-  for (const result of [...memory.results].reverse()) {
+  // Definition selections are small scope-local observations, not business facts.
+  // Give them priority within the same bounded history so data churn does not
+  // silently revoke already discovered tools. Schemas still come from the live catalog.
+  const newest = [...memory.results].reverse();
+  for (const result of [
+    ...newest.filter(isDefinitionObservation),
+    ...newest.filter((result) => !isDefinitionObservation(result)),
+  ]) {
     const key = JSON.stringify([result.capabilityCode, result.input]);
     const size = JSON.stringify(result).length;
     if (keys.has(key) || size > budget || retained.length >= 16 - current.length) continue;
@@ -135,6 +198,7 @@ export interface AssistantRuntimeStepResult {
 
 interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult {
   readStateChanged?: boolean;
+  unexecutedCapabilities?: string[];
   attemptedCallCount: number;
   restoredReadContext?: boolean;
   continuationToken?: AssistantInvocationToken;
@@ -143,6 +207,9 @@ interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult 
 }
 
 export interface AssistantConversationOptions {
+  /** Bounded schema names owned by the current conversation, never persisted or replayed. */
+  capabilitySelection?: AssistantCapabilitySelection;
+  displayObservations?: AssistantDisplayObservations;
   executionPolicy?: AssistantExecutionPolicy;
   signal?: AbortSignal;
   maxSteps?: number;
@@ -166,6 +233,12 @@ type AssistantDiagnosticSurface = 'workbench' | 'module-page' | 'metadata-govern
 type AssistantDiagnosticFinishReason = 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'other';
 
 export type AssistantRuntimeDiagnosticEvent =
+  | ({
+      type: 'model.request.completed';
+      phase: 'work' | 'summary';
+      stepIndex: number;
+    } & AssistantModelRequestObservation)
+  | { type: 'capability.elapsed'; stepIndex: number; capabilityCode: string; durationMs: number }
   | {
       type: 'decision.started';
       stepIndex: number;
@@ -291,15 +364,18 @@ export async function runAssistantConversation(
   }
   let initial = registry.snapshot();
   const identityScope = initial?.token.identityScopeKey;
-  if (initial?.token.executionScopePending) initial = await waitForFormalSurface(initial.token);
+  const initialScopePending = initial?.token.executionScopePending === true;
+  if (initial && initialScopePending) initial = await waitForFormalSurface(initial.token);
   if (initial?.token.identityScopeKey !== identityScope) throw new StaleAssistantInvocationError();
+  // Establish the visible conversation scope before accepting the first response.
+  if (initialScopePending) options.onExecutionScopeChange?.();
   let executionScope = initial?.token.executionScopeKey;
-  let history = options.history ?? [];
-  const priorObservations: Array<{ pageInstanceKey: string; text: string }> = [];
+  let history = initialScopePending ? [] : (options.history ?? []);
+  const displayObservations = options.displayObservations ?? createAssistantDisplayObservations();
   const requestHistory = () =>
     boundedAssistantConversationHistory([
       ...history,
-      ...priorObservations.map(({ text }) => ({ role: 'assistant' as const, text })),
+      ...displayObservations.forScope(registry.snapshot()?.token),
     ]);
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > DEFAULT_MAX_STEPS) {
@@ -311,6 +387,7 @@ export async function runAssistantConversation(
   let madeProgress = false;
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
+  let unexecutedCapabilities: string[] | undefined;
   const completedEffects: AssistantCapabilityResult[] = [];
   const readContext: AssistantReadContext = { results: [] };
   let settledCalls = new Map<string, AssistantCapabilityResult>();
@@ -318,6 +395,7 @@ export async function runAssistantConversation(
   let decisionRestarts = 0;
   let repairedDecision = false;
   let decisionFeedback: AssistantTurnInput['decisionFeedback'];
+  let declarationRecoveryCodes: string[] = [];
   let pendingSelectionResponse = options.selectionResponse;
   for (let index = 0; index < hardLimit; index += 1) {
     if ((index >= maxSteps && !madeProgress) || unproductiveSteps >= 2) break;
@@ -337,6 +415,7 @@ export async function runAssistantConversation(
         message,
         history: requestHistory(),
         previousResults: results,
+        unexecutedCapabilities,
         signal: options.signal,
         settledCalls,
         stepIndex: index,
@@ -351,7 +430,9 @@ export async function runAssistantConversation(
           : undefined,
         readContext,
         executionPolicy: options.executionPolicy,
+        capabilitySelection: options.capabilitySelection,
         decisionFeedback,
+        declarationRecoveryCodes,
         executionBudget: { phase: 'work', step: index + 1, normalLimit: maxSteps, hardLimit },
       });
     } catch (caught) {
@@ -365,6 +446,14 @@ export async function runAssistantConversation(
         } else if (!options.signal?.aborted && !repairedDecision) {
           repairedDecision = true;
           decisionFeedback = 'undeclared-tool';
+          const missing = error.failure.details?.missingToolCodes;
+          declarationRecoveryCodes = Array.isArray(missing)
+            ? [
+                ...new Set(
+                  missing.filter((code): code is string => typeof code === 'string' && code.length <= 256),
+                ),
+              ].slice(0, 8)
+            : [];
           emitDiagnostic(options.onDiagnostic, {
             type: 'decision.restarted',
             stepIndex: index,
@@ -390,6 +479,7 @@ export async function runAssistantConversation(
         decisionRestarts < MAX_DECISION_RESTARTS
       ) {
         decisionRestarts += 1;
+        declarationRecoveryCodes = [];
         emitDiagnostic(options.onDiagnostic, {
           type: 'decision.restarted',
           stepIndex: index,
@@ -397,7 +487,6 @@ export async function runAssistantConversation(
           reason: expectedSurfaceReplaced ? 'formal-surface-ready' : 'background-context-refresh',
         });
         expectedReplacementToken = replacement;
-        index -= 1;
         await delayForSurfaceReplacement(options.signal);
         continue;
       }
@@ -433,6 +522,7 @@ export async function runAssistantConversation(
     }
     pendingSelectionResponse = undefined;
     decisionFeedback = undefined;
+    declarationRecoveryCodes = [];
     decisionRestarts = 0;
     expectedReplacementToken = step.continuationToken;
     const crossedScope =
@@ -448,7 +538,7 @@ export async function runAssistantConversation(
         throw new StaleAssistantInvocationError();
       executionScope = step.continuationToken?.executionScopeKey;
       history = [];
-      priorObservations.length = 0;
+      displayObservations.clear();
       results = [];
       completedEffects.length = 0;
       readContext.results = [];
@@ -460,21 +550,10 @@ export async function runAssistantConversation(
       step.priorObservation &&
       sameAssistantInvocationToken(step.continuationToken, registry.snapshot()?.token)
     ) {
-      const existing = priorObservations.findIndex(
-        ({ pageInstanceKey }) => pageInstanceKey === step.priorObservation!.pageInstanceKey,
-      );
-      if (existing >= 0) priorObservations.splice(existing, 1);
-      const summary = step.priorObservation.text;
-      priorObservations.push({
-        pageInstanceKey: step.priorObservation.pageInstanceKey,
-        text:
-          '本次任务的此前页面观察（读取时的显示值，可用于汇总回答；不能作为当前操作参数、权限或保存依据）：\n' +
-          summary.slice(0, 2_000) +
-          (summary.length > 2_000 ? '\n（观察已截断）' : ''),
-      });
-      if (priorObservations.length > 4) priorObservations.shift();
+      displayObservations.record(step.continuationToken!, step.priorObservation);
     }
     settledCalls = crossedScope ? new Map() : step.replayableCalls;
+    unexecutedCapabilities = crossedScope ? undefined : step.unexecutedCapabilities;
     let newObservations = 0;
     for (const result of step.results) {
       if (result.error || result.execution !== 'read') continue;
@@ -543,13 +622,24 @@ export async function runAssistantConversation(
       !sameAssistantInvocationToken(readContext.token, observationToken)
     ) {
       readContext.results = observationToken
-        ? withReadContext([], readContext, observationToken).filter(isDefinitionObservation)
+        ? withReadContext(
+            sameDefinitionScope(readContext.token, observationToken)
+              ? step.results.filter(isDefinitionObservation)
+              : [],
+            readContext,
+            observationToken,
+          ).filter(isDefinitionObservation)
         : [];
       readContext.token = observationToken;
     } else {
-      readContext.results = withReadContext(results, readContext, observationToken)
-        .filter((result) => result.execution === 'read' && !result.error)
-        .slice(-8)
+      const reads = withReadContext(results, readContext, observationToken).filter(
+        (result) => result.execution === 'read' && !result.error,
+      );
+      readContext.results = [
+        ...reads.filter(isDefinitionObservation),
+        ...reads.filter((result) => !isDefinitionObservation(result)).slice(-8),
+      ]
+        .slice(-16)
         .map((result, position) => ({ ...result, callId: `observation-${index}-${position}` }));
     }
     if (step.appliedEffectCount > 0) {
@@ -579,13 +669,24 @@ export async function runAssistantConversation(
       const output = await registry.requestTurn(
         {
           message,
+          capabilitySelection: options.capabilitySelection,
           history: requestHistory(),
           results: withReadContext(results, readContext, token),
+          ...(unexecutedCapabilities?.length ? { unexecutedCapabilities } : {}),
           executionBudget: { phase: 'summary', step: steps.length + 1, normalLimit: maxSteps, hardLimit },
         },
         token,
         options.signal,
-        undefined,
+        {
+          onRequestCompleted(observation) {
+            emitDiagnostic(options.onDiagnostic, {
+              type: 'model.request.completed',
+              phase: 'summary',
+              stepIndex: steps.length,
+              ...observation,
+            });
+          },
+        },
         options.executionPolicy,
       );
       // A summary is never an execution step, even if a provider ignores the empty tool catalog.
@@ -667,6 +768,7 @@ interface AssistantStepRequest {
   message: string;
   history: AssistantConversationMessage[];
   previousResults: AssistantCapabilityResult[];
+  unexecutedCapabilities?: string[];
   signal?: AbortSignal;
   settledCalls: Map<string, AssistantCapabilityResult>;
   stepIndex?: number;
@@ -675,9 +777,11 @@ interface AssistantStepRequest {
   onDiagnostic?: AssistantConversationOptions['onDiagnostic'];
   onTextDelta?: (text: string) => void;
   readContext?: AssistantReadContext;
+  capabilitySelection?: AssistantCapabilitySelection;
   executionPolicy?: AssistantExecutionPolicy;
   executionBudget?: AssistantExecutionBudget;
   decisionFeedback?: AssistantTurnInput['decisionFeedback'];
+  declarationRecoveryCodes?: string[];
 }
 
 async function runAssistantStepWithSettledCalls({
@@ -685,6 +789,7 @@ async function runAssistantStepWithSettledCalls({
   message,
   history,
   previousResults,
+  unexecutedCapabilities,
   signal,
   settledCalls,
   stepIndex = 0,
@@ -693,9 +798,11 @@ async function runAssistantStepWithSettledCalls({
   onDiagnostic,
   onTextDelta,
   readContext,
+  capabilitySelection,
   executionPolicy,
   executionBudget,
   decisionFeedback,
+  declarationRecoveryCodes,
 }: AssistantStepRequest): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
   if (!initialSnapshot) throw new Error('No assistant surface is active');
@@ -723,40 +830,40 @@ async function runAssistantStepWithSettledCalls({
   onActivity?.('understanding', stepIndex);
   let output: AssistantTurnOutput;
   try {
-    output = onTextDelta
-      ? await registry.requestTurn(
-          {
-            message,
-            history,
-            results: previousResults,
-            executionBudget,
-            ...(decisionFeedback ? { decisionFeedback } : {}),
-            ...(selectionResponse ? { selectionResponse } : {}),
-          },
-          snapshot.token,
-          signal,
-          {
-            onTextDelta(text) {
-              onActivity?.('responding', stepIndex);
-              onTextDelta(text);
-            },
-          },
-          executionPolicy,
-        )
-      : await registry.requestTurn(
-          {
-            message,
-            history,
-            results: previousResults,
-            executionBudget,
-            ...(decisionFeedback ? { decisionFeedback } : {}),
-            ...(selectionResponse ? { selectionResponse } : {}),
-          },
-          snapshot.token,
-          signal,
-          undefined,
-          executionPolicy,
-        );
+    output = await registry.requestTurn(
+      {
+        message,
+        capabilitySelection,
+        history,
+        results: previousResults,
+        ...(unexecutedCapabilities?.length ? { unexecutedCapabilities } : {}),
+        executionBudget,
+        ...(decisionFeedback ? { decisionFeedback } : {}),
+        declarationRecoveryCodes,
+        ...(selectionResponse ? { selectionResponse } : {}),
+      },
+      snapshot.token,
+      signal,
+      {
+        ...(onTextDelta
+          ? {
+              onTextDelta(text: string) {
+                onActivity?.('responding', stepIndex);
+                onTextDelta(text);
+              },
+            }
+          : {}),
+        onRequestCompleted(observation) {
+          emitDiagnostic(onDiagnostic, {
+            type: 'model.request.completed',
+            phase: 'work',
+            stepIndex,
+            ...observation,
+          });
+        },
+      },
+      executionPolicy,
+    );
   } catch (error) {
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(snapshot.token);
@@ -818,6 +925,7 @@ async function runAssistantStepWithSettledCalls({
       continue;
     }
     attemptedCallCount += 1;
+    const capabilityStarted = performance.now();
     try {
       const invocation = await registry.invoke(call, snapshot.token, signal, executionPolicy);
       const result: AssistantCapabilityResult = {
@@ -862,6 +970,9 @@ async function runAssistantStepWithSettledCalls({
           ),
           contextChanged: invocation.contextChanged,
           readStateChanged: invocation.readStateChanged,
+          unexecutedCapabilities: output.toolCalls
+            .slice(output.toolCalls.indexOf(call) + 1)
+            .map(({ code }) => code),
           attemptedCallCount,
           appliedEffectCount,
           continuationToken,
@@ -939,6 +1050,13 @@ async function runAssistantStepWithSettledCalls({
         capabilityCode: diagnosticCapabilityCode(call.code),
         outcome: 'failed',
         pageEffectApplied: false,
+      });
+    } finally {
+      emitDiagnostic(onDiagnostic, {
+        type: 'capability.elapsed',
+        stepIndex,
+        capabilityCode: diagnosticCapabilityCode(call.code),
+        durationMs: Math.max(0, performance.now() - capabilityStarted),
       });
     }
     if (!sameAssistantInvocationToken(snapshot.token, registry.snapshot()?.token)) {

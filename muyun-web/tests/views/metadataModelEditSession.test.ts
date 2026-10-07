@@ -198,3 +198,240 @@ it('stages a complete field plan atomically and removes only unsaved additions',
   session.discardNewField('main', 'second');
   expect(session.buildProposal()?.relationDrafts).toEqual([]);
 });
+
+it('keeps an inherited default out of a title-only mutation while publishing an intentional default change', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  const field = { id: 'rate', version: 2, fieldName: 'rate', title: '优惠系数', fieldSpecAlias: 'decimal' };
+  session.begin([
+    {
+      relationId: 'main',
+      metadataId: 'meta',
+      expectedMetadataVersion: 3,
+      fields: [field],
+      fieldProperties: [
+        {
+          fieldId: 'rate',
+          fieldName: 'rate',
+          kind: 'BASIC',
+          fixedDefault: { value: '1', configVersion: 4, editable: true },
+        },
+      ],
+    },
+  ]);
+  const property = session.propertyForField('main', field);
+  session.stageField('main', { ...field, title: '折扣系数' }, property);
+  expect(session.buildProposal()?.relationDrafts[0].fieldDrafts[0].property).toBeUndefined();
+  session.stageField(
+    'main',
+    { ...field, title: '折扣系数' },
+    { ...property, fixedDefault: { ...property.fixedDefault!, value: '0.9' } },
+  );
+  expect(session.buildProposal()?.relationDrafts[0].fieldDrafts[0].property).toEqual({
+    kind: 'BASIC',
+    fixedDefault: { value: '0.9', expectedConfigVersion: 4 },
+  });
+});
+
+it('rebases retained field intent on current ids and metadata, binding and default versions', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  const field = {
+    id: 'choice',
+    version: 2,
+    fieldName: 'choiceId',
+    title: '旧标题',
+    fieldOwnership: 'BUSINESS' as const,
+  };
+  session.begin([{ relationId: 'main', metadataId: 'meta', expectedMetadataVersion: 1, fields: [field] }]);
+  session.stageField(
+    'main',
+    { ...field, title: '候选标题' },
+    {
+      kind: 'DICTIONARY',
+      expectedBindingVersion: 1,
+      dictionaryConfig: {
+        dictionaryApplicationAlias: 'demo',
+        dictionaryCategoryAlias: 'kind',
+        selectionMode: 'MULTIPLE',
+      },
+      fixedDefault: { value: '["one"]', expectedConfigVersion: 1 },
+    },
+  );
+  const retained = session.buildProposal()!;
+  const sources = [
+    {
+      relationId: 'main',
+      metadataId: 'meta',
+      expectedMetadataVersion: 9,
+      fields: [{ ...field, version: 7 }],
+      fieldProperties: [
+        {
+          fieldId: 'choice',
+          kind: 'DICTIONARY' as const,
+          bindingVersion: 8,
+          dictionary: { applicationAlias: 'demo', categoryAlias: 'kind', selectionMode: 'SINGLE' as const },
+          fixedDefault: { value: 'one', configVersion: 6 },
+        },
+      ],
+    },
+  ];
+  const accept = session.prepareRebase(sources, retained);
+  expect(session.buildProposal()).toEqual(retained);
+  accept();
+  expect(session.buildProposal()?.relationDrafts[0]).toMatchObject({
+    expectedMetadataVersion: 9,
+    fieldDrafts: [
+      {
+        operation: 'UPDATE',
+        fieldId: 'choice',
+        expectedFieldVersion: 7,
+        field: { title: '候选标题', version: 7 },
+        property: {
+          expectedBindingVersion: 8,
+          dictionaryConfig: { selectionMode: 'multiple' },
+          fixedDefault: { value: '["one"]', expectedConfigVersion: 6 },
+        },
+      },
+    ],
+  });
+});
+
+it('maps only newly added fields by stable name and removes already enabled selections', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([{ relationId: 'main', metadataId: 'meta', expectedMetadataVersion: 1, fields: [] }]);
+  const added = { fieldName: 'note', title: '备注', fieldOwnership: 'BUSINESS' as const };
+  session.stageField('main', added);
+  session.stageCapability('main', 'TREE', true);
+  const retained = session.buildProposal()!;
+  session.prepareRebase(
+    [
+      {
+        relationId: 'main',
+        metadataId: 'meta',
+        expectedMetadataVersion: 3,
+        fields: [{ ...added, id: 'saved-note', version: 2 }],
+      },
+    ],
+    retained,
+    { main: ['TREE'] },
+  )();
+  expect(session.buildProposal()).toEqual({ relationDrafts: [], relationOrders: [], fieldOrders: [] });
+  expect(session.fieldsForDisplay('main', [])).toMatchObject([{ id: 'saved-note', fieldName: 'note' }]);
+});
+
+it('does not migrate a removed existing field to a replacement with the same name', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  const field = { id: 'original', version: 1, fieldName: 'note', title: '旧备注' };
+  session.begin([{ relationId: 'main', metadataId: 'meta', expectedMetadataVersion: 1, fields: [field] }]);
+  session.stageField('main', { ...field, title: '候选备注' });
+  const retained = session.buildProposal()!;
+  expect(() =>
+    session.prepareRebase(
+      [
+        {
+          relationId: 'main',
+          metadataId: 'meta',
+          expectedMetadataVersion: 3,
+          fields: [{ ...field, id: 'replacement' }],
+        },
+      ],
+      retained,
+    ),
+  ).toThrow('不会按同名迁移');
+  expect(session.buildProposal()).toEqual(retained);
+});
+
+it('keeps unrelated concurrent field and reference changes while rebasing only retained edits', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  const field = { id: 'owner', version: 1, fieldName: 'ownerId', title: '负责人', required: false };
+  const property = {
+    kind: 'MODULE_REFERENCE' as const,
+    bindingVersion: 1,
+    fieldId: 'owner',
+    reference: { targetModuleAlias: 'demo.user', requireEnabled: false, affectMappings: [] },
+  };
+  session.begin([
+    {
+      relationId: 'main',
+      metadataId: 'meta',
+      expectedMetadataVersion: 1,
+      fields: [field],
+      fieldProperties: [property],
+    },
+  ]);
+  session.stageField(
+    'main',
+    { ...field, title: '候选负责人' },
+    {
+      ...session.propertyForField('main', field),
+      referenceConfig: { ...property.reference, requireEnabled: true },
+    },
+  );
+  const retained = session.buildProposal()!;
+  session.prepareRebase(
+    [
+      {
+        relationId: 'main',
+        metadataId: 'meta',
+        expectedMetadataVersion: 3,
+        fields: [{ ...field, version: 3, required: true }],
+        fieldProperties: [
+          {
+            ...property,
+            bindingVersion: 5,
+            reference: { ...property.reference, affectMappings: ['name:title'] },
+          },
+        ],
+      },
+    ],
+    retained,
+  )();
+  expect(session.buildProposal()?.relationDrafts[0]?.fieldDrafts[0]).toMatchObject({
+    field: { title: '候选负责人', required: true },
+    property: {
+      expectedBindingVersion: 5,
+      referenceConfig: { requireEnabled: true, affectMappings: ['name:title'] },
+    },
+  });
+});
+
+it.each(['field', 'order'] as const)(
+  'blocks reattached metadata identity for a retained %s candidate even after clearing the live editor',
+  (kind) => {
+    const session = createMetadataModelWorkspaceEditSession();
+    session.begin([
+      {
+        relationId: 'main',
+        metadataId: 'original-meta',
+        expectedMetadataVersion: 1,
+        fields: [
+          { id: 'a', fieldName: 'a' },
+          { id: 'b', fieldName: 'b' },
+        ],
+      },
+    ]);
+    if (kind === 'field') session.stageField('main', { fieldName: 'note', title: '备注' });
+    else session.stageFieldOrder('main', ['b', 'a']);
+    const retained = session.buildProposal()!;
+    const baseline = session.captureBaseline();
+    session.cancel();
+    expect(() =>
+      session.prepareRebase(
+        [
+          {
+            relationId: 'main',
+            metadataId: 'replacement-meta',
+            expectedMetadataVersion: 1,
+            fields: [
+              { id: 'a', fieldName: 'a' },
+              { id: 'b', fieldName: 'b' },
+            ],
+          },
+        ],
+        retained,
+        {},
+        baseline,
+      ),
+    ).toThrow('不会迁移到其他实体');
+    expect(session.editing.value).toBe(false);
+  },
+);

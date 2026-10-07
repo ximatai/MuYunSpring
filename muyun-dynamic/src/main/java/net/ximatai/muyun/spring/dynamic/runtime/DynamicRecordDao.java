@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.database.core.metadata.DBInfo;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.CriteriaClause;
@@ -20,6 +21,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldColumnMetadata;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
+import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import net.ximatai.muyun.spring.dynamic.runtime.mapping.DynamicRecordMapping;
@@ -264,7 +267,7 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
         body.put(StandardEntitySchema.UPDATED_AT_COLUMN, record.getUpdatedAt());
         for (FieldDefinition field : persistentFields()) {
             if (record.getPlatformValues().containsKey(field.code())) {
-                body.put(field.columnName(), record.getPlatformValues().get(field.code()));
+                body.put(field.columnName(), storedValue(field, record.getPlatformValues().get(field.code())));
             }
         }
         if (!includeId) {
@@ -287,7 +290,7 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
         }
         for (FieldDefinition field : persistentFields()) {
             if (record.getPlatformValues().containsKey(field.code())) {
-                body.put(field.columnName(), record.getPlatformValues().get(field.code()));
+                body.put(field.columnName(), storedValue(field, record.getPlatformValues().get(field.code())));
             }
         }
         return body;
@@ -304,6 +307,35 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
             body.put(StandardEntitySchema.UPDATED_BY_COLUMN, record.getUpdatedBy());
         }
         return body;
+    }
+
+    private Object storedValue(FieldDefinition field, Object value) {
+        // JSON_SET already has a collection codec in the gateway. Generic JSON requires text binding.
+        if (value == null || field.type() != FieldType.JSON || DynamicFieldColumnMetadata.isJsonSetField(field)) {
+            return value;
+        }
+        String json = DynamicFieldValueSupport.serializeJsonValue(value);
+        return operations.getDBInfo().getDatabaseType() == DBInfo.Type.POSTGRESQL
+                ? PostgresJson.bind(json) : json;
+    }
+
+    /** Kept lazy so MySQL deployments do not require the PostgreSQL JDBC driver. */
+    private static final class PostgresJson {
+        static Object bind(String json) {
+            var parameter = new org.postgresql.util.PGobject();
+            parameter.setType("jsonb");
+            try {
+                parameter.setValue(json);
+                return parameter;
+            } catch (java.sql.SQLException exception) {
+                throw new IllegalArgumentException("invalid PostgreSQL JSON value", exception);
+            }
+        }
+
+        static Object decode(Object value) {
+            return value instanceof org.postgresql.util.PGobject json
+                    ? DynamicFieldValueSupport.parseJsonValue(json.getValue()) : value;
+        }
     }
 
     private Map<String, Object> toConditionColumnMap(Map<String, Object> conditions) {
@@ -328,7 +360,14 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
         record.setUpdatedBy(stringValue(row.get(StandardEntitySchema.UPDATED_BY_COLUMN)));
         record.setUpdatedAt(instantValue(row.get(StandardEntitySchema.UPDATED_AT_COLUMN)));
         for (FieldDefinition field : persistentFields()) {
-            record.putLoadedValue(field.code(), row.get(field.columnName()));
+            Object value = row.get(field.columnName());
+            if (field.type() == FieldType.JSON && value instanceof String json) {
+                value = DynamicFieldValueSupport.parseJsonValue(json);
+            } else if (field.type() == FieldType.JSON && value != null
+                    && operations.getDBInfo().getDatabaseType() == DBInfo.Type.POSTGRESQL) {
+                value = PostgresJson.decode(value);
+            }
+            record.putLoadedValue(field.code(), value);
         }
         return record;
     }

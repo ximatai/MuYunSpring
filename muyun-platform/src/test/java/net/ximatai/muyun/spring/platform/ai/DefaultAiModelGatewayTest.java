@@ -19,9 +19,11 @@ class DefaultAiModelGatewayTest {
         when(resolver.resolveCurrent()).thenReturn(route);
         var gateway = new DefaultAiModelGateway(resolver, client);
         var text = AiTextRequest.userText("hello");
-        var turn = new AiTurnRequest(text.messages(), java.util.List.of(), null, null);
+        var tools = java.util.List.of(new AiToolDefinition("page.describe", "Describe", java.util.Map.of("type", "object")));
+        var indexed = java.util.List.of("page.next");
+        var turn = new AiTurnRequest(text.messages(), tools, null, null, indexed);
         var effectiveText = new AiTextRequest(text.messages(), null, 16384);
-        var effectiveTurn = new AiTurnRequest(text.messages(), java.util.List.of(), null, 16384);
+        var effectiveTurn = new AiTurnRequest(text.messages(), tools, null, 16384, indexed);
         var textConsumer = mock(AiTextStreamConsumer.class);
         var turnConsumer = mock(AiTurnStreamConsumer.class);
         gateway.generate(text);

@@ -167,7 +167,9 @@ public class PlatformWebExceptionHandler {
             var violation = databaseViolation.get();
             log.warn("Database constraint violation, traceId={}, endpointId={}",
                     MDC.get("traceId"), MDC.get("endpointId"));
-            return badRequest(violation.message(), violation.targets(), exception);
+            PlatformException translated = new PlatformException(violation.code(), violation.status(),
+                    violation.message(), null, violation.targets(), java.util.Map.of());
+            return platformError(translated, ActionMessageType.WARNING, exception);
         }
         PlatformWebError error = PlatformWebError.of(PlatformErrorCodes.INTERNAL_ERROR, 500,
                 "系统暂时不可用，请稍后重试");

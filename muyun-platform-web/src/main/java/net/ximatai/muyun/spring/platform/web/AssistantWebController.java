@@ -144,7 +144,7 @@ public class AssistantWebController {
         return new AssistantTurnWebResponse(response.text(),
                 response.toolCalls().stream().map(AssistantCapabilityCallWeb::from).toList(),
                 AssistantSelectionWeb.from(response.selection()),
-                response.finishReason(), response.requestId(), response.usage());
+                response.finishReason(), response.requestId(), response.usage(), response.modelToolCallCount());
     }
 
     @PreDestroy
@@ -217,6 +217,7 @@ record AssistantConversationMessageWeb(String role, String text) {
         AssistantConversationMessage.Role domainRole = switch (role) {
             case "user" -> AssistantConversationMessage.Role.USER;
             case "assistant" -> AssistantConversationMessage.Role.ASSISTANT;
+            case "status" -> AssistantConversationMessage.Role.STATUS;
             default -> throw new IllegalArgumentException("assistant history role is invalid");
         };
         return new AssistantConversationMessage(domainRole, text);
@@ -239,7 +240,8 @@ record AssistantTurnWebResponse(String text,
                                 AssistantSelectionWeb selection,
                                 String finishReason,
                                 String requestId,
-                                AiTokenUsage usage) {
+                                AiTokenUsage usage,
+                                Integer modelToolCallCount) {
 }
 
 record AssistantSelectionWeb(String interactionId,

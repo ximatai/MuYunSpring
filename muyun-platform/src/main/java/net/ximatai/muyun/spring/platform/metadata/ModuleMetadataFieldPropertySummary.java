@@ -14,8 +14,16 @@ public record ModuleMetadataFieldPropertySummary(
         MetadataFieldPropertyKind kind,
         Integer bindingVersion,
         Reference reference,
-        Dictionary dictionary
+        Dictionary dictionary,
+        FixedDefault fixedDefault
 ) {
+    public ModuleMetadataFieldPropertySummary(String fieldId, String fieldName, String fieldSpecAlias,
+                                              MetadataFieldPropertyKind kind, Integer bindingVersion,
+                                              Reference reference, Dictionary dictionary) {
+        this(fieldId, fieldName, fieldSpecAlias, kind, bindingVersion, reference, dictionary, null);
+    }
+
+    public record FixedDefault(String value, Integer configVersion, boolean editable) { }
     public record Reference(
             String targetModuleAlias,
             String targetMetadataId,

@@ -4,6 +4,7 @@ import { loadOptionFieldItems } from '@/platform-components/optionFieldOptionCac
 import { hasOptionHierarchy } from '@/platform-components/optionFieldOptions';
 
 import {
+  createUuid,
   createStaticResourceCrudClient,
   pageAssistantCatalog,
   OperationUsageError,
@@ -2322,7 +2323,7 @@ export function createPageCompositionSession(
       if (!source) return;
       if (source.kind === 'child') {
         if (!componentCatalog.value?.canCreateChild || isMutating.value || target.kind !== 'form') return;
-        const key = crypto.randomUUID().replaceAll('-', '');
+        const key = createUuid().replaceAll('-', '');
         pendingChildren.value.push({ key, title: '明细表', fields: [] });
         state.addFormRelation({
           pending: true,
@@ -2345,7 +2346,7 @@ export function createPageCompositionSession(
           const relation = state.formRelations.value.find((item) => item.id === target.relationId);
           if (!child || !relation || !componentCatalog.value || isMutating.value) return;
           const input: PendingComponentField = {
-            key: crypto.randomUUID().replaceAll('-', ''),
+            key: createUuid().replaceAll('-', ''),
             component: source.component,
             title: definition.title,
             fieldSpecAlias: definition.fieldSpecAlias,
@@ -2359,7 +2360,7 @@ export function createPageCompositionSession(
         if (!componentCatalog.value || isMutating.value || !['list', 'form', 'group'].includes(target.kind))
           return;
         const input: PendingComponentField = {
-          key: crypto.randomUUID().replaceAll('-', ''),
+          key: createUuid().replaceAll('-', ''),
           component: source.component,
           title: definition.title,
           fieldSpecAlias: definition.fieldSpecAlias,

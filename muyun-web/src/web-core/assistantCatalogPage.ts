@@ -22,6 +22,7 @@ export function pageAssistantCatalog<T>(records: readonly T[], offset = 0, budge
       offset,
       total: records.length,
       nextOffset: next < records.length ? next : null,
+      coverage: offset === 0 && next === records.length && !oversized.length ? 'complete' : 'partial',
       oversizedIndexes: oversized,
       ...(oversized.length
         ? { note: '这些条目的完整定义超过单项读取预算，请通过标准配置界面查看；未将其当作不存在。' }

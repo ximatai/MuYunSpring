@@ -657,14 +657,6 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
             return new ModuleMetadataFormulaRuleService(dao, relations, fields, Optional.empty(),
                     Optional.of(references));
         }
-        @Bean MetadataFieldReferenceConfigService referenceConfigService(MetadataFieldReferenceConfigDao dao,
-                                                                          MetadataFieldService fields,
-                                                                          MetadataService metadata,
-                                                                          FieldSpecService specs,
-                                                                          PlatformModuleService modules,
-                                                                          ModuleMetadataRelationService relations) {
-            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, Optional.empty());
-        }
         @Bean MetadataViewService metadataViewService() { MetadataViewService value = mock(MetadataViewService.class); when(value.list(any(), any(), any())).thenReturn(List.of()); return value; }
         @Bean MetadataViewFieldService metadataViewFieldService() { MetadataViewFieldService value = mock(MetadataViewFieldService.class); when(value.list(any(), any(), any())).thenReturn(List.of()); return value; }
         @Bean PlatformModuleActionService moduleActionService() { PlatformModuleActionService value = mock(PlatformModuleActionService.class); when(value.list(any(), any(), any())).thenReturn(List.of()); return value; }

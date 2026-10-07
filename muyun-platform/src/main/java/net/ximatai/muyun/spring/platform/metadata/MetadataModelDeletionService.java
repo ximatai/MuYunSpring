@@ -24,6 +24,8 @@ public class MetadataModelDeletionService {
     private final MetadataService metadataService;
     private final MetadataFieldService fieldService;
     private final ModuleMetadataFieldService moduleFieldService;
+    private final MetadataFieldConfigService fieldConfigService;
+    private final MetadataFieldReferenceConfigService referenceConfigService;
     private final PlatformMetadataEntityDefinitionCompiler compiler;
     private final PlatformMetadataSchemaEnsureService schemaService;
     private final DynamicRecordService recordService;
@@ -33,6 +35,8 @@ public class MetadataModelDeletionService {
                                         MetadataService metadataService,
                                         MetadataFieldService fieldService,
                                         ModuleMetadataFieldService moduleFieldService,
+                                        MetadataFieldConfigService fieldConfigService,
+                                        MetadataFieldReferenceConfigService referenceConfigService,
                                         PlatformMetadataEntityDefinitionCompiler compiler,
                                         PlatformMetadataSchemaEnsureService schemaService,
                                         DynamicRecordService recordService,
@@ -41,6 +45,8 @@ public class MetadataModelDeletionService {
         this.metadataService = Objects.requireNonNull(metadataService);
         this.fieldService = Objects.requireNonNull(fieldService);
         this.moduleFieldService = Objects.requireNonNull(moduleFieldService);
+        this.fieldConfigService = Objects.requireNonNull(fieldConfigService);
+        this.referenceConfigService = Objects.requireNonNull(referenceConfigService);
         this.compiler = Objects.requireNonNull(compiler);
         this.schemaService = Objects.requireNonNull(schemaService);
         this.recordService = Objects.requireNonNull(recordService);
@@ -70,6 +76,19 @@ public class MetadataModelDeletionService {
         EntityDefinition previous = compiler.compile(metadata);
         MetadataCapabilityGovernanceMutationContext.run(() -> {
             deleteModuleFieldMappings(relation.getId(), field.getId());
+            // These declarations belong to the field in this relation. Other relations and
+            // inherited configuration remain references, so the field guard still protects them.
+            MetadataFieldPropertyMutationContext.run(() -> {
+                for (MetadataFieldConfig config : fieldConfigService.list(Criteria.of()
+                        .eq("metadataFieldId", field.getId()).eq("relationId", relation.getId()), ALL)) {
+                    fieldConfigService.delete(config.getId(), config.getVersion());
+                }
+                for (MetadataFieldReferenceConfig config : referenceConfigService.list(Criteria.of()
+                        .eq("metadataFieldId", field.getId()).eq("relationId", relation.getId()), ALL)) {
+                    referenceConfigService.delete(config.getId(), config.getVersion());
+                }
+                return null;
+            });
             fieldService.delete(field.getId(), field.getVersion());
             return null;
         });

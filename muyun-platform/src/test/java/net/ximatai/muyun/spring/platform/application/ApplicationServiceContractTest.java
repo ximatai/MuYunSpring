@@ -121,6 +121,27 @@ class ApplicationServiceContractTest {
     }
 
     @Test
+    void shouldRejectActiveAndRetainedAliasesWithoutOverwritingTheirRecords() {
+        ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
+        service.insert(application("reserved"));
+        assertThatThrownBy(() -> service.insert(application("reserved")))
+                .isInstanceOfSatisfying(PlatformException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(PlatformErrorCodes.CONFLICT_UNIQUE);
+                    assertThat(failure.httpStatus()).isEqualTo(409);
+                });
+        service.delete("reserved");
+        assertThatThrownBy(() -> service.insert(application("reserved")))
+                .isInstanceOfSatisfying(PlatformException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT);
+                    assertThat(failure.getMessage()).contains("回收站", "其他标识");
+                    assertThat(failure.targets()).extracting(target -> target.fieldName()).containsExactly("alias");
+                });
+        assertThat(service.selectIgnoreSoftDelete("reserved").getDeleted()).isTrue();
+        service.insert(application("alternative"));
+        assertThat(service.select("alternative")).isNotNull();
+    }
+
+    @Test
     void shouldProtectPlatformManagedApplicationsAndExplainUnavailableActions() {
         ApplicationService service = new ApplicationService(new ApplicationMemoryDao());
         Application managed = application("platform");

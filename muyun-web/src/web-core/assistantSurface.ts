@@ -1,4 +1,9 @@
-import { assistantCapabilityCatalog, ASSISTANT_CAPABILITY_LOAD_CODE } from './assistantCapabilityCatalog';
+import { AppError } from './errors';
+import {
+  assistantCapabilityCatalog,
+  ASSISTANT_CAPABILITY_LOAD_CODE,
+  ASSISTANT_CAPABILITY_SELECTION_LIMIT,
+} from './assistantCapabilityCatalog';
 import {
   createAssistantOperationConfirmation,
   type AssistantOperationProposal,
@@ -21,6 +26,8 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   schemaDiscovery?: 'eager';
   /** Trusted implementation effect boundary; read capabilities cannot mutate the page. */
   effect: 'read' | 'page' | 'draft' | 'configuration-draft';
+  /** Descriptive boundary for reads that replace selection/candidate state; never authority. */
+  changesReadState?: boolean;
   present?(output: TOutput): AssistantResultPresentation;
   propose?(output: TOutput): AssistantOperationProposal;
   parseInput(input: unknown): TInput;
@@ -124,6 +131,39 @@ function permitted(capability: AssistantCapability, policy?: AssistantExecutionP
   return !policy?.readOnly || (capability.effect === 'read' && !capability.propose);
 }
 
+/** Conversation-local schema choices; never business observations, inputs or execution authority. */
+export interface AssistantCapabilitySelection {
+  forScope(token: AssistantInvocationToken | undefined): string[];
+  remember(token: AssistantInvocationToken, codes: string[]): void;
+  clear(): void;
+}
+
+export function createAssistantCapabilitySelection(): AssistantCapabilitySelection {
+  let scope: string | undefined;
+  let codes: string[] = [];
+  const selection: AssistantCapabilitySelection = {
+    forScope(token) {
+      const next =
+        token &&
+        JSON.stringify([token.identityScopeKey, token.executionScopeKey, token.executionScopePending]);
+      if (next !== scope) {
+        scope = next;
+        codes = [];
+      }
+      return [...codes];
+    },
+    remember(token, selected) {
+      selection.forScope(token);
+      codes = [...new Set(selected)].slice(0, ASSISTANT_CAPABILITY_SELECTION_LIMIT);
+    },
+    clear() {
+      scope = undefined;
+      codes = [];
+    },
+  };
+  return selection;
+}
+
 export interface AssistantSurfaceRegistry {
   register(registration: AssistantSurfaceRegistration): () => void;
   activate(pageInstanceKey: string | undefined): void;
@@ -142,7 +182,11 @@ export interface AssistantSurfaceRegistry {
     signal?: AbortSignal,
   ): Promise<AssistantSurfaceSnapshot>;
   requestTurn(
-    input: Omit<AssistantTurnInput, 'context' | 'capabilities'>,
+    input: Omit<AssistantTurnInput, 'context' | 'capabilities'> & {
+      capabilitySelection?: AssistantCapabilitySelection;
+      /** Missing declarations from a rejected decision; filtered through the current allowed catalog. */
+      declarationRecoveryCodes?: string[];
+    },
     token: AssistantInvocationToken,
     signal?: AbortSignal,
     progress?: AssistantTurnProgress,
@@ -164,6 +208,8 @@ export interface AssistantSurfaceRegistry {
 
 /** Current live editor state; never restored from conversation history. */
 export interface AssistantConfigurationEditor {
+  kind?: 'metadata' | 'page' | 'rules';
+  openingCapability?: string;
   moduleAlias?: string;
   title: string;
   hasUnsavedChanges: boolean;
@@ -206,7 +252,7 @@ export class StaleAssistantInvocationError extends Error {
   }
 }
 
-import { OperationUsageError } from './operationErrors';
+import { DraftUpdateRejectedError, OperationUsageError } from './operationErrors';
 /** Preserves the public assistant error contract at the adapter boundary. */
 export class AssistantCapabilityUsageError extends OperationUsageError {
   constructor(message: string, code?: OperationUsageError['code']) {
@@ -431,24 +477,79 @@ export function createAssistantSurfaceRegistry(
     },
     requestTurn(input, token, signal, progress, policy) {
       if (token.executionScopePending) return Promise.reject(new StaleAssistantInvocationError());
-      return controlled(token, signal, true, (registration, controlledSignal) => {
+      return controlled(token, signal, true, async (registration, controlledSignal) => {
         const current = requireCurrent(token);
+        const { unexecutedCapabilities, capabilitySelection, declarationRecoveryCodes, ...turnInput } = input;
         const catalog = assistantCapabilityCatalog(
           validateAssistantCapabilities(
             input.executionBudget?.phase === 'summary' ? [] : current.surface.capabilities(),
           ).filter((capability) => permitted(capability, policy)),
-        ).project(input.results);
+        ).project(input.results, capabilitySelection?.forScope(token), declarationRecoveryCodes);
+        if (input.executionBudget?.phase !== 'summary')
+          capabilitySelection?.remember(token, catalog.selectedCodes);
         const context = describe(current);
+        const facts = { ...context.facts };
+        delete facts.executionBoundaries;
+        const notExecuted = [...new Set(unexecutedCapabilities)].slice(0, 8);
         const request = {
-          ...input,
-          context: catalog.index
-            ? { ...context, facts: { ...context.facts, capabilityIndex: catalog.index } }
-            : context,
+          ...turnInput,
+          context: {
+            ...context,
+            facts: {
+              ...facts,
+              ...(catalog.index ? { capabilityIndex: catalog.index } : {}),
+              ...(catalog.endDecisionAfter.length || notExecuted.length
+                ? {
+                    executionBoundaries: {
+                      endDecisionAfter: catalog.endDecisionAfter,
+                      ...(notExecuted.length ? { notExecuted } : {}),
+                    },
+                  }
+                : {}),
+            },
+          },
           capabilities: catalog.descriptors,
         };
-        return progress
-          ? registration.surface.requestTurn(request, controlledSignal, progress)
-          : registration.surface.requestTurn(request, controlledSignal);
+        const started = performance.now();
+        let output: AssistantTurnOutput | undefined;
+        let failure: unknown;
+        try {
+          output = await (progress
+            ? registration.surface.requestTurn(request, controlledSignal, progress)
+            : registration.surface.requestTurn(request, controlledSignal));
+          return output;
+        } catch (error) {
+          failure = error;
+          throw error;
+        } finally {
+          const details = failure instanceof AppError ? failure.details : undefined;
+          const rawUsage = output?.usage ?? details?.modelUsage;
+          const usage: NonNullable<AssistantTurnOutput['usage']> = {};
+          if (rawUsage && typeof rawUsage === 'object') {
+            for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
+              const value = (rawUsage as Record<string, unknown>)[key];
+              if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) usage[key] = value;
+            }
+          }
+          const toolCallCount = output
+            ? (output.modelToolCallCount ?? (output.selection ? undefined : output.toolCalls.length))
+            : details?.modelToolCallCount;
+          try {
+            const observed = progress?.onRequestCompleted?.({
+              durationMs: Math.max(0, performance.now() - started),
+              outcome: output ? 'received' : 'failed',
+              ...(Object.keys(usage).length ? { usage } : {}),
+              ...(typeof toolCallCount === 'number' &&
+              Number.isSafeInteger(toolCallCount) &&
+              toolCallCount >= 0
+                ? { toolCallCount }
+                : {}),
+            });
+            void Promise.resolve(observed).catch(() => undefined);
+          } catch {
+            /* Observability cannot alter execution or cancellation. */
+          }
+        }
       });
     },
     async invoke(call, token, signal, policy) {
@@ -503,9 +604,22 @@ export function createAssistantSurfaceRegistry(
             }
             const before = postReadToken ?? token;
             const registration = requireCurrent(before);
+            const pageRevision = registration.contextRevision();
             const result = commit();
             // Internal state cannot authorize a concurrent page or identity change.
-            requireCurrent(before);
+            if (capability.changesReadState) {
+              const current = active();
+              const after = current && tokenOf(current);
+              // Declared read-state changes may publish new workspace observations,
+              // but cannot change the page, its business revision, interaction or scope.
+              if (
+                current !== registration ||
+                registration.contextRevision() !== pageRevision ||
+                !after ||
+                !sameAssistantInvocationToken(before, { ...after, contextRevision: before.contextRevision })
+              )
+                throw new StaleAssistantInvocationError();
+            } else requireCurrent(before);
             registration.readStateRevision += 1;
             postReadToken = tokenOf(registration);
             return result;
@@ -516,8 +630,17 @@ export function createAssistantSurfaceRegistry(
             }
             requireCurrent(postReadToken ?? token);
             if (capability.effect === 'read') throw new Error('Read capability cannot apply page effects');
+            const previousEffectState = effectState;
             effectState = 'unknown';
-            const result = effect();
+            let result;
+            try {
+              result = effect();
+            } catch (failure) {
+              // Only the standard staged editor can prove that this update never published.
+              // Earlier effects in the same capability remain applied or unknown.
+              if (failure instanceof DraftUpdateRejectedError) effectState = previousEffectState;
+              throw failure;
+            }
             if (
               result !== null &&
               (typeof result === 'object' || typeof result === 'function') &&

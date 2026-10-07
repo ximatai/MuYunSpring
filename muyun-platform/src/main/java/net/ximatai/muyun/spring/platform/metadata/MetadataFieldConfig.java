@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldQueryDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorDefinition;
 
 import java.util.Set;
 
@@ -56,6 +57,40 @@ public class MetadataFieldConfig extends StandardEntity {
     @Column(name = "default_value", type = ColumnType.VARCHAR, length = 512, comment = "Default value")
     private String defaultValue;
 
+    public static String effectiveDefaultValue(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        return relation != null && relation.getDefaultValue() != null
+                ? relation.getDefaultValue() : base == null ? null : base.getDefaultValue();
+    }
+
+    public static String effectiveValidationRegex(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        return relation != null && relation.getValidationRegex() != null
+                ? relation.getValidationRegex() : base == null ? null : base.getValidationRegex();
+    }
+
+    public static MetadataFieldConfig effectiveDictionaryConfig(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        return relation != null && relation.hasDictionaryBinding() ? relation : base;
+    }
+
+    /** Copies only declarations owned by this scope, leaving inherited facts undeclared. */
+    public static MetadataFieldConfig copyRelationDeclarations(MetadataFieldConfig relation) {
+        MetadataFieldConfig result = new MetadataFieldConfig();
+        if (relation == null) return result;
+        result.setQueryable(relation.getQueryable());
+        result.setDefaultQueryOperator(relation.getDefaultQueryOperator());
+        result.setQueryOperators(relation.getQueryOperators());
+        result.setDefaultValue(relation.getDefaultValue());
+        result.setValidationRegex(relation.getValidationRegex());
+        result.setRequiredOnInsert(relation.getRequiredOnInsert());
+        result.setRequiredOnUpdate(relation.getRequiredOnUpdate());
+        result.setTextNormalization(relation.getTextNormalization());
+        result.setCopyable(relation.getCopyable());
+        result.setWriteProtected(relation.getWriteProtected());
+        result.setDictionaryApplicationAlias(relation.getDictionaryApplicationAlias());
+        result.setDictionaryCategoryAlias(relation.getDictionaryCategoryAlias());
+        result.setSelectionMode(relation.getSelectionMode());
+        return result;
+    }
+
     @Column(name = "validation_regex", type = ColumnType.VARCHAR, length = 512, comment = "Validation regex")
     private String validationRegex;
 
@@ -67,6 +102,30 @@ public class MetadataFieldConfig extends StandardEntity {
 
     @Column(name = "text_normalization", type = ColumnType.VARCHAR, length = 32, comment = "Text normalization")
     private TextNormalization textNormalization;
+
+    public static FieldWriteRules effectiveWriteRules(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        FieldWriteRules inherited = base == null ? FieldWriteRules.NONE : base.effectiveWriteRules(FieldWriteRules.NONE);
+        return relation == null ? inherited : relation.effectiveWriteRules(inherited);
+    }
+
+    /** Runtime and publication validation resolve legacy overlays in the same order. */
+    public static FieldBehaviorDefinition effectiveBehavior(MetadataFieldConfig base, MetadataFieldConfig relation,
+                                                           ModuleMetadataField legacy) {
+        String value = effectiveDefaultValue(base, relation);
+        String regex = effectiveValidationRegex(base, relation);
+        boolean copyable = relation != null && relation.getCopyable() != null ? Boolean.TRUE.equals(relation.getCopyable())
+                : base == null || base.getCopyable() == null || Boolean.TRUE.equals(base.getCopyable());
+        boolean protectedWrite = relation != null && relation.getWriteProtected() != null
+                ? Boolean.TRUE.equals(relation.getWriteProtected()) : base != null && Boolean.TRUE.equals(base.getWriteProtected());
+        FieldWriteRules rules = effectiveWriteRules(base, relation);
+        if (legacy != null) {
+            if (legacy.getDefaultValue() != null) value = legacy.getDefaultValue();
+            if (legacy.getValidationRegex() != null) regex = legacy.getValidationRegex();
+            if (legacy.getCloneable() != null) copyable = Boolean.TRUE.equals(legacy.getCloneable());
+            rules = legacy.effectiveWriteRules(rules);
+        }
+        return new FieldBehaviorDefinition(value, regex, copyable, protectedWrite, rules);
+    }
 
     /** Null declarations inherit the enclosing field behavior. */
     public FieldWriteRules effectiveWriteRules(FieldWriteRules inherited) {

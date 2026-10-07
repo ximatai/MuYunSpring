@@ -93,6 +93,23 @@ public class ApplicationService extends StandardBusinessService<Application> imp
     }
 
     @Override
+    protected void validateBeforeInsert(Application application) {
+        String alias = application.getAlias();
+        // An application's alias is its global identity, including records retained in the recycle bin.
+        Application retained = getDao().findById(alias);
+        if (retained == null) return;
+        boolean deleted = Boolean.TRUE.equals(retained.getDeleted());
+        throw new PlatformException(deleted ? PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT
+                : PlatformErrorCodes.CONFLICT_UNIQUE, 409,
+                deleted ? "应用标识已被回收站中的应用保留，请恢复原应用或使用其他标识"
+                        : "应用标识已被使用，请选择已有应用或使用其他标识",
+                ErrorScope.module(MODULE_ALIAS).action("create"),
+                List.of(ErrorTarget.field("alias").module(MODULE_ALIAS)),
+                Map.of("resourceModuleAlias", MODULE_ALIAS, "resourceRecordId", alias,
+                        "recoveryAvailable", deleted));
+    }
+
+    @Override
     public boolean isEnabledForTenant(String applicationAlias) {
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         Application application = select(validApplicationAlias);

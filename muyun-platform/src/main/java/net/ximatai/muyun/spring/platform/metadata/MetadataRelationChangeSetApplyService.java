@@ -321,14 +321,15 @@ public class MetadataRelationChangeSetApplyService {
 
     private void applyProperty(MetadataField field, ModuleMetadataRelation relation,
                                MetadataFieldPropertyChangeSetPlan property) {
-        if (property == null || property.kind() == MetadataFieldPropertyKind.BASIC) return;
-        if (referenceConfigService == null || fieldConfigService == null) {
+        if (property == null || (property.kind() == MetadataFieldPropertyKind.BASIC && property.fixedDefault() == null)) return;
+        if ((property.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE && referenceConfigService == null)
+                || (property.kind() != MetadataFieldPropertyKind.MODULE_REFERENCE && fieldConfigService == null)) {
             throw new PlatformException("Metadata change-set field property publishing is not configured");
         }
         switch (property.kind()) {
             case MODULE_REFERENCE -> applyReferenceProperty(field, relation, property);
             case DICTIONARY -> applyDictionaryProperty(field, relation, property);
-            case BASIC -> { }
+            case BASIC -> applyFixedDefault(field, relation, property.fixedDefault());
             case LEGACY_LOCKED -> throw new PlatformException("Legacy metadata field property is read-only and cannot be published: "
                     + field.getFieldName());
         }
@@ -355,9 +356,18 @@ public class MetadataRelationChangeSetApplyService {
         MetadataFieldConfig requested = property.dictionaryConfig();
         if (requested == null) throw new PlatformException("Validated dictionary field property is missing its binding");
         MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
-        MetadataFieldConfig effective = override == null ? fieldConfigService.findByMetadataFieldId(field.getId()) : override;
-        assertBindingVersion(property.expectedBindingVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
-        MetadataFieldConfig config = mergeDictionaryBinding(effective, requested);
+        MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
+        MetadataFieldConfig effective = override == null ? base : override;
+        MetadataFieldConfig dictionary = MetadataFieldConfig.effectiveDictionaryConfig(base, override);
+        assertBindingVersion(property.expectedBindingVersion(), dictionary == null || !dictionary.hasDictionaryBinding()
+                ? null : dictionary.getVersion(), field.getFieldName());
+        if (property.fixedDefault() != null)
+            assertBindingVersion(property.fixedDefault().expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        MetadataFieldConfig config = MetadataFieldConfig.copyRelationDeclarations(override);
+        config.setDictionaryApplicationAlias(requested.getDictionaryApplicationAlias());
+        config.setDictionaryCategoryAlias(requested.getDictionaryCategoryAlias());
+        config.setSelectionMode(requested.getSelectionMode());
+        if (property.fixedDefault() != null) config.setDefaultValue(property.fixedDefault().value());
         if (override != null) {
             config.setId(override.getId());
             config.setVersion(override.getVersion());
@@ -368,28 +378,23 @@ public class MetadataRelationChangeSetApplyService {
         else fieldConfigService.update(config);
     }
 
-    /**
-     * Retains effective query/behavior/protection facts while replacing only dictionary facts.
-     * A new relation override deliberately does not inherit physical storage shape from base.
-     */
-    private MetadataFieldConfig mergeDictionaryBinding(MetadataFieldConfig existing, MetadataFieldConfig requested) {
-        MetadataFieldConfig result = new MetadataFieldConfig();
-        if (existing != null) {
-            result.setQueryable(existing.getQueryable());
-            result.setDefaultQueryOperator(existing.getDefaultQueryOperator());
-            result.setQueryOperators(existing.getQueryOperators());
-            result.setDefaultValue(existing.getDefaultValue());
-            result.setValidationRegex(existing.getValidationRegex());
-            result.setRequiredOnInsert(existing.getRequiredOnInsert());
-            result.setRequiredOnUpdate(existing.getRequiredOnUpdate());
-            result.setTextNormalization(existing.getTextNormalization());
-            result.setCopyable(existing.getCopyable());
-            result.setWriteProtected(existing.getWriteProtected());
+    private void applyFixedDefault(MetadataField field, ModuleMetadataRelation relation,
+                                   MetadataFieldFixedDefaultDraft requested) {
+        MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
+        MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
+        MetadataFieldConfig effective = override == null ? base : override;
+        assertBindingVersion(requested.expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        if (effective == null && requested.value() == null) return;
+        MetadataFieldConfig config = MetadataFieldConfig.copyRelationDeclarations(override);
+        config.setDefaultValue(requested.value());
+        if (override != null) {
+            config.setId(override.getId());
+            config.setVersion(override.getVersion());
         }
-        result.setDictionaryApplicationAlias(requested.getDictionaryApplicationAlias());
-        result.setDictionaryCategoryAlias(requested.getDictionaryCategoryAlias());
-        result.setSelectionMode(requested.getSelectionMode());
-        return result;
+        config.setMetadataFieldId(field.getId());
+        config.setRelationId(relation.getId());
+        if (config.getId() == null) fieldConfigService.insert(config);
+        else fieldConfigService.update(config);
     }
 
     private void assertBindingVersion(Integer expected, Integer actual, String fieldName) {

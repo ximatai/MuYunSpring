@@ -1,10 +1,8 @@
 package net.ximatai.muyun.spring.platform.application;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.platform.menu.*;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.ui.*;
@@ -24,25 +22,36 @@ class ApplicationConstructionDeliveryServiceTest {
         }
     }
 
-    @Test void formalPageAndMenuPermissionsAreRequiredBeforeAnyPublication() {
+    @Test void retiredPageAndMenuWritesRejectBeforeTouchingConfigurationOrReceipts() {
         var plans = mock(ApplicationConstructionPlanService.class);
-        var permissions = mock(ActionExecutionPolicyService.class);
-        var publisher = mock(PlatformPresentationRevisionPublishService.class);
+        var database = mock(IDatabaseOperations.class);
+        var receipts = mock(ApplicationConstructionDeliveryDao.class);
         var menus = mock(MenuService.class);
-        var service = new ApplicationConstructionDeliveryService(mock(IDatabaseOperations.class), plans,
-                mock(ApplicationConstructionFieldService.class), mock(ApplicationConstructionDeliveryDao.class),
+        var service = new ApplicationConstructionDeliveryService(database, plans,
+                mock(ApplicationConstructionFieldService.class), receipts,
                 mock(ApplicationConstructionAcceptanceDao.class), mock(PlatformPageDefinitionService.class),
                 mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), menus,
-                mock(MenuSchemeService.class), mock(DynamicRuntimeActivationService.class), permissions);
-        doThrow(new PlatformAccessDeniedException("无发布权限")).when(permissions).requireAuthorized(argThat(context ->
-                context.actionCode().equals("publish") || context.moduleAlias().equals("platform.menu") && context.actionCode().equals("create")));
+                mock(DynamicRuntimeActivationService.class));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("restricted", "受限管理员"))) {
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.PAGE, "订单", List.of("number"), List.of("number"), List.of())))
                     .hasMessageContaining("标准页面编排");
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY, "订单", List.of(), List.of(), List.of())))
-                    .hasMessageContaining("无发布权限");
+                    .hasMessageContaining("共享菜单治理");
+            for (var kind : ApplicationConstructionDeliveryService.Kind.values()) {
+                var proposal = new ApplicationConstructionDeliveryService.Proposal(1, "order", kind,
+                        "订单", kind == ApplicationConstructionDeliveryService.Kind.PAGE ? List.of("number") : List.of(),
+                        kind == ApplicationConstructionDeliveryService.Kind.PAGE ? List.of("number") : List.of(), List.of());
+                assertThatThrownBy(() -> service.confirm("plan", new ApplicationConstructionDeliveryService.Command(
+                        "old-request-00000001", proposal, "old-fingerprint")))
+                        .hasMessageContaining("历史结果仅支持查询");
+            }
+            // An old caller still queries only its original receipt, without creating a new one.
+            assertThat(service.result("plan", "old-request-00000001")).isNull();
         }
-        verifyNoInteractions(plans, publisher, menus);
+        verify(plans).read("plan");
+        verify(receipts).findById(anyString());
+        verifyNoMoreInteractions(plans, receipts);
+        verifyNoInteractions(database, menus);
     }
     @Test void choicesFollowEvidenceWithoutForcingOptionalWritesOrSerializingIndependentObjects() {
         var plans = mock(ApplicationConstructionPlanService.class);
@@ -52,7 +61,7 @@ class ApplicationConstructionDeliveryServiceTest {
                 mock(ApplicationConstructionFieldService.class), mock(ApplicationConstructionDeliveryDao.class),
                 mock(ApplicationConstructionAcceptanceDao.class), mock(PlatformPageDefinitionService.class),
                 mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), menus,
-                mock(MenuSchemeService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class)));
+                mock(DynamicRuntimeActivationService.class)));
         var content = new ApplicationConstructionPlanContent("登记", "登记两个独立对象", List.of("记录基本信息"), List.of(),
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("first", "对象一", "登记", "sample.first"),
                         new ApplicationConstructionPlanContent.BusinessObject("second", "对象二", "登记")),
@@ -67,7 +76,8 @@ class ApplicationConstructionDeliveryServiceTest {
                     .containsExactly(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
             assertThat(task.objects().get(1).options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action)
                     .containsExactly(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
-            assertThat(task.objects().get(1).requirements()).anyMatch(item ->
+            assertThat(task.objects().get(1).requirements()).isEmpty();
+            assertThat(task.unmappedRequirements()).anyMatch(item ->
                     item.status() == ApplicationConstructionRequirements.Status.UNMAPPED);
             doThrow(new IllegalArgumentException("关联模块尚无可用主实体")).when(service).progress("plan", "first");
             assertThat(service.task("plan").objects().getFirst().options())
@@ -134,4 +144,45 @@ class ApplicationConstructionDeliveryServiceTest {
         verifyNoInteractions(publisher, menus);
     }
 
+    @Test void unmappedRequirementsArePlanFactsAndDoNotGrowWithTheNumberOfObjects() throws Exception {
+        var plans = mock(ApplicationConstructionPlanService.class);
+        var service = spy(new ApplicationConstructionDeliveryService(mock(IDatabaseOperations.class), plans,
+                mock(ApplicationConstructionFieldService.class), mock(ApplicationConstructionDeliveryDao.class),
+                mock(ApplicationConstructionAcceptanceDao.class), mock(PlatformPageDefinitionService.class),
+                mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), mock(MenuService.class),
+                mock(DynamicRuntimeActivationService.class)));
+        var objects = java.util.stream.IntStream.range(0, 7).mapToObj(index ->
+                new ApplicationConstructionPlanContent.BusinessObject("object" + index, "对象" + index, "登记",
+                        index == 0 ? "sample.first" : null)).toList();
+        var requirements = java.util.stream.IntStream.range(0, 10).mapToObj(index ->
+                "要求" + index + "：" + "记录共享业务事实并核对保存结果".repeat(20)).toList();
+        var content = new ApplicationConstructionPlanContent("登记", "多对象完整任务", requirements, List.of(), objects,
+                requirements, requirements, List.of(), List.of(), List.of(), List.of(), List.of());
+        when(plans.read("plan")).thenReturn(new ApplicationConstructionPlanService.Snapshot("plan", 1, content,
+                java.time.Instant.EPOCH, "LINKED", List.of(), List.of(), List.of(), List.of()));
+        var evidence = ApplicationConstructionRequirements.evaluate(content, "object0", List.of());
+        doReturn(new ApplicationConstructionDeliveryService.Progress("object0", "sample.first", "ACTIVE", true,
+                true, "menu", false, false, List.of("要求尚未兑现"), List.of(), evidence))
+                .when(service).progress("plan", "object0");
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("admin", "管理员"))) {
+            var task = service.task("plan");
+            assertThat(task.unmappedRequirements()).hasSize(30).allSatisfy(item -> {
+                assertThat(item.objectKey()).isEmpty();
+                assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.UNMAPPED);
+            });
+            assertThat(task.objects()).allSatisfy(object -> {
+                assertThat(object.requirements()).isEmpty();
+                assertThat(object.complete()).isFalse();
+            });
+            // Compaction cannot turn unresolved requirements into permission to publish or accept.
+            assertThat(task.objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action)
+                    .containsExactly(ApplicationConstructionDeliveryService.TaskAction.REVIEW_REQUIREMENTS,
+                            ApplicationConstructionDeliveryService.TaskAction.REVIEW_CONFIGURATION);
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var json = mapper.valueToTree(task);
+            assertThat(json.path("objects").get(0).path("progress").has("requirements")).isFalse();
+            assertThat(json.path("objects").get(0).path("progress").path("businessDataStatus").asText()).isEqualTo("NOT_QUERIED");
+            assertThat(mapper.writeValueAsString(task).length()).isLessThan(20_000);
+        }
+    }
 }

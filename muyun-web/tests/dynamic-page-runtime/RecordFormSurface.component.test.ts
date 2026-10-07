@@ -29,7 +29,7 @@ describe('record form surface', () => {
         fieldNames: { type: Array, default: () => [] },
         fileTransferContext: { type: Object, required: false, default: undefined },
       },
-      emits: ['validity-change'],
+      emits: ['validity-change', 'reference-display-change'],
       template: '<section />',
     });
     const wrapper = mount(RecordFormSurface, {
@@ -61,6 +61,9 @@ describe('record form surface', () => {
     const form = wrapper.findComponent(RecordFormFieldsStub);
     const contribution = wrapper.findComponent(Contribution);
 
+    const candidates = [{ id: 'selected', title: '已选名称' }];
+    form.vm.$emit('reference-display-change', 'title', candidates);
+    expect(wrapper.emitted('reference-display-change')?.at(-1)).toEqual(['title', candidates]);
     expect(form.props('fieldNames')).toEqual(['title']);
     expect(form.props('fileTransferContext')).toEqual({});
     contribution.props('context').reportValidity({ valid: false });

@@ -22,6 +22,140 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class OpenAiCompatibleModelClientTest {
     private HttpServer server;
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false,false,false", "false,true,false", "true,false,false", "true,true,false",
+            "false,false,true", "false,true,true", "true,false,true", "true,true,true"})
+    void rejectsIndexedCallsAndOnlyReportsKnownMissingDeclarations(boolean stream, boolean known, boolean throughGateway) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            var calls = List.of(
+                    Map.of("id", "valid", "type", "function", "index", 0,
+                            "function", Map.of("name", "cap_page_patch", "arguments", "{}")),
+                    Map.of("id", "missing", "type", "function", "index", 1,
+                            "function", Map.of("name", known ? "cap_page_next" : "private-provider-name",
+                                    "arguments", "{\"private\":\"untrusted output\"}")));
+            String body = stream ? "data: " + mapper.writeValueAsString(Map.of("choices", List.of(Map.of(
+                    "delta", Map.of("tool_calls", calls), "finish_reason", "tool_calls")))) + "\n\ndata: " + mapper.writeValueAsString(Map.of("choices", List.of(), "usage", Map.of("total_tokens", 17))) + "\n\ndata: [DONE]\n\n"
+                    : mapper.writeValueAsString(Map.of("usage", Map.of("total_tokens", 17), "choices", List.of(Map.of(
+                    "message", Map.of("tool_calls", calls), "finish_reason", "tool_calls"))));
+            if (stream) exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")),
+                List.of(new AiToolDefinition("page.patch", "Patch", Map.of("type", "object"))),
+                null, 512, List.of("page.next"));
+        AiTurnStreamConsumer consumer = org.mockito.Mockito.mock(AiTurnStreamConsumer.class);
+        assertThatThrownBy(() -> {
+            var client = new OpenAiCompatibleModelClient(mapper);
+            if (throughGateway) {
+                var resolver = org.mockito.Mockito.mock(AiModelRouteResolver.class);
+                org.mockito.Mockito.when(resolver.resolveCurrent()).thenReturn(route());
+                var gateway = new DefaultAiModelGateway(resolver, client);
+                if (stream) gateway.stream(request, consumer);
+                else gateway.complete(request);
+            } else {
+                if (stream) client.stream(route(), request, consumer);
+                else client.complete(route(), request);
+            }
+        }).isInstanceOfSatisfying(PlatformException.class, error -> {
+            assertThat(error.code()).isEqualTo("AI_MODEL_UNDECLARED_TOOL");
+            assertThat(error.details()).containsEntry("modelToolCallCount", 2).containsEntry("modelUsage", new AiTokenUsage(null, null, 17L));
+            assertThat(error.details().keySet()).containsExactlyInAnyOrderElementsOf(known
+                    ? List.of("missingToolCodes", "modelToolCallCount", "modelUsage") : List.of("modelToolCallCount", "modelUsage"));
+            if (known) assertThat(error.details()).containsEntry("missingToolCodes", List.of("page.next"));
+            assertThat(error.details().toString()).doesNotContain("private-provider-name", "untrusted output");
+            assertThat(error.getMessage()).doesNotContain("private-provider-name", "untrusted output");
+        });
+        org.mockito.Mockito.verifyNoInteractions(consumer);
+        assertThat(mapper.readTree(requestBody.get()).path("tools")).hasSize(1);
+        assertThat(requestBody.get()).doesNotContain("page.next", "indexedToolCodes");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void duplicateProviderIdsRetainUsageWithoutExposingIdentifiers(boolean stream) throws Exception {
+        var mapper = new ObjectMapper();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            var calls = java.util.stream.IntStream.range(0, 2).mapToObj(index -> Map.of(
+                    "id", "private-provider-id", "index", index, "type", "function",
+                    "function", Map.of("name", "cap_page_patch", "arguments", "{}"))).toList();
+            String body = stream ? "data: " + mapper.writeValueAsString(Map.of("choices", List.of(Map.of(
+                    "delta", Map.of("tool_calls", calls), "finish_reason", "tool_calls"))))
+                    + "\n\ndata: " + mapper.writeValueAsString(Map.of("choices", List.of(), "usage", Map.of("total_tokens", 17)))
+                    + "\n\ndata: [DONE]\n\n"
+                    : mapper.writeValueAsString(Map.of("usage", Map.of("total_tokens", 17), "choices", List.of(Map.of(
+                    "message", Map.of("tool_calls", calls), "finish_reason", "tool_calls"))));
+            if (stream) exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")),
+                List.of(new AiToolDefinition("page.patch", "Patch", Map.of("type", "object"))), null, 512);
+        var consumer = org.mockito.Mockito.mock(AiTurnStreamConsumer.class);
+        var client = new OpenAiCompatibleModelClient(mapper);
+        assertThatThrownBy(() -> {
+            if (stream) client.stream(route(), request, consumer);
+            else client.complete(route(), request);
+        }).isInstanceOfSatisfying(PlatformException.class, failure -> {
+            assertThat(failure.details()).containsEntry("modelToolCallCount", 2)
+                    .containsEntry("modelUsage", new AiTokenUsage(null, null, 17L));
+            assertThat(failure.getMessage()).doesNotContain("private-provider-id");
+            assertThat(failure.details().toString()).doesNotContain("private-provider-id");
+        });
+        org.mockito.Mockito.verifyNoInteractions(consumer);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "text,inherit", "text,none", "text,low", "turn,inherit", "turn,none", "turn,low",
+            "text-stream,inherit", "text-stream,none", "text-stream,low", "turn-stream,inherit", "turn-stream,none", "turn-stream,low"})
+    void transmitsOnlyExplicitDeploymentReasoningEffortAcrossTextAndToolTransports(String mode, String effort) throws Exception {
+        var body = new AtomicReference<JsonNode>();
+        var mapper = new ObjectMapper();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            JsonNode sent = mapper.readTree(exchange.getRequestBody()); body.set(sent);
+            boolean streaming = sent.path("stream").asBoolean();
+            String response = streaming
+                    ? "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+                    : "{\"choices\":[{\"message\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}";
+            exchange.getResponseHeaders().add("Content-Type", streaming ? "text/event-stream" : "application/json");
+            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        var baseline = route();
+        var selected = new ResolvedAiModelRoute(baseline.provider(), baseline.protocol(), baseline.baseUrl(),
+                baseline.modelId(), baseline.apiKey(), baseline.limits(),
+                effort.equals("inherit") ? null : AiModelReasoningEffort.valueOf(effort.toUpperCase(java.util.Locale.ROOT)));
+        var client = new OpenAiCompatibleModelClient(mapper);
+        var text = AiTextRequest.userText("hello");
+        var turn = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, 512);
+        switch (mode) {
+            case "text" -> client.generate(selected, text);
+            case "turn" -> client.complete(selected, turn);
+            case "text-stream" -> client.stream(selected, text, delta -> {});
+            case "turn-stream" -> client.stream(selected, turn, org.mockito.Mockito.mock(AiTurnStreamConsumer.class));
+            default -> throw new AssertionError(mode);
+        }
+        if (effort.equals("inherit")) assertThat(body.get().has("reasoning_effort")).isFalse();
+        else assertThat(body.get().path("reasoning_effort").asText()).isEqualTo(effort);
+        assertThat(body.get().has("thinking")).isFalse();
+        assertThat(body.get().path("model").asText()).isEqualTo("local-model");
+    }
+
     @AfterEach
     void stopServer() {
         if (server != null) server.stop(0);
@@ -333,10 +467,13 @@ class OpenAiCompatibleModelClientTest {
     void providerNamesRemainReadableBoundedAndDistinctAfterNormalization() {
         String code = "relation.reference.resolve-and-patch";
         assertThat(OpenAiCompatibleModelClient.providerToolName(code))
-                .startsWith("cap_relation_reference_resolve-and-patch_")
+                .isEqualTo("cap_relation_reference_resolve-and-patch")
                 .matches("[a-zA-Z0-9_-]{1,64}");
         assertThat(OpenAiCompatibleModelClient.providerToolName("a.b"))
                 .isNotEqualTo(OpenAiCompatibleModelClient.providerToolName("a_b"));
+        assertThat(OpenAiCompatibleModelClient.providerToolName("a_b"))
+                .startsWith("capx_").matches("[a-zA-Z0-9_-]{1,64}")
+                .isNotEqualTo(OpenAiCompatibleModelClient.providerToolName("a b"));
         String prefix = "long".repeat(30);
         assertThat(OpenAiCompatibleModelClient.providerToolName(prefix + "a"))
                 .hasSize(64).isNotEqualTo(OpenAiCompatibleModelClient.providerToolName(prefix + "b"));
@@ -350,7 +487,7 @@ class OpenAiCompatibleModelClientTest {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] body = ("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":["
                     + "{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
-                    + "\"name\":\"cap_workbench_find-menu_d5add68fb097\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
+                    + "\"name\":\"cap_workbench_find-menu\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
                     + "\\\"optional\\\":null,\\\"error\\\":\\\"business fact\\\"}\"}}]},"
                     + "\"finish_reason\":\"tool_calls\"}]}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("x-request-id", "request-structured");
@@ -367,7 +504,7 @@ class OpenAiCompatibleModelClientTest {
 
         AiTurnResponse response = new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
 
-        assertThat(requestBody.get()).contains("\"name\":\"cap_workbench_find-menu_d5add68fb097\"")
+        assertThat(requestBody.get()).contains("\"name\":\"cap_workbench_find-menu\"")
                 .doesNotContain("workbench.find-menu");
         assertThat(response.toolCalls()).singleElement().satisfies(call -> {
             assertThat(call.id()).isEqualTo("call-1");
@@ -381,6 +518,34 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void readableAndFallbackDeclarationsRoundTripWithoutNormalizedNameCollisions() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ObjectMapper mapper = new ObjectMapper();
+        server.createContext("/v1/chat/completions", exchange -> {
+            JsonNode request = mapper.readTree(exchange.getRequestBody());
+            List<Map<String, Object>> calls = new ArrayList<>();
+            for (int index = 0; index < request.path("tools").size(); index++) {
+                String name = request.path("tools").get(index).path("function").path("name").asText();
+                calls.add(Map.of("id", "call-" + index, "type", "function",
+                        "function", Map.of("name", name, "arguments", "{}")));
+            }
+            byte[] body = mapper.writeValueAsBytes(Map.of("choices", List.of(Map.of(
+                    "message", Map.of("tool_calls", calls), "finish_reason", "tool_calls"))));
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "read")),
+                List.of(new AiToolDefinition("a.b", "read", Map.of("type", "object")),
+                        new AiToolDefinition("a_b", "read", Map.of("type", "object")),
+                        new AiToolDefinition("a b", "read", Map.of("type", "object"))), null, 512);
+
+        assertThat(new OpenAiCompatibleModelClient(mapper).complete(route(), request).toolCalls())
+                .extracting(AiToolCall::code).containsExactly("a.b", "a_b", "a b");
+    }
+
+    @Test
     void streamsStructuredTextAndReassemblesFragmentedToolCallsBeforeCompletion() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -390,7 +555,7 @@ class OpenAiCompatibleModelClientTest {
                     + "data: {\"choices\":[{\"delta\":{\"content\":\"处理\",\"tool_calls\":[{\"index\":0,"
                     + "\"id\":\"call-1\",\"function\":{\"name\":\"cap_\",\"arguments\":\"{\\\"query\\\":\"}}]},"
                     + "\"finish_reason\":null}]}\n\n"
-                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"workbench_find-menu_d5add68fb097\","
+                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"workbench_find-menu\","
                     + "\"arguments\":\"\\\"Alice\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
                     + "data: [DONE]\n\n";
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -419,7 +584,7 @@ class OpenAiCompatibleModelClientTest {
             }
         });
 
-        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"cap_workbench_find-menu_d5add68fb097\"");
+        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"cap_workbench_find-menu\"");
         assertThat(deltas).containsExactly("正在", "处理");
         assertThat(completed.get().text()).isEqualTo("正在处理");
         assertThat(completed.get().finishReason()).isEqualTo("tool_calls");
@@ -577,11 +742,29 @@ class OpenAiCompatibleModelClientTest {
                 .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_UNDECLARED_TOOL"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "cap_workbench_find-menu_d5add68fb097", "cap_workbench_open-menu"})
+    void rejectsOldOrUndeclaredNamesInsteadOfGuessingTheirCapability(String name) throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
+                        "message", Map.of("tool_calls", List.of(Map.of("id", "call-1",
+                                "function", Map.of("name", name, "arguments", "{}")))),
+                        "finish_reason", "tool_calls")))));
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, 512);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_UNDECLARED_TOOL"));
+    }
+
     @Test
     void rejectsExcessiveStructuredToolCallsBeforeReturningThemToTheBrowser() throws Exception {
         String calls = java.util.stream.IntStream.range(0, 9)
                 .mapToObj(index -> "{\"id\":\"call-" + index
-                        + "\",\"function\":{\"name\":\"cap_workbench_find-menu_d5add68fb097\",\"arguments\":\"{}\"}}")
+                        + "\",\"function\":{\"name\":\"cap_workbench_find-menu\",\"arguments\":\"{}\"}}")
                 .collect(java.util.stream.Collectors.joining(","));
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\":[{\"message\":{\"tool_calls\":[" + calls
@@ -603,7 +786,7 @@ class OpenAiCompatibleModelClientTest {
                 new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
                         "message", Map.of("tool_calls", List.of(Map.of(
                                 "id", "call-1",
-                                "function", Map.of("name", "cap_workbench_find-menu_d5add68fb097", "arguments", encodedArguments)))),
+                                "function", Map.of("name", "cap_workbench_find-menu", "arguments", encodedArguments)))),
                         "finish_reason", "tool_calls")))));
         AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
                 List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),

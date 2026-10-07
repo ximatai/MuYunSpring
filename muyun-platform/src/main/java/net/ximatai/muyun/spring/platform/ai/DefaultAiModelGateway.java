@@ -79,7 +79,7 @@ final class DefaultAiModelGateway implements AiModelGateway {
 
     private AiTurnRequest budgeted(ResolvedAiModelRoute route, AiTurnRequest request) {
         return new AiTurnRequest(request.messages(), request.tools(), request.temperature(),
-                route.limits().outputBudget(request.maxOutputTokens()));
+                route.limits().outputBudget(request.maxOutputTokens()), request.indexedToolCodes());
     }
 
     private <T> T invoke(Supplier<T> invocation) {

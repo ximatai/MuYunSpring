@@ -55,8 +55,6 @@ async function fixture() {
     previewAcceptance: vi.fn(),
     confirmAcceptance: vi.fn(),
     acceptance: vi.fn(),
-    previewDelivery: vi.fn(),
-    publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
     designContract: vi.fn(async () => ({

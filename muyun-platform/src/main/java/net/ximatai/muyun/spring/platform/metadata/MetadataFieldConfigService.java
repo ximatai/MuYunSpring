@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
+import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
@@ -12,11 +13,17 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -29,26 +36,32 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
     private final MetadataService metadataService;
     private final FieldSpecService fieldTypeService;
     private final DictionaryCategoryService categoryService;
+    private final DictionaryFieldValueValidator dictionaryValueValidator;
     private final ModuleMetadataRelationService relationService;
     private final MetadataFieldProtectionConfigService protectionConfigService;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
+    private final ObjectProvider<ModuleMetadataFieldService> moduleFieldServiceProvider;
 
     public MetadataFieldConfigService(BaseDao<MetadataFieldConfig, String> configDao,
                                       MetadataFieldService fieldService,
                                       MetadataService metadataService,
                                       FieldSpecService fieldTypeService,
                                       DictionaryCategoryService categoryService,
+                                      DictionaryFieldValueValidator dictionaryValueValidator,
                                       ModuleMetadataRelationService relationService,
                                       MetadataFieldProtectionConfigService protectionConfigService,
-                                      Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
+                                      Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
+                                      ObjectProvider<ModuleMetadataFieldService> moduleFieldServiceProvider) {
         super(MODULE_ALIAS, MetadataFieldConfig.class, configDao);
         this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
         this.metadataService = Objects.requireNonNull(metadataService, "metadataService must not be null");
         this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService must not be null");
         this.categoryService = Objects.requireNonNull(categoryService, "categoryService must not be null");
+        this.dictionaryValueValidator = Objects.requireNonNull(dictionaryValueValidator, "dictionaryValueValidator must not be null");
         this.relationService = Objects.requireNonNull(relationService, "relationService must not be null");
         this.protectionConfigService = Objects.requireNonNull(protectionConfigService, "protectionConfigService must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator, "runtimeRefreshCoordinator must not be null");
+        this.moduleFieldServiceProvider = Objects.requireNonNull(moduleFieldServiceProvider, "moduleFieldServiceProvider must not be null");
     }
 
     @Override
@@ -93,7 +106,16 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         normalizeQueryDefinition(config, fieldType);
         validateProtectionQueryBoundary(config, fieldType);
-        normalizeBehavior(config, fieldType);
+        normalizeBehavior(config);
+        MetadataFieldConfig base = config.getRelationId() == null ? config : findByMetadataFieldId(field.getId());
+        validateEffectiveBehavior(field, base, config.getRelationId() == null ? null : config);
+        if (config.getRelationId() == null) {
+            // A base shape/behavior change also affects relation defaults that inherit it.
+            for (MetadataFieldConfig override : list(Criteria.of().eq("metadataFieldId", field.getId())
+                    .isNotNull("relationId"), PageRequests.all())) {
+                validateEffectiveBehavior(field, config, override);
+            }
+        }
         validateVirtualBehaviorBoundary(config, field);
         rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
                 "metadata field config must be unique in scope: " + config.getMetadataFieldId());
@@ -134,6 +156,86 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         normalizeFieldShape(config, fieldType);
         normalizeDictionaryBinding(config, field, fieldType);
+    }
+
+    /** Validates final inherited behavior for both persisted configurations and publication drafts. */
+    public void validateEffectiveBehavior(MetadataField field, MetadataFieldConfig base, MetadataFieldConfig override) {
+        validateEffectiveBehavior(field, base, override, null);
+    }
+
+    public void validateEffectiveBehavior(MetadataField field, MetadataFieldConfig base, MetadataFieldConfig override,
+                                          ModuleMetadataField legacy) {
+        MetadataFieldConfig dictionary = MetadataFieldConfig.effectiveDictionaryConfig(base, override);
+        if (legacy != null && legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()) {
+            dictionary = new MetadataFieldConfig();
+            dictionary.setDictionaryApplicationAlias(legacy.getDictionaryApplicationAlias());
+            dictionary.setDictionaryCategoryAlias(legacy.getDictionaryCategoryAlias());
+            dictionary.setSelectionMode(OptionSelectionMode.SINGLE);
+        }
+        validateBehaviorDraft(field, base, MetadataFieldConfig.effectiveBehavior(base, override, legacy), dictionary);
+    }
+
+    /** Shared fields must remain executable as base definitions and in every configured relation. */
+    public void validateSharedFieldBehavior(MetadataField field, String candidateRelationId, MetadataFieldConfig candidate) {
+        MetadataFieldConfig base = findByMetadataFieldId(field.getId());
+        validateEffectiveBehavior(field, base, null);
+        var overrides = new LinkedHashMap<String, MetadataFieldConfig>();
+        for (MetadataFieldConfig override : list(Criteria.of().eq("metadataFieldId", field.getId()).isNotNull("relationId"), PageRequests.all())) {
+            overrides.put(override.getRelationId(), override);
+        }
+        var legacy = new LinkedHashMap<String, ModuleMetadataField>();
+        for (ModuleMetadataField item : moduleFieldServiceProvider.getObject().list(
+                Criteria.of().eq("metadataFieldId", field.getId()), PageRequests.all())) {
+            legacy.put(item.getRelationId(), item);
+            overrides.putIfAbsent(item.getRelationId(), null);
+        }
+        if (candidateRelationId != null) overrides.put(candidateRelationId, candidate);
+        overrides.forEach((relationId, override) -> validateEffectiveBehavior(field, base, override, legacy.get(relationId)));
+    }
+
+    List<String> behaviorBaseline(String fieldId, String relationId, boolean sharedChange) {
+        var facts = new ArrayList<String>();
+        for (MetadataFieldConfig config : list(Criteria.of().eq("metadataFieldId", fieldId), PageRequests.all())) {
+            if (!sharedChange && config.getRelationId() != null && !Objects.equals(relationId, config.getRelationId())) continue;
+            facts.add("config:" + config.getId() + ":" + config.getRelationId() + ":" + config.getVersion());
+        }
+        for (ModuleMetadataField legacy : moduleFieldServiceProvider.getObject().list(
+                Criteria.of().eq("metadataFieldId", fieldId), PageRequests.all())) {
+            if (!sharedChange && !Objects.equals(relationId, legacy.getRelationId())) continue;
+            facts.add("legacy:" + legacy.getId() + ":" + legacy.getRelationId() + ":" + legacy.getVersion());
+        }
+        return facts;
+    }
+
+    /** Side-effect-free validation of the final initial value, shared by configuration CRUD and change-sets. */
+    public void validateDefaultValueDraft(MetadataField field, MetadataFieldConfig base, MetadataFieldConfig override,
+                                          String value, MetadataFieldConfig dictionary) {
+        FieldBehaviorDefinition behavior = MetadataFieldConfig.effectiveBehavior(base, override, null);
+        validateBehaviorDraft(field, base, new FieldBehaviorDefinition(value, behavior.validationRegex(),
+                behavior.copyable(), behavior.writeProtected(), behavior.writeRules()), dictionary);
+    }
+
+    private void validateBehaviorDraft(MetadataField field, MetadataFieldConfig base,
+                                      FieldBehaviorDefinition behavior, MetadataFieldConfig dictionary) {
+        FieldSpec spec = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
+        if (dictionary != null && dictionary.hasDictionaryBinding()) {
+            dictionary = MetadataFieldConfig.copyRelationDeclarations(dictionary);
+            validateDictionaryDraft(dictionary, field);
+        }
+        FieldDefinition definition = new FieldDefinition(field.getFieldName(), field.getColumnName(),
+                spec.getFieldType(), field.getTitle(), Boolean.TRUE.equals(field.getRequired()), false, false, false, false,
+                base == null ? spec.getDefaultLength() : base.effectiveLength(spec),
+                base == null ? spec.getDefaultPrecision() : base.effectivePrecision(spec),
+                base == null ? spec.getDefaultScale() : base.effectiveScale(spec), null, null).behavior(behavior);
+        if (spec.getFieldType() == FieldType.JSON && "json_set".equals(spec.getAlias())) definition = definition.jsonSet();
+        if (dictionary != null && dictionary.hasDictionaryBinding()) {
+            definition = definition.dictionary(dictionary.getDictionaryApplicationAlias(), dictionary.getDictionaryCategoryAlias(),
+                    dictionary.getSelectionMode());
+        }
+        FieldBehaviorSupport.validateBehavior(definition);
+        Object normalized = definition.behavior().writeRules().normalize(
+                FieldBehaviorSupport.parseDefaultValue(definition.type(), behavior.defaultValue()));
+        dictionaryValueValidator.validate(definition, normalized);
     }
 
     private Criteria scopeCriteria(String metadataFieldId, String relationId) {
@@ -260,21 +362,13 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         }
     }
 
-    private void normalizeBehavior(MetadataFieldConfig config, FieldSpec fieldType) {
+    private void normalizeBehavior(MetadataFieldConfig config) {
         if (config.getDefaultValue() != null && config.getDefaultValue().isBlank()) {
             config.setDefaultValue(null);
         }
         if (config.getValidationRegex() != null && config.getValidationRegex().isBlank()) {
             config.setValidationRegex(null);
         }
-        FieldBehaviorSupport.validateBehavior(
-                fieldType.getFieldType(),
-                new FieldBehaviorDefinition(config.getDefaultValue(), config.getValidationRegex(),
-                        config.getCopyable() == null || Boolean.TRUE.equals(config.getCopyable()),
-                        Boolean.TRUE.equals(config.getWriteProtected()),
-                        config.effectiveWriteRules(FieldWriteRules.NONE)),
-                config.getMetadataFieldId()
-        );
     }
 
     private void validateVirtualBehaviorBoundary(MetadataFieldConfig config, MetadataField field) {

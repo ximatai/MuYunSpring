@@ -121,7 +121,7 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan(metadata.getId(), metadata.getVersion(),
                 Set.copyOf(effective), command.capabilitySelections() != null && !command.capabilitySelections().isEmpty(),
                 List.copyOf(fieldMutations));
-        String fingerprint = fingerprint(plan);
+        String fingerprint = fingerprint(context, plan, savedFields);
         return new MetadataRelationChangeSetPreview(validModuleAlias, context.relation().getId(), metadata.getId(),
                 metadata.getVersion(), Set.copyOf(effective), List.copyOf(fieldImpacts), List.copyOf(schemaImpacts),
                 List.copyOf(warnings), List.copyOf(errors), fingerprint, plan);
@@ -200,6 +200,13 @@ public class MetadataRelationChangeSetPreviewService {
         if (!validateDraftField(field, "new", errors)) return;
         if (Boolean.TRUE.equals(field.getSystemManaged()) || field.getFieldOwnership() == MetadataFieldOwnership.STANDARD) {
             error(errors, "PROTECTED_FIELD", field.getFieldName(), "新增字段不能声明为平台或系统托管字段。");
+            return;
+        }
+        if (MetadataCapabilityCatalog.designContract().declarableCapabilities().metadataFields().stream()
+                .anyMatch(contribution -> same(contribution.fieldName(), field.getFieldName())
+                        || same(contribution.columnName(), field.getColumnName()))) {
+            error(errors, "CAPABILITY_FIELD_CONFLICT", field.getFieldName(),
+                    "该字段或物理列由基础能力管理，请选择对应能力，不要创建同名业务字段。");
             return;
         }
         if (fields.values().stream().anyMatch(existing -> same(existing.getFieldName(), field.getFieldName()))) {
@@ -434,6 +441,63 @@ public class MetadataRelationChangeSetPreviewService {
                                                             MetadataFieldPropertyDraft draft,
                                                             MetadataField existingField,
                                                             List<MetadataChangeSetValidationIssue> errors) {
+        MetadataFieldPropertyChangeSetPlan binding = propertyBindingPlan(context, proposedField, draft, existingField, errors);
+        if (draft != null && binding == null) return null;
+        MetadataFieldFixedDefaultDraft requested = draft == null ? null : draft.fixedDefault();
+        try {
+            if (fieldConfigService == null) {
+                if (requested != null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
+                return binding;
+            }
+            ModuleMetadataField legacy = existingField == null || moduleFieldService == null ? null
+                    : moduleFieldService.findByRelationAndField(context.relation().getId(), existingField.getId());
+            MetadataFieldConfig base = existingField == null ? null : fieldConfigService.findByMetadataFieldId(existingField.getId());
+            MetadataFieldConfig override = existingField == null ? null : fieldConfigService.findRelationOverride(existingField.getId(), context.relation().getId());
+            MetadataFieldConfig candidate = MetadataFieldConfig.copyRelationDeclarations(override);
+            if (binding != null && binding.dictionaryConfig() != null) {
+                candidate.setDictionaryApplicationAlias(binding.dictionaryConfig().getDictionaryApplicationAlias());
+                candidate.setDictionaryCategoryAlias(binding.dictionaryConfig().getDictionaryCategoryAlias());
+                candidate.setSelectionMode(binding.dictionaryConfig().getSelectionMode());
+            }
+            MetadataFieldFixedDefaultDraft normalized = null;
+            if (requested != null) {
+                if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
+                    throw new IllegalArgumentException("引用初值应使用关联初始化，不能在此配置固定默认值。");
+                if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
+                    throw new IllegalArgumentException("只有普通存储字段可配置固定默认值。");
+                if (legacy != null && legacy.getDefaultValue() != null)
+                    throw new IllegalArgumentException("当前初值由旧模块字段配置覆盖，请先迁移该配置。");
+                MetadataFieldConfig effective = override == null ? base : override;
+                if (!bindingVersionMatches(requested.expectedConfigVersion(), effective))
+                    throw new IllegalArgumentException("默认值配置版本已变化，请重新载入后预检。");
+                String value = requested.value();
+                if (value != null && value.isBlank()) value = null;
+                if (value != null && value.length() > 512) throw new IllegalArgumentException("固定默认值最多 512 个字符。");
+                if (value == null && base != null && base.getDefaultValue() != null)
+                    throw new IllegalArgumentException("此字段继承元数据默认值，当前入口不能清除继承初值。");
+                candidate.setDefaultValue(value);
+                normalized = new MetadataFieldFixedDefaultDraft(value, requested.expectedConfigVersion());
+            }
+            // A field specification is shared; its base and every configured relation must remain valid.
+            if (existingField != null && (!java.util.Objects.equals(existingField.getFieldSpecAlias(), proposedField.getFieldSpecAlias())
+                    || Boolean.TRUE.equals(existingField.getRequired()) != Boolean.TRUE.equals(proposedField.getRequired()))) {
+                fieldConfigService.validateSharedFieldBehavior(proposedField, context.relation().getId(), candidate);
+            } else {
+                fieldConfigService.validateEffectiveBehavior(proposedField, base, candidate, legacy);
+            }
+            return binding == null ? null : new MetadataFieldPropertyChangeSetPlan(binding.kind(), binding.expectedBindingVersion(),
+                    binding.referenceConfig(), binding.dictionaryConfig(), normalized);
+        } catch (RuntimeException exception) {
+            error(errors, "INVALID_FIXED_DEFAULT", proposedField.getFieldName(), exception.getMessage());
+            return null;
+        }
+    }
+
+    private MetadataFieldPropertyChangeSetPlan propertyBindingPlan(Context context,
+                                                            MetadataField proposedField,
+                                                            MetadataFieldPropertyDraft draft,
+                                                            MetadataField existingField,
+                                                            List<MetadataChangeSetValidationIssue> errors) {
         if (draft == null) return null;
         MetadataFieldPropertyKind kind = draft.kind();
         if (kind == null) {
@@ -448,7 +512,9 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataFieldReferenceConfig existingReference = existingField == null || referenceConfigService == null ? null
                 : referenceConfigService.findForRelation(existingField.getId(), context.relation().getId());
         MetadataFieldConfig existingDictionary = existingField == null || fieldConfigService == null ? null
-                : effectiveFieldConfig(existingField.getId(), context.relation().getId());
+                : MetadataFieldConfig.effectiveDictionaryConfig(
+                        fieldConfigService.findByMetadataFieldId(existingField.getId()),
+                        fieldConfigService.findRelationOverride(existingField.getId(), context.relation().getId()));
         boolean hasReference = existingReference != null;
         boolean hasDictionary = existingDictionary != null && existingDictionary.hasDictionaryBinding();
         if (hasReference && hasDictionary) {
@@ -506,11 +572,6 @@ public class MetadataRelationChangeSetPreviewService {
         ModuleMetadataField legacy = moduleFieldService.findByRelationAndField(relation.getId(), field.getId());
         return legacy != null && ((legacy.getReferenceModuleAlias() != null && !legacy.getReferenceModuleAlias().isBlank())
                 || (legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()));
-    }
-
-    private MetadataFieldConfig effectiveFieldConfig(String fieldId, String relationId) {
-        MetadataFieldConfig override = fieldConfigService.findRelationOverride(fieldId, relationId);
-        return override == null ? fieldConfigService.findByMetadataFieldId(fieldId) : override;
     }
 
     private boolean validateReferenceBinding(Context context, MetadataField field, MetadataFieldReferenceConfig config,
@@ -589,8 +650,14 @@ public class MetadataRelationChangeSetPreviewService {
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
             var type = fieldSpecService.requireFieldType(field.getFieldSpecAlias());
-            if (Boolean.TRUE.equals(field.getTitleField()) && !MetadataCapabilityCatalog.recordName().accepts(field.getFieldName(), field.getColumnName(), type.getFieldType().name())) {
-                throw new IllegalArgumentException("记录名称须使用标准 title 字段与 title 列，并选择 STRING 规格；TEXT 长文本不能作为引用名称。");
+            if (Boolean.TRUE.equals(field.getTitleField())) {
+                var recordName = MetadataCapabilityCatalog.recordName();
+                if (!recordName.fieldName().equals(field.getFieldName()) || !recordName.columnName().equals(field.getColumnName())) {
+                    throw new IllegalArgumentException("记录名称须使用标准 title 字段与 title 物理列；请修正字段名或物理列名。");
+                }
+                if (!recordName.fieldType().equals(type.getFieldType().name())) {
+                    throw new IllegalArgumentException("记录名称须选择 STRING 短文本规格；当前字段类型为 " + type.getFieldType().name() + "。");
+                }
             }
             return true;
         } catch (RuntimeException exception) {
@@ -631,12 +698,19 @@ public class MetadataRelationChangeSetPreviewService {
         return result;
     }
 
-    private String fingerprint(MetadataRelationChangeSetPlan plan) {
+    private String fingerprint(Context context, MetadataRelationChangeSetPlan plan, List<MetadataField> savedFields) {
         List<String> facts = new ArrayList<>();
         facts.add(plan.metadataId() + "|" + plan.expectedMetadataVersion() + "|" + plan.replaceCapabilityDeclarations());
         plan.effectiveCapabilities().stream().sorted().forEach(capability -> facts.add("capability:" + capability));
         for (MetadataFieldChangeSetPlan mutation : plan.fieldMutations()) {
             MetadataField field = mutation.field();
+            if (mutation.fieldId() != null && fieldConfigService != null) {
+                MetadataField existing = savedFields.stream().filter(item -> mutation.fieldId().equals(item.getId())).findFirst().orElse(null);
+                boolean sharedChange = existing != null && (!java.util.Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                        || Boolean.TRUE.equals(existing.getRequired()) != Boolean.TRUE.equals(field.getRequired()));
+                fieldConfigService.behaviorBaseline(mutation.fieldId(), context.relation().getId(), sharedChange).forEach(fact ->
+                        facts.add("behaviorBaseline:" + mutation.fieldId() + "|" + fact));
+            }
             facts.add("field:" + mutation.operation() + "|" + mutation.fieldId() + "|" + mutation.expectedFieldVersion() + "|"
                     + field.getFieldName() + "|" + field.getColumnName() + "|" + field.getFieldSpecAlias() + "|"
                     + field.getTitle() + "|" + field.getRequired() + "|" + field.getUniqueField() + "|"
@@ -646,6 +720,11 @@ public class MetadataRelationChangeSetPreviewService {
             if (property != null) {
                 facts.add("property:" + mutation.fieldId() + "|" + field.getFieldName() + "|" + property.kind() + "|"
                         + property.expectedBindingVersion() + "|" + propertyFacts(property));
+                if (property.fixedDefault() != null) {
+                    String value = property.fixedDefault().value();
+                    facts.add("fixedDefault:" + field.getFieldName() + "|" + property.fixedDefault().expectedConfigVersion()
+                            + "|" + (value == null ? "null" : value.length() + ":" + value));
+                }
             }
         }
         facts.sort(Comparator.naturalOrder());

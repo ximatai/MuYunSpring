@@ -368,6 +368,10 @@
 
 元数据字段治理读口同样以模块和关系为作用域。字段属性摘要返回当前关系下的有效基础、引用、字典或存量锁定绑定；引用目标字段目录只返回平台已验证可用的匹配键和展示字段候选，不读取目标业务记录。
 
+字段属性草稿的 `fixedDefault` 声明仅在新记录未填写时使用的固定初值，并携带配置版本；预检与人工字段配置保存共用最终字段约束，检查规范化值的容量、精度、正则及字典选项。JSON 初值须为合法 JSON，多选字典初值须为包含有效、启用 code 的数组。未指定初值时也按变更后的字段类型和绑定校验保留的有效初值；共享字段类型或必填约束变化同时校验基础定义、各模块的有效初值及保留绑定与新规格的兼容性。
+
+模块覆盖只保存本层声明，未声明的查询、校验、写入行为和字典继续继承基础字段配置。已有覆盖记录按显式声明保留，不自动推断或清除历史复制值。`expectedBindingVersion` 对应有效绑定来源的版本，无绑定时为 `null`，`fixedDefault.expectedConfigVersion` 对应当前模块覆盖记录（不存在时为基础配置）的版本。预检指纹保护所依赖的基础配置、模块覆盖和旧模块字段版本；共享字段变更覆盖所有受影响关系，局部属性修改只保护基础与当前关系。
+
 数据模型编辑只有模块级统一写入口：`change-set-preview` 接收 `relationDrafts`、`relationOrders` 和 `fieldOrders`，并把各节点字段影响、物理 schema 影响与排序影响汇总为一份预检结果；`change-set-apply` 必须携带同一 proposal 的 fingerprint。关系级 change-set preview/apply 不对外暴露。关系排序只能覆盖同一 `parentMetadataId` 下的完整节点集合，字段排序必须覆盖当前 relation 的全部字段集合（包含系统字段及子实体关联字段），只更新展示顺序，字段定义保护规则保持不变；两者都不能通过拖拽改变父子关系、外键、relation role 或跨实体移动字段。
 
 模块字段配置可声明计量单位消费契约。主数值字段通过 `unitCategoryAlias` 进入单位能力；`unitMode=FIXED` 时使用 `fixedUnitCode`，`unitMode=SELECTABLE` 时绑定同元数据、同 owner 的伴生单位字段 `unitFieldId`。`baseValueFieldId` 绑定同 owner 的影子标准值字段，`baseUnitCategoryAlias` 和 `baseUnitCode` 是归一基准单位，未配置基准分类时默认等于 `unitCategoryAlias`；`unitConversionMode` 表达线性目录换算或业务规则换算，`conversionScopeFieldId` 用于后续记录上下文换算。
@@ -526,22 +530,20 @@
 
 方案属于登录用户及其登录租户的个人配置工作区，独立于活动业务页的数据租户。确认需求只保存业务范围，不授予配置发布权限。
 
-快照的 `constructionStatus` 区分 `NOT_STARTED`、`INITIALIZED`、`PARTIALLY_DELIVERED` 与 `DELIVERED`，`deliveredObjectKeys` 记录已有人工交付验收的对象。交付是历史事实，不随后续治理修改回退；已交付对象拒绝新的建设写入，全量交付方案拒绝需求修订，原请求的幂等回执仍可查询。改进现有业务直接读取标准治理配置，不要求访问原个人方案。
+快照的 `constructionStatus` 区分 `NOT_STARTED`、`LINKED`、`INITIALIZED`、`PARTIALLY_DELIVERED` 与 `DELIVERED`，`deliveredObjectKeys` 记录已有人工交付验收的对象。交付是历史事实，不随后续治理修改回退；已交付对象拒绝新的建设写入，全量交付方案拒绝需求修订，原请求的幂等回执仍可查询。改进现有业务直接读取标准治理配置，不要求访问原个人方案。
 
 | 方法 | 路径 | 契约 |
 | --- | --- | --- |
 | `GET` | `/platform.application-construction-plans` | 最近 30 个个人方案 |
-| `GET` | `/platform.application-construction-plans/{planId}` | 当前已确认需求及对象初始化绑定 |
+| `GET` | `/platform.application-construction-plans/{planId}` | 当前已确认需求、标准模块关联及历史初始化绑定 |
 | `GET` | `/platform.application-construction-plans/{planId}/revisions` | 最近 30 个不可变需求版本 |
 | `POST` | `/platform.application-construction-plans/{planId}/confirmations` | 以请求标识、预期版本和业务内容确认方案 |
 | `GET` | `/platform.application-construction-plans/{planId}/confirmations/{requestId}` | 查询某次需求确认，未找到返回 204 |
-| `POST` | `/platform.application-construction-plans/{planId}/initializations/preview` | 对已确认业务对象做只读初始化预检，返回当前基线、影响及指纹 |
-| `POST` | `/platform.application-construction-plans/{planId}/initializations` | 提交审阅后的初始化参数、指纹和请求标识 |
 | `GET` | `/platform.application-construction-plans/{planId}/initializations/{objectKey}` | 查询初始化回执及运行态状态，未初始化返回 204 |
 
-初始化首批仅支持系统配置身份，并检查正式应用创建、模块创建与 `platform.module_metadata_relation.createMainMetadata` 动作权限。新增应用或使用现有可维护业务应用后，原子创建动态模块、主实体与物理表；绑定及回执一起提交。预检拒绝已有模块、已有主实体别名及物理表，不接管存量配置。同一对象不会因方案修订或重复请求而重建。
+建设专属初始化预检与提交接口已移除。应用、模块和主实体使用标准治理入口创建，再在方案中显式关联正式模块；关联不创建配置或初始化回执。已有模块只提供关联线索，不接管或重建存量配置。
 
-初始化回执证明配置已提交。首个响应的运行态可以为空，调用状态接口核实提交后激活结果；字段、关系、页面、菜单及业务验收不属于该初始化动作。完整建设边界见 [AI 协作路线](../../AI_COLLABORATION_ROADMAP.md)。
+旧初始化状态接口仅查询历史回执及当前运行态，不产生新的初始化事实；字段、关系、页面、菜单及业务验收继续使用各自标准能力。完整建设边界见 [AI 协作路线](../../AI_COLLABORATION_ROADMAP.md)。
 
 ### 业务对象发现与引用目标
 
@@ -552,21 +554,20 @@
 
 ### 建设方案字段节点
 
-- `GET /platform.application-construction-plans/{planId}/objects/{objectKey}/fields`：读取已初始化对象的当前字段、有效引用属性、元数据版本及启用规格目录。
-- `POST /platform.application-construction-plans/{planId}/field-changes/preview`：预检同一对象的 1–12 个新增字段，可声明标准名称字段和经确认的单值引用；返回结构差异、警告、错误和确认指纹。
-- `POST /platform.application-construction-plans/{planId}/field-changes`：提交原提议、指纹与请求标识。复用正式元数据变更集，字段和回执同事务提交，不发布页面或菜单。
+- `GET /platform.application-construction-plans/{planId}/objects/{objectKey}/fields`：读取已关联标准模块或历史初始化对象的当前字段、有效引用属性、元数据版本及启用规格目录。
+- 建设专属字段预检与提交接口已移除。字段候选、预检和发布使用标准元数据治理入口，不产生新的建设字段回执。
 - `GET /platform.application-construction-plans/{planId}/field-changes/{requestId}`：查询该次提交回执与实际运行态；未找到返回 204，不能据此推定请求未执行。
 
-以上入口要求方案所有权、系统配置身份及元数据预检/发布权限。方案快照的 `fieldChanges` 表达已提交字段及依据的需求版本，不代表业务应用已完成。生产严格 schema migration 策略不因对话确认而放宽。
+以上入口要求方案所有权、系统配置身份及元数据预检/发布权限。方案快照的 `fieldChanges` 仅保留历史字段提交及其需求版本，不代表当前配置或业务应用已完成。生产严格 schema migration 策略不因对话确认而放宽。
 
 ### 建设方案的页面交付与人工验收
 
-以下接口位于 `/platform.application-construction-plans/{planId}`，要求当前系统配置身份及方案所有权；页面、菜单写入分别验证正式配置动作权限。
+以下接口位于 `/platform.application-construction-plans/{planId}`。进度、历史结果和人工验收要求当前系统配置身份及方案所有权；页面、菜单写入已统一到标准治理入口，按其正式配置动作重新授权。
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| POST `/delivery/preview` | 只读预检 `PAGE` 或 `ENTRY` 节点，返回影响与绑定当前基线的指纹 |
-| POST `/delivery` | 人工确认后的冻结提议与请求身份，原子提交该节点和回执 |
+| POST `/delivery/preview` | 已退役；`PAGE` 和 `ENTRY` 均明确拒绝，指引标准页面或共享菜单治理 |
+| POST `/delivery` | 已退役；拒绝新的页面、菜单写入，不重放历史交付 |
 | GET `/delivery/{requestId}` | 查询同一次确认的结果，未查到返回 204，不能据此推定未提交 |
 | GET `/objects/{objectKey}/progress` | 查询真实页面、入口、运行态、需求兑现证据及人工验收是否仍适用于当前基线 |
 | GET `/task` | 依据当前需求版本、配置与回执返回每个对象的 `complete`、`options` 和需求证据；选项不代表执行授权或固定顺序，不写入任务完成状态 |
@@ -574,7 +575,7 @@
 | POST `/acceptances` | 人工确认验收，按请求身份幂等记录当前基线 |
 | GET `/acceptances/{requestId}` | 核实原验收请求是否提交 |
 
-页面提议只接受实际字段名、标题及列表/表单/快速查询投放，不接受模型提交任意 UI JSON。入口仅面向当前系统配置工作台，不隐式授权业务角色。需求和配置修订使旧预检失效；页面、入口各自提交，不承诺跨节点自动回滚。验收表示人工判断，业务规则的执行继续归正式领域能力。
+页面通过标准页面编排准备与发布；入口通过共享菜单治理选择实际方案和放置位置，复用标准 CRUD 请求回执，不隐式授权业务角色。建设进度读取正式配置，不要求新的建设交付回执。需求和配置修订使旧验收基线失效；页面、入口各自提交，不承诺跨节点自动回滚。验收表示人工判断，业务规则的执行继续归正式领域能力。
 
 需求内容的 `requirements` 按 `section`（`SCOPE/RULE/RELATION`）与零起始 `index` 对应本期条款，并绑定 `objectKey`。`mode` 为 `FIELD/REQUIRED/UNIQUE/REFERENCE/MANUAL/UNSUPPORTED`；前四者须给出 `fieldName`，后两者不接受字段名，均须提供业务解释。`REFERENCE` 另含 `reference`：`objectKey`（方案内另一对象）与 `moduleAlias`（已有模块）择一非空，其他模式不携带引用目标。关联条款须使用 `REFERENCE` 或明确 `UNSUPPORTED`，不能用普通字段冒充。字段提议的 `titleField=true` 沿用标准名称字段约束；`reference` 复用标准引用草案，仅允许单值、无投影、保留历史引用。缺失映射的旧方案仍可读取，但相关建设检查不会自动放行。
 

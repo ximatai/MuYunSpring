@@ -64,7 +64,7 @@ it('keeps every row reachable across pagination and oversized details', async ()
     capabilities()
       .filter((item) => item.schemaDiscovery === 'eager')
       .map((item) => item.descriptor.code),
-  ).toEqual(['relation.form.describe', 'relation.form.patch-draft']);
+  ).toEqual(['relation.form.patch-draft']);
   const selected = (await invoke('relation.form.describe', {})) as { fields: unknown[] };
   expect(selected.fields).toHaveLength(100);
   expect(update).not.toHaveBeenCalled();

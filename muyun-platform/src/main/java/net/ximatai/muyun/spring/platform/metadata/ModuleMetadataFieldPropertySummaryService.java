@@ -47,6 +47,23 @@ public class ModuleMetadataFieldPropertySummaryService {
 
     private ModuleMetadataFieldPropertySummary summary(MetadataField field, ModuleMetadataRelation relation,
                                                         ModuleMetadataField legacy) {
+        MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
+        MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
+        MetadataFieldConfig config = override == null ? base : override;
+        ModuleMetadataFieldPropertySummary property = propertySummary(field, relation, legacy,
+                MetadataFieldConfig.effectiveDictionaryConfig(base, override));
+        boolean legacyDefault = legacy != null && legacy.getDefaultValue() != null;
+        String value = legacyDefault ? legacy.getDefaultValue() : MetadataFieldConfig.effectiveDefaultValue(base, override);
+        return new ModuleMetadataFieldPropertySummary(property.fieldId(), property.fieldName(), property.fieldSpecAlias(),
+                property.kind(), property.bindingVersion(), property.reference(), property.dictionary(),
+                new ModuleMetadataFieldPropertySummary.FixedDefault(value, config == null ? null : config.getVersion(),
+                        !legacyDefault && !Boolean.TRUE.equals(field.getSystemManaged())
+                                && field.getFieldForm() == MetadataFieldForm.PHYSICAL
+                                && (property.kind() == MetadataFieldPropertyKind.BASIC || property.kind() == MetadataFieldPropertyKind.DICTIONARY)));
+    }
+
+    private ModuleMetadataFieldPropertySummary propertySummary(MetadataField field, ModuleMetadataRelation relation,
+                                                        ModuleMetadataField legacy, MetadataFieldConfig dictionary) {
         var policy = PlatformFieldPolicy.find(field.getFieldName());
         if (policy != null && policy.composable() && policy.referenceModuleAlias() != null) {
             return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),
@@ -60,7 +77,6 @@ public class ModuleMetadataFieldPropertySummaryService {
             return legacySummary(field, legacy);
         }
         MetadataFieldReferenceConfig reference = referenceConfigService.findForRelation(field.getId(), relation.getId());
-        MetadataFieldConfig dictionary = effectiveFieldConfig(field.getId(), relation.getId());
         if (reference != null && dictionary != null && dictionary.hasDictionaryBinding()) {
             throw new PlatformException("metadata field has conflicting reference and dictionary bindings: "
                     + field.getFieldName());
@@ -98,11 +114,6 @@ public class ModuleMetadataFieldPropertySummaryService {
                 legacy.getDictionaryCategoryAlias(), null) : null;
         return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),
                 MetadataFieldPropertyKind.LEGACY_LOCKED, legacy.getVersion(), reference, dictionary);
-    }
-
-    private MetadataFieldConfig effectiveFieldConfig(String fieldId, String relationId) {
-        MetadataFieldConfig override = fieldConfigService.findRelationOverride(fieldId, relationId);
-        return override == null ? fieldConfigService.findByMetadataFieldId(fieldId) : override;
     }
 
     private boolean hasText(String value) {

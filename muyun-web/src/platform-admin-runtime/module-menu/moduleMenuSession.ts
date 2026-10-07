@@ -1,5 +1,6 @@
 import { computed, ref, shallowRef } from 'vue';
 import {
+  createUuid,
   AppError,
   OperationRejectedError,
   OperationUsageError,
@@ -352,7 +353,7 @@ export function createModuleMenuSession(
     requireEditable();
     if (revision.value !== before) throw new OperationUsageError('菜单候选已变化，请重新审阅');
     const path = basis.path;
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const isCurrent = () =>
       valid() &&
       scope.active() &&

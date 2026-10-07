@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRaw, watch, watchEffect } from 'vue';
 import { useRelationDraftRegistry, type RelationDraftController } from './relationDraftController';
-import type { RecordFormDraftAccess } from './recordFormDraftAccess';
+import {
+  referenceDraftChanges,
+  validateStagedDraft,
+  type RecordFormDraftAccess,
+} from './recordFormDraftAccess';
 import { recordMutationPayload } from './recordMutationPayload';
+import { recordFieldDisplay } from './recordDisplayProjection';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
   RecordFormFields,
@@ -253,11 +258,13 @@ function fieldRequired(fieldName: string, row: QueryListRecord = {}) {
     .required;
 }
 
-function displayRecord(row: DraftRow | QueryListRecord): RecordFormRecord {
-  const rowKey = (row as DraftRow).__draftKey;
+function displayRecord(
+  row: DraftRow | QueryListRecord,
+  references = referenceProjectionValues.value[(row as DraftRow).__draftKey] ?? {},
+): RecordFormRecord {
   return {
     ...row,
-    ...Object.values(referenceProjectionValues.value[rowKey] ?? {}).reduce<Record<string, unknown>>(
+    ...Object.values(references).reduce<Record<string, unknown>>(
       (merged, projections) => ({ ...merged, ...projections }),
       {},
     ),
@@ -549,6 +556,7 @@ function updateFields(
   changes: Array<{ fieldName: string; value: RecordFormFieldValue }>,
   source: 'user' | 'assistant' = 'user',
   selection?: { fieldName: string; projections: Record<string, unknown> },
+  validate?: Parameters<RecordFormDraftAccess['updateDraftReference']>[4],
 ) {
   let nextRow = rows.value.find((candidate) => candidate.__draftKey === row.__draftKey);
   if (!nextRow || changes.length === 0) return;
@@ -582,6 +590,10 @@ function updateFields(
     if (Object.keys(selection.projections).length) projections[selection.fieldName] = selection.projections;
     else delete projections[selection.fieldName];
   }
+  validateStagedDraft(
+    displayRecord(computedRows.find((candidate) => candidate.__draftKey === row.__draftKey)!, projections),
+    validate,
+  );
   // Stage the complete row and its platform effects before publishing a single parent draft.
   if (source === 'user') draftRegistry()?.userChanged();
   referenceProjectionValues.value = { ...referenceProjectionValues.value, [row.__draftKey]: projections };
@@ -691,27 +703,39 @@ function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
     get referencePickerConfigs() {
       return current() ? pickerConfigsOf(current()!) : {};
     },
+    referenceDisplay(fieldName) {
+      const row = current();
+      if (!row || !referenceProjectionValues.value[rowKey]?.[fieldName]) return undefined;
+      const record = displayRecord(row);
+      const field = resolveRecordFormFieldState(fieldName, { fields: formFields.value, record });
+      if (!field.reference) return undefined;
+      const display = recordFieldDisplay(field, record);
+      return display === '已选择（名称暂不可用）' ? undefined : display;
+    },
     contextRevision: () => String(revision.value),
     updateDraftFields(changes, source) {
       const row = current();
       if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
       updateFields(row, changes, source);
     },
-    updateDraftReference(fieldName, candidate, source) {
+    updateDraftReference(fieldName, candidate, source, explicitChanges, validate) {
       const row = current();
       if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
-      const changes = [{ fieldName, value: candidate.id as RecordFormFieldValue }];
-      for (const [name, value] of Object.entries(candidate.affectPatch ?? {})) {
-        if (name !== fieldName) changes.push({ fieldName: name, value: value as RecordFormFieldValue });
-      }
-      updateFields(row, changes, source, {
-        fieldName,
-        projections: referenceDisplayProjections(formFields.value.get(fieldName)?.reference, {
-          ...candidate.projections,
-          ...candidate,
-          projections: candidate.projections ? { ...candidate.projections } : undefined,
-        }),
-      });
+      const changes = referenceDraftChanges(fieldName, candidate, explicitChanges);
+      updateFields(
+        row,
+        changes,
+        source,
+        {
+          fieldName,
+          projections: referenceDisplayProjections(formFields.value.get(fieldName)?.reference, {
+            ...candidate.projections,
+            ...candidate,
+            projections: candidate.projections ? { ...candidate.projections } : undefined,
+          }),
+        },
+        validate,
+      );
     },
   };
 }

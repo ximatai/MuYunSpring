@@ -39,6 +39,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     private final ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider;
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
     private final ObjectProvider<PlatformModuleService> moduleServiceProvider;
+    private final ObjectProvider<MetadataFieldConfigService> fieldConfigServiceProvider;
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
                                 MetadataService metadataService,
@@ -48,9 +49,11 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
                                 ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
                                 ObjectProvider<PlatformModuleService> moduleServiceProvider,
-                                ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigServiceProvider) {
+                                ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigServiceProvider,
+                                ObjectProvider<MetadataFieldConfigService> fieldConfigServiceProvider) {
         super(MODULE_ALIAS, MetadataField.class, fieldDao);
         this.referenceConfigServiceProvider = Objects.requireNonNull(referenceConfigServiceProvider, "referenceConfigServiceProvider");
+        this.fieldConfigServiceProvider = Objects.requireNonNull(fieldConfigServiceProvider, "fieldConfigServiceProvider");
         this.metadataService = Objects.requireNonNull(metadataService, "metadataService");
         this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService");
         this.runtimeRefreshCoordinatorProvider = Objects.requireNonNull(runtimeRefreshCoordinatorProvider,
@@ -97,7 +100,13 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     public void beforeUpdate(MetadataField field) {
         assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         normalizeAndValidate(field);
-        validateConfigurationFieldChange(select(field.getId()), field);
+        MetadataField existing = select(field.getId());
+        validateConfigurationFieldChange(existing, field);
+        if (!MetadataFieldPropertyMutationContext.active() && existing != null
+                && (!Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                || Boolean.TRUE.equals(existing.getRequired()) != Boolean.TRUE.equals(field.getRequired()))) {
+            fieldConfigServiceProvider.getObject().validateSharedFieldBehavior(field, null, null);
+        }
         var references = referenceConfigServiceProvider.getIfAvailable();
         if (references != null) references.validateAffectFieldChange(select(field.getId()), field);
     }

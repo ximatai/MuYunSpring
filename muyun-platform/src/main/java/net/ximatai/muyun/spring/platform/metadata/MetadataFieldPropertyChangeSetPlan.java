@@ -5,6 +5,11 @@ public record MetadataFieldPropertyChangeSetPlan(
         MetadataFieldPropertyKind kind,
         Integer expectedBindingVersion,
         MetadataFieldReferenceConfig referenceConfig,
-        MetadataFieldConfig dictionaryConfig
+        MetadataFieldConfig dictionaryConfig,
+        MetadataFieldFixedDefaultDraft fixedDefault
 ) {
+    public MetadataFieldPropertyChangeSetPlan(MetadataFieldPropertyKind kind, Integer expectedBindingVersion,
+                                              MetadataFieldReferenceConfig referenceConfig, MetadataFieldConfig dictionaryConfig) {
+        this(kind, expectedBindingVersion, referenceConfig, dictionaryConfig, null);
+    }
 }

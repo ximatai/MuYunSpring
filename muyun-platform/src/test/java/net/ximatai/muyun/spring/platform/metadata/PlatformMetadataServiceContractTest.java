@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItem;
+
 import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
@@ -141,6 +145,7 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
             event -> {});
     private final DictionaryCategoryService categoryService = new DictionaryCategoryService(categoryDao);
+    private final DictionaryItemService itemService = new DictionaryItemService(new MemoryDao<>(), categoryService);
     private final FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao, fieldUiTypeDao);
     private final FieldUiControlService fieldUiTypeService =
             new FieldUiControlService(fieldUiTypeDao, fieldTypeService, mock(BaseDao.class));
@@ -179,7 +184,8 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
             TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -204,7 +210,8 @@ class PlatformMetadataServiceContractTest {
                     Optional.of(runtimeRefreshCoordinator));
     private final MetadataFieldConfigService fieldConfigService =
             new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                    categoryService, relationService, protectionConfigService, Optional.of(runtimeRefreshCoordinator));
+                    categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.of(runtimeRefreshCoordinator),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final PlatformMetadataEntityDefinitionCompiler metadataEntityDefinitionCompiler =
@@ -231,7 +238,8 @@ class PlatformMetadataServiceContractTest {
 
     @Test
     void fieldProtectionDependenciesMustBePresentAtAssembly() {
-        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, null, Optional.empty()))
+        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, null, Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class))))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("protectionConfigService");
         assertThatThrownBy(() -> new MetadataFieldProtectionConfigService(protectionConfigDao, fieldService, fieldTypeService, null, Optional.empty()))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("fieldConfigDao");
@@ -1311,9 +1319,7 @@ class PlatformMetadataServiceContractTest {
         MetadataFieldConfig relationConfig = fieldConfig(field.getId());
         relationConfig.setRelationId(relationId);
         relationConfig.setValidationRegex("[A-Z]+");
-        fieldConfigService.insert(relationConfig);
-
-        assertThatThrownBy(() -> fieldDefinitionCompiler.compile(field, relationId))
+        assertThatThrownBy(() -> fieldConfigService.insert(relationConfig))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("defaultValue");
     }
@@ -1350,6 +1356,64 @@ class PlatformMetadataServiceContractTest {
         assertThatThrownBy(() -> fieldConfigService.insert(invalidBoolean))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("boolean defaultValue");
+    }
+
+    @Test
+    void shouldValidateDefaultsAgainstInheritedShapeOnBothConfigurationWritesAndBaseChanges() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "code", "code", FieldType.STRING);
+        fieldService.insert(field);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+        MetadataFieldConfig base = fieldConfig(field.getId()); base.setFieldLength(3);
+        fieldConfigService.insert(base);
+        MetadataFieldConfig override = fieldConfig(field.getId()); override.setRelationId(relationId);
+        override.setTextNormalization(TextNormalization.TRIM); override.setDefaultValue(" ABC ");
+        fieldConfigService.insert(override);
+        MetadataFieldConfig invalid = fieldConfig(field.getId()); invalid.setRelationId(relationId); invalid.setDefaultValue("ABCD");
+        assertThatThrownBy(() -> fieldConfigService.insert(invalid)).hasMessageContaining("field length");
+        base.setFieldLength(2);
+        assertThatThrownBy(() -> fieldConfigService.update(base)).hasMessageContaining("field length");
+
+        MetadataField amount = field(metadataId, "amount", "amount", FieldType.DECIMAL);
+        fieldService.insert(amount);
+        MetadataFieldConfig decimal = fieldConfig(amount.getId()); decimal.setPrecision(4); decimal.setScale(2);
+        decimal.setDefaultValue("100");
+        assertThatThrownBy(() -> fieldConfigService.insert(decimal)).hasMessageContaining("field precision");
+        decimal.setDefaultValue("0.001");
+        assertThatThrownBy(() -> fieldConfigService.insert(decimal)).hasMessageContaining("field scale");
+        decimal.setDefaultValue("99.99");
+        fieldConfigService.insert(decimal);
+    }
+
+    @Test
+    void shouldValidateDictionaryInitialValuesWithTheRuntimeCodeAndSelectionContract() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        DictionaryCategory category = category("crm", "state", DictionaryCategoryKind.DICTIONARY);
+        category.setEnabled(true); String categoryId = categoryService.insert(category);
+        DictionaryItem item = new DictionaryItem(); item.setCategoryId(categoryId); item.setCode("NEW");
+        item.setTitle("New"); item.setEnabled(true); item.setParentId("root"); itemService.insert(item);
+        DictionaryItem disabled = new DictionaryItem(); disabled.setCategoryId(categoryId); disabled.setCode("DISABLED");
+        disabled.setTitle("Disabled"); disabled.setEnabled(false); disabled.setParentId("root"); itemService.insert(disabled);
+        for (FieldType type : List.of(FieldType.STRING, FieldType.JSON)) {
+            MetadataField field = field(metadataId, type == FieldType.JSON ? "tags" : "status",
+                    type == FieldType.JSON ? "tags" : "status", type);
+            fieldService.insert(field);
+            MetadataFieldConfig config = fieldConfig(field.getId()); config.setDictionaryCategoryAlias("state");
+            config.setSelectionMode(type == FieldType.JSON ? OptionSelectionMode.MULTIPLE : OptionSelectionMode.SINGLE);
+            for (String invalidCode : List.of("UNKNOWN", "DISABLED")) {
+                config.setDefaultValue(type == FieldType.JSON ? "[\"" + invalidCode + "\"]" : invalidCode);
+                assertThatThrownBy(() -> fieldConfigService.insert(config)).hasMessageContaining("invalid dictionary code");
+            }
+            if (type == FieldType.JSON) {
+                config.setDefaultValue("\"NEW\"");
+                assertThatThrownBy(() -> fieldConfigService.insert(config)).hasMessageContaining("requires collection");
+                config.setDefaultValue("[NEW]");
+                assertThatThrownBy(() -> fieldConfigService.insert(config)).hasMessageContaining("invalid JSON");
+            }
+            config.setDefaultValue(type == FieldType.JSON ? "[\"NEW\"]" : "NEW");
+            fieldConfigService.insert(config);
+        }
     }
 
     @Test
@@ -1504,7 +1568,8 @@ class PlatformMetadataServiceContractTest {
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService));
+                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
         for (var target : List.of(fieldService.list(Criteria.of().eq("metadataId", productId).eq("fieldName", "quantity"), PageRequests.all()).getFirst(),
                 fieldService.list(Criteria.of().eq("metadataId", lineId).eq("fieldName", "amount"), PageRequests.all()).getFirst())) {
             var changed = field(target.getMetadataId(), target.getFieldName(), target.getColumnName(), FieldType.STRING);

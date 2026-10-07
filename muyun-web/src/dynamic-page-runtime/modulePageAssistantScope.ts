@@ -1,4 +1,4 @@
-import { AssistantCapabilityUsageError } from '@muyun/web-core';
+import { createUuid, AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { flattenTreeRecords, type QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
@@ -94,7 +94,7 @@ export function modulePageScopeCapabilities(
       descriptor: {
         code: 'scope.select-candidate',
         description:
-          '应用 scope.search 或 facts.scopeCandidates 返回的 selectionKey。用户确认候选后使用此能力，不把展示标签当作名称重新搜索。',
+          '应用 scope.search 或 facts.scopeCandidates 返回的 selectionKey。用户已明确指定的目标与唯一候选吻合时可直接选择；目标不清楚或有多个匹配才让用户选择。不把展示标签当作名称重新搜索。',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -143,6 +143,7 @@ function scopeSearchCapability(
 ): AssistantCapability<{ scopeKey: string; keyword: string; page: number }> {
   return {
     effect: 'read',
+    changesReadState: true,
     descriptor: {
       code: 'scope.search',
       description:
@@ -235,7 +236,7 @@ function scopeSearchCapability(
                 candidate.scopeKey === scopeKey &&
                 candidate.revision === revision &&
                 String(candidate.record.id) === String(record.id),
-            )?.[0] ?? crypto.randomUUID(),
+            )?.[0] ?? createUuid(),
           record,
         }));
       context.commitInternalState(() => {
@@ -335,8 +336,11 @@ function navigatorScopeSelectionCapability(
     effect: 'page',
     descriptor: {
       code: 'scope.select-navigator',
-      description:
-        '按已知名称选择当前页面的导航范围，仅在授权查询返回唯一精确匹配时应用。名称未知时先用 scope.search 查询候选。',
+      description: `选择当前页面的${Object.values(titles)
+        .map((title) => String(title).slice(0, 100))
+        .join(
+          '、',
+        )}导航范围（scopeKey 见 facts.navigatorScopes）。用户已指定名称时直接选择，无需另行确认；仅在授权查询返回唯一精确匹配时应用。新增记录继承所选范围，应在打开新增草稿之前选择。名称未知时先用 scope.search 查询候选。`,
       inputSchema: {
         type: 'object',
         additionalProperties: false,

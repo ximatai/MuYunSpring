@@ -16,6 +16,17 @@ class ModuleDefinitionValidatorTest {
     private final ModuleDefinitionValidator validator = new ModuleDefinitionValidator();
 
     @Test
+    void shouldRejectInitialValuesThatCannotFitTheirFinalColumn() {
+        for (FieldDefinition field : List.of(FieldDefinition.string("code", "Code").length(2).defaultValue("ABC"),
+                FieldDefinition.decimal("amount", "Amount").precision(4, 2).defaultValue("100"))) {
+            ModuleDefinition module = new ModuleDefinition("sales.entry", "Entry", List.of(
+                    new EntityDefinition("entry", "sales_entry", "Entry", List.of(field))));
+            assertThatThrownBy(() -> validator.validate(module)).isInstanceOf(ModuleDefinitionException.class)
+                    .hasMessageContaining("defaultValue exceeds field");
+        }
+    }
+
+    @Test
     void strictReferenceMustRequireTargetEnabledCapabilityAtCompilation() {
         EntityDefinition target = new EntityDefinition("subject", "school_subject", "Subject",
                 List.of(FieldDefinition.titleField()), Set.of(EntityCapability.REFERENCE));

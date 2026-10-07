@@ -7,8 +7,13 @@ record ResolvedAiModelRoute(
         String baseUrl,
         String modelId,
         String apiKey,
-        AiModelLimits limits
+        AiModelLimits limits,
+        AiModelReasoningEffort reasoningEffort
 ) {
+    ResolvedAiModelRoute(String provider, AiModelProtocol protocol, String baseUrl, String modelId, String apiKey, AiModelLimits limits) {
+        this(provider, protocol, baseUrl, modelId, apiKey, limits, null);
+    }
+
     ResolvedAiModelRoute(String provider, AiModelProtocol protocol, String baseUrl, String modelId, String apiKey) {
         this(provider, protocol, baseUrl, modelId, apiKey, AiModelLimits.UNKNOWN);
     }

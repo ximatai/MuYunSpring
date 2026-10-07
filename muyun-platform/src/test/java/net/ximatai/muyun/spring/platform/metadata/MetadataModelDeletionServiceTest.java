@@ -26,6 +26,10 @@ class MetadataModelDeletionServiceTest {
         MetadataService metadata = mock(MetadataService.class);
         MetadataFieldService fields = mock(MetadataFieldService.class);
         ModuleMetadataFieldService moduleFields = mock(ModuleMetadataFieldService.class);
+        MetadataFieldConfigService configs = mock(MetadataFieldConfigService.class);
+        MetadataFieldReferenceConfigService references = mock(MetadataFieldReferenceConfigService.class);
+        when(references.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
+        when(configs.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         PlatformMetadataEntityDefinitionCompiler compiler = mock(PlatformMetadataEntityDefinitionCompiler.class);
         PlatformMetadataSchemaEnsureService schema = mock(PlatformMetadataSchemaEnsureService.class);
         DynamicRecordService records = mock(DynamicRecordService.class);
@@ -60,7 +64,7 @@ class MetadataModelDeletionServiceTest {
         when(fields.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(systemField));
         when(moduleFields.list(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of());
 
-        new MetadataModelDeletionService(relations, metadata, fields, moduleFields, compiler, schema, records, refresh)
+        new MetadataModelDeletionService(relations, metadata, fields, moduleFields, configs, references, compiler, schema, records, refresh)
                 .deleteMetadata("education.exam", "relation-1");
 
         verify(fields).delete("field-id", 4);
@@ -80,6 +84,10 @@ class MetadataModelDeletionServiceTest {
         MetadataService metadata = mock(MetadataService.class);
         MetadataFieldService fields = mock(MetadataFieldService.class);
         ModuleMetadataFieldService moduleFields = mock(ModuleMetadataFieldService.class);
+        MetadataFieldConfigService configs = mock(MetadataFieldConfigService.class);
+        MetadataFieldReferenceConfigService references = mock(MetadataFieldReferenceConfigService.class);
+        when(references.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
+        when(configs.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         PlatformMetadataEntityDefinitionCompiler compiler = mock(PlatformMetadataEntityDefinitionCompiler.class);
         PlatformMetadataSchemaEnsureService schema = mock(PlatformMetadataSchemaEnsureService.class);
         DynamicRecordService records = mock(DynamicRecordService.class);
@@ -120,12 +128,22 @@ class MetadataModelDeletionServiceTest {
         when(compiler.compile(metadataRecord)).thenReturn(previous);
 
         MetadataModelDeletionService service = new MetadataModelDeletionService(relations, metadata, fields,
-                moduleFields, compiler, schema, records, refresh);
+                moduleFields, configs, references, compiler, schema, records, refresh);
 
+        MetadataFieldConfig ownConfig = new MetadataFieldConfig();
+        ownConfig.setId("config-1");
+        ownConfig.setVersion(2);
+        when(configs.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(ownConfig));
+        MetadataFieldReferenceConfig ownReference = new MetadataFieldReferenceConfig();
+        ownReference.setId("reference-1");
+        ownReference.setVersion(5);
+        when(references.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(ownReference));
         service.deleteField("education.exam", "relation-1", "field-1");
 
-        InOrder deletion = inOrder(moduleFields, fields);
+        InOrder deletion = inOrder(moduleFields, configs, references, fields);
         deletion.verify(moduleFields).delete("module-field-1", 4);
+        deletion.verify(configs).delete("config-1", 2);
+        deletion.verify(references).delete("reference-1", 5);
         deletion.verify(fields).delete("field-1", 3);
         verify(schema).ensureNow("metadata-1", previous);
         InOrder schemaMutation = inOrder(schemaFacts, schema);

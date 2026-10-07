@@ -115,6 +115,80 @@ describe('business-rule assistant boundary', () => {
     }
     expect(facts.childFields).toMatchObject({ nextOffset: expect.any(Number) });
   });
+  it('finds fields beyond the initial page by business title without changing candidates', async () => {
+    const { registry, adapter, invoke, execute } = fixture();
+    adapter.catalog = (section) =>
+      section === 'childFields'
+        ? Array.from({ length: 13 }, (_, index) => ({
+            fieldName: `expenses.field${index}`,
+            title: index === 12 ? '行成本' : '其他字段',
+          }))
+        : [];
+    expect(registry.snapshot()!.context.facts.childFields).toMatchObject({
+      coverage: 'partial',
+      nextOffset: 10,
+    });
+    const result = await invoke('rules.describe', { section: 'childFields', keyword: '成本' });
+    expect(result.value).toMatchObject({
+      items: [{ fieldName: 'expenses.field12', title: '行成本' }],
+      total: 1,
+      catalogTotal: 13,
+      coverage: 'complete',
+      nextOffset: null,
+    });
+    expect(
+      (await invoke('rules.describe', { section: 'childFields', keyword: '不存在' })).value,
+    ).toMatchObject({
+      items: [],
+      total: 0,
+      catalogTotal: 13,
+      coverage: 'complete',
+    });
+    expect(adapter.revise).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('keeps filtered observations bounded and never treats oversized matches as absent', async () => {
+    const { adapter, invoke } = fixture();
+    adapter.catalog = () => [{ fieldName: 'lines.cost', title: '成本'.repeat(4000) }];
+    expect(
+      (await invoke('rules.describe', { section: 'childFields', keyword: 'lines.cost' })).value,
+    ).toMatchObject({
+      items: [],
+      total: 1,
+      coverage: 'partial',
+      nextOffset: null,
+      oversizedIndexes: [0],
+    });
+    await expect(invoke('rules.describe', { section: 'rules', keyword: 'cost' })).rejects.toThrow('字段目录');
+    await expect(invoke('rules.describe', { section: 'fields', keyword: ' ' })).rejects.toThrow();
+    await expect(invoke('rules.describe', { section: 'fields', extra: 'value' })).rejects.toThrow();
+  });
+  it('presents draft changes separately from compiler checks and formal application', async () => {
+    const { adapter, invoke, execute } = fixture();
+    const changed = await invoke('rules.revise', {
+      code: 'positive',
+      kind: 'VALIDATION',
+      expression: '{amount} > 0',
+      enabled: true,
+    });
+    expect(changed.presentation).toMatchObject({ title: '业务规则草稿已更新' });
+    expect(changed.presentation!.lines.join('')).toContain('尚未检查或应用');
+    expect(adapter.preview).not.toHaveBeenCalled();
+    const checked = await invoke('rules.preview');
+    expect(checked.presentation).toMatchObject({ title: '计算与保存校验检查通过' });
+    expect(checked.presentation!.lines.join('')).toContain('没有应用任何更改');
+    adapter.preview.mockResolvedValueOnce({
+      errors: [{ message: '计算目标不存在' }],
+      executionOrder: [],
+      proposalFingerprint: 'p',
+      snapshot: {} as never,
+    } as never);
+    expect((await invoke('rules.preview')).presentation).toMatchObject({
+      title: '计算与保存校验检查未通过',
+      lines: expect.arrayContaining(['计算目标不存在']),
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('declares calculation, validation and UI-control inputs separately without asking for empty optional values', () => {
     const { adapter } = fixture();
     const surface = createBusinessRuleAssistantSurface(adapter, vi.fn());
@@ -123,6 +197,7 @@ describe('business-rule assistant boundary', () => {
       oneOf: Array<{
         additionalProperties: boolean;
         required: string[];
+        description?: string;
         properties: Record<string, unknown>;
       }>;
     };
@@ -130,6 +205,9 @@ describe('business-rule assistant boundary', () => {
     expect(calculation.required).toContain('targetField');
     expect(calculation.properties).not.toHaveProperty('formKey');
     expect(validation.properties.kind).toEqual({ type: 'string', const: 'VALIDATION' });
+    expect(validation.description).toContain('为假时阻止保存');
+    expect(validation.description).toContain('不支持只提醒而仍允许保存');
+    expect(validation.properties).not.toHaveProperty('severity');
     expect(validation.properties).not.toHaveProperty('formKey');
     expect(validation.properties).not.toHaveProperty('targets');
     expect(validation.properties.messageTemplate).toMatchObject({ minLength: 1, maxLength: 500 });
@@ -146,6 +224,16 @@ describe('business-rule assistant boundary', () => {
         enabled: true,
       }),
     ).toMatchObject({ kind: 'VALIDATION', messageTemplate: '售价不能小于零' });
+  });
+  it('exposes blocking validation semantics during read-only inspection without requiring editing commands', () => {
+    const { adapter } = fixture();
+    const summary = adapter.summary();
+    adapter.summary = () => ({ ...summary, editable: false });
+    const surface = createBusinessRuleAssistantSurface(adapter, vi.fn());
+    expect(surface.describe().facts?.validationBehavior).toContain('不支持只提醒而仍允许保存');
+    expect(surface.capabilities().some((capability) => capability.descriptor.code === 'rules.revise')).toBe(
+      false,
+    );
   });
   it('provides current facts and advances past oversized catalog entries explicitly', async () => {
     const { adapter, registry, invoke } = fixture();

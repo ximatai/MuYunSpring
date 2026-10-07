@@ -14,4 +14,9 @@ public record ModuleMetadataCapabilityFact(
         String defaultKind,
         String defaultDescription
 ) {
+    /** The field-derived and specialized capabilities do not use metadata change-set declarations. */
+    @com.fasterxml.jackson.annotation.JsonProperty
+    public boolean changeSetConfigurable() {
+        return configurable && MetadataCapabilityCatalog.isMutableInFirstRelease(capability);
+    }
 }

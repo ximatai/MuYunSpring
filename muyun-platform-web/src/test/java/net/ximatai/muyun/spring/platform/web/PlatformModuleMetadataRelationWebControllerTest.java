@@ -23,6 +23,34 @@ import static org.mockito.Mockito.when;
 
 class PlatformModuleMetadataRelationWebControllerTest {
     @Test
+    void shouldDistinguishExistingBlankModuleFromMissingOrInvisibleModuleBeforeQueryingRelations() {
+        var modules = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class);
+        var controller = new PlatformModuleMetadataRelationWebController(
+                mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class),
+                mock(ModuleMetadataFieldPropertySummaryService.class), mock(ReferenceTargetFieldCatalogService.class),
+                mock(MetadataModelDeletionService.class), mock(ModuleMetadataRelationRecordCountService.class),
+                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class), modules);
+        var missing = request("crm.customer");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.appendScope(
+                net.ximatai.muyun.database.core.orm.Criteria.of(), missing))
+                .isInstanceOfSatisfying(net.ximatai.muyun.spring.common.exception.PlatformException.class, error -> {
+                    assertThat(error.code()).isEqualTo("RESOURCE_NOT_FOUND");
+                    assertThat(error.httpStatus()).isEqualTo(404);
+                });
+        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule();
+        module.setAlias("crm.customer");
+        when(modules.select(module.getAlias())).thenReturn(module);
+        controller.appendScope(net.ximatai.muyun.database.core.orm.Criteria.of(), missing);
+        var relation = new net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation();
+        controller.bindScope(relation, missing);
+        assertThat(relation.getModuleAlias()).isEqualTo(module.getAlias());
+        assertThat(controller.inScope(relation, missing)).isTrue();
+        when(modules.select(module.getAlias())).thenReturn(null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.inScope(relation, missing))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+    }
+
+    @Test
     void shouldExposeRelationScopedFieldPropertySummaries() {
         ModuleMetadataFieldPropertySummaryService summaries = mock(ModuleMetadataFieldPropertySummaryService.class);
         ModuleMetadataFieldPropertySummary expected = new ModuleMetadataFieldPropertySummary("field-1", "studentId", "string",
@@ -32,7 +60,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
                 mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class), summaries,
                 mock(ReferenceTargetFieldCatalogService.class), mock(MetadataModelDeletionService.class),
                 mock(ModuleMetadataRelationRecordCountService.class),
-                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class));
+                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class),
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
 
         assertThat(controller.fieldProperties(request("crm.customer"), "main")).containsExactly(expected);
         verify(summaries).list("crm.customer", "main");
@@ -48,7 +77,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
                 mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class),
                 mock(ModuleMetadataFieldPropertySummaryService.class), catalogService, mock(MetadataModelDeletionService.class),
                 mock(ModuleMetadataRelationRecordCountService.class),
-                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class));
+                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class),
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
 
         assertThat(controller.referenceTargetFieldCatalog(request("crm.customer"), "main", "education.student", "student-meta"))
                 .isSameAs(expected);
@@ -64,7 +94,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
                 mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class),
                 mock(ModuleMetadataFieldPropertySummaryService.class), catalogService, mock(MetadataModelDeletionService.class),
                 mock(ModuleMetadataRelationRecordCountService.class),
-                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class));
+                mock(net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService.class),
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
         assertThat(controller.referenceTargetModules(request("crm.customer"), "main")).isSameAs(expected);
     }
 
@@ -75,7 +106,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
         var controller = new PlatformModuleMetadataRelationWebController(orchestration,
                 mock(ModuleMetadataCapabilitySnapshotService.class), mock(ModuleMetadataFieldPropertySummaryService.class),
                 mock(ReferenceTargetFieldCatalogService.class), mock(MetadataModelDeletionService.class),
-                mock(ModuleMetadataRelationRecordCountService.class), creation);
+                mock(ModuleMetadataRelationRecordCountService.class), creation,
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
         var command = new net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand(
                 "lines", "明细", null, null, "child-request-identity");
         controller.createChildMetadata(request("crm.customer"), "main", command);
@@ -94,7 +126,8 @@ class PlatformModuleMetadataRelationWebControllerTest {
         var controller = new PlatformModuleMetadataRelationWebController(orchestration,
                 mock(ModuleMetadataCapabilitySnapshotService.class), mock(ModuleMetadataFieldPropertySummaryService.class),
                 mock(ReferenceTargetFieldCatalogService.class), mock(MetadataModelDeletionService.class),
-                mock(ModuleMetadataRelationRecordCountService.class), creation);
+                mock(ModuleMetadataRelationRecordCountService.class), creation,
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
         var command = new net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand("lines", "明细", null, null);
         controller.createChildMetadata(request("crm.customer"), "main", command);
         verify(orchestration).createChildMetadata("crm.customer", "main", command);

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MenuTreeNode } from '@muyun/web-contracts';
-import { createWorkbenchAssistantCapabilities } from '@/platform-workbench/workbenchAssistantCapabilities';
+import {
+  createWorkbenchAssistantCapabilities,
+  workbenchAssistantMenuCatalog,
+} from '@/platform-workbench/workbenchAssistantCapabilities';
 
 function menuTree(): MenuTreeNode[] {
   return [
@@ -25,6 +28,33 @@ function menuTree(): MenuTreeNode[] {
 }
 
 describe('workbench assistant capabilities', () => {
+  it('projects the same live openable menu facts with bounded, explicit incompleteness', async () => {
+    const tree = menuTree();
+    const find = createWorkbenchAssistantCapabilities(
+      () => tree,
+      () => true,
+    )[0]!;
+    expect(workbenchAssistantMenuCatalog(tree).items).toEqual(
+      await find.execute(find.parseInput({ query: '业务管理' }), executionContext()),
+    );
+    expect(workbenchAssistantMenuCatalog([]).items).toEqual([]);
+    const entry = tree[0]!.children![0]!;
+    const many = Array.from({ length: 13 }, (_, i) => ({
+      ...entry,
+      record: { ...entry.record, id: `menu-${i}` },
+    }));
+    const first = workbenchAssistantMenuCatalog(many);
+    expect(first.items).toHaveLength(10);
+    expect(first.page).toMatchObject({ total: 13, nextOffset: 10 });
+    const oversized = workbenchAssistantMenuCatalog([
+      { ...entry, record: { ...entry.record, title: '长标题'.repeat(2000) } },
+      entry,
+    ]);
+    expect(oversized.items).toHaveLength(1);
+    expect(oversized.page.oversizedIndexes).toEqual([0]);
+    expect(oversized.page.note).toContain('按名称查找');
+    expect(JSON.stringify(oversized.items).length).toBeLessThan(4000);
+  });
   it('presents the actual opened entry as navigation, not a business save', async () => {
     const open = createWorkbenchAssistantCapabilities(menuTree, () => true)[1]!;
     const result = await open.execute(open.parseInput({ menuId: 'daily-report' }), executionContext());

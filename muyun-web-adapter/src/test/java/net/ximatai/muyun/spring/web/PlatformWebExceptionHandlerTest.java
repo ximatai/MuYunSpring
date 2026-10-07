@@ -285,6 +285,19 @@ class PlatformWebExceptionHandlerTest {
                 .andExpect(jsonPath("$.actionMessage.type").value("WARNING"));
     }
 
+    @Test
+    void shouldExposeUniqueViolationAsDefiniteConflictWithoutDatabaseDetails() throws Exception {
+        mvc(new DemoController()).perform(get("/demo/database-unique"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFLICT_UNIQUE))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("标识或唯一值已被使用，请修改后重新保存"))
+                .andExpect(jsonPath("$.actionMessage.type").value("WARNING"));
+        mvc(new DemoController()).perform(get("/demo/database-unavailable"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.INTERNAL_ERROR));
+    }
+
     private MockMvc mvc(Object controller) {
         return mvc(controller, RequestErrorLogRecorder.noop());
     }
@@ -383,6 +396,18 @@ class PlatformWebExceptionHandlerTest {
         String databaseNotNull() {
             throw new IllegalStateException("persistence failed",
                     new SQLException("driver detail must not reach the client", "23502"));
+        }
+
+        @GetMapping("/demo/database-unique")
+        String databaseUnique() {
+            throw new IllegalStateException("persistence failed",
+                    new SQLException("private constraint and conflicting values", "23505"));
+        }
+
+        @GetMapping("/demo/database-unavailable")
+        String databaseUnavailable() {
+            throw new IllegalStateException("persistence failed",
+                    new SQLException("private connection details", "08006"));
         }
 
         private record DemoRequest(String name) { }

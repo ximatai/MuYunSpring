@@ -83,6 +83,8 @@ export function createBusinessRuleWorkspace(
       const value = active.value;
       if (!value) return;
       return {
+        kind: 'rules',
+        openingCapability: openRules ? 'rules.open-editor' : undefined,
         moduleAlias: value.moduleAlias,
         title: value.moduleAlias,
         hasUnsavedChanges: value.dirty.value,
@@ -146,7 +148,10 @@ export function createBusinessRuleWorkspace(
                     async () => {
                       const signal = context.cancellationSignal ?? context.signal;
                       await waitForConfigurationEditor(
-                        () => visible.value === selected && selected.ready.value,
+                        () =>
+                          visible.value === selected &&
+                          !selected.loading.value &&
+                          (selected.ready.value || selected.submissionStatus.value === 'unknown'),
                         signal,
                       );
                       return settleNavigation(signal);
@@ -160,11 +165,12 @@ export function createBusinessRuleWorkspace(
       return [
         ...openCapability,
         {
-          effect: 'configuration-draft',
+          effect: 'read',
+          changesReadState: true,
           descriptor: {
             code: 'rules.select-module',
             description:
-              'Select an existing module for shared rule configuration without opening its governance page. Use an actual module alias from discovery or current context. Reselecting the current target is a no-op; set refresh=true to reread changed governance. Reads standard authorized governance snapshots; no business write. Existing unsaved candidates are retained per module. After selection, use rules capabilities and current workspace ruleConfiguration facts. Drafts last only for this workspace. No approval or business tenant is inferred from chat history.',
+              'Read an existing module’s calculation/validation rules and field catalogs without opening its governance page or selecting a business tenant. Use an actual module alias from discovery or current context. Reselecting the current target is a no-op; set refresh=true to reread changed governance. Reads standard authorized governance snapshots; no business write. Existing unsaved candidates are retained per module. After selection, use rules capabilities and current workspace ruleConfiguration facts. Drafts last only for this workspace. No approval or business tenant is inferred from chat history.',
             inputSchema: {
               type: 'object',
               additionalProperties: false,
@@ -195,7 +201,7 @@ export function createBusinessRuleWorkspace(
                 !selected.dirty.value &&
                 !selected.editing.value,
               (accept) => {
-                context.applyEffect(() => {
+                context.commitInternalState(() => {
                   accept();
                   focus(selected);
                 });

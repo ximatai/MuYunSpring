@@ -7,6 +7,7 @@ import {
   isDynamicRecordReservedFieldName,
   isPlatformFieldName,
   physicalNameOf,
+  recordNameFieldProblem,
 } from './metadataNaming';
 import {
   reconcileSelectedKey,
@@ -23,6 +24,7 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import {
+  createUuid,
   OperationUsageError,
   OperationRejectedError,
   createOperationConfirmation,
@@ -77,6 +79,7 @@ import type {
   FindMetadataFieldTargetsInput,
   PreparedMetadataPropertyFieldDraft,
   UpdateMetadataFieldDraftInput,
+  UpdateMetadataReferenceDraftInput,
 } from './metadataGovernanceEditor';
 import {
   buildMetadataModelTree,
@@ -127,6 +130,38 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
     const state = createMetadataOrchestrationState();
     const editSession = createMetadataModelWorkspaceEditSession();
+    const submissionStatus = ref<'idle' | 'unknown' | 'current-read'>('idle');
+    const committedNeedsReload = ref(false);
+    const readingCurrent = ref(false);
+    let submittedCandidate: MetadataModelChangeSetProposal | undefined;
+    let submittedBaseline: ReturnType<typeof editSession.captureBaseline> | undefined;
+    function requireKnownSubmission() {
+      requireValid();
+      if (submissionStatus.value === 'unknown')
+        throw new OperationUsageError('原元数据提交结果未知，请先读取当前配置再重新审阅。');
+      if (committedNeedsReload.value)
+        throw new OperationUsageError('元数据已保存，状态待核实；请先读取当前配置，不要重复保存。');
+    }
+    async function applyMetadataSubmission(
+      submission: Awaited<ReturnType<typeof prepareMetadataChangeSetSubmission>>,
+      proposal: MetadataModelChangeSetProposal,
+    ) {
+      requireKnownSubmission();
+      submittedBaseline = editSession.captureBaseline();
+      try {
+        await submission.apply();
+      } catch (cause) {
+        if (!(cause instanceof OperationRejectedError) && valid()) {
+          submittedCandidate = JSON.parse(JSON.stringify(proposal));
+          submissionStatus.value = 'unknown';
+        }
+        throw cause;
+      }
+      if (valid()) {
+        submittedCandidate = JSON.parse(JSON.stringify(proposal));
+        committedNeedsReload.value = true;
+      }
+    }
     const fieldPlanActive = ref(false);
     const fieldPlanEntries = computed(() =>
       fieldPlanActive.value ? sessionFields.value.filter((field) => !field.id) : [],
@@ -198,6 +233,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       capability: string;
       enabled: boolean;
       configurable: boolean;
+      changeSetConfigurable?: boolean;
       reason: string;
       fieldContributions: string[];
       defaultKind: string;
@@ -217,7 +253,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ? editSession.fieldsForDisplay(selectedRelationId.value, state.allFields.value)
         : state.allFields.value,
     );
-    const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE']);
+    const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE', 'RECYCLE_BIN']);
     const capabilityFieldNames = computed(
       () =>
         new Set(
@@ -235,7 +271,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     const capabilityItems = computed(() =>
       (capabilitySnapshot.value?.capabilities ?? []).map((fact) => ({
         ...fact,
+        configurable: fact.changeSetConfigurable === true,
         title: capabilityTitleOf(fact.capability),
+        selected:
+          fact.enabled ||
+          Boolean(
+            selectedRelationId.value &&
+            editSession.relation(selectedRelationId.value)?.capabilitySelections[fact.capability],
+          ),
       })),
     );
     const selectedField = computed(() => {
@@ -253,6 +296,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         : [];
       const projectedFields = fields.slice(0, ASSISTANT_METADATA_FIELD_LIMIT).map((field) => ({
         fieldName: field.fieldName ?? '',
+        columnName: field.columnName,
         title: field.title,
         fieldSpecAlias: field.fieldSpecAlias,
         required: field.required ?? false,
@@ -262,6 +306,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         titleField: field.titleField ?? false,
         enabled: field.enabled !== false,
         propertyKind: fieldPropertyOf(field).kind,
+        reference: fieldPropertyOf(field).referenceConfig,
+        defaultValue: fieldDefaultValue(field, fieldPropertyOf(field)),
         governance: metadataFieldGovernanceLabel(
           metadataFieldGovernanceKind(field, relation, capabilityFieldNames.value),
         ),
@@ -269,6 +315,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       return {
         moduleAlias: props.moduleAlias,
         moduleTitle: title.value,
+        factsAvailable: !disposed && submissionStatus.value !== 'unknown' && !committedNeedsReload.value,
+        submissionStatus: submissionStatus.value,
+        committedNeedsReload: committedNeedsReload.value,
         relationCount: state.relations.value.length,
         selectedRelation:
           relation?.id == null
@@ -277,7 +326,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
                 relationId: relation.id,
                 title: state.selectedMetadata.value?.title,
                 fieldCount: fields.length,
+                fieldsSource: editSession.editing.value
+                  ? ('UNSAVED_CANDIDATE' as const)
+                  : ('SAVED_CONFIGURATION' as const),
                 fields: projectedFields,
+                capabilities: capabilityItems.value,
                 truncated: projectedFields.length < fields.length,
               },
         mainCandidate: state.mainEditorOpen.value
@@ -296,12 +349,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
                 alias: childMetadataDraft.value.alias,
                 title: childMetadataDraft.value.title,
                 parentRelationId: relation.id,
+                parentTitle: state.selectedMetadata.value?.title,
                 saved: false as const,
               }
             : undefined,
         draft: {
           active: editSession.editing.value || state.mode.value !== 'view',
           fieldPlanOpen: fieldPlanActive.value && !state.fieldEditorOpen.value,
+          fieldPlanEditing: fieldPlanActive.value && state.fieldEditorOpen.value,
           dirty: editSession.isDirty.value || creatingChildMetadata.value || state.mainEditorOpen.value,
           editorOpen:
             state.mainEditorOpen.value ||
@@ -348,6 +403,18 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     );
     const selectedRelationIsMain = computed(() => isMainRelation(state.selectedRelation.value?.relationRole));
     const fieldPropertyEditorKind = computed(() => state.fieldPropertyDraft.value.kind);
+    const fixedDefaultEditable = computed(
+      () =>
+        !fieldDraft.value.id ||
+        fieldProperties.value.find((item) => item.fieldId === fieldDraft.value.id)?.fixedDefault?.editable !==
+          false,
+    );
+    const fixedDefaultReadValue = computed(() =>
+      fieldDraft.value.id
+        ? (fieldProperties.value.find((item) => item.fieldId === fieldDraft.value.id)?.fixedDefault?.value ??
+          null)
+        : null,
+    );
     const selectedRelationHasBusinessRecords = computed(
       () => (recordCountsByRelation.value[selectedRelationId.value ?? ''] ?? 0) > 0,
     );
@@ -465,11 +532,15 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       fieldDraft.value.columnName = name;
     }
     watch(
-      () => fieldDraft.value.title,
-      (title) => {
+      () => [fieldDraft.value.title, fieldDraft.value.titleField] as const,
+      ([title, titleField]) => {
         if (fieldDraft.value.id) return;
         if (!fieldNameManuallyEdited.value)
-          fieldDraft.value.fieldName = generatedBusinessFieldName(title, fieldPropertyEditorKind.value);
+          fieldDraft.value.fieldName = generatedBusinessFieldName(
+            title,
+            fieldPropertyEditorKind.value,
+            titleField,
+          );
         if (!columnNameManuallyEdited.value)
           fieldDraft.value.columnName = physicalNameOf(fieldDraft.value.fieldName);
       },
@@ -616,9 +687,18 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       },
     );
 
-    async function loadWorkspace(commit?: (accept: () => void) => void) {
+    async function loadWorkspace(
+      commit?: (accept: () => void) => void,
+      recovering = false,
+      signal?: AbortSignal,
+    ) {
       requireValid();
-      if (editSession.isDirty.value || state.mode.value !== 'view')
+      if (
+        !recovering &&
+        (submissionStatus.value === 'unknown' || (committedNeedsReload.value && !saving.value))
+      )
+        throw new OperationUsageError('原元数据提交结果未知，请先读取当前配置再重新审阅。');
+      if (!recovering && (editSession.isDirty.value || state.mode.value !== 'view'))
         throw new OperationUsageError('请先保存或取消当前元数据候选，再刷新基线');
       const requestRevision = ++workspaceLoadRevision;
       const selectionBeforeRefresh = selectedTreeKey.value;
@@ -662,7 +742,43 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           if (commit) throw new OperationUsageError('元数据读取已过期，请重新选择');
           return;
         }
+        if (signal?.aborted) throw new DOMException('元数据读取已取消', 'AbortError');
+        const rebase = recovering
+          ? editSession.prepareRebase(
+              relations.flatMap((relation) => {
+                const item = loaded.find((entry) => entry?.relationId === relation.id);
+                const model = metadata.find((entry) => entry?.id === relation.metadataId);
+                if (!relation.id || !relation.metadataId || !item || !model) return [];
+                return [
+                  {
+                    relationId: relation.id,
+                    metadataId: relation.metadataId,
+                    parentMetadataId: relation.parentMetadataId,
+                    sortOrder: relation.sortOrder,
+                    expectedMetadataVersion: model.version ?? 0,
+                    fields: item.fields,
+                    fieldProperties: item.properties,
+                  },
+                ];
+              }),
+              submittedCandidate!,
+              Object.fromEntries(
+                loaded
+                  .filter((item) => item !== undefined)
+                  .map((item) => [
+                    item.relationId,
+                    item.capabilities.capabilities
+                      .filter((fact) => fact.enabled)
+                      .map((fact) => fact.capability),
+                  ]),
+              ),
+              submittedBaseline,
+            )
+          : undefined;
         const accept = () => {
+          requireValid();
+          if (requestRevision !== workspaceLoadRevision || signal?.aborted)
+            throw new OperationUsageError('元数据读取已过期，请重新读取。');
           state.handleRelationsLoaded(relations);
           metadata.forEach((item) => {
             if (item) state.handleMetadataLoaded(item);
@@ -688,8 +804,20 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
               .map((item) => [item.relationId, item.recordCount.recordCount]),
           );
           restoreTreeSelection(selectedTreeKey.value ?? selectionBeforeRefresh);
-          if (sorting.value && !state.fieldEditorOpen.value && !state.mainEditorOpen.value)
+          if (!recovering) committedNeedsReload.value = false;
+          if (!recovering && sorting.value && !state.fieldEditorOpen.value && !state.mainEditorOpen.value)
             startNodeEditSession();
+          if (rebase) {
+            rebase();
+            state.cancelEditor();
+            stagedNewFieldKey.value = undefined;
+            sorting.value = false;
+            fieldPlanActive.value = true;
+            submissionStatus.value = submissionStatus.value === 'unknown' ? 'current-read' : 'idle';
+            submittedCandidate = undefined;
+            submittedBaseline = undefined;
+          }
+          committedNeedsReload.value = false;
           workspaceReady.value = true;
           workspaceLoadFailed.value = false;
         };
@@ -741,6 +869,39 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       }
     }
 
+    async function readCurrent(
+      signal?: AbortSignal,
+      commit: (accept: () => void) => void = (accept) => accept(),
+    ) {
+      requireValid();
+      if (
+        (submissionStatus.value !== 'unknown' && !committedNeedsReload.value) ||
+        saving.value ||
+        loading.value ||
+        readingCurrent.value ||
+        !submittedCandidate
+      )
+        throw new OperationUsageError('当前没有需要核实的元数据提交。');
+      const revision = metadataCandidateRevision.value;
+      const scopeIsCurrent = options.confirmationScope ?? (() => true);
+      if (!scopeIsCurrent()) throw new OperationUsageError('编辑范围已变化，请重新选择模块。');
+      readingCurrent.value = true;
+      try {
+        await loadWorkspace(
+          (accept) =>
+            commit(() => {
+              if (metadataCandidateRevision.value !== revision || !scopeIsCurrent() || signal?.aborted)
+                throw new OperationUsageError('候选或编辑范围已变化，原候选已保留；请重新读取。');
+              accept();
+            }),
+          true,
+          signal,
+        );
+      } finally {
+        if (valid()) readingCurrent.value = false;
+      }
+    }
+
     function hydrateSelectedRelation(relationId: string) {
       state.handleFieldsLoaded(fieldsByRelation.value[relationId] ?? []);
       fieldProperties.value = fieldPropertiesByRelation.value[relationId] ?? [];
@@ -748,7 +909,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     async function selectMetadataTreeNode(node: UiTreeNode) {
-      if (state.fieldEditorOpen.value || fieldPlanActive.value) {
+      if (
+        submissionStatus.value === 'unknown' ||
+        committedNeedsReload.value ||
+        state.fieldEditorOpen.value ||
+        fieldPlanActive.value
+      ) {
         presentPlatformMessage('请先保存或取消当前字段候选，再切换元数据。', {
           source: 'metadata-orchestration',
           phase: 'validation',
@@ -771,6 +937,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
      * smallest possible envelope and saves it from that node's drawer/card.
      */
     function startNodeEditSession() {
+      requireKnownSubmission();
       editSession.begin(
         state.relations.value.flatMap((relation) => {
           if (!relation.id || !relation.metadataId) return [];
@@ -791,6 +958,39 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           ];
         }),
       );
+    }
+
+    function prepareCapabilityDraft(input: { capability: string; selected: boolean }) {
+      requireValid();
+      const relationId = selectedRelationId.value;
+      const fact = capabilityItems.value.find((item) => item.capability === input.capability);
+      if (
+        !relationId ||
+        !fact ||
+        !fact.configurable ||
+        fact.enabled ||
+        saving.value ||
+        loading.value ||
+        state.fieldEditorOpen.value ||
+        sorting.value
+      )
+        throw new OperationUsageError('请先完成当前编辑，并选择可配置的基础能力；已启用能力不能在此关闭。');
+      return () => {
+        requireValid();
+        if (!editSession.editing.value) startNodeEditSession();
+        editSession.stageCapability(relationId, input.capability, input.selected);
+        fieldPlanActive.value = true;
+        selectedTreeKey.value = metadataNodeKey(relationId);
+        return { relationId, capability: input.capability, selected: input.selected, saved: false };
+      };
+    }
+
+    function selectCapability(capability: string, selected: boolean) {
+      try {
+        prepareCapabilityDraft({ capability, selected })();
+      } catch (cause) {
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
+      }
     }
 
     function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
@@ -814,7 +1014,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           'Finish or cancel the current metadata editor before adding another field',
         );
       requireEnabledFieldSpec(input.fieldSpecAlias);
-      const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC');
+      const fieldName =
+        input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC', input.titleField);
       validateAssistantNewFieldName(relationId, fieldName);
       const field: MetadataField = {
         fieldName,
@@ -830,15 +1031,20 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         titleField: input.titleField ?? false,
         enabled: true,
       };
+      requireRecordNameField(field);
       return () => {
         if (!editSession.editing.value) startNodeEditSession();
-        editSession.stageField(relationId, field, { kind: 'BASIC' });
+        const property: MetadataFieldPropertyDraft = {
+          kind: 'BASIC',
+          ...(input.defaultValue !== undefined ? { fixedDefault: { value: input.defaultValue } } : {}),
+        };
+        editSession.stageField(relationId, field, property);
         stagedNewFieldKey.value = fieldName;
         fieldTitleManuallyEdited.value = true;
         fieldNameManuallyEdited.value = Boolean(input.fieldName);
         columnNameManuallyEdited.value = false;
         editorMode.value = 'SIMPLE';
-        state.startEditField(field, { kind: 'BASIC' });
+        state.startEditField(field, property);
         return {
           relationId,
           fieldName,
@@ -889,6 +1095,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         字典应用: binding?.dictionaryConfig?.dictionaryApplicationAlias,
         字典类别: binding?.dictionaryConfig?.dictionaryCategoryAlias,
         字典选择: binding?.dictionaryConfig?.selectionMode,
+        启用限制: binding?.referenceConfig?.requireEnabled,
+        固定默认值: binding?.fixedDefault?.value ?? undefined,
       });
       const before = baseline ? project(baseline, baselineProperty) : {};
       const after = project(field, property);
@@ -898,7 +1106,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         operation: baseline ? 'UPDATE' : 'ADD',
         saved: false,
         editable:
-          property.kind === 'BASIC' &&
+          ['BASIC', 'MODULE_REFERENCE'].includes(property.kind) &&
           Boolean(field.fieldName && isPlatformFieldName(field.fieldName)) &&
           (!baseline || fieldEditableInSession(baseline)),
         expectedMetadataVersion: editSession.relation(relationId)?.expectedMetadataVersion ?? 0,
@@ -924,7 +1132,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (!relationId) return [];
       if (state.fieldEditorOpen.value) {
         const candidate = assistantCandidate();
-        return candidate?.editable ? [candidate.fieldName] : [];
+        return candidate?.editable && candidate.kind === 'BASIC' ? [candidate.fieldName] : [];
       }
       return editSession
         .fieldsForDisplay(relationId, state.allFields.value)
@@ -945,7 +1153,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (
         sorting.value ||
         saving.value ||
-        (revising && (!candidate?.editable || candidate.fieldName !== input.fieldName))
+        (revising &&
+          (!candidate?.editable || candidate.kind !== 'BASIC' || candidate.fieldName !== input.fieldName))
       )
         throw new OperationUsageError(
           'Only the current editable candidate can be revised',
@@ -981,13 +1190,20 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...(input.titleField !== undefined ? { titleField: input.titleField } : {}),
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       };
-      if (JSON.stringify(updated) === JSON.stringify(field))
+      requireRecordNameField(updated);
+      const property = revising
+        ? normalizeFieldPropertyDraft(state.fieldPropertyDraft.value)
+        : normalizeFieldPropertyDraft(fieldPropertyOf(field));
+      const previousProperty = JSON.stringify(property);
+      if (input.defaultValue !== undefined) {
+        const fact = fieldProperties.value.find((item) => item.fieldId === field.id)?.fixedDefault;
+        if (fact?.editable === false) throw new OperationUsageError('该字段的初值只能读取，不能在此修改。');
+        property.fixedDefault = { ...property.fixedDefault, value: input.defaultValue };
+      }
+      if (JSON.stringify(updated) === JSON.stringify(field) && JSON.stringify(property) === previousProperty)
         throw new OperationUsageError(
           'The requested metadata field update does not change the current value',
         );
-      const property = revising
-        ? normalizeFieldPropertyDraft(state.fieldPropertyDraft.value)
-        : fieldPropertyOf(field);
       return () => {
         if (fieldPlanActive.value && !revising) {
           editSession.stageField(relationId, updated, property, field.fieldName);
@@ -1028,6 +1244,99 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         .filter((item) => !keyword || `${item.title ?? ''} ${item.target}`.toLowerCase().includes(keyword))
         .sort((left, right) => left.target.localeCompare(right.target));
       return { targets: matches.slice(0, 30), truncated: matches.length > 30 };
+    }
+
+    function assistantEditableReferenceFieldNames() {
+      const relationId = selectedRelationId.value;
+      if (!relationId || sorting.value || saving.value || loading.value) return [];
+      if (state.fieldEditorOpen.value) {
+        const candidate = assistantCandidate();
+        return candidate?.editable && candidate.kind === 'MODULE_REFERENCE' ? [candidate.fieldName] : [];
+      }
+      return editSession
+        .fieldsForDisplay(relationId, state.allFields.value)
+        .filter(
+          (field) =>
+            field.fieldName &&
+            fieldEditableInSession(field) &&
+            fieldPropertyOf(field).kind === 'MODULE_REFERENCE',
+        )
+        .map((field) => field.fieldName!);
+    }
+
+    async function prepareAssistantReferenceUpdate(
+      input: UpdateMetadataReferenceDraftInput,
+      signal: AbortSignal,
+    ) {
+      requireValid();
+      const relationId = selectedRelationId.value;
+      if (!relationId || !assistantEditableReferenceFieldNames().includes(input.fieldName))
+        throw new OperationUsageError('请选择当前可编辑的模块引用字段。');
+      const revising = state.fieldEditorOpen.value;
+      const currentField = () =>
+        revising
+          ? normalizeFieldDraft(state.fieldDraft.value)
+          : editSession
+              .fieldsForDisplay(relationId, state.allFields.value)
+              .find((field) => field.fieldName === input.fieldName);
+      const field = currentField()!;
+      const currentProperty = () =>
+        normalizeFieldPropertyDraft(
+          revising ? state.fieldPropertyDraft.value : fieldPropertyOf(currentField()!),
+        );
+      const property = currentProperty();
+      const before = JSON.stringify({ field, property });
+      const reference = property.referenceConfig!;
+      const updated = normalizeFieldPropertyDraft(property);
+      if (input.affectMappings !== undefined) {
+        const catalog = await requestReferenceTargetFieldCatalog(
+          relationId,
+          reference.targetModuleAlias!,
+          reference.targetMetadataId,
+          signal,
+        );
+        const destinations = new Set<string>();
+        for (const mapping of input.affectMappings) {
+          const [source, destination] = mapping.split(':');
+          if (
+            !catalog.labelFields.some((item) => item.fieldName === source && item.selectable) ||
+            destination === field.fieldName ||
+            !savedReferenceAffectTargetOptions.value.some((item) => item.value === destination) ||
+            destinations.has(destination!)
+          )
+            throw new OperationUsageError('请选择目录中的来源字段和不同的已保存普通字段。');
+          destinations.add(destination!);
+        }
+        updated.referenceConfig!.affectMappings = [...input.affectMappings];
+      }
+      if (input.requireEnabled !== undefined) updated.referenceConfig!.requireEnabled = input.requireEnabled;
+      if (JSON.stringify(updated) === JSON.stringify(property))
+        throw new OperationUsageError('引用设置与当前内容一致，无需修改。');
+      return () => {
+        requireValid();
+        if (
+          selectedRelationId.value !== relationId ||
+          state.fieldEditorOpen.value !== revising ||
+          !assistantEditableReferenceFieldNames().includes(input.fieldName) ||
+          JSON.stringify({ field: currentField(), property: currentProperty() }) !== before
+        )
+          throw new OperationUsageError('引用草稿已变化，请重新审阅后修改。');
+        if (fieldPlanActive.value && !revising) {
+          editSession.stageField(relationId, field, updated, field.fieldName);
+          return { relationId, fieldName: input.fieldName, reference: updated.referenceConfig, saved: false };
+        }
+        if (!revising) startNodeEditSession();
+        if (!fieldPlanActive.value) {
+          editSession.stageField(relationId, field, updated, stagedNewFieldKey.value);
+          stagedNewFieldKey.value = field.id ? undefined : field.fieldName;
+        }
+        fieldTitleManuallyEdited.value = Boolean(field.title?.trim());
+        fieldNameManuallyEdited.value = true;
+        columnNameManuallyEdited.value = true;
+        if (!revising) editorMode.value = 'SIMPLE';
+        state.startEditField(field, updated);
+        return { relationId, fieldName: input.fieldName, reference: updated.referenceConfig, saved: false };
+      };
     }
 
     async function loadAssistantReferenceTargets(relationId: string, signal: AbortSignal) {
@@ -1142,6 +1451,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         columnName: physicalNameOf(fieldName),
         fieldSpecAlias,
         required: input.required ?? false,
+        ...(input.defaultValue !== undefined ? { defaultValue: input.defaultValue } : {}),
         dictionary: {
           applicationAlias: input.target.slice(0, separator),
           categoryAlias: input.target.slice(separator + 1),
@@ -1185,6 +1495,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
                 selectionMode: prepared.dictionary!.selectionMode,
               },
             };
+      if (prepared.defaultValue !== undefined) property.fixedDefault = { value: prepared.defaultValue };
       return { field, property };
     }
 
@@ -1199,7 +1510,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           entries.push(propertyFieldEntry(await prepareAssistantPropertyFieldDraft(input, signal)));
         } else {
           requireEnabledFieldSpec(input.fieldSpecAlias);
-          const fieldName = input.fieldName || generatedBusinessFieldName(input.title, 'BASIC');
+          const fieldName =
+            input.fieldName || generatedBusinessFieldName(input.title, 'BASIC', input.titleField);
           validateAssistantNewFieldName(relationId, fieldName);
           entries.push({
             field: {
@@ -1216,11 +1528,15 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
               titleField: input.titleField ?? false,
               enabled: true,
             },
-            property: { kind: 'BASIC' },
+            property: {
+              kind: 'BASIC',
+              ...(input.defaultValue !== undefined ? { fixedDefault: { value: input.defaultValue } } : {}),
+            },
           });
         }
       }
       const names = entries.map(({ field }) => field.fieldName!.toLowerCase());
+      entries.forEach(({ field }) => requireRecordNameField(field));
       const columns = entries.map(({ field }) => field.columnName!.toLowerCase());
       if (new Set(names).size !== names.length || new Set(columns).size !== columns.length)
         throw new Error('方案包含重复字段名或物理列名，请调整后重新生成。');
@@ -1261,11 +1577,41 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function removePlanField(field: MetadataField) {
-      if (saving.value || !selectedRelationId.value || !field.fieldName) return;
-      editSession.discardNewField(selectedRelationId.value, field.fieldName);
+      try {
+        prepareRemoveNewFieldDraft({ fieldName: field.fieldName ?? '' })();
+      } catch (cause) {
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
+      }
+    }
+
+    function removableNewFieldNames() {
+      if (
+        !fieldPlanActive.value ||
+        state.fieldEditorOpen.value ||
+        saving.value ||
+        loading.value ||
+        sorting.value
+      )
+        return [];
+      return fieldPlanEntries.value.flatMap((field) => (field.fieldName ? [field.fieldName] : []));
+    }
+
+    function prepareRemoveNewFieldDraft(input: { fieldName: string }) {
+      requireValid();
+      const relationId = selectedRelationId.value;
+      if (!relationId || !removableNewFieldNames().includes(input.fieldName))
+        throw new OperationUsageError('只能移除本次方案中未保存的新增字段，请先完成当前字段编辑。');
+      return () => {
+        requireValid();
+        if (relationId !== selectedRelationId.value || !removableNewFieldNames().includes(input.fieldName))
+          throw new OperationUsageError('字段方案已经变化，请核对当前草稿。');
+        editSession.discardNewField(relationId, input.fieldName);
+        return { relationId, fieldName: input.fieldName, removed: true, saved: false };
+      };
     }
 
     function cancelFieldPlan() {
+      requireKnownSubmission();
       if (saving.value) return;
       fieldPlanActive.value = false;
       cancelNodeEditor();
@@ -1311,6 +1657,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function validateAssistantNewFieldName(relationId: string, fieldName: string) {
       if (!isPlatformFieldName(fieldName))
         throw new OperationUsageError('The metadata field name is invalid');
+      if ([...capabilityFieldNames.value].some((name) => name.toLowerCase() === fieldName.toLowerCase()))
+        throw new OperationUsageError('该字段由基础能力管理，请选择对应能力，不要创建同名业务字段。');
       if (isDynamicRecordReservedFieldName(fieldName))
         throw new OperationUsageError('The metadata field name is reserved by the dynamic record protocol');
       if (
@@ -1321,6 +1669,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         throw new OperationUsageError(
           `Metadata field “${fieldName}” already exists in the selected relation`,
         );
+    }
+
+    function requireRecordNameField(field: MetadataField) {
+      const problem = recordNameFieldProblem(field);
+      if (problem) throw new OperationUsageError(problem);
     }
 
     function requireEnabledFieldSpec(alias: string) {
@@ -1365,6 +1718,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function cancelNodeEditor() {
+      requireKnownSubmission();
       childNodeType.value = 'FIELD';
       stagedNewFieldKey.value = undefined;
       state.cancelEditor();
@@ -1374,6 +1728,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function toggleSorting() {
+      requireKnownSubmission();
       if (saving.value || fieldPlanActive.value) return;
       if (sorting.value) {
         editSession.cancel();
@@ -1389,6 +1744,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       mode: 'confirm' | 'immediate-order' = 'confirm',
     ) {
       if (saving.value) return;
+      try {
+        requireKnownSubmission();
+      } catch (cause) {
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+        return;
+      }
       const moduleAlias = props.moduleAlias;
       const proposal = editSession.buildProposal();
       if (!proposal) {
@@ -1411,6 +1772,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           Object.fromEntries(
             state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
           ),
+          Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
         );
         if (
           mode === 'confirm' &&
@@ -1422,7 +1784,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           }))
         )
           return;
-        await submission.apply();
+        await applyMetadataSubmission(submission, proposal);
         committed = true;
         await completeMetadataChange(proposal, moduleAlias, operationName, mode, requireUnchangedCandidate);
       } catch (cause) {
@@ -1443,7 +1805,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             },
           );
       } finally {
-        if (mode === 'immediate-order') startNodeEditSession();
+        if (mode === 'immediate-order' && submissionStatus.value !== 'unknown' && !committedNeedsReload.value)
+          startNodeEditSession();
         saving.value = false;
       }
     }
@@ -1484,6 +1847,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         activationFeedback ?? { message: { text: `${operationName}已保存，生效状态待确认`, type: 'INFO' } },
         { source: 'metadata-orchestration' },
       );
+      committedNeedsReload.value = false;
+      submittedCandidate = undefined;
+      submittedBaseline = undefined;
       return activationFeedback;
     }
 
@@ -1499,6 +1865,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         sorting: sorting.value,
         childNodeType: childNodeType.value,
         child: childMetadataDraft.value,
+        submissionStatus: submissionStatus.value,
       }),
       () => metadataCandidateRevision.value++,
       { deep: true, flush: 'sync' },
@@ -1518,6 +1885,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     async function prepareAssistantMetadataConfirmation(signal: AbortSignal): Promise<OperationProposal> {
+      requireKnownSubmission();
       if (saving.value || loading.value) throw new OperationUsageError('请等待元数据加载或保存完成');
       if (creatingChildMetadata.value) return prepareChildConfirmation(options.confirmationScope);
       const proposal = assistantProposal();
@@ -1534,13 +1902,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         Object.fromEntries(
           state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
         ),
+        Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
       ).catch((cause: unknown) => {
         if (cause instanceof MetadataChangeSetPrecheckError) throw new OperationUsageError(cause.message);
         throw cause;
       });
       return {
         presentation: {
-          title: '确认保存字段配置',
+          title: '确认保存配置',
           lines: [
             title.value,
             ...submission.lines,
@@ -1552,10 +1921,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         expiresAt: Date.now() + 10 * 60_000,
         isCurrent: () => current() && !saving.value,
         async execute() {
-          if (!current() || saving.value) throw new Error('配置候选已变化');
+          if (!current() || saving.value) throw new OperationRejectedError('配置候选已变化，请重新预检。');
           saving.value = true;
           try {
-            await submission.apply();
+            await applyMetadataSubmission(submission, proposal);
             try {
               const feedback = await completeMetadataChange(
                 proposal,
@@ -1582,7 +1951,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             saving.value = false;
           }
         },
-        lookup: async () => undefined,
+        async lookup() {
+          if (submissionStatus.value === 'unknown') await readCurrent();
+          return undefined;
+        },
       };
     }
 
@@ -1646,71 +2018,95 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         void createChildMetadata();
         return;
       }
-      if (!fieldDraft.value.title?.trim() && !fieldDraft.value.fieldName?.trim()) {
-        presentPlatformMessage('请填写显示名称', { source: 'metadata-orchestration', phase: 'validation' });
-        return;
+      try {
+        prepareFieldDraftCommit()();
+      } catch (cause) {
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
       }
-      if (!state.fieldDraft.value.fieldName?.trim()) {
-        state.fieldDraft.value.fieldName = generatedBusinessFieldName(
+    }
+
+    function prepareRetainFieldDraft() {
+      if (!fieldPlanActive.value || sorting.value)
+        throw new OperationUsageError('请在共享字段方案中保留修改；单个字段保存仍需正式确认。');
+      return prepareFieldDraftCommit();
+    }
+
+    function prepareFieldDraftCommit() {
+      requireKnownSubmission();
+      if (
+        !state.fieldEditorOpen.value ||
+        childNodeType.value === 'CHILD_METADATA' ||
+        saving.value ||
+        loading.value
+      )
+        throw new OperationUsageError('当前字段不可编辑，请核对当前页面状态。');
+      if (!fieldDraft.value.title?.trim() && !fieldDraft.value.fieldName?.trim()) {
+        throw new OperationUsageError('请填写显示名称');
+      }
+      const fieldName =
+        state.fieldDraft.value.fieldName?.trim() ||
+        generatedBusinessFieldName(
           state.fieldDraft.value.title,
           fieldPropertyEditorKind.value,
+          state.fieldDraft.value.titleField,
         );
-      }
-      if (!state.fieldDraft.value.columnName?.trim()) {
-        state.fieldDraft.value.columnName = physicalNameOf(state.fieldDraft.value.fieldName);
-      }
-      const draft = normalizeFieldDraft(state.fieldDraft.value);
+      const draft = normalizeFieldDraft({
+        ...state.fieldDraft.value,
+        fieldName,
+        columnName: state.fieldDraft.value.columnName?.trim() || physicalNameOf(fieldName),
+      });
       const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+      requireRecordNameField(draft);
       if (draft.fieldName && isDynamicRecordReservedFieldName(draft.fieldName)) {
-        presentPlatformMessage('字段名称与动态记录协议保留字段冲突，请调整。', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
-        return;
+        throw new OperationUsageError('字段名称与动态记录协议保留字段冲突，请调整。');
       }
       if (!isValidFieldDraft(draft)) {
-        presentPlatformMessage('请填写字段名、物理列名和字段规格', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
-        return;
+        throw new OperationUsageError('请填写字段名、物理列名和字段规格');
       }
       if (!isValidFieldPropertyDraft(property)) {
-        presentPlatformMessage(
+        throw new OperationUsageError(
           property.kind === 'MODULE_REFERENCE' ? '请配置目标模块。' : '请配置字典应用和类别。',
-          { source: 'metadata-orchestration', phase: 'validation' },
         );
-        return;
       }
       if (property.kind === 'MODULE_REFERENCE' && referenceTargetFieldCatalogProblem.value) {
-        presentPlatformMessage(referenceTargetFieldCatalogProblem.value, {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
-        return;
+        throw new OperationUsageError(referenceTargetFieldCatalogProblem.value);
       }
       const relationId = selectedRelationId.value;
-      if (!relationId) return;
+      if (!relationId) throw new OperationUsageError('请先选择元数据节点。');
       if (planFieldConflicts(draft)) {
-        presentPlatformMessage('字段名称或物理列与方案中的其他字段冲突。', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
-        return;
+        throw new OperationUsageError('字段名称或物理列与方案中的其他字段冲突。');
       }
-      editSession.stageField(
-        relationId,
-        { ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
-        property,
+      const snapshot = JSON.stringify([
+        state.fieldDraft.value,
+        state.fieldPropertyDraft.value,
         stagedNewFieldKey.value,
-      );
-      if (!draft.id) stagedNewFieldKey.value = draft.fieldName;
-      if (fieldPlanActive.value) {
-        state.cancelEditor();
-        stagedNewFieldKey.value = undefined;
-        return;
-      }
-      void previewAndApply('保存字段');
+      ]);
+      return () => {
+        requireValid();
+        if (
+          saving.value ||
+          loading.value ||
+          !state.fieldEditorOpen.value ||
+          relationId !== selectedRelationId.value ||
+          snapshot !==
+            JSON.stringify([state.fieldDraft.value, state.fieldPropertyDraft.value, stagedNewFieldKey.value])
+        )
+          throw new OperationUsageError('字段编辑已经变化，请核对当前草稿。');
+        editSession.stageField(
+          relationId,
+          { ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
+          property,
+          stagedNewFieldKey.value,
+        );
+        if (!draft.id) stagedNewFieldKey.value = draft.fieldName;
+        if (fieldPlanActive.value) {
+          state.cancelEditor();
+          stagedNewFieldKey.value = undefined;
+        } else {
+          void previewAndApply('保存字段');
+        }
+        return { relationId, fieldName: draft.fieldName, retained: true, saved: false };
+      };
     }
 
     function prepareAssistantMainDraft(input: { title: string }) {
@@ -1763,7 +2159,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         throw new OperationUsageError(childAliasError.value ?? '请填写不超过 120 字的明细名称');
       if (state.relations.value.some((relation) => relation.relationAlias === draft.alias))
         throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
-      const requestId = crypto.randomUUID();
+      const requestId = createUuid();
       const parentTreeKey = metadataNodeKey(relationId);
       const captured = captureMetadataCandidate();
       const current = () => captured() && scopeIsCurrent();
@@ -2121,6 +2517,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       }
     }
 
+    function fieldDefaultValue(field: MetadataField, property: MetadataFieldPropertyDraft): string | null {
+      if (property.fixedDefault) return property.fixedDefault.value;
+      return (
+        fieldProperties.value.find((item) => item.fieldId === field.id || item.fieldName === field.fieldName)
+          ?.fixedDefault?.value ?? null
+      );
+    }
+
     function fieldPropertyOf(field: MetadataField): MetadataFieldPropertyDraft {
       if (editSession.editing.value && selectedRelationId.value)
         return editSession.propertyForField(selectedRelationId.value, field);
@@ -2194,6 +2598,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function canDragMetadataNode(node: UiTreeNode): boolean {
       return (
         sorting.value &&
+        submissionStatus.value !== 'unknown' &&
+        !committedNeedsReload.value &&
         !saving.value &&
         !loading.value &&
         !state.fieldEditorOpen.value &&
@@ -2208,6 +2614,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function handleMetadataModelDrop(event: UiTreeDropEvent) {
+      if (submissionStatus.value === 'unknown' || committedNeedsReload.value) return;
       if (event.target.kind !== 'node') return;
       if (!allowMetadataModelDrop(event)) return;
       const drag = event.source.node as MetadataModelTreeNode;
@@ -2259,6 +2666,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           SORT: '排序',
           REFERENCE: '引用标题',
           ENABLE: '启停',
+          RECYCLE_BIN: '回收站',
           DATA_SCOPE: '数据权限',
           APPROVAL: '审批',
         }[capability] ?? capability
@@ -2281,7 +2689,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       prepareMainDraft: prepareAssistantMainDraft,
       prepareChildDraft: prepareAssistantChildDraft,
       discardCandidate() {
-        requireValid();
+        requireKnownSubmission();
         if (saving.value) throw new OperationUsageError('配置正在保存，请等待完成');
         sorting.value = false;
         cancelFieldPlan();
@@ -2289,6 +2697,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       summary: assistantSummary,
       candidate: assistantCandidate,
       prepareFieldPlan: prepareAssistantFieldPlan,
+      prepareCapabilityDraft,
+      prepareRetainFieldDraft,
+      removableNewFieldNames,
+      prepareRemoveNewFieldDraft,
       plan: () =>
         fieldPlanActive.value
           ? assistantProposal()?.relationDrafts.flatMap((relation) =>
@@ -2297,6 +2709,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           : undefined,
       proposal: assistantProposal,
       prepareConfirmation: prepareAssistantMetadataConfirmation,
+      readCurrent,
       preview: (proposal, signal) =>
         previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
       fieldSpecAliases: () =>
@@ -2305,6 +2718,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .map((spec) => spec.alias ?? spec.id ?? '')
           .filter(Boolean),
       editableBasicFieldNames: assistantEditableBasicFieldNames,
+      editableReferenceFieldNames: assistantEditableReferenceFieldNames,
+      prepareReferenceUpdate: prepareAssistantReferenceUpdate,
       prepareNewFieldDraft: prepareAssistantNewFieldDraft,
       prepareFieldUpdate: prepareAssistantFieldUpdate,
       findFieldTargets: findAssistantFieldTargets,
@@ -2317,6 +2732,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireValid();
       if (commit && (loading.value || saving.value))
         throw new OperationUsageError('元数据正在读取或保存，请稍后再选择');
+      if (submissionStatus.value === 'unknown' || committedNeedsReload.value) {
+        commit?.(() => {});
+        return;
+      }
       if (workspaceReady.value && fieldSpecsReady.value && (!refresh || dirty.value)) {
         commit?.(() => {});
         return;
@@ -2358,6 +2777,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       ensureLoaded,
       selectRelation,
       dirty,
+      submissionStatus,
+      committedNeedsReload,
+      readCurrent,
+      readingCurrent,
       saving,
       loading,
       workspaceReady,
@@ -2374,6 +2797,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       },
       view: {
         state,
+        capabilityItems,
+        selectCapability,
         fieldPlanActive,
         fieldPlanEntries,
         sorting,
@@ -2400,6 +2825,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         metadataTreeNodes,
         selectedRelationIsMain,
         fieldPropertyEditorKind,
+        fixedDefaultEditable,
+        fixedDefaultReadValue,
         editableFieldSpecOptions,
         fieldCreationItems,
         referenceSearch,

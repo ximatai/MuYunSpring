@@ -3,12 +3,9 @@ package net.ximatai.muyun.spring.platform.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.menu.*;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
@@ -21,7 +18,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 
-/** Requirements-bound entry and acceptance; page editing belongs to standard page governance. */
+/** Current delivery evidence, historical receipts and requirements-bound human acceptance. */
 @Service
 public class ApplicationConstructionDeliveryService {
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
@@ -34,17 +31,15 @@ public class ApplicationConstructionDeliveryService {
     private final PlatformPresentationVariantService variants;
     private final PlatformPresentationRevisionResolver presentationResolver;
     private final MenuService menus;
-    private final MenuSchemeService schemes;
     private final DynamicRuntimeActivationService activation;
-    private final ActionExecutionPolicyService permissions;
 
     public ApplicationConstructionDeliveryService(net.ximatai.muyun.database.core.IDatabaseOperations<?> database, ApplicationConstructionPlanService plans, ApplicationConstructionFieldService fields,
             ApplicationConstructionDeliveryDao receipts, ApplicationConstructionAcceptanceDao acceptances, PlatformPageDefinitionService pages, PlatformPresentationVariantService variants,
             PlatformPresentationRevisionResolver presentationResolver, MenuService menus,
-            MenuSchemeService schemes, DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions) {
+            DynamicRuntimeActivationService activation) {
         this.presentationResolver = Objects.requireNonNull(presentationResolver);
         this.database = Objects.requireNonNull(database); this.plans = Objects.requireNonNull(plans); this.fields = Objects.requireNonNull(fields); this.receipts = Objects.requireNonNull(receipts); this.acceptances = Objects.requireNonNull(acceptances); this.pages = Objects.requireNonNull(pages); this.variants = Objects.requireNonNull(variants);
-        this.menus = Objects.requireNonNull(menus); this.schemes = Objects.requireNonNull(schemes); this.activation = Objects.requireNonNull(activation); this.permissions = Objects.requireNonNull(permissions);
+        this.menus = Objects.requireNonNull(menus); this.activation = Objects.requireNonNull(activation);
     }
     public enum Kind { PAGE, ENTRY }
     public record Proposal(int planRevision, String objectKey, Kind kind, String title,
@@ -83,72 +78,19 @@ public class ApplicationConstructionDeliveryService {
         public String businessDataStatus() { return "NOT_QUERIED"; }
     }
 
+    /** Legacy writes are rejected; new page and menu candidates belong to their shared governance. */
     public Preview preview(String planId, Proposal proposal) {
         requireOperator();
-        if (proposal == null) throw new IllegalArgumentException("建设节点参数无效");
-        requireEntry(proposal.kind());
-        requirePermissions();
-        var plan = plans.read(planId);
-        plan.requireOpen(proposal.objectKey());
-        if (plan.revision() != proposal.planRevision()) throw new IllegalArgumentException("需求版本已变化，请重新预检");
-        ApplicationConstructionRequirements.requireBuildable(plan.content(), proposal.objectKey());
-        var description = fields.describe(planId, proposal.objectKey());
-        if (ApplicationConstructionRequirements.missingConfiguration(fields.evidence(plan, proposal.objectKey(), description)))
-            throw new IllegalArgumentException("已确认要求尚未落实到字段、关系或计算配置，请先补齐再发布页面或入口");
-        var binding = fields.binding(plan, proposal.objectKey());
-        try (var ignored = TenantContext.system("construction delivery preview")) {
-            var lines = new ArrayList<String>();
-            Object baseline;
-                var currentPage = currentPage(plan, proposal.objectKey());
-                if (currentPage == null) throw new IllegalArgumentException("请先完成页面发布");
-                if (!pageCoversRequirements(plan.content(), proposal.objectKey(), currentPage.revision()))
-                    throw new IllegalArgumentException("请先核对正式页面是否覆盖已确认需求");
-                if (menus.currentUserVisibleModuleMenu(binding.moduleAlias()) != null)
-                    throw new IllegalArgumentException("已有访问入口，请查询进度，不要重复创建");
-                var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
-                if (scheme.getScopeType() != MenuScopeType.SYSTEM) throw new IllegalArgumentException("当前仅支持系统配置工作台入口");
-                lines.add("在当前系统工作台菜单方案“" + scheme.getTitle() + "”下创建入口：" + proposal.title());
-                lines.add("入口使用已发布页面，不授予角色或租户业务用户新的业务权限。");
-                baseline = List.of(currentPage, scheme);
-            lines.add("依据需求第 " + plan.revision() + " 版；业务可用性仍需按验收例子核对。");
-            return new Preview(proposal, binding.moduleAlias(), List.copyOf(lines), digest(json(List.of(planId, proposal, description, baseline))));
-        }
+        throw retiredDelivery(proposal == null ? null : proposal.kind());
     }
-
-    @Transactional
     public Receipt confirm(String planId, Command command) {
         requireOperator();
-        if (command == null || command.proposal() == null || command.fingerprint() == null) throw new IllegalArgumentException("确认参数无效");
-        requireEntry(command.proposal().kind());
-        requirePermissions(); plans.read(planId); requireRequestId(command.requestId());
-        PlatformAbilityRuntime.lockMutationPartition("platform.application-construction-plan", planId);
-        String id = digest(planId + ":" + command.requestId()).substring(0, 32);
-        var previous = receipts.findById(id);
-        if (previous != null) {
-            if (!previous.getRequestDigest().equals(digest(json(command)))) throw new IllegalArgumentException("同一次确认内容已变化");
-            return receipt(previous);
-        }
-        lockBaseline(planId, command.proposal().objectKey());
-        var checked = preview(planId, command.proposal());
-        if (!checked.fingerprint().equals(command.fingerprint())) throw new IllegalArgumentException("建设预检已过期，请重新审阅");
-        var proposal = command.proposal();
-        var plan = plans.read(planId);
-        var binding = fields.binding(plan, proposal.objectKey());
-        try (var ignored = TenantContext.system("confirmed construction delivery")) {
-            Receipt result;
-                var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
-                var menu = new Menu(); menu.setSchemeId(scheme.getId()); menu.setParentId(TreeAbility.ROOT_ID);
-                menu.setTitle(proposal.title()); menu.setModuleAlias(binding.moduleAlias()); menu.setEnabled(true);
-                menu.setOpenMode(MenuOpenMode.TAB); menu.setPageMode(MenuPageMode.LIST);
-                String menuId = menus.insert(menu);
-                var currentPage = Objects.requireNonNull(currentPage(plan, proposal.objectKey()));
-                result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.ENTRY, binding.moduleAlias(), currentPage.page().getId(), currentPage.variant().getId(), currentPage.revision().getId(), menuId, fields.describe(planId, proposal.objectKey()).metadataVersion());
-            var stored = new ApplicationConstructionDelivery(); stored.setId(id); stored.setPlanId(planId); stored.setPlanRevision(plan.revision());
-            stored.setObjectKey(proposal.objectKey()); stored.setRequestId(command.requestId()); stored.setRequestDigest(digest(json(command)));
-            stored.setModuleAlias(binding.moduleAlias()); stored.setKind(result.kind().name()); stored.setReceiptJson(json(result));
-            EntityLifecycle.prepareInsert(stored, Instant.now()); receipts.insert(stored);
-            return result;
-        }
+        throw retiredDelivery(command == null || command.proposal() == null ? null : command.proposal().kind());
+    }
+    private static IllegalArgumentException retiredDelivery(Kind kind) {
+        return new IllegalArgumentException(kind == Kind.PAGE
+                ? "页面建设已统一到标准页面编排，请读取并确认共享页面候选；历史结果仅支持查询"
+                : "菜单建设已统一到共享菜单治理，请读取并确认共享菜单候选；历史结果仅支持查询");
     }
     public Receipt result(String planId, String requestId) {
         requireOperator(); plans.read(planId); requireRequestId(requestId);
@@ -184,9 +126,27 @@ public class ApplicationConstructionDeliveryService {
     /** Planning choices are not execution grants; every proposal is still preflighted and confirmed. */
     public enum TaskAction { REVIEW_CURRENT_CONFIGURATION, REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS }
     public record TaskOption(TaskAction action, String explanation) {}
+    /** Task evidence belongs to TaskObject; do not repeat it inside its progress summary. */
+    public record TaskProgress(String moduleAlias, String runtimeStatus, boolean pagePublished,
+                               boolean entryVisible, String menuId, boolean needsReview,
+                               boolean acceptanceConfirmed, List<String> remainingWork) {
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String businessDataStatus() { return "NOT_QUERIED"; }
+        static TaskProgress from(Progress progress) {
+            return progress == null ? null : new TaskProgress(progress.moduleAlias(), progress.runtimeStatus(),
+                    progress.pagePublished(), progress.entryVisible(), progress.menuId(), progress.needsReview(),
+                    progress.acceptanceConfirmed(), progress.remainingWork());
+        }
+    }
     public record TaskObject(String objectKey, String title, boolean complete, List<TaskOption> options,
-                             List<ApplicationConstructionRequirements.Evidence> requirements, Progress progress) {}
-    public record Task(int planRevision, List<TaskObject> objects) {}
+                             List<ApplicationConstructionRequirements.Evidence> requirements, TaskProgress progress) {
+        public TaskObject {
+            // Unmapped requirements have no known owner; report them once at plan level.
+            requirements = requirements.stream().filter(item -> item.status() != ApplicationConstructionRequirements.Status.UNMAPPED).toList();
+        }
+    }
+    public record Task(int planRevision, List<TaskObject> objects,
+                       List<ApplicationConstructionRequirements.Evidence> unmappedRequirements) {}
 
     /** Recompute choices from current facts. No persisted cursor or prescribed order across objects. */
     public Task task(String planId) {
@@ -237,7 +197,7 @@ public class ApplicationConstructionDeliveryService {
                             options.add(new TaskOption(TaskAction.PUBLISH_PAGE, "依据实际字段准备录入和查询页面"));
                         if (progress.pagePublished() && !progress.needsReview()) {
                             if (!progress.entryVisible())
-                                options.add(new TaskOption(TaskAction.CREATE_ENTRY, "核实已有入口后准备访问入口，不自动授权"));
+                                options.add(new TaskOption(TaskAction.CREATE_ENTRY, "核实已有入口后通过共享菜单治理选择方案、位置并审阅候选，不自动授权"));
                             else if (!plan.content().questions().isEmpty())
                                 options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "页面和入口已可用；最终验收前请收口方案未决问题，无需重复建设"));
                             else options.add(new TaskOption(TaskAction.VERIFY_BUSINESS, "页面和入口已可用，可以开始试用；核对实际效果后确认验收，无需重复建设"));
@@ -245,9 +205,11 @@ public class ApplicationConstructionDeliveryService {
                     }
                 }
             }
-            objects.add(new TaskObject(object.key(), object.name(), complete, List.copyOf(options), evidence, progress));
+            objects.add(new TaskObject(object.key(), object.name(), complete, List.copyOf(options), evidence, TaskProgress.from(progress)));
         }
-        return new Task(plan.revision(), List.copyOf(objects));
+        var unmapped = ApplicationConstructionRequirements.evaluate(plan.content(), "", List.of()).stream()
+                .filter(item -> item.status() == ApplicationConstructionRequirements.Status.UNMAPPED).toList();
+        return new Task(plan.revision(), List.copyOf(objects), unmapped);
     }
 
     public record AcceptancePreview(String objectKey, int planRevision, List<String> checks, String fingerprint) {}
@@ -376,12 +338,6 @@ public class ApplicationConstructionDeliveryService {
     }
     private void requireOperator() {
         if (!CurrentUserContext.currentUser().map(user -> user.system()).orElse(false)) throw new PlatformAccessDeniedException("页面与入口建设要求系统配置身份");
-    }
-    private static void requireEntry(Kind kind) {
-        if (kind != Kind.ENTRY) throw new IllegalArgumentException("页面建设已统一到标准页面编排，请读取并确认共享页面候选；历史结果仅支持查询");
-    }
-    private void requirePermissions() {
-        permissions.requireAuthorized(ActionExecutionContext.ofActionCode("platform.menu", "create", Set.of(), CurrentUserContext.currentUser()));
     }
     private static List<String> checkedNames(List<String> names) {
         if (names == null || names.size() > 40 || names.stream().anyMatch(value -> value == null || !value.matches("[a-z][a-zA-Z0-9_]{0,63}")) || names.stream().distinct().count() != names.size())

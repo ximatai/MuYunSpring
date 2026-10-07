@@ -133,6 +133,7 @@ export function createConstructionFieldCapabilities(
     },
     {
       effect: 'read',
+      changesReadState: true,
       descriptor: {
         code: 'construction.field-change-status',
         description:

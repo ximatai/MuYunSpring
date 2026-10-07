@@ -22,6 +22,7 @@ import {
 } from '@muyun/platform-components';
 import {
   createRecordFormAssistantCapabilities,
+  recordFormAssistantFacts,
   formFieldState,
   isSensitiveField,
   isRecord,
@@ -82,59 +83,58 @@ export function createModulePageAssistantSurface(
   tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurface {
   const activeForm = () => view.assistantNavigatorEditor?.form ?? view;
-  const formCapabilities = createRecordFormAssistantCapabilities(
-    {
-      get editorMode() {
-        return activeForm().editorMode;
-      },
-      get editingRecord() {
-        return activeForm().editorMode === 'view' ? undefined : activeForm().editingRecord;
-      },
-      get selectedRecord() {
-        return activeForm().selectedRecord;
-      },
-      get formFields() {
-        return !view.assistantNavigatorEditor && view.editorMode === 'view'
-          ? view.detailDisplayFields
-          : activeForm().formFields;
-      },
-      get referencePickerConfigs() {
-        return activeForm().referencePickerConfigs;
-      },
-      contextRevision: () => modulePageAssistantContextRevision(view),
-      relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
-      updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
-      updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
+  const formView: RecordFormDraftAccess = {
+    get editorMode() {
+      return activeForm().editorMode;
     },
-    {
-      canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true,
-      schemaDiscovery: 'eager',
+    get editingRecord() {
+      return activeForm().editorMode === 'view' ? undefined : activeForm().editingRecord;
     },
-  );
+    get selectedRecord() {
+      return activeForm().selectedRecord;
+    },
+    get formFields() {
+      return !view.assistantNavigatorEditor && view.editorMode === 'view'
+        ? view.detailDisplayFields
+        : activeForm().formFields;
+    },
+    get referencePickerConfigs() {
+      return activeForm().referencePickerConfigs;
+    },
+    referenceDisplay: (fieldName) => activeForm().referenceDisplay?.(fieldName),
+    contextRevision: () => modulePageAssistantContextRevision(view),
+    relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
+    updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
+    updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
+  };
+  const formCapabilities = createRecordFormAssistantCapabilities(formView, {
+    canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true,
+    schemaDiscovery: 'eager',
+  });
   const relationCapabilities = view.relationDrafts
     ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
         modulePageAssistantContextRevision(view),
       )
-    : Object.assign(() => [], { selection: () => undefined });
+    : Object.assign(() => [], { selection: () => undefined, form: () => undefined });
   const scopeCandidates = new Map<string, AssistantScopeCandidate>();
   const capabilities = (): AssistantCapability[] => {
     const relations = !view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : [];
     const rowSelected = relations.some(({ descriptor }) => descriptor.code === 'relation.form.describe');
     return [
-      ...contributedCapabilities(),
-      ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
-      ...navigatorCreationCapabilities(view),
-      ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
-      ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
-      ...recordEditorCapabilities(view),
-      ...cleanEditorExitCapabilities(view),
-      ...relations,
       ...(view.assistantNavigatorEditor?.busy
         ? []
         : formCapabilities().map((capability) =>
             rowSelected ? { ...capability, schemaDiscovery: undefined } : capability,
           )),
+      ...relations,
       ...(view.canReviewRecordDraft?.() ? recordDraftCapabilities(view) : []),
+      ...recordEditorCapabilities(view),
+      ...contributedCapabilities(),
+      ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
+      ...navigatorCreationCapabilities(view),
+      ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
+      ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
+      ...cleanEditorExitCapabilities(view),
       ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
         ? [formSaveProposalCapability(view)]
         : []),
@@ -143,13 +143,41 @@ export function createModulePageAssistantSurface(
   return {
     describe: () => {
       const context = surfaceContext(view, tenantScope);
+      const selectedForm =
+        !view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities.form() : undefined;
+      const readable =
+        !view.detailLoading &&
+        !view.detailLoadFailed &&
+        !view.assistantNavigatorEditor?.loading &&
+        !view.assistantNavigatorEditor?.loadFailed &&
+        (hasEditableDraft(formView) ||
+          (!view.assistantNavigatorEditor && view.recordDetailReady?.() === true));
+      // Main and row facts share a budget and the standard protected projection.
+      // Selecting a row changes command focus, not the owner of the main form facts.
+      const omitted = { factsOmitted: true };
+      const omissionSize = JSON.stringify(omitted).length;
+      let remaining = 12_000 - (selectedForm ? omissionSize : 0);
+      const readForm = (access: RecordFormDraftAccess) => {
+        const form = recordFormAssistantFacts(access);
+        const facts = { ...form, source: form.editable ? 'unsaved-draft' : 'saved-record' };
+        const size = JSON.stringify(facts).length;
+        if (size > remaining) {
+          remaining -= omissionSize;
+          return omitted;
+        }
+        remaining -= size;
+        return facts;
+      };
+      const currentForm = readable ? readForm(formView) : undefined;
+      const selection = readable && selectedForm ? relationCapabilities.selection() : undefined;
+      const activeRelationRow =
+        selection && selectedForm ? { ...selection, form: readForm(selectedForm) } : undefined;
       return {
         ...context,
         facts: {
           ...context.facts,
-          ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && relationCapabilities.selection()
-            ? { activeRelationRow: relationCapabilities.selection() }
-            : {}),
+          ...(currentForm ? { currentForm } : {}),
+          ...(activeRelationRow ? { activeRelationRow } : {}),
           scopeCandidates: modulePageScopeCandidateFacts(view, tenantScope, scopeCandidates),
         },
       };
@@ -256,6 +284,80 @@ function navigatorCreationCapabilities(view: ModulePageSessionView): AssistantCa
   ];
 }
 
+/** Explicit ownership is a creation precondition, never an implicit scope change. */
+function recordCreationInput(view: ModulePageSessionView) {
+  const scopes = navigatorScopeFacts(view).filter((scope) => scope.selected !== null);
+  if (!scopes.length)
+    return {
+      inputSchema: emptyAssistantCapabilityInputSchema(),
+      parseInput: parseEmptyAssistantCapabilityInput,
+    };
+  return {
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['expectedNavigatorScopes'],
+      properties: {
+        expectedNavigatorScopes: {
+          type: 'object',
+          additionalProperties: false,
+          required: scopes.map(({ key }) => key),
+          properties: Object.fromEntries(
+            scopes.map(({ key, title }) => [
+              key,
+              {
+                type: 'string',
+                minLength: 1,
+                maxLength: 500,
+                description: `用户目标期望的${title}名称或业务标识，须与 facts.navigatorScopes 的实际选择吻合；目标不同时先选择范围。`,
+              },
+            ]),
+          ),
+        },
+      },
+    },
+    parseInput(input: unknown) {
+      if (!isRecord(input) || Object.keys(input).length !== 1)
+        throw new AssistantCapabilityUsageError('新增前须声明用户目标期望的 expectedNavigatorScopes。');
+      const expected = input.expectedNavigatorScopes;
+      if (
+        !isRecord(expected) ||
+        Object.keys(expected).length !== scopes.length ||
+        scopes.some(({ key }) => {
+          const value = expected[key];
+          return typeof value !== 'string' || !value.trim() || value.length > 500;
+        })
+      )
+        throw new AssistantCapabilityUsageError(
+          'expectedNavigatorScopes 必须逐项声明当前导航范围的期望名称。',
+        );
+      return expected as Record<string, string>;
+    },
+  };
+}
+
+function verifyRecordCreationScope(view: ModulePageSessionView, expected: unknown) {
+  const current = navigatorScopeFacts(view).filter((scope) => scope.selected !== null);
+  const values = expected as Record<string, string>;
+  if (!isRecord(expected) || Object.keys(expected).length !== current.length)
+    throw new AssistantCapabilityUsageError(
+      '新增前的导航范围已变化，请重新核对目标范围。',
+      'PRECONDITION_FAILED',
+    );
+  const normalize = (value: string) => value.trim().toLowerCase();
+  for (const scope of current) {
+    const desired = values[scope.key];
+    if (
+      !desired ||
+      ![scope.selected, scope.selectedAlias].some((value) => value && normalize(value) === normalize(desired))
+    )
+      throw new AssistantCapabilityUsageError(
+        `尚未打开新增草稿：期望的${scope.title}与实际选择“${scope.selected}”不一致。${scope.changeable ? '请先用 scope.select-navigator 选择目标范围，再新增。' : '当前页面范围不可切换，请从获准的标准入口选择目标范围。'}`,
+        'PRECONDITION_FAILED',
+      );
+  }
+}
+
 function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapability[] {
   if (
     view.assistantNavigatorEditor ||
@@ -268,20 +370,28 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   if (querySnapshot?.mode === 'recycleBin') return [];
   const capabilities: AssistantCapability[] = [];
   if (view.recordCreationState().ready) {
+    const creationInput = recordCreationInput(view);
     capabilities.push({
       effect: 'page',
+      schemaDiscovery: 'eager',
       descriptor: {
         code: 'record.start-create',
         description:
-          '打开当前模块的标准新增表单并建立未保存草稿；树页面创建根记录。要在已有树记录下面创建子项，应先选中父记录，再使用 record.start-create-child。它不会保存。',
-        inputSchema: emptyAssistantCapabilityInputSchema(),
+          '打开当前模块的标准新增表单并建立未保存草稿，有可读导航归属时须通过 expectedNavigatorScopes 声明用户目标期望范围，归属继承 facts.navigatorScopes 的当前选择；目标范围不同时，须先用 scope.select-navigator 选择用户已指定的范围，再新增。草稿内不能切换导航范围。树页面创建根记录。要在已有树记录下面创建子项，应先选中父记录，再使用 record.start-create-child。它不会保存。',
+        inputSchema: creationInput.inputSchema,
       },
-      parseInput: parseEmptyAssistantCapabilityInput,
+      parseInput: creationInput.parseInput,
       present: () => ({
         title: `已打开${view.modulePageTitle}新增表单`,
-        lines: ['已建立未保存草稿，尚未新增正式记录。'],
+        lines: [
+          '已建立未保存草稿，尚未新增正式记录。',
+          ...navigatorScopeFacts(view).flatMap((scope) =>
+            scope.selected === null ? [] : [`${scope.title}：${scope.selected}`],
+          ),
+        ],
       }),
-      async execute(_input, context) {
+      async execute(input, context) {
+        verifyRecordCreationScope(view, input);
         const commit = await view.prepareAssistantCreate();
         return context.applyEffect(commit, () =>
           view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
@@ -295,10 +405,11 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
           code: 'record.start-create-child',
           description:
             '在当前已选中的树记录下面打开标准新增子项表单。复用当前导航范围并自动填写上级记录，建立未保存草稿；先通过 tree.select-record 选中真实父节点。它不会保存。',
-          inputSchema: emptyAssistantCapabilityInputSchema(),
+          inputSchema: creationInput.inputSchema,
         },
-        parseInput: parseEmptyAssistantCapabilityInput,
-        async execute(_input, context) {
+        parseInput: creationInput.parseInput,
+        async execute(input, context) {
+          verifyRecordCreationScope(view, input);
           const commit = await view.prepareAssistantCreate({ asChildOfSelectedRecord: true });
           return context.applyEffect(commit, () =>
             view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
@@ -320,7 +431,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
         description:
           mode === 'view'
             ? '只读打开当前页面已选中或当前列表中的记录详情，读取正式保存的字段和明细。查看、解释或核对数据时使用，不建立编辑草稿；只能使用当前页面提供的 recordId。'
-            : '用户要求修改记录时，打开当前页面已选中或当前列表中的记录的标准编辑表单。仅查看数据应使用 record.open-view；只能使用当前页面提供的 recordId。它不会保存。',
+            : '用户要求修改或查看试改草稿时，打开当前页面已选中或当前列表中的记录的标准编辑表单，并继续填写已明确的草稿要求，无需再确认是否试改。仅查看正式数据使用 record.open-view；只能使用当前页面提供的 recordId。它不会保存。',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -531,12 +642,9 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
   return capabilities;
 }
 
-function surfaceContext(
-  view: ModulePageSessionView,
-  tenantScope?: ModulePageAssistantTenantScope,
-): AssistantSurfaceContext {
-  // A draft locks scope changes, but its visible ownership remains a readable fact.
-  const navigatorScopes = (view.visibleNavigatorLevels ?? []).map((level) => {
+function navigatorScopeFacts(view: ModulePageSessionView) {
+  const changeableScopes = new Set(view.assistantNavigatorScopes().map((level) => level.descriptor.key));
+  return (view.visibleNavigatorLevels ?? []).map((level) => {
     const selected = view.selectedNavigatorRecords[level.descriptor.key];
     const fields = resolveRecordDetailFields(level.context?.runtime?.snapshot()?.uiDescriptor);
     const readableValue = (name: string) => {
@@ -555,8 +663,20 @@ function surfaceContext(
       ...(level.context?.moduleAlias ? { moduleAlias: level.context.moduleAlias } : {}),
       selected: selectedTitle == null ? null : String(selectedTitle).slice(0, 500),
       ...(selectedAlias !== undefined ? { selectedAlias } : {}),
+      changeable: changeableScopes.has(level.descriptor.key),
+      ...(changeableScopes.has(level.descriptor.key)
+        ? { selectionCapability: 'scope.select-navigator' }
+        : {}),
     };
   });
+}
+
+function surfaceContext(
+  view: ModulePageSessionView,
+  tenantScope?: ModulePageAssistantTenantScope,
+): AssistantSurfaceContext {
+  // A draft locks scope changes, but its visible ownership remains a readable fact.
+  const navigatorScopes = navigatorScopeFacts(view);
   return {
     surface: 'module-page',
     title: view.modulePageTitle,
@@ -583,7 +703,11 @@ function surfaceContext(
           }
         : {}),
       navigatorCreationTargets: view.assistantNavigatorCreationTargets(),
-      creation: view.recordCreationState(),
+      creation: {
+        ...view.recordCreationState(),
+        moduleAlias: view.context.moduleAlias,
+        title: view.modulePageTitle,
+      },
       ...(view.listQueryController
         ? { query: assistantQueryContext(view, view.listQueryController.snapshot()) }
         : {}),
@@ -607,16 +731,19 @@ function assistantRelationFacts(view: ModulePageSessionView, purpose: 'context' 
       draft: view.editorMode !== 'view',
       relationOptions: view.recordRelationOptions,
       editableRelations: new Set(view.relationDrafts?.list().map((item) => item.code) ?? []),
+      draftRowKeys: new Map(
+        view.relationDrafts?.list().map((item) => [item.code, new Set(item.rowKeys())]) ?? [],
+      ),
     },
   ).map((relation) => ({
     ...relation,
     assistantWritable: relation.editable,
     operationBoundary: relation.editable
-      ? '可通过 relation.describe 读取和编辑明细草稿；整单核对用 form.review-draft，保存用 form.prepare-save。'
+      ? '当前 rows 中的 rowKey 可直接选行；缺失或截断时用 relation.describe 获取更多。只审阅或比较用 form.review-draft。明确要求保存时用 form.prepare-save，它已核对整单，无需再单独审阅。'
       : !relation.loaded
         ? '已声明明细，但当前没有完整行数据，不能据此判断为空。'
         : view.editorMode === 'view'
-          ? '当前展示只读明细；若用户要求修改且 record.start-edit 可用，先打开主记录编辑草稿，再核实明细编辑能力。'
+          ? '当前展示只读明细；若用户要求修改或查看试改草稿且 record.start-edit 可用，打开主记录编辑草稿，再读取可编辑明细及行标识。'
           : '当前草稿未开放助手明细写入；请在页面增改明细后回到对话审阅整单。',
   }));
 }
@@ -724,6 +851,7 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
   return [
     {
       effect: 'read',
+      changesReadState: true,
       schemaDiscovery: 'eager',
       descriptor: {
         code: 'form.review-draft',
@@ -805,7 +933,6 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
     },
     {
       effect: 'read',
-      schemaDiscovery: 'eager',
       descriptor: {
         code: 'form.prepare-discard',
         description:
@@ -840,7 +967,7 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
           continuation: {
             readOnly: true,
             message:
-              '用户已确认放弃本次整单未保存草稿，本次没有保存或删除正式记录。仅只读核实本次草稿及其对应记录的当前状态，用业务语言简要说明用户最近的要求是否完成；回答限定这次办理结果，不扩展其他业务结论。说明结果后停止。',
+              '用户已确认放弃本次整单未保存草稿，本次没有保存或删除正式记录。本轮仅只读核实本次草稿及其对应记录的当前状态，并说明本次放弃结果后停止。只读限制来自本次放弃操作的安全边界，不表示用户取消或暂缓整个目标；不要宣称其他未完成事项已完成或由用户要求暂停。',
             isCurrent: () => resultIsCurrent?.() === true,
           },
           async execute() {
@@ -870,11 +997,10 @@ function formSaveProposalCapability(view: ModulePageSessionView): AssistantCapab
   let proposal: Awaited<ReturnType<ModulePageSessionView['prepareAssistantSave']>> | undefined;
   return {
     effect: 'read',
-    schemaDiscovery: 'eager',
     descriptor: {
       code: 'form.prepare-save',
       description:
-        '用户明确要求保存当前草稿时，准备对话内的保存确认卡片。仅试算、比较或审阅未保存内容时使用 form.review-draft。卡片只展示当前字段与明细；标记保存后计算的值仍待计算，准备卡片不会提前产生正式计算结果。用户审阅并点击确认后才保存，再读回正式结果。',
+        '用户明确要求保存当前草稿时，准备对话内的保存确认卡片；本能力已包含当前整单审阅，无需先调用 form.review-draft 重复审阅。仅试算、比较或审阅未保存内容时使用 form.review-draft。卡片只展示当前字段与明细；标记保存后计算的值仍待计算，准备卡片不会提前产生正式计算结果。用户审阅并点击确认后才保存，再读回正式结果。',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,

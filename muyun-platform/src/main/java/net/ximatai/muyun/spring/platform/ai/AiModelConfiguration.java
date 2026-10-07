@@ -47,6 +47,11 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     @NormalizeText
     private String modelId;
 
+    @OptionField(type = OptionSourceType.ENUM)
+    @Column(name = "reasoning_effort", type = ColumnType.VARCHAR, length = 16,
+            comment = "Optional reasoning effort for supported deployments; empty uses provider default")
+    private AiModelReasoningEffort reasoningEffort;
+
     @Column(name = "context_window_tokens", type = ColumnType.INT, comment = "Declared deployment context capacity")
     private Integer contextWindowTokens;
 

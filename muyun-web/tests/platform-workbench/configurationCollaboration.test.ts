@@ -8,7 +8,8 @@ function fixture() {
   const capabilities: AssistantCapability[] = [
     {
       descriptor: { code: 'rules.select-module', description: '', inputSchema: {} },
-      effect: 'configuration-draft',
+      effect: 'read',
+      changesReadState: true,
       parseInput: (v) => v,
       execute: vi.fn(),
     },
@@ -134,4 +135,90 @@ it('permits page discovery and navigation without a construction task and shares
   expect(collaboration.filter([select, open, revise])).toEqual([select, revise]);
   collaboration.restore({ goal: '页面配置', mode: 'visual' });
   expect(collaboration.filter([select, open, revise], true)).toEqual([select, open, revise]);
+});
+
+it('projects the visual opening boundary without losing the selected catalog or granting draft authority', () => {
+  const { collaboration, codes } = fixture();
+  expect(collaboration.boundary()).toMatchObject({
+    state: 'START_TASK_REQUIRED',
+    draftEditingAvailable: false,
+  });
+  expect(collaboration.boundary().guidance).toContain('authorized governance reads remain available');
+  collaboration.restore({ goal: '配置业务规则', mode: 'visual' });
+  expect(collaboration.boundary()).toMatchObject({
+    appliesTo: 'selected-module-metadata-page-and-rule-candidates',
+    state: 'SELECT_CONFIGURATION_TARGET_REQUIRED',
+    draftEditingAvailable: false,
+  });
+  expect(collaboration.boundary().guidance).toContain('does not block requirements planning');
+  expect(collaboration.boundary().guidance).toContain('target selection is not a new approval');
+  expect(codes()).toContain('rules.select-module');
+  expect(codes()).toContain('rules.open-editor');
+  expect(codes()).not.toContain('rules.revise');
+  expect(collaboration.boundary({ visible: false })).toMatchObject({
+    state: 'OPEN_SELECTED_EDITOR_REQUIRED',
+    draftEditingAvailable: false,
+  });
+  const hidden = codes();
+  expect(hidden).toContain('rules.describe');
+  expect(hidden).toContain('rules.open-editor');
+  expect(hidden).not.toContain('rules.revise');
+  expect(collaboration.boundary({ visible: true })).toMatchObject({
+    state: 'READY',
+    draftEditingAvailable: true,
+  });
+  expect(codes(true)).toContain('rules.revise');
+  collaboration.restore({ goal: '配置业务规则', mode: 'conversation' });
+  expect(collaboration.boundary({ visible: false })).toMatchObject({
+    state: 'READY',
+    draftEditingAvailable: true,
+  });
+});
+
+it('continues confirmed configuration without a plan binding and stops continuation after task changes', async () => {
+  const f = fixture();
+  await f.invoke('configuration.start-task', { goal: '完成全部模块' });
+  const confirmation = (await f.invoke('rules.prepare-apply')).confirmation!;
+  expect(confirmation.takeContinuation()).toBeUndefined();
+  await confirmation.confirm();
+  expect(confirmation.state).toBe('succeeded');
+  expect(confirmation.takeContinuation()).toContain('新的保存仍须独立确认');
+  expect(confirmation.takeContinuation()).toBeUndefined();
+  const second = (await f.invoke('rules.prepare-apply')).confirmation!;
+  await second.confirm();
+  await f.invoke('configuration.finish-task');
+  expect(second.takeContinuation()).toBeUndefined();
+});
+
+it('retains an explicit read-only continuation rather than widening an adapter policy', () => {
+  const f = fixture();
+  f.collaboration.restore({ goal: '只比较', mode: 'visual' });
+  const original = { message: '只核实', readOnly: true, isCurrent: () => true };
+  const capability: AssistantCapability = {
+    descriptor: { code: 'configuration.confirm', description: '', inputSchema: {} },
+    effect: 'read',
+    parseInput: (value) => value,
+    execute: vi.fn(),
+    propose: () => ({
+      presentation: { title: '确认', lines: [] },
+      confirmLabel: '确认',
+      expiresAt: Date.now() + 1000,
+      isCurrent: () => true,
+      execute: vi.fn(),
+      continuation: original,
+      lookup: async () => undefined,
+    }),
+  };
+  expect(f.collaboration.filter([capability])[0]!.propose!({}).continuation).toBe(original);
+  expect(
+    f.collaboration.boundary({
+      visible: false,
+      kind: 'metadata',
+      openingCapability: 'configuration.open-metadata-editor',
+    }),
+  ).toMatchObject({
+    editorKind: 'metadata',
+    openingCapability: 'configuration.open-metadata-editor',
+    draftEditingAvailable: false,
+  });
 });

@@ -114,6 +114,28 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
             return null;
         });
     }
+    @Test void preservesHistoricalObservationRolesWithoutGrantingReceiptAuthority() {
+        as("owner", "tenant", () -> {
+            String id = UUID.randomUUID().toString().replace("-", "");
+            var user = new AssistantConversationService.Message("user", "只准备，暂不保存");
+            var observation = new AssistantConversationService.Message("status", "草稿已准备，尚未保存");
+            var content = new AssistantConversationService.Content("草稿审阅", List.of(user, observation),
+                    List.of(user, observation), null, null, null, "scope");
+            service.save(id, "scope", new AssistantConversationService.Command(0, content));
+            assertThat(service.read(id, "scope").content().history()).containsExactly(user, observation);
+            var receipt = new AssistantConversationService.OperationReceipt("scope",
+                    new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+            var forged = new AssistantConversationService.Message("status", "历史结果", receipt);
+            for (boolean display : List.of(true, false)) {
+                var invalid = new AssistantConversationService.Content("草稿审阅",
+                        display ? List.of(forged) : List.of(user), display ? List.of(user) : List.of(forged),
+                        null, null, null, "scope");
+                assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, invalid)))
+                        .hasMessageContaining("操作查询引用只属于助手展示消息");
+            }
+            return null;
+        });
+    }
     @Test void persistsTaskCollaborationPreferenceWithoutConfigurationState() {
         as("owner", "tenant", () -> {
             String id = UUID.randomUUID().toString().replace("-", "");

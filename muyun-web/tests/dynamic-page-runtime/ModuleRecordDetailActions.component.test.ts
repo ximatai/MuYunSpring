@@ -4,6 +4,30 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { QueryListRecord } from '@muyun/platform-components';
 import ModuleRecordDetailActions from '@/dynamic-page-runtime/ModuleRecordDetailActions.vue';
 
+it.each(['create', 'edit', 'view'] as const)(
+  'offers only result lookup while a %s save is uncertain',
+  async (mode) => {
+    const wrapper = shallowMount(ModuleRecordDetailActions, {
+      props: {
+        context: { can: () => true } as unknown as ModuleContext<QueryListRecord>,
+        mode,
+        saveNeedsCheck: true,
+        saving: true,
+        formActions: [{ key: 'save', title: '提交', actionCode: 'create' }],
+      },
+    });
+    const bar = wrapper.findComponent({ name: 'RecordActionBar' });
+    expect(bar.props('actions')).toEqual([
+      expect.objectContaining({ title: '核实保存结果', disabled: false }),
+    ]);
+    bar.vm.$emit('action', bar.props('actions')[0]);
+    expect(wrapper.emitted('checkSave')).toHaveLength(1);
+    expect(wrapper.emitted('save')).toBeUndefined();
+    await wrapper.setProps({ checkingSave: true });
+    expect(bar.props('actions')).toEqual([expect.objectContaining({ title: '核实中', disabled: true })]);
+  },
+);
+
 it('keeps placed save actions mode-specific and disabled during saving or failed detail loads', async () => {
   const context = { can: () => true } as unknown as ModuleContext<QueryListRecord>;
   const wrapper = shallowMount(ModuleRecordDetailActions, {

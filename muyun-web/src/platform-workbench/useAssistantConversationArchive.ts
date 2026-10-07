@@ -1,3 +1,4 @@
+import { createUuid } from '@muyun/web-core';
 import { ref } from 'vue';
 import type {
   AssistantConversationClient,
@@ -67,7 +68,7 @@ export function useAssistantConversationArchive(
     if (encoded === saved) return true;
     const epoch = generation,
       key = scope;
-    const conversationId = id.value ?? crypto.randomUUID().replaceAll('-', '');
+    const conversationId = id.value ?? createUuid().replaceAll('-', '');
     id.value = conversationId;
     title.value = value.title;
     status.value = 'saving';

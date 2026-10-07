@@ -27,6 +27,30 @@ import static org.mockito.Mockito.when;
 
 class MetadataRelationChangeSetApplyServiceTest {
     @Test
+    void shouldPublishFixedDefaultWithoutMaterializingInheritedBehavior() {
+        MetadataFieldPropertyChangeSetPlan property = new MetadataFieldPropertyChangeSetPlan(
+                MetadataFieldPropertyKind.BASIC, null, null, null, new MetadataFieldFixedDefaultDraft("1", 5));
+        MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan("metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), false, List.of(new MetadataFieldChangeSetPlan(
+                MetadataFieldChangeSetDraft.Operation.ADD, null, null, field("rate", "rate"), property)));
+        Fixture fixture = fixture(new MetadataRelationChangeSetPreview("crm.customer", "main", "metadata-1", 3,
+                Set.of(EntityCapability.ENABLE), List.of(), List.of(), List.of(), List.of(), "fingerprint", plan));
+        when(fixture.fieldService.insert(any(MetadataField.class))).thenReturn("field-rate");
+        MetadataFieldConfig base = new MetadataFieldConfig();
+        base.setVersion(5);
+        base.setValidationRegex("[0-9.]+");
+        base.setWriteProtected(true);
+        base.setQueryable(false);
+        base.setFieldLength(200);
+        when(fixture.fieldConfigService.findByMetadataFieldId("field-rate")).thenReturn(base);
+        fixture.service.apply("crm.customer", "main", command("fingerprint", List.of()));
+        verify(fixture.fieldConfigService).insert(org.mockito.ArgumentMatchers.argThat(config ->
+                "main".equals(config.getRelationId()) && "field-rate".equals(config.getMetadataFieldId())
+                        && "1".equals(config.getDefaultValue()) && config.getWriteProtected() == null
+                        && config.getQueryable() == null && config.getValidationRegex() == null
+                        && config.getFieldLength() == null));
+    }
+    @Test
     void shouldPublishValidatedProposalEnsureOnceThenActivate() {
         Fixture fixture = fixture(validPreview("fingerprint"));
         MetadataField subject = field("subject", "subject");
@@ -121,12 +145,12 @@ class MetadataRelationChangeSetApplyServiceTest {
     }
 
     @Test
-    void shouldCreateDictionaryRelationOverrideFromEffectiveBaseWithoutCopyingStorageShape() {
+    void shouldCreateDictionaryRelationOverrideWithoutMaterializingInheritedDeclarations() {
         MetadataFieldConfig dictionary = new MetadataFieldConfig();
         dictionary.setDictionaryApplicationAlias("education");
         dictionary.setDictionaryCategoryAlias("exam_attendance_status");
         MetadataFieldPropertyChangeSetPlan property = new MetadataFieldPropertyChangeSetPlan(
-                MetadataFieldPropertyKind.DICTIONARY, 5, null, dictionary);
+                MetadataFieldPropertyKind.DICTIONARY, null, null, dictionary);
         MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan("metadata-1", 3,
                 Set.of(EntityCapability.ENABLE), false,
                 List.of(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
@@ -155,13 +179,13 @@ class MetadataRelationChangeSetApplyServiceTest {
         verify(fixture.fieldConfigService).insert(org.mockito.ArgumentMatchers.argThat(config ->
                 "field-attendance".equals(config.getMetadataFieldId()) && "main".equals(config.getRelationId())
                         && "exam_attendance_status".equals(config.getDictionaryCategoryAlias())
-                        && Boolean.FALSE.equals(config.getQueryable())
-                        && "ATTENDED".equals(config.getDefaultValue())
-                        && "[A-Z_]+".equals(config.getValidationRegex())
-                        && Boolean.TRUE.equals(config.getRequiredOnInsert())
-                        && Boolean.FALSE.equals(config.getRequiredOnUpdate())
-                        && config.getTextNormalization() == TextNormalization.TRIM
-                        && Boolean.TRUE.equals(config.getCopyable()) && Boolean.TRUE.equals(config.getWriteProtected())
+                        && config.getQueryable() == null
+                        && config.getDefaultValue() == null
+                        && config.getValidationRegex() == null
+                        && config.getRequiredOnInsert() == null
+                        && config.getRequiredOnUpdate() == null
+                        && config.getTextNormalization() == null
+                        && config.getCopyable() == null && config.getWriteProtected() == null
                         && config.getFieldLength() == null && config.getPrecision() == null && config.getScale() == null));
     }
 

@@ -4,6 +4,8 @@ dependencies {
     api(libs.muyun.database.core)
 
     implementation(libs.spring.tx)
+    implementation(libs.jackson.databind)
+    compileOnly(libs.postgresql)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

@@ -78,7 +78,7 @@ export function openMenuTab(
     // Once the user selects the menu, let the authoritative menu entry restore
     // its title and descriptor while retaining that page instance's URL state.
     const refreshed = existing.pageDescriptor
-      ? createRestoredMenuTab(menu, target, existing.pageDescriptor, options)
+      ? createRestoredMenuTab(menu, target, existing.pageDescriptor, options, existing.instanceKey)
       : tab;
     return {
       tabs: tabs.map((item) => (item.key === tab.key ? refreshed : item)),
@@ -182,7 +182,13 @@ export function restoreWorkbenchStartupStateFromUrl(
   const tab = workspaceDescriptor
     ? createDirectTab(descriptorForOpen, options)
     : menu && target && isTabMenuTarget(target)
-      ? createRestoredMenuTab(menu, target, descriptorForOpen, options)
+      ? createRestoredMenuTab(
+          menu,
+          target,
+          descriptorForOpen,
+          options,
+          existingTabs.find((existing) => existing.key === `menu:${menu.id}`)?.instanceKey,
+        )
       : createDirectTab(descriptorForOpen, options);
   const tabs = upsertTab(existingTabs, tab);
 
@@ -480,9 +486,12 @@ function upsertTab(tabs: MenuTab[], tab: MenuTab): MenuTab[] {
 function createRestoredMenuTab(
   menu: MenuRecord,
   target: MenuNavigationTarget,
-  descriptor: PageDescriptor,
+  incomingDescriptor: PageDescriptor,
   options: PageDescriptorResolveOptions,
+  instanceKey?: string,
 ): MenuTab {
+  // Public URLs omit the marker. Keep the mounted page's identity in both the shell and descriptor.
+  const descriptor = withPageInstanceKey(incomingDescriptor, instanceKey);
   const tab = createMenuTab(menu, target, options);
   const resolvedDescriptor = tab.pageDescriptor ?? descriptor;
   const pageDescriptor: PageDescriptor =

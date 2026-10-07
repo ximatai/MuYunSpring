@@ -1,4 +1,4 @@
-import { type HttpClient } from '@muyun/web-core';
+import { AppError, OperationRejectedError, type HttpClient } from '@muyun/web-core';
 import type {
   MetadataModelChangeSetProposal,
   MetadataFieldPropertyChangeSetPayload,
@@ -19,6 +19,7 @@ export async function prepareMetadataChangeSetSubmission(
   isCurrent: () => boolean,
   signal?: AbortSignal,
   fieldSpecTitles: Readonly<Record<string, string>> = {},
+  capabilityTitles: Readonly<Record<string, string>> = {},
 ) {
   const proposal: MetadataModelChangeSetProposal = JSON.parse(JSON.stringify(candidate));
   const requireCurrent = () => {
@@ -34,15 +35,24 @@ export async function prepareMetadataChangeSetSubmission(
   let submitted = false;
   return {
     lines: [
+      ...proposal.relationDrafts.flatMap(({ capabilitySelections }) =>
+        Object.entries(capabilitySelections ?? {})
+          .filter(([, enabled]) => enabled)
+          .map(([capability]) => `启用「${capabilityTitles[capability] ?? capability}」基础能力`),
+      ),
       ...preview.warnings.map((item) => `注意：${item.message}`),
+      ...preview.fieldImpacts
+        .filter((item) => item.platformManaged)
+        .map((item) => `启用基础能力：${item.description}`),
       ...proposal.relationDrafts.flatMap(({ fieldDrafts }) =>
-        fieldDrafts.map(({ operation, field }) => {
+        fieldDrafts.map(({ operation, field, property }) => {
           if (!field) return '移除字段；请核对下方详细变更。';
           const changes = [
             field.fieldSpecAlias ? fieldSpecTitles[field.fieldSpecAlias] : undefined,
             field.required === undefined ? undefined : field.required ? '必须填写' : '可以不填',
             field.uniqueField === undefined ? undefined : field.uniqueField ? '内容不可重复' : '允许重复',
             field.enabled === false ? '停用此字段' : undefined,
+            property?.fixedDefault ? `固定默认值：${property.fixedDefault.value ?? '无'}` : undefined,
           ].filter(Boolean);
           return `${operation === 'ADD' ? '新增' : operation === 'DELETE' ? '移除' : '修改'}「${field.title || field.fieldName}」${changes.length ? `：${changes.join('，')}` : ''}`;
         }),
@@ -56,10 +66,20 @@ export async function prepareMetadataChangeSetSubmission(
     ],
     details: metadataChangeConfirmationLines(preview, proposal),
     async apply() {
-      requireCurrent();
+      if (!isCurrent()) throw new OperationRejectedError('配置候选或基线已变化，请重新预检并确认。');
       if (submitted) throw new Error('该配置已提交，请核实结果，不要重复保存。');
       submitted = true;
-      await applyMetadataModelChangeSet(http, moduleAlias, proposal, preview.proposalFingerprint);
+      try {
+        await applyMetadataModelChangeSet(http, moduleAlias, proposal, preview.proposalFingerprint);
+      } catch (cause) {
+        // The atomic metadata command rejects these responses before accepting configuration.
+        // Transport errors and server failures do not establish whether publication committed.
+        if (cause instanceof AppError && [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0)) {
+          submitted = false; // Only a new explicit confirmation may retry a proven rejected command.
+          throw new OperationRejectedError(cause.message);
+        }
+        throw cause;
+      }
     },
   };
 }
@@ -88,6 +108,9 @@ function metadataChangeConfirmationLines(
             .map(([label, value]) => `${label}：${value ? '是' : '否'}`)
             .join('；')}`,
           ...metadataPropertyConfirmationLines(property),
+          ...(property?.fixedDefault
+            ? [`固定默认值：${property.fixedDefault.value ?? '无'}；仅用于新记录未填写时，不改变已有数据。`]
+            : []),
         ];
       }),
     ),

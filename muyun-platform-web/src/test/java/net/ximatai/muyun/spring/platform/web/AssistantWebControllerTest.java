@@ -58,7 +58,7 @@ class AssistantWebControllerTest {
     @MethodSource("providerUsageCases")
     void preservesReportedAndUnknownUsageInJsonAndSse(boolean streaming, AiTokenUsage usage) throws Exception {
         var service = mock(AssistantTurnService.class);
-        var result = new AssistantTurnResult("已核实", List.of(), null, "stop", "request-usage", usage);
+        var result = new AssistantTurnResult("已核实", List.of(), null, "stop", "request-usage", usage, 0);
         when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(result);
         doAnswer(invocation -> {
             AssistantTurnStreamConsumer consumer = invocation.getArgument(1);
@@ -92,6 +92,7 @@ class AssistantWebControllerTest {
             var actual = mapper.readTree(body).path("usage");
             if (usage == null) assertThat(actual.isMissingNode() || actual.isNull()).isTrue();
             else assertThat(mapper.treeToValue(actual, AiTokenUsage.class)).isEqualTo(usage);
+            assertThat(mapper.readTree(body).path("modelToolCallCount").asInt(-1)).isZero();
         } finally {
             controller.closeStreams();
         }
@@ -189,7 +190,8 @@ class AssistantWebControllerTest {
         AssistantTurnWebRequest request = new AssistantTurnWebRequest("continue",
                 List.of(
                         new AssistantConversationMessageWeb("user", "我要新增一名职员"),
-                        new AssistantConversationMessageWeb("assistant", "请补充租户")
+                        new AssistantConversationMessageWeb("assistant", "请补充租户"),
+                        new AssistantConversationMessageWeb("status", "已打开草稿，未保存")
                 ),
                 Map.of("surface", "module-page"),
                 List.of(new AiToolDefinition("form.patch-draft", "Patch form", Map.of("type", "object"))),
@@ -204,7 +206,7 @@ class AssistantWebControllerTest {
         verify(service).turn(command.capture());
         assertThat(command.getValue().results().getFirst().output()).isEqualTo(Map.of("opened", true));
         assertThat(command.getValue().history()).extracting(item -> item.role().name())
-                .containsExactly("USER", "ASSISTANT");
+                .containsExactly("USER", "ASSISTANT", "STATUS");
     }
 
     @Test

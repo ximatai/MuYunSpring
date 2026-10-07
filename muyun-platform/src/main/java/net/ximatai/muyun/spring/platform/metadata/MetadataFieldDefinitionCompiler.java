@@ -44,9 +44,7 @@ public class MetadataFieldDefinitionCompiler {
         MetadataFieldConfig defaultConfig = configService.findByMetadataFieldId(field.getId());
         MetadataFieldConfig relationConfig = configService.findRelationOverride(field.getId(), relationId);
         MetadataFieldConfig shapeConfig = defaultConfig;
-        MetadataFieldConfig dictionaryConfig = relationConfig != null && relationConfig.hasDictionaryBinding()
-                ? relationConfig
-                : defaultConfig;
+        MetadataFieldConfig dictionaryConfig = MetadataFieldConfig.effectiveDictionaryConfig(defaultConfig, relationConfig);
         boolean hasModuleDictionary = moduleField != null
                 && moduleField.getDictionaryCategoryAlias() != null
                 && !moduleField.getDictionaryCategoryAlias().isBlank();
@@ -126,62 +124,9 @@ public class MetadataFieldDefinitionCompiler {
     private FieldBehaviorDefinition behavior(FieldSpec fieldType,
                                              MetadataFieldConfig defaultConfig,
                                              MetadataFieldConfig relationConfig,
-                                             String fieldId) {
-        if (defaultConfig == null && relationConfig == null) {
-            return FieldBehaviorDefinition.DEFAULT;
-        }
-        String defaultValue = relationConfig != null && relationConfig.getDefaultValue() != null
-                ? relationConfig.getDefaultValue()
-                : defaultConfig == null ? null : defaultConfig.getDefaultValue();
-        String validationRegex = relationConfig != null && relationConfig.getValidationRegex() != null
-                ? relationConfig.getValidationRegex()
-                : defaultConfig == null ? null : defaultConfig.getValidationRegex();
-        boolean copyable = relationConfig != null && relationConfig.getCopyable() != null
-                ? Boolean.TRUE.equals(relationConfig.getCopyable())
-                : defaultConfig == null || defaultConfig.getCopyable() == null || Boolean.TRUE.equals(defaultConfig.getCopyable());
-        boolean writeProtected = relationConfig != null && relationConfig.getWriteProtected() != null
-                ? Boolean.TRUE.equals(relationConfig.getWriteProtected())
-                : defaultConfig != null && Boolean.TRUE.equals(defaultConfig.getWriteProtected());
-        FieldBehaviorDefinition behavior = new FieldBehaviorDefinition(
-                defaultValue,
-                validationRegex,
-                copyable,
-                writeProtected,
-                relationConfig == null
-                        ? (defaultConfig == null ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
-                        : relationConfig.effectiveWriteRules(defaultConfig == null
-                                ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
-        );
-        net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.validateBehavior(
-                fieldType.getFieldType(), behavior, fieldId);
-        return behavior;
-    }
-
-    private FieldBehaviorDefinition behavior(FieldSpec fieldType,
-                                             MetadataFieldConfig defaultConfig,
-                                             MetadataFieldConfig relationConfig,
                                              ModuleMetadataField moduleField,
                                              String fieldId) {
-        FieldBehaviorDefinition inherited = behavior(fieldType, defaultConfig, relationConfig, fieldId);
-        if (moduleField == null) {
-            return inherited;
-        }
-        String defaultValue = moduleField.getDefaultValue() != null
-                ? moduleField.getDefaultValue()
-                : inherited.defaultValue();
-        String validationRegex = moduleField.getValidationRegex() != null
-                ? moduleField.getValidationRegex()
-                : inherited.validationRegex();
-        boolean copyable = moduleField.getCloneable() == null
-                ? inherited.copyable()
-                : Boolean.TRUE.equals(moduleField.getCloneable());
-        FieldBehaviorDefinition behavior = new FieldBehaviorDefinition(
-                defaultValue,
-                validationRegex,
-                copyable,
-                inherited.writeProtected(),
-                moduleField.effectiveWriteRules(inherited.writeRules())
-        );
+        FieldBehaviorDefinition behavior = MetadataFieldConfig.effectiveBehavior(defaultConfig, relationConfig, moduleField);
         net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.validateBehavior(
                 fieldType.getFieldType(), behavior, fieldId);
         return behavior;

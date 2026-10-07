@@ -37,7 +37,7 @@ class AiToolMessageContractTest {
     @Test
     void toolIdentityIsProviderSafeAndIndependentOfCatalogPosition() {
         assertThat(OpenAiCompatibleModelClient.providerToolName("page.old-tool"))
-                .matches("cap_page_old-tool_[a-f0-9]{12}")
+                .isEqualTo("cap_page_old-tool")
                 .isNotEqualTo(OpenAiCompatibleModelClient.providerToolName("page.old_tool"));
     }
 }

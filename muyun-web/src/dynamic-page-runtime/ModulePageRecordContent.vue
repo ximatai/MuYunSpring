@@ -50,6 +50,10 @@ defineProps<{
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
   'validity-change': [validity: { valid: boolean }];
+  'reference-display-change': [
+    fieldName: string,
+    candidates: readonly import('@muyun/platform-components').ReferencePickerCandidate[],
+  ];
   'children-change': [
     relationField: string,
     records: QueryListRecord[],
@@ -110,6 +114,9 @@ function updateChildren(
     :field-policies="formFieldPolicies"
     @update:field="updateField"
     @validity-change="emit('validity-change', $event)"
+    @reference-display-change="
+      (fieldName, candidates) => emit('reference-display-change', fieldName, candidates)
+    "
   />
   <ModulePageDetailRelations
     v-if="uiDescriptor && relationsAvailable"

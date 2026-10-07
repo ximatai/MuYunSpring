@@ -229,3 +229,12 @@ it('preserves unknown or partial usage instead of estimating missing tokens', as
   expect((await requester(input, new AbortController().signal)).usage).toEqual({ inputTokens: 0 });
   await expect(requester(input, new AbortController().signal)).rejects.toThrow('无效响应');
 });
+
+it('preserves the native model tool count even when interactions consume the page calls', async () => {
+  const input = { message: 'inspect', context: { surface: 'workbench', facts: {} }, capabilities: [] };
+  const http: HttpClient = {
+    request: vi.fn(async () => ({ text: 'handoff', toolCalls: [], modelToolCallCount: 2 }) as never),
+  };
+  const requester = createAssistantTurnRequester(http);
+  expect((await requester(input, new AbortController().signal)).modelToolCallCount).toBe(2);
+});

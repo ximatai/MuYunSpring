@@ -120,6 +120,10 @@ const emit = defineEmits<{
   'validity-change': [validity: RecordFormValidity];
   /** Read-only reference projections for a parent-owned display surface; never a mutation input. */
   'reference-projections-change': [fieldName: string, projections: Record<string, unknown>];
+  'reference-display-change': [
+    fieldName: string,
+    candidates: readonly import('./referencePickerModel').ReferencePickerCandidate[],
+  ];
 }>();
 
 const resolvedFieldNames = computed(
@@ -510,12 +514,14 @@ function applyReferencePickerSelection(
   candidates: import('./referencePickerModel').ReferencePickerCandidate[],
 ) {
   for (const candidate of candidates) applyPickerSelection(fieldName, pickerRecordOf(candidate));
+  emit('reference-display-change', fieldName, candidates);
 }
 
 function updateReferencePickerSelectionContext(
   fieldName: string,
   candidates: import('./referencePickerModel').ReferencePickerCandidate[],
 ) {
+  emit('reference-display-change', fieldName, candidates);
   // Resolution updates read-only projections only. A resolve response must never replay patches.
   updateReferenceSelectionContext(fieldName, candidates[0] ? pickerRecordOf(candidates[0]) : undefined);
 }

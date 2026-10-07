@@ -34,18 +34,22 @@ class AssistantPlatformKnowledgeTest {
     @Test
     void guidesAuthorizedDraftProgressWithoutBypassingDependenciesOrHumanSave() {
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page"), List.of()))
-                .contains("patch known ordinary fields together before resolving remaining references",
-                        "Opening is not filling", "Tree children need saved parents",
-                        "creation.ready only controls opening another draft", "fill an existing writable form",
-                        "Use CURRENT edit facts", "row tools appear after selection",
+                .contains("Patch known ordinary fields together", "Tree parents save first",
+                        "creation.ready gates new drafts", "fill an existing writable form",
+                        "Add/select supplies row facts and tools",
+                        "facts.currentForm", "facts.activeRelationRow.form", "read gaps only",
+                        "draft-preview requests authorize local drafting", "never saving", "do not reconfirm the requested draft",
+                        "Add/select supplies row facts", "load related schemas together",
+                        "once per draft", "Explicit save: form.prepare-save",
                         "aggregate children save together", "only human confirmation saves",
-                        "Missing values: ask one concise question", "form.prepare-save if available (load if indexed)",
-                        "Do not replace an available",
+                        "reference.resolve-and-patch.changes", "reuse mapped facts",
+                        "Review-before-save goals use that card, no choice", "Explicit defer/save-later remains draft-only",
+                        "Missing values: ask one concise question", "form.prepare-save",
                         "Review/trial/compare: form.review-draft",
                         "no save proposal", "Explicit save:",
                         "Explicit discard: form.prepare-discard",
-                        "with human confirmation, local draft only",
-                        "Without save preparation", "Draft-only requests remain unsaved",
+                        "human confirmation, draft only",
+                        "Else hand off", "Draft-only requests remain unsaved",
                         "hand off to the page save action, never a selection card")
                 .doesNotContain("platform.menu", "customer", "product");
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "business-rule-governance"), List.of()))
@@ -65,10 +69,10 @@ class AssistantPlatformKnowledgeTest {
                 "base", Map.of("surface", "module-page"), List.of(navigation)))
                 .contains("standard MuYun record workspace", "MuYun workbench navigation",
                         "pageContext.title",
-                        "facts.moduleAlias",
+                        "facts.moduleAlias", "facts.workspace.menuCatalog",
                         "open exact returned menuIds", "Current-list absence is not global absence",
                         "clarify ambiguous scope before offering creation", "Preserve the user's explicit business scope",
-                        "Never copy scope/reference answers into unrelated fields");
+                        "Scope/reference answers never fill unrelated fields");
         assertThat(AssistantPlatformKnowledge.appendTo(
                 "base", Map.of("surface", "page-composition"), List.of(navigation)))
                 .contains("find matching visible menus",
@@ -83,7 +87,9 @@ class AssistantPlatformKnowledgeTest {
                 new AiToolDefinition("rules.select-module", "Select rule module", Map.of()));
 
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench"), capabilities))
-                .contains("configuration.start-task", "does not require a new construction plan")
+                .contains("configuration.start-task", "does not require a new construction plan",
+                        "Business tenant selection gates record queries, not authorized module",
+                        "Read-only inspection needs no editing task or save confirmation")
                 .doesNotContain("MuYun metadata governance", "standard business-rule governance workspace",
                         "configuration.prepare-metadata-apply", "rules.prepare-apply");
         var selectedCapabilities = new java.util.ArrayList<>(capabilities);
@@ -158,9 +164,11 @@ class AssistantPlatformKnowledgeTest {
                 "facts", Map.of("workspace", emptyWorkspace, "capabilityIndex", index)),
                 List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
         assertThat(lazy).isEqualTo(ordinary);
+        assertThat(ordinary).contains("rules.select-module", "Business tenant selection gates record queries")
+                .doesNotContain("Read rules.describe for actual fields");
         assertThat(ordinary).contains("standard MuYun record workspace", "only human confirmation saves",
                         "MuYun workbench navigation", "Configuration governance requires an explicit configuration goal",
-                        "Do not offer schema", "say what remains unsaved", "unrelated fields")
+                        "no schema changes", "Missing fields remain unsaved", "unrelated fields")
                 .doesNotContain("construction-discovery", "configuration.start-task",
                         "Construction capabilities are available", "When the user requests configuration changes",
                         "calibrate ONE foundation module", "Read construction.describe-design-contract",

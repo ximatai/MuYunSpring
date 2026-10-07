@@ -5,6 +5,7 @@ import {
   AssistantCapabilityUsageError,
   AssistantConversationInterruptedError,
   createAssistantSurfaceRegistry,
+  createAssistantDisplayObservations,
   runAssistantConversation,
   runAssistantStep,
   StaleAssistantInvocationError,
@@ -12,6 +13,81 @@ import {
   type AssistantActivityPhase,
   type AssistantRuntimeDiagnosticEvent,
 } from '@muyun/web-core';
+
+it.each([false, true])(
+  'redeclares an evicted tool within the live bounded policy before replanning (readOnly: %s)',
+  async (readOnly) => {
+    const execute = vi.fn(async () => ({ verified: true }));
+    const write = vi.fn();
+    const registry = createAssistantSurfaceRegistry();
+    const requestTurn = vi.fn().mockImplementation(async (input: AssistantTurnInput) => {
+      const turn = requestTurn.mock.calls.length;
+      if (turn === 1)
+        return {
+          toolCalls: [
+            {
+              id: 'load',
+              code: 'assistant.load-capabilities',
+              input: {
+                codes: Array.from({ length: 8 }, (_, i) => `page.read-${i}`),
+              },
+            },
+          ],
+        };
+      if (turn === 2) {
+        expect(input.capabilities.map((c) => c.code)).not.toContain('page.read-12');
+        throw new AppError('private output', {
+          code: 'AI_MODEL_UNDECLARED_TOOL',
+          status: 502,
+          details: { missingToolCodes: ['page.read-12', 'absent.tool', ...(readOnly ? ['form.patch'] : [])] },
+        });
+      }
+      if (turn === 3) {
+        expect(input.capabilities).toHaveLength(9);
+        expect(input.capabilities.map((c) => c.code)).toContain('page.read-12');
+        expect(input.capabilities.map((c) => c.code)).not.toContain('absent.tool');
+        if (readOnly) expect(input.capabilities.map((c) => c.code)).not.toContain('form.patch');
+        expect(input.decisionFeedback).toBe('undeclared-tool');
+        expect(JSON.stringify(input)).not.toContain('private output');
+        expect(input).not.toHaveProperty('declarationRecoveryCodes');
+        return { toolCalls: [{ id: 'fresh-read', code: 'page.read-12', input: {} }] };
+      }
+      return { text: 'done', toolCalls: [] };
+    });
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => 'stable',
+      surface: {
+        describe: () => ({ surface: 'module-page', facts: {} }),
+        requestTurn,
+        capabilities: () => [
+          ...Array.from(
+            { length: 13 },
+            (_, i): AssistantCapability => ({
+              effect: 'read',
+              descriptor: { code: `page.read-${i}`, description: 'Read', inputSchema: {} },
+              parseInput: (input) => input,
+              execute,
+            }),
+          ),
+          {
+            effect: 'draft',
+            descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+            parseInput: (input) => input,
+            execute: write,
+          },
+        ],
+      },
+    });
+    registry.activate('page');
+    expect(
+      (await runAssistantConversation(registry, 'inspect', { executionPolicy: { readOnly } })).termination,
+    ).toBe('stopped');
+    expect(execute).toHaveBeenCalledOnce();
+    expect(write).not.toHaveBeenCalled();
+    expect(requestTurn).toHaveBeenCalledTimes(4);
+  },
+);
 
 it('reports user-facing activity phases from runtime facts', async () => {
   const phases: AssistantActivityPhase[] = [];
@@ -161,8 +237,11 @@ it('waits for background page transitions before asking the model to decide', as
   await runAssistantConversation(registry, '继续');
 
   expect(requestTurn).toHaveBeenCalledWith(
-    expect.objectContaining({ context: expect.objectContaining({ facts: { revision: 'ready' } }) }),
+    expect.objectContaining({
+      context: expect.objectContaining({ facts: expect.objectContaining({ revision: 'ready' }) }),
+    }),
     expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
   );
 });
 
@@ -263,6 +342,7 @@ it('passes clarification history to the model without interpreting it in the exe
       ],
     }),
     expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
   );
 });
 
@@ -383,9 +463,10 @@ it('continues from a fresh surface after an effect and stops on the final model 
           output: { changed: true },
         },
       ],
-      context: expect.objectContaining({ facts: { revision: 'after' } }),
+      context: expect.objectContaining({ facts: expect.objectContaining({ revision: 'after' }) }),
     }),
     expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
   );
 });
 
@@ -430,13 +511,21 @@ it('keeps prior dialogue on every tool step while refreshing page facts', async 
 
   expect(requestTurn).toHaveBeenNthCalledWith(
     1,
-    expect.objectContaining({ history, context: expect.objectContaining({ facts: { revision: 'before' } }) }),
+    expect.objectContaining({
+      history,
+      context: expect.objectContaining({ facts: expect.objectContaining({ revision: 'before' }) }),
+    }),
     expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
   );
   expect(requestTurn).toHaveBeenNthCalledWith(
     2,
-    expect.objectContaining({ history, context: expect.objectContaining({ facts: { revision: 'after' } }) }),
+    expect.objectContaining({
+      history,
+      context: expect.objectContaining({ facts: expect.objectContaining({ revision: 'after' }) }),
+    }),
     expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
   );
 });
 
@@ -1115,7 +1204,11 @@ it('waits for a pending fallback to resolve before sending history to its transp
     },
   });
   registry.activate('a');
-  const pending = runAssistantConversation(registry, 'hello');
+  const onExecutionScopeChange = vi.fn();
+  const pending = runAssistantConversation(registry, 'hello', {
+    onExecutionScopeChange,
+    history: [{ role: 'assistant', text: '来自尚未确定范围的旧事实' }],
+  });
   registry.register({
     pageInstanceKey: 'a',
     executionScopeKey: () => 'tenant-a',
@@ -1129,6 +1222,12 @@ it('waits for a pending fallback to resolve before sending history to its transp
   await expect(pending).resolves.toMatchObject({ termination: 'stopped' });
   expect(fallback).not.toHaveBeenCalled();
   expect(formal).toHaveBeenCalledOnce();
+  expect(onExecutionScopeChange).toHaveBeenCalledOnce();
+  expect(formal).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'hello', history: [] }),
+    expect.any(AbortSignal),
+    expect.objectContaining({ onRequestCompleted: expect.any(Function) }),
+  );
 });
 
 it('does not send the previous goal or results after a capability changes tenant scope', async () => {
@@ -1753,11 +1852,15 @@ it.each([
     }
     registry.activate('page-0');
     const oldToken = registry.snapshot()!.token;
-    const result = await runAssistantConversation(registry, '核对多模块价格', { history: initialHistory });
+    const displayObservations = createAssistantDisplayObservations();
+    const result = await runAssistantConversation(registry, '核对多模块价格', {
+      history: initialHistory,
+      displayObservations,
+    });
     expect(result.termination).toBe('stopped');
     expect(requests).toHaveLength(6);
     expect(requests[1]!.history!.slice(-1)).toEqual([
-      { role: 'assistant', text: expect.stringContaining('目录价 17 元') },
+      { role: 'status', text: expect.stringContaining('目录价 17 元') },
     ]);
     for (const request of requests) {
       expect(request.history!.length).toBeLessThanOrEqual(12);
@@ -1772,6 +1875,14 @@ it.each([
     expect(history.every(({ text }) => text.length < 2_100 && text.includes('观察已截断'))).toBe(true);
     expect(JSON.stringify(history)).not.toContain('internal-');
     expect(requests.at(-1)!.executionBudget?.hardLimit).toBe(requests[0]!.executionBudget?.hardLimit);
+    await runAssistantConversation(registry, '继续核对刚才查过的价格', { displayObservations });
+    expect(requests.at(-1)!.history!.filter(({ text }) => text.startsWith('本次任务的此前页面观察'))).toEqual(
+      history,
+    );
+    displayObservations.clear();
+    await runAssistantConversation(registry, '新会话查价格', { displayObservations });
+    expect(requests.at(-1)!.history).toEqual([]);
+
     await expect(
       registry.invoke({ id: 'stale', code: 'page.open-0', input: {} }, oldToken),
     ).rejects.toBeInstanceOf(StaleAssistantInvocationError);
@@ -1982,70 +2093,82 @@ it.each([false, true])(
   },
 );
 
-it('keeps loaded definitions across draft changes while discarding stale business reads', async () => {
-  let revision = 'before';
-  const registry = createAssistantSurfaceRegistry();
-  const requestTurn = vi
-    .fn()
-    .mockResolvedValueOnce({
-      toolCalls: [
-        { id: 'load', code: 'assistant.load-capabilities', input: { codes: ['page.read', 'form.patch'] } },
-      ],
-    })
-    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
-    .mockResolvedValueOnce({ toolCalls: [{ id: 'patch', code: 'form.patch', input: {} }] })
-    .mockResolvedValue({ text: 'done', toolCalls: [] });
-  registry.register({
-    pageInstanceKey: 'page',
-    contextRevision: () => revision,
-    surface: {
-      describe: () => ({ surface: 'module-page', facts: {} }),
-      requestTurn,
-      capabilities: () => [
-        ...Array.from(
-          { length: 13 },
-          (_, i): AssistantCapability => ({
+it.each(['read', 'load-and-patch'])(
+  'keeps loaded definitions across draft changes (%s)',
+  async (sequence) => {
+    let revision = 'before';
+    const registry = createAssistantSurfaceRegistry();
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        toolCalls: [
+          { id: 'load', code: 'assistant.load-capabilities', input: { codes: ['page.read', 'form.patch'] } },
+          ...(sequence === 'load-and-patch' ? [{ id: 'patch', code: 'form.patch', input: {} }] : []),
+        ],
+      })
+      .mockResolvedValueOnce(
+        sequence === 'read'
+          ? { toolCalls: [{ id: 'read', code: 'page.read', input: {} }] }
+          : { toolCalls: [{ id: 'patch-again', code: 'form.patch', input: { second: true } }] },
+      )
+      .mockResolvedValueOnce(
+        sequence === 'read'
+          ? { toolCalls: [{ id: 'patch', code: 'form.patch', input: {} }] }
+          : { text: 'done', toolCalls: [] },
+      )
+      .mockResolvedValue({ text: 'done', toolCalls: [] });
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => revision,
+      surface: {
+        describe: () => ({ surface: 'module-page', facts: {} }),
+        requestTurn,
+        capabilities: () => [
+          ...Array.from(
+            { length: 13 },
+            (_, i): AssistantCapability => ({
+              effect: 'read',
+              descriptor: { code: `page.extra-${i}`, description: 'Other', inputSchema: {} },
+              parseInput: (value) => value,
+              execute: async () => ({}),
+            }),
+          ),
+          {
             effect: 'read',
-            descriptor: { code: `page.extra-${i}`, description: 'Other', inputSchema: {} },
+            descriptor: {
+              code: 'page.read',
+              description: 'Read',
+              inputSchema: { type: 'object', properties: { revision: { enum: [revision] } } },
+            },
             parseInput: (value) => value,
-            execute: async () => ({}),
-          }),
-        ),
-        {
-          effect: 'read',
-          descriptor: {
-            code: 'page.read',
-            description: 'Read',
-            inputSchema: { type: 'object', properties: { revision: { enum: [revision] } } },
+            execute: async () => ({ privateValue: 'obsolete-business-fact' }),
           },
-          parseInput: (value) => value,
-          execute: async () => ({ privateValue: 'obsolete-business-fact' }),
-        },
-        {
-          effect: 'draft',
-          descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
-          parseInput: (value) => value,
-          execute: async (_input, context) => {
-            context.applyEffect(() => {
-              revision = 'after';
-            });
-            return { changed: true };
+          {
+            effect: 'draft',
+            descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: async (_input, context) => {
+              context.applyEffect(() => {
+                revision = 'after';
+              });
+              return { changed: true };
+            },
           },
-        },
-      ],
-    },
-  });
-  registry.activate('page');
-  await runAssistantConversation(registry, 'Read then update');
-  const last = requestTurn.mock.calls[3]![0];
-  expect(last.capabilities).toContainEqual(
-    expect.objectContaining({
-      code: 'page.read',
-      inputSchema: { type: 'object', properties: { revision: { enum: ['after'] } } },
-    }),
-  );
-  expect(JSON.stringify(last.results)).not.toContain('obsolete-business-fact');
-});
+        ],
+      },
+    });
+    registry.activate('page');
+    await runAssistantConversation(registry, 'Read then update');
+    const last = requestTurn.mock.calls[sequence === 'read' ? 3 : 2]![0];
+    expect(last.capabilities).toContainEqual(
+      expect.objectContaining({
+        code: 'page.read',
+        inputSchema: { type: 'object', properties: { revision: { enum: ['after'] } } },
+      }),
+    );
+    expect(JSON.stringify(last.results)).not.toContain('obsolete-business-fact');
+  },
+);
 
 it('reports formal surface wait failure before requesting the model', async () => {
   const registry = createAssistantSurfaceRegistry();
@@ -2198,7 +2321,11 @@ it.each(['interaction', 'page', 'identity', 'cancel'])(
       if (change === 'page') registry.activate('other');
       if (change === 'identity') identity = 'other-user';
       if (change === 'cancel') controller.abort();
-      throw new AppError('rejected', { code: 'AI_MODEL_UNDECLARED_TOOL', status: 502 });
+      throw new AppError('rejected', {
+        code: 'AI_MODEL_UNDECLARED_TOOL',
+        status: 502,
+        details: { missingToolCodes: ['form.patch'] },
+      });
     });
     for (const pageInstanceKey of ['page', 'other'])
       registry.register({
@@ -2246,4 +2373,204 @@ it('keeps an explicit selection until the first accepted decision after rejectio
   registry.activate('page');
   await runAssistantConversation(registry, '客户甲', { selectionResponse: choice });
   expect(requestTurn.mock.calls.map(([input]) => input.selectionResponse)).toEqual([choice, choice]);
+});
+
+it('reports unexecuted batch capabilities as decision facts, never as paired tool receipts', async () => {
+  let revision = 'before';
+  const registry = createAssistantSurfaceRegistry();
+  const read = vi.fn(async () => ({ title: 'current' }));
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [
+        { id: 'patch', code: 'form.patch', input: {} },
+        { id: 'not-run', code: 'page.read', input: { privateValue: 'unexecuted-secret' } },
+      ],
+    })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
+    .mockResolvedValue({ toolCalls: [], text: 'done' });
+  registry.register({
+    pageInstanceKey: 'batch',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          effect: 'draft',
+          descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: async (_input, context) => {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: read,
+        },
+      ],
+    },
+  });
+  registry.activate('batch');
+  await runAssistantConversation(registry, 'patch then read');
+  const afterPatch = requestTurn.mock.calls[1]![0];
+  expect(afterPatch.context.facts.executionBoundaries).toMatchObject({ notExecuted: ['page.read'] });
+  expect(afterPatch.results.some((result: { callId: string }) => result.callId === 'not-run')).toBe(false);
+  expect(JSON.stringify(afterPatch)).not.toContain('unexecuted-secret');
+  expect(requestTurn.mock.calls[2]![0].context.facts.executionBoundaries.notExecuted).toBeUndefined();
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it('retains loaded definitions after the business observation window fills', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const names = Array.from({ length: 8 }, (_, i) => `page.read-${i}`);
+  const requests: AssistantTurnInput[] = [];
+  const requestTurn = vi.fn(async (input: AssistantTurnInput) => {
+    requests.push(input);
+    const turn = requests.length;
+    if (turn === 1)
+      return {
+        toolCalls: [{ id: 'load', code: 'assistant.load-capabilities', input: { codes: names } }],
+      };
+    if (turn <= 9)
+      return { toolCalls: [{ id: `read-${turn}`, code: names[((turn - 2) % 7) + 1]!, input: { turn } }] };
+    return { text: 'done', toolCalls: [] };
+  });
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn,
+      capabilities: () =>
+        Array.from(
+          { length: 13 },
+          (_, i): AssistantCapability => ({
+            effect: 'read',
+            descriptor: { code: `page.read-${i}`, description: 'Read', inputSchema: {} },
+            parseInput: (input) => input,
+            execute: async (input) => ({ businessFact: `read-${i}`, input }),
+          }),
+        ),
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'Read independently');
+  expect(requests.at(-1)!.capabilities.map(({ code }) => code)).toEqual(expect.arrayContaining(names));
+  expect(requests.at(-1)!.results!.length).toBeLessThanOrEqual(16);
+});
+
+it('clears display evidence on identity, execution scope or unavailable formal scope changes', () => {
+  const memory = createAssistantDisplayObservations();
+  const token = {
+    identityScopeKey: 'user-a',
+    executionScopeKey: 'tenant-a',
+    pageInstanceKey: 'page-a',
+    surfaceGeneration: 1,
+    contextRevision: '',
+    fallback: false,
+  };
+  for (const changed of [
+    { ...token, identityScopeKey: 'user-b' },
+    { ...token, executionScopeKey: 'tenant-b' },
+    { ...token, executionScopePending: true },
+    { ...token, fallback: true },
+    { ...token, identityScopeKey: undefined },
+    { ...token, executionScopeKey: undefined },
+    undefined,
+  ]) {
+    memory.record(token, { pageInstanceKey: 'page-a', text: '已显示的正式价格' });
+    expect(memory.forScope(token)).toHaveLength(1);
+    expect(memory.forScope(changed)).toEqual([]);
+    expect(memory.forScope(token)).toEqual([]);
+  }
+  memory.record(token, { pageInstanceKey: 'page-a', text: '旧价格' });
+  memory.record(
+    { ...token, pageInstanceKey: 'page-b' },
+    { pageInstanceKey: 'page-a', text: '重新查回的新价格' },
+  );
+  expect(memory.forScope(token)).toEqual([
+    { role: 'status', text: expect.stringContaining('重新查回的新价格') },
+  ]);
+  expect(JSON.stringify(memory.forScope(token))).not.toContain('旧价格');
+});
+
+it('counts background replanning in the work request budget', async () => {
+  let revision = 0;
+  const events: AssistantRuntimeDiagnosticEvent[] = [];
+  const requestTurn = vi.fn(async (input) => {
+    if (input.executionBudget?.phase !== 'summary') revision++;
+    return { text: 'read-only handoff', toolCalls: [], usage: { totalTokens: 7 } };
+  });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => String(revision),
+    interactionRevision: () => 'stable',
+    surface: { describe: () => ({ surface: 'module-page', facts: {} }), capabilities: () => [], requestTurn },
+  });
+  registry.activate('page');
+  const result = await runAssistantConversation(registry, 'inspect', {
+    maxSteps: 2,
+    onDiagnostic: (event) => {
+      events.push(event);
+    },
+  });
+  expect(result.termination).toBe('step-limit');
+  expect(requestTurn).toHaveBeenCalledTimes(3);
+  const attempts = events.filter((event) => event.type === 'model.request.completed');
+  expect(attempts).toHaveLength(3);
+  expect(attempts.map((event) => event.phase)).toEqual(['work', 'work', 'summary']);
+  expect(attempts.every((event) => event.usage?.totalTokens === 7 && event.durationMs >= 0)).toBe(true);
+});
+
+it('observes rejected decision usage separately from accepted steps and includes summary cost', async () => {
+  const events: AssistantRuntimeDiagnosticEvent[] = [];
+  const requestTurn = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new AppError('rejected', {
+        code: 'AI_MODEL_UNDECLARED_TOOL',
+        status: 502,
+        details: { modelUsage: { totalTokens: 11 }, modelToolCallCount: 2, private: 'never diagnostic' },
+      }),
+    )
+    .mockResolvedValueOnce({ text: 'handoff', toolCalls: [], usage: { totalTokens: 5 } });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'inspect', {
+    maxSteps: 1,
+    onDiagnostic: (event) => {
+      events.push(event);
+    },
+  });
+  expect(events.filter((event) => event.type === 'model.request.completed')).toEqual([
+    expect.objectContaining({
+      phase: 'work',
+      outcome: 'failed',
+      usage: { totalTokens: 11 },
+      toolCallCount: 2,
+    }),
+    expect.objectContaining({
+      phase: 'summary',
+      outcome: 'received',
+      usage: { totalTokens: 5 },
+      toolCallCount: 0,
+    }),
+  ]);
+  expect(JSON.stringify(events)).not.toContain('never diagnostic');
 });

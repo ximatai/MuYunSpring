@@ -56,6 +56,16 @@ export function createMetadataWorkspace(
     }
     return sessions.get(moduleAlias)!;
   }
+  function editorReady(value: MetadataEditorSession) {
+    return (
+      (value.workspaceReady.value ||
+        value.submissionStatus.value === 'unknown' ||
+        value.committedNeedsReload.value) &&
+      !value.loading.value &&
+      !value.saving.value
+    );
+  }
+
   function focus(value: MetadataEditorSession) {
     resetScope();
     if (sessions.get(value.moduleAlias) !== value) return;
@@ -87,6 +97,8 @@ export function createMetadataWorkspace(
       const value = active.value;
       if (!value) return;
       return {
+        kind: 'metadata',
+        openingCapability: openEditor ? 'configuration.open-metadata-editor' : undefined,
         moduleAlias: value.moduleAlias,
         title: value.title.value,
         hasUnsavedChanges: value.dirty.value,
@@ -289,10 +301,11 @@ export function createMetadataWorkspace(
             };
           },
         },
-        ...(selected && selected.workspaceReady.value && !selected.loading.value && !selected.saving.value
+        ...(selected && editorReady(selected)
           ? [
               ...surface()!.capabilities(),
-              ...(selected.relations.value.some((relation) => relation.id)
+              ...(selected.adapter.summary().factsAvailable !== false &&
+              selected.relations.value.some((relation) => relation.id)
                 ? [metadataRelationSelectionCapability(selected)]
                 : []),
               ...(openEditor && settleNavigation
@@ -312,11 +325,7 @@ export function createMetadataWorkspace(
                           async () => {
                             const signal = context.cancellationSignal ?? context.signal;
                             await waitForConfigurationEditor(
-                              () =>
-                                visible.value === selected &&
-                                selected.workspaceReady.value &&
-                                !selected.loading.value &&
-                                !selected.saving.value,
+                              () => visible.value === selected && editorReady(selected),
                               signal,
                             );
                             return settleNavigation(signal);
