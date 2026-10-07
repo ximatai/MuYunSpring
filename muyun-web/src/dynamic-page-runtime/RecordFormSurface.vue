@@ -39,6 +39,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
   'validity-change': [validity: { valid: boolean }];
+  'reference-display-change': [
+    fieldName: string,
+    candidates: readonly import('@muyun/platform-components').ReferencePickerCandidate[],
+  ];
 }>();
 
 const contributionRef = computed(() => props.contributions ?? []);
@@ -128,6 +132,9 @@ watch(
       :image-upload-advisory-of="imageUploadAdvisoryOf"
       @update:field="(fieldName, value) => emit('update:field', fieldName, value)"
       @validity-change="updateDescriptorValidity"
+      @reference-display-change="
+        (fieldName, candidates) => emit('reference-display-change', fieldName, candidates)
+      "
     >
       <template #before-field="{ field }">
         <ModulePageFormContributionRenderer

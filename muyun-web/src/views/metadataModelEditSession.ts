@@ -56,6 +56,7 @@ export function toFieldPropertyChangeSetPayload(
 export interface MetadataRelationChangeSetProposal {
   expectedMetadataVersion: number;
   fieldDrafts: MetadataFieldChangeSetDraft[];
+  capabilitySelections?: Record<string, boolean>;
 }
 
 /** Input facts are loaded for every node before a module-wide edit session begins. */
@@ -75,6 +76,7 @@ export interface MetadataModelRelationDraft {
   metadataId: string;
   relationId: string;
   expectedMetadataVersion: number;
+  capabilitySelections: Record<string, boolean>;
   fields: Record<string, MetadataField>;
   fieldProperties: Record<string, MetadataFieldPropertyDraft>;
   parentMetadataId?: string;
@@ -129,6 +131,141 @@ export function createMetadataModelWorkspaceEditSession() {
     );
     relationOrder.value = copyStringMap(orders);
     initialRelationOrder.value = copyStringMap(orders);
+  }
+
+  /** Prepare recovery on a newly read baseline without changing the retained candidate on failure. */
+  function prepareRebase(
+    sources: MetadataModelRelationDraftSource[],
+    proposal: MetadataModelChangeSetProposal,
+    enabledCapabilities: Readonly<Record<string, string[]>> = {},
+    baseline: Readonly<Record<string, MetadataModelRelationDraft>> = initial.value,
+  ): () => void {
+    const recovered = createMetadataModelWorkspaceEditSession();
+    recovered.begin(sources);
+    const targets = new Set([
+      ...proposal.relationDrafts.map((item) => item.relationId),
+      ...proposal.fieldOrders.map((item) => item.relationId),
+      ...proposal.relationOrders.flatMap((item) => item.relationIds),
+    ]);
+    for (const relationId of targets) {
+      if (
+        !baseline[relationId] ||
+        baseline[relationId].metadataId !== recovered.relation(relationId)?.metadataId ||
+        baseline[relationId].parentMetadataId !== recovered.relation(relationId)?.parentMetadataId
+      )
+        throw new Error('候选所属元数据实体已变化；不会迁移到其他实体，原候选已保留。');
+    }
+    for (const candidate of proposal.relationDrafts) {
+      const current = recovered.relation(candidate.relationId);
+      if (!current) throw new Error('候选所属元数据已不存在；原候选已保留，请核对配置。');
+      for (const change of candidate.fieldDrafts) {
+        if (!change.field || change.operation === 'DELETE')
+          throw new Error('无法恢复此字段候选；原候选已保留，请核对配置。');
+        const existing =
+          change.operation === 'UPDATE'
+            ? current.fields[change.fieldId ?? '']
+            : Object.values(current.fields).find((field) => field.fieldName === change.field!.fieldName);
+        if (change.operation === 'UPDATE' && !existing)
+          throw new Error('候选中的原字段已不存在；不会按同名迁移，原候选已保留。');
+        const original =
+          change.operation === 'UPDATE'
+            ? baseline[candidate.relationId]?.fields[change.fieldId ?? '']
+            : undefined;
+        const changedField = original
+          ? Object.fromEntries(
+              Object.entries(change.field).filter(
+                ([key, value]) =>
+                  JSON.stringify(value) !== JSON.stringify(original[key as keyof MetadataField]),
+              ),
+            )
+          : change.field;
+        const field = existing
+          ? {
+              ...existing,
+              ...changedField,
+              id: existing.id,
+              version: existing.version,
+              metadataId: existing.metadataId,
+            }
+          : { ...change.field };
+        const baselineProperty = existing
+          ? recovered.propertyForField(candidate.relationId, existing)
+          : emptyFieldPropertyDraft('BASIC');
+        let property: MetadataFieldPropertyDraft = change.property
+          ? {
+              ...change.property,
+              expectedBindingVersion: baselineProperty.expectedBindingVersion,
+              dictionaryConfig: change.property.dictionaryConfig
+                ? {
+                    ...change.property.dictionaryConfig,
+                    selectionMode: change.property.dictionaryConfig.selectionMode?.toUpperCase() as
+                      | 'SINGLE'
+                      | 'MULTIPLE'
+                      | undefined,
+                  }
+                : undefined,
+              ...(change.property.fixedDefault
+                ? {
+                    fixedDefault: {
+                      value: change.property.fixedDefault.value,
+                      expectedConfigVersion: baselineProperty.fixedDefault?.expectedConfigVersion,
+                    },
+                  }
+                : {}),
+            }
+          : baselineProperty;
+        const originalProperty = original
+          ? baseline[candidate.relationId]?.fieldProperties[change.fieldId ?? '']
+          : undefined;
+        if (change.property && originalProperty?.kind === property.kind) {
+          const intended = property;
+          property = copyFieldPropertyDraft(baselineProperty);
+          for (const key of ['referenceConfig', 'dictionaryConfig'] as const) {
+            const before = originalProperty[key];
+            const desired = intended[key];
+            if (!desired) continue;
+            const changes = Object.fromEntries(
+              Object.entries(desired).filter(
+                ([name, value]) =>
+                  JSON.stringify(value) !== JSON.stringify(before?.[name as keyof typeof before]),
+              ),
+            );
+            if (Object.keys(changes).length)
+              property = { ...property, [key]: { ...property[key], ...changes } };
+          }
+          if (intended.fixedDefault?.value !== originalProperty.fixedDefault?.value)
+            property.fixedDefault = intended.fixedDefault;
+        }
+        recovered.stageField(candidate.relationId, field, property);
+      }
+      for (const [capability, selected] of Object.entries(candidate.capabilitySelections ?? {}))
+        if (selected && !enabledCapabilities[candidate.relationId]?.includes(capability))
+          recovered.stageCapability(candidate.relationId, capability, true);
+    }
+    for (const order of proposal.fieldOrders) {
+      if (!sameMembers(recovered.relation(order.relationId)?.sortableFieldIds ?? [], order.fieldIds))
+        throw new Error('字段排序范围已变化；原候选已保留，请重新核对。');
+      recovered.stageFieldOrder(order.relationId, order.fieldIds);
+    }
+    for (const order of proposal.relationOrders) {
+      if (!sameMembers(recovered.relationOrder.value[order.parentMetadataId ?? ''] ?? [], order.relationIds))
+        throw new Error('元数据排序范围已变化；原候选已保留，请重新核对。');
+      recovered.stageRelationOrder(order.parentMetadataId, order.relationIds);
+    }
+    const rebased = recovered.buildProposal()!;
+    return () => {
+      begin(sources);
+      for (const candidate of rebased.relationDrafts) {
+        const source = recovered.relation(candidate.relationId)!;
+        for (const change of candidate.fieldDrafts)
+          stageField(candidate.relationId, change.field!, source.fieldProperties[fieldKey(change.field!)!]);
+        for (const [capability, selected] of Object.entries(candidate.capabilitySelections ?? {}))
+          stageCapability(candidate.relationId, capability, selected);
+      }
+      for (const order of rebased.fieldOrders) stageFieldOrder(order.relationId, order.fieldIds);
+      for (const order of rebased.relationOrders)
+        stageRelationOrder(order.parentMetadataId, order.relationIds);
+    };
   }
 
   function cancel() {
@@ -206,6 +343,15 @@ export function createMetadataModelWorkspaceEditSession() {
     return buildProposal(projected);
   }
 
+  function stageCapability(relationId: string, capability: string, selected: boolean) {
+    const current = relation(relationId);
+    if (!current) throw new Error('No metadata edit session');
+    const selections = { ...current.capabilitySelections };
+    if (selected) selections[capability] = true;
+    else delete selections[capability];
+    current.capabilitySelections = selections;
+  }
+
   function stageFieldOrder(relationId: string, fieldIds: string[]) {
     const current = relation(relationId);
     if (!current || !sameMembers(current.sortableFieldIds, fieldIds)) return;
@@ -250,6 +396,8 @@ export function createMetadataModelWorkspaceEditSession() {
     editing,
     isDirty,
     begin,
+    prepareRebase,
+    captureBaseline: () => copyRelationDrafts(initial.value),
     cancel,
     relation,
     fieldsForDisplay,
@@ -257,6 +405,7 @@ export function createMetadataModelWorkspaceEditSession() {
     stageField,
     stageFields,
     discardNewField,
+    stageCapability,
     stageFieldOrder,
     stageRelationOrder,
     buildProposal,
@@ -274,6 +423,7 @@ function relationDraft(source: MetadataModelRelationDraftSource): MetadataModelR
     parentMetadataId: source.parentMetadataId,
     expectedMetadataVersion: source.expectedMetadataVersion,
     fields,
+    capabilitySelections: {},
     fieldProperties: propertyMap(fields, source.fieldProperties ?? []),
     fieldOrder: Object.keys(fields),
     sortableFieldIds: source.sortableFieldIds ?? Object.keys(fields),
@@ -294,7 +444,10 @@ function relationProposalOf(
       fieldDrafts.push({
         operation: 'ADD',
         field: { ...field },
-        property: property.kind === 'BASIC' ? undefined : toFieldPropertyChangeSetPayload(property),
+        property:
+          property.kind === 'BASIC' && !property.fixedDefault
+            ? undefined
+            : toFieldPropertyChangeSetPayload(property),
       });
     } else if (JSON.stringify(field) !== JSON.stringify(initialField) || propertyChanged) {
       fieldDrafts.push({
@@ -306,8 +459,15 @@ function relationProposalOf(
       });
     }
   }
-  return fieldDrafts.length
-    ? { expectedMetadataVersion: current.expectedMetadataVersion, fieldDrafts }
+  const capabilitySelections = current.capabilitySelections;
+  return fieldDrafts.length || Object.keys(capabilitySelections).length
+    ? {
+        expectedMetadataVersion: current.expectedMetadataVersion,
+        fieldDrafts,
+        ...(Object.keys(capabilitySelections).length
+          ? { capabilitySelections: { ...capabilitySelections } }
+          : {}),
+      }
     : undefined;
 }
 
@@ -321,6 +481,7 @@ function copyRelationDrafts(source: Record<string, MetadataModelRelationDraft>) 
       relationId,
       {
         ...value,
+        capabilitySelections: { ...value.capabilitySelections },
         fields: copyFieldMap(value.fields),
         fieldProperties: copyFieldPropertyMap(value.fieldProperties),
         fieldOrder: [...value.fieldOrder],

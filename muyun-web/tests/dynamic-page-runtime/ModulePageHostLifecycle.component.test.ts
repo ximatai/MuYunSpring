@@ -1,7 +1,7 @@
 import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { computed, defineComponent, h, onMounted, provide } from 'vue';
+import { computed, defineComponent, h, onMounted, provide, ref } from 'vue';
 import { assistantBusinessScopeKey } from '@/dynamic-page-runtime/assistantBusinessScope';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
@@ -774,5 +774,42 @@ it('reloads published configuration when idle and defers replacement while a for
     expect(wrapper.text()).not.toContain('当前填写内容已保留');
   } finally {
     wrapper.unmount();
+  }
+});
+
+it('registers an already mounted business page when its workbench identity becomes available', async () => {
+  configureModuleContext({
+    http: {
+      async request(options) {
+        if (options.path === '/crm.customer/query')
+          return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
+        return runtime('crm.customer') as never;
+      },
+    },
+  });
+  const registry = createAssistantSurfaceRegistry();
+  const pageKey = ref<string>();
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => pageKey.value });
+      return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
+    },
+  });
+  const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+  try {
+    await flushPromises();
+    await flushPromises();
+    const sessionUid = controlSessionUid(wrapper);
+    expect(registry.snapshot()).toBeUndefined();
+    pageKey.value = 'restored-page';
+    registry.activate(pageKey.value);
+    await flushPromises();
+    await flushPromises();
+    expect(registry.snapshot()?.context.facts.moduleAlias).toBe('crm.customer');
+    expect(registry.snapshot()?.token.pageInstanceKey).toBe('restored-page');
+    expect(controlSessionUid(wrapper)).toBe(sessionUid);
+  } finally {
+    wrapper.unmount();
+    expect(registry.snapshot()).toBeUndefined();
   }
 });

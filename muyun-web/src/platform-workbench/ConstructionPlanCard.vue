@@ -5,6 +5,7 @@ import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   constructionPlanBindings,
   presentConstructionPlan,
+  planSections,
   type ConstructionPlanSession,
 } from './constructionPlanSession';
 const props = defineProps<{ session: ConstructionPlanSession; disabled?: boolean }>();
@@ -14,15 +15,15 @@ const selected = ref('');
 const editing = computed(() => props.session.manualEditing.value);
 const editTitle = ref('');
 const editGoal = ref('');
-const editScope = ref('');
-const editAcceptance = ref('');
+const editSections = ref<Record<string, string>>({});
 function beginEdit() {
   const content = props.session.current().candidate;
   if (!content) return;
   editTitle.value = content.title;
   editGoal.value = content.goal;
-  editScope.value = content.inScope.join('\n');
-  editAcceptance.value = content.acceptanceExamples.join('\n');
+  editSections.value = Object.fromEntries(
+    Object.keys(planSections).map((key) => [key, content[key as keyof typeof planSections].join('\n')]),
+  );
   props.session.beginManualEdit();
 }
 function applyEdit() {
@@ -37,8 +38,7 @@ function applyEdit() {
     ...content,
     title: editTitle.value,
     goal: editGoal.value,
-    inScope: lines(editScope.value),
-    acceptanceExamples: lines(editAcceptance.value),
+    ...Object.fromEntries(Object.entries(editSections.value).map(([key, value]) => [key, lines(value)])),
   });
 }
 const revisions = ref<ConstructionPlanSnapshot[]>([]);
@@ -78,8 +78,9 @@ function progressLabel(object: ConstructionTask['objects'][number]) {
   if (value.needsReview) return '已有配置，需要核对最新变化';
   if (value.entryVisible && value.pagePublished) return '页面和入口已可用，待实际试用';
   if (value.pagePublished) return '页面已发布，访问入口待完成';
-  if (value.requirements?.some((item) => item.status === 'CONFIGURATION_MISSING'))
+  if (object.requirements.some((item) => item.status === 'CONFIGURATION_MISSING'))
     return '已建立，登记内容待补齐，页面尚未发布';
+  if (currentTask.value?.unmappedRequirements.length) return '已有配置，本期要求待核对，页面尚未发布';
   return '登记内容已配置，页面尚未发布';
 }
 
@@ -198,6 +199,12 @@ async function run(action: () => unknown) {
       @click="run(() => session.readTask())"
       >查看下一步</UiButton
     >
+    <details v-if="currentTask?.unmappedRequirements.length">
+      <summary>尚未对应业务对象的要求</summary>
+      <p v-for="item in currentTask.unmappedRequirements" :key="`${item.section}:${item.index}`">
+        {{ item.statement }}：尚未对应。{{ item.explanation }}
+      </p>
+    </details>
     <section
       v-for="object in session.currentTask()?.objects ?? []"
       :key="object.objectKey"
@@ -238,13 +245,14 @@ async function run(action: () => unknown) {
       v-if="state.candidate && !editing && !delivered"
       :disabled="disabled || working"
       @click="run(beginEdit)"
-      >修改目标与范围</UiButton
+      >修改业务方案</UiButton
     >
     <section v-if="editing" aria-label="修改方案候选">
       <label>方案名称<input v-model="editTitle" maxlength="120" :disabled="disabled || working" /></label>
       <label>业务目标<textarea v-model="editGoal" maxlength="1500" :disabled="disabled || working" /></label>
-      <label>本期范围（每行一项）<textarea v-model="editScope" :disabled="disabled || working" /></label>
-      <label>验收例子（每行一项）<textarea v-model="editAcceptance" :disabled="disabled || working" /></label>
+      <label v-for="(label, key) in planSections" :key="key"
+        >{{ label }}（每行一项）<textarea v-model="editSections[key]" :disabled="disabled || working" />
+      </label>
       <UiButton :disabled="disabled || working" @click="run(applyEdit)">更新候选，稍后确认</UiButton>
       <UiButton :disabled="disabled || working" @click="session.cancelManualEdit()">取消人工修改</UiButton>
     </section>

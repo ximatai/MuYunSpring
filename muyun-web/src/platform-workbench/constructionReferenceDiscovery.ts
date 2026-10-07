@@ -87,6 +87,7 @@ export function createConstructionReferenceDiscoveryCapabilities(
               .includes(search),
         );
         return {
+          query: { ...(applicationAlias !== undefined ? { applicationAlias } : {}), search },
           modules: modules.slice(offset, offset + 20),
           total: modules.length,
           nextOffset: offset + 20 < modules.length ? offset + 20 : null,

@@ -5,6 +5,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreateCommand;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreationResult;
@@ -22,6 +24,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationRecordCo
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog;
 import net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.web.NestedSortableCrudWebSupport;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -46,6 +49,7 @@ public class PlatformModuleMetadataRelationWebController
     private final ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService;
     private final MetadataModelDeletionService deletionService;
     private final ModuleMetadataRelationRecordCountService recordCountService;
+    private final PlatformModuleService moduleService;
 
     public PlatformModuleMetadataRelationWebController(ModuleMetadataOrchestrationService orchestrationService,
                                                        ModuleMetadataCapabilitySnapshotService capabilitySnapshotService,
@@ -53,7 +57,9 @@ public class PlatformModuleMetadataRelationWebController
                                                        ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService,
                                                        MetadataModelDeletionService deletionService,
                                                        ModuleMetadataRelationRecordCountService recordCountService,
-                                                       ModuleChildMetadataCreationService childCreationService) {
+                                                       ModuleChildMetadataCreationService childCreationService,
+                                                       PlatformModuleService moduleService) {
+        this.moduleService = Objects.requireNonNull(moduleService, "moduleService must not be null");
         this.childCreationService = Objects.requireNonNull(childCreationService, "childCreationService must not be null");
         this.orchestrationService = Objects.requireNonNull(orchestrationService, "orchestrationService must not be null");
         this.capabilitySnapshotService = Objects.requireNonNull(capabilitySnapshotService, "capabilitySnapshotService must not be null");
@@ -158,17 +164,17 @@ public class PlatformModuleMetadataRelationWebController
 
     @Override
     protected void appendScope(Criteria criteria, HttpServletRequest request) {
-        criteria.eq("moduleAlias", moduleAlias(request));
+        criteria.eq("moduleAlias", requireModuleAlias(request));
     }
 
     @Override
     protected void bindScope(ModuleMetadataRelation record, HttpServletRequest request) {
-        record.setModuleAlias(moduleAlias(request));
+        record.setModuleAlias(requireModuleAlias(request));
     }
 
     @Override
     protected boolean inScope(ModuleMetadataRelation record, HttpServletRequest request) {
-        return moduleAlias(request).equals(record.getModuleAlias());
+        return requireModuleAlias(request).equals(record.getModuleAlias());
     }
 
     @Override
@@ -178,6 +184,15 @@ public class PlatformModuleMetadataRelationWebController
 
     private String moduleAlias(HttpServletRequest request) {
         return PlatformNameRules.requireModuleAlias(pathVariable(request, "moduleAlias"));
+    }
+
+    private String requireModuleAlias(HttpServletRequest request) {
+        String alias = moduleAlias(request);
+        if (moduleService.select(alias) == null) {
+            throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                    "模块不存在或当前范围不可访问，请重新选择模块。");
+        }
+        return alias;
     }
 
 }

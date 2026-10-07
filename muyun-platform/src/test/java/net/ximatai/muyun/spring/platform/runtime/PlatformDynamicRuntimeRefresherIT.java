@@ -371,7 +371,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         MetadataFieldProtectionConfigService protectionConfigService =
                 new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
         MetadataFieldConfigService fieldConfigService =
-                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, protectionConfigService, Optional.empty());
+                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.empty());
         MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
         MetadataFieldReferenceConfigService referenceConfigService =

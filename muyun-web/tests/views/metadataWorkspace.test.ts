@@ -1,8 +1,15 @@
+import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import { createConstructionPlanSession } from '@/platform-workbench/constructionPlanSession';
 import type { ConstructionPlanSnapshot } from '@muyun/web-contracts';
 import type { AssistantCapability, ConstructionPlanClient } from '@muyun/web-core';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createAssistantSurfaceRegistry, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { nextTick } from 'vue';
+import {
+  AppError,
+  createAssistantSurfaceRegistry,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@/web-core';
 import { createMetadataWorkspace, type MetadataWorkspace } from '@/views/metadataWorkspace';
 import { presentPlatformMessage, handlePlatformActionSuccess } from '@muyun/platform-components';
 import { confirmAction } from '@muyun/vue-ui-antdv';
@@ -127,6 +134,87 @@ function fixture(
   };
 }
 
+it.each(['single', 'batch'])(
+  'prepares a standard record-name field without technical naming input (%s)',
+  async (mode) => {
+    const f = fixture();
+    await f.select();
+    const before = await f.invoke('configuration.describe-metadata-model');
+    expect(before.value).toMatchObject({
+      selectedRelation: { fieldsSource: 'SAVED_CONFIGURATION', fieldCount: 0 },
+    });
+    const field = {
+      title: '客户名称',
+      fieldSpecAlias: 'string',
+      titleField: true,
+      required: true,
+      unique: false,
+    };
+    if (mode === 'single') await f.invoke('configuration.add-metadata-field-draft', field);
+    else
+      await f.invoke('configuration.prepare-metadata-field-plan', { fields: [{ kind: 'BASIC', ...field }] });
+    const candidate = await f.invoke('configuration.describe-metadata-model');
+    expect(candidate.value).toMatchObject({
+      selectedRelation: {
+        fieldsSource: 'UNSAVED_CANDIDATE',
+        fields: [
+          {
+            fieldName: 'title',
+            columnName: 'title',
+            title: '客户名称',
+            titleField: true,
+            required: true,
+            uniqueField: false,
+          },
+        ],
+      },
+    });
+    await f.invoke('configuration.preview-metadata-draft');
+    const preview = f.request.mock.calls.find(([request]) => request.path.endsWith('change-set-preview'));
+    expect(preview?.[0].body).toMatchObject({
+      relationDrafts: [
+        {
+          fieldDrafts: [
+            {
+              field: {
+                fieldName: 'title',
+                columnName: 'title',
+                titleField: true,
+                fieldSpecAlias: 'string',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(f.request.mock.calls.some(([request]) => request.path.endsWith('change-set-apply'))).toBe(false);
+  },
+);
+
+it('updates generated names when a human selects record-name semantics and preserves explicit names', async () => {
+  const f = fixture();
+  await f.select();
+  const view = f.workspace.session('demo.order').view;
+  view.startCreateChildNode('BASIC');
+  view.fieldDraft.value.title = '客户名称';
+  await nextTick();
+  expect(view.fieldDraft.value.fieldName).toBe('keHuMingCheng');
+  view.fieldDraft.value.titleField = true;
+  await nextTick();
+  expect(view.fieldDraft.value).toMatchObject({ fieldName: 'title', columnName: 'title' });
+  view.fieldDraft.value.title = '客户简称';
+  await nextTick();
+  expect(view.fieldDraft.value).toMatchObject({ fieldName: 'title', columnName: 'title' });
+  view.fieldDraft.value.titleField = false;
+  await nextTick();
+  expect(view.fieldDraft.value).toMatchObject({ fieldName: 'keHuJianCheng', columnName: 'ke_hu_jian_cheng' });
+  view.updateFieldName('customName');
+  view.updateColumnName('custom_column');
+  view.fieldDraft.value.titleField = true;
+  await nextTick();
+  expect(view.fieldDraft.value).toMatchObject({ fieldName: 'customName', columnName: 'custom_column' });
+});
+
 it('opens page composition without selecting or loading metadata and preserves existing metadata drafts', async () => {
   const f = fixture();
   await f.invoke('configuration.open-page-editor', { moduleAlias: 'demo.order' });
@@ -207,6 +295,108 @@ it('manual metadata confirmation presents business changes and warnings while ke
   expect(options.content).toContain('需要刷新生效');
   expect(options.details?.lines.join('\n')).toContain('note');
   expect(f.request.mock.calls.some(([request]) => request.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it('stages managed capabilities with an existing field batch and expires confirmation after manual changes', async () => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (request) =>
+    request.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'ENABLE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '',
+              fieldContributions: ['enabled'],
+              defaultKind: 'STATIC',
+              defaultDescription: '默认启用',
+            },
+          ],
+        }
+      : original(request),
+  );
+  await f.select();
+  await f.invoke('configuration.prepare-metadata-field-plan', {
+    fields: [
+      { kind: 'BASIC', title: '姓名', fieldName: 'name', fieldSpecAlias: 'string' },
+      { kind: 'BASIC', title: '电话', fieldName: 'phone', fieldSpecAlias: 'string' },
+    ],
+  });
+  await expect(
+    f.invoke('configuration.add-metadata-field-draft', {
+      title: '启用状态',
+      fieldName: 'enabled',
+      fieldSpecAlias: 'string',
+    }),
+  ).rejects.toThrow('基础能力');
+  await f.invoke('configuration.prepare-metadata-capability-draft', { capability: 'ENABLE', selected: true });
+  const old = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+  f.workspace.session('demo.order').view.selectCapability('ENABLE', false);
+  await old.confirm();
+  expect(old.state).toBe('expired');
+  expect(f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'))).toHaveLength(
+    0,
+  );
+  f.workspace.session('demo.order').view.selectCapability('ENABLE', true);
+  const confirmation = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+  await confirmation.confirm();
+  expect(confirmation.state).toBe('succeeded');
+  const applies = f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'));
+  expect(applies).toHaveLength(1);
+  expect(applies[0][0].body).toMatchObject({
+    proposal: {
+      relationDrafts: [
+        {
+          capabilitySelections: { ENABLE: true },
+          fieldDrafts: [{ field: { fieldName: 'name' } }, { field: { fieldName: 'phone' } }],
+        },
+      ],
+    },
+  });
+});
+
+it('publishes a capability-only candidate through the standard human confirmation', async () => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (request) =>
+    request.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'TREE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '',
+              fieldContributions: ['parentId', 'sortOrder'],
+              defaultKind: 'RUNTIME',
+              defaultDescription: '根节点',
+            },
+          ],
+        }
+      : original(request),
+  );
+  await f.select();
+  const view = f.workspace.session('demo.order').view;
+  view.selectCapability('TREE', true);
+  expect(f.workspace.session('demo.order').dirty.value).toBe(true);
+  vi.mocked(confirmAction).mockResolvedValueOnce(true);
+  await view.previewAndApply('基础能力');
+  const applies = f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'));
+  expect(applies).toHaveLength(1);
+  expect(applies[0][0].body).toMatchObject({
+    proposal: {
+      relationDrafts: [
+        {
+          capabilitySelections: { TREE: true },
+          fieldDrafts: [],
+        },
+      ],
+    },
+  });
 });
 
 it('reads existing business constraints and staged field changes without writing configuration', async () => {
@@ -425,7 +615,11 @@ it('does not replace a human candidate with a late governance refresh', async ()
 it('shares a child candidate with the page, confirms once and continues field configuration on the created child', async () => {
   const f = fixture();
   await f.select();
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '商品明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '商品明细',
+  });
   const shared = f.workspace.session('demo.order');
   expect(shared.view.creatingChildMetadata.value).toBe(true);
   expect(
@@ -437,7 +631,11 @@ it('shares a child candidate with the page, confirms once and continues field co
   shared.view.childMetadataDraft.value.alias = 'items';
   expect(first.isCurrent()).toBe(false);
   await expect(first.execute()).rejects.toThrow();
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '成交明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '成交明细',
+  });
   const confirmation = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
   expect(confirmation.presentation.title).toContain('成交明细');
   await confirmation.confirm();
@@ -455,16 +653,56 @@ it('shares a child candidate with the page, confirms once and continues field co
   expect(shared.adapter.proposal()?.relationDrafts[0].relationId).toBe('lines');
 });
 
+it('rejects a child under a different intended parent before changing the shared candidate', async () => {
+  const f = fixture();
+  await f.select();
+  const shared = f.workspace.session('demo.order');
+  await expect(
+    f.invoke('configuration.prepare-metadata-child-draft', {
+      parentRelationId: 'another-parent',
+      alias: 'expenses',
+      title: '费用明细',
+    }),
+  ).rejects.toThrow('目标父级');
+  expect(shared.view.creatingChildMetadata.value).toBe(false);
+  const prepared = await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'expenses',
+    title: '费用明细',
+  });
+  expect(prepared.value).toMatchObject({ parentRelationId: 'main', saved: false });
+  expect(prepared.presentation!.lines.join('；')).toContain('所属父级：');
+  await expect(
+    f.invoke('configuration.prepare-metadata-child-draft', {
+      parentRelationId: 'another-parent',
+      alias: 'expenses',
+      title: '错误修订',
+    }),
+  ).rejects.toThrow('目标父级');
+  expect(shared.view.childMetadataDraft.value.title).toBe('费用明细');
+  expect(f.request.mock.calls.some(([request]) => request.path.endsWith('/create-child-metadata'))).toBe(
+    false,
+  );
+});
+
 it('invalidates child confirmations on focus change and does not replace another unsaved field candidate', async () => {
   const f = fixture();
   await f.select();
   await f.add();
   await expect(
-    f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' }),
+    f.invoke('configuration.prepare-metadata-child-draft', {
+      parentRelationId: 'main',
+      alias: 'lines',
+      title: '明细',
+    }),
   ).rejects.toThrow();
   expect(f.workspace.session('demo.order').view.fieldDraft.value.title).toBe('备注');
   await f.invoke('configuration.discard-metadata-draft');
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '明细',
+  });
   const shared = f.workspace.session('demo.order');
   const proposal = await shared.adapter.prepareConfirmation!(new AbortController().signal);
   await f.select('demo.customer');
@@ -479,7 +717,11 @@ it('invalidates child confirmations on focus change and does not replace another
 it('leaves an uncertain child creation unresolved instead of guessing success or retrying', async () => {
   const f = fixture();
   await f.select();
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '明细',
+  });
   const shared = f.workspace.session('demo.order');
   const proposal = await shared.adapter.prepareConfirmation!(new AbortController().signal);
   f.request.mockRejectedValueOnce(new Error('Connection lost after write'));
@@ -492,7 +734,11 @@ it('leaves an uncertain child creation unresolved instead of guessing success or
 it('recovers a committed child creation by request receipt without replaying the write', async () => {
   const f = fixture();
   await f.select();
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '明细',
+  });
   const shared = f.workspace.session('demo.order');
   const confirmation = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
   const original = f.request.getMockImplementation()!;
@@ -523,7 +769,11 @@ it.each([false, true])(
   async (committed) => {
     const f = fixture();
     await f.select();
-    await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+    await f.invoke('configuration.prepare-metadata-child-draft', {
+      parentRelationId: 'main',
+      alias: 'lines',
+      title: '明细',
+    });
     const shared = f.workspace.session('demo.order');
     const original = f.request.getMockImplementation()!;
     f.request.mockImplementation(async (request) => {
@@ -575,7 +825,11 @@ it.each(['candidate', 'focus', 'identity'])(
   async (change) => {
     const f = fixture();
     await f.select();
-    await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+    await f.invoke('configuration.prepare-metadata-child-draft', {
+      parentRelationId: 'main',
+      alias: 'lines',
+      title: '明细',
+    });
     const shared = f.workspace.session('demo.order');
     const proposal = await shared.adapter.prepareConfirmation!(new AbortController().signal);
     f.request.mockRejectedValueOnce(new Error('Connection lost'));
@@ -612,7 +866,11 @@ it.each(['candidate', 'focus', 'identity'])(
 it('reports committed child creation even when the subsequent workspace reload fails', async () => {
   const f = fixture();
   await f.select();
-  await f.invoke('configuration.prepare-metadata-child-draft', { alias: 'lines', title: '明细' });
+  await f.invoke('configuration.prepare-metadata-child-draft', {
+    parentRelationId: 'main',
+    alias: 'lines',
+    title: '明细',
+  });
   const proposal = await f.workspace.session('demo.order').adapter.prepareConfirmation!(
     new AbortController().signal,
   );
@@ -679,7 +937,9 @@ it('continues initialized construction in the shared metadata candidate and hono
     () => true,
   );
   await construction.restore('plan');
-  const f = fixture(construction.capabilities, construction.continueConfiguration);
+  const collaboration = createConfigurationCollaboration();
+  collaboration.restore({ goal: '继续完善订单', mode: 'visual' });
+  const f = fixture(construction.capabilities, (capabilities) => collaboration.filter(capabilities, true));
   const binding = construction.current().saved!.initializations[0]!;
   await f.select(binding.moduleAlias);
   await f.add();
@@ -706,7 +966,7 @@ it('continues initialized construction in the shared metadata candidate and hono
   const unrelated = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
   await unrelated.confirm();
   expect(unrelated.state).toBe('succeeded');
-  expect(unrelated.takeContinuation()).toBeUndefined();
+  expect(unrelated.takeContinuation()).toContain('用户已明确目标中的剩余事项');
 });
 
 it('revises one field in a batch candidate while preserving manual changes and invalidating old confirmation', async () => {
@@ -878,4 +1138,227 @@ it('reads relation identities on demand instead of repeating them in every works
   expect((result.value as { relations: unknown[] }).relations).toHaveLength(2);
   await expect(f.invoke('configuration.list-metadata-relations', { offset: -1 })).rejects.toThrow();
   await expect(f.invoke('configuration.list-metadata-relations', { payload: {} })).rejects.toThrow();
+});
+
+it.each(['rejected', 'unknown'] as const)(
+  'keeps atomic metadata %s outcomes distinct in the assistant confirmation',
+  async (outcome) => {
+    const f = fixture();
+    const original = f.request.getMockImplementation()!;
+    let rejectedOnce = false;
+    f.request.mockImplementation(async (request) => {
+      if (request.path.endsWith('change-set-apply') && !rejectedOnce) {
+        rejectedOnce = true;
+        throw outcome === 'rejected'
+          ? new AppError('能力配置不符合要求', { code: 'INVALID_CONFIGURATION', status: 400 })
+          : new Error('connection lost');
+      }
+      return original(request);
+    });
+    await f.select();
+    await f.add();
+    const confirmation = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+    await confirmation.confirm();
+    expect(confirmation.state).toBe(outcome);
+    const applies = () =>
+      f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'));
+    expect(applies()).toHaveLength(1);
+    if (outcome === 'rejected') {
+      expect(confirmation.result?.title).toBe('操作未提交');
+      await confirmation.confirm();
+      expect(confirmation.state).toBe('succeeded');
+      expect(applies()).toHaveLength(2);
+    } else {
+      await confirmation.check();
+      await confirmation.confirm();
+      expect(confirmation.state).toBe('unknown');
+      expect(applies()).toHaveLength(1);
+    }
+  },
+);
+
+it('stages fixed defaults through the shared draft, preserves human changes, and expires an earlier confirmation', async () => {
+  const f = fixture();
+  await f.select();
+  await f.invoke('configuration.add-metadata-field-draft', {
+    title: '优惠系数',
+    fieldName: 'rate',
+    fieldSpecAlias: 'string',
+    defaultValue: '1',
+  });
+  const shared = f.workspace.session('demo.order');
+  expect(shared.view.fieldPropertyDraft.value.fixedDefault).toEqual({ value: '1' });
+  expect(f.request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  shared.view.fieldDraft.value.title = '人工调整的优惠系数';
+  const old = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+  await f.invoke('configuration.update-metadata-field-draft', { fieldName: 'rate', defaultValue: '0.9' });
+  expect(shared.view.fieldDraft.value.title).toBe('人工调整的优惠系数');
+  await old.confirm();
+  expect(old.state).toBe('expired');
+  const fresh = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+  expect(fresh.presentation.lines.join('\n')).toContain('固定默认值：0.9');
+  await fresh.confirm();
+  expect(fresh.state).toBe('succeeded');
+  const applies = f.request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'));
+  expect(applies).toHaveLength(1);
+  expect(applies[0][0].body).toMatchObject({
+    proposal: {
+      relationDrafts: [
+        {
+          fieldDrafts: [
+            { field: { title: '人工调整的优惠系数' }, property: { fixedDefault: { value: '0.9' } } },
+          ],
+        },
+      ],
+    },
+  });
+});
+
+it.each([1, false, {}, 'x'.repeat(513)])(
+  'rejects an invalid fixed default before changing a shared candidate: %j',
+  async (defaultValue) => {
+    const f = fixture();
+    await f.select();
+    await expect(
+      f.invoke('configuration.add-metadata-field-draft', {
+        title: '优惠系数',
+        fieldName: 'rate',
+        fieldSpecAlias: 'string',
+        defaultValue,
+      }),
+    ).rejects.toThrow();
+    expect(f.workspace.session('demo.order').dirty.value).toBe(false);
+  },
+);
+
+it.each(['manual', 'assistant'] as const)(
+  'protects an unknown %s metadata submission across both entries until a guarded current read',
+  async (entry) => {
+    const f = fixture();
+    await f.select();
+    await f.add();
+    const session = f.workspace.session('demo.order');
+    const prepared = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+    const original = f.request.getMockImplementation()!;
+    let refreshed = false;
+    f.request.mockImplementation(async (request) => {
+      if (request.path.endsWith('change-set-apply')) throw new Error('response lost');
+      if (refreshed && request.path.startsWith('/platform.metadata/view/'))
+        return { id: request.path.split('/').at(-1), title: '订单', version: 9 };
+      return original(request);
+    });
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    if (entry === 'manual') await session.view.stageFieldDraft();
+    else await prepared.confirm();
+    await nextTick();
+    // stageFieldDraft starts the same manual async submit; finish its HTTP work.
+    for (let index = 0; index < 10 && session.saving.value; index++) await nextTick();
+    expect(session.submissionStatus.value).toBe('unknown');
+    const retained = session.adapter.proposal();
+    expect(retained?.relationDrafts[0]?.fieldDrafts[0]?.field?.fieldName).toBe('note');
+    expect(() => session.adapter.discardCandidate!()).toThrow('结果未知');
+    await expect(session.adapter.prepareConfirmation!(new AbortController().signal)).rejects.toThrow(
+      '结果未知',
+    );
+    await expect(session.view.loadWorkspace()).rejects.toThrow('结果未知');
+    await session.view.previewAndApply();
+    await f.select('demo.order', true);
+    expect(session.submissionStatus.value).toBe('unknown');
+    expect(session.adapter.proposal()).toEqual(retained);
+    expect(
+      f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply')),
+    ).toHaveLength(1);
+    expect(() => session.view.cancelFieldPlan()).toThrow('结果未知');
+    refreshed = true;
+    const read = await f.invoke('configuration.read-current-metadata');
+    expect(read.value).toMatchObject({ originalSubmission: 'unknown', currentConfigurationRead: true });
+    expect(session.submissionStatus.value).toBe('current-read');
+    expect(session.adapter.proposal()?.relationDrafts[0]).toMatchObject({
+      expectedMetadataVersion: 9,
+      fieldDrafts: [{ operation: 'ADD', field: { fieldName: 'note' } }],
+    });
+    if (entry === 'assistant') expect(prepared.state).toBe('unknown');
+    expect(
+      f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply')),
+    ).toHaveLength(1);
+    const fresh = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+    expect(fresh.state).toBe('pending');
+  },
+);
+
+it.each(['failure', 'identity', 'cancel', 'scope', 'candidate'] as const)(
+  'retains metadata unknown state and candidate when current read encounters %s',
+  async (failure) => {
+    const f = fixture();
+    await f.select();
+    await f.add();
+    const session = f.workspace.session('demo.order');
+    const original = f.request.getMockImplementation()!;
+    f.request.mockImplementation(async (request) => {
+      if (request.path.endsWith('change-set-apply')) throw new Error('response lost');
+      return original(request);
+    });
+    await (await f.invoke('configuration.prepare-metadata-apply')).confirmation!.confirm();
+    const retained = session.adapter.proposal();
+    let finish!: (value: unknown) => void;
+    f.request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const reading = session.readCurrent(controller.signal);
+    if (failure === 'identity') f.identity('other');
+    if (failure === 'cancel') controller.abort();
+    if (failure === 'scope') f.workspace.focus(f.workspace.session('demo.other'));
+    if (failure === 'candidate') session.view.state.fieldDraft.value.title = 'changed during read';
+    finish(
+      failure === 'failure'
+        ? undefined
+        : await original({ path: '/platform.module/demo.order/metadata-relations/query' }),
+    );
+    await expect(reading).rejects.toThrow();
+    expect(session.submissionStatus.value).toBe('unknown');
+    if (failure !== 'candidate') expect(session.adapter.proposal()).toEqual(retained);
+    else expect(session.view.state.fieldDraft.value.title).toBe('changed during read');
+  },
+);
+
+it('keeps a proven metadata save distinct from a failed readback and allows reopening its recovery editor', async () => {
+  const f = fixture();
+  await f.select();
+  await f.add();
+  const session = f.workspace.session('demo.order');
+  const original = f.request.getMockImplementation()!;
+  let committed = false;
+  let failedReadback = false;
+  f.request.mockImplementation(async (request) => {
+    if (request.path.endsWith('change-set-apply')) {
+      committed = true;
+      return {};
+    }
+    if (committed && !failedReadback && request.path.endsWith('/metadata-relations/query')) {
+      failedReadback = true;
+      throw new Error('readback failed');
+    }
+    return original(request);
+  });
+  const confirmation = (await f.invoke('configuration.prepare-metadata-apply')).confirmation!;
+  await confirmation.confirm();
+  expect(confirmation.state).toBe('succeeded');
+  expect(session.committedNeedsReload.value).toBe(true);
+  expect(session.submissionStatus.value).toBe('idle');
+  expect(session.workspaceReady.value).toBe(false);
+  await f.select('demo.other');
+  await f.select('demo.order', true);
+  await f.invoke('configuration.open-metadata-editor');
+  expect(f.openEditor).toHaveBeenLastCalledWith('demo.order', expect.anything());
+  await expect(session.adapter.prepareConfirmation!(new AbortController().signal)).rejects.toThrow('已保存');
+  const current = await f.invoke('configuration.read-current-metadata');
+  expect(current.value).toMatchObject({ originalSubmission: 'committed', currentConfigurationRead: true });
+  expect(session.committedNeedsReload.value).toBe(false);
+  expect(f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'))).toHaveLength(
+    1,
+  );
 });

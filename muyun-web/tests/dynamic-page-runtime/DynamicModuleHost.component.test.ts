@@ -1,6 +1,7 @@
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent } from 'vue';
+import { defineComponent, h, ref } from 'vue';
+import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
 import {
@@ -215,7 +216,7 @@ describe('ModulePageHost', () => {
           return Response.json({
             moduleAlias: 'crm.customer',
             capabilities: [],
-            actions: [],
+            actions: [{ actionCode: 'create', authorized: true }],
             uiDescriptor: {
               schemaVersion: '1',
               moduleAlias: 'crm.customer',
@@ -223,6 +224,13 @@ describe('ModulePageHost', () => {
                 template,
                 navigator: {
                   contextBindings: [
+                    {
+                      source: 'NAVIGATOR',
+                      sourceKey: 'tenant',
+                      target: 'FORM_DEFAULT',
+                      targetKey: 'ownerId',
+                    },
+                    { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'ownerId' },
                     {
                       source: 'NAVIGATOR',
                       sourceKey: 'organization',
@@ -283,6 +291,8 @@ describe('ModulePageHost', () => {
         global: {
           stubs: {
             StaticManagementLayout: {
+              name: 'StaticManagementLayout',
+              props: ['detailSubtitle'],
               template:
                 '<section><slot v-for="index in 2" name="navigator" :index="index - 1" /><slot name="explorer" /><slot /></section>',
             },
@@ -311,6 +321,24 @@ describe('ModulePageHost', () => {
       expect(tenant.props('ready')).toBe(true);
       expect(tenant.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
       expect(tenant.props('externalQueryValues')).toEqual({ organizationId: 'organization-1' });
+      tenant.vm.$emit('select', { id: 'team-1', title: '培训工作区' });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      expect(session.recordFormScopeContext).toBe('租户：培训工作区');
+      const create = await session.prepareAssistantCreate();
+      create();
+      await flushPromises();
+      if (template === 'FLAT_MANAGEMENT')
+        expect(wrapper.findComponent({ name: 'StaticManagementLayout' }).props('detailSubtitle')).toBe(
+          '租户：培训工作区',
+        );
+      else
+        expect(wrapper.findComponent({ name: 'RecordDetailPanel' }).props('subtitle')).toBe(
+          '租户：培训工作区',
+        );
+      expect(session.assistantNavigatorScopes()).toEqual([]);
       wrapper.unmount();
     },
   );
@@ -3554,13 +3582,27 @@ describe('ModulePageHost', () => {
     expect(content.props('record')).toMatchObject({ title: '新客户' });
   });
 
-  it.each(['STATIC', 'DYNAMIC'])(
-    'confirms the captured standard %s draft and queries a lost receipt',
-    async (moduleKind) => {
-      const writes: Array<{ payload: unknown; requestId: string | null }> = [];
+  it.each(['STATIC', 'DYNAMIC'].flatMap((kind) => ['human', 'assistant'].map((entry) => [kind, entry])))(
+    'protects the captured standard %s draft and recovers a lost %s save without inventing a saved view',
+    async (moduleKind, entry) => {
+      const writes: Array<{ payload: unknown; requestId: string | null; path: string }> = [];
       let lostResponse = false;
       let viewFails = false;
-      const persisted = { id: 'saved-record', title: '已确认名称', version: 1 };
+      let receiptCommitted = true;
+      let uniqueConflict = false;
+      let pendingView: Promise<Response> | undefined;
+      window.sessionStorage.clear();
+      const user = ref({ userId: 'save-user', system: false });
+      const persisted = {
+        id: 'saved-record',
+        title: '已确认名称',
+        version: 1,
+        calculatedAmount: '123.45',
+        members: [
+          { id: 'saved-child-one', name: 'student-1', 'student.title': '陈晨' },
+          { id: 'saved-child-two', name: 'student-2', 'student.title': '林晓' },
+        ],
+      };
       globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
         const path = new URL(request.url).pathname;
@@ -3652,17 +3694,28 @@ describe('ModulePageHost', () => {
               }),
             },
           });
-        if (path.endsWith('/insert')) {
+        if (path.endsWith('/insert') || path.includes('/update/')) {
           writes.push({
             payload: await request.json(),
             requestId: request.headers.get('X-Muyun-Save-Request'),
+            path,
           });
+          if (uniqueConflict)
+            return Response.json(
+              { code: 'CONFLICT_UNIQUE', status: 409, message: '标识已被使用，请修改后重新保存' },
+              { status: 409 },
+            );
           if (lostResponse) throw new Error('response lost after commit');
           return Response.json(persisted);
         }
         if (path.includes('/save-receipts/'))
-          return Response.json({ committed: true, recordId: persisted.id, recordVersion: 1 });
+          return Response.json({
+            committed: receiptCommitted && writes.some((write) => path.endsWith(`/${write.requestId}`)),
+            recordId: persisted.id,
+            recordVersion: 1,
+          });
         if (path.includes('/view/')) {
+          if (pendingView) return pendingView;
           if (viewFails) throw new Error('saved view refresh failed');
           return Response.json(persisted);
         }
@@ -3671,18 +3724,33 @@ describe('ModulePageHost', () => {
         return Response.json({ records: [], total: 0 });
       };
       configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
-      const wrapper = shallowMount(ModulePageHost, {
-        props: {
-          descriptor: {
-            pageType: 'dynamic-module',
-            openMode: 'dynamic-runner',
-            hostType: 'module-page-host',
-            tabPolicy: { identity: 'by-target' },
-            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
-          },
+      const hostProps = {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-target' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
         },
-        global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
-      });
+      } as const;
+      const mountHost = () =>
+        shallowMount(
+          defineComponent({
+            setup() {
+              provideCurrentUserContext(user);
+              return () => h(ModulePageHost, hostProps);
+            },
+          }),
+          {
+            global: {
+              stubs: {
+                ModulePageHost: false,
+                ManagementWorkspace: { template: '<section><slot /></section>' },
+              },
+            },
+          },
+        );
+      let wrapper = mountHost();
       try {
         await flushPromises();
         const session = wrapper
@@ -3777,6 +3845,151 @@ describe('ModulePageHost', () => {
         expect((await refreshFailed.execute()).title).toBe('保存成功');
         expect(refreshFailed.continuation?.isCurrent()).toBe(false);
         expect(writes).toHaveLength(3);
+        expect(session.editorMode).toBe('view');
+        expect(session.selectedRecord).toEqual({ id: persisted.id });
+        expect(session.editingRecord).toBeUndefined();
+        expect(session.detailLoadFailed).toBe(true);
+
+        // A fresh draft is submitted by either entrance. The other entrance must
+        // recover the original request rather than send another insert.
+        viewFails = false;
+        session.retryLoadDetail();
+        await flushPromises();
+        expect(session.selectedRecord).toEqual(persisted);
+        (await session.prepareAssistantCreate())();
+        await flushPromises();
+        session.updateDraftFields([{ fieldName: 'title', value: '提交前草稿' }], 'user');
+        const uncertain = await session.prepareAssistantSave();
+        lostResponse = true;
+        if (entry === 'human') await session.saveRecord();
+        else await expect(uncertain.execute()).rejects.toBeDefined();
+        expect(writes).toHaveLength(4);
+        expect(writes[3]?.requestId).toEqual(expect.any(String));
+        expect(session.recordSaveNeedsCheck).toBe(true);
+        expect(session.placedPageActions).toContainEqual(expect.objectContaining({ title: '核实保存结果' }));
+        await expect(session.prepareAssistantSave()).rejects.toBeDefined();
+        session.updateDraftFields([{ fieldName: 'title', value: '迟到输入' }], 'user');
+        expect(session.editingRecord?.title).toBe('提交前草稿');
+        await session.cancelDetailEditing();
+        expect(session.editorMode).toBe('create');
+
+        receiptCommitted = false;
+        await session.saveRecord();
+        expect(session.recordSaveNeedsCheck).toBe(true);
+        expect(writes).toHaveLength(4);
+        receiptCommitted = true;
+        viewFails = true;
+        // In particular, lost response + committed receipt + failed view must
+        // not promote the captured draft (or old formula values) to saved facts.
+        if (entry === 'assistant')
+          expect((await uncertain.lookup())?.lines.join(' ')).toContain('当前详情尚未核实');
+        else await session.checkRecordSave();
+        expect(session.recordSaveNeedsCheck).toBe(false);
+        expect(session.editorMode).toBe('view');
+        expect(session.selectedRecord).toEqual({ id: persisted.id });
+        expect(session.editingRecord).toBeUndefined();
+        expect(session.detailLoadFailed).toBe(true);
+        await session.saveRecord();
+        expect(writes).toHaveLength(4);
+        viewFails = false;
+        session.retryLoadDetail();
+        await flushPromises();
+        expect(session.selectedRecord).toEqual(persisted);
+        expect(session.selectedRecord?.calculatedAmount).toBe('123.45');
+        expect(session.detailLoadFailed).toBe(false);
+
+        (await session.prepareAssistantEdit(persisted.id))();
+        await flushPromises();
+        session.updateDraftFields([{ fieldName: 'title', value: '待保存修改' }], 'user');
+        lostResponse = false;
+        if (entry === 'human') await session.saveRecord();
+        else await (await session.prepareAssistantSave()).execute();
+        expect(writes).toHaveLength(5);
+        expect(writes[4]?.path).toContain(`/update/${persisted.id}`);
+        expect(writes[4]?.requestId).toEqual(expect.any(String));
+        expect(session.selectedRecord).toEqual(persisted);
+
+        (await session.prepareAssistantCreate())();
+        await flushPromises();
+        session.updateDraftFields([{ fieldName: 'title', value: '刷新前未决草稿' }], 'user');
+        const storageWrite = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+          throw new Error('query reference storage unavailable');
+        });
+        try {
+          await session.saveRecord();
+          expect(writes).toHaveLength(5);
+          expect(session.recordSaveNeedsCheck).toBe(false);
+        } finally {
+          storageWrite.mockRestore();
+        }
+        lostResponse = true;
+        await session.saveRecord();
+        expect(writes).toHaveLength(6);
+        expect(window.sessionStorage.length).toBe(1);
+        const stored = window.sessionStorage.getItem(window.sessionStorage.key(0)!)!;
+        expect(stored).not.toContain('刷新前未决草稿');
+        wrapper.unmount();
+        wrapper = mountHost();
+        await flushPromises();
+        const restored = wrapper
+          .findComponent({ name: 'ModulePageHostRuntime' })
+          .props('session') as ModulePageSessionView;
+        expect(restored.recordSaveNeedsCheck).toBe(true);
+        expect(restored.editingRecord).toBeUndefined();
+        expect(restored.placedPageActions).toContainEqual(expect.objectContaining({ title: '核实保存结果' }));
+        user.value = { userId: 'another-user', system: false };
+        await flushPromises();
+        expect(restored.recordSaveNeedsCheck).toBe(false);
+        user.value = { userId: 'save-user', system: false };
+        await flushPromises();
+        expect(restored.recordSaveNeedsCheck).toBe(true);
+        await restored.checkRecordSave();
+        expect(restored.recordSaveNeedsCheck).toBe(false);
+        expect(restored.editingRecord).toBeUndefined();
+        expect(writes).toHaveLength(6);
+        expect(window.sessionStorage.length).toBe(0);
+
+        (await restored.prepareAssistantCreate())();
+        await flushPromises();
+        restored.updateDraftFields([{ fieldName: 'title', value: '等待查回的草稿' }], 'user');
+        await restored.saveRecord();
+        expect(writes).toHaveLength(7);
+        let completeView!: (response: Response) => void;
+        pendingView = new Promise((resolve) => {
+          completeView = resolve;
+        });
+        const checking = restored.checkRecordSave();
+        await flushPromises();
+        expect(restored.saving).toBe(true);
+        restored.updateDraftFields([{ fieldName: 'title', value: '核实中的迟到输入' }], 'user');
+        expect(restored.editingRecord?.title).toBe('等待查回的草稿');
+        await restored.saveRecord();
+        expect(writes).toHaveLength(7);
+        completeView(Response.json(persisted));
+        await checking;
+        expect(restored.selectedRecord).toEqual(persisted);
+        expect(restored.editorMode).toBe('view');
+        expect(restored.saving).toBe(false);
+        expect(restored.recordSaveNeedsCheck).toBe(false);
+        pendingView = undefined;
+        lostResponse = false;
+        uniqueConflict = true;
+        (await restored.prepareAssistantCreate())();
+        await flushPromises();
+        restored.updateDraftFields([{ fieldName: 'title', value: '冲突草稿' }], 'user');
+        if (entry === 'human') await restored.saveRecord();
+        else await expect((await restored.prepareAssistantSave()).execute()).rejects.toThrow('标识已被使用');
+        expect(restored.recordSaveNeedsCheck).toBe(false);
+        expect(window.sessionStorage.length).toBe(0);
+        expect(restored.editorMode).toBe('create');
+        restored.updateDraftFields([{ fieldName: 'title', value: '修正后的草稿' }], 'user');
+        expect(restored.editingRecord?.title).toBe('修正后的草稿');
+        uniqueConflict = false;
+        if (entry === 'human') await restored.saveRecord();
+        else await (await restored.prepareAssistantSave()).execute();
+        expect(writes).toHaveLength(9);
+        expect(restored.editorMode).toBe('view');
+        expect(restored.recordSaveNeedsCheck).toBe(false);
       } finally {
         wrapper.unmount();
       }

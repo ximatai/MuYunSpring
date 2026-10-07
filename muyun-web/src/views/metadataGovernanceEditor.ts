@@ -2,26 +2,44 @@ import type { MetadataField } from '@muyun/web-contracts';
 import type { OperationProposal } from '@muyun/web-core';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 import type { MetadataChangeSetPreview } from './metadataModelChangeSetClient';
+import type { MetadataFieldReferencePropertyConfig } from './metadataOrchestrationState';
 export interface MetadataGovernanceSummary {
   moduleAlias: string;
   moduleTitle?: string;
+  factsAvailable?: boolean;
+  submissionStatus?: 'idle' | 'unknown' | 'current-read';
+  committedNeedsReload?: boolean;
   relationCount: number;
   selectedRelation?: {
     relationId: string;
     title?: string;
     fieldCount: number;
+    fieldsSource?: 'SAVED_CONFIGURATION' | 'UNSAVED_CANDIDATE';
     fields: Array<
       Pick<
         MetadataField,
         'required' | 'uniqueField' | 'indexed' | 'sortableField' | 'titleField' | 'enabled'
       > & {
         fieldName: string;
+        columnName?: string;
         title?: string;
         fieldSpecAlias?: string;
+        defaultValue?: string | null;
         propertyKind: string;
         governance: string;
+        reference?: MetadataFieldReferencePropertyConfig;
       }
     >;
+    capabilities?: Array<{
+      capability: string;
+      title: string;
+      enabled: boolean;
+      configurable: boolean;
+      selected: boolean;
+      reason: string;
+      fieldContributions: string[];
+      defaultDescription: string;
+    }>;
     truncated: boolean;
   };
   mainCandidate?: {
@@ -33,17 +51,25 @@ export interface MetadataGovernanceSummary {
     saved: false;
     nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS';
   };
-  childCandidate?: { alias: string; title: string; parentRelationId: string; saved: false };
+  childCandidate?: {
+    alias: string;
+    title: string;
+    parentRelationId: string;
+    parentTitle?: string;
+    saved: false;
+  };
   draft: {
     active: boolean;
     dirty: boolean;
     editorOpen: boolean;
     fieldPlanOpen?: boolean;
+    fieldPlanEditing?: boolean;
   };
   fieldSpecs: Array<{ alias: string; title?: string }>;
 }
 
 export interface AddMetadataFieldDraftInput {
+  defaultValue?: string | null;
   title: string;
   fieldName?: string;
   fieldSpecAlias: string;
@@ -55,6 +81,7 @@ export interface AddMetadataFieldDraftInput {
 }
 
 export interface UpdateMetadataFieldDraftInput {
+  defaultValue?: string | null;
   fieldName: string;
   title?: string;
   fieldSpecAlias?: string;
@@ -66,6 +93,12 @@ export interface UpdateMetadataFieldDraftInput {
   enabled?: boolean;
 }
 
+export interface UpdateMetadataReferenceDraftInput {
+  fieldName: string;
+  requireEnabled?: boolean;
+  affectMappings?: string[];
+}
+
 export type MetadataPropertyFieldKind = 'MODULE_REFERENCE' | 'DICTIONARY';
 
 export interface FindMetadataFieldTargetsInput {
@@ -74,6 +107,7 @@ export interface FindMetadataFieldTargetsInput {
 }
 
 export interface AddMetadataPropertyFieldDraftInput {
+  defaultValue?: string | null;
   kind: MetadataPropertyFieldKind;
   title: string;
   fieldName?: string;
@@ -84,6 +118,7 @@ export interface AddMetadataPropertyFieldDraftInput {
 }
 
 export interface PreparedMetadataPropertyFieldDraft {
+  defaultValue?: string | null;
   relationId: string;
   kind: MetadataPropertyFieldKind;
   title: string;
@@ -125,8 +160,13 @@ export interface MetadataGovernanceEditor {
   prepareChildDraft?(input: { alias: string; title: string }): () => unknown;
   discardCandidate?(): void;
   prepareConfirmation?(signal: AbortSignal): Promise<OperationProposal>;
+  readCurrent?(signal?: AbortSignal, commit?: (accept: () => void) => void): Promise<void>;
   prepareFieldPlan?(fields: MetadataFieldPlanInput, signal: AbortSignal): Promise<() => unknown>;
   plan?(): unknown;
+  prepareCapabilityDraft?(input: { capability: string; selected: boolean }): () => unknown;
+  prepareRetainFieldDraft?(): () => unknown;
+  removableNewFieldNames?(): string[];
+  prepareRemoveNewFieldDraft?(input: { fieldName: string }): () => unknown;
 
   summary(): MetadataGovernanceSummary;
   candidate?(): MetadataFieldCandidate | undefined;
@@ -134,6 +174,11 @@ export interface MetadataGovernanceEditor {
   preview(proposal: MetadataModelChangeSetProposal, signal: AbortSignal): Promise<MetadataChangeSetPreview>;
   fieldSpecAliases(): string[];
   editableBasicFieldNames(): string[];
+  editableReferenceFieldNames?(): string[];
+  prepareReferenceUpdate?(
+    input: UpdateMetadataReferenceDraftInput,
+    signal: AbortSignal,
+  ): Promise<() => unknown>;
   prepareNewFieldDraft?(input: AddMetadataFieldDraftInput): () => {
     relationId: string;
     fieldName: string;

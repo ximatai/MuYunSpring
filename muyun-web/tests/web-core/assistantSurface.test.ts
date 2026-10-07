@@ -5,9 +5,56 @@ import {
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   StaleAssistantInvocationError,
+  OperationUsageError,
+  DraftUpdateRejectedError,
   type AssistantCapability,
   type AssistantSurface,
 } from '@muyun/web-core';
+
+it('keeps an ordinary usage error after a mutation unknown', async () => {
+  let changed = false;
+  const registry = createAssistantSurfaceRegistry();
+  registry.register(
+    fixture({
+      pageInstanceKey: 'order',
+      revision: () => '1',
+      execute: async (_input, context) =>
+        context.applyEffect(() => {
+          changed = true;
+          throw new OperationUsageError('partial failure');
+        }),
+    }),
+  );
+  registry.activate('order');
+  await expect(
+    registry.invoke({ id: 'update', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+  ).rejects.toMatchObject({ name: 'AssistantEffectInterruptedError', execution: 'unknown' });
+  expect(changed).toBe(true);
+});
+
+it('retains an earlier applied effect when a later staged draft is rejected', async () => {
+  let changed = false;
+  const registry = createAssistantSurfaceRegistry();
+  registry.register(
+    fixture({
+      pageInstanceKey: 'order',
+      revision: () => '1',
+      execute: async (_input, context) => {
+        context.applyEffect(() => {
+          changed = true;
+        });
+        return context.applyEffect(() => {
+          throw new DraftUpdateRejectedError(new OperationUsageError('rejected'));
+        });
+      },
+    }),
+  );
+  registry.activate('order');
+  await expect(
+    registry.invoke({ id: 'update', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+  ).rejects.toMatchObject({ name: 'AssistantEffectInterruptedError', execution: 'effect-applied' });
+  expect(changed).toBe(true);
+});
 
 describe('assistant capability input contracts', () => {
   it('keeps parameterless capabilities on one strict empty-object contract', () => {
@@ -338,6 +385,67 @@ describe('assistant surface registry', () => {
     expect(remembered).toBe('value');
   });
 
+  it.each(['workspace', 'page', 'identity', 'scope', 'interaction', 'undeclared'])(
+    'accepts declared workspace read-state publication but rejects %s boundary drift',
+    async (change) => {
+      let workspaceRevision = 'before',
+        pageRevision = 'stable',
+        identity = 'user',
+        scope = 'tenant',
+        interaction = '0';
+      const registry = createAssistantSurfaceRegistry(
+        () => identity,
+        () => ({ revision: workspaceRevision, facts: {} }),
+      );
+      registry.register({
+        pageInstanceKey: 'page',
+        contextRevision: () => pageRevision,
+        executionScopeKey: () => scope,
+        interactionRevision: () => interaction,
+        surface: {
+          describe: () => ({ surface: 'catalog', facts: {} }),
+          requestTurn: vi.fn(),
+          capabilities: () => [
+            {
+              effect: 'read',
+              changesReadState: change !== 'undeclared',
+              descriptor: {
+                code: 'catalog.select',
+                description: 'select',
+                inputSchema: emptyAssistantCapabilityInputSchema(),
+              },
+              parseInput: parseEmptyAssistantCapabilityInput,
+              execute: async (_input, context) => {
+                context.commitInternalState(() => {
+                  workspaceRevision = 'after';
+                  if (change === 'page') pageRevision = 'changed';
+                  if (change === 'identity') identity = 'other';
+                  if (change === 'scope') scope = 'other';
+                  if (change === 'interaction') interaction = '1';
+                });
+                return 'selected';
+              },
+            },
+          ],
+        },
+      });
+      registry.activate('page');
+      const invocation = registry.invoke(
+        { id: 'read', code: 'catalog.select', input: {} },
+        registry.snapshot()!.token,
+        undefined,
+        { readOnly: true },
+      );
+      if (change === 'workspace')
+        await expect(invocation).resolves.toMatchObject({
+          value: 'selected',
+          contextChanged: false,
+          readStateChanged: true,
+        });
+      else await expect(invocation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+    },
+  );
+
   it('retains the effect fact without obsolete output when context drifts again after the guarded effect', async () => {
     let revision = 'draft-before';
     let resolve!: (value: string) => void;
@@ -421,7 +529,13 @@ describe('assistant surface registry', () => {
     expect(requestTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'hello',
-        context: snapshot.context,
+        context: {
+          ...snapshot.context,
+          facts: {
+            ...snapshot.context.facts,
+            executionBoundaries: { endDecisionAfter: ['form.patch-draft'] },
+          },
+        },
         capabilities: snapshot.capabilities,
       }),
       expect.any(AbortSignal),
@@ -741,3 +855,42 @@ it.each(['identity', 'scope', 'interaction'] as const)(
     expect(currentChecks).toEqual([true, false]);
   },
 );
+
+it('isolates both synchronous and asynchronous observation failures without changing a model result', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [],
+      requestTurn: async () => ({
+        text: 'done',
+        toolCalls: [],
+        modelToolCallCount: 2,
+        usage: { totalTokens: 3 },
+      }),
+    },
+  });
+  registry.activate('page');
+  for (const onRequestCompleted of [
+    () => {
+      throw new Error('observer');
+    },
+    async () => {
+      throw new Error('async observer');
+    },
+  ]) {
+    const result = await registry.requestTurn({ message: 'inspect' }, registry.snapshot()!.token, undefined, {
+      onRequestCompleted,
+    });
+    expect(result.text).toBe('done');
+  }
+  const observe = vi.fn();
+  await registry.requestTurn({ message: 'inspect' }, registry.snapshot()!.token, undefined, {
+    onRequestCompleted: observe,
+  });
+  expect(observe).toHaveBeenCalledWith(
+    expect.objectContaining({ toolCallCount: 2, usage: { totalTokens: 3 } }),
+  );
+});

@@ -9,8 +9,13 @@ public record MetadataFieldPropertyDraft(
         MetadataFieldPropertyKind kind,
         Integer expectedBindingVersion,
         MetadataFieldReferenceConfigDraft referenceConfig,
-        MetadataFieldConfig dictionaryConfig
+        MetadataFieldConfig dictionaryConfig,
+        MetadataFieldFixedDefaultDraft fixedDefault
 ) {
+    public MetadataFieldPropertyDraft(MetadataFieldPropertyKind kind, Integer expectedBindingVersion,
+                                      MetadataFieldReferenceConfigDraft referenceConfig, MetadataFieldConfig dictionaryConfig) {
+        this(kind, expectedBindingVersion, referenceConfig, dictionaryConfig, null);
+    }
     public MetadataFieldPropertyDraft(MetadataFieldPropertyKind kind) {
         this(kind, null, (MetadataFieldReferenceConfigDraft) null, null);
     }

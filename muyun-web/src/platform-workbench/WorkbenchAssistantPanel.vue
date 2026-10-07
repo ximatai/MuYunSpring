@@ -277,11 +277,11 @@ function close() {
             <summary>{{ item.details.title }}</summary>
             <p v-for="(line, index) in item.details.lines" :key="index">{{ line }}</p>
           </details>
-          <details v-if="item.diagnostic">
-            <summary>查看诊断信息</summary>
-            {{ item.diagnostic }}
-          </details>
         </template>
+        <details v-if="item.diagnostic">
+          <summary>查看诊断信息</summary>
+          {{ item.diagnostic }}
+        </details>
       </article>
       <div v-if="busy" class="assistant-panel__working">{{ activityText }}</div>
     </section>

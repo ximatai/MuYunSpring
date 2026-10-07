@@ -26,6 +26,11 @@ public class DictionaryFieldValueValidator implements DynamicFieldValueValidator
                          EntityDefinition entity,
                          FieldDefinition field,
                          Object value) {
+        validate(field, value);
+    }
+
+    /** Shared by runtime record writes and metadata initial-value publication. */
+    public void validate(FieldDefinition field, Object value) {
         FieldDictionaryBinding binding = field.dictionaryBinding();
         if (binding == null || value == null) {
             return;

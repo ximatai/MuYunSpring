@@ -82,11 +82,9 @@ function fixture() {
       describe: () => ({ surface: 'workbench', facts: {} }),
       requestTurn: vi.fn(),
       capabilities: () =>
-        createConstructionDeliveryCapabilities(
-          client as unknown as ConstructionPlanClient,
-          () => ({ ...state }),
-          accept,
-        ),
+        createConstructionDeliveryCapabilities(client as unknown as ConstructionPlanClient, () => ({
+          ...state,
+        })),
     },
   });
   registry.activate('construction');
@@ -98,35 +96,15 @@ const proposal = {
   objectKey: 'order',
   title: '订单',
 };
-it('keeps entry creation frozen and human-only; a lost response recovers the exact receipt', async () => {
-  const { invoke, client, accept } = fixture();
-  const result = await invoke('construction.prepare-entry', proposal);
-  expect(JSON.stringify(result.value)).not.toContain('private-proof');
-  expect(client.publishDelivery).not.toHaveBeenCalled();
-  const original = client.publishDelivery.getMockImplementation()!;
-  client.publishDelivery.mockImplementationOnce(async (...args) => {
-    await original(...args);
-    throw new Error('lost');
-  });
-  await result.confirmation!.confirm();
-  expect(result.confirmation!.state).toBe('unknown');
-  await result.confirmation!.check();
-  expect(client.publishDelivery).toHaveBeenCalledTimes(1);
-  expect(client.delivery).toHaveBeenCalledWith('plan', expect.any(String));
-  expect(accept).toHaveBeenCalledOnce();
-});
 it.each(['generation', 'revision', 'dirty', 'editing'] as const)(
   'expires prepared publication and acceptance when %s changes',
   async (change) => {
     const { invoke, state, client } = fixture();
-    const page = await invoke('construction.prepare-entry', proposal);
     const acceptance = await invoke('construction.prepare-acceptance', { objectKey: 'order' });
     if (change === 'generation') state.generation++;
     else if (change === 'revision') state.saved = { ...state.saved, revision: 2 };
     else state[change] = true;
-    await page.confirmation!.confirm();
     await acceptance.confirmation!.confirm();
-    expect(page.confirmation!.state).toBe('expired');
     expect(acceptance.confirmation!.state).toBe('expired');
     expect(client.publishDelivery).not.toHaveBeenCalled();
     expect(client.confirmAcceptance).not.toHaveBeenCalled();
@@ -141,21 +119,10 @@ it('requires an independent human confirmation for business acceptance', async (
   expect(client.confirmAcceptance).toHaveBeenCalledOnce();
 });
 
-it('keeps committed success when the workbench menu refresh fails', async () => {
-  const { invoke, client, accept } = fixture();
-  accept.mockRejectedValueOnce(new Error('menu refresh failed'));
-  const result = await invoke('construction.prepare-entry', { objectKey: 'order', title: '订单' });
-  await result.confirmation!.confirm();
-  expect(result.confirmation!.state).toBe('succeeded');
-  expect(client.publishDelivery).toHaveBeenCalledOnce();
-  expect(result.confirmation!.result?.lines.join(' ')).toContain('刷新失败');
-});
-
-it('retires the legacy page capability and rejects undeclared entry parameters', async () => {
+it('retires both legacy write capabilities while keeping acceptance available', async () => {
   const { invoke, client } = fixture();
   await expect(invoke('construction.prepare-page', proposal)).rejects.toThrow();
-  await expect(
-    invoke('construction.prepare-entry', { ...proposal, formFields: ['title'] }),
-  ).rejects.toThrow();
+  await expect(invoke('construction.prepare-entry', proposal)).rejects.toThrow();
   expect(client.previewDelivery).not.toHaveBeenCalled();
+  expect(client.publishDelivery).not.toHaveBeenCalled();
 });

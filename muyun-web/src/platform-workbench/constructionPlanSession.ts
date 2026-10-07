@@ -3,8 +3,8 @@ import { createConstructionReferenceDiscoveryCapabilities } from './construction
 import { createConstructionFieldCapabilities } from './constructionFields';
 import { createConstructionInitializationCapabilities } from './constructionInitialization';
 import { shallowRef } from 'vue';
+import { constructionPlanLimits } from '@muyun/web-contracts';
 import type {
-  ConstructionDeliveryReceipt,
   ConstructionTask,
   ConstructionPlanContent,
   ConstructionPlanSnapshot,
@@ -46,7 +46,11 @@ const itemSchema = (properties: Record<string, unknown>) => ({
   required: Object.keys(properties),
   properties,
 });
-const arraySchema = (items: unknown) => ({ type: 'array', maxItems: 16, items });
+const arraySchema = (items: unknown, maxItems: number = constructionPlanLimits.structuredItems) => ({
+  type: 'array',
+  maxItems,
+  items,
+});
 export const constructionPlanContentSchema = itemSchema({
   title: textSchema(120),
   goal: textSchema(1500),
@@ -54,18 +58,18 @@ export const constructionPlanContentSchema = itemSchema({
     listKeys.map((key) => [
       key,
       {
-        ...arraySchema(textSchema(500)),
-        description: `${planSections[key]}：最多16项，按业务目标归纳相关细节，不要求每个字段独占一项；一项可由多个 requirements 兑现。不要删减已确认需求。`,
+        ...arraySchema(textSchema(500), constructionPlanLimits.textItems),
+        description: `${planSections[key]}：最多${constructionPlanLimits.textItems}项，按业务目标归纳相关细节，不要求每个字段独占一项；一项可由多个 requirements 兑现。不要删减已确认需求。`,
       },
     ]),
   ),
   questions: {
-    ...arraySchema(textSchema(500)),
+    ...arraySchema(textSchema(500), constructionPlanLimits.textItems),
     description:
       '仅记录仍待用户决定且影响本期范围的问题。用户已回答的问题应移出此处并落实到范围、规则或决定；已决定暂不做的内容放 outOfScope，不能同时留作未决问题。不要丢弃真正未回答的问题。',
   },
   assumptions: {
-    ...arraySchema(textSchema(500)),
+    ...arraySchema(textSchema(500), constructionPlanLimits.textItems),
     description:
       '仅记录尚未证实的假设；用户已明确的要求记入范围、规则或决定，实际使用验证步骤记入 acceptanceExamples。',
   },
@@ -93,7 +97,7 @@ export const constructionPlanContentSchema = itemSchema({
     maxItems: 64,
     items: itemSchema({
       section: { type: 'string', enum: ['SCOPE', 'RULE', 'RELATION'] },
-      index: { type: 'integer', minimum: 0, maximum: 15 },
+      index: { type: 'integer', minimum: 0, maximum: constructionPlanLimits.textItems - 1 },
       objectKey: {
         ...textSchema(64),
         description: '所属独立模块在 objects 中的 key；子表及其字段仍填写父模块的 key。',
@@ -129,6 +133,15 @@ export const constructionPlanContentSchema = itemSchema({
     }),
   ),
 });
+const planChangeKeys = ['title', 'goal', ...listKeys, 'decisions'] as const;
+const constructionPlanChangesSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: Object.fromEntries(
+    planChangeKeys.map((key) => [key, constructionPlanContentSchema.properties[key]]),
+  ),
+};
 function fail(message: string): never {
   throw new AssistantCapabilityUsageError(message);
 }
@@ -140,11 +153,16 @@ function text(value: unknown, max: number): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) fail('方案文本为空或超出长度限制');
   return value.trim();
 }
-function list<T>(value: unknown, parse: (entry: unknown) => T, path: string): T[] {
+function list<T>(
+  value: unknown,
+  parse: (entry: unknown) => T,
+  path: string,
+  max: number = constructionPlanLimits.structuredItems,
+): T[] {
   if (!Array.isArray(value)) fail(`${path} 必须是数组`);
-  if (value.length > 16)
+  if (value.length > max)
     fail(
-      `${path} 当前 ${value.length} 项，最多 16 项。请归纳相关业务要求，不删除已确认需求；同一项可用多个 requirements 分别兑现。`,
+      `${path} 当前 ${value.length} 项，最多 ${max} 项。请归纳相关业务要求，不删除已确认需求；同一项可用多个 requirements 分别兑现。`,
     );
   return value.map(parse);
 }
@@ -155,7 +173,12 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
   const content = {
     title: text(input.title, 120),
     goal: text(input.goal, 1500),
-    ...Object.fromEntries(listKeys.map((key) => [key, list(input[key], (item) => text(item, 500), key)])),
+    ...Object.fromEntries(
+      listKeys.map((key) => [
+        key,
+        list(input[key], (item) => text(item, 500), key, constructionPlanLimits.textItems),
+      ]),
+    ),
     objects: list(
       input.objects,
       (value) => {
@@ -222,7 +245,9 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
       const source =
         section === 'SCOPE' ? content.inScope : section === 'RULE' ? content.rules : content.relationships;
       if (!Number.isInteger(item.index) || Number(item.index) < 0 || Number(item.index) >= source.length)
-        fail('兑现项须引用本版要求');
+        fail(
+          `requirements[${requirementIndex}].index=${String(item.index)} 未引用本版要求（${section === 'SCOPE' ? 'inScope' : section === 'RULE' ? 'rules' : 'relationships'}）；${source.length ? `有效索引为 0 至 ${source.length - 1}` : '本版该部分为空，不能引用'}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。`,
+        );
       const objectKey = text(item.objectKey, 64);
       if (!content.objects.some((object) => object.key === objectKey)) fail('兑现项业务对象不存在');
       const fieldName = typeof item.fieldName === 'string' ? item.fieldName.trim() : '';
@@ -274,7 +299,8 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
   }
   if (new Set(content.objects.map((object) => object.key)).size !== content.objects.length)
     fail('业务对象标识不能重复');
-  if (new TextEncoder().encode(JSON.stringify(content)).length > 32 * 1024) fail('方案内容过长');
+  if (new TextEncoder().encode(JSON.stringify(content)).length > constructionPlanLimits.contentBytes)
+    fail('方案内容过长');
   return content;
 }
 export function presentConstructionPlan(content: ConstructionPlanContent) {
@@ -339,7 +365,6 @@ export function createConstructionPlanSession(
   client: ConstructionPlanClient,
   identity: () => string,
   governanceAvailable: () => boolean = () => false,
-  onDelivered: (receipt: ConstructionDeliveryReceipt) => Promise<void> = async () => {},
 ) {
   const state = shallowRef<{
     planId?: string;
@@ -423,7 +448,7 @@ export function createConstructionPlanSession(
     const content = parseConstructionPlan(value);
     const semanticChange =
       before &&
-      (['goal', 'inScope', 'acceptanceExamples'] as const).some(
+      (['goal', ...listKeys] as const).some(
         (key) => JSON.stringify(before[key]) !== JSON.stringify(content[key]),
       );
     const reviewRequired =
@@ -439,6 +464,29 @@ export function createConstructionPlanSession(
       );
     edit(content);
     state.value = { ...state.value, reviewRequired };
+  }
+  function revise(value: unknown) {
+    const before = current();
+    if (!before.candidate) fail('请先整理完整需求方案');
+    if (before.reviewRequired) fail('人工修改后的关联内容尚待核对，请更新完整方案');
+    const changes = record(value);
+    if (
+      !Object.keys(changes).length ||
+      Object.keys(changes).some((key) => !Object.hasOwn(constructionPlanChangesSchema.properties, key))
+    )
+      fail('局部修订须提供有效的业务方案部分');
+    const content = parseConstructionPlan({ ...before.candidate, ...changes });
+    for (const requirement of before.candidate.requirements ?? []) {
+      const key =
+        requirement.section === 'SCOPE'
+          ? 'inScope'
+          : requirement.section === 'RULE'
+            ? 'rules'
+            : 'relationships';
+      if (before.candidate[key][requirement.index] !== content[key][requirement.index])
+        fail('修改涉及已有配置对应的要求，请同时核对兑现方式并更新完整方案');
+    }
+    edit(content);
   }
   function discardCandidate() {
     syncIdentity();
@@ -702,22 +750,6 @@ export function createConstructionPlanSession(
         editing: manualEditing.value,
       };
     },
-    async (receipt) => {
-      const value = current();
-      if (!value.saved) return;
-      state.value = {
-        ...value,
-        saved: {
-          ...value.saved,
-          deliveries: [
-            ...value.saved.deliveries.filter((item) => item.requestId !== receipt.requestId),
-            receipt,
-          ],
-        },
-        generation: value.generation + 1,
-      };
-      await onDelivered(receipt);
-    },
     async () => {
       const id = current().planId;
       if (id) await restore(id);
@@ -850,7 +882,7 @@ export function createConstructionPlanSession(
         descriptor: {
           code: 'construction.propose',
           description:
-            'Replace the local requirements candidate after discussing scope and reading construction.describe-design-contract before assigning technical field names. If reviewRequired, reconcile questions, assumptions, rules and decisions against the latest human edits first; preserve unanswered questions and never infer user consent. Preserve decisions; distinguish user requirements from recommendations. No persistence or business configuration changes.',
+            'Create or replace the COMPLETE local requirements candidate. For a small correction to an existing candidate prefer construction.revise, which preserves untouched sections. Does not require a selected module editor. Preserve all confirmed scope, decisions and acceptanceExamples; distinguish user requirements from recommendations. requirements may be [] while agreeing business scope; add technical bindings only from verified standard configuration and the design contract, never guessed field names. If reviewRequired, reconcile dependent sections against human edits and preserve unanswered questions. No persistence or business configuration changes.',
           inputSchema: itemSchema({
             generation: { type: 'integer', minimum: 0 },
             content: constructionPlanContentSchema,
@@ -871,6 +903,34 @@ export function createConstructionPlanSession(
         present: () => ({
           title: '需求方案已更新，尚未保存',
           lines: [`本版变化：${changes().join('、')}。可在业务建设方案中查看详情。`],
+        }),
+      },
+      {
+        effect: 'configuration-draft',
+        descriptor: {
+          code: 'construction.revise',
+          description:
+            'Revise only specified BUSINESS sections of the existing local requirements candidate. Read its current generation and content; changes replaces each specified section in full, while omitted sections, objects and configuration mappings are preserved. For example move an outOfScope clause into rules by changing those two arrays, without repeating title, goal or acceptanceExamples. Preserve unrelated clauses and reconcile the user correction across relevant sections. Does not require a selected module editor, save, or authorize implementation. If a changed clause already has configuration mappings or reviewRequired, use construction.propose with the reconciled complete content instead.',
+          inputSchema: itemSchema({
+            generation: { type: 'integer', minimum: 0 },
+            changes: constructionPlanChangesSchema,
+          }),
+        },
+        parseInput(input) {
+          const value = record(input);
+          return { generation: value.generation, changes: record(value.changes) };
+        },
+        async execute(input, context) {
+          const value = input as { generation: number; changes: Record<string, unknown> };
+          if (manualEditing.value) fail('请先完成或取消人工修改');
+          if (value.generation !== current().generation)
+            fail('候选已变化，请先重新读取 construction.describe');
+          context.applyEffect(() => revise(value.changes));
+          return facts();
+        },
+        present: () => ({
+          title: '需求方案已修订，尚未保存',
+          lines: [`本版变化：${changes().join('、')}。其他方案内容保留，保存须另行确认。`],
         }),
       },
       {
@@ -909,9 +969,10 @@ export function createConstructionPlanSession(
         if (value.planId && code === 'construction.find-saved') return false;
         if (
           (linkedRecordPending || value.saved?.constructionStatus === 'DELIVERED') &&
-          ['construction.propose', 'construction.prepare-confirmation'].includes(code)
+          ['construction.propose', 'construction.revise', 'construction.prepare-confirmation'].includes(code)
         )
           return false;
+        if (!value.candidate && code === 'construction.revise') return false;
         return true;
       })
       .map(withContinuation);
@@ -933,28 +994,12 @@ export function createConstructionPlanSession(
     dirty,
     edit,
     editManually,
+    revise,
     discardCandidate,
     listSaved,
     restore,
     prepare,
     capabilities,
-    continueConfiguration(capabilities: AssistantCapability[], moduleAlias?: string): AssistantCapability[] {
-      const value = current();
-      if (
-        !value.saved ||
-        dirty() ||
-        value.reviewRequired ||
-        manualEditing.value ||
-        !moduleAlias ||
-        !constructionPlanBindings(value.saved).some(
-          (binding) =>
-            binding.moduleAlias === moduleAlias &&
-            !value.saved!.deliveredObjectKeys.includes(binding.objectKey),
-        )
-      )
-        return capabilities;
-      return capabilities.map(withContinuation);
-    },
     async progress(objectKey: string) {
       const before = current();
       if (!before.saved) fail('请先恢复已确认方案');

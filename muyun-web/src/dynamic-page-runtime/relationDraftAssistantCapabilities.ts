@@ -50,13 +50,15 @@ export function createRelationDraftAssistantCapabilities(
       : undefined;
   const operation = (action: 'add-row' | 'select-row' | 'remove-row'): AssistantCapability => ({
     effect: action === 'select-row' ? 'read' : 'draft',
+    ...(action === 'select-row' ? { changesReadState: true } : {}),
+    ...(action === 'add-row' && !current() ? { schemaDiscovery: 'eager' } : {}),
     descriptor: {
       code: `relation.${action}`,
       description:
         action === 'add-row'
           ? '在指定明细增加空白草稿行并选中供助手填写，返回当前行字段事实，不保存。根据返回字段使用 relation.form 和 relation.reference 能力，无需重复读取整表。'
           : action === 'select-row'
-            ? '选择 relation.describe 返回的明细行，返回当前行字段事实供助手填写，无需重复读取整表；这不会修改其他行或保存。'
+            ? '选择当前明细事实或 relation.describe 返回的 rowKey 对应行，返回当前行字段事实供助手填写，无需重复读取整表；这不会修改其他行或保存。'
             : '从当前整单草稿移除指定明细行，需整单保存确认后才生效。',
       inputSchema: {
         type: 'object',
@@ -120,7 +122,7 @@ export function createRelationDraftAssistantCapabilities(
         descriptor: {
           code: 'relation.describe',
           description:
-            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。概要只消费已有引用名称投影，不额外查询；需要完整名称或 detailsOmitted 为 true 时，选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；最后由主表 form.review-draft 核对整单，仅用户要求保存时使用 form.prepare-save，不能独立保存明细。',
+            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。概要只消费已有引用名称投影，不额外查询；需要完整名称或 detailsOmitted 为 true 时，选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；只审阅或比较用主表 form.review-draft，明确要求保存时用 form.prepare-save，它已核对整单，无需再单独审阅。不能独立保存明细。',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
@@ -214,6 +216,10 @@ export function createRelationDraftAssistantCapabilities(
     ];
   };
   return Object.assign(capabilities, {
+    form: () => {
+      const selected = current();
+      return selected?.controller.form(selected.rowKey);
+    },
     selection: () => {
       const selected = current();
       return selected ? { relationCode: selected.controller.code, rowKey: selected.rowKey } : undefined;

@@ -467,7 +467,7 @@ public class ModuleDefinitionValidator {
             }
         }
         try {
-            FieldBehaviorSupport.validateBehavior(field.type(), field.behavior(), field.code());
+            FieldBehaviorSupport.validateBehavior(field);
         } catch (RuntimeException e) {
             throw new ModuleDefinitionException(e.getMessage());
         }

@@ -12,11 +12,16 @@ public record AssistantTurnResult(
         AssistantSelectionInteraction selection,
         String finishReason,
         String requestId,
-        AiTokenUsage usage
+        AiTokenUsage usage,
+        Integer modelToolCallCount
 ) {
     public AssistantTurnResult(String text, List<AiToolCall> toolCalls, AssistantSelectionInteraction selection,
                                String finishReason, String requestId) {
-        this(text, toolCalls, selection, finishReason, requestId, null);
+        this(text, toolCalls, selection, finishReason, requestId, null, null);
+    }
+    public AssistantTurnResult(String text, List<AiToolCall> toolCalls, AssistantSelectionInteraction selection,
+                               String finishReason, String requestId, AiTokenUsage usage) {
+        this(text, toolCalls, selection, finishReason, requestId, usage, null);
     }
     public AssistantTurnResult {
         text = text == null || text.isBlank() ? null : text;

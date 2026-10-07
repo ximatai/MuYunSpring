@@ -32,6 +32,41 @@ const relation = {
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
 
+it.each(['context', 'observation', 'confirmation'] as const)(
+  'marks long relation values in %s while keeping full human confirmation',
+  (purpose) => {
+    const value = '字'.repeat(2001);
+    const result = recordRelationProjection(
+      descriptor,
+      [relation],
+      { members: [{ name: value }] },
+      { purpose },
+    )[0]!;
+    const field = result.rows[0]!.values[0]!;
+    expect(field.value).toHaveLength(purpose === 'confirmation' ? 2001 : 2000);
+    expect(result.truncated).toBe(purpose !== 'confirmation');
+    if (purpose === 'confirmation') expect(field).not.toHaveProperty('truncated');
+    else expect(field).toHaveProperty('truncated', true);
+  },
+);
+
+it.each(['removed', 'baseline'] as const)('marks partial %s row values too', (purpose) => {
+  const result = recordRelationProjection(
+    descriptor,
+    [relation],
+    { members: [] },
+    {
+      baseline: { members: [{ id: 'old', name: '字'.repeat(2001) }] },
+      includeBaseline: purpose === 'baseline',
+    },
+  )[0]!;
+  expect(result.truncated).toBe(true);
+  expect((purpose === 'removed' ? result.removedRows : result.savedRows)![0]!.values[0]).toHaveProperty(
+    'truncated',
+    true,
+  );
+});
+
 it('projects aggregate completeness and editability without assistant instructions', () => {
   const record = { members: [{ name: '陈晨' }] };
   const read = recordRelationProjection(descriptor, [relation], record)[0]!;
@@ -377,4 +412,42 @@ it('marks a truncated saved baseline even when the current draft is empty', () =
   )[0]!;
   expect(facts).toMatchObject({ savedCount: 21, truncated: true, source: 'unsaved-draft' });
   expect(facts.savedRows).toHaveLength(20);
+});
+
+it('pairs editor-issued row keys with current draft values without granting stale or read-only access', () => {
+  const draft = {
+    members: [
+      { id: 'a', __draftKey: 'persisted:a', name: '陈晨' },
+      { __draftKey: 'new:2', name: '林晓' },
+    ],
+  };
+  const options = {
+    draft: true,
+    editableRelations: new Set(['members']),
+    draftRowKeys: new Map([['members', new Set(['persisted:a', 'new:2'])]]),
+  };
+  const rows = () => recordRelationProjection(descriptor, [relation], draft, options)[0]!.rows;
+  expect(rows().map((row) => row.rowKey)).toEqual(['persisted:a', 'new:2']);
+  draft.members.reverse();
+  expect(rows()[0]).toMatchObject({ rowKey: 'new:2', values: [{ value: '林晓' }] });
+  options.draftRowKeys.get('members')!.delete('new:2');
+  expect(rows()[0]).not.toHaveProperty('rowKey');
+  for (const guard of [
+    { draft: false },
+    { editableRelations: new Set<string>() },
+    { purpose: 'observation' as const },
+  ])
+    expect(
+      recordRelationProjection(descriptor, [relation], draft, { ...options, ...guard })[0]!.rows.every(
+        (row) => !('rowKey' in row),
+      ),
+    ).toBe(true);
+  const baseline = { members: [{ id: 'gone', __draftKey: 'persisted:gone', name: '旧成员' }] };
+  expect(
+    recordRelationProjection(descriptor, [relation], draft, {
+      ...options,
+      baseline,
+      includeBaseline: true,
+    })[0]!.savedRows![0],
+  ).not.toHaveProperty('rowKey');
 });

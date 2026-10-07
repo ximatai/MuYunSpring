@@ -12,3 +12,11 @@ export class OperationUsageError extends Error {
     this.name = 'OperationUsageError';
   }
 }
+
+/** A staged draft was rejected before publication; no draft or display state was changed. */
+export class DraftUpdateRejectedError extends OperationUsageError {
+  constructor(failure: OperationUsageError) {
+    super(failure.message, failure.code);
+    this.name = 'DraftUpdateRejectedError';
+  }
+}

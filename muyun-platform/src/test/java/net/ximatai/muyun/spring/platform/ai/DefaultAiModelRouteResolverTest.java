@@ -18,6 +18,7 @@ class DefaultAiModelRouteResolverTest {
         configuration.setContextWindowTokens(131072);
         configuration.setMaxOutputTokens(32768);
         configuration.setDefaultOutputTokens(16384);
+        configuration.setReasoningEffort(AiModelReasoningEffort.NONE);
         AiModelProvider provider = new AiModelProvider();
         provider.setId("lm_studio");
         provider.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE);
@@ -32,6 +33,7 @@ class DefaultAiModelRouteResolverTest {
         assertThat(route.chatCompletionsUrl()).isEqualTo("http://127.0.0.1:1234/v1/chat/completions");
         assertThat(route.modelId()).isEqualTo("local-model");
         assertThat(route.apiKey()).isEqualTo("model-secret");
+        assertThat(route.reasoningEffort()).isEqualTo(AiModelReasoningEffort.NONE);
         assertThat(route.limits()).isEqualTo(new AiModelLimits(131072, 32768, 16384));
     }
 }

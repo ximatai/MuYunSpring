@@ -10,6 +10,15 @@ import { createSseParser } from './sse';
 
 export interface AssistantTurnProgress {
   onTextDelta?(text: string): void;
+  /** Observed before stale response rejection; never a business receipt. */
+  onRequestCompleted?(observation: AssistantModelRequestObservation): void | Promise<void>;
+}
+
+export interface AssistantModelRequestObservation {
+  durationMs: number;
+  outcome: 'received' | 'failed';
+  usage?: AssistantTokenUsage;
+  toolCallCount?: number;
 }
 
 export type AssistantTurnRequester = (
@@ -138,10 +147,20 @@ function parseTurnOutput(value: unknown): AssistantTurnOutput {
     }
     if (Object.keys(counts).length) usage = counts;
   }
+  const modelToolCallCount = value.modelToolCallCount;
+  if (
+    modelToolCallCount !== undefined &&
+    modelToolCallCount !== null &&
+    (typeof modelToolCallCount !== 'number' ||
+      !Number.isSafeInteger(modelToolCallCount) ||
+      modelToolCallCount < 0)
+  )
+    throw invalidResponse();
   const selection =
     value.selection === undefined || value.selection === null ? undefined : parseSelection(value.selection);
   return {
     ...(usage ? { usage } : {}),
+    ...(typeof modelToolCallCount === 'number' ? { modelToolCallCount } : {}),
     ...(typeof value.text === 'string' ? { text: value.text } : {}),
     toolCalls: value.toolCalls as AssistantTurnOutput['toolCalls'],
     ...(selection ? { selection } : {}),

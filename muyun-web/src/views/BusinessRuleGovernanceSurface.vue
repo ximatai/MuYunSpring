@@ -57,6 +57,7 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   businessRuleChangeImpact,
+  businessRuleValidationHelp,
   externalTrialInputFields,
   formulaTemplates,
   insertFormulaText,
@@ -1119,6 +1120,14 @@ async function loadSnapshot() {
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
   }
 }
+async function readCurrentRules() {
+  try {
+    await session.value.readCurrent();
+    applicationError.value = undefined;
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
+  }
+}
 function discardChanges() {
   if (applying.value || !snapshot.value) return;
   formulaInputs.value = {};
@@ -1367,6 +1376,10 @@ onUnmounted(deactivateAssistant);
       对话与页面共用这份未应用更改。关闭本页后仍可继续编辑；刷新工作区或切换身份后不会恢复。
     </p>
     <UiSpin v-if="loading" class="business-rule-governance__state" tip="加载业务规则" />
+    <div v-else-if="session.submissionStatus.value === 'unknown'" class="business-rule-governance__state">
+      <p role="status">原规则提交结果未知，候选已保留。请读取当前配置后重新审阅，不要重复提交。</p>
+      <UiButton @click="readCurrentRules">读取当前配置并保留候选</UiButton>
+    </div>
     <div v-else-if="loadFailed" class="business-rule-governance__state">
       <UiEmpty
         :description="
@@ -1378,6 +1391,9 @@ onUnmounted(deactivateAssistant);
       <UiButton @click="() => loadSnapshot()">重试</UiButton>
     </div>
     <div v-else>
+      <p v-if="session.submissionStatus.value === 'current-read'" role="status">
+        已读取当前配置，原提交结果仍未知。候选已保留；请重新审阅差异后决定是否应用。
+      </p>
       <div class="business-rule-governance__content">
         <RecordQueryListSurface
           class="business-rule-governance__rule-list-surface"
@@ -1780,7 +1796,7 @@ onUnmounted(deactivateAssistant);
               >
                 <div>
                   <h2>未通过时的提示</h2>
-                  <p v-if="selectedRule.kind === 'VALIDATION'">公式为真时允许保存，为假时显示失败提示。</p>
+                  <p v-if="selectedRule.kind === 'VALIDATION'">{{ businessRuleValidationHelp }}</p>
                   <p>保存校验针对主记录；检查明细时使用汇总函数，提示只能定位主记录字段。</p>
                 </div>
                 <div class="business-rule-governance__rule-basics">

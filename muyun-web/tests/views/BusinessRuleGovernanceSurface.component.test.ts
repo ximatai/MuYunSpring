@@ -7,6 +7,7 @@ import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AppError,
   configureModuleContext,
   provideAssistantSurfaceHost,
   createAssistantSurfaceRegistry,
@@ -801,7 +802,8 @@ describe('BusinessRuleGovernanceSurface', () => {
     await flushPromises();
     ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
     await flushPromises();
-    expect(wrapper.text()).toContain('公式为真时允许保存，为假时显示失败提示。');
+    expect(wrapper.text()).toContain('为假时阻止保存并显示失败提示');
+    expect(wrapper.text()).toContain('不支持只提醒而仍允许保存');
     const message = wrapper
       .findAllComponents({ name: 'UiInput' })
       .find((input) => input.props('value') === '数量必须大于零')!;
@@ -1387,7 +1389,8 @@ describe('BusinessRuleGovernanceSurface', () => {
   it('retains local input and asks for reload when a stale apply is rejected', async () => {
     const http = fakeHttp();
     vi.mocked(http.request).mockImplementation((options) => {
-      if (options.path.endsWith('/apply')) return Promise.reject(new Error('stale snapshot')) as never;
+      if (options.path.endsWith('/apply'))
+        return Promise.reject(new AppError('规则基线已变化，请重新加载后再应用', { status: 409 })) as never;
       return fakeHttp().request(options);
     });
     const wrapper = mountSurface(http);
@@ -1700,6 +1703,45 @@ it('tells manual editors that apply committed when only the follow-up read faile
   await flushPromises();
   expect(session.ready.value).toBe(true);
   expect(session.committedNeedsReload.value).toBe(false);
+  expect(
+    vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
+  ).toHaveLength(1);
+  workspace.dispose();
+});
+
+it('hands off unknown submissions to a shared recovery view and retains the candidate after reading current rules', async () => {
+  const http = fakeHttp();
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'user',
+    () => true,
+  );
+  const session = workspace.session('education.exam');
+  await session.load();
+  workspace.focus(session);
+  session.adapter.revise({
+    code: 'sharedCalculation',
+    kind: 'CALCULATION',
+    targetField: 'amount',
+    expression: '{quantity} * 3',
+    enabled: true,
+  });
+  const original = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/apply')) throw new Error('lost response');
+    return original(options);
+  });
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace);
+  await flushPromises();
+  await action(wrapper, '应用更改').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('原规则提交结果未知');
+  expect(wrapper.findAll('button').some((item) => item.text() === '应用更改')).toBe(false);
+  await action(wrapper, '读取当前配置并保留候选').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('原提交结果仍未知');
+  expect(session.rules.value.some((item) => item.code === 'sharedCalculation')).toBe(true);
+  expect(session.ready.value).toBe(true);
   expect(
     vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
   ).toHaveLength(1);

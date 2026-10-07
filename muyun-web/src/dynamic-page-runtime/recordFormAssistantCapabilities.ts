@@ -1,5 +1,9 @@
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { recordFieldDisplay, resolvedRecordFieldDisplay } from './recordDisplayProjection';
+import {
+  assistantReadableField,
+  recordFieldDisplay,
+  resolvedRecordFieldDisplay,
+} from './recordDisplayProjection';
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   AssistantCapabilityUsageError,
@@ -35,10 +39,21 @@ export function createRecordFormAssistantCapabilities(
   const canDescribe = () => hasEditableDraft(view) || canReadDetail?.() === true;
   return () => [
     ...(canDescribe()
-      ? [{ ...formDescribeCapability(view, resolveReferenceNames, canDescribe), schemaDiscovery }]
+      ? [
+          {
+            ...formDescribeCapability(view, resolveReferenceNames, canDescribe),
+            schemaDiscovery: hasEditableDraft(view) ? undefined : schemaDiscovery,
+          },
+        ]
       : []),
     ...(hasEditableDraft(view)
-      ? [{ ...formPatchCapability(view), schemaDiscovery }, ...referenceCapabilities(view, references)]
+      ? [
+          { ...formPatchCapability(view), schemaDiscovery },
+          ...referenceCapabilities(view, references).map((capability) => ({
+            ...capability,
+            ...(capability.descriptor.code === 'reference.resolve-and-patch' ? { schemaDiscovery } : {}),
+          })),
+        ]
       : []),
   ];
 }
@@ -76,13 +91,13 @@ function referenceResolveAndPatchCapability(
   view: RecordFormDraftAccess,
   state: AssistantReferenceSelectionState,
   fieldNames: string[],
-): AssistantCapability<{ fieldName: string; title: string }> {
+): AssistantCapability<{ fieldName: string; title: string; changes?: AssistantDraftChange[] }> {
   return {
     effect: 'draft',
     descriptor: {
       code: 'reference.resolve-and-patch',
       description:
-        '按业务名称检索当前表单的单值引用；仅当标准引用源返回唯一且名称精确匹配的可用记录时回填草稿。它不会保存。应优先使用；无法确定时再搜索候选。',
+        '按业务名称检索当前表单的单值引用；仅当标准引用源返回唯一且名称精确匹配的可用记录时回填草稿。可通过 changes 同次填写用户明确的普通字段值，复用标准回填和计算；不保存。应优先使用；无法确定时再搜索候选。',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -90,13 +105,14 @@ function referenceResolveAndPatchCapability(
         properties: {
           fieldName: { type: 'string', enum: fieldNames },
           title: { type: 'string', minLength: 1, maxLength: 500 },
+          changes: draftChangesInputSchema(writableFieldNames(view)),
         },
       },
     },
     parseInput(input) {
       if (
         !isRecord(input) ||
-        Object.keys(input).some((key) => !['fieldName', 'title'].includes(key)) ||
+        Object.keys(input).some((key) => !['fieldName', 'title', 'changes'].includes(key)) ||
         typeof input.fieldName !== 'string' ||
         !fieldNames.includes(input.fieldName) ||
         typeof input.title !== 'string' ||
@@ -107,9 +123,20 @@ function referenceResolveAndPatchCapability(
           'reference.resolve-and-patch requires a declared fieldName and title',
         );
       }
-      return { fieldName: input.fieldName, title: input.title.trim() };
+      return {
+        fieldName: input.fieldName,
+        title: input.title.trim(),
+        ...(input.changes === undefined ? {} : { changes: parseDraftChanges(input.changes) }),
+      };
     },
-    async execute({ fieldName, title }, context) {
+    async execute({ fieldName, title, changes }, context) {
+      if (!hasEditableDraft(view))
+        throw new AssistantCapabilityUsageError('No editable form draft is active');
+      if (changes) {
+        validateDraftTargets(view, changes);
+        validateDraftChanges(view, changes);
+      }
+      const revision = view.contextRevision();
       const field = assistantReferenceField(view, fieldName);
       if (!field?.pickerConfig?.provider)
         throw new AssistantCapabilityUsageError(`Reference field is not available: ${fieldName}`);
@@ -120,7 +147,11 @@ function referenceResolveAndPatchCapability(
         pageSize: MAX_ASSISTANT_REFERENCE_OPTIONS,
         scope: { selections: [] },
       });
-      if (!context.isCurrent() || state.searchRevision !== searchRevision) {
+      if (
+        !context.isCurrent() ||
+        state.searchRevision !== searchRevision ||
+        view.contextRevision() !== revision
+      ) {
         throw new AssistantCapabilityUsageError('Reference resolution is no longer current; resolve again');
       }
       if (page.navigation?.length) {
@@ -147,18 +178,35 @@ function referenceResolveAndPatchCapability(
           'CANDIDATE_AMBIGUOUS',
         );
       }
+      let validatedChanges: Parameters<RecordFormDraftAccess['updateDraftFields']>[0] | undefined;
+      if (changes) {
+        validateDraftTargets(view, changes);
+        validatedChanges = validateDraftChanges(view, changes);
+      }
       context.applyEffect(() => {
         if (
           state.searchRevision !== searchRevision ||
           !context.isCurrent() ||
+          view.contextRevision() !== revision ||
           !assistantReferenceField(view, fieldName)
         ) {
           throw new AssistantCapabilityUsageError('Reference resolution is no longer current; resolve again');
         }
-        view.updateDraftReference(fieldName, candidate, 'assistant');
+        if (validatedChanges)
+          view.updateDraftReference(fieldName, candidate, 'assistant', validatedChanges, (record) => {
+            if (String(record[fieldName] ?? '') !== candidate.id)
+              throw new AssistantCapabilityUsageError('Combined values invalidate the selected reference');
+            const projected: RecordFormDraftAccess = { ...view, editingRecord: record };
+            validateDraftTargets(projected, changes!);
+            validateDraftChanges(projected, changes!);
+          });
+        else view.updateDraftReference(fieldName, candidate, 'assistant');
         state.selections.clear();
       });
-      return { changedField: fieldName, selectedTitle: candidate.title.slice(0, 500) };
+      return {
+        ...referenceDraftResult(view, fieldName, candidate),
+        ...(changes ? { changedFields: [fieldName, ...changes.map((change) => change.fieldName)] } : {}),
+      };
     },
   };
 }
@@ -170,6 +218,7 @@ function referenceSearchCapability(
 ): AssistantCapability<{ fieldName: string; keyword: string }> {
   return {
     effect: 'read',
+    changesReadState: true,
     descriptor: {
       code: 'reference.search-options',
       description:
@@ -309,15 +358,57 @@ function referencePatchCapability(
         view.updateDraftReference(current.fieldName, current.candidate, 'assistant');
         state.selections.clear();
       });
-      return {
-        changedField: selection.fieldName,
-        selectedTitle: selection.candidate.title.slice(0, 500),
-        ...(selection.candidate.subtitle?.trim()
-          ? { selectedSubtitle: selection.candidate.subtitle.trim().slice(0, 500) }
-          : {}),
-      };
+      return referenceDraftResult(view, selection.fieldName, selection.candidate);
     },
   };
+}
+
+/** Historical selection receipt, not a claim about the source's latest value or a saved result. */
+function referenceDraftResult(
+  view: RecordFormDraftAccess,
+  fieldName: string,
+  candidate: ReferencePickerCandidate,
+) {
+  const result = {
+    changedField: fieldName,
+    selectedTitle: candidate.title.slice(0, 500),
+    ...(candidate.subtitle?.trim() ? { selectedSubtitle: candidate.subtitle.trim().slice(0, 500) } : {}),
+  };
+  if (String(view.editingRecord?.[fieldName] ?? '') !== candidate.id) return result;
+  const mapped = new Set(
+    Object.entries(candidate.affectPatch ?? {})
+      .filter(
+        ([name, value]) =>
+          name !== fieldName && JSON.stringify(view.editingRecord?.[name]) === JSON.stringify(value),
+      )
+      .map(([name]) => name),
+  );
+  if (!mapped.size) return result;
+  let remaining = 4_000;
+  const fields = recordFormAssistantFacts(view)
+    .fields.flatMap((fact) => {
+      if (!mapped.has(fact.fieldName) || !Object.hasOwn(fact, 'currentValue')) return [];
+      const state = formFieldState(view, fact.fieldName);
+      if (
+        !state ||
+        !assistantReadableField(state) ||
+        state.reference ||
+        state.readOnly ||
+        state.calculationPending
+      )
+        return [];
+      if (JSON.stringify(fact.currentValue) !== JSON.stringify(view.editingRecord?.[fact.fieldName]))
+        return [];
+      const field = { fieldName: fact.fieldName, label: fact.label, value: fact.currentValue };
+      const size = JSON.stringify(field).length;
+      if (size > remaining) return [];
+      remaining -= size;
+      return [field];
+    })
+    .slice(0, 8);
+  return fields.length
+    ? { ...result, selectionSnapshot: { source: 'authorized-reference-selection', saved: false, fields } }
+    : result;
 }
 
 function isAssistantSelectableReference(candidate: ReferencePickerCandidate) {
@@ -344,7 +435,7 @@ function formDescribeCapability(
     descriptor: {
       code: 'form.describe',
       description:
-        'Read the current visible detail or draft fields. Read-only details do not create an editing draft.',
+        'Read the current visible detail or draft fields, resolving selected reference names when needed. Reuse facts.currentForm or the returned row facts when they already contain the needed fields and values; read only missing or truncated facts. Read-only details do not create an editing draft.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
@@ -391,45 +482,74 @@ function formDescribeCapability(
       );
       if (!context.isCurrent() || !canDescribe() || revision !== view.contextRevision())
         throw new AssistantCapabilityUsageError('表单或范围已变化，请重新读取');
-      const valueBudget = {
-        remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS,
-        truncated: referencesTruncated,
-      };
-      const fields = visibleFields.map((field) => {
-        const reference = resolved.get(field.fieldName);
-        const currentValue = assistantCurrentValue(view, field, valueBudget, reference?.display);
-        const writeMode = assistantFieldWriteMode(view, field);
-        return {
-          fieldName: field.fieldName,
-          label: field.label,
-          required: field.required,
-          readOnly: field.readOnly,
-          ...(field.calculationPending ? { calculationPending: true } : {}),
-          valueType: field.valueType,
-          ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
-          ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
-          controlType: field.controlType,
-          assistantWritable: writeMode !== undefined,
-          ...(writeMode ? { assistantWriteMode: writeMode } : {}),
-          ...(field.reference
-            ? {
-                referenceCardinality: field.reference.cardinality,
-                referenceTargetModuleAlias: field.reference.targetModuleAlias,
-              }
-            : {}),
-          ...(currentValue !== undefined ? { currentValue } : {}),
-          ...(reference?.unavailable ? { currentValueUnavailable: true } : {}),
-          options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
-        };
-      });
       return {
-        editorMode: view.editorMode,
-        editable: hasEditableDraft(view),
-        currentValuesTruncated: valueBudget.truncated,
-        fields,
+        ...recordFormAssistantFacts(view, resolved, referencesTruncated),
         relations: view.relations?.() ?? [],
       };
     },
+  };
+}
+
+/** Same field projection for live context and explicit reads; never queries reference sources. */
+export function recordFormAssistantFacts(
+  view: RecordFormDraftAccess,
+  resolved = new Map<string, { display: string; unavailable?: boolean }>(),
+  referencesTruncated = false,
+) {
+  const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: referencesTruncated };
+  const fields = formFieldStates(view)
+    .filter((field) => field.visible && !isSensitiveField(field))
+    .map((field) => {
+      const observedDisplay = view.referenceDisplay?.(field.fieldName);
+      const reference =
+        resolved.get(field.fieldName) ?? (observedDisplay ? { display: observedDisplay } : undefined);
+      const value = view.editingRecord?.[field.fieldName];
+      const referenceNeedsRead =
+        field.reference &&
+        hasEditableDraft(view) &&
+        !reference &&
+        value != null &&
+        value !== '' &&
+        (!Array.isArray(value) || value.length > 0);
+      const fieldBudget = { remaining: valueBudget.remaining, truncated: false };
+      const currentValue = assistantCurrentValue(
+        view,
+        field,
+        fieldBudget,
+        referenceNeedsRead ? '已选择（名称按需核实）' : reference?.display,
+      );
+      valueBudget.remaining = fieldBudget.remaining;
+      valueBudget.truncated ||= fieldBudget.truncated;
+      const writeMode = assistantFieldWriteMode(view, field);
+      return {
+        fieldName: field.fieldName,
+        label: field.label,
+        required: field.required,
+        readOnly: field.readOnly,
+        ...(field.calculationPending ? { calculationPending: true } : {}),
+        valueType: field.valueType,
+        ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
+        ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
+        controlType: field.controlType,
+        assistantWritable: writeMode !== undefined,
+        ...(writeMode ? { assistantWriteMode: writeMode } : {}),
+        ...(field.reference
+          ? {
+              referenceCardinality: field.reference.cardinality,
+              referenceTargetModuleAlias: field.reference.targetModuleAlias,
+            }
+          : {}),
+        ...(currentValue !== undefined ? { currentValue } : {}),
+        ...(fieldBudget.truncated ? { currentValueTruncated: true } : {}),
+        ...(reference?.unavailable || referenceNeedsRead ? { currentValueUnavailable: true } : {}),
+        options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
+      };
+    });
+  return {
+    editorMode: view.editorMode,
+    editable: hasEditableDraft(view),
+    currentValuesTruncated: valueBudget.truncated,
+    fields,
   };
 }
 
@@ -446,6 +566,7 @@ interface AssistantDraftResult {
   changedFields: string[];
   draftSummary: {
     saved: boolean;
+    truncated?: boolean;
     changes: Array<{ fieldName: string; label: string; source: string; before?: unknown; after?: unknown }>;
     missingRequired: string[];
   };
@@ -459,9 +580,6 @@ interface AssistantDraftChange {
 function formPatchCapability(
   view: RecordFormDraftAccess,
 ): AssistantCapability<{ changes: AssistantDraftChange[] }, AssistantDraftResult> {
-  const writableFieldNames = formFieldStates(view)
-    .filter((field) => field.visible && !field.readOnly && isAssistantWritableField(field))
-    .map(({ fieldName }) => fieldName);
   return {
     effect: 'draft',
     present({ draftSummary }) {
@@ -498,34 +616,13 @@ function formPatchCapability(
         additionalProperties: false,
         required: ['changes'],
         properties: {
-          changes: {
-            type: 'array',
-            minItems: 1,
-            maxItems: 20,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['fieldName', 'value'],
-              properties: {
-                fieldName: { type: 'string', enum: writableFieldNames },
-                value: {},
-              },
-            },
-          },
+          changes: draftChangesInputSchema(writableFieldNames(view)),
         },
       },
     },
     parseInput(input) {
-      if (!isRecord(input) || !Array.isArray(input.changes) || input.changes.length === 0) {
-        throw new AssistantCapabilityUsageError('form.patch-draft requires changes');
-      }
-      if (input.changes.length > 20)
-        throw new AssistantCapabilityUsageError('form.patch-draft accepts at most 20 changes');
-      const changes = input.changes.map(parseDraftChange);
-      if (new Set(changes.map(({ fieldName }) => fieldName)).size !== changes.length) {
-        throw new AssistantCapabilityUsageError('form.patch-draft field names must be unique');
-      }
-      return { changes };
+      if (!isRecord(input)) throw new AssistantCapabilityUsageError('form.patch-draft requires changes');
+      return { changes: parseDraftChanges(input.changes) };
     },
     async execute(input, context) {
       if (!hasEditableDraft(view))
@@ -539,17 +636,18 @@ function formPatchCapability(
       const after = draftSummaryValues(view);
       const requested = new Set(input.changes.map(({ fieldName }) => fieldName));
       const changes = formFieldStates(view)
-        .filter((field) => after.has(field.fieldName))
+        .filter((field) => after.values.has(field.fieldName))
         .filter(
           (field) =>
-            JSON.stringify(before.get(field.fieldName)) !== JSON.stringify(after.get(field.fieldName)),
+            JSON.stringify(before.values.get(field.fieldName)) !==
+            JSON.stringify(after.values.get(field.fieldName)),
         )
         .map((field) => ({
           fieldName: field.fieldName,
           label: field.label,
           source: requested.has(field.fieldName) ? 'assistant' : 'derived',
-          before: before.get(field.fieldName),
-          after: after.get(field.fieldName),
+          before: before.values.get(field.fieldName),
+          after: after.values.get(field.fieldName),
         }));
       const missingRequired = formFieldStates(view)
         .filter((field) => field.visible && field.required && !isSensitiveField(field))
@@ -563,9 +661,48 @@ function formPatchCapability(
           );
         })
         .map((field) => field.label);
-      return { changedFields: [...requested], draftSummary: { saved: false, changes, missingRequired } };
+      return {
+        changedFields: [...requested],
+        draftSummary: {
+          saved: false,
+          changes,
+          missingRequired,
+          ...(before.truncated || after.truncated ? { truncated: true } : {}),
+        },
+      };
     },
   };
+}
+
+function writableFieldNames(view: RecordFormDraftAccess) {
+  return formFieldStates(view)
+    .filter((field) => field.visible && !field.readOnly && isAssistantWritableField(field))
+    .map(({ fieldName }) => fieldName);
+}
+
+function draftChangesInputSchema(fieldNames: string[]) {
+  return {
+    type: 'array',
+    minItems: 1,
+    maxItems: 20,
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['fieldName', 'value'],
+      properties: { fieldName: { type: 'string', enum: fieldNames }, value: {} },
+    },
+  };
+}
+
+function parseDraftChanges(input: unknown) {
+  if (!Array.isArray(input) || !input.length)
+    throw new AssistantCapabilityUsageError('form.patch-draft requires changes');
+  if (input.length > 20)
+    throw new AssistantCapabilityUsageError('form.patch-draft accepts at most 20 changes');
+  const changes = input.map(parseDraftChange);
+  if (new Set(changes.map(({ fieldName }) => fieldName)).size !== changes.length)
+    throw new AssistantCapabilityUsageError('form.patch-draft field names must be unique');
+  return changes;
 }
 
 function parseDraftChange(input: unknown): AssistantDraftChange {
@@ -608,22 +745,27 @@ function assistantCurrentValue(
   const value = field.calculationPending
     ? recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
     : field.reference
-      ? (
-          resolvedReferenceDisplay ??
-          recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
-        ).slice(0, 500)
+      ? (resolvedReferenceDisplay ??
+        recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}))
       : field.controlType === 'enabledStatus' && hasEditableDraft(view)
         ? resolveRecordEnabledStatusValue(view.editingRecord?.[field.fieldName])
         : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;
-  else if (typeof value === 'string') candidate = value.slice(0, 2_000);
-  else if (
+  else if (typeof value === 'string') {
+    const limit = field.reference ? 500 : 2_000;
+    budget.truncated ||= value.length > limit;
+    candidate = value.slice(0, limit);
+  } else if (Array.isArray(value) && value.length > 20) {
+    budget.truncated = true;
+    return undefined;
+  } else if (
     Array.isArray(value) &&
     value.length <= 20 &&
     value.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
   ) {
+    budget.truncated ||= value.some((item) => typeof item === 'string' && item.length > 200);
     candidate = value.map((item) => (typeof item === 'string' ? item.slice(0, 200) : item));
   } else return undefined;
   const cost = JSON.stringify(candidate).length;
@@ -829,11 +971,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function draftSummaryValues(view: RecordFormDraftAccess): Map<string, unknown> {
+function draftSummaryValues(view: RecordFormDraftAccess) {
   const budget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
-  return new Map(
+  const values = new Map(
     formFieldStates(view)
       .filter((field) => field.visible && !isSensitiveField(field) && field.assistantPolicy !== 'DESCRIBE')
       .map((field) => [field.fieldName, assistantCurrentValue(view, field, budget)]),
   );
+  return { values, truncated: budget.truncated };
 }

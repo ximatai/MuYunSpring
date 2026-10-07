@@ -29,6 +29,16 @@ export function physicalNameOf(fieldName?: string): string {
     .toLowerCase();
 }
 
+/** Match the platform record-name contract before a shared candidate is staged. */
+export function recordNameFieldProblem(field: {
+  titleField?: boolean | null;
+  fieldName?: string | null;
+  columnName?: string | null;
+}): string | undefined {
+  if (field.titleField && (field.fieldName?.trim() !== 'title' || field.columnName?.trim() !== 'title'))
+    return '记录名称须使用标准 title 字段与 title 物理列；新增时可省略字段名由平台生成，其他信息应作为普通字段。';
+}
+
 export function generatedFieldName(title?: string): string {
   const normalized = (title ?? '').trim();
   if (/[\u3400-\u9fff]/.test(normalized)) {
@@ -57,8 +67,10 @@ export function generatedFieldName(title?: string): string {
 export function generatedBusinessFieldName(
   title: string | undefined,
   kind: MetadataFieldPropertyKind,
+  titleField = false,
 ): string {
   if (!title?.trim()) return '';
+  if (kind === 'BASIC' && titleField) return 'title';
   const name = generatedFieldName(title);
   const role = name.charAt(0).toUpperCase() + name.slice(1);
   const candidate =

@@ -1,13 +1,23 @@
 import { createRelationDraftRegistry } from './relationDraftController';
+import { createRecordSaveRecovery } from './recordSaveRecovery';
+import { createRecordReferenceDisplay } from './recordReferenceDisplay';
 import {
   resolvedRecordFieldDisplay,
   recordRelationProjection,
   recordFieldDisplay,
 } from './recordDisplayProjection';
-import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
+import type {
+  OptionItemDescriptor,
+  OperationReceiptReference,
+  OperationPresentation,
+} from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
-import type { RecordFormDraftAccess } from './recordFormDraftAccess';
+import {
+  referenceDraftChanges,
+  validateStagedDraft,
+  type RecordFormDraftAccess,
+} from './recordFormDraftAccess';
 import { createModulePageFormState } from './composables/useModulePageFormContributionRuntime';
 import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
 import { useInputValidationActionStatus } from './inputValidationActionStatus';
@@ -23,6 +33,7 @@ import {
   confirmAction,
   parentRecordConstraints,
   applyReferenceDependencyClears,
+  referenceDependencyFields,
   presentPlatformError,
   presentPlatformMessage,
   recordDraftFingerprint,
@@ -481,8 +492,18 @@ export function useModulePageSession(
   const activeDetailActionKey = ref<string>();
   const inputValidationStatus = useInputValidationActionStatus();
   const detailEnhancementRunning = ref(false);
+  const unresolvedRecordSave = shallowRef<Extract<OperationReceiptReference, { kind: 'record-save' }>>();
+  const recordSaveRecoveryError = ref('');
+  let unresolvedRecordSaveIsCurrent: (() => boolean) | undefined;
+  let unresolvedRecordSaveRejected = false;
   const detailActionBusy = computed(
-    () => saving.value || deleting.value || togglingEnabled.value || detailEnhancementRunning.value,
+    () =>
+      saving.value ||
+      deleting.value ||
+      togglingEnabled.value ||
+      detailEnhancementRunning.value ||
+      Boolean(unresolvedRecordSave.value) ||
+      Boolean(recordSaveRecoveryError.value),
   );
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
@@ -502,6 +523,7 @@ export function useModulePageSession(
     displayRecords?: QueryListRecord[],
     options: Record<string, OptionItemDescriptor[]> = {},
   ) {
+    if (editorMode.value !== 'view' && (saving.value || unresolvedRecordSave.value)) return;
     const previousDisplay = childDisplayFacts.value[relationField]?.rows;
     childDisplayFacts.value = {
       ...childDisplayFacts.value,
@@ -1380,6 +1402,18 @@ export function useModulePageSession(
       undefined
     );
   }
+  const recordFormScopeContext = computed(() => {
+    const navigation = navigatorScopeContext(
+      pageContextBindings.value
+        .filter(
+          (binding) =>
+            binding.source === 'NAVIGATOR' &&
+            (binding.target === 'FORM_DEFAULT' || binding.target === 'LIST_QUERY'),
+        )
+        .map((binding) => binding.sourceKey),
+    );
+    return [tenantScopeSubtitle.value, navigation].filter(Boolean).join(' · ') || undefined;
+  });
   const mainTreeScopeContext = computed(() => {
     if (treeResource.value) return treeResourceScopeContext.value;
     return navigatorScopeContext(
@@ -1461,7 +1495,19 @@ export function useModulePageSession(
     () => pageEnhancement.value?.list?.batchActions ?? [],
   );
   const managedPageActions = computed(() => runtimePage.value?.managedActions === true);
-  const placedPageActions = computed<RecordActionItem[]>(() => placedActionsAt('PAGE'));
+  const placedPageActions = computed<RecordActionItem[]>(() => [
+    ...(unresolvedRecordSave.value || recordSaveRecoveryError.value
+      ? [
+          {
+            key: '__platform-check-save',
+            title: '核实保存结果',
+            loading: saving.value,
+            disabled: saving.value,
+          },
+        ]
+      : []),
+    ...placedActionsAt('PAGE'),
+  ]);
   const explorerRefreshAction = computed(() =>
     placedPageActions.value.find((action) => placedOperation(action.key) === 'REFRESH'),
   );
@@ -1777,6 +1823,15 @@ export function useModulePageSession(
     resetSelection: resetFlatManagementSelection,
   });
   const flatManagementActions = computed<RecordActionItem[]>(() => {
+    if (unresolvedRecordSave.value || recordSaveRecoveryError.value)
+      return [
+        {
+          key: '__platform-check-save',
+          title: '核实保存结果',
+          loading: saving.value,
+          disabled: saving.value,
+        },
+      ];
     if (flatManagementRecycleBin.active.value) return [];
     if (managedPageActions.value)
       return editorMode.value === 'view'
@@ -2126,6 +2181,10 @@ export function useModulePageSession(
   }
 
   function handleFlatManagementAction(action: RecordActionItem) {
+    if (action.key === '__platform-check-save') {
+      void checkRecordSave();
+      return;
+    }
     markAssistantUserInteraction();
     if (placedFormActions.value.some((item) => item.key === action.key)) {
       handlePlacedFormAction(action);
@@ -2719,6 +2778,7 @@ export function useModulePageSession(
   function updateNavigatorManagementDraftFields(
     changes: Parameters<RecordFormDraftAccess['updateDraftFields']>[0],
     source: 'user' | 'assistant' = 'user',
+    validate?: Parameters<RecordFormDraftAccess['updateDraftReference']>[4],
   ) {
     const draft = navigatorManagementDetail.draft.value;
     if (!draft || interactionBusy.value) {
@@ -2726,12 +2786,11 @@ export function useModulePageSession(
       return;
     }
     if (changes.length === 0) return;
-    if (source === 'user') markAssistantUserInteraction();
     const level = navigatorManagementLevel.value;
     let next = draft;
     for (const { fieldName, value } of changes)
       next = applyReferenceDependencyClears(next, fieldName, value, navigatorManagementFormFields.value);
-    navigatorManagementDetail.draft.value = new FormComputeCoordinator(
+    const computed = new FormComputeCoordinator(
       formComputeRulesOf(
         level?.context.runtime.snapshot()?.uiDescriptor,
         level?.descriptor.management?.editorSurface,
@@ -2744,6 +2803,9 @@ export function useModulePageSession(
         changes.map(({ fieldName }) => fieldName),
       ),
     );
+    validateStagedDraft(computed, validate);
+    if (source === 'user') markAssistantUserInteraction();
+    navigatorManagementDetail.draft.value = computed;
   }
 
   async function editNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
@@ -2942,6 +3004,22 @@ export function useModulePageSession(
     if (firstRecord) selectTreeRecord(firstRecord, 'background');
   }
 
+  const draftReferenceDisplay = createRecordReferenceDisplay(
+    {
+      get editingRecord() {
+        return editingRecord.value;
+      },
+      get referencePickerConfigs() {
+        return referencePickerConfigs.value;
+      },
+    },
+    () => formSessionKey.value,
+  );
+  const referenceDisplay = (fieldName: string) => draftReferenceDisplay.current(fieldName);
+  function updateReferenceDisplay(fieldName: string, candidates: readonly ReferencePickerCandidate[]) {
+    if (editorMode.value !== 'view') draftReferenceDisplay.observe(fieldName, candidates);
+  }
+
   function updateDraftField(
     fieldName: string,
     value: import('@muyun/platform-components').RecordFormFieldValue,
@@ -2955,15 +3033,21 @@ export function useModulePageSession(
       value: import('@muyun/platform-components').RecordFormFieldValue;
     }>,
     source: 'user' | 'assistant' = 'user',
+    validate?: (record: import('@muyun/platform-components').RecordFormRecord) => void,
   ) {
+    if (saving.value || unresolvedRecordSave.value || recordSaveRecoveryError.value) return;
     if (!editingRecord.value || changes.length === 0) return;
-    if (source === 'user') assistantInteractionRevision.value += 1;
+    const clearDisplayFields = new Set<string>();
     const rules = formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor);
     let next = editingRecord.value;
     for (const { fieldName, value } of changes) {
+      if (next[fieldName] !== value)
+        referenceDependencyFields(fieldName, formFields.value).forEach((field) =>
+          clearDisplayFields.add(field),
+        );
       next = applyReferenceDependencyClears(next, fieldName, value, formFields.value);
     }
-    editingRecord.value = applyFormComputeAfterChanges(
+    const computed = applyFormComputeAfterChanges(
       next,
       formComputeChangedFields(
         editingRecord.value,
@@ -2972,26 +3056,22 @@ export function useModulePageSession(
       ),
       rules,
     );
+    validateStagedDraft(computed, validate);
+    if (source === 'user') assistantInteractionRevision.value += 1;
+    draftReferenceDisplay.clear([...clearDisplayFields]);
+    editingRecord.value = computed;
   }
 
   function updateDraftReference(
     fieldName: string,
     candidate: ReferencePickerCandidate,
     source: 'user' | 'assistant' = 'user',
+    changes: Parameters<RecordFormDraftAccess['updateDraftFields']>[0] = [],
+    validate?: Parameters<RecordFormDraftAccess['updateDraftReference']>[4],
   ) {
-    const changes: Array<{
-      fieldName: string;
-      value: import('@muyun/platform-components').RecordFormFieldValue;
-    }> = [{ fieldName, value: candidate.id }];
-    for (const [patchField, patchValue] of Object.entries(candidate.affectPatch ?? {})) {
-      if (patchField !== fieldName) {
-        changes.push({
-          fieldName: patchField,
-          value: patchValue as import('@muyun/platform-components').RecordFormFieldValue,
-        });
-      }
-    }
-    updateDraftFields(changes, source);
+    if (saving.value || unresolvedRecordSave.value || recordSaveRecoveryError.value) return;
+    updateDraftFields(referenceDraftChanges(fieldName, candidate, changes), source, validate);
+    updateReferenceDisplay(fieldName, [candidate]);
   }
 
   /**
@@ -3224,18 +3304,11 @@ export function useModulePageSession(
       },
       contextRevision: () => String(assistantContextRevision.value),
       updateDraftFields: updateNavigatorManagementDraftFields,
-      updateDraftReference(fieldName, candidate, source) {
+      updateDraftReference(fieldName, candidate, source, changes, validate) {
         updateNavigatorManagementDraftFields(
-          [
-            { fieldName, value: candidate.id },
-            ...Object.entries(candidate.affectPatch ?? {})
-              .filter(([name]) => name !== fieldName)
-              .map(([fieldName, value]) => ({
-                fieldName,
-                value: value as Parameters<RecordFormDraftAccess['updateDraftFields']>[0][number]['value'],
-              })),
-          ],
+          referenceDraftChanges(fieldName, candidate, changes),
           source,
+          validate,
         );
       },
     };
@@ -3542,7 +3615,151 @@ export function useModulePageSession(
     return recordMutationPayload(draft, formFields.value.values());
   }
 
+  const reliableRecordSaveAvailable = computed(
+    () => Boolean(rawContext.crud.saveReceipt) && !activeTreeResourceClient.value,
+  );
+  const recordSaveScope = computed(() =>
+    JSON.stringify([
+      currentUser?.value?.userId,
+      currentUser?.value?.tenantId,
+      tenantScopeId.value,
+      context.moduleAlias,
+      props.descriptor.menuId,
+      pageContextHeader.value,
+      navigatorExtensionSelection.value,
+      treeResource.value?.resource,
+    ]),
+  );
+  function recordSaveReference(
+    requestId: string,
+  ): Extract<OperationReceiptReference, { kind: 'record-save' }> {
+    return {
+      kind: 'record-save',
+      moduleAlias: context.moduleAlias,
+      requestId,
+      ...(tenantScopeId.value ? { tenantId: tenantScopeId.value } : {}),
+      ...(props.descriptor.menuId ? { menuId: props.descriptor.menuId } : {}),
+      ...(pageContextHeader.value ? { pageContext: JSON.parse(pageContextHeader.value) } : {}),
+      ...(navigatorExtensionSelection.value
+        ? { pageSelection: { ...navigatorExtensionSelection.value } }
+        : {}),
+    };
+  }
+  function recordSaveRecovery() {
+    // A standalone host without identity context retains only in-memory protection.
+    return currentUser?.value?.userId
+      ? createRecordSaveRecovery(recordSaveScope.value, window.sessionStorage)
+      : undefined;
+  }
+  watch(
+    recordSaveScope,
+    () => {
+      unresolvedRecordSave.value = undefined;
+      unresolvedRecordSaveIsCurrent = undefined;
+      unresolvedRecordSaveRejected = false;
+      recordSaveRecoveryError.value = '';
+      try {
+        unresolvedRecordSave.value = recordSaveRecovery()?.restore();
+      } catch {
+        recordSaveRecoveryError.value = '原保存结果暂时无法恢复，请先核实后再保存';
+      }
+    },
+    { immediate: true, flush: 'sync' },
+  );
+  const recordSaveNeedsCheck = computed(
+    () => Boolean(unresolvedRecordSave.value) || Boolean(recordSaveRecoveryError.value),
+  );
+  function clearRecordSaveReference(requestId: string) {
+    try {
+      recordSaveRecovery()?.clear(requestId);
+      if (unresolvedRecordSave.value?.requestId === requestId) {
+        unresolvedRecordSave.value = undefined;
+        unresolvedRecordSaveIsCurrent = undefined;
+        unresolvedRecordSaveRejected = false;
+      }
+      recordSaveRecoveryError.value = '';
+    } catch {
+      recordSaveRecoveryError.value = '保存状态已返回，但恢复记录暂未清理，请核实后继续';
+    }
+  }
+  async function readSavedRecord(recordId: string, isCurrent: () => boolean) {
+    if (!isCurrent()) return false;
+    try {
+      const persisted = await context.crud.view(recordId);
+      if (!isCurrent()) return false;
+      commitLoadedRecord(persisted, 'view');
+      if (persistentTreeDetail.value) selectedTreeRecord.value = persisted;
+      if (props.recordOnly) emit('record-only-change', { type: 'saved', record: persisted });
+      relationDraftValid.value = true;
+      return true;
+    } catch (cause) {
+      if (!isCurrent()) return false;
+      // Submission input and a receipt are not a canonical display projection.
+      detail.beginLoad({ id: recordId }, 'view');
+      detail.failLoad();
+      detail.finishLoad();
+      if (persistentTreeDetail.value) selectedTreeRecord.value = { id: recordId };
+      reportDetailRefreshFailure(cause, 'module-action');
+      return false;
+    }
+  }
+  function recordSavePresentation(recordId: string, viewRefreshed: boolean): OperationPresentation {
+    return {
+      title: '保存成功',
+      lines: [
+        `${modulePageTitle.value}已保存`,
+        ...(!viewRefreshed ? ['提交已确认，当前详情尚未核实；请重新读取详情，不要重复保存。'] : []),
+      ],
+      details: { title: '保存详情', lines: [`记录标识：${recordId}`] },
+    };
+  }
+  async function lookupRecordSave(requestId: string, scope: string) {
+    if (saving.value) throw new OperationUsageError('已有保存核实正在执行');
+    saving.value = true;
+    try {
+      if (disposed || scope !== recordSaveScope.value)
+        throw new OperationUsageError('保存范围已变化，请返回原范围核实');
+      if (unresolvedRecordSaveRejected && unresolvedRecordSave.value?.requestId === requestId) {
+        clearRecordSaveReference(requestId);
+        return { title: '操作未提交', lines: ['原保存已被明确拒绝，可以重新审阅后保存。'] };
+      }
+      const receipt = await context.crud.saveReceipt!(requestId);
+      if (disposed || scope !== recordSaveScope.value)
+        throw new OperationUsageError('保存范围已变化，请返回原范围核实');
+      if (!receipt.committed || !receipt.recordId) return undefined;
+      const targetIsCurrent =
+        unresolvedRecordSave.value?.requestId === requestId ? unresolvedRecordSaveIsCurrent : undefined;
+      clearRecordSaveReference(requestId);
+      const viewRefreshed = targetIsCurrent
+        ? await readSavedRecord(receipt.recordId, targetIsCurrent)
+        : false;
+      refreshList();
+      return recordSavePresentation(receipt.recordId, viewRefreshed);
+    } finally {
+      saving.value = false;
+    }
+  }
+  async function checkRecordSave() {
+    if (saving.value) return;
+    try {
+      if (recordSaveRecoveryError.value && !unresolvedRecordSave.value) {
+        unresolvedRecordSave.value = recordSaveRecovery()?.restore();
+        recordSaveRecoveryError.value = '';
+      }
+      const reference = unresolvedRecordSave.value;
+      if (!reference) return;
+      const result = await lookupRecordSave(reference.requestId, recordSaveScope.value);
+      presentPlatformMessage(
+        result ? result.lines.join('；') : '原保存结果仍未确定，请稍后再核实，不要重复提交',
+        result ? { tone: 'success' } : {},
+      );
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-save-recovery', phase: 'action' });
+    }
+  }
+
   async function saveRecord(actionKey = 'save') {
+    if (recordSaveNeedsCheck.value) return checkRecordSave();
     try {
       const record = await prepareRecordSave();
       if (record) await submitPreparedRecord(record, editorMode.value, actionKey);
@@ -3555,13 +3772,36 @@ export function useModulePageSession(
     record: QueryListRecord,
     mode: string,
     actionKey: string,
-    requestId?: string,
+    requestId = reliableRecordSaveAvailable.value ? crypto.randomUUID() : undefined,
   ) {
-    if (detailActionBusy.value) throw new Error('已有保存正在执行');
+    if (detailActionBusy.value) throw new OperationRejectedError('已有保存尚未核实，请先查询结果');
+    const scope = recordSaveScope.value;
+    const snapshot = JSON.stringify(record);
+    const session = formSessionKey.value;
     assistantInteractionRevision.value += 1;
+    const interaction = assistantInteractionRevision.value;
+    const isCurrent = () =>
+      !disposed &&
+      scope === recordSaveScope.value &&
+      session === formSessionKey.value &&
+      interaction === assistantInteractionRevision.value &&
+      mode === editorMode.value &&
+      Boolean(editingRecord.value) &&
+      snapshot === JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values()));
     saving.value = true;
     activeDetailActionKey.value = actionKey;
     try {
+      if (requestId) {
+        const reference = recordSaveReference(requestId);
+        try {
+          recordSaveRecovery()?.save(reference);
+        } catch {
+          throw new OperationRejectedError('无法保留保存查询引用，本次未提交，请稍后重试');
+        }
+        unresolvedRecordSave.value = reference;
+        unresolvedRecordSaveIsCurrent = isCurrent;
+        unresolvedRecordSaveRejected = false;
+      }
       const id = record.id == null ? undefined : String(record.id);
       const result = await (
         mode === 'edit' && id
@@ -3572,48 +3812,29 @@ export function useModulePageSession(
           requestId &&
           cause instanceof AppError &&
           [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0)
-        )
-          throw new AssistantOperationRejectedError(cause.message);
+        ) {
+          if (scope === recordSaveScope.value) {
+            unresolvedRecordSaveRejected = true;
+            clearRecordSaveReference(requestId!);
+          }
+          throw new OperationRejectedError(cause.message);
+        }
         throw cause;
       });
+      // Commit is known before any display or notification request is attempted.
+      if (scope !== recordSaveScope.value || disposed) return { result, viewRefreshed: false };
       const savedId = result.record.id == null ? undefined : String(result.record.id);
-      // Mutation output is an acknowledgement, not a guaranteed editable projection. Reload the
-      // canonical view (including managed children and display-enriched fields) before retaining it.
-      let persistedRecord = result.record;
-      let refreshFailure: unknown;
-      if (savedId) {
-        try {
-          persistedRecord = await context.crud.view(savedId);
-        } catch (cause) {
-          refreshFailure = cause;
-        }
-      }
+      if (!savedId) throw new Error('保存响应缺少记录身份，请先核实原保存结果');
+      if (requestId) clearRecordSaveReference(requestId);
+      const viewRefreshed = await readSavedRecord(savedId, isCurrent);
       if (savedId) {
         context.invalidateRecordActions?.([savedId]);
         inputValidationStatus.invalidateRecord(savedId);
         void context.recordActions(savedId).catch(() => undefined);
       }
-      if (props.recordOnly && refreshFailure && isRecordOnlyAccessLoss(refreshFailure)) {
-        refreshList();
-        await presentModuleActionSuccess(result, '保存成功');
-        reportDetailRefreshFailure(refreshFailure, 'module-action');
-        return { result, viewRefreshed: false };
-      }
-      selectedRecord.value = persistedRecord;
-      if (persistentTreeDetail.value) {
-        selectedTreeRecord.value = persistedRecord;
-      }
-      detail.applySaved(persistedRecord);
-      if (props.recordOnly) {
-        emit('record-only-change', { type: 'saved', record: persistedRecord });
-      }
-      relationDraftValid.value = true;
-      detailRelationReloadKey.value += 1;
       refreshList();
-      formSessionKey.value += 1;
-      await presentModuleActionSuccess(result, '保存成功');
-      if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-action');
-      return { result, viewRefreshed: !refreshFailure };
+      await presentModuleActionSuccess(result, '保存成功').catch(() => undefined);
+      return { result, viewRefreshed };
     } finally {
       activeDetailActionKey.value = undefined;
       saving.value = false;
@@ -3801,6 +4022,7 @@ export function useModulePageSession(
     const snapshot = JSON.stringify(record);
     const definition = JSON.stringify(context.runtime.snapshot()?.uiDescriptor);
     const requestId = crypto.randomUUID();
+    const saveScope = recordSaveScope.value;
     let savedContinuation: { interaction: number; recordId: string } | undefined;
     const isCurrent = () =>
       identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
@@ -3811,25 +4033,10 @@ export function useModulePageSession(
       !detailActionBusy.value &&
       Boolean(editingRecord.value) &&
       JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
-    const receiptPresentation = (recordId: string): AssistantResultPresentation => ({
-      title: '保存成功',
-      lines: [`${modulePageTitle.value}已保存`],
-      details: { title: '保存详情', lines: [`记录标识：${recordId}`] },
-    });
     const fieldLines = review.fieldLines;
     if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
     return {
-      receiptReference: {
-        kind: 'record-save',
-        moduleAlias: context.moduleAlias,
-        requestId,
-        ...(tenantScopeId.value ? { tenantId: tenantScopeId.value } : {}),
-        ...(props.descriptor.menuId ? { menuId: props.descriptor.menuId } : {}),
-        ...(pageContextHeader.value ? { pageContext: JSON.parse(pageContextHeader.value) } : {}),
-        ...(navigatorExtensionSelection.value
-          ? { pageSelection: { ...navigatorExtensionSelection.value } }
-          : {}),
-      },
+      receiptReference: recordSaveReference(requestId),
       modelSummary:
         '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
       presentation: {
@@ -3849,7 +4056,7 @@ export function useModulePageSession(
       isCurrent,
       continuation: {
         message:
-          '本次记录已保存并读回。先核实原始需求的实际进度，再继续尚未完成的部分；不得重建已保存记录。用户要求仅审阅、暂缓或取消的事项不得执行；新的保存仍须另行确认。目标已完成时说明结果并停止。',
+          '本次记录已保存并读回，正式值见当前页面事实，无需重复打开或查询本记录。结合这些事实核对原始需求，只继续尚未完成的部分；不得重建已保存记录。有后续变化或用户要求重新核实时才重新读取。用户要求仅审阅、暂缓或取消的事项不得执行；新的保存仍须另行确认。目标已完成时说明结果并停止。',
         isCurrent: () =>
           savedContinuation !== undefined &&
           identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
@@ -3873,29 +4080,10 @@ export function useModulePageSession(
         if (viewRefreshed && assistantInteractionRevision.value === expectedInteraction) {
           savedContinuation = { interaction: expectedInteraction, recordId: String(result.record.id) };
         }
-        return receiptPresentation(String(result.record.id));
+        return recordSavePresentation(String(result.record.id), viewRefreshed);
       },
       async lookup() {
-        const receipt = await context.crud.saveReceipt!(requestId);
-        if (!receipt.committed || !receipt.recordId) return undefined;
-        if (isCurrent()) {
-          let persisted: QueryListRecord = {
-            ...JSON.parse(snapshot),
-            id: receipt.recordId,
-            version: receipt.recordVersion,
-          };
-          try {
-            persisted = await context.crud.view(receipt.recordId);
-          } catch (cause) {
-            reportDetailRefreshFailure(cause, 'module-action');
-          }
-          if (isCurrent()) {
-            commitLoadedRecord(persisted, 'view');
-            if (props.recordOnly) emit('record-only-change', { type: 'saved', record: persisted });
-          }
-        }
-        refreshList();
-        return receiptPresentation(receipt.recordId);
+        return lookupRecordSave(requestId, saveScope);
       },
     };
   }
@@ -3998,6 +4186,10 @@ export function useModulePageSession(
   }
 
   function handleListAction(action: { key?: string }) {
+    if (action.key === '__platform-check-save') {
+      handlePlacedPageAction(action);
+      return;
+    }
     markAssistantUserInteraction();
     if (action.key === 'create') {
       createRecord();
@@ -4024,6 +4216,10 @@ export function useModulePageSession(
   function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
     if (saving.value || !placedPageActions.value.some((item) => item.key === action.key && !item.disabled))
       return;
+    if (action.key === '__platform-check-save') {
+      void checkRecordSave();
+      return;
+    }
     markAssistantUserInteraction();
     if (managedPageActions.value) {
       const operation = placedOperation(action.key);
@@ -4394,7 +4590,7 @@ export function useModulePageSession(
 
   /** Returns to a detail only when the state machine retained that surface. */
   async function cancelDetailEditing() {
-    if (saving.value) return;
+    if (detailActionBusy.value) return;
     assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     detail.cancelEdit();
@@ -4427,7 +4623,7 @@ export function useModulePageSession(
   }
 
   async function closeTreeCardEditor() {
-    if (saving.value) return;
+    if (detailActionBusy.value) return;
     assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     // Tree management uses a persistent card rather than a drawer, but its
@@ -4541,6 +4737,8 @@ export function useModulePageSession(
     updateDraftField,
     updateDraftFields,
     updateDraftReference,
+    referenceDisplay,
+    updateReferenceDisplay,
     showStatusSwitch,
     canToggleEnabled,
     toggleEnabledDisabledReason,
@@ -4640,6 +4838,9 @@ export function useModulePageSession(
     canLeaveUnchangedEditor,
     leaveUnchangedEditor,
     saveRecord,
+    checkRecordSave,
+    recordSaveNeedsCheck,
+    recordSaveRecoveryError,
     prepareAssistantSave,
     canReviewRecordDraft,
     reviewRecordDraft,
@@ -4654,6 +4855,7 @@ export function useModulePageSession(
     treePanelTitle,
     explorerRefreshAction,
     mainTreeScopeContext,
+    recordFormScopeContext,
     treeSearchKeyword,
     treeReloadKey,
     explorerExtraActions,

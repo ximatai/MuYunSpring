@@ -17,6 +17,7 @@ import { createMetadataEditorSession, type MetadataEditorSession } from './metad
 import { useMetadataWorkspace } from './metadataWorkspace';
 import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
 import {
+  presentPlatformError,
   ManagementExplorerColumn,
   ManagementWorkspace,
   RecordDetailPanel,
@@ -77,12 +78,29 @@ function binding<K extends keyof MetadataEditorSession['view']>(key: K) {
   });
 }
 const state = binding('state');
+const capabilityItems = binding('capabilityItems');
+const selectCapability = binding('selectCapability');
 const fieldPlanActive = binding('fieldPlanActive');
 const fieldPlanEntries = binding('fieldPlanEntries');
 const sorting = binding('sorting');
 const mainMetadataDraft = binding('mainMetadataDraft');
 const fieldDraft = binding('fieldDraft');
 const fieldPropertyDraft = binding('fieldPropertyDraft');
+const fixedDefaultEditable = binding('fixedDefaultEditable');
+const fixedDefaultReadValue = binding('fixedDefaultReadValue');
+const fixedDefaultValue = computed({
+  get: () =>
+    fieldPropertyDraft.value.fixedDefault
+      ? (fieldPropertyDraft.value.fixedDefault.value ?? '')
+      : (fixedDefaultReadValue.value ?? ''),
+  set: (value: string) => {
+    if (!fixedDefaultEditable.value) return;
+    fieldPropertyDraft.value.fixedDefault = {
+      ...fieldPropertyDraft.value.fixedDefault,
+      value: value.trim() ? value : null,
+    };
+  },
+});
 const loading = binding('loading');
 const saving = binding('saving');
 const showSystemFields = binding('showSystemFields');
@@ -128,6 +146,13 @@ const referenceLabelFieldOptions = binding('referenceLabelFieldOptions');
 const referenceTargetFieldCatalogProblem = binding('referenceTargetFieldCatalogProblem');
 const updateReferenceTargetModuleAlias = binding('updateReferenceTargetModuleAlias');
 const loadWorkspace = binding('loadWorkspace');
+async function readCurrentMetadata() {
+  try {
+    await session.value.readCurrent();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+  }
+}
 const selectMetadataTreeNode = binding('selectMetadataTreeNode');
 const editPlanField = binding('editPlanField');
 const removePlanField = binding('removePlanField');
@@ -236,7 +261,12 @@ onUnmounted(() => {
         title="元数据"
         :searchable="false"
         :collapse-action="false"
-        :refresh-disabled="saving || fieldPlanActive"
+        :refresh-disabled="
+          saving ||
+          fieldPlanActive ||
+          session.submissionStatus.value === 'unknown' ||
+          session.committedNeedsReload.value
+        "
         @refresh="loadWorkspace"
       >
         <template #actions>
@@ -249,7 +279,13 @@ onUnmounted(() => {
             :title="sorting ? '结束排序' : '调整排序'"
             :aria-label="sorting ? '结束排序' : '调整排序'"
             :selected="sorting"
-            :disabled="saving || loading || fieldPlanActive"
+            :disabled="
+              saving ||
+              loading ||
+              fieldPlanActive ||
+              session.submissionStatus.value === 'unknown' ||
+              session.committedNeedsReload.value
+            "
             @click="toggleSorting"
           />
           <label class="metadata-system-fields-toggle">
@@ -268,7 +304,14 @@ onUnmounted(() => {
           v-model:expanded-keys="expandedTreeKeys"
           :nodes="metadataTreeNodes"
           :selected-key="selectedTreeKey"
-          :draggable="sorting && !saving && !loading && !state.fieldEditorOpen.value"
+          :draggable="
+            sorting &&
+            !saving &&
+            !loading &&
+            !state.fieldEditorOpen.value &&
+            session.submissionStatus.value !== 'unknown' &&
+            !session.committedNeedsReload.value
+          "
           :can-drag="canDragMetadataNode"
           :allow-drop="allowMetadataModelDrop"
           @select="selectMetadataTreeNode"
@@ -277,8 +320,23 @@ onUnmounted(() => {
       </RecordExplorerPanel>
     </ManagementExplorerColumn>
 
+    <div
+      v-if="session.submissionStatus.value === 'unknown' || session.committedNeedsReload.value"
+      role="status"
+    >
+      <p>
+        {{
+          session.submissionStatus.value === 'unknown'
+            ? '原元数据提交结果未知，候选已保留；请先读取当前配置，不要重复保存。'
+            : '元数据已保存，但生效状态或页面同步失败；请读取当前配置，不要重复保存。'
+        }}
+      </p>
+      <UiButton :disabled="saving || loading || session.readingCurrent.value" @click="readCurrentMetadata"
+        >读取当前配置并保留候选</UiButton
+      >
+    </div>
     <RecordDetailPanel
-      v-if="state.selectedMetadata.value && state.selectedRelation.value"
+      v-else-if="state.selectedMetadata.value && state.selectedRelation.value"
       class="module-tree-card"
       :title="
         creatingChildMetadata
@@ -299,8 +357,13 @@ onUnmounted(() => {
               : state.selectedMetadata.value.alias
       "
     >
-      <template v-if="session.dirty.value" #status>
-        <span class="metadata-edit-status" role="status">未保存 · 刷新工作区或切换身份后不会恢复</span>
+      <template v-if="session.dirty.value || session.submissionStatus.value === 'current-read'" #status>
+        <span v-if="session.submissionStatus.value === 'current-read'" role="status"
+          >原提交结果仍未知；已读取当前配置，后续保存须重新审阅。</span
+        >
+        <span v-if="session.dirty.value" class="metadata-edit-status" role="status"
+          >未保存 · 刷新工作区或切换身份后不会恢复</span
+        >
       </template>
       <template #actions>
         <template v-if="state.fieldEditorOpen.value">
@@ -317,8 +380,8 @@ onUnmounted(() => {
           <UiActionButton
             emphasis="primary"
             :loading="saving"
-            :disabled="!fieldPlanEntries.length"
-            @click="previewAndApply('字段更改')"
+            :disabled="!session.dirty.value"
+            @click="previewAndApply('配置更改')"
             >预检并保存</UiActionButton
           >
         </template>
@@ -354,6 +417,22 @@ onUnmounted(() => {
       <p v-if="!state.fieldEditorOpen.value && !fieldPlanActive" class="metadata-page-guidance">
         字段保存后，如需在业务页面展示或录入，请到“页面配置”编排并保存生效。
       </p>
+      <section
+        v-if="!state.fieldEditorOpen.value && !selectedNodeIsField && capabilityItems.length"
+        class="metadata-capabilities"
+      >
+        <RecordContentSectionHeading title="基础能力" />
+        <label v-for="capability in capabilityItems" :key="capability.capability">
+          <UiCheckbox
+            :checked="capability.selected"
+            :disabled="saving || loading || sorting || capability.enabled || !capability.configurable"
+            @update:checked="selectCapability(capability.capability, $event)"
+          >
+            {{ capability.title }}{{ capability.enabled ? '（已启用）' : '' }}
+          </UiCheckbox>
+          <span>{{ capability.configurable ? capability.defaultDescription : capability.reason }}</span>
+        </label>
+      </section>
       <section v-if="state.fieldEditorOpen.value" class="metadata-inline-editor">
         <div class="metadata-editor-mode">
           <UiRadioGroup v-model:value="editorMode" :options="editorModeOptions" size="small" />
@@ -565,6 +644,15 @@ onUnmounted(() => {
                   style="width: 100%"
               /></label>
             </template>
+            <label v-if="fieldPropertyEditorKind === 'BASIC' || fieldPropertyEditorKind === 'DICTIONARY'">
+              <span>固定默认值</span>
+              <UiInput
+                v-model:value="fixedDefaultValue"
+                :disabled="!fixedDefaultEditable"
+                :maxlength="512"
+                placeholder="未填写时使用，例如 1；不修改已有数据"
+              />
+            </label>
             <div class="orchestration-form-flags record-form-full-row">
               <UiCheckbox v-model:checked="fieldDraft.required">必填</UiCheckbox>
               <UiCheckbox v-model:checked="fieldDraft.uniqueField">唯一</UiCheckbox>
@@ -604,7 +692,7 @@ onUnmounted(() => {
             <UiActionButton :disabled="saving" @click="removePlanField(field)">移除</UiActionButton>
           </div>
         </article>
-        <p v-if="!fieldPlanEntries.length">点击“＋ 字段”开始添加。当前没有需要保存的字段。</p>
+        <p v-if="!fieldPlanEntries.length">当前没有新增业务字段。已选择的基础能力会在本次确认中一并保存。</p>
       </section>
       <section v-else-if="!selectedNodeIsField" class="metadata-node-summary">
         <RecordContentSectionHeading title="元数据信息" />
@@ -803,6 +891,22 @@ onUnmounted(() => {
   display: grid;
   gap: 10px;
   padding: 2px 0;
+}
+
+.metadata-capabilities {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.metadata-capabilities > label {
+  display: grid;
+  gap: 4px;
+}
+
+.metadata-capabilities > label > span {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
 }
 
 .metadata-inline-editor {

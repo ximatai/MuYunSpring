@@ -87,6 +87,8 @@ export function createPageCompositionWorkspace(
       const value = active.value;
       if (!value) return;
       return {
+        kind: 'page',
+        openingCapability: openEditor ? 'configuration.open-page-editor' : undefined,
         moduleAlias: value.moduleAlias,
         title: value.adapter.describe().title,
         hasUnsavedChanges: value.hasUnsavedChanges.value,

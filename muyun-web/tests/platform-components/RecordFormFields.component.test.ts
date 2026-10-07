@@ -1280,6 +1280,11 @@ describe('RecordFormFields', () => {
       'supplierId',
       { supplierCode: 'SUP-003' },
     ]);
+    expect(wrapper.emitted('reference-display-change')).toContainEqual([
+      'supplierId',
+      [{ id: 'supplier-3', title: '新供应商', projections: { supplierCode: 'SUP-003' } }],
+    ]);
+    expect(wrapper.emitted('update:field')).not.toContainEqual(['supplierCode', 'SUP-003']);
   });
 
   it('uses dictionary-only renderers without changing code-valued form mutations', async () => {

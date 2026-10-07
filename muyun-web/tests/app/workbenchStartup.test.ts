@@ -1024,6 +1024,49 @@ it('restores a readable module URL through the matching visible menu without an 
   assert.equal(restored.tabs?.[0]?.fullPath, '/config/modules');
 });
 
+it('retains the mounted menu instance across public URL restoration and reopening the same menu', () => {
+  const options = { dynamicModuleRoutes: { '/config/modules': 'platform.module' } };
+  const first = restoreWorkbenchStartupStateFromUrl(
+    { session: { currentUser }, menus: platformAdminMenus, tabs: [] },
+    '/config/modules',
+    options,
+  );
+  const instance = first.tabs?.[0]?.instanceKey;
+  assert.ok(instance);
+  assert.equal(first.tabs?.[0]?.pageDescriptor?.params?.InstanceKey, instance);
+  const restored = restoreWorkbenchStartupStateFromUrl(first, '/config/modules', options);
+  assert.equal(restored.tabs?.length, 1);
+  assert.equal(restored.tabs?.[0]?.instanceKey, instance);
+  const menu = platformAdminMenus[0].children[0].children[1].record;
+  assert.equal(menu.moduleAlias, 'platform.module');
+  const target = getMenuNavigationTarget(menu);
+  assert.ok(target);
+  const reopened = openMenuTab(restored.tabs ?? [], menu, target, options);
+  assert.equal(reopened.tabs.length, 1);
+  assert.equal(reopened.tabs[0]?.instanceKey, instance);
+  assert.equal(reopened.tabs[0]?.pageDescriptor?.params?.InstanceKey, instance);
+  assert.equal(reopened.tabs[0]?.fullPath, '/config/modules');
+});
+
+it('repairs a retained shell instance missing from its legacy descriptor without replacing the mounted page', () => {
+  const options = { dynamicModuleRoutes: { '/config/modules': 'platform.module' } };
+  const original = restoreWorkbenchStartupStateFromUrl(
+    { session: { currentUser }, menus: platformAdminMenus, tabs: [] },
+    '/config/modules',
+    options,
+  );
+  const tab = original.tabs?.[0];
+  assert.ok(tab?.pageDescriptor);
+  const legacyTab = { ...tab, pageDescriptor: { ...tab.pageDescriptor, params: {} } };
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    { ...original, tabs: [legacyTab] },
+    '/config/modules',
+    options,
+  );
+  assert.equal(restored.tabs?.[0]?.instanceKey, tab.instanceKey);
+  assert.equal(restored.tabs?.[0]?.pageDescriptor?.params?.InstanceKey, tab.instanceKey);
+});
+
 it('restoreWorkbenchStartupStateFromUrl restores a module OpenAPI document as a direct tab', () => {
   const state = {
     session: { currentUser },

@@ -4,8 +4,6 @@ import type {
   ConstructionTask,
   ConstructionAcceptancePreview,
   ConstructionAcceptanceReceipt,
-  ConstructionDeliveryProposal,
-  ConstructionDeliveryPreview,
   ConstructionDeliveryReceipt,
   ConstructionProgress,
   ConstructionFieldDescription,
@@ -49,11 +47,6 @@ export interface ConstructionPlanClient {
     command: { requestId: string; objectKey: string; fingerprint: string },
   ): Promise<ConstructionAcceptanceReceipt>;
   acceptance(id: string, requestId: string): Promise<ConstructionAcceptanceReceipt | undefined>;
-  previewDelivery(id: string, proposal: ConstructionDeliveryProposal): Promise<ConstructionDeliveryPreview>;
-  publishDelivery(
-    id: string,
-    command: { requestId: string; proposal: ConstructionDeliveryProposal; fingerprint: string },
-  ): Promise<ConstructionDeliveryReceipt>;
   delivery(id: string, requestId: string): Promise<ConstructionDeliveryReceipt | undefined>;
   progress(id: string, objectKey: string): Promise<ConstructionProgress>;
   describeFields(id: string, objectKey: string): Promise<ConstructionFieldDescription>;
@@ -83,10 +76,6 @@ export function createConstructionPlanClient(http: HttpClient): ConstructionPlan
       http.request({ path: `${path(id)}/acceptances`, method: 'POST', body: command }),
     acceptance: (id, requestId) =>
       http.request({ path: `${path(id)}/acceptances/${encodeURIComponent(requestId)}` }),
-    previewDelivery: (id, proposal) =>
-      http.request({ path: `${path(id)}/delivery/preview`, method: 'POST', body: proposal }),
-    publishDelivery: (id, command) =>
-      http.request({ path: `${path(id)}/delivery`, method: 'POST', body: command }),
     delivery: (id, requestId) =>
       http.request({ path: `${path(id)}/delivery/${encodeURIComponent(requestId)}` }),
     progress: (id, objectKey) =>

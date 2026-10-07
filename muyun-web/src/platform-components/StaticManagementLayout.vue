@@ -13,6 +13,7 @@ withDefaults(
     refreshable?: boolean;
     mode: 'view' | 'edit' | 'create';
     detailTitle: string;
+    detailSubtitle?: string;
     mutedMessage?: string;
     explorerSearchKeyword?: string;
     explorerSearchPlaceholder?: string;
@@ -21,6 +22,7 @@ withDefaults(
   }>(),
   {
     mutedMessage: undefined,
+    detailSubtitle: undefined,
     refreshable: true,
     explorerSearchKeyword: '',
     explorerSearchPlaceholder: '搜索名称、编码或 ID',
@@ -65,7 +67,7 @@ const emit = defineEmits<{
       </RecordExplorerPanel>
     </ManagementExplorerColumn>
 
-    <RecordDetailPanel class="static-management-card" :title="detailTitle">
+    <RecordDetailPanel class="static-management-card" :title="detailTitle" :subtitle="detailSubtitle">
       <template v-if="$slots['detail-outside-top']" #outside-top>
         <slot name="detail-outside-top" />
       </template>

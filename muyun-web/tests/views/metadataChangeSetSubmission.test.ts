@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { prepareMetadataChangeSetSubmission } from '@/views/metadataChangeSetSubmission';
 import type { MetadataModelChangeSetProposal } from '@/views/metadataModelEditSession';
-import type { HttpClient, HttpRequestOptions } from '@/web-core';
+import { AppError, OperationRejectedError, type HttpClient, type HttpRequestOptions } from '@/web-core';
 
 function fixture() {
   const proposal: MetadataModelChangeSetProposal = {
@@ -162,4 +162,45 @@ it('shows dictionary selection semantics in the same confirmation details', asyn
   };
   const submission = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
   expect(submission.details).toEqual(expect.arrayContaining(['选项字典：sales.tags', '选择数量：多选']));
+});
+
+it.each([400, 401, 403, 404, 409, 422])(
+  'allows an explicit retry after atomic HTTP %s rejection',
+  async (status) => {
+    const { http, request, proposal } = fixture();
+    const submission = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+    request.mockRejectedValueOnce(new AppError('配置被拒绝', { code: 'INVALID_CONFIGURATION', status }));
+    await expect(submission.apply()).rejects.toBeInstanceOf(OperationRejectedError);
+    expect(request).toHaveBeenCalledTimes(2);
+    await submission.apply();
+    expect(request).toHaveBeenCalledTimes(3);
+  },
+);
+
+it('preserves unknown server failure instead of claiming a rejected write', async () => {
+  const { http, request, proposal } = fixture();
+  const submission = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+  const error = new AppError('服务器失联', { code: 'HTTP_ERROR', status: 503 });
+  request.mockRejectedValueOnce(error);
+  await expect(submission.apply()).rejects.toBe(error);
+});
+
+it('captures and explains fixed initial values in the shared reviewed submission', async () => {
+  const { http, request, proposal } = fixture();
+  proposal.relationDrafts[0].fieldDrafts[0].property = {
+    kind: 'BASIC',
+    fixedDefault: { value: '1', expectedConfigVersion: 3 },
+  };
+  const submission = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+  expect(submission.lines.join('\n')).toContain('固定默认值：1');
+  expect(submission.details.join('\n')).toContain('不改变已有数据');
+  proposal.relationDrafts[0].fieldDrafts[0].property.fixedDefault!.value = '2';
+  await submission.apply();
+  expect(request.mock.calls.at(-1)?.[0].body).toMatchObject({
+    proposal: {
+      relationDrafts: [
+        { fieldDrafts: [{ property: { fixedDefault: { value: '1', expectedConfigVersion: 3 } } }] },
+      ],
+    },
+  });
 });

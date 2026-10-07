@@ -1,5 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { createConstructionReferenceDiscoveryCapabilities } from '@/platform-workbench/constructionReferenceDiscovery';
+import { createAssistantSurfaceRegistry, runAssistantConversation } from '@muyun/web-core';
+import type { AssistantTurnInput } from '@muyun/web-contracts';
 import type { ConstructionPlanClient } from '@/web-core/constructionPlanClient';
 
 it('exposes authoritative design facts before initialization without rewriting returned field names', async () => {
@@ -73,6 +75,7 @@ it('limits same-named modules to the confirmed application without guessing anot
     modules: [{ alias: 'qinghe.customer', applicationAlias: 'qinghe' }],
   });
   expect(await f.invoke({ applicationAlias: 'missing', search: '客户' })).toEqual({
+    query: { applicationAlias: 'missing', search: '客户' },
     total: 0,
     nextOffset: null,
     modules: [],
@@ -92,4 +95,55 @@ it.each([
   const f = fixture();
   expect(() => f.capability.parseInput(input)).toThrow();
   expect(f.businessObjects).not.toHaveBeenCalled();
+});
+
+it('preserves distinct empty search facts while bounding repeated empty pages of the same search', async () => {
+  for (const distinctSearches of [true, false]) {
+    const businessObjects = vi.fn(async () => []);
+    const capabilities = createConstructionReferenceDiscoveryCapabilities({
+      businessObjects,
+    } as unknown as ConstructionPlanClient);
+    let query = 0;
+    const requestTurn = vi.fn(async (input: AssistantTurnInput) => {
+      if (input.executionBudget?.phase === 'summary' || query === 7)
+        return { text: '已核实目录查询结果。', toolCalls: [] };
+      const current = query++;
+      return {
+        toolCalls: [
+          {
+            id: `query-${current}`,
+            code: 'construction.find-business-objects',
+            input: distinctSearches ? { search: `对象${current}` } : { search: '对象', offset: current * 20 },
+          },
+        ],
+      };
+    });
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'catalog',
+      contextRevision: () => 'stable',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: () => capabilities,
+        requestTurn,
+      },
+    });
+    registry.activate('catalog');
+    const result = await runAssistantConversation(registry, '核对需要的对象是否存在');
+    expect(businessObjects).toHaveBeenCalledTimes(distinctSearches ? 7 : 3);
+    expect(result.termination).toBe(distinctSearches ? 'stopped' : 'step-limit');
+    expect(requestTurn.mock.calls.every(([input]) => input.executionBudget!.hardLimit === 12)).toBe(true);
+  }
+});
+
+it('reports only the normalized applied filters, without paging noise in empty evidence', async () => {
+  const f = fixture();
+  expect(await f.invoke({ search: '  NONE  ', offset: 0 })).toEqual(
+    await f.invoke({ search: 'none', offset: 20 }),
+  );
+  expect(await f.invoke({ applicationAlias: 'qinghe', search: '  NONE  ' })).toMatchObject({
+    query: { applicationAlias: 'qinghe', search: 'none' },
+    modules: [],
+    total: 0,
+  });
 });

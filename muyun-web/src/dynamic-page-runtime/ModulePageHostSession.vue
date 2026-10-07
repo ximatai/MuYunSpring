@@ -280,6 +280,17 @@ function deactivateAssistantSurface() {
     settlement.reject(new Error('Tenant scope session was deactivated before it became ready'));
   }
 }
+// Restored workbench tabs may establish their identity after the page has mounted.
+// Bind that first identity without rebuilding the business session or changing its scope.
+watch(
+  () => assistantHost?.activePageInstanceKey(),
+  (key) => {
+    if (!assistantActive || assistantPageInstanceKey || !key) return;
+    assistantPageInstanceKey = key;
+    syncAssistantSurface();
+  },
+  { flush: 'post' },
+);
 watch([view, generation, pending, failure], syncAssistantSurface, { flush: 'post' });
 onMounted(activateAssistantSurface);
 onActivated(activateAssistantSurface);

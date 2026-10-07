@@ -321,14 +321,15 @@ public class MetadataRelationChangeSetApplyService {
 
     private void applyProperty(MetadataField field, ModuleMetadataRelation relation,
                                MetadataFieldPropertyChangeSetPlan property) {
-        if (property == null || property.kind() == MetadataFieldPropertyKind.BASIC) return;
-        if (referenceConfigService == null || fieldConfigService == null) {
+        if (property == null || (property.kind() == MetadataFieldPropertyKind.BASIC && property.fixedDefault() == null)) return;
+        if ((property.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE && referenceConfigService == null)
+                || (property.kind() != MetadataFieldPropertyKind.MODULE_REFERENCE && fieldConfigService == null)) {
             throw new PlatformException("Metadata change-set field property publishing is not configured");
         }
         switch (property.kind()) {
             case MODULE_REFERENCE -> applyReferenceProperty(field, relation, property);
             case DICTIONARY -> applyDictionaryProperty(field, relation, property);
-            case BASIC -> { }
+            case BASIC -> applyFixedDefault(field, relation, property.fixedDefault());
             case LEGACY_LOCKED -> throw new PlatformException("Legacy metadata field property is read-only and cannot be published: "
                     + field.getFieldName());
         }
@@ -357,7 +358,29 @@ public class MetadataRelationChangeSetApplyService {
         MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
         MetadataFieldConfig effective = override == null ? fieldConfigService.findByMetadataFieldId(field.getId()) : override;
         assertBindingVersion(property.expectedBindingVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
-        MetadataFieldConfig config = mergeDictionaryBinding(effective, requested);
+        if (property.fixedDefault() != null)
+            assertBindingVersion(property.fixedDefault().expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        MetadataFieldConfig config = mergeRelationConfig(effective, requested);
+        if (property.fixedDefault() != null) config.setDefaultValue(property.fixedDefault().value());
+        if (override != null) {
+            config.setId(override.getId());
+            config.setVersion(override.getVersion());
+        }
+        config.setMetadataFieldId(field.getId());
+        config.setRelationId(relation.getId());
+        if (config.getId() == null) fieldConfigService.insert(config);
+        else fieldConfigService.update(config);
+    }
+
+    private void applyFixedDefault(MetadataField field, ModuleMetadataRelation relation,
+                                   MetadataFieldFixedDefaultDraft requested) {
+        MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
+        MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
+        MetadataFieldConfig effective = override == null ? base : override;
+        assertBindingVersion(requested.expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        if (effective == null && requested.value() == null) return;
+        MetadataFieldConfig config = mergeRelationConfig(effective, effective == null ? new MetadataFieldConfig() : effective);
+        config.setDefaultValue(requested.value());
         if (override != null) {
             config.setId(override.getId());
             config.setVersion(override.getVersion());
@@ -369,10 +392,10 @@ public class MetadataRelationChangeSetApplyService {
     }
 
     /**
-     * Retains effective query/behavior/protection facts while replacing only dictionary facts.
+     * Retains effective query/behavior/protection facts while replacing requested dictionary facts.
      * A new relation override deliberately does not inherit physical storage shape from base.
      */
-    private MetadataFieldConfig mergeDictionaryBinding(MetadataFieldConfig existing, MetadataFieldConfig requested) {
+    private MetadataFieldConfig mergeRelationConfig(MetadataFieldConfig existing, MetadataFieldConfig requested) {
         MetadataFieldConfig result = new MetadataFieldConfig();
         if (existing != null) {
             result.setQueryable(existing.getQueryable());

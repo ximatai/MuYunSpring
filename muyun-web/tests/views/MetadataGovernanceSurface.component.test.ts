@@ -9,6 +9,7 @@ import {
   type HttpRequestOptions,
 } from '@/web-core';
 import { createMetadataWorkspace, provideMetadataWorkspace } from '@/views/metadataWorkspace';
+import { createMetadataGovernanceAssistantSurface } from '@/views/metadataGovernanceAssistantSurface';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
 import { presentPlatformMessage, handlePlatformActionSuccess } from '@muyun/platform-components';
 import { moduleRuntimeActivationRefreshKey } from '@/views/moduleRuntimeActivation';
@@ -28,11 +29,281 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 
 const mounted = new Set<ReturnType<typeof shallowMount>>();
 
+function savedReferenceFixture(catalog?: Promise<unknown>) {
+  const http = fakeHttp();
+  const original = http.request;
+  const request = vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path === '/platform.field_spec/query')
+      return Promise.resolve({
+        records: [{ alias: 'string', title: '短文本', enabled: true }],
+        pages: 1,
+        totalKnown: true,
+      }) as never;
+    if (options.path === '/platform.metadata/meta-main/fields/query') {
+      const baseline = responseFor(options) as { records: unknown[] };
+      return Promise.resolve({
+        ...baseline,
+        records: [
+          ...baseline.records,
+          {
+            id: 'owner',
+            version: 6,
+            fieldName: 'ownerId',
+            columnName: 'owner_id',
+            title: '负责人',
+            fieldSpecAlias: 'string',
+            fieldOwnership: 'BUSINESS',
+            fieldForm: 'PHYSICAL',
+            required: true,
+          },
+        ],
+      }) as never;
+    }
+    if (options.path.endsWith('/field-properties'))
+      return Promise.resolve([
+        {
+          fieldId: 'owner',
+          fieldName: 'ownerId',
+          kind: 'MODULE_REFERENCE',
+          bindingVersion: 4,
+          reference: {
+            targetModuleAlias: 'iam.user',
+            targetKeyField: 'id',
+            targetLabelField: 'displayName',
+            cardinality: 'ONE',
+            targetUnavailablePolicy: 'PRESERVE_HISTORY',
+            projectionMappings: ['displayName:ownerName'],
+            requireEnabled: false,
+            affectMappings: [],
+          },
+        },
+      ]) as never;
+    if (catalog && options.path.includes('/reference-target-field-catalog?')) return catalog as never;
+    return original(options);
+  });
+  return { http, request };
+}
+
+it('revises a saved reference through the shared editor, preserving its binding and manual changes', async () => {
+  const { http, request } = savedReferenceFixture();
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('reference-page');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'reference-page' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const invoke = (id: string, code: string, input: unknown) =>
+    registry.invoke({ id, code, input }, registry.snapshot()!.token);
+  const described = await invoke('model', 'configuration.describe-metadata-model', {});
+  expect(described.value).toMatchObject({
+    selectedRelation: {
+      fields: expect.arrayContaining([
+        expect.objectContaining({
+          fieldName: 'ownerId',
+          reference: expect.objectContaining({ requireEnabled: false }),
+        }),
+      ]),
+    },
+  });
+  await expect(
+    invoke('invalid-source', 'configuration.update-metadata-reference-draft', {
+      fieldName: 'ownerId',
+      affectMappings: ['guessed:title'],
+    }),
+  ).rejects.toThrow('请选择目录中的来源字段');
+  expect(wrapper.text()).not.toContain('未保存');
+  await invoke('revise', 'configuration.update-metadata-reference-draft', {
+    fieldName: 'ownerId',
+    affectMappings: ['displayName:title'],
+    requireEnabled: true,
+  });
+  await flushPromises();
+  const candidate = await invoke('candidate', 'configuration.describe-metadata-candidate', {});
+  expect(candidate.value).toMatchObject({
+    fieldName: 'ownerId',
+    kind: 'MODULE_REFERENCE',
+    operation: 'UPDATE',
+    editable: true,
+    saved: false,
+  });
+  expect(registry.snapshot()!.capabilities.map((item) => item.code)).toContain(
+    'configuration.describe-reference-affects',
+  );
+  expect(registry.snapshot()!.capabilities.map((item) => item.code)).not.toContain(
+    'configuration.update-metadata-field-draft',
+  );
+  const title = wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((item) => item.props('value') === '负责人')!;
+  title.vm.$emit('update:value', '人工审阅后的负责人');
+  await flushPromises();
+  await invoke('revise-again', 'configuration.update-metadata-reference-draft', {
+    fieldName: 'ownerId',
+    requireEnabled: false,
+  });
+  await flushPromises();
+  await invoke('preview', 'configuration.preview-metadata-draft', {});
+  const preview = request.mock.calls
+    .map(([options]) => options)
+    .filter((options) => options.path.endsWith('change-set-preview'))
+    .at(-1)!;
+  expect(preview.body).toMatchObject({
+    relationDrafts: [
+      expect.objectContaining({
+        expectedMetadataVersion: 3,
+        fieldDrafts: [
+          expect.objectContaining({
+            field: expect.objectContaining({
+              fieldName: 'ownerId',
+              columnName: 'owner_id',
+              title: '人工审阅后的负责人',
+              required: true,
+            }),
+            property: expect.objectContaining({
+              kind: 'MODULE_REFERENCE',
+              referenceConfig: expect.objectContaining({
+                targetModuleAlias: 'iam.user',
+                targetKeyField: 'id',
+                targetLabelField: 'displayName',
+                cardinality: 'ONE',
+                targetUnavailablePolicy: 'PRESERVE_HISTORY',
+                projectionMappings: ['displayName:ownerName'],
+                requireEnabled: false,
+                affectMappings: ['displayName:title'],
+              }),
+            }),
+          }),
+        ],
+      }),
+    ],
+  });
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '取消')!
+    .trigger('click');
+  await flushPromises();
+  const after = await invoke('after-cancel', 'configuration.describe-metadata-model', {});
+  expect(after.value).toMatchObject({
+    draft: { active: false },
+    selectedRelation: {
+      fields: expect.arrayContaining([
+        expect.objectContaining({
+          fieldName: 'ownerId',
+          title: '负责人',
+          reference: expect.objectContaining({ requireEnabled: false, affectMappings: [] }),
+        }),
+      ]),
+    },
+  });
+});
+
 afterEach(() => {
   mounted.forEach((wrapper) => wrapper.unmount());
   mounted.clear();
   vi.clearAllMocks();
 });
+
+it('retains the other batch fields when revising an existing reference without opening a second editor', async () => {
+  const { http } = savedReferenceFixture();
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+  );
+  try {
+    const session = workspace.session('education.exam');
+    await session.ensureLoaded();
+    workspace.focus(session);
+    const signal = new AbortController().signal;
+    (
+      await session.adapter.prepareFieldPlan!(
+        [{ kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' }],
+        signal,
+      )
+    )();
+    (await session.adapter.prepareReferenceUpdate!({ fieldName: 'ownerId', requireEnabled: true }, signal))();
+    expect(session.adapter.summary().draft).toMatchObject({
+      active: true,
+      fieldPlanEditing: false,
+      fieldPlanOpen: true,
+    });
+    expect(session.adapter.proposal()).toMatchObject({
+      relationDrafts: [
+        {
+          fieldDrafts: expect.arrayContaining([
+            expect.objectContaining({
+              operation: 'ADD',
+              field: expect.objectContaining({ fieldName: 'note' }),
+            }),
+            expect.objectContaining({
+              operation: 'UPDATE',
+              field: expect.objectContaining({ fieldName: 'ownerId' }),
+              property: expect.objectContaining({
+                referenceConfig: expect.objectContaining({ requireEnabled: true }),
+                expectedBindingVersion: 4,
+              }),
+            }),
+          ]),
+        },
+      ],
+    });
+    session.adapter.discardCandidate!();
+    expect(
+      session.adapter.summary().selectedRelation?.fields.find((field) => field.fieldName === 'ownerId')
+        ?.reference?.requireEnabled,
+    ).toBe(false);
+  } finally {
+    workspace.dispose();
+  }
+});
+
+it.each(['human-edit', 'identity-change'])(
+  'rejects asynchronous reference preparation after %s',
+  async (change) => {
+    const catalog = deferred<unknown>();
+    const { http } = savedReferenceFixture(catalog.promise);
+    let identity = 'identity';
+    const workspace = createMetadataWorkspace(
+      http,
+      () => identity,
+      () => true,
+    );
+    try {
+      const session = workspace.session('education.exam');
+      await session.ensureLoaded();
+      workspace.focus(session);
+      const signal = new AbortController().signal;
+      (
+        await session.adapter.prepareReferenceUpdate!({ fieldName: 'ownerId', requireEnabled: true }, signal)
+      )();
+      const preparation = session.adapter.prepareReferenceUpdate!(
+        { fieldName: 'ownerId', affectMappings: ['displayName:title'] },
+        signal,
+      );
+      if (change === 'human-edit') session.view.fieldDraft.value.title = '人工接手修改';
+      else identity = 'different-identity';
+      catalog.resolve(responseFor({ path: '/reference-target-field-catalog?target=iam.user' }));
+      if (change === 'identity-change') await expect(preparation).rejects.toThrow('身份或编辑会话已变化');
+      else {
+        const commit = await preparation;
+        expect(commit).toThrow('引用草稿已变化');
+      }
+      expect(session.view.fieldPropertyDraft.value.referenceConfig?.affectMappings).toEqual([]);
+      if (change === 'human-edit') expect(session.view.fieldDraft.value.title).toBe('人工接手修改');
+    } finally {
+      workspace.dispose();
+    }
+  },
+);
 
 it('registers the metadata surface only after a complete load and invalidates changed projections', async () => {
   const relations = deferred<unknown>();
@@ -157,7 +428,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(draftedModel.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false, fieldPlanEditing: false },
     }),
   );
   expect(requests.some((options) => options.path.endsWith('change-set-preview'))).toBe(false);
@@ -177,7 +448,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(modelAfterBlockedSwitch.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ relationId: 'rel-main', fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false, fieldPlanEditing: false },
     }),
   );
 });
@@ -826,12 +1097,20 @@ it.each([
       application.resolve({});
     } else application.reject(new Error('排序保存失败'));
     await flushPromises();
-    expect(fields().map((node: { fieldId: string }) => node.fieldId)).toEqual(persistedOrder);
+    expect(fields().map((node: { fieldId: string }) => node.fieldId)).toEqual(['c', 'a', 'b']);
     expect(tree().vm).toBe(treeInstance);
     const reads = request.mock.calls
       .map(([options]) => options.path)
       .filter((path) => !path.endsWith('change-set-preview') && !path.endsWith('change-set-apply'));
     expect(reads).toEqual(success ? ['/platform.metadata/meta-main/fields/query'] : []);
+    if (!success || readFailure) {
+      expect(wrapper.text()).toContain(!success ? '原元数据提交结果未知' : '元数据已保存');
+      expect(tree().props('draggable')).toBe(false);
+      drop();
+      await flushPromises();
+      expect(applications()).toHaveLength(1);
+      return;
+    }
     if (success) {
       persistedOrder = ['b', 'c', 'a'];
       drop();
@@ -1342,10 +1621,10 @@ function governanceStubs() {
     RecordFormGrid: { template: '<form><slot /></form>' },
     UiTree: {
       name: 'UiTree',
-      props: { nodes: Array },
+      props: { nodes: Array, draggable: Boolean },
       emits: ['select', 'drop'],
       template:
-        '<button data-testid="model-tree" @click="$emit(\'select\', nodes[0]?.children?.[0])"><slot /></button>',
+        '<button data-testid="model-tree" :draggable="draggable" @click="$emit(\'select\', nodes[0]?.children?.[0])"><slot /></button>',
     },
     UiActionButton: {
       emits: ['click'],
@@ -1577,6 +1856,108 @@ it('keeps committed facts when activation refresh fails and includes warnings in
   expect(handlePlatformActionSuccess).not.toHaveBeenCalled();
 });
 
+it('validates the standard record name before staging assistant or manual field changes', async () => {
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path === '/platform.field_spec/query')
+      return { records: [{ alias: 'string', title: '短文本', enabled: true }], pages: 1 };
+    if (options.path === '/platform.metadata/meta-main/fields/query')
+      return { records: [], pages: 1, totalKnown: true };
+    return responseFor(options);
+  });
+  const http = { request } as HttpClient;
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+  );
+  const shared = workspace.session('education.exam');
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  registry.register({
+    pageInstanceKey: 'page-1',
+    contextRevision: () => String(shared.contextRevision.value),
+    surface: createMetadataGovernanceAssistantSurface(shared.adapter, vi.fn()),
+  });
+  const Harness = defineComponent({
+    setup() {
+      provideMetadataWorkspace(workspace);
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const invoke = (code: string, input: unknown) =>
+    registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+  const ordinary = { title: '联系人', fieldName: 'contactName', fieldSpecAlias: 'string' };
+  const invalid = { title: '名称', fieldName: 'customerName', fieldSpecAlias: 'string', titleField: true };
+  await expect(invoke('configuration.add-metadata-field-draft', invalid)).rejects.toThrow('标准 title');
+  await expect(
+    invoke('configuration.prepare-metadata-field-plan', {
+      fields: [
+        { kind: 'BASIC', ...ordinary },
+        { kind: 'BASIC', ...invalid },
+      ],
+    }),
+  ).rejects.toThrow('标准 title');
+  expect(shared.dirty.value).toBe(false);
+  expect(wrapper.find('[data-testid="metadata-field-plan"]').exists()).toBe(false);
+
+  await invoke('configuration.prepare-metadata-field-plan', {
+    fields: [
+      { kind: 'BASIC', ...ordinary },
+      { kind: 'BASIC', title: '名称', fieldSpecAlias: 'string', titleField: true },
+    ],
+  });
+  await flushPromises();
+  await expect(
+    invoke('configuration.update-metadata-field-draft', { fieldName: 'contactName', titleField: true }),
+  ).rejects.toThrow('标准 title');
+  const facts = await invoke('configuration.describe-metadata-model', {});
+  expect(facts.value).toMatchObject({
+    selectedRelation: {
+      fields: expect.arrayContaining([
+        expect.objectContaining({ fieldName: 'contactName', titleField: false }),
+        expect.objectContaining({ fieldName: 'title', columnName: 'title', titleField: true }),
+      ]),
+    },
+  });
+  const nameEntry = wrapper
+    .get('[data-testid="metadata-field-plan"]')
+    .findAll('article')
+    .find((entry) => entry.find('strong').text() === '名称')!;
+  await nameEntry
+    .findAll('button')
+    .find((button) => button.text() === '修改')!
+    .trigger('click');
+  await flushPromises();
+  // An advanced manual edit follows the same retention path as an assistant-prepared field.
+  shared.view.fieldDraft.value.columnName = 'customer_name';
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保留修改')!
+    .trigger('click');
+  await flushPromises();
+  expect(shared.view.state.fieldEditorOpen.value).toBe(true);
+  shared.view.fieldDraft.value.columnName = 'title';
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保留修改')!
+    .trigger('click');
+  await flushPromises();
+  expect(shared.view.state.fieldEditorOpen.value).toBe(false);
+  expect(wrapper.get('[data-testid="metadata-field-plan"]').findAll('article')).toHaveLength(2);
+  expect(
+    request.mock.calls.some(
+      ([options]) => options.method && options.method !== 'GET' && !options.path.endsWith('/query'),
+    ),
+  ).toBe(false);
+});
+
 it('keeps a multi-field plan visible, edits and removes items without publishing, then previews the remainder', async () => {
   const http = fakeHttp();
   const original = http.request.bind(http);
@@ -1704,6 +2085,103 @@ it('keeps a multi-field plan visible, edits and removes items without publishing
   expect(body).toMatchObject({
     relationDrafts: [
       { fieldDrafts: [{ operation: 'ADD', field: { fieldName: 'note', title: '人工备注' } }] },
+    ],
+  });
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it('retains the current shared field editor and removes only a new field before selecting a capability', async () => {
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'ENABLE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '',
+              fieldContributions: ['enabled'],
+              defaultKind: 'STATIC',
+              defaultDescription: '未填写时默认启用',
+            },
+          ],
+        }
+      : options.path === '/platform.field_spec/query'
+        ? { records: [{ alias: 'string', title: '短文本', enabled: true }], pages: 1 }
+        : responseFor(options),
+  );
+  configureModuleContext({ http: { request } as HttpClient });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const invoke = (code: string, input: unknown = {}) =>
+    registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+  const codes = () => registry.snapshot()!.capabilities.map((capability) => capability.code);
+  expect(codes()).not.toContain('configuration.retain-metadata-field-draft');
+  expect(codes()).not.toContain('configuration.remove-metadata-new-field-draft');
+  await invoke('configuration.prepare-metadata-field-plan', {
+    fields: [
+      { kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string', defaultValue: '保留初值' },
+      { kind: 'BASIC', title: '临时状态', fieldName: 'statusNote', fieldSpecAlias: 'string' },
+    ],
+  });
+  await invoke('configuration.add-metadata-field-draft', {
+    title: '名称',
+    fieldName: 'displayName',
+    fieldSpecAlias: 'string',
+    required: true,
+  });
+  await flushPromises();
+  expect(codes()).toContain('configuration.retain-metadata-field-draft');
+  expect(codes()).not.toContain('configuration.remove-metadata-new-field-draft');
+  expect(codes()).not.toContain('configuration.prepare-metadata-capability-draft');
+  const titleInput = wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '名称')!;
+  titleInput.vm.$emit('update:value', '人工修订名称');
+  await flushPromises();
+  await invoke('configuration.retain-metadata-field-draft');
+  await flushPromises();
+  const plan = () => wrapper.get('[data-testid="metadata-field-plan"]');
+  expect(plan().text()).toContain('人工修订名称');
+  expect(plan().findAll('article')).toHaveLength(3);
+  expect(codes()).not.toContain('configuration.retain-metadata-field-draft');
+  await expect(
+    invoke('configuration.remove-metadata-new-field-draft', { fieldName: 'title' }),
+  ).rejects.toThrow();
+  expect(plan().findAll('article')).toHaveLength(3);
+  await invoke('configuration.remove-metadata-new-field-draft', { fieldName: 'statusNote' });
+  await flushPromises();
+  expect(plan().text()).not.toContain('临时状态');
+  await invoke('configuration.prepare-metadata-capability-draft', { capability: 'ENABLE', selected: true });
+  await invoke('configuration.preview-metadata-draft');
+  const proposal = request.mock.calls
+    .filter(([options]) => options.path.endsWith('change-set-preview'))
+    .at(-1)![0].body;
+  expect(proposal).toMatchObject({
+    relationDrafts: [
+      {
+        capabilitySelections: { ENABLE: true },
+        fieldDrafts: [
+          {
+            operation: 'ADD',
+            field: { fieldName: 'note' },
+            property: { fixedDefault: { value: '保留初值' } },
+          },
+          { operation: 'ADD', field: { fieldName: 'displayName', title: '人工修订名称', required: true } },
+        ],
+      },
     ],
   });
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
@@ -1898,4 +2376,152 @@ it('keeps the same metadata candidate after closing and reopening its governance
   } finally {
     workspace.dispose();
   }
+});
+
+it('lets a human review and save a capability without creating an ordinary business field', async () => {
+  vi.mocked(confirmAction).mockResolvedValueOnce(true);
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'ENABLE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '',
+              fieldContributions: ['enabled'],
+              defaultKind: 'STATIC',
+              defaultDescription: '未填写时默认启用',
+            },
+          ],
+        }
+      : responseFor(options),
+  );
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const checkbox = wrapper.get('.metadata-capabilities').findComponent({ name: 'UiCheckbox' });
+  expect(checkbox.props('checked')).toBe(false);
+  checkbox.vm.$emit('update:checked', true);
+  await flushPromises();
+  expect(wrapper.text()).toContain('未保存');
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '预检并保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(
+    request.mock.calls.find(([options]) => options.path.endsWith('change-set-apply'))?.[0].body,
+  ).toMatchObject({
+    proposal: { relationDrafts: [{ capabilitySelections: { ENABLE: true }, fieldDrafts: [] }] },
+  });
+});
+
+it.each([true, false])(
+  'shows the effective fixed default in the shared editor with editable=%s',
+  async (editable) => {
+    const http = fakeHttp();
+    const original = http.request;
+    vi.spyOn(http, 'request').mockImplementation((options) =>
+      options.path.endsWith('/field-properties')
+        ? (Promise.resolve([
+            {
+              fieldId: 'title',
+              fieldName: 'title',
+              kind: 'BASIC',
+              fixedDefault: { value: '预设名称', configVersion: 4, editable },
+            },
+          ]) as never)
+        : original(options),
+    );
+    configureModuleContext({ http });
+    const wrapper = shallowMount(MetadataGovernanceSurface, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: governanceStubs() },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    await wrapper.get('[data-testid="model-tree"]').trigger('click');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '编辑')!
+      .trigger('click');
+    await flushPromises();
+    const input = () =>
+      wrapper
+        .findAll('label')
+        .find((label) => label.text().startsWith('固定默认值'))!
+        .findComponent({ name: 'UiInput' });
+    expect(input().props('value')).toBe('预设名称');
+    expect(input().props('disabled')).toBe(!editable);
+    input().vm.$emit('update:value', '新名称');
+    await flushPromises();
+    expect(input().props('value')).toBe(editable ? '新名称' : '预设名称');
+  },
+);
+
+it('shows metadata unknown recovery, retains a manual candidate and requires fresh confirmation after reading', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(true);
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('change-set-apply')) throw new Error('response lost');
+    return responseFor(options);
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click');
+  await flushPromises();
+  wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '考试名称')!
+    .vm.$emit('update:value', '人工审阅后的名称');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保存')!
+    .trigger('click');
+  await flushPromises();
+  const applies = () => request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'));
+  expect(applies()).toHaveLength(1);
+  expect(wrapper.text()).toContain('原元数据提交结果未知');
+  expect(
+    wrapper.findAll('button').some((button) => ['保存', '预检并保存', '放弃更改'].includes(button.text())),
+  ).toBe(false);
+  const recovery = () =>
+    wrapper.findAll('button').find((button) => button.text() === '读取当前配置并保留候选')!;
+  request.mockRejectedValueOnce(new Error('current read failed'));
+  await recovery().trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('原元数据提交结果未知');
+  await recovery().trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('原提交结果仍未知');
+  expect(applies()).toHaveLength(1);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '预检并保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(confirmAction).toHaveBeenLastCalledWith(
+    expect.objectContaining({ content: expect.stringContaining('人工审阅后的名称') }),
+  );
+  expect(applies()).toHaveLength(2);
+  expect(applies()[1]![0].body).toMatchObject({
+    proposal: { relationDrafts: [{ fieldDrafts: [{ field: { title: '人工审阅后的名称' } }] }] },
+  });
 });

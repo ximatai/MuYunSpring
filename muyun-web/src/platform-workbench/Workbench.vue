@@ -20,12 +20,14 @@ import {
 } from '@muyun/web-core';
 import { createConfigurationCollaboration } from './configurationCollaboration';
 import { createConstructionPlanSession } from './constructionPlanSession';
-import { useWorkbenchNavigation } from './workbenchNavigation';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchAssistantPanel from './WorkbenchAssistantPanel.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { getMenuNavigationTarget, resolvePageDescriptor } from './menuNavigation';
-import { createWorkbenchAssistantCapabilities } from './workbenchAssistantCapabilities';
+import {
+  createWorkbenchAssistantCapabilities,
+  workbenchAssistantMenuCatalog,
+} from './workbenchAssistantCapabilities';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
 import {
   compactMenuTopOf,
@@ -89,15 +91,11 @@ const assistantIdentity = () => {
   const user = props.startup?.session.currentUser;
   return JSON.stringify([user?.userId, user?.tenantId, user?.organizationId, user?.system]);
 };
-const constructionNavigation = useWorkbenchNavigation();
 const constructionPlan = props.constructionPlanClient
   ? createConstructionPlanSession(
       props.constructionPlanClient,
       assistantIdentity,
       () => props.startup?.session.currentUser?.system === true,
-      async (receipt) => {
-        if (receipt.kind === 'ENTRY') await constructionNavigation?.refreshMenus?.();
-      },
     )
   : undefined;
 watch(assistantIdentity, () => constructionPlan?.current(), { flush: 'sync' });
@@ -107,17 +105,24 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
   const plan = constructionPlan?.current();
   const planFacts = constructionPlan?.facts();
   const contribution = props.assistantWorkspaceContribution?.current();
+  const menuCatalog = workbenchAssistantMenuCatalog(props.startup?.menus ?? []);
   return {
     revision: JSON.stringify([
       plan?.generation,
       contribution?.revision,
       configurationCollaboration.revision.value,
+      menuCatalog,
     ]),
     facts: {
       ...(contribution?.facts ?? {}),
+      menuCatalog,
       configurationTask: configurationCollaboration.task.value,
+      configurationBoundary: configurationCollaboration.boundary(configurationEditor.value),
       configurationEditor: configurationEditor.value
         ? {
+            kind: configurationEditor.value.kind,
+            openingCapability: configurationEditor.value.openingCapability,
+            moduleAlias: configurationEditor.value.moduleAlias,
             title: configurationEditor.value.title,
             hasUnsavedChanges: configurationEditor.value.hasUnsavedChanges,
             visible: configurationEditor.value.visible,
@@ -188,8 +193,18 @@ async function settleAssistantNavigation(signal?: AbortSignal, requireFormal = f
 }
 function workbenchAssistantCapabilities() {
   const configuration = props.assistantWorkspaceContribution?.capabilities(settleAssistantNavigation) ?? [];
-  const shared = configurationCollaboration.filter(configuration, configurationEditor.value?.visible);
+  const editor = configurationEditor.value;
+  const shared = configurationCollaboration.filter(configuration, editor?.visible);
+  const openingCode =
+    configurationCollaboration.boundary(editor).state === 'OPEN_SELECTED_EDITOR_REQUIRED'
+      ? editor?.openingCapability
+      : undefined;
+  const opening = shared.find(
+    (capability) => capability.effect === 'page' && capability.descriptor.code === openingCode,
+  );
   return [
+    // The selected editor's required opening precedes generic navigation within the same core budget.
+    ...(opening ? [{ ...opening, schemaDiscovery: 'eager' as const }] : []),
     ...createWorkbenchAssistantCapabilities(
       () => props.startup?.menus ?? [],
       (menu) => {
@@ -204,7 +219,7 @@ function workbenchAssistantCapabilities() {
       settleAssistantNavigation,
     ),
     ...(constructionPlan?.capabilities() ?? []),
-    ...(constructionPlan?.continueConfiguration(shared, configurationEditor.value?.moduleAlias) ?? shared),
+    ...shared.filter((capability) => capability !== opening),
     ...(configuration.length ? configurationCollaboration.capabilities() : []),
   ];
 }

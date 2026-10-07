@@ -64,10 +64,15 @@ export interface MetadataFieldPropertyDraft {
   expectedBindingVersion?: number;
   referenceConfig?: MetadataFieldReferencePropertyConfig;
   dictionaryConfig?: MetadataFieldDictionaryPropertyConfig;
+  fixedDefault?: { value: string | null; expectedConfigVersion?: number };
 }
 
 /** Relation-scoped property facts supplied by the module-governance read model. */
 export interface MetadataFieldPropertySummary extends MetadataFieldPropertyDraft {
+  fixedDefault?: NonNullable<MetadataFieldPropertyDraft['fixedDefault']> & {
+    configVersion?: number;
+    editable?: boolean;
+  };
   fieldId?: string;
   fieldName?: string;
   fieldSpecAlias?: string;
@@ -306,11 +311,22 @@ export function copyFieldPropertyDraft(property: MetadataFieldPropertyDraft): Me
         }
       : {}),
     ...(draft.dictionaryConfig ? { dictionaryConfig: { ...draft.dictionaryConfig } } : {}),
+    ...(draft.fixedDefault ? { fixedDefault: { ...draft.fixedDefault } } : {}),
   };
 }
 
 /** Converts the read-model's concise bindings into the draft contract accepted by change sets. */
 export function propertyDraftFromSummary(summary: MetadataFieldPropertySummary): MetadataFieldPropertyDraft {
+  const fixedDefault =
+    summary.fixedDefault && summary.fixedDefault.editable !== false
+      ? {
+          fixedDefault: {
+            value: summary.fixedDefault.value,
+            expectedConfigVersion:
+              summary.fixedDefault.configVersion ?? summary.fixedDefault.expectedConfigVersion,
+          },
+        }
+      : {};
   if (summary.kind === 'LEGACY_LOCKED') return { kind: summary.kind };
   if (summary.kind === 'MODULE_REFERENCE') {
     return copyFieldPropertyDraft({
@@ -332,9 +348,14 @@ export function propertyDraftFromSummary(summary: MetadataFieldPropertySummary):
               selectionMode: summary.dictionary.selectionMode,
             }
           : undefined),
+      ...fixedDefault,
     });
   }
-  return { kind: 'BASIC', expectedBindingVersion: summary.expectedBindingVersion ?? summary.bindingVersion };
+  return {
+    kind: 'BASIC',
+    expectedBindingVersion: summary.expectedBindingVersion ?? summary.bindingVersion,
+    ...fixedDefault,
+  };
 }
 
 export function copyMetadataField(field: MetadataField): MetadataFieldDraft {
@@ -357,6 +378,7 @@ export function normalizeFieldDraft(draft: MetadataFieldDraft): MetadataFieldDra
 export function normalizeFieldPropertyDraft(
   property: MetadataFieldPropertyDraft,
 ): MetadataFieldPropertyDraft {
+  const fixedDefault = property.fixedDefault ? { fixedDefault: { ...property.fixedDefault } } : {};
   if (property.kind === 'MODULE_REFERENCE') {
     const reference = property.referenceConfig ?? {};
     return {
@@ -395,12 +417,17 @@ export function normalizeFieldPropertyDraft(
           ? { dictionaryCategoryAlias: dictionary.dictionaryCategoryAlias.trim() }
           : {}),
       },
+      ...fixedDefault,
     };
   }
   if (property.kind === 'LEGACY_LOCKED') return { kind: property.kind };
-  return property.expectedBindingVersion !== undefined
-    ? { kind: 'BASIC', expectedBindingVersion: property.expectedBindingVersion }
-    : { kind: 'BASIC' };
+  return {
+    kind: 'BASIC',
+    ...(property.expectedBindingVersion !== undefined
+      ? { expectedBindingVersion: property.expectedBindingVersion }
+      : {}),
+    ...fixedDefault,
+  };
 }
 
 export function isValidFieldPropertyDraft(property: MetadataFieldPropertyDraft): boolean {

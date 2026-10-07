@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 
 import java.math.BigDecimal;
@@ -14,6 +17,9 @@ import java.util.Date;
 import java.util.regex.Pattern;
 
 public final class DynamicFieldValueSupport {
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     private static final Pattern UTC_INSTANT_SECONDS = Pattern.compile(
             "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z"
     );
@@ -55,7 +61,8 @@ public final class DynamicFieldValueSupport {
             return null;
         }
         return switch (type) {
-            case STRING, TEXT, JSON -> value;
+            case STRING, TEXT -> value;
+            case JSON -> parseJsonValue(value);
             case INTEGER -> Integer.valueOf(value);
             case LONG -> Long.valueOf(value);
             case BOOLEAN -> parseBoolean(value);
@@ -63,6 +70,24 @@ public final class DynamicFieldValueSupport {
             case TIMESTAMP, ZONED_TIMESTAMP -> timestampValue(value);
             case DATE -> dateValue(value);
         };
+    }
+
+    /** Decodes one complete JSON value for defaults and stored record fields. */
+    public static Object parseJsonValue(String value) {
+        try {
+            return JSON.readValue(value, Object.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("invalid JSON value", exception);
+        }
+    }
+
+    /** JSON fields carry typed values in records; the SQL gateway receives encoded JSON text. */
+    public static String serializeJsonValue(Object value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("invalid JSON field value", exception);
+        }
     }
 
     public static String normalizeTimeZone(Object value) {

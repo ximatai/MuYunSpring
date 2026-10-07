@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
+import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
+
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
@@ -134,7 +137,7 @@ class PlatformModuleDefinitionCompilerTest {
     private final MetadataFieldProtectionConfigService protectionConfigService =
             new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
     private final MetadataFieldConfigService fieldConfigService =
-            new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, protectionConfigService, Optional.empty());
+            new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(new DictionaryItemService(new TestMemoryDao<>(), categoryService)), relationService, protectionConfigService, Optional.empty());
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final MetadataFieldReferenceConfigService referenceConfigService =

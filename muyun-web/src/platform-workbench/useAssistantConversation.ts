@@ -17,6 +17,8 @@ import {
   parseOperationReceiptReference,
   AssistantConversationInterruptedError,
   runAssistantConversation,
+  createAssistantCapabilitySelection,
+  createAssistantDisplayObservations,
   boundedAssistantConversationHistory,
   sameAssistantInvocationToken,
   StaleAssistantInvocationError,
@@ -34,6 +36,7 @@ interface ConversationItem {
   confirmation?: AssistantOperationConfirmation;
   confirmationState?: AssistantConfirmationState;
   confirmationScope?: string;
+  confirmationUserGoal?: string;
   diagnostic?: string;
   details?: AssistantResultPresentation['details'];
 }
@@ -53,6 +56,28 @@ export function useAssistantConversation(props: {
   constructionPlan?: ConstructionPlanSession;
   configurationCollaboration?: ConfigurationCollaboration;
 }) {
+  const capabilitySelection = createAssistantCapabilitySelection();
+  const displayObservations = createAssistantDisplayObservations();
+  const emptyCost = () => ({
+    requests: 0,
+    reported: 0,
+    tokens: 0,
+    modelMs: 0,
+    capabilityMs: 0,
+    executions: 0,
+    toolRequests: 0,
+    knownToolRequests: 0,
+    userMessages: 0,
+    continuations: 0,
+    confirmations: 0,
+    checks: 0,
+    confirmationMs: 0,
+  });
+  let observedCost = emptyCost();
+  const costText = (cost: ReturnType<typeof emptyCost>) =>
+    `${cost.requests} 次模型请求 · 已报告 ${cost.tokens} tokens（总量覆盖 ${cost.reported}/${cost.requests}） · 模型等待 ${(cost.modelMs / 1000).toFixed(2)} 秒 · 平台执行 ${(cost.capabilityMs / 1000).toFixed(2)} 秒 · ${cost.executions} 次工具执行 · 工具请求 ${cost.toolRequests} 次（次数覆盖 ${cost.knownToolRequests}/${cost.requests}）`;
+  const sessionCostText = () =>
+    `会话观测累计：${costText(observedCost)} · 用户消息 ${observedCost.userMessages} · 自动续办 ${observedCost.continuations} · 确认点击 ${observedCost.confirmations} · 结果核实 ${observedCost.checks} · 确认与核实等待 ${(observedCost.confirmationMs / 1000).toFixed(2)} 秒`;
   const draft = ref('');
   const interruptedRequest = ref<{ userGoal: string; readOnly: boolean }>();
   const items = ref<ConversationItem[]>([]);
@@ -123,6 +148,9 @@ export function useAssistantConversation(props: {
   const linkedPlanId = ref<string>();
   function clearConversation(resetDesign = false) {
     conversationEpoch++;
+    observedCost = emptyCost();
+    capabilitySelection.clear();
+    displayObservations.clear();
     controller?.abort();
     controller = undefined;
     busy.value = false;
@@ -275,7 +303,8 @@ export function useAssistantConversation(props: {
     const rememberInterruption = () => {
       interruptedRequest.value = { userGoal, readOnly };
     };
-    const commitTurn = (texts: string[]) => commitConversation(continuation ? undefined : userGoal, texts);
+    const commitTurn = (entries: AssistantConversationMessage[]) =>
+      commitConversation(continuation ? undefined : userGoal, entries);
     append(
       continuation ? 'status' : 'user',
       continuation
@@ -287,8 +316,19 @@ export function useAssistantConversation(props: {
     busy.value = true;
     activity.value = 'understanding';
     controller = new AbortController();
-    const assistantTexts: string[] = [];
+    const turnHistory: AssistantConversationMessage[] = [];
     const diagnostics: string[] = [];
+    const started = performance.now();
+    const turnCost = emptyCost();
+    if (continuation) observedCost.continuations++;
+    else observedCost.userMessages++;
+    const diagnosticText = () =>
+      [
+        ...diagnostics,
+        `本轮观测：${costText(turnCost)} · 处理耗时 ${((performance.now() - started) / 1000).toFixed(2)} 秒`,
+        sessionCostText(),
+        '仅统计本次打开会话后观测到的调用；用量缺失不记零，处理耗时仅覆盖本轮处理；确认与核实等待另计，不含用户阅读与审阅时间。',
+      ].join('\n');
     try {
       const saved = await archive.save();
       if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
@@ -300,11 +340,39 @@ export function useAssistantConversation(props: {
       }
       const result = await runAssistantConversation(props.registry, message, {
         signal: controller.signal,
+        capabilitySelection,
+        displayObservations,
         executionPolicy: { readOnly },
         history,
         ...(selectionResponse ? { selectionResponse } : {}),
         onDiagnostic(event) {
-          if (event.type === 'capability.completed')
+          if (epoch !== conversationEpoch) return;
+          if (event.type === 'model.request.completed') {
+            for (const cost of [turnCost, observedCost]) {
+              cost.requests++;
+              cost.modelMs += event.durationMs;
+              if (event.usage?.totalTokens !== undefined) {
+                cost.reported++;
+                cost.tokens += event.usage.totalTokens;
+              }
+              if (event.toolCallCount !== undefined) {
+                cost.knownToolRequests++;
+                cost.toolRequests += event.toolCallCount;
+              }
+            }
+            diagnostics.push(
+              `${event.phase === 'summary' ? '结果整理请求' : '模型请求'} ${turnCost.requests} · ${event.outcome === 'received' ? '已响应' : '未接受'} · ${event.usage?.totalTokens === undefined ? '用量未知' : `${event.usage.totalTokens} tokens`} · ${(event.durationMs / 1000).toFixed(2)} 秒`,
+            );
+          } else if (event.type === 'capability.elapsed') {
+            for (const cost of [turnCost, observedCost]) {
+              cost.executions++;
+              cost.capabilityMs += event.durationMs;
+            }
+          } else if (event.type === 'decision.restarted') {
+            diagnostics.push(`${event.stepIndex + 1}: 重新规划 · ${event.reason}`);
+          } else if (event.type === 'decision.completed')
+            diagnostics.push(`${event.stepIndex + 1}: 决策已接受 · ${event.toolCallCount} 次工具请求`);
+          else if (event.type === 'capability.completed')
             diagnostics.push(`${event.stepIndex + 1}: ${event.capabilityCode} · ${event.outcome}`);
           else if (event.type === 'decision.failed') {
             const stages = {
@@ -323,7 +391,7 @@ export function useAssistantConversation(props: {
           expireStaleSelections();
           requestScope = executionGeneration;
           requestGeneration = requestScope;
-          assistantTexts.length = 0;
+          turnHistory.length = 0;
           streamingItemId = undefined;
           pendingStreamText = '';
         },
@@ -359,7 +427,10 @@ export function useAssistantConversation(props: {
           if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
           refreshConfirmations();
           if (step.output.text || step.output.selection) {
-            assistantTexts.push(assistantHistoryText(step.output.text, step.output.selection));
+            turnHistory.push({
+              role: 'assistant',
+              text: assistantHistoryText(step.output.text, step.output.selection),
+            });
             if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
             else {
               const item = items.value.find(({ id }) => id === streamingItemId);
@@ -379,6 +450,7 @@ export function useAssistantConversation(props: {
               confirmation: markRaw(confirmation),
               confirmationState: confirmation.state,
               confirmationScope: props.registry.snapshot()?.token.executionScopeKey,
+              confirmationUserGoal: userGoal,
             });
           }
           if (step.results.length > 0) {
@@ -397,7 +469,7 @@ export function useAssistantConversation(props: {
               if (!result.presentation) continue;
               const fact = [result.presentation.title, ...result.presentation.lines].join('\n');
               append('status', fact, result.presentation.details);
-              assistantTexts.push(`平台操作事实：${fact}`);
+              turnHistory.push({ role: 'status', text: fact });
             }
           }
         },
@@ -410,14 +482,14 @@ export function useAssistantConversation(props: {
             ? '本轮已暂停：本次自动处理已达上限。已完成的操作保留，但不代表业务已保存；点击“继续处理”即可接着核对剩余事项，无需重复刚才的要求。'
             : '本轮已暂停：本次自动处理已达上限。点击“继续处理”可接着核对剩余事项，无需重复刚才的要求；读取信息不代表修改或保存。',
           undefined,
-          diagnostics.join('\n'),
+          diagnosticText(),
         );
       else if (result.termination === 'repeated-call') {
         append(
           'status',
           '已停止重复操作，可以根据已查明的内容继续核实或补充需求。',
           undefined,
-          diagnostics.join('\n'),
+          diagnosticText(),
         );
       } else if (
         result.steps.every(
@@ -428,22 +500,27 @@ export function useAssistantConversation(props: {
         const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
         if (applied > 0) {
           append('assistant', '页面操作已完成，请检查当前页面。');
-          assistantTexts.push('页面操作已完成，请检查当前页面。');
+          turnHistory.push({ role: 'status', text: '页面操作已完成，请检查当前页面。' });
         } else if (succeeded) {
           append('assistant', '信息已读取，但未生成可展示的说明，请重新提问。');
-          assistantTexts.push('信息已读取，但未生成可展示的说明，请重新提问。');
+          turnHistory.push({ role: 'status', text: '信息已读取，但未生成可展示的说明，请重新提问。' });
         }
       }
       if (result.termination === 'step-limit' || result.termination === 'repeated-call')
         rememberInterruption();
-      commitTurn(assistantTexts);
+      const lastItem = items.value.at(-1);
+      if (lastItem && lastItem.role !== 'user') lastItem.diagnostic = diagnosticText();
+      commitTurn(turnHistory);
       if (sourceSelection) sourceSelection.state = 'answered';
     } catch (error) {
       if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
       rememberInterruption();
       if (isAbortError(error)) {
         interruptedRequest.value = undefined;
-        commitTurn([...assistantTexts, '用户已停止本轮执行。需求仅作为讨论记录保留，不得自动继续执行。']);
+        commitTurn([
+          ...turnHistory,
+          { role: 'status', text: '用户已停止本轮执行。需求仅作为讨论记录保留，不得自动继续执行。' },
+        ]);
         reopenSelection(sourceSelection);
         append('status', '已停止本次操作。');
       } else if (error instanceof StaleAssistantInvocationError) {
@@ -456,7 +533,7 @@ export function useAssistantConversation(props: {
       } else if (error instanceof AssistantConversationInterruptedError) {
         if (error.termination === 'cancelled') interruptedRequest.value = undefined;
         if (sourceSelection) sourceSelection.state = 'answered';
-        commitTurn(assistantTexts);
+        commitTurn(turnHistory);
         const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
         const unknown = error.steps.some((step) =>
           step.results.some((result) => result.execution === 'unknown'),
@@ -484,12 +561,12 @@ export function useAssistantConversation(props: {
                   : '本轮没有已确认生效的页面操作。') +
                 (error.termination === 'model-failed' ? `\n${assistantFailureMessage(error.cause)}` : ''),
           undefined,
-          diagnostics.join('\n'),
+          diagnosticText(),
         );
       } else {
         reopenSelection(sourceSelection);
-        commitTurn(assistantTexts);
-        append('status', assistantFailureMessage(error), undefined, diagnostics.join('\n'));
+        commitTurn(turnHistory);
+        append('status', assistantFailureMessage(error), undefined, diagnosticText());
       }
     } finally {
       if (epoch === conversationEpoch) {
@@ -528,6 +605,8 @@ export function useAssistantConversation(props: {
 
   function expireStaleSelections() {
     const token = props.registry.snapshot()?.token;
+    capabilitySelection.forScope(token);
+    displayObservations.forScope(token);
     const scope = token?.executionScopeKey;
     const identity = token?.identityScopeKey;
     if (identity !== undefined && identity !== identityScope) {
@@ -611,25 +690,25 @@ export function useAssistantConversation(props: {
       ...(restoredThroughId.value
         ? [
             {
-              role: 'assistant' as const,
+              role: 'status' as const,
               text: '历史会话已恢复。已商定的需求无需用户重新描述；聊天历史不存储未保存草稿，也不恢复旧确认授权；当前工作区仍可能保留未保存候选，必须读取后判断，不能直接宣称草稿丢失。先读取当前业务事实，区分历史讨论、已证实结果和待核实事项，再说明最少的后续步骤。历史提议不是新的执行授权，写入需重新准备确认。区分“记录里曾经试填”与“当前草稿未恢复”，不能因后者否认前者。当前查看模式没有暴露编辑能力，不等于平台不支持；未重新发现相应编辑场景能力前，只说明尚待核实，不要求用户绕开助手手工完成。',
             },
           ]
         : []),
       ...pending.map(
         (item): AssistantConversationMessage => ({
-          role: 'assistant',
+          role: 'status',
           text: `平台待确认内容（尚未执行，用户可追问）：${item.confirmation!.modelSummary}`,
         }),
       ),
     ]);
   }
 
-  function commitConversation(message: string | undefined, assistantTexts: string[]) {
+  function commitConversation(message: string | undefined, turnHistory: AssistantConversationMessage[]) {
     completedHistory.value = boundedHistory([
       ...completedHistory.value,
       ...(message ? [{ role: 'user' as const, text: message }] : []),
-      ...assistantTexts.map((text): AssistantConversationMessage => ({ role: 'assistant', text })),
+      ...turnHistory,
     ]);
   }
 
@@ -643,6 +722,8 @@ export function useAssistantConversation(props: {
     if (!item.confirmation || busy.value || archive.loading.value) return;
     const epoch = conversationEpoch;
     const operationScope = executionGeneration;
+    const confirmationStarted = performance.now();
+    let resultItem: ConversationItem | undefined;
     busy.value = true;
     activity.value = 'executing';
     operationPending.value = true;
@@ -659,6 +740,8 @@ export function useAssistantConversation(props: {
           return;
         }
       }
+      if (check) observedCost.checks++;
+      else observedCost.confirmations++;
       const pending = check ? item.confirmation.check() : item.confirmation.confirm();
       item.confirmationState = item.confirmation.state;
       await pending;
@@ -667,11 +750,21 @@ export function useAssistantConversation(props: {
       const result = item.confirmation.result;
       if (result) {
         append('status', [result.title, ...result.lines].join('\n'), result.details);
+        resultItem = items.value.at(-1);
         if (operationScope === executionGeneration)
-          commitConversation(undefined, [[result.title, ...result.lines].join('\n')]);
+          commitConversation(undefined, [
+            { role: 'status', text: [result.title, ...result.lines].join('\n') },
+          ]);
       }
     } finally {
       if (epoch === conversationEpoch) {
+        observedCost.confirmationMs += Math.max(0, performance.now() - confirmationStarted);
+        if (resultItem)
+          resultItem.diagnostic = [
+            check ? '阶段：结果核实' : '阶段：人工确认执行',
+            sessionCostText(),
+            '仅统计本次打开会话后观测到的调用；用量缺失不记零，不含用户阅读与审阅时间。',
+          ].join('\n');
         operationPending.value = false;
         busy.value = false;
         activity.value = 'idle';
@@ -686,18 +779,42 @@ export function useAssistantConversation(props: {
     ) {
       const next = item.confirmation.takeContinuation();
       if (next) {
-        // Confirmation receipts can displace the user's request from bounded model history.
-        // Recover it from the conversation, where automatic continuation is never a user message.
-        const request = items.value.filter((entry) => entry.role === 'user').at(-1)?.text;
+        // A read-only question while reviewing must not replace the goal which
+        // produced this confirmation. Later corrections remain authoritative.
+        const request = item.confirmationUserGoal;
+        let corrections = '';
+        let correctionsTruncated = false;
+        for (const entry of items.value) {
+          if (entry.role !== 'user' || entry.id <= item.id) continue;
+          const addition = `${corrections ? '\n' : ''}${entry.text}`;
+          if (corrections.length + addition.length > 2_000) {
+            correctionsTruncated = true;
+            break;
+          }
+          corrections += addition;
+        }
+        // Carry user revisions into later confirmations and interruption recovery,
+        // without retaining internal continuation instructions as a user goal.
+        const userGoal = `${request ?? ''}${corrections ? `\n确认准备后的用户补充与纠正：${corrections}` : ''}`;
+        const confirmationFact =
+          '用户随后通过确认卡片确认了本次已完成操作；确认前的暂缓不否定本次已完成结果。本次确认只覆盖已完成操作；用户原先授权的其余读取、导航和草稿准备继续有效，无需重复询问是否继续。后续正式保存或应用仍须通过各自的标准确认，不因本次确认扩大授权。';
         const message = request
-          ? `${next}\n用户最近明确提出的要求：${request.slice(0, MAX_HISTORY_MESSAGE_LENGTH)}\n仅续办该要求；任务清单不是扩大范围的授权。用户暂缓的事项继续保留，不重新提议建设；当前目标完成后说明结果并停止。`
-          : next;
+          ? `${next}\n用户最近明确提出的要求：${userGoal}\n以用户后续纠正、暂缓和取消为准；只读追问不替代原目标。\n${confirmationFact}\n仅续办该要求；任务清单不是扩大范围的授权。用户暂缓的事项继续保留，不重新提议建设；当前目标完成后说明结果并停止。`
+          : `${next}\n${confirmationFact}`;
+        if (correctionsTruncated || message.length > MAX_HISTORY_MESSAGE_LENGTH) {
+          interruptedRequest.value = undefined;
+          append(
+            'status',
+            '本次操作已完成，但后续需求超过安全保留范围，已暂停自动处理。请重新明确剩余目标；已有结果保留，不会重复提交。',
+          );
+          return;
+        }
         await submitMessage(
           message,
           conversationHistory(),
           undefined,
           undefined,
-          { userGoal: request ?? '', isCurrent: item.confirmation.continuationIsCurrent },
+          { userGoal, isCurrent: item.confirmation.continuationIsCurrent },
           item.confirmation.continuationReadOnly === true,
         );
       }

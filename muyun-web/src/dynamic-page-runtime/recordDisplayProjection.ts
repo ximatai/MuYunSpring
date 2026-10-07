@@ -78,11 +78,14 @@ export function recordRelationProjection(
     draft = purpose === 'confirmation',
     relationOptions = {},
     editableRelations = new Set<string>(),
+    draftRowKeys = new Map<string, ReadonlySet<string>>(),
     includeDescribedValues = false,
     includeBaseline = false,
   }: {
     draft?: boolean;
     editableRelations?: ReadonlySet<string>;
+    /** Keys issued by mounted editors; never inferred from row position or record IDs. */
+    draftRowKeys?: ReadonlyMap<string, ReadonlySet<string>>;
     includeDescribedValues?: boolean;
     includeBaseline?: boolean;
     baseline?: RecordFormRecord;
@@ -106,8 +109,17 @@ export function recordRelationProjection(
     const removed = loaded
       ? before.filter((row) => row.id != null && !rows.some((next) => next.id === row.id))
       : [];
-    const project = (row: RecordFormRecord, index: number, pending = draft) => ({
+    let valuesTruncated = false;
+    const project = (row: RecordFormRecord, index: number, pending = draft, current = false) => ({
       row: index + 1,
+      ...(current &&
+      draft &&
+      purpose === 'context' &&
+      editableRelations.has(relation.code) &&
+      typeof row.__draftKey === 'string' &&
+      draftRowKeys.get(relation.code)?.has(row.__draftKey)
+        ? { rowKey: row.__draftKey }
+        : {}),
       values: [...fields.keys()].flatMap((name) => {
         if (purpose === 'observation' && (name === 'id' || name === 'version')) return [];
         const field = resolveRecordFormFieldState(name, {
@@ -115,30 +127,40 @@ export function recordRelationProjection(
           record: row,
           mode: pending ? 'edit' : 'view',
         });
-        return !hidden &&
-          (assistantReadableField(field) ||
+        if (
+          hidden ||
+          !(
+            assistantReadableField(field) ||
             (includeDescribedValues &&
               field.visible &&
               field.assistantPolicy === 'DESCRIBE' &&
               field.fieldControl?.alias !== 'password' &&
-              !field.fileReference))
-          ? [
-              {
-                label:
-                  relation.queryContract?.listProjection?.fields.find((column) => column.fieldName === name)
-                    ?.title ??
-                  field.label ??
-                  name,
-                ...(field.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
-                value: recordFieldDisplay(field, row, relationOptions[key]?.[name], pending).slice(
-                  0,
-                  confirmation ? undefined : 2000,
-                ),
-              },
-            ]
-          : [];
+              !field.fileReference)
+          )
+        )
+          return [];
+        const display = recordFieldDisplay(field, row, relationOptions[key]?.[name], pending);
+        const truncated = !confirmation && display.length > 2000;
+        valuesTruncated ||= truncated;
+        return [
+          {
+            label:
+              relation.queryContract?.listProjection?.fields.find((column) => column.fieldName === name)
+                ?.title ??
+              field.label ??
+              name,
+            ...(field.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
+            value: truncated ? display.slice(0, 2000) : display,
+            ...(truncated ? { truncated: true } : {}),
+          },
+        ];
       }),
     });
+    const projectedRows = rows.slice(0, rowLimit).map((row, index) => project(row, index, draft, true));
+    const removedRows = removed.slice(0, rowLimit).map((row, index) => project(row, index, false));
+    const savedRows = includeBaseline
+      ? before.slice(0, rowLimit).map((row, index) => project(row, index, false))
+      : undefined;
     return [
       {
         relationCode: relation.code,
@@ -150,13 +172,16 @@ export function recordRelationProjection(
         removedCount: removed.length,
         truncated:
           !confirmation &&
-          (rows.length > 20 || removed.length > 20 || (includeBaseline && before.length > 20)),
-        rows: rows.slice(0, rowLimit).map((row, index) => project(row, index)),
-        removedRows: removed.slice(0, rowLimit).map((row, index) => project(row, index, false)),
+          (valuesTruncated ||
+            rows.length > 20 ||
+            removed.length > 20 ||
+            (includeBaseline && before.length > 20)),
+        rows: projectedRows,
+        removedRows,
         ...(includeBaseline
           ? {
               savedCount: Array.isArray(baseline[key]) ? before.length : null,
-              savedRows: before.slice(0, rowLimit).map((row, index) => project(row, index, false)),
+              savedRows,
             }
           : {}),
       },

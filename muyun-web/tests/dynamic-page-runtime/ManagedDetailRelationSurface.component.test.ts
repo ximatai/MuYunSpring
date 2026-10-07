@@ -4,7 +4,9 @@ import {
   createRelationDraftRegistry,
   type RelationDraftRegistry,
 } from '@/dynamic-page-runtime/relationDraftController';
+import { recordRelationProjection } from '@/dynamic-page-runtime/recordDisplayProjection';
 import { createRelationDraftAssistantCapabilities } from '@/dynamic-page-runtime/relationDraftAssistantCapabilities';
+import { formFieldState } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import ManagedDetailRelationSurface from '@/dynamic-page-runtime/ManagedDetailRelationSurface.vue';
@@ -14,7 +16,12 @@ import {
   createReferenceRecordDetailBrowser,
   referenceRecordDetailBrowserKey,
 } from '@/platform-components/referenceRecordDetailBrowser';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
+import {
+  DraftUpdateRejectedError,
+  OperationUsageError,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type { QueryListRecord } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 
@@ -183,6 +190,13 @@ describe('managed detail relation surface', () => {
       ];
       const sibling = { id: 'other', attributeAlias: 'other', title: '另一行' };
       const ui = descriptor();
+      ui.editorContributions![0]!.editor.fields[0]!.reference = {
+        targetModuleAlias: 'platform.attribute',
+        candidateDelivery: 'SOURCE_FIELD',
+        resolvePath: '/references/attributeAlias/resolve',
+        cardinality: 'ONE',
+        titleField: 'attributeAlias.title',
+      };
       ui.editorContributions![0]!.resource = entity;
       for (const field of ui.editorContributions![0]!.editor.fields) field.fieldRef.relationCode = entity;
       const registry = createRelationDraftRegistry();
@@ -233,23 +247,45 @@ describe('managed detail relation surface', () => {
           projections: { 'attributeAlias.title': '选中的属性' },
         },
         'assistant',
+        [{ fieldName: 'title', value: '人工明确名称' }],
       );
       const selectionEvents = child.emitted('records-change')?.slice(beforeSelection);
       expect(selectionEvents).toHaveLength(1);
       expect(selectionEvents?.[0]?.[0]).toEqual([
-        { id: 'existing', attributeAlias: 'selected', title: '回填名称' },
+        { id: 'existing', attributeAlias: 'selected', title: '人工明确名称' },
         sibling,
       ]);
       expect(selectionEvents?.[0]?.[1]).toMatchObject([
         {
           id: 'existing',
           attributeAlias: 'selected',
-          title: '回填名称',
+          title: '人工明确名称',
           'attributeAlias.title': '选中的属性',
         },
         sibling,
       ]);
+      expect(form.referenceDisplay?.('attributeAlias')).toBe('选中的属性');
+      const projection = recordRelationProjection(
+        ui,
+        [aggregate],
+        { properties: selectionEvents![0]![1] },
+        {
+          draft: true,
+          editableRelations: new Set([controller.code]),
+          draftRowKeys: new Map([[controller.code, new Set(controller.rowKeys())]]),
+        },
+      )[0]!;
+      expect(projection.rows[0]).toMatchObject({
+        rowKey: controller.rowKeys()[0],
+        values: expect.arrayContaining([{ label: '名称', value: '人工明确名称' }]),
+      });
+      // Mutation payloads remain free of the editor's operation keys.
+      expect(selectionEvents![0]![0]).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ __draftKey: expect.any(String) })]),
+      );
+
       form.updateDraftFields([{ fieldName: 'attributeAlias', value: 'different' }], 'user');
+      expect(form.referenceDisplay?.('attributeAlias')).toBeUndefined();
       expect(form.editingRecord?.['attributeAlias.title']).toBeUndefined();
       expect(registry.interactionRevision()).toBe(1);
       parent.unmount();
@@ -278,6 +314,48 @@ describe('managed detail relation surface', () => {
         readOnly: { constant: fieldName === 'amount' },
         ...(fieldName === 'amount' ? { calculationTiming: 'IMMEDIATE' as const } : {}),
       }));
+      editor.fields.push({
+        fieldRef: { relationCode: entity, fieldName: 'productId' },
+        label: '商品',
+        reference: {
+          cardinality: 'ONE',
+          targetModuleAlias: 'test.product',
+          candidateDelivery: 'SOURCE_FIELD',
+          resolvePath: '/references/productId/resolve',
+        },
+      });
+      editor.fields.find((field) => field.fieldRef.fieldName === 'quantity')!.readOnly = {
+        formula: {
+          expression: "({amount} == 120) || ({studentNo} == 'LOCKED')",
+          program: {
+            schemaVersion: 1,
+            profile: 'WEB_UI',
+            referencedFields: ['amount', 'studentNo'],
+            root: {
+              kind: 'BINARY',
+              operator: '||',
+              arguments: [
+                {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'amount', arguments: [] },
+                    { kind: 'VALUE', value: 120, arguments: [] },
+                  ],
+                },
+                {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'studentNo', arguments: [] },
+                    { kind: 'VALUE', value: 'LOCKED', arguments: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      };
       editor.formComputeRules = [
         {
           code: 'amount',
@@ -393,6 +471,75 @@ describe('managed detail relation surface', () => {
         expect.objectContaining({ quantity: 7, unitPrice: 20, amount: 140 }),
         expect.objectContaining({ quantity: 1, unitPrice: 8.8, amount: 8.8 }),
       ]);
+      form.updateDraftReference(
+        'productId',
+        { id: 'original-product', title: '原商品', projections: { studentNo: 'OPEN' } },
+        'assistant',
+      );
+      const oldDraft = { ...form.editingRecord };
+      const oldEvents = child.emitted('records-change')?.length ?? 0;
+      const validate = vi.fn((record) => {
+        if (formFieldState({ ...form, editingRecord: record }, 'quantity')!.readOnly)
+          throw new OperationUsageError('computed candidate is not writable');
+      });
+      // Real computed amount makes the ordinary field read-only; no intermediate publication.
+      const computedCandidate = {
+        id: 'product-id',
+        title: '商品',
+        affectPatch: { unitPrice: 30 },
+        projections: { studentNo: 'OPEN' },
+      };
+      expect(() =>
+        form.updateDraftReference(
+          'productId',
+          computedCandidate,
+          'assistant',
+          [{ fieldName: 'quantity', value: 4 }],
+          validate,
+        ),
+      ).toThrow(DraftUpdateRejectedError);
+      expect(validate.mock.calls[0]![0]).toMatchObject({
+        productId: 'product-id',
+        quantity: 4,
+        unitPrice: 30,
+        amount: 120,
+        studentNo: 'OPEN',
+      });
+      // A declared reference projection can independently tighten the same field policy.
+      expect(() =>
+        form.updateDraftReference(
+          'productId',
+          { ...computedCandidate, affectPatch: { unitPrice: 10 }, projections: { studentNo: 'LOCKED' } },
+          'assistant',
+          [{ fieldName: 'quantity', value: 4 }],
+          validate,
+        ),
+      ).toThrow(DraftUpdateRejectedError);
+      expect(validate.mock.calls[1]![0]).toMatchObject({ amount: 40, studentNo: 'LOCKED' });
+      expect(form.editingRecord).toEqual(oldDraft);
+      expect(child.emitted('records-change')?.length ?? 0).toBe(oldEvents);
+      expect(registry.interactionRevision()).toBe(1);
+      form.updateDraftReference(
+        'productId',
+        computedCandidate,
+        'assistant',
+        [{ fieldName: 'quantity', value: 5 }],
+        validate,
+      );
+      expect(form.editingRecord).toMatchObject({
+        productId: 'product-id',
+        quantity: 5,
+        unitPrice: 30,
+        amount: 150,
+        studentNo: 'OPEN',
+      });
+      expect(child.emitted('records-change')?.slice(oldEvents)).toHaveLength(1);
+      expect(child.emitted('records-change')?.at(-1)?.[0]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ productId: 'product-id', quantity: 5, unitPrice: 30 }),
+        ]),
+      );
+      expect(JSON.stringify(child.emitted('records-change')?.at(-1)?.[0])).not.toContain('studentNo');
       expect(request).not.toHaveBeenCalled();
       parent.unmount();
     },

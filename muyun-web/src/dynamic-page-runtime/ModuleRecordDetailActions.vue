@@ -12,6 +12,8 @@ const props = withDefaults(
     record?: QueryListRecord;
     mode: 'create' | 'edit' | 'view';
     saving?: boolean;
+    saveNeedsCheck?: boolean;
+    checkingSave?: boolean;
     /** The action currently owning the shared detail-operation session. */
     activeActionKey?: string;
     detailLoading?: boolean;
@@ -34,6 +36,8 @@ const props = withDefaults(
   {
     record: undefined,
     saving: false,
+    saveNeedsCheck: false,
+    checkingSave: false,
     activeActionKey: undefined,
     detailLoading: false,
     detailLoadFailed: false,
@@ -52,6 +56,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   cancel: [];
   save: [];
+  checkSave: [];
   edit: [];
   delete: [];
   openWorkspace: [];
@@ -75,6 +80,17 @@ const viewActionsActive = computed(
     !props.managedActions,
 );
 const headerActions = computed<RecordActionItem[]>(() => {
+  if (props.saveNeedsCheck) {
+    return [
+      {
+        key: '__platform-check-save',
+        title: props.checkingSave ? '核实中' : '核实保存结果',
+        actionLevel: 'primary',
+        disabled: props.checkingSave,
+        loading: props.checkingSave,
+      },
+    ];
+  }
   if (formActive.value) {
     return [
       { key: '__platform-cancel', title: '取消', actionLevel: 'standard', disabled: props.saving },
@@ -151,6 +167,9 @@ const headerActions = computed<RecordActionItem[]>(() => {
 
 function handleAction(action: RecordActionItem) {
   switch (action.key) {
+    case '__platform-check-save':
+      emit('checkSave');
+      return;
     case '__platform-cancel':
       emit('cancel');
       return;

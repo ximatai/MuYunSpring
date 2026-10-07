@@ -1,3 +1,10 @@
+/** Bounded business clauses; grouping must not force the loss of explicit requirements. */
+export const constructionPlanLimits = {
+  textItems: 64,
+  structuredItems: 16,
+  contentBytes: 32 * 1024,
+} as const;
+
 /** Requirements consensus; never an executable schema or publication approval. */
 export interface ConstructionPlanContent {
   title: string;
@@ -184,6 +191,8 @@ export interface ConstructionRequirementEvidence {
 }
 export interface ConstructionTask {
   planRevision: number;
+  /** Requirements whose object ownership has not been confirmed, reported once for the plan. */
+  unmappedRequirements: ConstructionRequirementEvidence[];
   objects: {
     objectKey: string;
     title: string;
@@ -202,6 +211,17 @@ export interface ConstructionTask {
       explanation: string;
     }[];
     requirements: ConstructionRequirementEvidence[];
-    progress?: ConstructionProgress | null;
+    progress?: Pick<
+      ConstructionProgress,
+      | 'moduleAlias'
+      | 'runtimeStatus'
+      | 'pagePublished'
+      | 'entryVisible'
+      | 'menuId'
+      | 'needsReview'
+      | 'acceptanceConfirmed'
+      | 'businessDataStatus'
+      | 'remainingWork'
+    > | null;
   }[];
 }

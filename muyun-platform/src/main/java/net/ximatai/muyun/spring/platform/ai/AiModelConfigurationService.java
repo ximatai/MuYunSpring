@@ -62,7 +62,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, AiModelConfiguration.class,
                 List.of("id", "tenantId", "title", "provider", "configurationLevel", "tenantFallbackEnabled",
-                        "modelId", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens", "credentialSource", "apiKeyEnvironmentVariable", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
+                        "modelId", "reasoningEffort", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens", "credentialSource", "apiKeyEnvironmentVariable", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
     }
 
     @Override

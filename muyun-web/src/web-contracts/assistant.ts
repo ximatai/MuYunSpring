@@ -31,7 +31,8 @@ export interface AssistantCapabilityResult {
 }
 
 export interface AssistantConversationMessage {
-  role: 'user' | 'assistant';
+  /** Historical display observations remain data, never assistant claims or authorization. */
+  role: 'user' | 'assistant' | 'status';
   text: string;
 }
 
@@ -64,6 +65,8 @@ export interface AssistantExecutionBudget {
 
 export interface AssistantTurnInput {
   executionBudget?: AssistantExecutionBudget;
+  /** Runtime-only batch remainder, projected as facts; not tool receipts or authorization. */
+  unexecutedCapabilities?: string[];
   /** Rejected planning output; never an execution receipt or authorization. */
   decisionFeedback?: 'undeclared-tool';
   message: string;
@@ -82,6 +85,8 @@ export interface AssistantTokenUsage {
 }
 
 export interface AssistantTurnOutput {
+  /** Native model tool requests before interaction adaptation; includes unexecuted mixed calls. */
+  modelToolCallCount?: number;
   usage?: AssistantTokenUsage;
   text?: string;
   toolCalls: AssistantCapabilityCall[];

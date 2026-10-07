@@ -66,6 +66,7 @@ function fixture() {
     registry.invoke({ id: 'call', code, input }, registry.snapshot()!.token);
   return {
     http,
+    registry,
     workspace,
     openRules,
     settleNavigation,
@@ -96,6 +97,37 @@ it('shares direct-child calculation targets between the assistant and governance
   expect(workspace.session('demo.order').rules.value).toEqual([rule]);
 });
 
+it('allows selecting authorized rule facts during read-only continuation without exposing mutations', async () => {
+  const { workspace, registry, http } = fixture();
+  const selected = await registry.invoke(
+    { id: 'select', code: 'rules.select-module', input: { moduleAlias: 'demo.order' } },
+    registry.snapshot()!.token,
+    undefined,
+    { readOnly: true },
+  );
+  expect(selected.contextChanged).toBe(false);
+  expect(selected.readStateChanged).toBe(true);
+  const page = await registry.invoke(
+    { id: 'read', code: 'rules.describe', input: { section: 'childFields', keyword: '小计' } },
+    registry.snapshot()!.token,
+    undefined,
+    { readOnly: true },
+  );
+  expect(page.value).toMatchObject({ coverage: 'complete', total: 1 });
+  expect(workspace.session('demo.order').dirty.value).toBe(false);
+  expect(http.request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ path: expect.stringMatching(/\/(apply|preview)$/) }),
+  );
+  await expect(
+    registry.invoke(
+      { id: 'revise', code: 'rules.revise', input: {} },
+      registry.snapshot()!.token,
+      undefined,
+      { readOnly: true },
+    ),
+  ).rejects.toThrow();
+});
+
 it('prepares and trials without a mounted page, shares edits, and invalidates the old confirmation', async () => {
   const { workspace, invoke, rule, http } = fixture();
   await invoke('rules.select-module', { moduleAlias: 'demo.order' });
@@ -115,6 +147,33 @@ it('prepares and trials without a mounted page, shares edits, and invalidates th
   expect(
     vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
   ).toHaveLength(1);
+});
+
+it('derives saved and draft rule facts from the shared baseline after manual edits and discard', async () => {
+  const { workspace, invoke, rule, http } = fixture();
+  const request = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    const value = await request(options);
+    if (options.path.endsWith('/business-rules'))
+      return { ...(value as object), rules: [{ ...rule, editable: true, phase: 'BEFORE_SAVE' }] } as never;
+    return value;
+  });
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const session = workspace.session('demo.order');
+  expect(session.adapter.summary().hasUnappliedChanges).toBe(false);
+  expect(session.adapter.catalog('rules')).toEqual([
+    expect.objectContaining({ code: rule.code, persistence: 'saved' }),
+  ]);
+  session.replace([{ ...rule, expression: '{amount} > 0' }]);
+  expect(session.adapter.summary().hasUnappliedChanges).toBe(true);
+  expect(session.adapter.catalog('rules')).toEqual([
+    expect.objectContaining({ code: rule.code, persistence: 'draft' }),
+  ]);
+  session.discard();
+  expect(session.adapter.summary().hasUnappliedChanges).toBe(false);
+  expect(session.adapter.catalog('rules')).toEqual([
+    expect.objectContaining({ code: rule.code, expression: rule.expression, persistence: 'saved' }),
+  ]);
 });
 
 it('does not revive an old editor or confirmation after leaving and returning to the same identity', async () => {
@@ -224,6 +283,9 @@ it('retries a failed refresh through module selection despite retaining an older
   vi.mocked(http.request).mockRejectedValueOnce(new Error('network unavailable'));
   await expect(session.load(true)).rejects.toThrow('network unavailable');
   expect(session.adapter.summary().editable).toBe(false);
+  expect(workspace.current().facts.ruleConfiguration?.facts).toMatchObject({ factsAvailable: false });
+  expect(workspace.current().facts.ruleConfiguration?.facts).not.toHaveProperty('fields');
+  await expect(invoke('rules.describe', { section: 'fields' })).rejects.toThrow();
   await invoke('rules.select-module', { moduleAlias: 'demo.order' });
   expect(session.adapter.summary().editable).toBe(true);
   await invoke('rules.revise', rule);
@@ -313,6 +375,8 @@ it('retains a committed receipt when UI synchronization fails and requires a fre
   expect(session.committedNeedsReload.value).toBe(true);
   expect(session.ready.value).toBe(false);
   expect(session.dirty.value).toBe(false);
+  expect(workspace.current().facts.ruleConfiguration?.facts).toMatchObject({ factsAvailable: false });
+  expect(workspace.current().facts.ruleConfiguration?.facts).not.toHaveProperty('rules');
   await prepared.confirmation!.confirm();
   await expect(session.apply()).rejects.toThrow();
   await expect(session.load()).rejects.toThrow('read unavailable');
@@ -331,10 +395,10 @@ it('retains a committed receipt when UI synchronization fails and requires a fre
 it.each(['validation', 'missing-fingerprint', 'transport'])(
   'classifies a %s failure before apply as not submitted',
   async (failure) => {
-    const { invoke, rule, http } = fixture();
+    const { workspace, invoke, rule, http } = fixture();
     await invoke('rules.select-module', { moduleAlias: 'demo.order' });
     await invoke('rules.revise', rule);
-    const prepared = await invoke('rules.prepare-apply');
+    const session = workspace.session('demo.order');
     const original = vi.mocked(http.request).getMockImplementation()!;
     vi.mocked(http.request).mockImplementation(async (options) => {
       if (options.path.endsWith('/preview')) {
@@ -346,9 +410,8 @@ it.each(['validation', 'missing-fingerprint', 'transport'])(
       }
       return original(options);
     });
-    await prepared.confirmation!.confirm();
-    expect(prepared.confirmation!.state).toBe('rejected');
-    expect(prepared.confirmation!.result?.title).toBe('操作未提交');
+    await expect(session.apply()).rejects.toThrow();
+    expect(session.submissionStatus.value).toBe('idle');
     expect(vi.mocked(http.request).mock.calls.some(([request]) => request.path.endsWith('/apply'))).toBe(
       false,
     );
@@ -390,4 +453,110 @@ it('retains commitment if the confirmation context changes while reading control
   expect(prepared.confirmation!.state).toBe('succeeded');
   expect(session.committedNeedsReload.value).toBe(true);
   expect(session.ready.value).toBe(false);
+});
+
+it.each(['manual', 'assistant'] as const)(
+  'shares unknown %s submissions and reads a new baseline without replay',
+  async (entry) => {
+    const { workspace, invoke, rule, http } = fixture();
+    await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+    await invoke('rules.revise', rule);
+    const session = workspace.session('demo.order');
+    const prepared = await invoke('rules.prepare-apply');
+    const original = vi.mocked(http.request).getMockImplementation()!;
+    vi.mocked(http.request).mockImplementation(async (options) => {
+      if (options.path.endsWith('/apply')) throw new Error('response lost');
+      return original(options);
+    });
+    if (entry === 'manual') await expect(session.apply()).rejects.toThrow('response lost');
+    else await prepared.confirmation!.confirm();
+    expect(session.ready.value).toBe(false);
+    expect(session.submissionStatus.value).toBe('unknown');
+    expect(session.rules.value).toEqual([rule]);
+    await expect(session.apply()).rejects.toThrow('结果未知');
+    expect(() => session.discard()).toThrow('结果未知');
+    await expect(invoke('rules.prepare-apply')).rejects.toThrow();
+    await session.load(true);
+    expect(session.submissionStatus.value).toBe('unknown');
+    // Current state may include this candidate, but is not evidence for the original request.
+    vi.mocked(http.request).mockImplementation(async (options) => {
+      if (options.path.endsWith('/business-rules'))
+        return {
+          ...session.snapshot.value!,
+          baselineFingerprint: 'new-baseline',
+          rules: [{ ...rule, phase: 'BEFORE_SAVE', editable: true }],
+        } as never;
+      return original(options);
+    });
+    const read = await invoke('rules.read-current');
+    expect(read.value).toMatchObject({ originalSubmission: 'unknown', currentConfigurationRead: true });
+    expect(session.snapshot.value?.baselineFingerprint).toBe('new-baseline');
+    expect(session.submissionStatus.value).toBe('current-read');
+    expect(session.ready.value).toBe(true);
+    expect(session.rules.value).toEqual([rule]);
+    expect(session.dirty.value).toBe(false);
+    if (entry === 'assistant') expect(prepared.confirmation!.state).toBe('unknown');
+    expect(
+      vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
+    ).toHaveLength(1);
+  },
+);
+
+it('does not release an unknown submission when reading current rules fails', async () => {
+  const { workspace, invoke, rule, http } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  await invoke('rules.revise', rule);
+  const session = workspace.session('demo.order');
+  const original = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/apply') || options.path.endsWith('/business-rules'))
+      throw new Error('unavailable');
+    return original(options);
+  });
+  await expect(session.apply()).rejects.toThrow();
+  await expect(session.readCurrent()).rejects.toThrow();
+  expect(session.submissionStatus.value).toBe('unknown');
+  expect(session.rules.value).toEqual([rule]);
+  expect(session.snapshot.value?.baselineFingerprint).toBe('base');
+});
+
+it('submits the reviewed rule snapshot without another client precheck', async () => {
+  const { invoke, rule, http } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  await invoke('rules.revise', rule);
+  const proposal = await invoke('rules.prepare-apply');
+  await proposal.confirmation!.confirm();
+  expect(proposal.confirmation!.state).toBe('succeeded');
+  expect(
+    vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/preview')),
+  ).toHaveLength(1);
+  expect(
+    vi.mocked(http.request).mock.calls.find(([request]) => request.path.endsWith('/apply'))?.[0].body,
+  ).toMatchObject({ baselineFingerprint: 'base', proposalFingerprint: 'checked', rules: [rule] });
+});
+
+it('reselects an unknown rule session and hands off to its recovery page without waiting for writability', async () => {
+  const { workspace, invoke, rule, http, openRules, settleNavigation } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  await invoke('rules.revise', rule);
+  const session = workspace.session('demo.order');
+  const original = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/apply')) throw new Error('lost');
+    if (options.path.includes('demo.other') && !options.path.endsWith('/ui-controls'))
+      return { ...session.snapshot.value!, moduleAlias: 'demo.other' } as never;
+    return original(options);
+  });
+  await expect(session.apply()).rejects.toThrow();
+  await invoke('rules.select-module', { moduleAlias: 'demo.other' });
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  expect(workspace.editor()?.moduleAlias).toBe('demo.order');
+  expect(workspace.capabilities(settleNavigation).map((item) => item.descriptor.code)).toContain(
+    'rules.read-current',
+  );
+  await invoke('rules.open-editor');
+  expect(openRules).toHaveBeenCalledWith('demo.order');
+  expect(settleNavigation).toHaveBeenCalledOnce();
+  expect(session.ready.value).toBe(false);
+  expect(session.submissionStatus.value).toBe('unknown');
 });

@@ -230,7 +230,7 @@ public class ApplicationConstructionPlanService {
     private static String encode(ApplicationConstructionPlanContent content) {
         try {
             String value = JSON.writeValueAsString(content);
-            if (value.getBytes(StandardCharsets.UTF_8).length > 32 * 1024) throw new IllegalArgumentException("方案内容过长");
+            if (value.getBytes(StandardCharsets.UTF_8).length > ApplicationConstructionPlanContent.MAX_CONTENT_BYTES) throw new IllegalArgumentException("方案内容过长");
             return value;
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) { throw new IllegalArgumentException("方案格式无效", exception); }
     }

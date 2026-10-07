@@ -20,6 +20,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DynamicRecordTest {
 
     @Test
+    void shouldFillJsonDefaultAsACollectionWithoutChangingExplicitValues() {
+        EntityDefinition entity = new EntityDefinition("entry", "app_entry", "Entry", List.of(
+                FieldDefinition.of("tags", FieldType.JSON, "Tags").defaultValue("[\"NEW\",\"DONE\"]")));
+        DynamicRecord record = new DynamicRecord(entity);
+        record.applyDefaultsForInsert();
+        assertThat(record.getValue("tags")).isEqualTo(List.of("NEW", "DONE"));
+        DynamicRecord explicit = new DynamicRecord(entity).setValue("tags", List.of("OTHER"));
+        explicit.applyDefaultsForInsert();
+        assertThat(explicit.getValue("tags")).isEqualTo(List.of("OTHER"));
+    }
+
+    @Test
     void shouldAcceptValuesDefinedByEntityDefinition() {
         DynamicRecord record = new DynamicRecord(contractEntity())
                 .setValue("code", "C-001")

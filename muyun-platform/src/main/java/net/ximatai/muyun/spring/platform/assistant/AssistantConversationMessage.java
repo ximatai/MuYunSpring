@@ -2,7 +2,7 @@ package net.ximatai.muyun.spring.platform.assistant;
 
 /** A bounded user-visible dialogue item carried by the browser between assistant turns. */
 public record AssistantConversationMessage(Role role, String text) {
-    public enum Role { USER, ASSISTANT }
+    public enum Role { USER, ASSISTANT, STATUS }
 
     public AssistantConversationMessage {
         if (role == null) throw new IllegalArgumentException("assistant history role must not be null");

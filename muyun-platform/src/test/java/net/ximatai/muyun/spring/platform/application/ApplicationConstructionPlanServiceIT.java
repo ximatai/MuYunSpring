@@ -94,6 +94,38 @@ class ApplicationConstructionPlanServiceIT extends PlatformPostgresIntegrationTe
             return null;
         });
     }
+    @Test void confirmsLongerBusinessScopeWithItsLastClauseMappingAndKeepsTheOriginalTextBudget() {
+        var clauses = java.util.stream.IntStream.range(0, 64).mapToObj(i -> "业务要求" + i).toList();
+        var base = content("多模块业务");
+        var mapping = new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 63,
+                "order", ApplicationConstructionRequirement.Mode.MANUAL, "", "人工核对", null);
+        var longer = new ApplicationConstructionPlanContent(base.title(), base.goal(), clauses, base.outOfScope(),
+                base.objects(), base.relationships(), base.rules(), base.questions(), base.assumptions(),
+                base.decisions(), base.acceptanceExamples(), List.of(mapping));
+        var planId = id();
+        as("owner", "tenant", () -> {
+            service.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, longer));
+            assertThat(service.read(planId).content().inScope()).containsExactlyElementsOf(clauses);
+            assertThat(service.read(planId).content().requirements()).containsExactly(mapping);
+            return null;
+        });
+        assertThatThrownBy(() -> new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 64,
+                "order", ApplicationConstructionRequirement.Mode.MANUAL, "", "人工核对", null))
+                .hasMessageContaining("身份无效");
+        assertThatThrownBy(() -> new ApplicationConstructionPlanContent(base.title(), base.goal(), java.util.Collections.nCopies(65, "要求"),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("验收"), List.of()))
+                .hasMessageContaining("最多 64 项");
+        var scope = java.util.Collections.nCopies(64, "甲".repeat(500));
+        var oversized = new ApplicationConstructionPlanContent(base.title(), base.goal(), scope, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("验收"), List.of());
+        var oversizedCommand = new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1, oversized);
+        as("owner", "tenant", () -> {
+            assertThatThrownBy(() -> service.confirm(planId, oversizedCommand)).hasMessageContaining("方案内容过长");
+            assertThat(service.read(planId).revision()).isEqualTo(1);
+            assertThat(service.confirmation(planId, oversizedCommand.requestId())).isNull();
+            return null;
+        });
+    }
     @Test void concurrentRevisionsHaveExactlyOneWinner() throws Exception {
         String planId = id(); var winners = new AtomicInteger();
         try (var pool = Executors.newFixedThreadPool(4)) {

@@ -106,6 +106,51 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldPersistTypedGenericJsonDefaultsAndPartialUpdatesWithoutDoubleEncoding() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "demo.json_defaults_" + suffix;
+        EntityDefinition entity = new EntityDefinition("entry", "app_json_defaults_" + suffix, "JSON defaults", List.of(
+                FieldDefinition.of("payload", FieldType.JSON, "Payload").defaultValue("{\"mode\":\"new\",\"items\":[1,\"two\"]}"),
+                FieldDefinition.of("items", FieldType.JSON, "Items").defaultValue("[1,\"two\"]"),
+                FieldDefinition.of("text", FieldType.JSON, "Text").defaultValue("\"{\\\"raw\\\":true}\""),
+                FieldDefinition.of("number", FieldType.JSON, "Number").defaultValue("0.123456789012345678901"),
+                FieldDefinition.of("flag", FieldType.JSON, "Flag").defaultValue("true"),
+                FieldDefinition.of("nullable", FieldType.JSON, "Nullable").defaultValue("null"),
+                FieldDefinition.of("nullText", FieldType.JSON, "Null text").column("null_text").defaultValue("\"null\"")));
+        schemaService.ensureTable(entity);
+        try (DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations)) {
+            runtime.register(new ModuleDefinition(module, "JSON defaults", List.of(entity)));
+            DynamicRecordService records = new DynamicRecordService(runtime);
+            String id = records.create(module, "entry", records.newRecord(module, "entry"));
+            DynamicRecord stored = records.select(module, "entry", id);
+            assertThat(stored.getValue("payload")).isEqualTo(Map.of("mode", "new", "items", List.of(1, "two")));
+            assertThat(stored.getValue("items")).isEqualTo(List.of(1, "two"));
+            assertThat(stored.getValue("text")).isEqualTo("{\"raw\":true}");
+            assertThat(stored.getValue("number")).isEqualTo(new java.math.BigDecimal("0.123456789012345678901"));
+            assertThat(stored.getValue("flag")).isEqualTo(true);
+            assertThat(stored.getValue("nullable")).isNull();
+            assertThat(stored.getValue("nullText")).isEqualTo("null");
+            // The original default was raw JSON text. Its SQL JSON value must remain unchanged.
+            assertThat(operations.row("SELECT payload::jsonb = CAST(:original AS jsonb) AS same_json FROM "
+                    + entity.tableName() + " WHERE id = :id", Map.of("id", id,
+                    "original", "{\"mode\":\"new\",\"items\":[1,\"two\"]}")).get("same_json")).isEqualTo(true);
+            DynamicRecord patch = records.newRecord(module, "entry")
+                    .setValue("payload", Map.of("changed", true))
+                    .setValue("items", List.of("updated"))
+                    .setValue("text", "plain text")
+                    .setValue("nullText", null);
+            patch.setId(id); patch.setVersion(stored.getVersion());
+            assertThat(records.update(module, "entry", patch)).isEqualTo(1);
+            DynamicRecord updated = records.select(module, "entry", id);
+            assertThat(updated.getValue("payload")).isEqualTo(Map.of("changed", true));
+            assertThat(updated.getValue("items")).isEqualTo(List.of("updated"));
+            assertThat(updated.getValue("text")).isEqualTo("plain text");
+            assertThat(updated.getValue("nullText")).isNull();
+            assertThat(updated.getValue("number")).isEqualTo(stored.getValue("number"));
+        }
+    }
+
+    @Test
     void shouldEnforceWriteRulesOnRealPartialUpdatesWithoutChangingNullability() {
         var both = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, true,
                 net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);

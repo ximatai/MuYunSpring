@@ -56,6 +56,16 @@ public class MetadataFieldConfig extends StandardEntity {
     @Column(name = "default_value", type = ColumnType.VARCHAR, length = 512, comment = "Default value")
     private String defaultValue;
 
+    public static String effectiveDefaultValue(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        return relation != null && relation.getDefaultValue() != null
+                ? relation.getDefaultValue() : base == null ? null : base.getDefaultValue();
+    }
+
+    public static String effectiveValidationRegex(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        return relation != null && relation.getValidationRegex() != null
+                ? relation.getValidationRegex() : base == null ? null : base.getValidationRegex();
+    }
+
     @Column(name = "validation_regex", type = ColumnType.VARCHAR, length = 512, comment = "Validation regex")
     private String validationRegex;
 
@@ -67,6 +77,11 @@ public class MetadataFieldConfig extends StandardEntity {
 
     @Column(name = "text_normalization", type = ColumnType.VARCHAR, length = 32, comment = "Text normalization")
     private TextNormalization textNormalization;
+
+    public static FieldWriteRules effectiveWriteRules(MetadataFieldConfig base, MetadataFieldConfig relation) {
+        FieldWriteRules inherited = base == null ? FieldWriteRules.NONE : base.effectiveWriteRules(FieldWriteRules.NONE);
+        return relation == null ? inherited : relation.effectiveWriteRules(inherited);
+    }
 
     /** Null declarations inherit the enclosing field behavior. */
     public FieldWriteRules effectiveWriteRules(FieldWriteRules inherited) {

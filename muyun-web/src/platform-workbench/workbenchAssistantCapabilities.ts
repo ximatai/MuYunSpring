@@ -1,4 +1,4 @@
-import { AssistantCapabilityUsageError } from '@muyun/web-core';
+import { AssistantCapabilityUsageError, pageAssistantCatalog } from '@muyun/web-core';
 import type { MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { getMenuNavigationTarget } from './menuNavigation';
@@ -11,9 +11,18 @@ export function createWorkbenchAssistantCapabilities(
   return [findMenuCapability(menus), openMenuCapability(menus, openMenu, settleNavigation)];
 }
 
+/** Current visible navigation, projected on demand; no cross-page permission cache. */
+export function workbenchAssistantMenuCatalog(menus: readonly MenuTreeNode[]) {
+  const catalog = pageAssistantCatalog(openableMenus(menus).map(menuFacts), 0, 4_000);
+  if (catalog.page.oversizedIndexes.length)
+    catalog.page.note = '部分入口信息超过读取预算，请按名称查找；未将其当作不存在。';
+  return catalog;
+}
+
 function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ query: string }> {
   return {
     effect: 'read',
+    schemaDiscovery: 'eager',
     descriptor: {
       code: 'workbench.find-menu',
       description:
@@ -32,22 +41,14 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
     },
     async execute({ query }) {
       const normalized = query.toLocaleLowerCase();
-      return flattenMenus(menus())
-        .filter(({ menu }) => getMenuNavigationTarget(menu) !== undefined)
+      return openableMenus(menus())
         .filter(({ menu, path }) =>
           [menu.title, menu.moduleAlias, menu.moduleDescription, path.join(' ')].some((value) =>
             value?.toLocaleLowerCase().includes(normalized),
           ),
         )
         .slice(0, 10)
-        .map(({ menu, path }) => ({
-          menuId: menu.id,
-          schemeId: menu.schemeId,
-          title: menu.title,
-          moduleAlias: menu.moduleAlias,
-          description: menu.moduleDescription,
-          path,
-        }));
+        .map(menuFacts);
     },
   };
 }
@@ -59,6 +60,7 @@ function openMenuCapability(
 ): AssistantCapability<{ menuId: string }, { openedMenuId?: string; title?: string }> {
   return {
     effect: 'page',
+    schemaDiscovery: 'eager',
     descriptor: {
       code: 'workbench.open-menu',
       description: 'Open one exact entry from the current user visible menu tree',
@@ -98,6 +100,21 @@ function openMenuCapability(
 interface FlatMenu {
   menu: MenuRecord;
   path: string[];
+}
+
+function openableMenus(nodes: readonly MenuTreeNode[]) {
+  return flattenMenus(nodes).filter(({ menu }) => getMenuNavigationTarget(menu) !== undefined);
+}
+
+function menuFacts({ menu, path }: FlatMenu) {
+  return {
+    menuId: menu.id,
+    schemeId: menu.schemeId,
+    title: menu.title,
+    moduleAlias: menu.moduleAlias,
+    description: menu.moduleDescription,
+    path,
+  };
 }
 
 function flattenMenus(nodes: readonly MenuTreeNode[], path: string[] = []): FlatMenu[] {

@@ -1,5 +1,6 @@
 import { computed, effectScope, ref, watch } from 'vue';
 import {
+  AppError,
   OperationUsageError,
   OperationRejectedError,
   withHttpHeaders,
@@ -47,6 +48,7 @@ export function createBusinessRuleSession(
       loadFailed = ref(false),
       applying = ref(false);
     const committedNeedsReload = ref(false);
+    const submissionStatus = ref<'idle' | 'unknown' | 'current-read'>('idle');
     const tenantId = ref('');
     const revision = ref(0);
     const editors = new Set<symbol>();
@@ -56,15 +58,27 @@ export function createBusinessRuleSession(
         !!snapshot.value &&
         proposalFingerprintOf(rules.value) !== proposalFingerprintOf(editableProposals(snapshot.value)),
     );
-    const ready = computed(() => !!snapshot.value && !loading.value && !applying.value && !loadFailed.value);
+    const ready = computed(
+      () =>
+        !!snapshot.value &&
+        !loading.value &&
+        !applying.value &&
+        !loadFailed.value &&
+        submissionStatus.value !== 'unknown',
+    );
     const path = `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules`;
     let loadEpoch = 0;
-    watch([rules, snapshot, ui, tenantId], () => revision.value++, { deep: true, flush: 'sync' });
+    watch([rules, snapshot, ui, tenantId, submissionStatus], () => revision.value++, {
+      deep: true,
+      flush: 'sync',
+    });
     function requireValid() {
       if (!valid()) throw new OperationUsageError('身份已变化，请重新读取规则');
     }
     function requireReady() {
       requireValid();
+      if (submissionStatus.value === 'unknown')
+        throw new OperationUsageError('原规则提交结果未知，请先读取当前配置再重新审阅');
       if (!ready.value) throw new OperationUsageError('请等待规则加载或应用完成');
     }
     async function merge(loaded: BusinessRuleSnapshot) {
@@ -85,11 +99,16 @@ export function createBusinessRuleSession(
       snapshot.value = result.loaded;
       rules.value = editableProposals(result.loaded);
       committedNeedsReload.value = false;
+      submissionStatus.value = 'idle';
     }
     // Publish the loaded baseline through the caller's guarded commit when selecting from the assistant.
     async function load(force = false, commit: (accept: () => void) => void = (accept) => accept()) {
       requireValid();
       if (applying.value) throw new OperationUsageError('规则正在应用');
+      if (submissionStatus.value === 'unknown') {
+        commit(() => {});
+        return;
+      }
       if (snapshot.value && !loadFailed.value && !force) {
         commit(() => {});
         return;
@@ -112,6 +131,33 @@ export function createBusinessRuleSession(
         if (epoch === loadEpoch) loading.value = false;
       }
     }
+    // Reading current configuration establishes a new baseline, never a receipt for the lost request.
+    async function readCurrent(
+      signal?: AbortSignal,
+      commit: (accept: () => void) => void = (accept) => accept(),
+    ) {
+      requireValid();
+      if (submissionStatus.value !== 'unknown' || applying.value || loading.value)
+        throw new OperationUsageError('当前没有需要核实的规则提交');
+      const epoch = ++loadEpoch;
+      const candidate = rules.value.map(toProposal);
+      loading.value = true;
+      try {
+        const loaded = await http.request<BusinessRuleSnapshot>({ path, signal });
+        if (loaded.moduleAlias !== moduleAlias) throw new Error('规则模块与请求不一致');
+        if (signal?.aborted || epoch !== loadEpoch || !valid()) return;
+        const result = await merge(loaded);
+        if (signal?.aborted || epoch !== loadEpoch || !valid()) return;
+        commit(() => {
+          accept(result);
+          rules.value = candidate;
+          loadFailed.value = false;
+          submissionStatus.value = 'current-read';
+        });
+      } finally {
+        if (epoch === loadEpoch) loading.value = false;
+      }
+    }
     function replace(next: BusinessRuleProposal[]) {
       requireReady();
       rules.value = next;
@@ -119,6 +165,7 @@ export function createBusinessRuleSession(
     function discard() {
       requireReady();
       rules.value = editableProposals(snapshot.value!);
+      submissionStatus.value = 'idle';
     }
     function capture() {
       requireReady();
@@ -144,7 +191,10 @@ export function createBusinessRuleSession(
         signal,
       });
     }
-    async function apply(stillCurrent: () => boolean = () => true) {
+    async function apply(
+      stillCurrent: () => boolean = () => true,
+      reviewed?: { revision: number; checked: BusinessRulePreview },
+    ) {
       requireReady();
       if (!dirty.value) return;
       if (editing.value) throw new OperationUsageError('请先完成当前规则编辑');
@@ -155,38 +205,49 @@ export function createBusinessRuleSession(
       const uiBaselineFingerprint = ui.value?.baselineFingerprint;
       applying.value = true;
       try {
-        const checked = await http
-          .request<BusinessRulePreview>({
-            method: 'POST',
-            path: path + '/preview',
-            body: { rules: proposed.filter((rule) => rule.kind !== 'UI_CONTROL') },
-          })
-          .catch(() => {
-            throw new OperationRejectedError('规则预检失败，尚未提交；请重新检查后再应用');
-          });
+        if (reviewed && reviewed.revision !== revision.value)
+          throw new OperationRejectedError('已审阅候选已变化，尚未提交；请重新检查');
+        const checked =
+          reviewed?.checked ??
+          (await http
+            .request<BusinessRulePreview>({
+              method: 'POST',
+              path: path + '/preview',
+              body: { rules: proposed.filter((rule) => rule.kind !== 'UI_CONTROL') },
+            })
+            .catch(() => {
+              throw new OperationRejectedError('规则预检失败，尚未提交；请重新检查后再应用');
+            }));
         if (!current()) throw new OperationRejectedError('规则候选已变化，尚未提交；请重新检查');
         if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
         if (!checked.proposalFingerprint)
           throw new OperationRejectedError('检查结果无效，尚未提交；请重新加载后再应用');
-        const result = await http.request<BusinessRuleApplyResult>({
-          method: 'POST',
-          path: path + '/apply',
-          body: {
-            rules: proposed.filter((rule) => rule.kind !== 'UI_CONTROL'),
-            uiRules: proposed
-              .filter((rule) => rule.kind === 'UI_CONTROL')
-              .map(({ code, formKey, expression, enabled, targets }) => ({
-                code,
-                formKey,
-                expression,
-                enabled,
-                targets,
-              })),
-            baselineFingerprint,
-            uiBaselineFingerprint,
-            proposalFingerprint: checked.proposalFingerprint,
-          },
-        });
+        const result = await http
+          .request<BusinessRuleApplyResult>({
+            method: 'POST',
+            path: path + '/apply',
+            body: {
+              rules: proposed.filter((rule) => rule.kind !== 'UI_CONTROL'),
+              uiRules: proposed
+                .filter((rule) => rule.kind === 'UI_CONTROL')
+                .map(({ code, formKey, expression, enabled, targets }) => ({
+                  code,
+                  formKey,
+                  expression,
+                  enabled,
+                  targets,
+                })),
+              baselineFingerprint,
+              uiBaselineFingerprint,
+              proposalFingerprint: checked.proposalFingerprint,
+            },
+          })
+          .catch((cause: unknown) => {
+            if (cause instanceof AppError && [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0))
+              throw new OperationRejectedError(cause.message);
+            if (valid()) submissionStatus.value = 'unknown';
+            throw cause;
+          });
         // The apply response proves commitment. A subsequent read or context change cannot
         // turn that fact into an unknown write or leave the old baseline available for retry.
         try {
@@ -213,6 +274,9 @@ export function createBusinessRuleSession(
       summary: () => ({
         moduleAlias,
         editable: valid() && ready.value && !editing.value,
+        factsAvailable: valid() && ready.value,
+        submissionStatus: submissionStatus.value,
+        ...(valid() && ready.value ? { hasUnappliedChanges: dirty.value } : {}),
       }),
       catalog: (section) =>
         section === 'fields'
@@ -225,7 +289,21 @@ export function createBusinessRuleSession(
                 ? (snapshot.value?.functions ?? [])
                 : section === 'forms'
                   ? (ui.value?.forms ?? [])
-                  : [...rules.value, ...(snapshot.value ? readonlyRules(snapshot.value) : [])],
+                  : [
+                      ...rules.value.map((rule) => ({
+                        ...rule,
+                        persistence: snapshot.value?.rules.some(
+                          (saved) =>
+                            saved.code === rule.code &&
+                            JSON.stringify(toProposal(saved)) === JSON.stringify(toProposal(rule)),
+                        )
+                          ? 'saved'
+                          : 'draft',
+                      })),
+                      ...(snapshot.value
+                        ? readonlyRules(snapshot.value).map((rule) => ({ ...rule, persistence: 'saved' }))
+                        : []),
+                    ],
       revise(rule) {
         requireReady();
         if (editing.value) throw new OperationUsageError('请先完成页面中的规则编辑');
@@ -255,6 +333,7 @@ export function createBusinessRuleSession(
       },
       preview,
       trial,
+      readCurrent,
       async prepareConfirmation(signal): Promise<OperationProposal> {
         requireReady();
         if (!dirty.value) throw new OperationUsageError('当前没有待应用的规则更改');
@@ -264,6 +343,8 @@ export function createBusinessRuleSession(
         const checked = await preview(signal);
         if (!current()) throw new OperationUsageError('规则候选已变化，请重新检查');
         if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
+        if (!checked.proposalFingerprint) throw new OperationUsageError('检查结果无效，请重新预检');
+        const reviewed = { revision: revision.value, checked: structuredClone(checked) };
         const impact = businessRuleChangeImpact(snapshot.value!, rules.value);
         const describe = (rule: BusinessRuleProposal) => {
           const fields = [
@@ -303,7 +384,7 @@ export function createBusinessRuleSession(
           async execute() {
             if (!current() || editing.value) throw new OperationRejectedError('规则候选已变化，尚未提交');
             try {
-              const outcome = await apply(current);
+              const outcome = await apply(current, reviewed);
               return {
                 title: '业务规则已应用',
                 lines: [
@@ -318,7 +399,10 @@ export function createBusinessRuleSession(
               throw error;
             }
           },
-          lookup: async () => undefined,
+          async lookup() {
+            if (submissionStatus.value === 'unknown') await readCurrent();
+            return undefined;
+          },
         };
       },
     };
@@ -336,6 +420,7 @@ export function createBusinessRuleSession(
       loading,
       loadFailed,
       committedNeedsReload,
+      submissionStatus,
       applying,
       tenantId,
       revision,
@@ -345,7 +430,8 @@ export function createBusinessRuleSession(
       load,
       replace,
       discard,
-      apply,
+      apply: (stillCurrent?: () => boolean) => apply(stillCurrent),
+      readCurrent,
       trial,
       setEditing(owner: symbol, value: boolean) {
         if (value) editors.add(owner);

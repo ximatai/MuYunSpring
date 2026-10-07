@@ -81,6 +81,40 @@ export function createConfigurationCollaboration() {
         : []),
     ];
   }
+  function boundary(editor?: { visible: boolean; kind?: string; openingCapability?: string }) {
+    const state = !task.value
+      ? 'START_TASK_REQUIRED'
+      : !editor
+        ? 'SELECT_CONFIGURATION_TARGET_REQUIRED'
+        : task.value.mode === 'visual' && !editor.visible
+          ? 'OPEN_SELECTED_EDITOR_REQUIRED'
+          : 'READY';
+    return {
+      scope: 'assistant-shared-configuration-editor',
+      appliesTo: 'selected-module-metadata-page-and-rule-candidates',
+      state,
+      draftEditingAvailable: state === 'READY',
+      ...(editor ? { editorKind: editor.kind, openingCapability: editor.openingCapability } : {}),
+      ...(state === 'START_TASK_REQUIRED'
+        ? {
+            guidance:
+              'Only configuration drafting requires starting a task; authorized governance reads remain available.',
+          }
+        : {}),
+      ...(state === 'SELECT_CONFIGURATION_TARGET_REQUIRED'
+        ? {
+            guidance:
+              'No shared module editor is selected. This boundary does not block requirements planning, standard application/module record forms, or authorized menu navigation. Select an existing module using a current selection capability when editing its configuration; when the needed object does not exist, use the authorized standard management entry and record commands. Reuse the user’s already explicit goal and scope; target selection is not a new approval. Do not invent an application-binding prerequisite or ask the user to perform technical binding.',
+          }
+        : {}),
+      ...(state === 'OPEN_SELECTED_EDITOR_REQUIRED'
+        ? {
+            guidance:
+              'The selected configuration catalog remains valid. Visual collaboration temporarily hides draft-editing commands until its shared editor is opened. Use configurationEditor.openingCapability for the selected editor kind; metadata defines fields and relations, page composition only arranges already-defined fields, and rules define calculations and validations; do not infer missing platform support, reread unchanged catalogs, switch targets, or ask the user to implement the configuration.',
+          }
+        : {}),
+    };
+  }
   function filter(capabilities: AssistantCapability[], editorVisible = false) {
     return capabilities
       .filter((capability) => {
@@ -113,6 +147,15 @@ export function createConfigurationCollaboration() {
             const isCurrent = () => epoch === revision.value && proposal.isCurrent();
             return {
               ...proposal,
+              continuation:
+                proposal.continuation ??
+                (task.value
+                  ? {
+                      message:
+                        '本次配置已确认完成。核实当前平台事实，继续用户已明确目标中的剩余事项；已保存内容不重建，新的保存仍须独立确认。现行配置是事实来源，需求方案是范围和验收依据；不因换页或方案候选状态重复确认已明确目标。用户只准备、比较、暂缓或取消的要求仍然有效，目标已完成时说明结果并停止。',
+                      isCurrent: () => epoch === revision.value,
+                    }
+                  : undefined),
               isCurrent,
               async execute() {
                 if (!isCurrent()) throw new AssistantCapabilityUsageError('协作方式或任务已变化，请重新确认');
@@ -123,6 +166,6 @@ export function createConfigurationCollaboration() {
         } satisfies AssistantCapability;
       });
   }
-  return { task, revision, restore, capabilities, filter };
+  return { task, revision, restore, capabilities, filter, boundary };
 }
 export type ConfigurationCollaboration = ReturnType<typeof createConfigurationCollaboration>;

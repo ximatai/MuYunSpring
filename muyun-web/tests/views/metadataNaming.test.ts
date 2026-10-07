@@ -5,6 +5,7 @@ import {
   isDynamicRecordReservedFieldName,
   isPlatformFieldName,
   physicalNameOf,
+  recordNameFieldProblem,
 } from '@/views/metadataNaming';
 
 it('generates legal metadata aliases from Chinese and mixed titles', () => {
@@ -21,6 +22,31 @@ it('keeps generated business field names inside the platform field-name contract
   expect(isPlatformFieldName(generatedBusinessFieldName('2026 Students', 'BASIC'))).toBe(true);
   expect(isPlatformFieldName('customer_name')).toBe(false);
   expect(['values', 'attachments', 'record', 'tenantId'].every(isDynamicRecordReservedFieldName)).toBe(true);
+});
+
+it('uses the platform record-name identity for a basic title field regardless of its business label', () => {
+  for (const label of ['客户名称', '课程名称', '2026 Projects']) {
+    const name = generatedBusinessFieldName(label, 'BASIC', true);
+    expect(name).toBe('title');
+    expect(physicalNameOf(name)).toBe('title');
+  }
+  expect(generatedBusinessFieldName('负责人', 'MODULE_REFERENCE', true)).toBe('refFuZeRenId');
+  expect(generatedBusinessFieldName('', 'BASIC', true)).toBe('');
+});
+
+it('rejects nonstandard record-name identities without restricting ordinary field names', () => {
+  expect(
+    recordNameFieldProblem({ titleField: true, fieldName: 'customerName', columnName: 'customer_name' }),
+  ).toContain('标准 title');
+  expect(
+    recordNameFieldProblem({ titleField: true, fieldName: 'title', columnName: 'customer_name' }),
+  ).toContain('标准 title');
+  expect(
+    recordNameFieldProblem({ titleField: true, fieldName: 'title', columnName: 'title' }),
+  ).toBeUndefined();
+  expect(
+    recordNameFieldProblem({ titleField: false, fieldName: 'customerName', columnName: 'customer_name' }),
+  ).toBeUndefined();
 });
 
 it.each([

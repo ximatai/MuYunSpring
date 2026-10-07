@@ -22,6 +22,7 @@ import type {
   UpdateMetadataFieldDraftInput,
   MetadataPropertyFieldKind,
   FindMetadataFieldTargetsInput,
+  UpdateMetadataReferenceDraftInput,
   AddMetadataPropertyFieldDraftInput,
   MetadataFieldCandidate,
   MetadataFieldPlanInput,
@@ -46,57 +47,205 @@ export function createMetadataGovernanceAssistantSurface(
 ): AssistantSurface {
   return {
     describe: () => surfaceContext(adapter.summary()),
-    capabilities: () => [
-      ...contributedCapabilities(),
-      describeMetadataModelCapability(adapter),
-      ...(adapter.prepareMainDraft &&
-      adapter.summary().relationCount === 0 &&
-      (!adapter.summary().draft.active || adapter.summary().mainCandidate)
-        ? [prepareMetadataMainDraftCapability(adapter)]
-        : []),
-      ...(adapter.prepareChildDraft &&
-      adapter.summary().selectedRelation &&
-      (!adapter.summary().draft.active || adapter.summary().childCandidate)
-        ? [prepareMetadataChildDraftCapability(adapter)]
-        : []),
-      ...(adapter.discardCandidate && adapter.summary().draft.active
+    capabilities: () =>
+      adapter.summary().factsAvailable === false
         ? [
-            {
-              effect: 'configuration-draft' as const,
-              descriptor: {
-                code: 'configuration.discard-metadata-draft',
-                description:
-                  'Discard the entire current unsaved metadata candidate, including manual edits, only when the user asks to abandon it. Does not delete persisted fields or undo applied configuration.',
-                inputSchema: emptyAssistantCapabilityInputSchema(),
-              },
-              parseInput: parseEmptyAssistantCapabilityInput,
-              async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
-                return context.applyEffect(() => {
-                  adapter.discardCandidate!();
-                  return { discarded: true, saved: false };
-                });
-              },
-            },
+            ...contributedCapabilities(),
+            ...(adapter.readCurrent &&
+            (adapter.summary().submissionStatus === 'unknown' || adapter.summary().committedNeedsReload)
+              ? [
+                  {
+                    effect: 'read' as const,
+                    changesReadState: true,
+                    descriptor: {
+                      code: 'configuration.read-current-metadata',
+                      description:
+                        'Read current standard metadata after an unknown submission or a confirmed save whose synchronization failed. Preserve candidate intent on the new baseline for fresh human review. Never resubmit or infer a receipt for an unknown original request.',
+                      inputSchema: emptyAssistantCapabilityInputSchema(),
+                    },
+                    parseInput: parseEmptyAssistantCapabilityInput,
+                    async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                      const unknown = adapter.summary().submissionStatus === 'unknown';
+                      await adapter.readCurrent!(context.signal, context.commitInternalState);
+                      return {
+                        originalSubmission: unknown ? 'unknown' : 'committed',
+                        currentConfigurationRead: true,
+                        candidatePreserved: true,
+                      };
+                    },
+                    present: () => ({
+                      title: '已读取当前元数据',
+                      lines: ['已在当前基线上保留候选意图；原未知提交不据此认定成功，后续保存须重新审阅。'],
+                    }),
+                  } satisfies AssistantCapability,
+                ]
+              : []),
           ]
-        : []),
-      ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter) && !adapter.summary().draft.active
-        ? [prepareMetadataFieldPlanCapability(adapter)]
-        : []),
-      ...(adapter.candidate?.() ? [describeMetadataCandidateCapability(adapter)] : []),
-      ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
-      ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
-      ...(adapter.referenceAffectDirectory && canAddPropertyFieldDraft(adapter)
-        ? [referenceAffectDirectoryCapability(adapter)]
-        : []),
-      ...(canAddPropertyFieldDraft(adapter)
-        ? [findMetadataFieldTargetsCapability(adapter), addMetadataPropertyFieldDraftCapability(adapter)]
-        : []),
-      ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
-      ...(adapter.prepareConfirmation && (hasChanges(adapter.proposal()) || adapter.summary().childCandidate)
-        ? [prepareMetadataConfirmationCapability(adapter)]
-        : []),
-    ],
+        : [
+            ...contributedCapabilities(),
+            describeMetadataModelCapability(adapter),
+            ...(adapter.prepareMainDraft &&
+            adapter.summary().relationCount === 0 &&
+            (!adapter.summary().draft.active || adapter.summary().mainCandidate)
+              ? [prepareMetadataMainDraftCapability(adapter)]
+              : []),
+            ...(adapter.prepareChildDraft &&
+            adapter.summary().selectedRelation &&
+            (!adapter.summary().draft.active || adapter.summary().childCandidate)
+              ? [prepareMetadataChildDraftCapability(adapter)]
+              : []),
+            ...(adapter.discardCandidate && adapter.summary().draft.active
+              ? [
+                  {
+                    effect: 'configuration-draft' as const,
+                    descriptor: {
+                      code: 'configuration.discard-metadata-draft',
+                      description:
+                        'Discard the entire current unsaved metadata candidate, including manual edits, only when the user asks to abandon it. Does not delete persisted fields or undo applied configuration.',
+                      inputSchema: emptyAssistantCapabilityInputSchema(),
+                    },
+                    parseInput: parseEmptyAssistantCapabilityInput,
+                    async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                      return context.applyEffect(() => {
+                        adapter.discardCandidate!();
+                        return { discarded: true, saved: false };
+                      });
+                    },
+                  },
+                ]
+              : []),
+            ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter) && !adapter.summary().draft.active
+              ? [prepareMetadataFieldPlanCapability(adapter)]
+              : []),
+            ...(adapter.prepareCapabilityDraft &&
+            adapter
+              .summary()
+              .selectedRelation?.capabilities?.some((fact) => fact.configurable && !fact.enabled) &&
+            (!adapter.summary().draft.editorOpen || adapter.summary().draft.fieldPlanOpen)
+              ? [prepareMetadataCapabilityDraftCapability(adapter)]
+              : []),
+            ...(adapter.candidate?.() ? [describeMetadataCandidateCapability(adapter)] : []),
+            ...(adapter.prepareRetainFieldDraft &&
+            adapter.summary().draft.fieldPlanEditing &&
+            adapter.candidate?.()
+              ? [
+                  {
+                    effect: 'configuration-draft' as const,
+                    descriptor: {
+                      code: 'configuration.retain-metadata-field-draft',
+                      description:
+                        'Retain the current field editor, including the user’s latest changes, in the shared unsaved batch and return to its field list. Does not save or publish. Retain before adding another field, removing a new field, or selecting a base capability.',
+                      inputSchema: emptyAssistantCapabilityInputSchema(),
+                    },
+                    parseInput: parseEmptyAssistantCapabilityInput,
+                    async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                      const commit = adapter.prepareRetainFieldDraft!();
+                      return context.applyEffect(commit);
+                    },
+                  },
+                ]
+              : []),
+            ...(adapter.prepareRemoveNewFieldDraft && adapter.removableNewFieldNames?.().length
+              ? [removeMetadataNewFieldDraftCapability(adapter)]
+              : []),
+            ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
+            ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
+            ...(adapter.prepareReferenceUpdate && adapter.editableReferenceFieldNames?.().length
+              ? [updateMetadataReferenceDraftCapability(adapter)]
+              : []),
+            ...(adapter.referenceAffectDirectory &&
+            (canAddPropertyFieldDraft(adapter) || adapter.editableReferenceFieldNames?.().length)
+              ? [referenceAffectDirectoryCapability(adapter)]
+              : []),
+            ...(canAddPropertyFieldDraft(adapter)
+              ? [
+                  findMetadataFieldTargetsCapability(adapter),
+                  addMetadataPropertyFieldDraftCapability(adapter),
+                ]
+              : []),
+            ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
+            ...(adapter.prepareConfirmation &&
+            (hasChanges(adapter.proposal()) || adapter.summary().childCandidate)
+              ? [prepareMetadataConfirmationCapability(adapter)]
+              : []),
+          ],
     requestTurn,
+  };
+}
+
+function removeMetadataNewFieldDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<{ fieldName: string }> {
+  const fieldNames = adapter.removableNewFieldNames!();
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.remove-metadata-new-field-draft',
+      description:
+        'Remove one newly added, unsaved field from the shared batch when the user asks to revise it; preserve all other fields and capability selections. Cannot remove persisted fields. Finish the current individual field editor first.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldName'],
+        properties: { fieldName: { type: 'string', enum: fieldNames } },
+      },
+    },
+    parseInput(input) {
+      const value = input as { fieldName?: unknown };
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        Object.keys(value).some((key) => key !== 'fieldName') ||
+        typeof value.fieldName !== 'string' ||
+        !fieldNames.includes(value.fieldName)
+      )
+        throw new AssistantCapabilityUsageError('Only a current newly added field can be removed');
+      return { fieldName: value.fieldName };
+    },
+    async execute(input, context) {
+      const commit = adapter.prepareRemoveNewFieldDraft!(input);
+      return context.applyEffect(commit);
+    },
+  };
+}
+
+function prepareMetadataCapabilityDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability {
+  const available =
+    adapter.summary().selectedRelation?.capabilities?.filter((fact) => fact.configurable && !fact.enabled) ??
+    [];
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.prepare-metadata-capability-draft',
+      description:
+        'Select a standard metadata capability in the shared visible draft. Use the current model capability facts and defaults. Platform creates its managed fields on save; never add same-name business fields. selected=false only abandons an unsaved selection; cannot disable persisted capabilities. Preserve existing field drafts; review and confirm the whole change set.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['capability', 'selected'],
+        properties: {
+          capability: { type: 'string', enum: available.map((fact) => fact.capability) },
+          selected: { type: 'boolean' },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        Object.keys(input).some((key) => !['capability', 'selected'].includes(key)) ||
+        typeof input.selected !== 'boolean' ||
+        !available.some((fact) => fact.capability === input.capability)
+      )
+        throw new AssistantCapabilityUsageError('请选择当前可配置的基础能力。');
+      return { capability: input.capability as string, selected: input.selected };
+    },
+    async execute(input, context) {
+      const commit = adapter.prepareCapabilityDraft!(input as { capability: string; selected: boolean });
+      return context.applyEffect(commit);
+    },
   };
 }
 
@@ -135,26 +284,51 @@ function prepareMetadataChildDraftCapability(
     descriptor: {
       code: 'configuration.prepare-metadata-child-draft',
       description:
-        'Prepare or revise one child table under the selected metadata relation in the shared editor. Use for repeatable line items belonging to a parent record, not independently managed objects. Does not create storage. Read the candidate with describe-metadata-model, then use prepare-metadata-apply for human confirmation. After creation configure its fields, references, formulas and page through standard governance; an empty child is not business completion.',
+        'Prepare or revise one child table in the shared editor. parentRelationId must identify the intended parent from current metadata facts and match the selected relation. For sibling tables, select their common parent before preparing each child; an existing child cannot implicitly serve as that parent. A wrong unsaved candidate must be reviewed or discarded before changing the selected parent. Does not create storage. The result reports the actual candidate parent. Use prepare-metadata-apply for human confirmation; an empty child is not business completion.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
-        required: ['alias', 'title'],
+        required: ['alias', 'title', 'parentRelationId'],
         properties: {
           alias: { type: 'string', pattern: '^[a-z][a-z0-9_]{0,62}$', maxLength: 63 },
           title: { type: 'string', minLength: 1, maxLength: 120 },
+          parentRelationId: { type: 'string', minLength: 1, maxLength: 100 },
         },
       },
     },
     parseInput(input) {
-      if (!isRecord(input) || Object.keys(input).some((key) => !['alias', 'title'].includes(key)))
+      if (
+        !isRecord(input) ||
+        Object.keys(input).some((key) => !['alias', 'title', 'parentRelationId'].includes(key))
+      )
         throw new AssistantCapabilityUsageError('请提供明细名称和标识');
       const alias = boundedString(input.alias, 'alias', 63, true);
       if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias)) throw new AssistantCapabilityUsageError('明细标识格式无效');
-      return { alias, title: boundedString(input.title, 'title', 120, true) };
+      return {
+        alias,
+        title: boundedString(input.title, 'title', 120, true),
+        parentRelationId: boundedString(input.parentRelationId, 'parentRelationId', 100, true),
+      };
     },
     async execute(input, context) {
-      return context.applyEffect(adapter.prepareChildDraft!(input as { alias: string; title: string }));
+      const value = input as { alias: string; title: string; parentRelationId: string };
+      const selected = adapter.summary().selectedRelation;
+      if (!selected || selected.relationId !== value.parentRelationId)
+        throw new AssistantCapabilityUsageError(
+          '明细的目标父级与当前选择不一致；请核对父级，已有错误候选时先审阅或放弃，再选择正确的父级。',
+        );
+      return context.applyEffect(adapter.prepareChildDraft!({ alias: value.alias, title: value.title }));
+    },
+    present(output) {
+      const candidate = output as { title: string; parentTitle?: string };
+      return {
+        title: '明细结构草稿已准备',
+        lines: [
+          `明细：${candidate.title}`,
+          `所属父级：${candidate.parentTitle || '当前选中的元数据，请在编辑器核对'}`,
+          '尚未保存；父级关系以当前草稿为准。',
+        ],
+      };
     },
   };
 }
@@ -302,6 +476,7 @@ function metadataPropertyFieldSchemas(adapter: MetadataGovernanceAssistantAdapte
       target: { type: 'string', minLength: 1, maxLength: 255 },
       ...(kind === 'DICTIONARY'
         ? {
+            defaultValue: { type: ['string', 'null'], maxLength: 512 },
             selectionMode: {
               type: 'string',
               enum: adapter.fieldSpecAliases().includes('json_set') ? ['SINGLE', 'MULTIPLE'] : ['SINGLE'],
@@ -409,7 +584,7 @@ function updateMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.update-metadata-field-draft',
       description:
-        'Update one editable ordinary business field as a visible, unsaved candidate, including one field in an unsaved batch plan while preserving its other fields. When an individual field editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before confirming the standard change-set.',
+        'Update one editable ordinary business field as a visible, unsaved candidate, including one field in an unsaved batch plan while preserving its other fields. defaultValue is a fixed initial value encoded as text (e.g. "1"), not a formula. Omit it to preserve the default; null clears a local default without an inherited base default. Value ranges use standard validation rules. When an individual field editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before confirming the standard change-set.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -422,7 +597,12 @@ function updateMetadataFieldDraftCapability(
           unique: { type: 'boolean' },
           indexed: { type: 'boolean' },
           sortable: { type: 'boolean' },
-          titleField: { type: 'boolean' },
+          titleField: {
+            type: 'boolean',
+            description:
+              'Record display name: only the standard title/title field can be a title field. Do not turn an existing ordinary field into the record name; create the standard field or revise its business label.',
+          },
+          defaultValue: { type: ['string', 'null'], maxLength: 512 },
           enabled: { type: 'boolean' },
         },
       },
@@ -437,6 +617,66 @@ function updateMetadataFieldDraftCapability(
   };
 }
 
+function updateMetadataReferenceDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<UpdateMetadataReferenceDraftInput> {
+  const fieldNames = adapter.editableReferenceFieldNames!();
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.update-metadata-reference-draft',
+      description:
+        'Revise selection-copy mappings or enabled-target restriction on an existing editable module-reference field using the shared visible candidate. Preserve target identity, key/label fields, cardinality, projections and other settings. First read the current reference facts and source/destination directory. Selection copies a snapshot; reopening or saving does not refresh it. Omit settings to preserve them; [] clears selection-copy mappings. Does not save. Review and confirm through the standard change-set.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldName'],
+        properties: {
+          fieldName: { type: 'string', enum: fieldNames },
+          requireEnabled: { type: 'boolean' },
+          affectMappings: {
+            type: 'array',
+            maxItems: 8,
+            uniqueItems: true,
+            items: {
+              type: 'string',
+              maxLength: 127,
+              pattern: '^[a-z][A-Za-z0-9]{0,62}:[a-z][A-Za-z0-9]{0,62}$',
+            },
+          },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        Object.keys(input).some((key) => !['fieldName', 'requireEnabled', 'affectMappings'].includes(key)) ||
+        typeof input.fieldName !== 'string' ||
+        !fieldNames.includes(input.fieldName) ||
+        (input.requireEnabled !== undefined && typeof input.requireEnabled !== 'boolean') ||
+        (input.affectMappings !== undefined &&
+          (!Array.isArray(input.affectMappings) ||
+            input.affectMappings.length > 8 ||
+            new Set(input.affectMappings).size !== input.affectMappings.length ||
+            input.affectMappings.some(
+              (mapping) =>
+                typeof mapping !== 'string' ||
+                !/^[a-z][A-Za-z0-9]{0,62}:[a-z][A-Za-z0-9]{0,62}$/.test(mapping),
+            )))
+      )
+        throw new AssistantCapabilityUsageError('请提供当前引用字段及有效的回填或启用限制设置。');
+      if (input.requireEnabled === undefined && input.affectMappings === undefined)
+        throw new AssistantCapabilityUsageError('请至少提供一项引用设置。');
+      return input as unknown as UpdateMetadataReferenceDraftInput;
+    },
+    async execute(input, context) {
+      const commit = await adapter.prepareReferenceUpdate!(input, context.signal);
+      if (!context.isCurrent()) throw new AssistantCapabilityUsageError('引用准备已过期，请重新核实。');
+      return context.applyEffect(commit);
+    },
+  };
+}
+
 function addMetadataFieldDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<AddMetadataFieldDraftInput> {
@@ -446,7 +686,7 @@ function addMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.add-metadata-field-draft',
       description:
-        'Add one ordinary business field, including an addition to the current batch, as a visible unsaved candidate; preserve other fields. Stored result columns are ordinary writable metadata. Calculation rules provide their read-only form projection; apply those rules before publishing the form. The user must confirm the standard change-set to save.',
+        'Add one ordinary business field, including an addition to the current batch, as a visible unsaved candidate; preserve other fields. defaultValue is a fixed initial value encoded as text (e.g. "1"), not a formula; value ranges use standard validation rules. Stored result columns are ordinary writable metadata. Calculation rules provide their read-only form projection; apply those rules before publishing the form. The user must confirm the standard change-set to save.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -458,13 +698,20 @@ function addMetadataFieldDraftCapability(
             minLength: 1,
             maxLength: 63,
             pattern: PLATFORM_FIELD_NAME_PATTERN,
+            description:
+              'Optional technical name. For titleField=true omit this value so the platform generates title, or use title exactly. Do not ask the business user to supply it.',
           },
           fieldSpecAlias: { type: 'string', enum: aliases },
           required: { type: 'boolean' },
           unique: { type: 'boolean' },
           indexed: { type: 'boolean' },
           sortable: { type: 'boolean' },
-          titleField: { type: 'boolean' },
+          titleField: {
+            type: 'boolean',
+            description:
+              'True for the record display name, using the standard title field and title column. Other business information must remain ordinary fields.',
+          },
+          defaultValue: { type: ['string', 'null'], maxLength: 512 },
         },
       },
     },
@@ -484,6 +731,9 @@ function surfaceContext(summary: MetadataGovernanceAssistantModelSummary): Assis
     title: summary.moduleTitle ? `${summary.moduleTitle} · 元数据` : `${summary.moduleAlias} · 元数据`,
     facts: {
       moduleAlias: summary.moduleAlias,
+      factsAvailable: summary.factsAvailable,
+      submissionStatus: summary.submissionStatus,
+      committedNeedsReload: summary.committedNeedsReload,
       relationCount: summary.relationCount,
       mainCandidate: summary.mainCandidate,
       selectedRelationId: summary.selectedRelation?.relationId,
@@ -501,7 +751,7 @@ function describeMetadataModelCapability(
     descriptor: {
       code: 'configuration.describe-metadata-model',
       description:
-        'Describe the current module metadata model, selected relation, visible fields with their current required, unique, index, sorting, title and enabled settings, and local draft state. Includes staged fields in a batch plan. Reuse these facts to compare the requested business constraints; settings already satisfied need no update. It does not change configuration.',
+        'Describe the current module metadata model, selected relation, visible fields with their current required, unique, index, sorting, title and enabled settings, and local draft state. Includes staged fields in a batch plan. fieldsSource distinguishes UNSAVED_CANDIDATE from SAVED_CONFIGURATION; candidate fields are not evidence of publication. Compare fieldName, columnName and fieldSpecAlias separately when a preview rejects a record-name field. Reuse satisfied settings. It does not change configuration.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
@@ -550,7 +800,7 @@ function describeMetadataCandidateCapability(
         (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
       );
       const businessChanges = candidate.changes.filter((change) =>
-        ['显示名称', '必填', '唯一', '启用'].includes(change.property),
+        ['显示名称', '必填', '唯一', '启用', '固定默认值'].includes(change.property),
       );
       return {
         title: `「${name}」的修改（尚未保存）`,
@@ -680,6 +930,7 @@ function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): Ad
     'indexed',
     'sortable',
     'titleField',
+    'defaultValue',
   ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
     throw new AssistantCapabilityUsageError(
@@ -700,6 +951,7 @@ function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): Ad
     title,
     ...(fieldName ? { fieldName } : {}),
     fieldSpecAlias,
+    ...optionalDefaultValue(input),
     ...optionalBooleanProperties(input, ['required', 'unique', 'indexed', 'sortable', 'titleField']),
   };
 }
@@ -719,6 +971,7 @@ function parseUpdateFieldDraftInput(
     'indexed',
     'sortable',
     'titleField',
+    'defaultValue',
     'enabled',
   ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
@@ -733,6 +986,7 @@ function parseUpdateFieldDraftInput(
   if (fieldSpecAlias && !fieldSpecAliases.includes(fieldSpecAlias))
     throw new AssistantCapabilityUsageError('Unknown metadata field specification');
   const changes = {
+    ...optionalDefaultValue(input),
     ...(title ? { title } : {}),
     ...(fieldSpecAlias ? { fieldSpecAlias } : {}),
     ...optionalBooleanProperties(input, [
@@ -754,6 +1008,8 @@ function parseFindFieldTargetsInput(input: unknown): FindMetadataFieldTargetsInp
   if (Object.keys(input).some((key) => !['kind', 'keyword'].includes(key)))
     throw new AssistantCapabilityUsageError('Capability input contains unsupported target lookup properties');
   const kind = metadataPropertyFieldKind(input.kind);
+  if (kind === 'MODULE_REFERENCE' && input.defaultValue !== undefined)
+    throw new AssistantCapabilityUsageError('引用初值应使用关联初始化。');
   const keyword = boundedString(input.keyword, 'keyword', 100, false);
   return { kind, ...(keyword ? { keyword } : {}) };
 }
@@ -771,12 +1027,15 @@ function parseAddPropertyFieldDraftInput(
     'selectionMode',
     'required',
     'affectMappings',
+    'defaultValue',
   ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
     throw new AssistantCapabilityUsageError(
       'Capability input contains unsupported metadata property field properties',
     );
   const kind = metadataPropertyFieldKind(input.kind);
+  if (kind === 'MODULE_REFERENCE' && input.defaultValue !== undefined)
+    throw new AssistantCapabilityUsageError('引用初值应使用关联初始化。');
   const title = boundedString(input.title, 'title', 100, true);
   const fieldName = boundedString(input.fieldName, 'fieldName', 63, false);
   if (fieldName && !isPlatformFieldName(fieldName))
@@ -816,7 +1075,9 @@ function parseAddPropertyFieldDraftInput(
     title,
     ...(fieldName ? { fieldName } : {}),
     target,
-    ...(kind === 'DICTIONARY' ? { selectionMode: selectionMode ?? 'SINGLE' } : {}),
+    ...(kind === 'DICTIONARY'
+      ? { selectionMode: selectionMode ?? 'SINGLE', ...optionalDefaultValue(input) }
+      : {}),
     ...(required !== undefined ? { required } : {}),
     ...(input.affectMappings !== undefined ? { affectMappings: input.affectMappings as string[] } : {}),
   };
@@ -837,6 +1098,16 @@ function boundedString(value: unknown, name: string, maxLength: number, required
       `${name} must be a non-empty string no longer than ${maxLength} characters`,
     );
   return value.trim();
+}
+
+function optionalDefaultValue(input: Record<string, unknown>): { defaultValue?: string | null } {
+  if (input.defaultValue === undefined) return {};
+  if (
+    input.defaultValue !== null &&
+    (typeof input.defaultValue !== 'string' || input.defaultValue.length > 512)
+  )
+    throw new AssistantCapabilityUsageError('固定默认值须为最多 512 字符的文本，清除时使用 null。');
+  return { defaultValue: input.defaultValue as string | null };
 }
 
 function optionalBooleanProperties<T extends string>(

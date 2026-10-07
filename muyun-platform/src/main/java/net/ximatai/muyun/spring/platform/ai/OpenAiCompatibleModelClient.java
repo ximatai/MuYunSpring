@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.ai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -109,17 +110,23 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 root = readResponseObject(readBoundedStructuredBody(body),
                         "AI model returned an invalid structured response", response.statusCode());
             }
-            JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty() || !choices.path(0).isObject()
-                    || !choices.path(0).path("message").isObject()) {
-                throw new PlatformException("AI model returned an invalid structured response");
+            AiTokenUsage reportedUsage = usage(root);
+            try {
+                JsonNode choices = root.path("choices");
+                if (!choices.isArray() || choices.isEmpty() || !choices.path(0).isObject()
+                        || !choices.path(0).path("message").isObject()) {
+                    throw new PlatformException("AI model returned an invalid structured response");
+                }
+                JsonNode choice = choices.path(0);
+                JsonNode message = choice.path("message");
+                List<AiToolCall> calls = toolCalls(message.path("tool_calls"), request.tools(), request.indexedToolCodes());
+                String text = textOrNull(message.path("content"));
+                return new AiTurnResponse(text, calls, textOrNull(choice.path("finish_reason")),
+                        response.headers().firstValue("x-request-id").orElse(null), reportedUsage);
+            } catch (PlatformException | IllegalArgumentException failure) {
+                var calls = root.path("choices").path(0).path("message").path("tool_calls");
+                throw observedResponseFailure(failure, reportedUsage, calls.isArray() ? calls.size() : null);
             }
-            JsonNode choice = choices.path(0);
-            JsonNode message = choice.path("message");
-            List<AiToolCall> calls = toolCalls(message.path("tool_calls"), request.tools());
-            String text = textOrNull(message.path("content"));
-            return new AiTurnResponse(text, calls, textOrNull(choice.path("finish_reason")),
-                    response.headers().firstValue("x-request-id").orElse(null), usage(root));
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
@@ -136,7 +143,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             HttpResponse<InputStream> response = send(turnRequest(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
+                StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), request.indexedToolCodes(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
                 if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator, response.statusCode()))) return;
                 throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
@@ -292,6 +299,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", route.modelId());
         body.put("messages", wireMessages(request.messages()));
+        if (route.reasoningEffort() != null) body.put("reasoning_effort", route.reasoningEffort().getCode());
         if (request.temperature() != null) body.put("temperature", request.temperature());
         body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
         if (stream) {
@@ -327,6 +335,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         } else {
             body.put("tool_choice", "none");
         }
+        if (route.reasoningEffort() != null) body.put("reasoning_effort", route.reasoningEffort().getCode());
         if (request.temperature() != null) body.put("temperature", request.temperature());
         body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
         if (stream) {
@@ -396,6 +405,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
     private final class StructuredTurnAccumulator {
         private final List<AiToolDefinition> tools;
+        private final List<String> indexedToolCodes;
         private final AiTurnStreamConsumer consumer;
         private final String requestId;
         private final StringBuilder text = new StringBuilder();
@@ -405,9 +415,10 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         private boolean sawChoice;
         private int accumulatedBytes;
 
-        private StructuredTurnAccumulator(List<AiToolDefinition> tools, AiTurnStreamConsumer consumer,
+        private StructuredTurnAccumulator(List<AiToolDefinition> tools, List<String> indexedToolCodes, AiTurnStreamConsumer consumer,
                                           String requestId) {
             this.tools = tools;
+            this.indexedToolCodes = indexedToolCodes;
             this.consumer = consumer;
             this.requestId = requestId;
         }
@@ -483,15 +494,28 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             if (!sawChoice) {
                 throw new PlatformException("AI model returned an invalid structured response");
             }
-            List<AiToolCall> toolCalls = calls.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(entry -> entry.getValue().toToolCall(tools))
-                    .toList();
+            AiTurnResponse response;
+            try {
+                var toolCalls = calls.entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(entry -> entry.getValue().toToolCall(tools, indexedToolCodes))
+                        .toList();
+                response = new AiTurnResponse(text.isEmpty() ? null : text.toString(), toolCalls,
+                        finishReason, requestId, usage);
+            } catch (PlatformException | IllegalArgumentException failure) {
+                throw observedResponseFailure(failure, usage, calls.size());
+            }
             log.info("AI structured stream completed finishReason={} textCharacters={} toolCallCount={} outputBytes={}",
-                    safeFinishReason(finishReason), text.length(), toolCalls.size(), accumulatedBytes);
-            consumer.onComplete(new AiTurnResponse(text.isEmpty() ? null : text.toString(), toolCalls,
-                    finishReason, requestId, usage));
+                    safeFinishReason(finishReason), text.length(), response.toolCalls().size(), accumulatedBytes);
+            consumer.onComplete(response);
         }
+    }
+
+    private static AiModelResponseException observedResponseFailure(RuntimeException failure, AiTokenUsage usage, Integer count) {
+        // Provider ids and malformed values are never included in the public rejection.
+        PlatformException rejection = failure instanceof PlatformException platformFailure ? platformFailure
+                : new PlatformException("AI model returned invalid tool calls");
+        return new AiModelResponseException(rejection, usage, count);
     }
 
     private final class StructuredToolCallAccumulator {
@@ -499,11 +523,11 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         private final StringBuilder name = new StringBuilder();
         private final StringBuilder arguments = new StringBuilder();
 
-        private AiToolCall toToolCall(List<AiToolDefinition> tools) {
+        private AiToolCall toToolCall(List<AiToolDefinition> tools, List<String> indexedToolCodes) {
             if (id.isEmpty() || name.isEmpty() || arguments.isEmpty()) {
                 throw new PlatformException("AI model returned invalid tool calls");
             }
-            int toolIndex = providerToolIndex(name.toString(), tools);
+            int toolIndex = providerToolIndex(name.toString(), tools, indexedToolCodes);
             JsonNode parsed = readJsonObject(arguments.toString(), "AI model returned invalid tool arguments");
             @SuppressWarnings("unchecked")
             Map<String, Object> values = objectMapper.convertValue(parsed, Map.class);
@@ -511,7 +535,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
     }
 
-    private List<AiToolCall> toolCalls(JsonNode nodes, List<AiToolDefinition> tools) {
+    private List<AiToolCall> toolCalls(JsonNode nodes, List<AiToolDefinition> tools, List<String> indexedToolCodes) {
         if (nodes == null || nodes.isMissingNode() || nodes.isNull()) return List.of();
         if (!nodes.isArray()) throw new PlatformException("AI model returned invalid tool calls");
         if (nodes.size() > MAX_TOOL_CALLS) throw new PlatformException("AI model returned too many tool calls");
@@ -520,7 +544,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             String id = textOrNull(node.path("id"));
             JsonNode function = node.path("function");
             String name = textOrNull(function.path("name"));
-            int index = providerToolIndex(name, tools);
+            int index = providerToolIndex(name, tools, indexedToolCodes);
             String argumentsJson = textOrNull(function.path("arguments"));
             if (id == null || argumentsJson == null) throw new PlatformException("AI model returned invalid tool calls");
             if (argumentsJson.getBytes(StandardCharsets.UTF_8).length > MAX_TOOL_ARGUMENT_BYTES) {
@@ -543,12 +567,18 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     }
 
     static String providerToolName(String code) {
+        // Dots are the only unsupported characters in ordinary capability codes.
+        // Keep their wire names readable and injective without making the model copy a digest.
+        String readable = code.replaceAll("[^a-zA-Z0-9_-]", "_");
+        if (code.matches("[a-zA-Z0-9.-]+") && readable.length() <= 60) {
+            return "cap_" + readable;
+        }
         try {
             byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
                     .digest(code.getBytes(StandardCharsets.UTF_8));
-            String readable = code.replaceAll("[^a-zA-Z0-9_-]", "_");
-            if (readable.length() > 47) readable = readable.substring(0, 47);
-            return "cap_" + readable + "_" + java.util.HexFormat.of().formatHex(digest).substring(0, 12);
+            // A separate namespace also prevents fallback names from colliding with short codes.
+            if (readable.length() > 46) readable = readable.substring(0, 46);
+            return "capx_" + readable + "_" + java.util.HexFormat.of().formatHex(digest).substring(0, 12);
         } catch (java.security.NoSuchAlgorithmException error) {
             throw new IllegalStateException(error);
         }
@@ -597,11 +627,14 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         throw new PlatformException(invalidMessage);
     }
 
-    private int providerToolIndex(String name, List<AiToolDefinition> tools) {
+    private int providerToolIndex(String name, List<AiToolDefinition> tools, List<String> indexedToolCodes) {
         for (int index = 0; index < tools.size(); index++) {
             if (providerToolName(tools.get(index).code()).equals(name)) return index;
         }
-        throw new PlatformException("AI_MODEL_UNDECLARED_TOOL", 502, "AI model requested an undeclared tool");
+        List<String> missing = indexedToolCodes.stream().filter(code -> providerToolName(code).equals(name)).limit(1).toList();
+        // Only a known catalog code may cross the error boundary; never forward raw model names or arguments.
+        throw new PlatformException("AI_MODEL_UNDECLARED_TOOL", 502, "AI model requested an undeclared tool",
+                ErrorScope.empty(), List.of(), missing.isEmpty() ? Map.of() : Map.of("missingToolCodes", missing));
     }
 
     /** Retry only before accepting a successful response; never replay a partially consumed stream. */

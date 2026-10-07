@@ -130,12 +130,8 @@ public class MetadataFieldDefinitionCompiler {
         if (defaultConfig == null && relationConfig == null) {
             return FieldBehaviorDefinition.DEFAULT;
         }
-        String defaultValue = relationConfig != null && relationConfig.getDefaultValue() != null
-                ? relationConfig.getDefaultValue()
-                : defaultConfig == null ? null : defaultConfig.getDefaultValue();
-        String validationRegex = relationConfig != null && relationConfig.getValidationRegex() != null
-                ? relationConfig.getValidationRegex()
-                : defaultConfig == null ? null : defaultConfig.getValidationRegex();
+        String defaultValue = MetadataFieldConfig.effectiveDefaultValue(defaultConfig, relationConfig);
+        String validationRegex = MetadataFieldConfig.effectiveValidationRegex(defaultConfig, relationConfig);
         boolean copyable = relationConfig != null && relationConfig.getCopyable() != null
                 ? Boolean.TRUE.equals(relationConfig.getCopyable())
                 : defaultConfig == null || defaultConfig.getCopyable() == null || Boolean.TRUE.equals(defaultConfig.getCopyable());
@@ -147,10 +143,7 @@ public class MetadataFieldDefinitionCompiler {
                 validationRegex,
                 copyable,
                 writeProtected,
-                relationConfig == null
-                        ? (defaultConfig == null ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
-                        : relationConfig.effectiveWriteRules(defaultConfig == null
-                                ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
+                MetadataFieldConfig.effectiveWriteRules(defaultConfig, relationConfig)
         );
         net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.validateBehavior(
                 fieldType.getFieldType(), behavior, fieldId);

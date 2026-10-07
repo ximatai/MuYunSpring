@@ -202,6 +202,13 @@ public class MetadataRelationChangeSetPreviewService {
             error(errors, "PROTECTED_FIELD", field.getFieldName(), "新增字段不能声明为平台或系统托管字段。");
             return;
         }
+        if (MetadataCapabilityCatalog.designContract().declarableCapabilities().metadataFields().stream()
+                .anyMatch(contribution -> same(contribution.fieldName(), field.getFieldName())
+                        || same(contribution.columnName(), field.getColumnName()))) {
+            error(errors, "CAPABILITY_FIELD_CONFLICT", field.getFieldName(),
+                    "该字段或物理列由基础能力管理，请选择对应能力，不要创建同名业务字段。");
+            return;
+        }
         if (fields.values().stream().anyMatch(existing -> same(existing.getFieldName(), field.getFieldName()))) {
             error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终元数据结构中重复。");
             return;
@@ -434,6 +441,43 @@ public class MetadataRelationChangeSetPreviewService {
                                                             MetadataFieldPropertyDraft draft,
                                                             MetadataField existingField,
                                                             List<MetadataChangeSetValidationIssue> errors) {
+        MetadataFieldPropertyChangeSetPlan binding = propertyBindingPlan(context, proposedField, draft, existingField, errors);
+        if (binding == null || draft.fixedDefault() == null) return binding;
+        try {
+            if (fieldConfigService == null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
+            if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
+                throw new IllegalArgumentException("引用初值应使用关联初始化，不能在此配置固定默认值。");
+            if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
+                throw new IllegalArgumentException("只有普通存储字段可配置固定默认值。");
+            ModuleMetadataField legacy = existingField == null || moduleFieldService == null ? null
+                    : moduleFieldService.findByRelationAndField(context.relation().getId(), existingField.getId());
+            if (legacy != null && legacy.getDefaultValue() != null)
+                throw new IllegalArgumentException("当前初值由旧模块字段配置覆盖，请先迁移该配置。");
+            MetadataFieldConfig base = existingField == null ? null : fieldConfigService.findByMetadataFieldId(existingField.getId());
+            MetadataFieldConfig override = existingField == null ? null : fieldConfigService.findRelationOverride(existingField.getId(), context.relation().getId());
+            MetadataFieldConfig effective = override == null ? base : override;
+            if (!bindingVersionMatches(draft.fixedDefault().expectedConfigVersion(), effective))
+                throw new IllegalArgumentException("默认值配置版本已变化，请重新载入后预检。");
+            String value = draft.fixedDefault().value();
+            if (value != null && value.isBlank()) value = null;
+            if (value != null && value.length() > 512) throw new IllegalArgumentException("固定默认值最多 512 个字符。");
+            if (value == null && base != null && base.getDefaultValue() != null)
+                throw new IllegalArgumentException("此字段继承元数据默认值，当前入口不能清除继承初值。");
+            fieldConfigService.validateDefaultValueDraft(proposedField, base, override, value, binding.dictionaryConfig());
+            return new MetadataFieldPropertyChangeSetPlan(binding.kind(), binding.expectedBindingVersion(),
+                    binding.referenceConfig(), binding.dictionaryConfig(),
+                    new MetadataFieldFixedDefaultDraft(value, draft.fixedDefault().expectedConfigVersion()));
+        } catch (RuntimeException exception) {
+            error(errors, "INVALID_FIXED_DEFAULT", proposedField.getFieldName(), exception.getMessage());
+            return null;
+        }
+    }
+
+    private MetadataFieldPropertyChangeSetPlan propertyBindingPlan(Context context,
+                                                            MetadataField proposedField,
+                                                            MetadataFieldPropertyDraft draft,
+                                                            MetadataField existingField,
+                                                            List<MetadataChangeSetValidationIssue> errors) {
         if (draft == null) return null;
         MetadataFieldPropertyKind kind = draft.kind();
         if (kind == null) {
@@ -589,8 +633,14 @@ public class MetadataRelationChangeSetPreviewService {
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
             var type = fieldSpecService.requireFieldType(field.getFieldSpecAlias());
-            if (Boolean.TRUE.equals(field.getTitleField()) && !MetadataCapabilityCatalog.recordName().accepts(field.getFieldName(), field.getColumnName(), type.getFieldType().name())) {
-                throw new IllegalArgumentException("记录名称须使用标准 title 字段与 title 列，并选择 STRING 规格；TEXT 长文本不能作为引用名称。");
+            if (Boolean.TRUE.equals(field.getTitleField())) {
+                var recordName = MetadataCapabilityCatalog.recordName();
+                if (!recordName.fieldName().equals(field.getFieldName()) || !recordName.columnName().equals(field.getColumnName())) {
+                    throw new IllegalArgumentException("记录名称须使用标准 title 字段与 title 物理列；请修正字段名或物理列名。");
+                }
+                if (!recordName.fieldType().equals(type.getFieldType().name())) {
+                    throw new IllegalArgumentException("记录名称须选择 STRING 短文本规格；当前字段类型为 " + type.getFieldType().name() + "。");
+                }
             }
             return true;
         } catch (RuntimeException exception) {
@@ -646,6 +696,11 @@ public class MetadataRelationChangeSetPreviewService {
             if (property != null) {
                 facts.add("property:" + mutation.fieldId() + "|" + field.getFieldName() + "|" + property.kind() + "|"
                         + property.expectedBindingVersion() + "|" + propertyFacts(property));
+                if (property.fixedDefault() != null) {
+                    String value = property.fixedDefault().value();
+                    facts.add("fixedDefault:" + field.getFieldName() + "|" + property.fixedDefault().expectedConfigVersion()
+                            + "|" + (value == null ? "null" : value.length() + ":" + value));
+                }
             }
         }
         facts.sort(Comparator.naturalOrder());

@@ -24,8 +24,6 @@ function fixture() {
     previewAcceptance: vi.fn(),
     confirmAcceptance: vi.fn(),
     acceptance: vi.fn(),
-    previewDelivery: vi.fn(),
-    publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
     designContract: vi.fn(async () => ({
@@ -140,7 +138,7 @@ it('allows human scope edits without persisting and invalidates a previous confi
   const wrapper = mount(ConstructionPlanCard, { props: { session } });
   await wrapper
     .findAll('button')
-    .find((button) => button.text() === '修改目标与范围')!
+    .find((button) => button.text() === '修改业务方案')!
     .trigger('click');
   expect(proposal.isCurrent()).toBe(false);
   expect(() => session.prepare()).toThrow('人工修改');
@@ -163,6 +161,7 @@ it('shows independent planning choices without treating their display order as e
   await session.prepare().execute();
   vi.mocked(client.task).mockResolvedValue({
     planRevision: 1,
+    unmappedRequirements: [],
     objects: [
       {
         objectKey: 'contract',
@@ -180,7 +179,63 @@ it('shows independent planning choices without treating their display order as e
   const wrapper = mount(ConstructionPlanCard, { props: { session } });
   expect(wrapper.text()).toContain('需要时补充登记内容');
   expect(wrapper.text()).toContain('已有内容满足要求，可以准备页面');
-  expect(client.publishDelivery).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
+it('shows unowned requirements once and keeps object evidence visible with compact progress', async () => {
+  const { client, session } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  vi.mocked(client.task).mockResolvedValue({
+    planRevision: 1,
+    unmappedRequirements: [
+      {
+        section: 'RULE',
+        index: 0,
+        statement: '归属待确认的业务约束',
+        objectKey: '',
+        fieldName: '',
+        status: 'UNMAPPED',
+        explanation: '尚未确认如何兑现；不能视为已实现',
+      },
+    ],
+    objects: ['客户', '订单'].map((title, index) => ({
+      objectKey: `object${index}`,
+      title,
+      complete: false,
+      options: [{ action: 'REVIEW_REQUIREMENTS' as const, explanation: '先核对兑现方式' }],
+      requirements: [
+        {
+          section: 'SCOPE' as const,
+          index,
+          statement: `${title}的联系信息`,
+          objectKey: `object${index}`,
+          fieldName: 'contact',
+          status: 'CONFIGURATION_MISSING' as const,
+          explanation: '尚缺字段',
+        },
+      ],
+      progress: {
+        moduleAlias: `trial.object${index}`,
+        runtimeStatus: 'ACTIVE',
+        pagePublished: false,
+        entryVisible: false,
+        menuId: null,
+        needsReview: false,
+        acceptanceConfirmed: false,
+        businessDataStatus: 'NOT_QUERIED' as const,
+        remainingWork: [],
+      },
+    })),
+  });
+  await session.readTask();
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  await flushPromises();
+  expect(wrapper.text().split('归属待确认的业务约束')).toHaveLength(2);
+  expect(wrapper.text()).toContain('客户的联系信息：所需配置尚未就绪');
+  expect(wrapper.text()).toContain('订单的联系信息：所需配置尚未就绪');
+  expect(wrapper.get('[aria-label="当前建设进度"]').text()).toContain('登记内容待补齐');
+  expect(wrapper.text()).toContain('仍有要求待商定，尚不能完整交付');
   wrapper.unmount();
 });
 
@@ -202,6 +257,7 @@ it.each([false, true])(
     await session.prepare().execute();
     vi.mocked(client.task).mockResolvedValue({
       planRevision: 1,
+      unmappedRequirements: [],
       objects: [{ objectKey: 'customer', title: '客户', complete: false, requirements: [], options: [] }],
     });
     const wrapper = mount(ConstructionPlanCard, { props: { session } });
@@ -210,7 +266,6 @@ it.each([false, true])(
     expect(progress).toContain(bound ? '已关联模块，当前配置尚未核实' : '尚未关联模块，当前配置尚未核实');
     expect(progress).not.toMatch(/尚未建立|已验收|页面和入口已可用/);
     expect(client.progress).not.toHaveBeenCalled();
-    expect(client.publishDelivery).not.toHaveBeenCalled();
     wrapper.unmount();
   },
 );
@@ -230,7 +285,7 @@ it('shows delivered design as read-only history without switching or rebuilding 
   expect(wrapper.text()).toContain('历史建设记录');
   expect(wrapper.text()).toContain('不代表当前配置');
   expect(wrapper.text()).toContain('查看当时的设计');
-  for (const text of ['修改目标与范围', '恢复讨论', '读取已保存方案', '查看下一步', '放弃候选并开始新方案'])
+  for (const text of ['修改业务方案', '恢复讨论', '读取已保存方案', '查看下一步', '放弃候选并开始新方案'])
     expect(wrapper.findAll('button').some((button) => button.text() === text)).toBe(false);
   wrapper.unmount();
 });
@@ -241,6 +296,7 @@ it('loads current progress on restore without asking the user to query or writin
   await session.prepare().execute();
   vi.mocked(client.task).mockResolvedValue({
     planRevision: 1,
+    unmappedRequirements: [],
     objects: [
       {
         objectKey: 'customer',
@@ -249,7 +305,6 @@ it('loads current progress on restore without asking the user to query or writin
         requirements: [],
         options: [{ action: 'PUBLISH_PAGE', explanation: '准备录入页面' }],
         progress: {
-          objectKey: 'customer',
           moduleAlias: 'trial.customer',
           runtimeStatus: 'ACTIVE',
           pagePublished: false,
@@ -259,8 +314,6 @@ it('loads current progress on restore without asking the user to query or writin
           acceptanceConfirmed: false,
           businessDataStatus: 'NOT_QUERIED',
           remainingWork: [],
-          receipts: [],
-          requirements: [],
         },
       },
     ],
@@ -268,7 +321,6 @@ it('loads current progress on restore without asking the user to query or writin
   const wrapper = mount(ConstructionPlanCard, { props: { session } });
   await flushPromises();
   expect(wrapper.get('[aria-label="当前建设进度"]').text()).toContain('客户：登记内容已配置，页面尚未发布');
-  expect(client.publishDelivery).not.toHaveBeenCalled();
   session.resetConversation();
   await flushPromises();
   expect(wrapper.find('[aria-label="当前建设进度"]').exists()).toBe(false);
@@ -298,5 +350,46 @@ it('does not infer missing configuration from absent construction field and page
   const wrapper = mount(ConstructionPlanCard, { props: { session } });
   expect(wrapper.text()).toContain('当前配置与验收状态以实际查询为准');
   expect(wrapper.text()).not.toContain('仍待建设');
+  wrapper.unmount();
+});
+
+it('lets a business user edit rules, exclusions and relationships in the shared candidate without saving', async () => {
+  const { client, session } = fixture();
+  const original = {
+    ...content,
+    outOfScope: ['旧价格快照'],
+    objects: [{ key: 'order', name: '订单', purpose: '登记' }],
+    rules: ['原规则'],
+    relationships: ['订单关联客户'],
+  };
+  session.edit(original);
+  const proposal = session.prepare();
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '修改业务方案')!
+    .trigger('click');
+  const byLabel = (name: string) =>
+    wrapper
+      .findAll('label')
+      .find((label) => label.text().startsWith(name))!
+      .get('textarea');
+  await byLabel('暂不建设').setValue('');
+  await byLabel('业务规则').setValue('原规则\n保存后保留原价格');
+  await byLabel('对象关系').setValue('订单关联客户\n订单包含费用明细');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '更新候选，稍后确认')!
+    .trigger('click');
+  await flushPromises();
+  expect(proposal.isCurrent()).toBe(false);
+  expect(session.current().candidate).toEqual({
+    ...original,
+    outOfScope: [],
+    rules: ['原规则', '保存后保留原价格'],
+    relationships: ['订单关联客户', '订单包含费用明细'],
+  });
+  expect(client.confirm).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('有未确认修改');
   wrapper.unmount();
 });

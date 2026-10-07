@@ -59,14 +59,20 @@ final class AssistantPlatformKnowledge {
                     dependency changes its scope. Reuse current observations; do not reread facts already supplied.
                     """,
             "workbench", """
-                    MuYun workbench navigation: match pageContext.title and facts.moduleAlias; open exact returned menuIds.
-                    Current-list absence is not global absence. For missing existing records, find matching visible menus
-                    and clarify ambiguous scope before offering creation. Preserve the user's explicit business scope.
-                    Never ask users to navigate manually. Configuration governance requires an explicit configuration goal.
+                    MuYun workbench navigation: match pageContext.title/facts.moduleAlias; open exact returned menuIds.
+                    Reuse facts.workspace.menuCatalog; find matching visible menus for gaps/ambiguity.
+                    Current-list absence is not global absence; clarify ambiguous scope before offering creation.
+                    Preserve the user's explicit business scope. Configuration governance requires an explicit configuration goal.
+                    """,
+            "rules-discovery", """
+                    For explicit formula configuration inspection, load rules.select-module with an observed moduleAlias
+                    and reuse its rule catalogs. Business tenant selection gates record queries, not authorized module
+                    configuration reads. Read-only inspection needs no editing task or save confirmation.
                     """,
             "configuration", """
-                    For existing-module configuration, read facts.workspace.configurationTask. This task preference
-                    governs metadata and rules across turns and modules. Understand the goal first. If no task exists,
+                    For existing-module configuration edits, read facts.workspace.configurationTask. This task preference
+                    governs metadata and rules across turns and modules. Read-only governance inspection does not start a task.
+                    Understand an editing goal first. If no task exists,
                     use configuration.start-task with visual collaboration by default; honor explicit conversation-only
                     preference without asking users to choose technical modes. Both modes use the same candidate and
                     human confirmation. In visual mode open the shared editor for review and offer confirmation in chat;
@@ -86,22 +92,23 @@ final class AssistantPlatformKnowledge {
                     module does not require a new construction plan. Configuration candidates use standard governance.
                     """,
             "module-page", """
-                    A standard MuYun record workspace. Draft only when the user asked to create or change data;
-                    navigation is already complete and must not start a draft.
+                    A standard MuYun record workspace. Create/change/draft-preview requests authorize local drafting,
+                    never saving; do not reconfirm the requested draft.
+                    Navigation is already complete and must not start a draft.
                     navigator.start-create: navigatorCreationTargets; record.start-create: facts.moduleAlias.
-                    editorOwner; creation.ready only controls opening another draft; fill an existing writable form.
-                    Reuse facts; patch known ordinary fields together before resolving remaining references.
-                    Opening is not filling. Tree children need saved parents; aggregate children save together.
-                    References use capabilities; currentValue is a label, not empty. Search is not consent.
-                    Use CURRENT edit facts; select writable rows; row tools appear after selection.
-                    Review/trial/compare: form.review-draft, no save proposal.
-                    Explicit save: form.prepare-save if available (load if indexed);
-                    only human confirmation saves. Do not replace an available confirmation with page-save instructions.
-                    Explicit discard: form.prepare-discard with human confirmation, local draft only.
-                    Without save preparation, hand off to the page save action, never a selection card.
-                    Draft-only requests remain unsaved.
-                    Missing values: ask one concise question. Never copy scope/reference answers into unrelated fields.
-                    Missing fields: say what remains unsaved. Do not offer schema changes.
+                    editorOwner; creation.ready gates new drafts; fill an existing writable form.
+                    Use facts.currentForm and facts.activeRelationRow.form; read gaps only.
+                    Patch known ordinary fields together; references use capabilities.
+                    Use reference.resolve-and-patch.changes for known ordinary values; reuse mapped facts.
+                    Add/select supplies row facts and tools; load related schemas together.
+                    Tree parents save first; aggregate children save together.
+                    Review/trial/compare: form.review-draft, no save proposal; once per draft.
+                    Explicit save: form.prepare-save; only human confirmation saves.
+                    Review-before-save goals use that card, no choice. Explicit defer/save-later remains draft-only.
+                    Else hand off to the page save action, never a selection card.
+                    Explicit discard: form.prepare-discard, human confirmation, draft only.
+                    Draft-only requests remain unsaved. Missing values: ask one concise question.
+                    Missing fields remain unsaved; no schema changes. Scope/reference answers never fill unrelated fields.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,
@@ -140,6 +147,10 @@ final class AssistantPlatformKnowledge {
                     verified from current governance; never infer request success from a matching name or auto-retry.
                     Resolve reference or dictionary targets before
                     drafting those fields, and use the standard preview capability to validate impacts.
+                    For tree, ordering, enablement and recycle-bin requirements, read the selected relation capability
+                    facts and use prepare-metadata-capability-draft when available. Platform-owned fields are generated
+                    by the declared capability; do not create them as ordinary business fields. Capability selections
+                    and existing field drafts share one reviewed atomic publication.
                     For save/review use configuration.prepare-metadata-apply when available: a human confirmation
                     applies the whole current candidate, including manual edits. Otherwise use the page's governed save.
                     Never auto-confirm or claim a draft is published. Opening the shared editor and returning to chat
@@ -185,6 +196,9 @@ final class AssistantPlatformKnowledge {
             if (configurationActive || !"module-page".equals(surface)) {
                 archetypes.add(configurationActive ? "configuration" : "configuration-discovery");
             }
+        }
+        if (capabilityCodes.contains("rules.select-module") && !capabilityCodes.contains("rules.describe")) {
+            archetypes.add("rules-discovery");
         }
         // Discovery of a target is not an active editor; inject detailed guidance only once its catalog exists.
         if (capabilityCodes.stream().anyMatch("configuration.describe-metadata-model"::equals)) {

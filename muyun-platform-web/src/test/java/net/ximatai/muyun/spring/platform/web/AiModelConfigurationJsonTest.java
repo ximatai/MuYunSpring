@@ -33,11 +33,11 @@ class AiModelConfigurationJsonTest {
         assertThat(page.detail().display().fields())
                 .extracting(field -> field.fieldRef().fieldName())
                 .contains("tenantId", "configurationLevel", "tenantFallbackEnabled", "apiKeyConfigured",
-                        "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens")
+                        "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens", "reasoningEffort")
                 .doesNotContain("apiKeyInput");
         assertThat(page.detail().editor().fields())
                 .extracting(field -> field.fieldRef().fieldName())
-                .contains("tenantFallbackEnabled", "apiKeyInput", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens")
+                .contains("tenantFallbackEnabled", "apiKeyInput", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens", "reasoningEffort")
                 .doesNotContain("apiKeyConfigured");
         assertThat(page.detail().editor().fields())
                 .filteredOn(field -> field.fieldRef().fieldName().equals("apiKeyInput"))
@@ -47,6 +47,11 @@ class AiModelConfigurationJsonTest {
                 .filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
                 .singleElement()
                 .satisfies(field -> assertThat(field.uiType()).isEqualTo("record_picker_dialog"));
+
+        assertThat(page.detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("reasoningEffort"))
+                .singleElement()
+                .satisfies(field -> assertThat(field.uiType()).isEqualTo("select"));
 
         UiFormula fallbackVisibility = page.detail().editor().fields().stream()
                 .filter(field -> field.fieldRef().fieldName().equals("tenantFallbackEnabled"))

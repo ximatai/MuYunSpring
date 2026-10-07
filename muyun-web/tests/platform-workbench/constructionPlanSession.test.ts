@@ -32,8 +32,6 @@ function fixture(canGovern = false) {
     previewAcceptance: vi.fn(),
     confirmAcceptance: vi.fn(),
     acceptance: vi.fn(),
-    previewDelivery: vi.fn(),
-    publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
     designContract: vi.fn(async () => ({
@@ -217,7 +215,7 @@ it('keeps plan context across pages and rejects stale-generation proposals', asy
 });
 it('validates bounded business content and refuses executable schema fields', () => {
   expect(() => parseConstructionPlan({ ...content, moduleSchema: {} })).toThrow();
-  expect(() => parseConstructionPlan({ ...content, inScope: Array(17).fill('过多') })).toThrow();
+  expect(() => parseConstructionPlan({ ...content, inScope: Array(65).fill('过多') })).toThrow();
   expect(() =>
     parseConstructionPlan({ ...content, objects: [content.objects[0], content.objects[0]] }),
   ).toThrow('不能重复');
@@ -279,12 +277,41 @@ it('keeps explicit realization visible in review and rejects invalid clause refe
   ).toThrow('业务对象不存在');
 });
 
+it.each([
+  ['SCOPE', 'inScope', 1, '有效索引为 0 至 0'],
+  ['RULE', 'rules', 0, '本版该部分为空'],
+  ['RELATION', 'relationships', -1, '本版该部分为空'],
+] as const)(
+  'reports the exact %s reference and leaves the previous candidate intact',
+  (section, source, index, range) => {
+    const { session } = fixture();
+    session.edit(content);
+    const before = structuredClone(session.current());
+    const invalid = {
+      ...content,
+      requirements: [
+        { section, index, objectKey: 'order', mode: 'UNSUPPORTED', fieldName: '', explanation: '待核实' },
+      ],
+    };
+    expect(() => session.edit(invalid)).toThrow(`requirements[0].index=${index} 未引用本版要求（${source}）`);
+    expect(() => session.edit(invalid)).toThrow(range);
+    expect(session.current()).toEqual(before);
+    const incompleteRetry: Partial<ConstructionPlanContent> = structuredClone(content);
+    delete incompleteRetry.acceptanceExamples;
+    expect(() => session.edit(incompleteRetry)).toThrow('acceptanceExamples 必须是数组');
+    expect(session.current()).toEqual(before);
+    session.edit({ ...content, requirements: [] });
+    expect(session.current().candidate?.acceptanceExamples).toEqual(content.acceptanceExamples);
+  },
+);
+
 it('derives resumable task facts from the server and drops them after a candidate change', async () => {
   const { session, client } = fixture();
   session.edit(content);
   await session.prepare().execute();
   vi.mocked(client.task).mockResolvedValue({
     planRevision: 1,
+    unmappedRequirements: [],
     objects: [
       {
         objectKey: 'order',
@@ -306,7 +333,7 @@ it('rejects a task for a newer externally confirmed plan revision', async () => 
   const { session, client } = fixture();
   session.edit(content);
   await session.prepare().execute();
-  vi.mocked(client.task).mockResolvedValue({ planRevision: 2, objects: [] });
+  vi.mocked(client.task).mockResolvedValue({ planRevision: 2, unmappedRequirements: [], objects: [] });
   await expect(session.readTask()).rejects.toThrow('恢复最新方案');
   expect(session.currentTask()).toBeUndefined();
 });
@@ -443,8 +470,8 @@ it('exposes revision history only after a confirmed plan has been loaded or save
 });
 
 it('reports the exact oversized section and mode-specific field contract without losing requirements', () => {
-  expect(() => parseConstructionPlan({ ...content, rules: Array(17).fill('规则') })).toThrow(
-    'rules 当前 17 项',
+  expect(() => parseConstructionPlan({ ...content, rules: Array(65).fill('规则') })).toThrow(
+    'rules 当前 65 项',
   );
   const input = {
     ...content,
@@ -542,4 +569,138 @@ it('preserves explicit standard module associations without inventing initializa
   expect(() =>
     parseConstructionPlan({ ...linked, objects: [{ ...linked.objects[0], moduleAlias: 'invented' }] }),
   ).toThrow();
+});
+
+it('accepts 64 clauses and their final mapping without increasing the aggregate text budget', () => {
+  const clauses = Array.from({ length: 64 }, (_, i) => `业务要求${i}`);
+  const parsed = parseConstructionPlan({
+    ...content,
+    inScope: clauses,
+    requirements: [
+      {
+        section: 'SCOPE',
+        index: 63,
+        objectKey: 'order',
+        mode: 'MANUAL',
+        fieldName: '',
+        explanation: '人工核对',
+      },
+    ],
+  });
+  expect(parsed.inScope).toEqual(clauses);
+  expect(parsed.requirements?.[0].index).toBe(63);
+  expect(() =>
+    parseConstructionPlan({
+      ...content,
+      inScope: Array(64).fill('甲'.repeat(100)),
+      rules: [],
+      outOfScope: [],
+      questions: [],
+      acceptanceExamples: [],
+    }),
+  ).not.toThrow();
+  expect(() =>
+    parseConstructionPlan({
+      ...content,
+      inScope: Array(64).fill('甲'.repeat(500)),
+      rules: [],
+      outOfScope: [],
+      questions: [],
+      acceptanceExamples: [],
+    }),
+  ).toThrow('方案内容过长');
+  expect(() =>
+    parseConstructionPlan({ ...content, decisions: Array(17).fill(content.decisions[0]) }),
+  ).toThrow('最多 16 项');
+});
+
+it('revises only specified business sections, expires old approval, and saves only after a fresh review', async () => {
+  const { session, client } = fixture();
+  expect(session.capabilities().map((item) => item.descriptor.code)).not.toContain('construction.revise');
+  session.edit(content);
+  const original = session.prepare();
+  session.revise({ outOfScope: [], rules: ['保存后保留原价格'] });
+  expect(original.isCurrent()).toBe(false);
+  expect(session.current().candidate).toEqual({ ...content, outOfScope: [], rules: ['保存后保留原价格'] });
+  expect(client.confirm).not.toHaveBeenCalled();
+  const confirmation = createAssistantOperationConfirmation(session.prepare(), () => true);
+  expect(confirmation.presentation.details?.lines).toContain('业务规则：保存后保留原价格');
+  await confirmation.confirm();
+  expect(client.confirm).toHaveBeenCalledOnce();
+  expect(session.current().saved?.content.acceptanceExamples).toEqual(content.acceptanceExamples);
+});
+
+it('rejects stale, invalid and mapped clause changes without discarding the previous candidate', async () => {
+  const { session } = fixture();
+  session.edit({
+    ...content,
+    rules: ['原规则'],
+    requirements: [
+      {
+        section: 'RULE',
+        index: 0,
+        objectKey: 'order',
+        mode: 'MANUAL',
+        fieldName: '',
+        explanation: '人工核对',
+      },
+    ],
+  });
+  const before = structuredClone(session.current());
+  for (const changes of [
+    {},
+    { moduleSchema: {} },
+    { rules: null },
+    { rules: ['另一项规则'] },
+    { rules: [] },
+  ]) {
+    expect(() => session.revise(changes)).toThrow();
+    expect(session.current()).toEqual(before);
+  }
+  const registry = createAssistantSurfaceRegistry(
+    () => 'user',
+    () => ({ revision: String(session.current().generation), facts: {} }),
+  );
+  registry.register({
+    pageInstanceKey: 'home',
+    contextRevision: () => '0',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: session.capabilities,
+      requestTurn: async () => ({ text: '', toolCalls: [] }),
+    },
+  });
+  registry.activate('home');
+  await expect(
+    registry.invoke(
+      { id: 'stale', code: 'construction.revise', input: { generation: 0, changes: { title: '改名' } } },
+      registry.snapshot()!.token,
+    ),
+  ).rejects.toThrow('候选已变化');
+  expect(session.current()).toEqual(before);
+  await registry.invoke(
+    {
+      id: 'append',
+      code: 'construction.revise',
+      input: { generation: before.generation, changes: { rules: ['原规则', '新增独立规则'] } },
+    },
+    registry.snapshot()!.token,
+  );
+  expect(session.current().candidate?.requirements).toEqual(before.candidate?.requirements);
+  expect(session.current().candidate?.rules).toEqual(['原规则', '新增独立规则']);
+});
+
+it('does not use partial revision to bypass manual reconciliation or an unknown confirmation', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  session.editManually({ ...content, goal: '改为报价核对' });
+  expect(() => session.revise({ title: '新名称' })).toThrow('关联内容尚待核对');
+  session.edit({ ...content, goal: '改为报价核对' });
+  client.confirm = vi.fn().mockRejectedValue(new Error('response lost'));
+  const confirmation = createAssistantOperationConfirmation(session.prepare(), () => true);
+  await confirmation.confirm();
+  const before = structuredClone(session.current());
+  expect(() => session.revise({ title: '新名称' })).toThrow('尚未查明');
+  expect(session.current()).toEqual(before);
+  expect(client.confirm).toHaveBeenCalledOnce();
 });

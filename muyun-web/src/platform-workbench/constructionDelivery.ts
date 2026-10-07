@@ -3,7 +3,6 @@ import {
   requireConfirmedConstructionPlan,
   type ConstructionPlanState,
 } from './constructionPlanGuard';
-import type { ConstructionDeliveryProposal, ConstructionDeliveryReceipt } from '@muyun/web-contracts';
 import {
   AppError,
   AssistantCapabilityUsageError,
@@ -16,7 +15,6 @@ import {
 export function createConstructionDeliveryCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
-  accept: (receipt: ConstructionDeliveryReceipt) => void | Promise<void>,
   onAccepted: () => Promise<void> = async () => {},
 ): AssistantCapability[] {
   const objectSchema = (properties: Record<string, unknown>) => ({
@@ -25,7 +23,6 @@ export function createConstructionDeliveryCapabilities(
     required: Object.keys(properties),
     properties,
   });
-  const textSchema = { type: 'string', minLength: 1, maxLength: 120 };
   const parseObject = (input: unknown, allowed = ['objectKey']): Record<string, unknown> => {
     if (
       !input ||
@@ -41,97 +38,6 @@ export function createConstructionDeliveryCapabilities(
       throw new AssistantCapabilityUsageError('建设参数为空或过长');
     return value.trim();
   };
-  const presentation = (receipt: ConstructionDeliveryReceipt) => ({
-    title: '访问入口已创建',
-    lines: [
-      current().saved?.content.objects.find((object) => object.key === receipt.objectKey)?.name ?? '业务页面',
-      `依据需求第 ${receipt.planRevision} 版`,
-      '请查询建设进度核实页面与入口，再按验收例子检查实际业务行为。',
-    ],
-  });
-  async function acceptedPresentation(receipt: ConstructionDeliveryReceipt, shouldAccept: boolean) {
-    const result = presentation(receipt);
-    if (shouldAccept) {
-      try {
-        await accept(receipt);
-      } catch {
-        result.lines.push('配置已提交，但工作台入口刷新失败；刷新入口后再继续验证，勿重复提交。');
-      }
-    }
-    return result;
-  }
-  function prepareEntry(): AssistantCapability {
-    let prepared: AssistantOperationProposal | undefined;
-    return {
-      effect: 'read',
-      descriptor: {
-        code: 'construction.prepare-entry',
-        description:
-          'Prepare a separately confirmed menu entry for the current published standard management page in the system workbench, regardless of which governance entry published it. Does not grant business permissions. Query progress first; do not recreate an existing entry.',
-        inputSchema: objectSchema({ objectKey: constructionObjectKeySchema(current), title: textSchema }),
-      },
-      parseInput(input) {
-        const value = parseObject(input, ['objectKey', 'title']);
-        return {
-          kind: 'ENTRY',
-          objectKey: text(value.objectKey),
-          title: text(value.title),
-          listFields: [],
-          formFields: [],
-          searchFields: [],
-        };
-      },
-      async execute(input, context) {
-        const before = requireConfirmedConstructionPlan(current);
-        const plan = before.saved;
-        const preview = await client.previewDelivery(plan.planId, {
-          ...(input as Omit<ConstructionDeliveryProposal, 'planRevision'>),
-          planRevision: plan.revision,
-        });
-        const stable = structuredClone(preview);
-        const requestId = crypto.randomUUID();
-        const { isCurrent } = before;
-        context.commitInternalState(() => {
-          prepared = {
-            modelSummary: '创建已发布页面的工作台入口，不授予额外业务权限。',
-            confirmLabel: '确认创建入口',
-            expiresAt: Date.now() + 5 * 60_000,
-            isCurrent,
-            presentation: {
-              title: '创建工作台入口',
-              lines: [stable.proposal.title, ...stable.lines],
-              details: { title: '查看配置标识', lines: [stable.moduleAlias] },
-            },
-            async execute() {
-              if (!isCurrent()) throw new AssistantOperationRejectedError('需求已变化，请重新预检');
-              try {
-                const receipt = await client.publishDelivery(plan.planId, {
-                  requestId,
-                  proposal: stable.proposal,
-                  fingerprint: stable.fingerprint,
-                });
-                return acceptedPresentation(receipt, isCurrent());
-              } catch (error) {
-                if (error instanceof AppError && [400, 401, 403, 404, 409, 422].includes(error.status ?? 0))
-                  throw new AssistantOperationRejectedError(error.message);
-                throw error;
-              }
-            },
-            async lookup() {
-              const receipt = await client.delivery(plan.planId, requestId);
-              if (!receipt) return undefined;
-              return acceptedPresentation(receipt, isCurrent());
-            },
-          };
-        });
-        return { awaitingHumanConfirmation: true };
-      },
-      propose() {
-        if (!prepared) throw new AssistantCapabilityUsageError('请先预检建设节点');
-        return prepared;
-      },
-    };
-  }
   let acceptance: AssistantOperationProposal | undefined;
   const acceptanceCapability: AssistantCapability = {
     effect: 'read',
@@ -208,7 +114,6 @@ export function createConstructionDeliveryCapabilities(
     },
   };
   return [
-    prepareEntry(),
     acceptanceCapability,
     {
       effect: 'read',

@@ -124,14 +124,14 @@ public class AssistantConversationService {
             return json;
         } catch (com.fasterxml.jackson.core.JsonProcessingException error) { throw new IllegalArgumentException("会话格式无效", error); }
     }
-    private static void validateMessages(List<Message> messages, int max, int length, boolean status) {
+    private static void validateMessages(List<Message> messages, int max, int length, boolean display) {
         if (messages == null || messages.size() > max) throw new IllegalArgumentException("会话消息过多");
         for (var message : messages) {
             if (message == null || message.text() == null || message.text().length() > length ||
-                    !("user".equals(message.role()) || "assistant".equals(message.role()) || status && "status".equals(message.role())))
+                    !("user".equals(message.role()) || "assistant".equals(message.role()) || "status".equals(message.role())))
                 throw new IllegalArgumentException("会话消息格式无效");
             if (message.operationReceipt() != null) {
-                if (!status || !"assistant".equals(message.role())) throw new IllegalArgumentException("操作查询引用只属于助手展示消息");
+                if (!display || !"assistant".equals(message.role())) throw new IllegalArgumentException("操作查询引用只属于助手展示消息");
                 validateReceipt(message.operationReceipt());
             }
         }

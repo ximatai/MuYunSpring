@@ -9,11 +9,23 @@ public record AiTurnRequest(
         List<AiChatMessage> messages,
         List<AiToolDefinition> tools,
         Double temperature,
-        Integer maxOutputTokens
+        Integer maxOutputTokens,
+        List<String> indexedToolCodes
 ) {
+    public AiTurnRequest(List<AiChatMessage> messages, List<AiToolDefinition> tools,
+                         Double temperature, Integer maxOutputTokens) {
+        this(messages, tools, temperature, maxOutputTokens, List.of());
+    }
+
     public AiTurnRequest {
         messages = messages == null ? List.of() : List.copyOf(messages);
         tools = tools == null ? List.of() : List.copyOf(tools);
+        // Names in a discovery index are not declarations and never authorize a call.
+        indexedToolCodes = indexedToolCodes == null ? List.of() : List.copyOf(indexedToolCodes);
+        if (indexedToolCodes.size() > 256 || indexedToolCodes.stream().anyMatch(code -> code.isBlank() || code.length() > 256)
+                || new HashSet<>(indexedToolCodes).size() != indexedToolCodes.size()) {
+            throw new IllegalArgumentException("AI indexed tool codes must be bounded and distinct");
+        }
         if (messages.isEmpty()) throw new IllegalArgumentException("AI turn request requires at least one message");
         Set<String> pending = new HashSet<>();
         Set<String> seen = new HashSet<>();
