@@ -4,6 +4,7 @@ import {
   type ConstructionPlanState,
 } from './constructionPlanGuard';
 import {
+  createUuid,
   AppError,
   AssistantCapabilityUsageError,
   AssistantOperationRejectedError,
@@ -53,7 +54,7 @@ export function createConstructionDeliveryCapabilities(
       const planId = before.saved.planId;
       const preview = await client.previewAcceptance(planId, (input as { objectKey: string }).objectKey);
       const command = {
-        requestId: crypto.randomUUID(),
+        requestId: createUuid(),
         objectKey: preview.objectKey,
         fingerprint: preview.fingerprint,
       };

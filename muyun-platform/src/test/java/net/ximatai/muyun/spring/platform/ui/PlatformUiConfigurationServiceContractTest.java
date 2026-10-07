@@ -129,7 +129,8 @@ class PlatformUiConfigurationServiceContractTest {
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
             TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -145,7 +146,8 @@ class PlatformUiConfigurationServiceContractTest {
     private final MetadataFieldConfigService fieldConfigService = new MetadataFieldConfigService(fieldConfigDao,
             fieldService, metadataService, fieldTypeService, categoryService,
             new DictionaryFieldValueValidator(new DictionaryItemService(new TestMemoryDao<>(), categoryService)),
-            relationService, protectionConfigService, Optional.empty());
+            relationService, protectionConfigService, Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final ModuleMetadataFieldService moduleFieldService =

@@ -356,11 +356,17 @@ public class MetadataRelationChangeSetApplyService {
         MetadataFieldConfig requested = property.dictionaryConfig();
         if (requested == null) throw new PlatformException("Validated dictionary field property is missing its binding");
         MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
-        MetadataFieldConfig effective = override == null ? fieldConfigService.findByMetadataFieldId(field.getId()) : override;
-        assertBindingVersion(property.expectedBindingVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
+        MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
+        MetadataFieldConfig effective = override == null ? base : override;
+        MetadataFieldConfig dictionary = MetadataFieldConfig.effectiveDictionaryConfig(base, override);
+        assertBindingVersion(property.expectedBindingVersion(), dictionary == null || !dictionary.hasDictionaryBinding()
+                ? null : dictionary.getVersion(), field.getFieldName());
         if (property.fixedDefault() != null)
             assertBindingVersion(property.fixedDefault().expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
-        MetadataFieldConfig config = mergeRelationConfig(effective, requested);
+        MetadataFieldConfig config = MetadataFieldConfig.copyRelationDeclarations(override);
+        config.setDictionaryApplicationAlias(requested.getDictionaryApplicationAlias());
+        config.setDictionaryCategoryAlias(requested.getDictionaryCategoryAlias());
+        config.setSelectionMode(requested.getSelectionMode());
         if (property.fixedDefault() != null) config.setDefaultValue(property.fixedDefault().value());
         if (override != null) {
             config.setId(override.getId());
@@ -379,7 +385,7 @@ public class MetadataRelationChangeSetApplyService {
         MetadataFieldConfig effective = override == null ? base : override;
         assertBindingVersion(requested.expectedConfigVersion(), effective == null ? null : effective.getVersion(), field.getFieldName());
         if (effective == null && requested.value() == null) return;
-        MetadataFieldConfig config = mergeRelationConfig(effective, effective == null ? new MetadataFieldConfig() : effective);
+        MetadataFieldConfig config = MetadataFieldConfig.copyRelationDeclarations(override);
         config.setDefaultValue(requested.value());
         if (override != null) {
             config.setId(override.getId());
@@ -389,30 +395,6 @@ public class MetadataRelationChangeSetApplyService {
         config.setRelationId(relation.getId());
         if (config.getId() == null) fieldConfigService.insert(config);
         else fieldConfigService.update(config);
-    }
-
-    /**
-     * Retains effective query/behavior/protection facts while replacing requested dictionary facts.
-     * A new relation override deliberately does not inherit physical storage shape from base.
-     */
-    private MetadataFieldConfig mergeRelationConfig(MetadataFieldConfig existing, MetadataFieldConfig requested) {
-        MetadataFieldConfig result = new MetadataFieldConfig();
-        if (existing != null) {
-            result.setQueryable(existing.getQueryable());
-            result.setDefaultQueryOperator(existing.getDefaultQueryOperator());
-            result.setQueryOperators(existing.getQueryOperators());
-            result.setDefaultValue(existing.getDefaultValue());
-            result.setValidationRegex(existing.getValidationRegex());
-            result.setRequiredOnInsert(existing.getRequiredOnInsert());
-            result.setRequiredOnUpdate(existing.getRequiredOnUpdate());
-            result.setTextNormalization(existing.getTextNormalization());
-            result.setCopyable(existing.getCopyable());
-            result.setWriteProtected(existing.getWriteProtected());
-        }
-        result.setDictionaryApplicationAlias(requested.getDictionaryApplicationAlias());
-        result.setDictionaryCategoryAlias(requested.getDictionaryCategoryAlias());
-        result.setSelectionMode(requested.getSelectionMode());
-        return result;
     }
 
     private void assertBindingVersion(Integer expected, Integer actual, String fieldName) {

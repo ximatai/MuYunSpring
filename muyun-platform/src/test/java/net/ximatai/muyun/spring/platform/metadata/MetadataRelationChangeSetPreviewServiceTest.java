@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -515,13 +517,13 @@ class MetadataRelationChangeSetPreviewServiceTest {
         MetadataFieldConfigService behaviorValidator = new MetadataFieldConfigService(new TestMemoryDao<>(), fieldService,
                 metadataService, fieldSpecService, mock(DictionaryCategoryService.class),
                 new DictionaryFieldValueValidator(dictionaryItems), relationService,
-                mock(MetadataFieldProtectionConfigService.class), java.util.Optional.empty());
+                mock(MetadataFieldProtectionConfigService.class), java.util.Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
         doAnswer(call -> {
-            behaviorValidator.validateDefaultValueDraft(call.getArgument(0), call.getArgument(1), call.getArgument(2),
-                    call.getArgument(3), call.getArgument(4));
+            behaviorValidator.validateEffectiveBehavior(call.getArgument(0), call.getArgument(1), call.getArgument(2), call.getArgument(3));
             return null;
-        }).when(fieldConfigService).validateDefaultValueDraft(any(MetadataField.class), nullable(MetadataFieldConfig.class),
-                nullable(MetadataFieldConfig.class), nullable(String.class), nullable(MetadataFieldConfig.class));
+        }).when(fieldConfigService).validateEffectiveBehavior(any(MetadataField.class), nullable(MetadataFieldConfig.class),
+                nullable(MetadataFieldConfig.class), nullable(ModuleMetadataField.class));
         ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         DynamicRecordService recordService = mock(DynamicRecordService.class);
         DynamicSchemaGovernanceFacts schemaFacts = mock(DynamicSchemaGovernanceFacts.class);
@@ -547,7 +549,9 @@ class MetadataRelationChangeSetPreviewServiceTest {
         when(metadataService.select("metadata-1")).thenReturn(metadata);
         when(relationService.count(any(Criteria.class))).thenReturn(0L);
         when(fieldService.list(any(Criteria.class), any(PageRequest.class))).thenReturn(fields);
-        when(fieldSpecService.requireFieldType(anyString())).thenReturn(new FieldSpec());
+        var string = new FieldSpec();
+        string.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+        when(fieldSpecService.requireFieldType(anyString())).thenReturn(string);
         when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         return new Fixture(new MetadataRelationChangeSetPreviewService(moduleService, relationService, metadataService, fieldService,
                 fieldSpecService, referenceConfigService, fieldConfigService, moduleFieldService, recordService), metadataService, fieldService,

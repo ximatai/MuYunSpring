@@ -24,6 +24,7 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import {
+  createUuid,
   OperationUsageError,
   OperationRejectedError,
   createOperationConfirmation,
@@ -2158,7 +2159,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         throw new OperationUsageError(childAliasError.value ?? '请填写不超过 120 字的明细名称');
       if (state.relations.value.some((relation) => relation.relationAlias === draft.alias))
         throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
-      const requestId = crypto.randomUUID();
+      const requestId = createUuid();
       const parentTreeKey = metadataNodeKey(relationId);
       const captured = captureMetadataCandidate();
       const current = () => captured() && scopeIsCurrent();

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
+
 import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
@@ -358,7 +360,8 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
         ModuleMetadataRelationService relationService =
                 new ModuleMetadataRelationService(
                         relationDao,
@@ -371,7 +374,8 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         MetadataFieldProtectionConfigService protectionConfigService =
                 new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
         MetadataFieldConfigService fieldConfigService =
-                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.empty());
+                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
         MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
         MetadataFieldReferenceConfigService referenceConfigService =

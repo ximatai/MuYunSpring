@@ -184,7 +184,8 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
             TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -209,7 +210,8 @@ class PlatformMetadataServiceContractTest {
                     Optional.of(runtimeRefreshCoordinator));
     private final MetadataFieldConfigService fieldConfigService =
             new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                    categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.of(runtimeRefreshCoordinator));
+                    categoryService, new DictionaryFieldValueValidator(itemService), relationService, protectionConfigService, Optional.of(runtimeRefreshCoordinator),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final PlatformMetadataEntityDefinitionCompiler metadataEntityDefinitionCompiler =
@@ -236,7 +238,8 @@ class PlatformMetadataServiceContractTest {
 
     @Test
     void fieldProtectionDependenciesMustBePresentAtAssembly() {
-        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, null, Optional.empty()))
+        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, new DictionaryFieldValueValidator(itemService), relationService, null, Optional.empty(),
+                TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class))))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("protectionConfigService");
         assertThatThrownBy(() -> new MetadataFieldProtectionConfigService(protectionConfigDao, fieldService, fieldTypeService, null, Optional.empty()))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("fieldConfigDao");
@@ -1565,7 +1568,8 @@ class PlatformMetadataServiceContractTest {
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
-                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService));
+                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService),
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
         for (var target : List.of(fieldService.list(Criteria.of().eq("metadataId", productId).eq("fieldName", "quantity"), PageRequests.all()).getFirst(),
                 fieldService.list(Criteria.of().eq("metadataId", lineId).eq("fieldName", "amount"), PageRequests.all()).getFirst())) {
             var changed = field(target.getMetadataId(), target.getFieldName(), target.getColumnName(), FieldType.STRING);

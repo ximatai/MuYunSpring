@@ -25,3 +25,5 @@ export * from './operationConfirmation';
 export * from './operationErrors';
 
 export * from './operationReceipt';
+
+export * from './uuid';

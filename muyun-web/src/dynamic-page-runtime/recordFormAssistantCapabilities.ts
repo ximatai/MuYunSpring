@@ -6,6 +6,7 @@ import {
 } from './recordDisplayProjection';
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
+  createUuid,
   AssistantCapabilityUsageError,
   type AssistantCapability,
   emptyAssistantCapabilityInputSchema,
@@ -272,7 +273,7 @@ function referenceSearchCapability(
         .filter((candidate) => isAssistantSelectableReference(candidate))
         .slice(0, MAX_ASSISTANT_REFERENCE_OPTIONS)
         .map((candidate) => {
-          const selectionKey = crypto.randomUUID();
+          const selectionKey = createUuid();
           return {
             selectionKey,
             selection: { fieldName, contextRevision, searchRevision, candidate },

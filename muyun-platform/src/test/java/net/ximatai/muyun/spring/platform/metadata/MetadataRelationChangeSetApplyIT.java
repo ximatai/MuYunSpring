@@ -8,6 +8,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
@@ -96,6 +97,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private ModuleMetadataRelationService relationService;
     @Autowired private FieldSpecService fieldSpecService;
     @Autowired private MetadataFieldConfigService fieldConfigs;
+    @Autowired private ModuleMetadataFieldService moduleFields;
     @Autowired private MetadataFieldReferenceConfigService referenceConfigs;
     @Autowired private MetadataFieldDefinitionCompiler fieldCompiler;
     @Autowired private DictionaryItemService dictionaryItems;
@@ -316,6 +318,356 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             assertThat(stored.getValue("tags")).isEqualTo(List.of("NEW"));
             assertThat(stored.getValue("genericTags")).isEqualTo(List.of("NEW"));
         }
+    }
+
+    @Test
+    void addingDictionaryToExistingBehaviorUsesBindingVersionAndPreservesScopeDeclarations() {
+        when(dictionaryItems.resolveEnabledItem("crm", "state", "NEW"))
+                .thenReturn(new net.ximatai.muyun.spring.platform.dictionary.DictionaryItem());
+        for (boolean relationScoped : List.of(false, true)) {
+            metadata = metadataService.select(metadata.getId());
+            String name = relationScoped ? "localStatus" : "baseStatus";
+            applyNewStringField(name, relationScoped ? "local_status" : "base_status");
+            var saved = field(name);
+            var behavior = new MetadataFieldConfig();
+            behavior.setMetadataFieldId(saved.getId());
+            behavior.setRelationId(relationScoped ? relationId : null);
+            behavior.setDefaultValue("NEW");
+            behavior.setCopyable(false);
+            fieldConfigs.insert(behavior);
+            var candidate = updateProperty(saved, new MetadataFieldPropertyDraft(
+                    MetadataFieldPropertyKind.DICTIONARY, null, null, dictionaryBinding("state")));
+            var checked = previewService.preview(moduleAlias, relationId, candidate);
+            assertThat(checked.errors()).isEmpty();
+            applyService.apply(moduleAlias, relationId,
+                    new MetadataRelationChangeSetApplyCommand(candidate, checked.proposalFingerprint()));
+            var published = fieldConfigs.findRelationOverride(saved.getId(), relationId);
+            assertThat(published.getDictionaryCategoryAlias()).isEqualTo("state");
+            assertThat(published.getDefaultValue()).isEqualTo(relationScoped ? "NEW" : null);
+            assertThat(published.getCopyable()).isEqualTo(relationScoped ? Boolean.FALSE : null);
+            assertThat(fieldCompiler.compile(field(name), relationId).behavior().defaultValue()).isEqualTo("NEW");
+            assertThat(fieldCompiler.compile(field(name), relationId).behavior().copyable()).isFalse();
+            var stale = updateProperty(field(name), new MetadataFieldPropertyDraft(
+                    MetadataFieldPropertyKind.DICTIONARY, published.getVersion(), null, dictionaryBinding("state")));
+            var reviewed = previewService.preview(moduleAlias, relationId, stale);
+            published.setDefaultValue("NEW");
+            fieldConfigs.update(published);
+            assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                    new MetadataRelationChangeSetApplyCommand(stale, reviewed.proposalFingerprint())))
+                    .hasMessageContaining("validation failed");
+        }
+    }
+
+    @Test
+    void defaultPublicationKeepsInheritedBehaviorLiveAndPreservesExistingOverrides() {
+        applyNewStringField("code", "code");
+        var saved = field("code");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId());
+        base.setValidationRegex("[A-Z]+");
+        base.setTextNormalization(net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);
+        base.setCopyable(false);
+        base.setQueryable(false);
+        fieldConfigs.insert(base);
+        var candidate = updateProperty(saved, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC,
+                null, null, null, new MetadataFieldFixedDefaultDraft(" ABC ", base.getVersion())));
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(candidate, checked.proposalFingerprint()));
+        var own = fieldConfigs.findRelationOverride(saved.getId(), relationId);
+        assertThat(own.getDefaultValue()).isEqualTo(" ABC ");
+        assertThat(own.getValidationRegex()).isNull();
+        assertThat(own.getTextNormalization()).isNull();
+        assertThat(own.getCopyable()).isNull();
+        assertThat(own.getQueryable()).isNull();
+        base.setValidationRegex("[A-Z0-9]+");
+        base.setTextNormalization(net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM_TO_NULL);
+        base.setCopyable(true);
+        base.setQueryable(true);
+        fieldConfigs.update(base);
+        var compiled = fieldCompiler.compile(field("code"), relationId);
+        assertThat(compiled.behavior().validationRegex()).isEqualTo("[A-Z0-9]+");
+        assertThat(compiled.behavior().writeRules().textNormalization())
+                .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM_TO_NULL);
+        assertThat(compiled.behavior().copyable()).isTrue();
+        assertThat(compiled.queryDefinition().queryable()).isTrue();
+        own.setCopyable(false);
+        fieldConfigs.update(own);
+        var revised = updateProperty(field("code"), new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.BASIC,
+                null, null, null, new MetadataFieldFixedDefaultDraft("ABC1", own.getVersion())));
+        var revisedPreview = previewService.preview(moduleAlias, relationId, revised);
+        assertThat(revisedPreview.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(revised, revisedPreview.proposalFingerprint()));
+        assertThat(fieldCompiler.compile(field("code"), relationId).behavior().copyable()).isFalse();
+        assertThat(fieldConfigs.findRelationOverride(saved.getId(), relationId).getValidationRegex()).isNull();
+    }
+
+    @Test
+    void inheritedDictionaryBindingVersionRemainsIndependentOfDefaultOverrideVersion() {
+        when(dictionaryItems.resolveEnabledItem("crm", "state", "NEW"))
+                .thenReturn(new net.ximatai.muyun.spring.platform.dictionary.DictionaryItem());
+        applyNewStringField("status", "status");
+        var saved = field("status");
+        var base = dictionaryBinding("state");
+        base.setMetadataFieldId(saved.getId());
+        fieldConfigs.insert(base);
+        var own = new MetadataFieldConfig();
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("NEW");
+        fieldConfigs.insert(own);
+        own.setDefaultValue("NEW"); fieldConfigs.update(own);
+        assertThat(base.getVersion()).isNotEqualTo(own.getVersion());
+        var summaries = new ModuleMetadataFieldPropertySummaryService(relationService, fieldService,
+                referenceConfigs, fieldConfigs, mock(ModuleMetadataFieldService.class));
+        var summary = summaries.list(moduleAlias, relationId).stream()
+                .filter(item -> item.fieldId().equals(saved.getId())).findFirst().orElseThrow();
+        assertThat(summary.kind()).isEqualTo(MetadataFieldPropertyKind.DICTIONARY);
+        assertThat(summary.bindingVersion()).isEqualTo(base.getVersion());
+        assertThat(summary.fixedDefault().configVersion()).isEqualTo(own.getVersion());
+        assertThat(fieldCompiler.compile(saved, relationId).dictionaryBinding().categoryAlias()).isEqualTo("state");
+        var candidate = updateProperty(saved, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY,
+                summary.bindingVersion(), null, dictionaryBinding("state"),
+                new MetadataFieldFixedDefaultDraft("NEW", summary.fixedDefault().configVersion())));
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).isEmpty();
+        base.setDefaultValue("NEW"); fieldConfigs.update(base);
+        assertThat(previewService.preview(moduleAlias, relationId, candidate).errors())
+                .extracting(MetadataChangeSetValidationIssue::code).contains("STALE_FIELD_PROPERTY_VERSION");
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(candidate, checked.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        var current = updateProperty(saved, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY,
+                base.getVersion(), null, dictionaryBinding("state"),
+                new MetadataFieldFixedDefaultDraft("NEW", own.getVersion())));
+        var currentPreview = previewService.preview(moduleAlias, relationId, current);
+        assertThat(currentPreview.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(current, currentPreview.proposalFingerprint()));
+        assertThat(fieldCompiler.compile(field("status"), relationId).behavior().defaultValue()).isEqualTo("NEW");
+    }
+
+    @Test
+    void retainedDefaultIsPrecheckedAgainstNewDictionaryWithoutPartialModelPublication() {
+        when(dictionaryItems.resolveEnabledItem("crm", "state", "NEW"))
+                .thenReturn(new net.ximatai.muyun.spring.platform.dictionary.DictionaryItem());
+        applyNewStringField("status", "status");
+        var saved = field("status");
+        var own = dictionaryBinding("state");
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("NEW");
+        fieldConfigs.insert(own);
+        var rejected = updateProperty(saved, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY,
+                own.getVersion(), null, dictionaryBinding("replacement")));
+        var checked = previewService.preview(moduleAlias, relationId, rejected);
+        assertThat(checked.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        var sibling = proposal("sibling", "sibling", stringSpecAlias, false).fieldDrafts().getFirst();
+        var model = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relationId, rejected.expectedMetadataVersion(), Map.of(),
+                List.of(sibling, rejected.fieldDrafts().getFirst()))), List.of(), List.of());
+        var modelChecked = modelPreview.preview(moduleAlias, model);
+        assertThat(modelChecked.valid()).isFalse();
+        assertThatThrownBy(() -> modelApply.apply(moduleAlias,
+                new MetadataModelChangeSetApplyCommand(model, modelChecked.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        assertThat(columnExists(metadata.getTableName(), "sibling")).isFalse();
+        assertThat(fieldConfigs.findRelationOverride(saved.getId(), relationId).getDictionaryCategoryAlias()).isEqualTo("state");
+        assertThat(fieldService.select(saved.getId()).getVersion()).isEqualTo(saved.getVersion());
+    }
+
+    @Test
+    void retainedDefaultIsPrecheckedWhenOnlyFieldSpecificationChangesAndBaselineIsConfirmed() {
+        applyNewStringField("code", "code");
+        var saved = field("code");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId()); base.setDefaultValue("ABC");
+        fieldConfigs.insert(base);
+        var invalidType = fieldSpecChangeProposal(saved, "integer");
+        assertThat(previewService.preview(moduleAlias, relationId, invalidType).errors())
+                .extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        assertThat(fieldService.select(saved.getId()).getFieldSpecAlias()).isEqualTo("string");
+        var unchangedType = fieldSpecChangeProposal(saved, "string");
+        var checked = previewService.preview(moduleAlias, relationId, unchangedType);
+        assertThat(checked.errors()).isEmpty();
+        base.setDefaultValue("DEF"); fieldConfigs.update(base);
+        assertThat(previewService.preview(moduleAlias, relationId, unchangedType).proposalFingerprint())
+                .isNotEqualTo(checked.proposalFingerprint());
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(unchangedType, checked.proposalFingerprint())))
+                .hasMessageContaining("fingerprint is stale");
+    }
+
+    @Test
+    void currentRelationDefaultCannotHideAnInvalidSharedBaseAndDirectFieldWritesUseTheSameCheck() {
+        applyNewStringField("amount", "amount");
+        var saved = field("amount");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId()); base.setDefaultValue("ABC"); fieldConfigs.insert(base);
+        var own = new MetadataFieldConfig();
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("1"); fieldConfigs.insert(own);
+        var candidate = fieldSpecChangeProposal(saved, "integer");
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(candidate, checked.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        var direct = candidate.fieldDrafts().getFirst().field();
+        direct.setId(saved.getId()); direct.setMetadataId(metadata.getId()); direct.setVersion(saved.getVersion());
+        assertThatThrownBy(() -> fieldService.update(direct)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(field("amount").getFieldSpecAlias()).isEqualTo("string");
+        assertThat(field("amount").getVersion()).isEqualTo(saved.getVersion());
+    }
+
+    @Test
+    void sharedFieldChangesValidateOtherModuleOverridesAndLegacyAndProtectTheirReviewedBaselines() {
+        applyNewStringField("amount", "amount");
+        var saved = field("amount");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId()); base.setDefaultValue("0"); fieldConfigs.insert(base);
+        var own = new MetadataFieldConfig();
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("1"); fieldConfigs.insert(own);
+        String otherRelation = anotherModuleRelation();
+        var other = new MetadataFieldConfig();
+        other.setMetadataFieldId(saved.getId()); other.setRelationId(otherRelation); other.setDefaultValue("ABC"); fieldConfigs.insert(other);
+        useRealChildRuntime(metadata);
+        var candidate = fieldSpecChangeProposal(saved, "integer");
+        assertThat(previewService.preview(moduleAlias, relationId, candidate).errors())
+                .extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        other.setDefaultValue("2"); fieldConfigs.update(other);
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).isEmpty();
+        var legacy = new ModuleMetadataField();
+        legacy.setRelationId(otherRelation); legacy.setMetadataFieldId(saved.getId()); legacy.setDefaultValue("ABC");
+        legacy.setTitle("Other amount");
+        moduleFields.insert(legacy);
+        assertThat(previewService.preview(moduleAlias, relationId, candidate).errors())
+                .extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_FIXED_DEFAULT");
+        var direct = candidate.fieldDrafts().getFirst().field();
+        direct.setId(saved.getId()); direct.setMetadataId(metadata.getId()); direct.setVersion(saved.getVersion());
+        assertThatThrownBy(() -> fieldService.update(direct)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(field("amount").getFieldSpecAlias()).isEqualTo("string");
+        legacy.setDefaultValue("3"); moduleFields.update(legacy);
+        var reviewed = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(reviewed.errors()).isEmpty();
+        legacy.setDefaultValue("4"); moduleFields.update(legacy);
+        var latest = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(latest.errors()).isEmpty();
+        assertThat(latest.proposalFingerprint()).isNotEqualTo(reviewed.proposalFingerprint());
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(candidate, reviewed.proposalFingerprint())))
+                .hasMessageContaining("fingerprint is stale");
+        var model = modelProposal(candidate);
+        var modelChecked = modelPreview.preview(moduleAlias, model);
+        assertThat(modelChecked.errors()).isEmpty();
+        modelApply.apply(moduleAlias, new MetadataModelChangeSetApplyCommand(model, modelChecked.proposalFingerprint()));
+        assertThat(field("amount").getFieldSpecAlias()).isEqualTo("integer");
+        var otherCompiled = fieldCompiler.compile(field("amount"), otherRelation, moduleFields.select(legacy.getId()));
+        assertThat(otherCompiled.behavior().defaultValue()).isEqualTo("4");
+    }
+
+    @Test
+    void fieldSpecificationAndCurrentDefaultCanBeRepairedInOnePublication() {
+        applyNewStringField("amount", "amount");
+        var saved = field("amount");
+        var base = new MetadataFieldConfig();
+        base.setMetadataFieldId(saved.getId()); base.setDefaultValue("0"); fieldConfigs.insert(base);
+        var own = new MetadataFieldConfig();
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("ABC"); fieldConfigs.insert(own);
+        useRealChildRuntime(metadata);
+        var candidate = withFixedDefault(fieldSpecChangeProposal(saved, "integer"), "1", own.getVersion());
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).isEmpty();
+        var model = modelProposal(candidate);
+        var modelChecked = modelPreview.preview(moduleAlias, model);
+        assertThat(modelChecked.errors()).isEmpty();
+        modelApply.apply(moduleAlias, new MetadataModelChangeSetApplyCommand(model, modelChecked.proposalFingerprint()));
+        assertThat(field("amount").getFieldSpecAlias()).isEqualTo("integer");
+        assertThat(fieldCompiler.compile(field("amount"), relationId).behavior().defaultValue()).isEqualTo("1");
+        var compiled = entityCompiler.compile(metadataService.select(metadata.getId()));
+        var scoped = new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition(compiled.alias(), compiled.schemaName(),
+                compiled.tableName(), compiled.name(), compiled.fields().stream()
+                .map(definition -> fieldCompiler.compile(field(definition.code()), relationId)).toList(), compiled.capabilities());
+        try (var runtime = net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime.builder(operations).build()) {
+            runtime.register(new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition(moduleAlias, "Repaired amount", List.of(scoped)));
+            var records = new DynamicRecordService(runtime);
+            String id = records.create(moduleAlias, scoped.alias(), records.newRecord(moduleAlias, scoped.alias()));
+            assertThat(records.select(moduleAlias, scoped.alias(), id).getValue("amount")).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void localDefaultConfirmationIgnoresOtherModuleBehaviorChanges() {
+        applyNewStringField("amount", "amount");
+        var saved = field("amount");
+        var own = new MetadataFieldConfig();
+        own.setMetadataFieldId(saved.getId()); own.setRelationId(relationId); own.setDefaultValue("1"); fieldConfigs.insert(own);
+        var other = new MetadataFieldConfig();
+        other.setMetadataFieldId(saved.getId()); other.setRelationId(anotherModuleRelation()); other.setDefaultValue("2"); fieldConfigs.insert(other);
+        var candidate = withFixedDefault(fieldSpecChangeProposal(saved, "string"), "3", own.getVersion());
+        var checked = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(checked.errors()).isEmpty();
+        other.setDefaultValue("4"); fieldConfigs.update(other);
+        var refreshed = previewService.preview(moduleAlias, relationId, candidate);
+        assertThat(refreshed.errors()).isEmpty();
+        assertThat(refreshed.proposalFingerprint()).isEqualTo(checked.proposalFingerprint());
+        applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(candidate, checked.proposalFingerprint()));
+        assertThat(fieldCompiler.compile(field("amount"), relationId).behavior().defaultValue()).isEqualTo("3");
+    }
+
+    @Test
+    void sharedFieldChangesRejectOtherModuleDictionaryTypesEvenWithoutAnInitialValue() {
+        applyNewStringField("status", "status");
+        var saved = field("status");
+        String otherRelation = anotherModuleRelation();
+        var other = dictionaryBinding("state");
+        other.setMetadataFieldId(saved.getId()); other.setRelationId(otherRelation); fieldConfigs.insert(other);
+        var candidate = fieldSpecChangeProposal(saved, "integer");
+        assertThat(previewService.preview(moduleAlias, relationId, candidate).errors())
+                .extracting(MetadataChangeSetValidationIssue::message).anyMatch(message -> message.contains("requires string field"));
+        var direct = candidate.fieldDrafts().getFirst().field();
+        direct.setId(saved.getId()); direct.setMetadataId(metadata.getId()); direct.setVersion(saved.getVersion());
+        assertThatThrownBy(() -> fieldService.update(direct)).hasMessageContaining("requires string field");
+        assertThat(other.getSelectionMode()).isEqualTo(OptionSelectionMode.SINGLE);
+        assertThat(other.getDefaultValue()).isNull();
+        fieldConfigs.delete(other.getId());
+        var legacy = new ModuleMetadataField();
+        legacy.setRelationId(otherRelation); legacy.setMetadataFieldId(saved.getId()); legacy.setTitle("Other status");
+        legacy.setDictionaryApplicationAlias("crm"); legacy.setDictionaryCategoryAlias("state"); moduleFields.insert(legacy);
+        assertThat(previewService.preview(moduleAlias, relationId, candidate).errors())
+                .extracting(MetadataChangeSetValidationIssue::message).anyMatch(message -> message.contains("requires string field"));
+        assertThatThrownBy(() -> fieldService.update(direct)).hasMessageContaining("requires string field");
+        assertThat(field("status").getFieldSpecAlias()).isEqualTo("string");
+        assertThat(moduleFields.select(legacy.getId()).getDefaultValue()).isNull();
+    }
+
+    private MetadataModelChangeSetPreviewCommand modelProposal(MetadataRelationChangeSetPreviewCommand candidate) {
+        return new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relationId, candidate.expectedMetadataVersion(), candidate.capabilitySelections(), candidate.fieldDrafts())),
+                List.of(), List.of());
+    }
+
+    private String anotherModuleRelation() {
+        String alias = moduleAlias + "_other";
+        var module = new PlatformModule();
+        module.setAlias(alias); module.setApplicationAlias("crm"); module.setModuleKind(ModuleKind.DYNAMIC);
+        when(moduleService.select(alias)).thenReturn(module);
+        var relation = new ModuleMetadataRelation();
+        relation.setModuleAlias(alias); relation.setMetadataId(metadata.getId());
+        relation.setRelationRole(RelationRole.MAIN); relation.setRelationAlias(metadata.getAlias()); relation.setTitle("Other use");
+        return relationService.insert(relation);
+    }
+
+    private MetadataFieldConfig dictionaryBinding(String category) {
+        var config = new MetadataFieldConfig();
+        config.setDictionaryApplicationAlias("crm"); config.setDictionaryCategoryAlias(category);
+        config.setSelectionMode(net.ximatai.muyun.spring.common.option.OptionSelectionMode.SINGLE);
+        return config;
+    }
+
+    private MetadataRelationChangeSetPreviewCommand updateProperty(MetadataField saved, MetadataFieldPropertyDraft property) {
+        return new MetadataRelationChangeSetPreviewCommand(metadataService.select(metadata.getId()).getVersion(), Map.of(),
+                List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        saved.getId(), saved.getVersion(), saved, property)));
     }
 
     @Test
@@ -1246,7 +1598,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                     event -> {});
         }
         @Bean MetadataFieldService fieldService(MetadataFieldDao dao, MetadataService metadata, FieldSpecService specs,
-                org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard) {
+                org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard,
+                org.springframework.beans.factory.ObjectProvider<MetadataFieldConfigService> configs) {
             var empty = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
             return new MetadataFieldService(
                     dao,
@@ -1257,7 +1610,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                     guard,
                     empty.getBeanProvider(ModuleMetadataRelationService.class),
                     empty.getBeanProvider(PlatformModuleService.class),
-                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
+                configs);
         }
         @Bean PlatformPageDefinitionService pageService(PlatformPageDefinitionDao dao, PlatformModuleService modules, ModuleMetadataRelationService relations) {
             return new PlatformPageDefinitionService(dao, modules, relations);
@@ -1268,16 +1622,23 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean PlatformPresentationRevisionService revisionService(PlatformPresentationRevisionDao dao, PlatformPresentationVariantService variants) {
             return new PlatformPresentationRevisionService(dao, variants);
         }
-        @Bean ModuleMetadataFieldService moduleFieldService() { return mock(ModuleMetadataFieldService.class); }
+        @Bean ModuleMetadataFieldService moduleFieldService(ModuleMetadataFieldDao dao,
+                ModuleMetadataRelationService relations, MetadataService metadata, MetadataFieldService fields,
+                FieldSpecService specs) {
+            return new ModuleMetadataFieldService(dao, relations, metadata, fields, specs, Optional.empty(),
+                    Optional.empty(), TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class));
+        }
         @Bean MetadataFieldProtectionConfigService protectionConfigService(MetadataFieldService fields, FieldSpecService specs) {
             return new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fields, specs, new TestMemoryDao<>(), Optional.empty());
         }
         @Bean DictionaryItemService dictionaryItemService() { return mock(DictionaryItemService.class); }
         @Bean MetadataFieldConfigService metadataFieldConfigService(MetadataFieldConfigDao dao, MetadataFieldService fields,
                 MetadataService metadata, FieldSpecService specs, ModuleMetadataRelationService relations,
-                MetadataFieldProtectionConfigService protection, DictionaryItemService dictionaryItems) {
+                MetadataFieldProtectionConfigService protection, DictionaryItemService dictionaryItems,
+                org.springframework.beans.factory.ObjectProvider<ModuleMetadataFieldService> moduleFields) {
             return new MetadataFieldConfigService(dao, fields, metadata, specs,
-                    mock(net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService.class), new DictionaryFieldValueValidator(dictionaryItems), relations, protection, Optional.empty());
+                    mock(net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService.class), new DictionaryFieldValueValidator(dictionaryItems), relations, protection, Optional.empty(),
+                moduleFields);
         }
         @Bean MetadataFieldDefinitionCompiler fieldCompiler(FieldSpecService specs, MetadataFieldConfigService configs, MetadataFieldService fields, MetadataFieldProtectionConfigService protection) {
             return new MetadataFieldDefinitionCompiler(specs, configs,

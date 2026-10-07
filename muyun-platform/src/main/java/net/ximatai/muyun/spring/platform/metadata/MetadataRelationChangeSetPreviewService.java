@@ -121,7 +121,7 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan(metadata.getId(), metadata.getVersion(),
                 Set.copyOf(effective), command.capabilitySelections() != null && !command.capabilitySelections().isEmpty(),
                 List.copyOf(fieldMutations));
-        String fingerprint = fingerprint(plan);
+        String fingerprint = fingerprint(context, plan, savedFields);
         return new MetadataRelationChangeSetPreview(validModuleAlias, context.relation().getId(), metadata.getId(),
                 metadata.getVersion(), Set.copyOf(effective), List.copyOf(fieldImpacts), List.copyOf(schemaImpacts),
                 List.copyOf(warnings), List.copyOf(errors), fingerprint, plan);
@@ -442,31 +442,51 @@ public class MetadataRelationChangeSetPreviewService {
                                                             MetadataField existingField,
                                                             List<MetadataChangeSetValidationIssue> errors) {
         MetadataFieldPropertyChangeSetPlan binding = propertyBindingPlan(context, proposedField, draft, existingField, errors);
-        if (binding == null || draft.fixedDefault() == null) return binding;
+        if (draft != null && binding == null) return null;
+        MetadataFieldFixedDefaultDraft requested = draft == null ? null : draft.fixedDefault();
         try {
-            if (fieldConfigService == null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
-            if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
-                throw new IllegalArgumentException("引用初值应使用关联初始化，不能在此配置固定默认值。");
-            if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
-                throw new IllegalArgumentException("只有普通存储字段可配置固定默认值。");
+            if (fieldConfigService == null) {
+                if (requested != null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
+                return binding;
+            }
             ModuleMetadataField legacy = existingField == null || moduleFieldService == null ? null
                     : moduleFieldService.findByRelationAndField(context.relation().getId(), existingField.getId());
-            if (legacy != null && legacy.getDefaultValue() != null)
-                throw new IllegalArgumentException("当前初值由旧模块字段配置覆盖，请先迁移该配置。");
             MetadataFieldConfig base = existingField == null ? null : fieldConfigService.findByMetadataFieldId(existingField.getId());
             MetadataFieldConfig override = existingField == null ? null : fieldConfigService.findRelationOverride(existingField.getId(), context.relation().getId());
-            MetadataFieldConfig effective = override == null ? base : override;
-            if (!bindingVersionMatches(draft.fixedDefault().expectedConfigVersion(), effective))
-                throw new IllegalArgumentException("默认值配置版本已变化，请重新载入后预检。");
-            String value = draft.fixedDefault().value();
-            if (value != null && value.isBlank()) value = null;
-            if (value != null && value.length() > 512) throw new IllegalArgumentException("固定默认值最多 512 个字符。");
-            if (value == null && base != null && base.getDefaultValue() != null)
-                throw new IllegalArgumentException("此字段继承元数据默认值，当前入口不能清除继承初值。");
-            fieldConfigService.validateDefaultValueDraft(proposedField, base, override, value, binding.dictionaryConfig());
-            return new MetadataFieldPropertyChangeSetPlan(binding.kind(), binding.expectedBindingVersion(),
-                    binding.referenceConfig(), binding.dictionaryConfig(),
-                    new MetadataFieldFixedDefaultDraft(value, draft.fixedDefault().expectedConfigVersion()));
+            MetadataFieldConfig candidate = MetadataFieldConfig.copyRelationDeclarations(override);
+            if (binding != null && binding.dictionaryConfig() != null) {
+                candidate.setDictionaryApplicationAlias(binding.dictionaryConfig().getDictionaryApplicationAlias());
+                candidate.setDictionaryCategoryAlias(binding.dictionaryConfig().getDictionaryCategoryAlias());
+                candidate.setSelectionMode(binding.dictionaryConfig().getSelectionMode());
+            }
+            MetadataFieldFixedDefaultDraft normalized = null;
+            if (requested != null) {
+                if (binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE)
+                    throw new IllegalArgumentException("引用初值应使用关联初始化，不能在此配置固定默认值。");
+                if (proposedField.getFieldForm() != MetadataFieldForm.PHYSICAL)
+                    throw new IllegalArgumentException("只有普通存储字段可配置固定默认值。");
+                if (legacy != null && legacy.getDefaultValue() != null)
+                    throw new IllegalArgumentException("当前初值由旧模块字段配置覆盖，请先迁移该配置。");
+                MetadataFieldConfig effective = override == null ? base : override;
+                if (!bindingVersionMatches(requested.expectedConfigVersion(), effective))
+                    throw new IllegalArgumentException("默认值配置版本已变化，请重新载入后预检。");
+                String value = requested.value();
+                if (value != null && value.isBlank()) value = null;
+                if (value != null && value.length() > 512) throw new IllegalArgumentException("固定默认值最多 512 个字符。");
+                if (value == null && base != null && base.getDefaultValue() != null)
+                    throw new IllegalArgumentException("此字段继承元数据默认值，当前入口不能清除继承初值。");
+                candidate.setDefaultValue(value);
+                normalized = new MetadataFieldFixedDefaultDraft(value, requested.expectedConfigVersion());
+            }
+            // A field specification is shared; its base and every configured relation must remain valid.
+            if (existingField != null && (!java.util.Objects.equals(existingField.getFieldSpecAlias(), proposedField.getFieldSpecAlias())
+                    || Boolean.TRUE.equals(existingField.getRequired()) != Boolean.TRUE.equals(proposedField.getRequired()))) {
+                fieldConfigService.validateSharedFieldBehavior(proposedField, context.relation().getId(), candidate);
+            } else {
+                fieldConfigService.validateEffectiveBehavior(proposedField, base, candidate, legacy);
+            }
+            return binding == null ? null : new MetadataFieldPropertyChangeSetPlan(binding.kind(), binding.expectedBindingVersion(),
+                    binding.referenceConfig(), binding.dictionaryConfig(), normalized);
         } catch (RuntimeException exception) {
             error(errors, "INVALID_FIXED_DEFAULT", proposedField.getFieldName(), exception.getMessage());
             return null;
@@ -492,7 +512,9 @@ public class MetadataRelationChangeSetPreviewService {
         MetadataFieldReferenceConfig existingReference = existingField == null || referenceConfigService == null ? null
                 : referenceConfigService.findForRelation(existingField.getId(), context.relation().getId());
         MetadataFieldConfig existingDictionary = existingField == null || fieldConfigService == null ? null
-                : effectiveFieldConfig(existingField.getId(), context.relation().getId());
+                : MetadataFieldConfig.effectiveDictionaryConfig(
+                        fieldConfigService.findByMetadataFieldId(existingField.getId()),
+                        fieldConfigService.findRelationOverride(existingField.getId(), context.relation().getId()));
         boolean hasReference = existingReference != null;
         boolean hasDictionary = existingDictionary != null && existingDictionary.hasDictionaryBinding();
         if (hasReference && hasDictionary) {
@@ -550,11 +572,6 @@ public class MetadataRelationChangeSetPreviewService {
         ModuleMetadataField legacy = moduleFieldService.findByRelationAndField(relation.getId(), field.getId());
         return legacy != null && ((legacy.getReferenceModuleAlias() != null && !legacy.getReferenceModuleAlias().isBlank())
                 || (legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()));
-    }
-
-    private MetadataFieldConfig effectiveFieldConfig(String fieldId, String relationId) {
-        MetadataFieldConfig override = fieldConfigService.findRelationOverride(fieldId, relationId);
-        return override == null ? fieldConfigService.findByMetadataFieldId(fieldId) : override;
     }
 
     private boolean validateReferenceBinding(Context context, MetadataField field, MetadataFieldReferenceConfig config,
@@ -681,12 +698,19 @@ public class MetadataRelationChangeSetPreviewService {
         return result;
     }
 
-    private String fingerprint(MetadataRelationChangeSetPlan plan) {
+    private String fingerprint(Context context, MetadataRelationChangeSetPlan plan, List<MetadataField> savedFields) {
         List<String> facts = new ArrayList<>();
         facts.add(plan.metadataId() + "|" + plan.expectedMetadataVersion() + "|" + plan.replaceCapabilityDeclarations());
         plan.effectiveCapabilities().stream().sorted().forEach(capability -> facts.add("capability:" + capability));
         for (MetadataFieldChangeSetPlan mutation : plan.fieldMutations()) {
             MetadataField field = mutation.field();
+            if (mutation.fieldId() != null && fieldConfigService != null) {
+                MetadataField existing = savedFields.stream().filter(item -> mutation.fieldId().equals(item.getId())).findFirst().orElse(null);
+                boolean sharedChange = existing != null && (!java.util.Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                        || Boolean.TRUE.equals(existing.getRequired()) != Boolean.TRUE.equals(field.getRequired()));
+                fieldConfigService.behaviorBaseline(mutation.fieldId(), context.relation().getId(), sharedChange).forEach(fact ->
+                        facts.add("behaviorBaseline:" + mutation.fieldId() + "|" + fact));
+            }
             facts.add("field:" + mutation.operation() + "|" + mutation.fieldId() + "|" + mutation.expectedFieldVersion() + "|"
                     + field.getFieldName() + "|" + field.getColumnName() + "|" + field.getFieldSpecAlias() + "|"
                     + field.getTitle() + "|" + field.getRequired() + "|" + field.getUniqueField() + "|"

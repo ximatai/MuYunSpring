@@ -1,5 +1,6 @@
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
 import {
+  createUuid,
   OperationUsageError,
   parseEmptyAssistantCapabilityInput,
   emptyAssistantCapabilityInputSchema,
@@ -255,7 +256,7 @@ export function createModuleMenuWorkspace(
       const keyFor = (keys: Map<string, string>, id: string) => {
         const existing = [...keys].find(([, value]) => value === id)?.[0];
         if (existing) return existing;
-        const key = crypto.randomUUID();
+        const key = createUuid();
         keys.set(key, id);
         return key;
       };

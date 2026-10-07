@@ -11,6 +11,7 @@ import type {
   ConstructionPlanSummary,
 } from '@muyun/web-contracts';
 import {
+  createUuid,
   AppError,
   AssistantCapabilityUsageError,
   AssistantOperationRejectedError,
@@ -437,7 +438,7 @@ export function createConstructionPlanSession(
     manualEditing.value = false;
     state.value = {
       ...state.value,
-      planId: state.value.planId ?? crypto.randomUUID().replaceAll('-', ''),
+      planId: state.value.planId ?? createUuid().replaceAll('-', ''),
       candidate: content,
       reviewRequired: false,
       generation: state.value.generation + 1,
@@ -582,7 +583,7 @@ export function createConstructionPlanSession(
     const missing = content.inScope.length + content.rules.length + content.relationships.length - covered;
     const unsupported = bindings.filter((item) => item.mode === 'UNSUPPORTED');
     const manual = bindings.filter((item) => item.mode === 'MANUAL');
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const expectedRevision = before.saved?.revision ?? 0;
     const isCurrent = () => {
       current();

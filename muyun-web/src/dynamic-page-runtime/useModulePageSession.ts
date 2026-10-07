@@ -76,6 +76,7 @@ import type {
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
+  createUuid,
   AppError,
   AssistantOperationRejectedError,
   OperationUsageError,
@@ -3772,7 +3773,7 @@ export function useModulePageSession(
     record: QueryListRecord,
     mode: string,
     actionKey: string,
-    requestId = reliableRecordSaveAvailable.value ? crypto.randomUUID() : undefined,
+    requestId = reliableRecordSaveAvailable.value ? createUuid() : undefined,
   ) {
     if (detailActionBusy.value) throw new OperationRejectedError('已有保存尚未核实，请先查询结果');
     const scope = recordSaveScope.value;
@@ -4021,7 +4022,7 @@ export function useModulePageSession(
     const relationLines = review.relationLines;
     const snapshot = JSON.stringify(record);
     const definition = JSON.stringify(context.runtime.snapshot()?.uiDescriptor);
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const saveScope = recordSaveScope.value;
     let savedContinuation: { interaction: number; recordId: string } | undefined;
     const isCurrent = () =>

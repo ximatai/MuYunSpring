@@ -156,6 +156,7 @@ describe('ModulePageHost', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
     configureModulePageEnhancements([]);
     window.localStorage.removeItem('muyun.preference.module-page.detail-surface.crm.customer');
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
@@ -3582,9 +3583,20 @@ describe('ModulePageHost', () => {
     expect(content.props('record')).toMatchObject({ title: '新客户' });
   });
 
-  it.each(['STATIC', 'DYNAMIC'].flatMap((kind) => ['human', 'assistant'].map((entry) => [kind, entry])))(
-    'protects the captured standard %s draft and recovers a lost %s save without inventing a saved view',
-    async (moduleKind, entry) => {
+  it.each(
+    ['STATIC', 'DYNAMIC'].flatMap((kind) =>
+      ['human', 'assistant'].flatMap((entry) =>
+        [true, false].map((nativeUuid) => [kind, entry, nativeUuid] as const),
+      ),
+    ),
+  )(
+    'protects the captured standard %s draft and recovers a lost %s save (native UUID: %s)',
+    async (moduleKind, entry, nativeUuid) => {
+      if (!nativeUuid) {
+        vi.stubGlobal('crypto', {
+          getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+        });
+      }
       const writes: Array<{ payload: unknown; requestId: string | null; path: string }> = [];
       let lostResponse = false;
       let viewFails = false;
@@ -3864,7 +3876,9 @@ describe('ModulePageHost', () => {
         if (entry === 'human') await session.saveRecord();
         else await expect(uncertain.execute()).rejects.toBeDefined();
         expect(writes).toHaveLength(4);
-        expect(writes[3]?.requestId).toEqual(expect.any(String));
+        expect(writes[3]?.requestId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
         expect(session.recordSaveNeedsCheck).toBe(true);
         expect(session.placedPageActions).toContainEqual(expect.objectContaining({ title: '核实保存结果' }));
         await expect(session.prepareAssistantSave()).rejects.toBeDefined();

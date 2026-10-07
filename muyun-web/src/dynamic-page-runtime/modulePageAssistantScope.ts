@@ -1,4 +1,4 @@
-import { AssistantCapabilityUsageError } from '@muyun/web-core';
+import { createUuid, AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { flattenTreeRecords, type QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
@@ -236,7 +236,7 @@ function scopeSearchCapability(
                 candidate.scopeKey === scopeKey &&
                 candidate.revision === revision &&
                 String(candidate.record.id) === String(record.id),
-            )?.[0] ?? crypto.randomUUID(),
+            )?.[0] ?? createUuid(),
           record,
         }));
       context.commitInternalState(() => {

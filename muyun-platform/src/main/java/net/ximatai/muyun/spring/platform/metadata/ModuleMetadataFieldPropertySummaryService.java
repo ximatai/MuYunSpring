@@ -50,7 +50,8 @@ public class ModuleMetadataFieldPropertySummaryService {
         MetadataFieldConfig base = fieldConfigService.findByMetadataFieldId(field.getId());
         MetadataFieldConfig override = fieldConfigService.findRelationOverride(field.getId(), relation.getId());
         MetadataFieldConfig config = override == null ? base : override;
-        ModuleMetadataFieldPropertySummary property = propertySummary(field, relation, legacy, config);
+        ModuleMetadataFieldPropertySummary property = propertySummary(field, relation, legacy,
+                MetadataFieldConfig.effectiveDictionaryConfig(base, override));
         boolean legacyDefault = legacy != null && legacy.getDefaultValue() != null;
         String value = legacyDefault ? legacy.getDefaultValue() : MetadataFieldConfig.effectiveDefaultValue(base, override);
         return new ModuleMetadataFieldPropertySummary(property.fieldId(), property.fieldName(), property.fieldSpecAlias(),
