@@ -1,58 +1,77 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.ability.ApprovalAbility;
+import net.ximatai.muyun.spring.ability.ApprovalState;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
+/** Single dispatcher for static and metadata-backed approval summaries. */
 @Service
 public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSummaryWriter {
-    private final DynamicRecordService dynamicRecordService;
+    private final DynamicRecordService records;
+    private final Supplier<Stream<CrudAbility<?>>> abilities;
 
-    public DynamicWorkflowApprovalSummaryWriter(DynamicRecordService dynamicRecordService) {
-        this.dynamicRecordService = dynamicRecordService;
+    public DynamicWorkflowApprovalSummaryWriter(DynamicRecordService records) {
+        this(records, (Supplier<Stream<CrudAbility<?>>>) Stream::empty);
+    }
+
+    @Autowired
+    public DynamicWorkflowApprovalSummaryWriter(DynamicRecordService records, ObjectProvider<CrudAbility<?>> abilities) {
+        this(records, Objects.requireNonNull(abilities, "abilities")::orderedStream);
+    }
+
+    private DynamicWorkflowApprovalSummaryWriter(DynamicRecordService records, Supplier<Stream<CrudAbility<?>>> abilities) {
+        this.records = Objects.requireNonNull(records, "records");
+        this.abilities = abilities;
     }
 
     @Override
     public void writeSubmitted(WorkflowApprovalSummary summary) {
-        String entityAlias = dynamicRecordService.mainEntityAlias(summary.moduleAlias());
-        requireApprovalEntity(summary.moduleAlias(), entityAlias);
-        DynamicRecord record = requireRecord(summary.moduleAlias(), entityAlias, summary.recordId());
-        record.setApprovalInstanceId(summary.approvalInstanceId());
-        record.setApprovalStatus(summary.approvalStatus().getCode());
-        record.setApprovalSubmittedBy(summary.approvalSubmittedBy());
-        record.setApprovalSubmittedAt(summary.approvalSubmittedAt());
-        record.setApprovalCompletedAt(summary.approvalCompletedAt());
-        dynamicRecordService.updateSystem(summary.moduleAlias(), entityAlias, record, "workflow submit");
+        Objects.requireNonNull(summary, "summary");
+        write(summary.tenantId(), summary.moduleAlias(), summary.recordId(), new ApprovalState(
+                summary.approvalInstanceId(), Objects.requireNonNull(summary.approvalStatus(), "approvalStatus").getCode(),
+                summary.approvalSubmittedBy(), summary.approvalSubmittedAt(), summary.approvalCompletedAt()));
     }
 
     @Override
     public void clearCurrent(String moduleAlias, String recordId) {
-        String entityAlias = dynamicRecordService.mainEntityAlias(moduleAlias);
-        requireApprovalEntity(moduleAlias, entityAlias);
-        DynamicRecord record = requireRecord(moduleAlias, entityAlias, recordId);
-        record.setApprovalInstanceId(null);
-        record.setApprovalStatus(null);
-        record.setApprovalSubmittedBy(null);
-        record.setApprovalSubmittedAt(null);
-        record.setApprovalCompletedAt(null);
-        dynamicRecordService.updateSystem(moduleAlias, entityAlias, record, "workflow archive");
+        clearCurrent(TenantContext.currentTenantId().orElse(null), moduleAlias, recordId);
     }
 
-    private void requireApprovalEntity(String moduleAlias, String entityAlias) {
-        DynamicEntityDescriptor entity = dynamicRecordService.entityDescriptor(moduleAlias, entityAlias);
-        if (!entity.capabilities().contains(EntityCapability.APPROVAL.name())) {
-            throw new PlatformException("dynamic module does not support approval: " + moduleAlias);
-        }
+    @Override
+    public void clearCurrent(String tenantId, String moduleAlias, String recordId) {
+        write(tenantId, moduleAlias, recordId, ApprovalState.empty());
     }
 
-    private DynamicRecord requireRecord(String moduleAlias, String entityAlias, String recordId) {
-        DynamicRecord record = dynamicRecordService.selectSystem(moduleAlias, entityAlias, recordId);
-        if (record == null) {
-            throw new PlatformException("dynamic record not found: " + moduleAlias + "." + recordId);
+    private void write(String tenantId, String moduleAlias, String recordId, ApprovalState state) {
+        // The tenant comes from the instance, including background/admin execution. Never enter system mode.
+        try (var tenant = TenantContext.use(tenantId)) {
+            ActionExecutionPolicy policy = ActionExecutionContextHolder.current()
+                    .filter(context -> moduleAlias.equals(context.moduleAlias()))
+                    .filter(context -> !context.hasRecordContext() || context.recordIds().contains(recordId))
+                    .map(context -> context.actionPolicy()).orElse(PlatformAction.UPDATE.executionPolicy());
+            var service = abilities.get().filter(item -> moduleAlias.equals(item.getModuleAlias())).findFirst();
+            int updated;
+            if (service.isPresent()) {
+                if (!(service.get() instanceof ApprovalAbility<?> approval) || !approval.supportsApproval()) {
+                    throw new PlatformException("static module does not support approval: " + moduleAlias);
+                }
+                updated = approval.writeApprovalState(recordId, policy, state);
+            } else {
+                updated = records.writeApprovalState(moduleAlias, records.mainEntityAlias(moduleAlias), recordId, policy, state);
+            }
+            if (updated != 1) throw new PlatformException("approval business record not found: " + moduleAlias + "." + recordId);
         }
-        return record;
     }
 }

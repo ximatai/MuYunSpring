@@ -55,6 +55,9 @@ public class WorkflowNodeInstance extends StandardEntity {
     @Column(name = "route_mode", type = ColumnType.VARCHAR, length = 32, comment = "Branch route mode")
     private WorkflowRouteMode routeMode;
 
+    @Column(name = "converge_node_key", type = ColumnType.VARCHAR, length = 64, comment = "Paired converge node")
+    private String convergeNodeKey;
+
     @Column(name = "selector_node_key", type = ColumnType.VARCHAR, length = 64,
             comment = "Manual route selector source node key")
     private String selectorNodeKey;
@@ -108,6 +111,10 @@ public class WorkflowNodeInstance extends StandardEntity {
 
     @Column(name = "allow_reject", type = ColumnType.BOOLEAN, comment = "Allow reject")
     private Boolean allowReject;
+
+    @Column(name = "auto_approve_same_user", type = ColumnType.BOOLEAN, comment = "Opt-in same actor automatic approval")
+    private Boolean autoApproveSameUser;
+
 
     @Column(name = "require_reject_reason", type = ColumnType.BOOLEAN, comment = "Require reject reason")
     private Boolean requireRejectReason;

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
@@ -34,6 +36,7 @@ public class WorkflowRuntimeProgressionService {
     private final WorkflowRouteRuntimeService routeRuntimeService;
     private final WorkflowRuntimeTaskFactory taskFactory;
     private final WorkflowRuntimeEventFactory eventFactory;
+    private final ModuleRecordFacts facts;
     private final Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter;
     private final WorkflowManualRouteSelectionPolicy manualRouteSelectionPolicy = new WorkflowManualRouteSelectionPolicy();
 
@@ -49,7 +52,7 @@ public class WorkflowRuntimeProgressionService {
                                              WorkflowRouteRuntimeService routeRuntimeService,
                                              WorkflowRuntimeTaskFactory taskFactory,
                                              WorkflowRuntimeEventFactory eventFactory,
-                                             Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
+                                             Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter, ModuleRecordFacts facts) {
         this.instanceDao = instanceDao;
         this.nodeDao = nodeDao;
         this.routeDao = routeDao;
@@ -63,6 +66,7 @@ public class WorkflowRuntimeProgressionService {
         this.taskFactory = taskFactory;
         this.eventFactory = eventFactory;
         this.approvalSummaryWriter = approvalSummaryWriter;
+        this.facts = facts;
     }
 
     @Transactional
@@ -119,10 +123,12 @@ public class WorkflowRuntimeProgressionService {
         }
         manualRouteSelectionPolicy.requireCompletedBranchSelection(instance, nodes, tasks, completedNodeKey,
                 selectedInitialRoutes, manualRouteSelections, selectedRouteKey, selectedReason, operatorId);
+        var businessFacts = routes.stream().anyMatch(route -> route.getConditionExpression() != null && !route.getConditionExpression().isBlank())
+                ? facts.read(instance.getModuleAlias(), instance.getRecordId()) : java.util.Map.<String, Object>of();
         Map<String, Set<String>> selectedRouteKeysByBranch =
                 manualRouteSelectionPolicy.selectedRouteKeysByProgressionBranch(routes, nodes, graph, instance,
                         tasks, completedNodeKey, selectedInitialRoutes, manualRouteSelections, selectedRouteKey,
-                        selectedReason, operatorId);
+                        selectedReason, operatorId, businessFacts);
 
         List<WorkflowRouteInstance> droppedRoutes = dropUnselectedOutgoingRoutes(routes, completedNodeKey,
                 selectedInitialRoutes, operatorId, now);
@@ -136,29 +142,35 @@ public class WorkflowRuntimeProgressionService {
         for (WorkflowRouteInstance route : droppedRoutes) {
             events.add(eventFactory.routeDropped(instance, route, operatorId, now));
         }
-        Set<String> passedConvergeNodeKeys = handleConvergeArrivals(selectedInitialRoutes, routes, nodes, now);
-        WorkflowActivationResult activation = activationService.activate(new WorkflowActivationRequest(
+        Set<String> passedConvergeNodeKeys = new LinkedHashSet<>();
+        WorkflowActivationResult activation = new WorkflowActivationExecutor(activationService, nodeStateService,
+                routeStateService, routeRuntimeService).execute(new WorkflowActivationRequest(
                 graph,
                 selectedInitialRoutes.stream()
                         .map(route -> new WorkflowActivationTarget(route.getTargetNodeKey(), route.getId()))
                         .toList(),
                 selectedRouteKeysByBranch,
                 passedConvergeNodeKeys,
-                512
-        ));
+                512, businessFacts
+        ), nodes, routes, operatorId, now);
         applyManualBranchSelection(routes, selectedRouteKeysByBranch, manualRouteSelections, selectedRouteKey,
                 selectedReason, operatorId, now);
         instanceStateService.applyActivation(instance, activation, now);
         nodeStateService.applyActivation(nodes, activation, now);
         routeStateService.applyActivation(routes, activation, operatorId, now);
+        cancelDroppedPathTasks(instance, nodes, routes, tasks, operatorId, now, events);
+        var activeKeys = nodes.stream().filter(node -> node.getNodeStatus() == WorkflowNodeStatus.ACTIVE)
+                .map(WorkflowNodeInstance::getNodeKey).toList();
+        instance.setCurrentNodeKeys(String.join(",", activeKeys));
+        if (!activeKeys.isEmpty()) { instance.setInstanceStatus(WorkflowInstanceStatus.RUNNING); instance.setCompletedAt(null); }
         WorkflowRuntimeTaskDraft taskDraft = taskFactory.createBlockingTasks(instance, nodes, activation, operatorId, now);
         events.addAll(taskDraft.events());
-        if (activation.completed()) {
+        if (instance.getInstanceStatus() == WorkflowInstanceStatus.COMPLETED) {
             events.add(eventFactory.instanceCompleted(instance, operatorId, now));
         }
         if (activation.approvalCompleted()) {
             events.add(eventFactory.approvalCompleted(instance, operatorId, now));
-            writeApprovalSummary(instance);
+            writeApprovalSummary(instance, nodes.stream().anyMatch(node -> completedNodeKey.equals(node.getNodeKey()) && node.getNodeType() == WorkflowNodeType.TASK) ? "complete" : "approve");
         }
 
         persist(instance, nodes, routes, taskDraft.tasks(), events, now);
@@ -166,25 +178,38 @@ public class WorkflowRuntimeProgressionService {
                 droppedRoutes, taskDraft.tasks(), events, activation);
     }
 
-    private Set<String> handleConvergeArrivals(List<WorkflowRouteInstance> selectedRoutes,
-                                               List<WorkflowRouteInstance> allRoutes,
-                                               List<WorkflowNodeInstance> nodes,
-                                               Instant now) {
-        Map<String, WorkflowNodeInstance> nodesByKey = nodes.stream()
-                .collect(Collectors.toMap(WorkflowNodeInstance::getNodeKey, Function.identity(), (left, right) -> left));
-        Set<String> passed = new LinkedHashSet<>();
-        for (WorkflowRouteInstance route : selectedRoutes) {
-            WorkflowNodeInstance target = nodesByKey.get(route.getTargetNodeKey());
-            if (target == null || target.getNodeType() != WorkflowNodeType.CONVERGE) {
-                continue;
-            }
-            WorkflowConvergeDecision decision = routeRuntimeService.handleConvergeArrival(route, allRoutes,
-                    target.getConvergeMode(), target.getConvergeRatio(), now);
-            if (decision.passed()) {
-                passed.add(target.getNodeKey());
+    private void cancelDroppedPathTasks(WorkflowInstance instance, List<WorkflowNodeInstance> nodes,
+                                         List<WorkflowRouteInstance> routes, List<WorkflowTask> tasks,
+                                         String operator, Instant now, List<WorkflowEvent> events) {
+        var dropped = routes.stream().filter(route -> route.getRouteStatus() == WorkflowRouteStatus.DROPPED)
+                .map(WorkflowRouteInstance::getId).collect(Collectors.toSet());
+        if (dropped.isEmpty()) return;
+        Set<String> droppedNodes = new LinkedHashSet<>();
+        for (var route : routes) {
+            String path = route.getPathRouteId();
+            Set<String> visited = new java.util.HashSet<>();
+            while (path != null && visited.add(path)) {
+                if (dropped.contains(path)) { droppedNodes.add(route.getTargetNodeKey()); break; }
+                String current = path;
+                path = routes.stream().filter(item -> current.equals(item.getId())).map(WorkflowRouteInstance::getParentRouteId)
+                        .filter(java.util.Objects::nonNull).findFirst().orElse(null);
             }
         }
-        return passed;
+        for (var node : nodes) {
+            if (!droppedNodes.contains(node.getNodeKey()) || node.getNodeType() == WorkflowNodeType.CONVERGE) continue;
+            if (node.getNodeStatus() == WorkflowNodeStatus.ACTIVE || node.getNodeStatus() == WorkflowNodeStatus.WAITING) {
+                node.setNodeStatus(WorkflowNodeStatus.SKIPPED); node.setCompletedAt(now);
+            }
+                for (var task : tasks) {
+                    if (node.getId().equals(task.getNodeInstanceId()) && task.getTaskStatus() == WorkflowTaskStatus.TODO) {
+                        task.setTaskStatus(WorkflowTaskStatus.CANCELED); task.setCompletedAt(now);
+                        task.setDecision("route_dropped"); task.setResultMessage("汇聚已通过，当前分支停止办理");
+                        Integer version = task.getVersion(); EntityLifecycle.prepareUpdate(task, now);
+                        if (taskDao.updateByIdAndVersion(task, version) == 0) throw new OptimisticLockException("workflow task version conflict");
+                        events.add(eventFactory.taskCompleted(instance, task, "route_dropped", operator, task.getResultMessage(), now));
+                    }
+                }
+        }
     }
 
     private void persist(WorkflowInstance instance,
@@ -206,11 +231,13 @@ public class WorkflowRuntimeProgressionService {
         });
     }
 
-    private void writeApprovalSummary(WorkflowInstance instance) {
+    private void writeApprovalSummary(WorkflowInstance instance, String actionCode) {
         if (!Boolean.TRUE.equals(instance.getApprovalEnabled())) {
             return;
         }
-        approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+        WorkflowApprovalMutationScope.run(instance.getModuleAlias(), instance.getRecordId(), actionCode,
+                () -> approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                instance.getTenantId(),
                 instance.getModuleAlias(),
                 instance.getRecordId(),
                 instance.getId(),
@@ -218,36 +245,11 @@ public class WorkflowRuntimeProgressionService {
                 instance.getStartedBy(),
                 instance.getStartedAt(),
                 instance.getApprovalCompletedAt()
-        )));
+        ))));
     }
 
     private WorkflowRuntimeGraph graph(List<WorkflowNodeInstance> nodes, List<WorkflowRouteInstance> routes) {
-        return WorkflowRuntimeGraph.of(nodes.stream().map(this::nodeDefinition).toList(),
-                routes.stream().map(this::linkDefinition).toList());
-    }
-
-    private WorkflowNodeDefinition nodeDefinition(WorkflowNodeInstance node) {
-        WorkflowNodeDefinition definition = new WorkflowNodeDefinition();
-        definition.setNodeKey(node.getNodeKey());
-        definition.setNodeType(node.getNodeType());
-        definition.setApprovalMode(node.getApprovalMode());
-        definition.setApprovalRatio(node.getApprovalRatio());
-        definition.setMilestoneType(node.getMilestoneType());
-        definition.setConvergeMode(node.getConvergeMode());
-        definition.setConvergeRatio(node.getConvergeRatio());
-        definition.setRouteMode(node.getRouteMode());
-        definition.setSelectorNodeKey(node.getSelectorNodeKey());
-        definition.setRequireManualSelectionReason(node.getRequireManualSelectionReason());
-        return definition;
-    }
-
-    private WorkflowLinkDefinition linkDefinition(WorkflowRouteInstance route) {
-        WorkflowLinkDefinition link = new WorkflowLinkDefinition();
-        link.setRouteKey(route.getRouteKey());
-        link.setSourceNodeKey(route.getSourceNodeKey());
-        link.setTargetNodeKey(route.getTargetNodeKey());
-        link.setDefaultRoute(route.getDefaultRoute());
-        return link;
+        return WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
     }
 
     private List<WorkflowRouteInstance> selectOutgoingRoutes(List<WorkflowRouteInstance> routes,
@@ -334,11 +336,14 @@ public class WorkflowRuntimeProgressionService {
         for (Map.Entry<String, Set<String>> entry : selectedRouteKeysByBranch.entrySet()) {
             for (WorkflowRouteInstance route : routes) {
                 if (!entry.getKey().equals(route.getSourceNodeKey())
-                        || route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE) {
+                        || (route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE
+                        && route.getRouteStatus() != WorkflowRouteStatus.EFFECTIVE
+                        && route.getRouteStatus() != WorkflowRouteStatus.CLOSED
+                        && route.getRouteStatus() != WorkflowRouteStatus.DROPPED)) {
                     continue;
                 }
                 if (entry.getValue().contains(route.getRouteKey())) {
-                    routeRuntimeService.effectiveRoute(route, WorkflowRouteReason.MANUAL_SELECTED, operatorId, now,
+                    routeRuntimeService.recordManualSelection(route, operatorId, now,
                             selectedReasonForRoute(route, WorkflowRouteReason.MANUAL_SELECTED,
                                     manualRouteSelections, selectedRouteKey, selectedReason));
                 } else {

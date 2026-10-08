@@ -7,6 +7,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowParticipantPolicyCodecTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     @Test
     void shouldParseLegacyAndJsonUserPolicies() {
         assertThat(WorkflowParticipantPolicyCodec.parse("user:approver-1", "approve").userIds())
@@ -28,15 +33,15 @@ class WorkflowParticipantPolicyCodecTest {
     }
 
     @Test
-    void shouldRejectUnsupportedParticipantTypes() {
+    void shouldResolveIdentityPoliciesThroughAdaptersAndRejectUnsupportedLegacySyntax() {
         assertThatThrownBy(() -> WorkflowParticipantPolicyCodec.parse("""
                 {"rules":[{"type":"ROLE","targetId":"finance"}]}
                 """, "approve"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("only supports user:<userId>");
+                .hasMessageContaining("identity resolution");
         assertThatThrownBy(() -> WorkflowParticipantPolicyCodec.parse("role:finance", "approve"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("only supports user:<userId>");
+                .hasMessageContaining("unsupported workflow participant policy");
     }
 
     @Test

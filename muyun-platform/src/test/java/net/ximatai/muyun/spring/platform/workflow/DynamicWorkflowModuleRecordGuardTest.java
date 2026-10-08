@@ -21,6 +21,11 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class DynamicWorkflowModuleRecordGuardTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
     private final DynamicWorkflowModuleRecordGuard guard = new DynamicWorkflowModuleRecordGuard(dynamicRecordService);
 

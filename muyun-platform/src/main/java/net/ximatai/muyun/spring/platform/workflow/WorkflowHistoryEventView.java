@@ -107,7 +107,7 @@ public record WorkflowHistoryEventView(
         if (sourceNodeKey != null || addSignRoute || (event != null && event.getEventType() == WorkflowEventType.ADD_SIGN)) {
             WorkflowNodeInstance sourceNode = sourceNodeKey == null ? null : nodesByKey.get(sourceNodeKey);
             return new AddSignExplanation(ORIGIN_TYPE_ADD_SIGN, addSignRoute, sourceNodeKey,
-                    sourceNode == null ? sourceNodeKey : sourceNode.getNodeKey());
+                    sourceNode == null ? sourceNodeKey : (sourceNode.getNodeTitle() == null ? sourceNodeKey : sourceNode.getNodeTitle()));
         }
         return new AddSignExplanation(ORIGIN_TYPE_DEFINITION, Boolean.FALSE, null, null);
     }

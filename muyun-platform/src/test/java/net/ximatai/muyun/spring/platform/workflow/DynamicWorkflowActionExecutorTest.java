@@ -20,6 +20,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DynamicWorkflowActionExecutorTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowModuleSubmitService submitService = mock(WorkflowModuleSubmitService.class);
     private final WorkflowTaskActionFacade taskActionFacade = mock(WorkflowTaskActionFacade.class);
     private final WorkflowInstanceActionFacade instanceActionFacade = mock(WorkflowInstanceActionFacade.class);

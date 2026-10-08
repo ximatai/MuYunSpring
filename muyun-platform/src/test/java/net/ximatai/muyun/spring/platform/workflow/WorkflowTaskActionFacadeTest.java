@@ -12,6 +12,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowTaskActionFacadeTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowTaskActionService actionService = mock(WorkflowTaskActionService.class);
     private final WorkflowTaskActionAvailabilityService availabilityService =
             mock(WorkflowTaskActionAvailabilityService.class);

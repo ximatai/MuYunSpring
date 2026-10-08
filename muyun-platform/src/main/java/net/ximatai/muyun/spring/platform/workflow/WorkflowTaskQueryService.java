@@ -31,7 +31,7 @@ public class WorkflowTaskQueryService {
 
     public List<WorkflowTask> myTodo(String assigneeId, PageRequest pageRequest) {
         String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 new PageRequest(0, Integer.MAX_VALUE), Sort.asc("dueAt"), Sort.desc("createdAt"))
                 .stream()
@@ -44,7 +44,7 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> myDone(String processorId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("actualProcessorId", requireText(processorId, "workflow processor id must not be blank"))
                         .in("taskStatus", List.of(WorkflowTaskStatus.DONE, WorkflowTaskStatus.REJECTED,
                                 WorkflowTaskStatus.ROLLED_BACK, WorkflowTaskStatus.NOTICED,
@@ -53,7 +53,7 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> myNotice(String assigneeId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("assigneeId", requireText(assigneeId, "workflow assignee id must not be blank"))
                         .eq("taskKind", WorkflowTaskKind.NOTICE)
                         .in("taskStatus", List.of(WorkflowTaskStatus.TODO, WorkflowTaskStatus.NOTICED)),
@@ -61,13 +61,13 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> instanceTasks(String instanceId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", requireText(instanceId, "workflow instance id must not be blank")),
                 page(pageRequest), Sort.asc("createdAt"));
     }
 
     public List<WorkflowEvent> instanceEvents(String instanceId, PageRequest pageRequest) {
-        return eventDao.query(Criteria.of()
+        return eventDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", requireText(instanceId, "workflow instance id must not be blank")),
                 page(pageRequest), Sort.asc("occurredAt"), Sort.asc("createdAt"));
     }

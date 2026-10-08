@@ -5,4 +5,8 @@ public interface WorkflowApprovalSummaryWriter {
 
     default void clearCurrent(String moduleAlias, String recordId) {
     }
+
+    default void clearCurrent(String tenantId, String moduleAlias, String recordId) {
+        clearCurrent(moduleAlias, recordId);
+    }
 }

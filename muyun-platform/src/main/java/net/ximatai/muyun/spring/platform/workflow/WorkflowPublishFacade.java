@@ -19,22 +19,20 @@ public class WorkflowPublishFacade {
     private final WorkflowVersionService versionService;
     private final WorkflowModuleActionContributor actionContributor;
     private final WorkflowNodeDefinitionDao nodeDefinitionDao;
+    private final WorkflowDesignService designs;
+    private final WorkflowDesignCompiler compiler;
 
-    public WorkflowPublishFacade(WorkflowDefinitionService definitionService,
-                                 WorkflowVersionService versionService,
-                                 WorkflowModuleActionContributor actionContributor) {
-        this(definitionService, versionService, actionContributor, null);
-    }
-
-    @Autowired
     public WorkflowPublishFacade(WorkflowDefinitionService definitionService,
                                  WorkflowVersionService versionService,
                                  WorkflowModuleActionContributor actionContributor,
-                                 WorkflowNodeDefinitionDao nodeDefinitionDao) {
+                                 WorkflowNodeDefinitionDao nodeDefinitionDao,
+                                 WorkflowDesignService designs, WorkflowDesignCompiler compiler) {
         this.definitionService = definitionService;
         this.versionService = versionService;
         this.actionContributor = actionContributor;
         this.nodeDefinitionDao = nodeDefinitionDao;
+        this.designs = designs;
+        this.compiler = compiler;
     }
 
     @Transactional
@@ -45,6 +43,8 @@ public class WorkflowPublishFacade {
     @Transactional
     public WorkflowVersion publish(String definitionId, String versionId, Integer expectedDefinitionVersion,
                                    Integer expectedWorkflowVersion, String operatorId) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition("workflow.definition",
+                net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse("system") + ":" + definitionId);
         WorkflowDefinition definition = requireDefinition(definitionId);
         WorkflowVersion version = requireVersion(versionId);
         requireExpectedVersion(definition, expectedDefinitionVersion, "workflow definition");
@@ -52,9 +52,19 @@ public class WorkflowPublishFacade {
         if (!definition.getId().equals(version.getDefinitionId())) {
             throw new PlatformException("workflow version does not belong to definition: " + versionId);
         }
-        validateOvertimeDefinitions(version);
         if (version.getPublishStatus() != WorkflowPublishStatus.PUBLISHED) {
+        var design = designs.validate(definitionId, versionId);
+        validateOvertimeDefinitions(version);
+        for (var node : design.nodes()) {
+            Integer expectedNodeVersion = node.getVersion();
+            net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareUpdate(node, Instant.now());
+            if (nodeDefinitionDao.updateByIdAndVersion(node, expectedNodeVersion) == 0)
+                throw new OptimisticLockException("workflow node changed while publishing: " + node.getNodeKey());
+        }
             WorkflowVersion publishing = copyVersion(version);
+            publishing.setSnapshotText(compiler.serialize(design));
+            publishing.setSemanticJson(compiler.serialize(design));
+            publishing.setLayoutJson(design.layoutJson());
             publishing.setPublishStatus(WorkflowPublishStatus.PUBLISHED);
             publishing.setPublishedBy(operatorId == null || operatorId.isBlank() ? null : operatorId);
             publishing.setPublishedAt(Instant.now());

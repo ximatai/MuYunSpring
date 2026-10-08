@@ -17,15 +17,21 @@ public class WorkflowDefinitionSelector {
     private final WorkflowVersionService versionService;
     private final WorkflowNodeDefinitionDao nodeDefinitionDao;
     private final WorkflowLinkDefinitionDao linkDefinitionDao;
+    private final WorkflowConditionService conditions;
+    private final java.util.Optional<net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService> organizations;
 
     public WorkflowDefinitionSelector(WorkflowDefinitionService definitionService,
                                       WorkflowVersionService versionService,
                                       WorkflowNodeDefinitionDao nodeDefinitionDao,
-                                      WorkflowLinkDefinitionDao linkDefinitionDao) {
+                                      WorkflowLinkDefinitionDao linkDefinitionDao,
+                                      WorkflowConditionService conditions,
+                                      java.util.Optional<net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService> organizations) {
         this.definitionService = definitionService;
         this.versionService = versionService;
         this.nodeDefinitionDao = nodeDefinitionDao;
         this.linkDefinitionDao = linkDefinitionDao;
+        this.conditions = conditions;
+        this.organizations = organizations;
     }
 
     public WorkflowDefinitionSelection select(WorkflowSubmitRequest request) {
@@ -41,21 +47,43 @@ public class WorkflowDefinitionSelector {
         } else if (!request.approvalRequired()) {
             throw new PlatformException("workflow definition alias is required for non-approval workflow");
         }
-        List<WorkflowDefinition> definitions = definitionService.list(criteria, ALL,
-                Sort.asc("sortOrder"), Sort.asc("alias"));
-        if (definitions.isEmpty()) {
-            throw new PlatformException("published workflow definition not found: " + moduleAlias);
+        String tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse(null);
+        List<WorkflowDefinition> definitions;
+        try (var definitionScope = net.ximatai.muyun.spring.common.tenant.TenantContext.system("workflow published definition selection")) {
+            definitions = definitionService.list(criteria, ALL, Sort.asc("sortOrder"), Sort.asc("alias"))
+                    .stream().filter(item -> item.getTenantId() == null || java.util.Objects.equals(item.getTenantId(), tenant)).toList();
         }
-        if (request.approvalRequired() && !hasDefinitionAlias && definitions.size() > 1) {
-            throw new PlatformException("multiple approval workflow definitions matched: " + moduleAlias);
-        }
-        WorkflowDefinition definition = definitions.getFirst();
+        WorkflowDefinition definition = match(definitions, request);
         WorkflowVersion version = publishedVersion(definition);
         List<WorkflowNodeDefinition> nodes = nodeDefinitionDao.query(
                 Criteria.of().eq("workflowVersionId", version.getId()), ALL, Sort.asc("sortOrder"));
         List<WorkflowLinkDefinition> links = linkDefinitionDao.query(
                 Criteria.of().eq("workflowVersionId", version.getId()), ALL, Sort.asc("sortOrder"));
         return new WorkflowDefinitionSelection(definition, version, nodes, links);
+    }
+
+    private WorkflowDefinition match(List<WorkflowDefinition> definitions, WorkflowSubmitRequest request) {
+        java.util.List<String> scopes = new java.util.ArrayList<>();
+        if (request.authOrgId() != null) {
+            scopes.addAll(organizations.map(service -> service.organizationIdsFromSelfToRoot(request.authOrgId()))
+                    .orElse(java.util.List.of(request.authOrgId())));
+        }
+        scopes.add(null);
+        for (String organizationId : scopes) {
+            var candidates = definitions.stream()
+                    .filter(item -> java.util.Objects.equals(item.getOrganizationId(), organizationId))
+                    .toList();
+            var matched = candidates.stream().filter(item -> !Boolean.TRUE.equals(item.getDefaultDefinition()))
+                    .filter(item -> conditions.matches(item.getMatchExpression(), request.moduleAlias(), request.recordId()))
+                    .toList();
+            if (matched.isEmpty()) matched = candidates.stream().filter(item -> Boolean.TRUE.equals(item.getDefaultDefinition())).toList();
+            if (matched.isEmpty()) continue;
+            int priority = matched.stream().mapToInt(item -> item.getMatchPriority() == null ? 0 : item.getMatchPriority()).max().orElse(0);
+            var winners = matched.stream().filter(item -> (item.getMatchPriority() == null ? 0 : item.getMatchPriority()) == priority).toList();
+            if (winners.size() != 1) throw new PlatformException("multiple approval workflow definitions matched: " + request.moduleAlias());
+            return winners.getFirst();
+        }
+        throw new PlatformException("published workflow definition not found: " + request.moduleAlias());
     }
 
     private WorkflowVersion publishedVersion(WorkflowDefinition definition) {
@@ -65,7 +93,10 @@ public class WorkflowDefinitionSelector {
         if (definition.getCurrentVersionNo() != null) {
             criteria.eq("versionNo", definition.getCurrentVersionNo());
         }
-        List<WorkflowVersion> versions = versionService.list(criteria, ALL, Sort.desc("versionNo"));
+        List<WorkflowVersion> versions;
+        try (var definitionScope = net.ximatai.muyun.spring.common.tenant.TenantContext.system("workflow published definition selection")) {
+            versions = versionService.list(criteria, ALL, Sort.desc("versionNo"));
+        }
         if (versions.isEmpty()) {
             throw new PlatformException("published workflow version not found: " + definition.getAlias());
         }

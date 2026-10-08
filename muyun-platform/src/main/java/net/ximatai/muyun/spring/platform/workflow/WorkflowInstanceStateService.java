@@ -29,7 +29,9 @@ public class WorkflowInstanceStateService {
             throw new PlatformException("workflow version number must be positive");
         }
         instance.setVersionNo(version.getVersionNo());
-        instance.setTenantId(definition.getTenantId());
+        instance.setTenantId(definition.getTenantId() == null
+                ? net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse(null)
+                : definition.getTenantId());
         instance.setModuleAlias(PlatformNameRules.requireModuleAlias(definition.getModuleAlias()));
         instance.setRecordId(requireText(recordId, "workflow record id must not be blank"));
         instance.setAuthOrgId(authOrgId == null || authOrgId.isBlank() ? null : authOrgId.trim());

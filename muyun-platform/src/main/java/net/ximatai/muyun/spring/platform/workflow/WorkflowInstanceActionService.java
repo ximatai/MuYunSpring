@@ -302,7 +302,8 @@ public class WorkflowInstanceActionService {
     private WorkflowInstance requireExistingInstance(WorkflowInstanceActionRequest request) {
         String instanceId = requireText(request == null ? null : request.instanceId(),
                 "workflow instance id must not be blank");
-        WorkflowInstance instance = instanceDao.findById(instanceId);
+        WorkflowMutationLock.instance(instanceId);
+        WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(instanceId));
         if (instance == null) {
             throw new PlatformException("workflow instance not found: " + instanceId);
         }
@@ -367,7 +368,10 @@ public class WorkflowInstanceActionService {
         if (!Boolean.TRUE.equals(instance.getApprovalEnabled())) {
             return;
         }
-        approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+        String actionCode = "resubmit_return_to_me".equals(instance.getLastActionCode()) ? "resubmit" : instance.getLastActionCode();
+        WorkflowApprovalMutationScope.run(instance.getModuleAlias(), instance.getRecordId(), actionCode,
+                () -> approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                instance.getTenantId(),
                 instance.getModuleAlias(),
                 instance.getRecordId(),
                 instance.getId(),
@@ -375,14 +379,15 @@ public class WorkflowInstanceActionService {
                 instance.getStartedBy(),
                 instance.getStartedAt(),
                 instance.getApprovalCompletedAt()
-        )));
+        ))));
     }
 
     private void archiveAndReleaseApproval(WorkflowInstance instance, WorkflowArchiveReason archiveReason,
                                            Instant archivedAt) {
         archiveService.archiveCurrentInstance(instance, archiveReason, archivedAt);
         if (Boolean.TRUE.equals(instance.getApprovalEnabled())) {
-            approvalSummaryWriter.ifPresent(writer -> writer.clearCurrent(instance.getModuleAlias(), instance.getRecordId()));
+            WorkflowApprovalMutationScope.run(instance.getModuleAlias(), instance.getRecordId(), instance.getLastActionCode(),
+                    () -> approvalSummaryWriter.ifPresent(writer -> writer.clearCurrent(instance.getTenantId(), instance.getModuleAlias(), instance.getRecordId())));
         }
     }
 

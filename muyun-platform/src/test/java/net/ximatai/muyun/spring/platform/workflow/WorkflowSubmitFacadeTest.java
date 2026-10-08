@@ -15,6 +15,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowSubmitFacadeTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowDefinitionSelector selector = mock(WorkflowDefinitionSelector.class);
     private final WorkflowRuntimeSubmitService runtimeSubmitService = mock(WorkflowRuntimeSubmitService.class);
     private final WorkflowApprovalSummaryWriter writer = mock(WorkflowApprovalSummaryWriter.class);

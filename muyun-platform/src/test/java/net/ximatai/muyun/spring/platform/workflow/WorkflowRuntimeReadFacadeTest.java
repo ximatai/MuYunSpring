@@ -10,11 +10,13 @@ import org.mockito.InOrder;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -22,6 +24,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowRuntimeReadFacadeTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowNodeInstanceDao nodeDao = mock(WorkflowNodeInstanceDao.class);
@@ -30,8 +37,10 @@ class WorkflowRuntimeReadFacadeTest {
     private final WorkflowTaskActionAvailabilityService availabilityService =
             mock(WorkflowTaskActionAvailabilityService.class);
     private final WorkflowActionPolicyService actionPolicyService = mock(WorkflowActionPolicyService.class);
+    private final ModuleRecordFacts facts = mock(ModuleRecordFacts.class);
+    private final WorkflowConditionService conditions = new WorkflowConditionService(facts);
     private final WorkflowRuntimeReadFacade facade = new WorkflowRuntimeReadFacade(
-            instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService);
+            instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService, conditions);
 
     @Test
     void shouldLoadRuntimeRenderBundle() {
@@ -103,6 +112,165 @@ class WorkflowRuntimeReadFacadeTest {
         assertThat(view.candidates().getFirst().defaultRoute()).isFalse();
         assertThat(view.candidates().get(1).defaultRoute()).isTrue();
         verify(actionPolicyService).requireRecordView(instance);
+    }
+
+    @Test
+    void undecidedManualCandidatesUseCurrentFactsAndFrozenReadableRouteTitles() {
+        var instance = instance("instance-1");
+        instance.setSemanticJson("{\"links\":[{\"routeKey\":\"large\",\"title\":\"大额采购\"}]}");
+        var manual = branch("manual", "purchaseKind", WorkflowRouteMode.MANUAL, "approve", true,
+                "2026-06-05T01:00:00Z");
+        manual.setNodeTitle("采购分类");
+        var manager = node("manager", "manager"); manager.setNodeTitle("经理审批");
+        var ordinary = node("ordinary", "ordinary"); ordinary.setNodeTitle("普通审批");
+        var large = route("large", "large", "purchaseKind", "manager", WorkflowRouteStatus.CANDIDATE,
+                false, "2026-06-05T01:01:00Z");
+        large.setConditionExpression("{amount} >= 100"); large.setConditionMatched(false);
+        var fallback = route("fallback", "default", "purchaseKind", "ordinary", WorkflowRouteStatus.CANDIDATE,
+                true, "2026-06-05T01:02:00Z");
+        fallback.setConditionExpression("broken default expression is ignored");
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(nodeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                .thenReturn(List.of(manual, manager, ordinary));
+        when(routeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                .thenReturn(List.of(large, fallback));
+        when(facts.read("sales.contract", "record-1")).thenReturn(Map.of("amount", 200));
+
+        var view = facade.manualBranchCandidates("instance-1").getFirst();
+
+        assertThat(view.branchTitle()).isEqualTo("采购分类");
+        assertThat(view.candidates().getFirst().title()).isEqualTo("大额采购");
+        assertThat(view.candidates().getFirst().targetNodeTitle()).isEqualTo("经理审批");
+        assertThat(view.candidates().getFirst().conditionMatched()).isTrue();
+        assertThat(view.candidates().getFirst().recommended()).isTrue();
+        assertThat(view.candidates().get(1).title()).isEqualTo("普通审批");
+        assertThat(view.candidates().get(1).conditionMatched()).isFalse();
+        assertThat(view.candidates().get(1).recommended()).isFalse();
+        assertThat(large.getConditionMatched()).isFalse(); // Advice never changes the frozen execution fact.
+        var order = inOrder(actionPolicyService, facts);
+        order.verify(actionPolicyService).requireRecordView(instance);
+        order.verify(facts).read("sales.contract", "record-1");
+
+        when(facts.read("sales.contract", "record-1")).thenReturn(Map.of("amount", 20));
+        var revised = facade.manualBranchCandidates("instance-1").getFirst().candidates();
+        assertThat(revised.getFirst().conditionMatched()).isFalse();
+        assertThat(revised.get(1).recommended()).isTrue();
+
+        large.setConditionExpression("{amount} >");
+        var invalid = facade.manualBranchCandidates("instance-1").getFirst().candidates();
+        assertThat(invalid.getFirst().conditionMatched()).isNull();
+        assertThat(invalid).allMatch(candidate -> !candidate.recommended());
+    }
+
+    @Test
+    void decidedManualRoutesKeepFrozenConditionFactsWithoutReadingBusinessAgain() {
+        var instance = instance("instance-1"); instance.setSemanticJson("invalid old snapshot");
+        var manual = branch("manual", "manualBranch", WorkflowRouteMode.MANUAL, "approve", true,
+                "2026-06-05T01:00:00Z");
+        var target = node("target", "target"); target.setNodeTitle("已选目标");
+        var selected = route("selected", "selected", "manualBranch", "target", WorkflowRouteStatus.EFFECTIVE,
+                false, "2026-06-05T01:01:00Z");
+        selected.setConditionExpression("broken condition must not be reevaluated"); selected.setConditionMatched(true);
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(nodeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(manual, target));
+        when(routeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(selected));
+
+        var candidate = facade.manualBranchCandidates("instance-1").getFirst().candidates().getFirst();
+
+        assertThat(candidate.title()).isEqualTo("已选目标");
+        assertThat(candidate.conditionMatched()).isTrue();
+        assertThat(candidate.recommended()).isFalse();
+        verifyNoInteractions(facts);
+    }
+
+    @Test
+    void runtimeCandidatePermissionsPrecedeBusinessFactAndGraphReads() {
+        var instance = instance("instance-1");
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        doThrow(new PlatformException("view denied")).when(actionPolicyService).requireRecordView(instance);
+        assertThatThrownBy(() -> facade.manualBranchCandidates("instance-1")).hasMessage("view denied");
+        verifyNoInteractions(facts, nodeDao, routeDao);
+    }
+
+    @Test
+    void runtimeTaskChoicesFollowAutoFactsAndAdvanceConsecutiveManualFrontiersWithoutMutatingRuntime() {
+        var instance = instance("instance-1");
+        var approve = node("node-1", "approve");
+        var automatic = branch("auto", "auto", WorkflowRouteMode.AUTO, null, false, "2026-06-05T01:00:00Z");
+        automatic.setNodeStatus(WorkflowNodeStatus.WAITING);
+        var first = branch("first", "first", WorkflowRouteMode.MANUAL, "approve", false, "2026-06-05T01:01:00Z");
+        first.setNodeStatus(WorkflowNodeStatus.WAITING);
+        var next = branch("next", "next", WorkflowRouteMode.MANUAL, "approve", false, "2026-06-05T01:02:00Z");
+        next.setNodeStatus(WorkflowNodeStatus.WAITING);
+        var unreachable = branch("unreachable", "unreachable", WorkflowRouteMode.MANUAL, "approve", false, "2026-06-05T01:03:00Z");
+        unreachable.setNodeStatus(WorkflowNodeStatus.WAITING);
+        var target = node("target", "target"); target.setNodeStatus(WorkflowNodeStatus.WAITING);
+        var initial = route("initial", "initial", "approve", "auto", WorkflowRouteStatus.CANDIDATE, false, "2026-06-05T01:00:00Z");
+        var match = route("match", "match", "auto", "first", WorkflowRouteStatus.CANDIDATE, false, "2026-06-05T01:01:00Z");
+        match.setConditionExpression("{amount} >= 100");
+        var fallback = route("fallback", "fallback", "auto", "unreachable", WorkflowRouteStatus.CANDIDATE, true, "2026-06-05T01:02:00Z");
+        var firstChoice = route("firstChoice", "firstChoice", "first", "next", WorkflowRouteStatus.CANDIDATE, false, "2026-06-05T01:03:00Z");
+        var nextChoice = route("nextChoice", "nextChoice", "next", "target", WorkflowRouteStatus.CANDIDATE, false, "2026-06-05T01:04:00Z");
+        var unreachableChoice = route("unreachableChoice", "unreachableChoice", "unreachable", "target", WorkflowRouteStatus.CANDIDATE, false, "2026-06-05T01:05:00Z");
+        var task = task("task-1", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(taskDao.findById("task-1")).thenReturn(task);
+        when(nodeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                .thenReturn(List.of(approve, automatic, first, next, unreachable, target));
+        when(routeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class)))
+                .thenReturn(List.of(initial, match, fallback, firstChoice, nextChoice, unreachableChoice));
+        when(taskDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(task));
+        when(facts.read("sales.contract", "record-1")).thenReturn(Map.of("amount", 200));
+
+        assertThat(facade.manualBranchCandidates("instance-1")).extracting(WorkflowManualBranchCandidateView::branchNodeKey)
+                .containsExactly("first");
+        assertThat(facade.manualBranchCandidatePrechecks("instance-1", "user-1"))
+                .extracting(WorkflowManualBranchCandidatePrecheckView::branchNodeKey).containsExactly("first");
+        assertThat(facade.manualBranchCandidates("instance-1", "task-1", List.of(), "user-1"))
+                .extracting(WorkflowManualBranchCandidateView::branchNodeKey).containsExactly("first");
+        var expanded = facade.manualBranchCandidates("instance-1", "task-1",
+                List.of(new WorkflowManualRouteSelection("first", "firstChoice", null)), "user-1");
+        assertThat(expanded).extracting(WorkflowManualBranchCandidateView::branchNodeKey).containsExactly("first", "next");
+        assertThat(expanded.getFirst().selectionPending()).isFalse();
+        assertThat(expanded.get(1).selectionPending()).isTrue();
+        assertThat(task.getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
+        assertThat(approve.getNodeStatus()).isEqualTo(WorkflowNodeStatus.ACTIVE);
+        assertThat(first.getNodeStatus()).isEqualTo(WorkflowNodeStatus.WAITING);
+        assertThat(firstChoice.getRouteStatus()).isEqualTo(WorkflowRouteStatus.CANDIDATE);
+    }
+
+    @Test
+    void aNonFinalVoteDoesNotRequireLaterManualChoicesOrReadBusinessFacts() {
+        var instance = instance("instance-1");
+        var approve = node("node-1", "approve"); approve.setApprovalMode(WorkflowApprovalMode.ALL);
+        var first = task("task-1", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        var other = task("task-2", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(taskDao.findById("task-1")).thenReturn(first);
+        when(nodeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(approve));
+        when(routeDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of());
+        when(taskDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class))).thenReturn(List.of(first, other));
+
+        assertThat(facade.manualBranchCandidates("instance-1", "task-1", List.of(), "user-1")).isEmpty();
+        verifyNoInteractions(facts);
+        assertThat(first.getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
+    }
+
+    @Test
+    void taskPlanningRejectsForeignTasksAndUnauthorizedOperatorsBeforeFactAccess() {
+        var instance = instance("instance-1");
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        var foreign = task("foreign", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        foreign.setInstanceId("other-instance");
+        when(taskDao.findById("foreign")).thenReturn(foreign);
+        assertThatThrownBy(() -> facade.manualBranchCandidates("instance-1", "foreign", List.of(), "user-1"))
+                .hasMessageContaining("does not belong");
+        var task = task("task-1", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        when(taskDao.findById("task-1")).thenReturn(task);
+        doThrow(new PlatformException("operator denied")).when(actionPolicyService).requireTaskOperator(task, "approve", "user-1");
+        assertThatThrownBy(() -> facade.manualBranchCandidates("instance-1", "task-1", List.of(), "user-1"))
+                .hasMessage("operator denied");
+        verifyNoInteractions(facts, nodeDao, routeDao);
     }
 
     @Test
@@ -934,6 +1102,32 @@ class WorkflowRuntimeReadFacadeTest {
         assertThat(views.getFirst().addSignSourceNodeName()).isEqualTo("approve");
     }
 
+    @Test
+    void protectedTitleSearchOwnsExactTotalAndStablePages() {
+        var first = task("task-a", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        var second = task("task-b", WorkflowTaskKind.BUSINESS, WorkflowTaskStatus.TODO);
+        var denied = task("task-secret", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
+        denied.setInstanceId("instance-secret");
+        first.setCreatedAt(Instant.parse("2026-06-05T01:00:00Z")); second.setCreatedAt(first.getCreatedAt()); denied.setCreatedAt(first.getCreatedAt());
+        when(taskDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class), any(Sort.class))).thenReturn(List.of(second, denied, first));
+        when(instanceDao.findById("instance-1")).thenReturn(instance("instance-1"));
+        var restricted = instance("instance-secret");restricted.setRecordId("secret");
+        when(instanceDao.findById("instance-secret")).thenReturn(restricted);
+        when(nodeDao.findById("node-1")).thenReturn(node("node-1", "approve"));
+        var summaries = mock(WorkflowRecordSummaryResolver.class);
+        when(summaries.resolve(any())).thenAnswer(call->((WorkflowInstance)call.getArgument(0)).getRecordId().equals("secret")
+                ? new WorkflowRecordSummary(null,"销售合同",false) : new WorkflowRecordSummary("合同 ***", "销售合同", true));
+        var paging = new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
+                actionPolicyService, new WorkflowTaskAssignmentPolicyService(), WorkflowUserTitleResolver.NONE, summaries, conditions);
+        var one = paging.workbenchPage("todo", "user-1", PageRequest.of(1,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
+        var two = paging.workbenchPage("todo", "user-1", PageRequest.of(2,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
+        assertThat(one.page().getTotal()).isEqualTo(2);
+        assertThat(one.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-a");
+        assertThat(two.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-b");
+        assertThat(paging.workbenchPage("todo", "user-1", PageRequest.of(1,10), WorkflowWorkbenchQueryRequest.empty(), "secret").page().getTotal()).isZero();
+        verify(summaries,times(6)).resolve(any()); // two business records, once per response despite multiple tasks
+    }
+
     private WorkflowInstance instance(String id) {
         WorkflowInstance instance = new WorkflowInstance();
         instance.setId(id);
@@ -1045,6 +1239,6 @@ class WorkflowRuntimeReadFacadeTest {
 
     private WorkflowRuntimeReadFacade facadeWithTitles(Map<String, String> userTitles) {
         return new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
-                actionPolicyService, new WorkflowTaskAssignmentPolicyService(), userIds -> userTitles);
+                actionPolicyService, new WorkflowTaskAssignmentPolicyService(), userIds -> userTitles, conditions);
     }
 }

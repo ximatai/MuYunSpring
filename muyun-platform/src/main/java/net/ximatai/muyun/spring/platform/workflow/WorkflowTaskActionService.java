@@ -40,18 +40,11 @@ public class WorkflowTaskActionService {
     private final WorkflowDelegationService delegationService;
     private final WorkflowDelegationCompletionNoticeService delegationCompletionNoticeService;
     private final WorkflowRuntimePluginDispatcher pluginDispatcher;
+    private final WorkflowModuleTaskEvaluator taskEvaluator;
+    private final WorkflowBusinessTaskResolver taskSpecifications;
+    private final WorkflowTaskCheckResultDao taskCheckResults;
 
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService) {
-        this(taskDao, instanceDao, nodeInstanceDao, null, eventDao, eventFactory,
-                approvalTaskPolicyService, new WorkflowActionPolicyService(), progressionService, Optional.empty(), null,
-                null, null);
-    }
+    @Autowired private org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
 
     @Autowired
     public WorkflowTaskActionService(WorkflowTaskDao taskDao,
@@ -66,7 +59,13 @@ public class WorkflowTaskActionService {
                                      Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
                                      WorkflowDelegationService delegationService,
                                      WorkflowDelegationCompletionNoticeService delegationCompletionNoticeService,
-                                     WorkflowRuntimePluginDispatcher pluginDispatcher) {
+                                     WorkflowRuntimePluginDispatcher pluginDispatcher,
+                                     WorkflowModuleTaskEvaluator taskEvaluator,
+                                     WorkflowBusinessTaskResolver taskSpecifications,
+                                     WorkflowTaskCheckResultDao taskCheckResults) {
+        this.taskEvaluator = java.util.Objects.requireNonNull(taskEvaluator, "taskEvaluator");
+        this.taskSpecifications = java.util.Objects.requireNonNull(taskSpecifications, "taskSpecifications");
+        this.taskCheckResults = java.util.Objects.requireNonNull(taskCheckResults, "taskCheckResults");
         this.taskDao = taskDao;
         this.instanceDao = instanceDao;
         this.nodeInstanceDao = nodeInstanceDao;
@@ -82,56 +81,17 @@ public class WorkflowTaskActionService {
         this.pluginDispatcher = pluginDispatcher == null ? new WorkflowRuntimePluginDispatcher(List.of()) : pluginDispatcher;
     }
 
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter, null, null,
-                null);
-    }
-
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                     WorkflowDelegationService delegationService) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter,
-                delegationService, null, null);
-    }
-
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                     WorkflowDelegationService delegationService,
-                                     WorkflowRuntimePluginDispatcher pluginDispatcher) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter,
-                delegationService, null, pluginDispatcher);
+    @Transactional
+    public WorkflowTaskActionResult approve(WorkflowTaskActionRequest request) {
+        return approveInternal(request, false);
     }
 
     @Transactional
-    public WorkflowTaskActionResult approve(WorkflowTaskActionRequest request) {
+    public WorkflowTaskActionResult approveAutomatically(WorkflowTaskActionRequest request) {
+        return approveInternal(request, true);
+    }
+
+    private WorkflowTaskActionResult approveInternal(WorkflowTaskActionRequest request, boolean automatic) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
             throw new PlatformException("workflow task is not an approval task: " + request.taskId());
@@ -146,7 +106,7 @@ public class WorkflowTaskActionService {
                 operatorId, null, null, request.reason());
         task.setTaskStatus(WorkflowTaskStatus.DONE);
         task.setActualProcessorId(operatorId);
-        task.setDecision("approve");
+        task.setDecision(automatic ? "auto_approve" : "approve");
         task.setResultMessage(request.reason());
         task.setCompletedAt(now);
         updateTask(task, now);
@@ -164,7 +124,7 @@ public class WorkflowTaskActionService {
                 skipPendingSiblings(instance, task, effectiveTasks, operatorId, now);
             }
         }
-        WorkflowEvent event = eventFactory.taskCompleted(instance, task, "approve", operatorId, request.reason(), now);
+        WorkflowEvent event = eventFactory.taskCompleted(instance, task, automatic ? "auto_approve" : "approve", operatorId, request.reason(), now);
         eventDao.insert(event);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
@@ -173,7 +133,80 @@ public class WorkflowTaskActionService {
         }
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_APPROVE, "approve",
                 operatorId, null, null, request.reason());
+        if (automaticApprovals != null) automaticApprovals.getObject().continueFor(instance.getId(), operatorId, now);
         return WorkflowTaskActionResult.of(task, node, instance, event);
+    }
+
+    @Transactional
+    public WorkflowTaskActionResult revokeApprove(WorkflowTaskActionRequest request) {
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, requireText(request == null ? null : request.taskId(), "审批任务不能为空"));
+        if (task == null) throw new PlatformException("审批任务不存在");
+        WorkflowInstance instance = requireInstance(task);
+        WorkflowNodeInstance node = requireNode(task);
+        String operator = operatorId(request);
+        var nodes = nodeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        var routes = requireRouteDao().query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        var tasks = taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        if (!WorkflowApprovalRevocationPolicy.allowed(task, instance, node, nodes, routes, tasks, operator))
+            throw new PlatformException("审批意见已不能撤销：下游已办理、已跨越分支或审批已完成");
+        requireText(request.reason(), "撤销审批必须填写原因");
+        actionPolicyService.requireRuntimeAction(instance, "revokeApprove");
+        Instant now = operatedAt(request);
+        var skippedVotes = node.getNodeStatus() == WorkflowNodeStatus.COMPLETED
+                && (node.getApprovalMode() == null || node.getApprovalMode() == WorkflowApprovalMode.ANY || node.getApprovalMode() == WorkflowApprovalMode.RATIO)
+                ? tasks.stream().filter(item -> node.getId().equals(item.getNodeInstanceId())
+                && item.getTaskKind() == WorkflowTaskKind.APPROVAL && item.getTaskStatus() == WorkflowTaskStatus.SKIPPED
+                && "skip".equals(item.getDecision()) && node.getCompletedAt() != null
+                && node.getCompletedAt().equals(item.getCompletedAt())).toList() : List.<WorkflowTask>of();
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_REVOKE, "revokeApprove", operator, null, null, request.reason());
+        if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
+            var route = routes.stream().filter(item -> node.getNodeKey().equals(item.getSourceNodeKey())
+                    && item.getRouteStatus() == WorkflowRouteStatus.EFFECTIVE).findFirst().orElseThrow();
+            var next = nodes.stream().filter(item -> route.getTargetNodeKey().equals(item.getNodeKey())).findFirst().orElseThrow();
+            for (var downstream : tasks) if (next.getId().equals(downstream.getNodeInstanceId())
+                    && downstream.getTaskStatus() == WorkflowTaskStatus.TODO
+                    && (next.getActivatedAt() == null || downstream.getCreatedAt() == null
+                    || !downstream.getCreatedAt().isBefore(next.getActivatedAt()))) {
+                downstream.setTaskStatus(WorkflowTaskStatus.CANCELED); downstream.setDecision("revokeApprove");
+                downstream.setCompletedAt(now); updateTask(downstream, now);
+                eventDao.insert(eventFactory.taskCompleted(instance, downstream, "revokeApprove", operator, request.reason(), now));
+            }
+            resetNodeForRetry(next); updateNode(next, now);
+            resetRouteForRetry(route); updateRoute(route, now);
+            node.setNodeStatus(WorkflowNodeStatus.ACTIVE); node.setCompletedAt(null);
+        }
+        task.setTaskStatus(WorkflowTaskStatus.ROLLED_BACK); task.setDecision("revokeApprove");
+        task.setResultMessage(request.reason()); updateTask(task, now);
+        int remainingVotes = (int) tasks.stream().filter(item -> node.getId().equals(item.getNodeInstanceId())
+                && !task.getId().equals(item.getId()) && item.getTaskKind() == WorkflowTaskKind.APPROVAL
+                && item.getTaskStatus() == WorkflowTaskStatus.DONE).count();
+        node.setApprovedTaskCount(remainingVotes); node.setCompletedTaskCount(remainingVotes); updateNode(node, now);
+        WorkflowTask retry = approvalRetry(task, now);
+        for (var skipped : skippedVotes) {
+            var restored = approvalRetry(skipped, now);
+            eventDao.insert(eventFactory.taskCreated(instance, node, restored, operator, now));
+        }
+        var activeKeys = new java.util.LinkedHashSet<String>();
+        nodes.stream().filter(item -> !node.getId().equals(item.getId()) && item.getNodeStatus() == WorkflowNodeStatus.ACTIVE)
+                .map(WorkflowNodeInstance::getNodeKey).forEach(activeKeys::add);
+        activeKeys.add(node.getNodeKey());
+        instance.setCurrentNodeKeys(String.join(",", activeKeys)); instance.setLastActionCode("revokeApprove");
+        instance.setLastActionReason(request.reason()); instance.setLastOperatorId(operator); instance.setLastOperatedAt(now); updateInstance(instance, now);
+        WorkflowEvent event = eventFactory.taskCompleted(instance, task, "revokeApprove", operator, request.reason(), now);
+        eventDao.insert(event); eventDao.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_REVOKE, "revokeApprove", operator, null, null, request.reason());
+        return new WorkflowTaskActionResult(task, retry, node, instance, event);
+    }
+
+    private WorkflowTask approvalRetry(WorkflowTask source, Instant now) {
+        WorkflowTask retry = new WorkflowTask();
+        org.springframework.beans.BeanUtils.copyProperties(source, retry);
+        retry.setId(Ids.newId()); retry.setVersion(null);
+        retry.setCreatedAt(null); retry.setCreatedBy(null); retry.setUpdatedAt(null); retry.setUpdatedBy(null); retry.setTaskStatus(WorkflowTaskStatus.TODO);
+        retry.setParentTaskId(source.getId()); retry.setOriginTaskId(source.getOriginTaskId() == null ? source.getId() : source.getOriginTaskId());
+        retry.setActualProcessorId(null); retry.setDecision(null); retry.setCompletedAt(null); retry.setResultMessage(null);
+        EntityLifecycle.prepareInsert(retry, now); taskDao.insert(retry);
+        return retry;
     }
 
     @Transactional
@@ -422,22 +455,36 @@ public class WorkflowTaskActionService {
         String operatorId = operatorId(request);
         actionPolicyService.requireRuntimeAction(instance, "complete");
         actionPolicyService.requireTaskOperator(task, "complete", operatorId);
+        if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
+            throw new PlatformException("业务任务当前不能办理");
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_COMPLETE, "complete",
+                operatorId, null, null, request.reason());
+        var specification = taskSpecifications.resolve(node);
+        var evaluation = taskEvaluator.evaluate(instance, node, task, specification.definition());
+        if (!evaluation.passed()) throw new PlatformException(evaluation.failureMessage() == null ? "业务任务尚未满足完成条件" : evaluation.failureMessage());
+        for (var check : evaluation.checkResults()) {
+            EntityLifecycle.prepareInsert(check, now); taskCheckResults.insert(check);
+        }
+        task.setCheckStatus(evaluation.checkStatus());
         task.setTaskStatus(WorkflowTaskStatus.DONE);
         task.setActualProcessorId(operatorId);
         task.setDecision("complete");
         task.setResultMessage(request.reason());
         task.setCompletedAt(now);
         updateTask(task, now);
-        node.setNodeStatus(WorkflowNodeStatus.COMPLETED);
+        var remaining = nodeTasks(task).stream().filter(item -> !task.getId().equals(item.getId()))
+                .anyMatch(item -> item.getTaskStatus() == WorkflowTaskStatus.TODO);
         node.setCompletedTaskCount(value(node.getCompletedTaskCount()) + 1);
-        node.setCompletedAt(now);
+        if (!remaining) { node.setNodeStatus(WorkflowNodeStatus.COMPLETED); node.setCompletedAt(now); }
         updateNode(node, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "complete", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
         createDelegationCompletionNotice(instance, task, operatorId, now);
-        progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
+        if (!remaining) progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
                 request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_COMPLETE, "complete",
+                operatorId, null, null, request.reason());
         return WorkflowTaskActionResult.of(task, node, instance, event);
     }
 
@@ -748,7 +795,7 @@ public class WorkflowTaskActionService {
 
     private WorkflowTask requireTodoTask(WorkflowTaskActionRequest request) {
         String taskId = requireText(request == null ? null : request.taskId(), "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(taskId);
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, taskId);
         if (task == null) {
             throw new PlatformException("workflow task not found: " + taskId);
         }
@@ -760,7 +807,7 @@ public class WorkflowTaskActionService {
 
     private WorkflowTask requireNoticeReadTask(WorkflowTaskActionRequest request) {
         String taskId = requireText(request == null ? null : request.taskId(), "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(taskId);
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, taskId);
         if (task == null) {
             throw new PlatformException("workflow task not found: " + taskId);
         }
@@ -1029,12 +1076,7 @@ public class WorkflowTaskActionService {
             throw new PlatformException("workflow add sign approval node participant policy is required: "
                     + definition.getNodeKey());
         }
-        WorkflowParticipantPolicyCodec.parse(policy, definition.getNodeKey())
-                .requireSingleUser(
-                        "workflow add sign participant policy user id must not be blank: "
-                                + definition.getNodeKey(),
-                        "workflow add sign participant policy only supports single user in first version: "
-                                + definition.getNodeKey());
+        WorkflowParticipantPolicyCodec.validate(policy, definition.getNodeKey());
     }
 
     private Set<String> reachable(String start, Map<String, List<String>> outgoing) {
@@ -1537,7 +1579,10 @@ public class WorkflowTaskActionService {
         if (!Boolean.TRUE.equals(instance.getApprovalEnabled())) {
             return;
         }
-        approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+        String actionCode = "resubmit_return_to_me".equals(instance.getLastActionCode()) ? "resubmit" : instance.getLastActionCode();
+        WorkflowApprovalMutationScope.run(instance.getModuleAlias(), instance.getRecordId(), actionCode,
+                () -> approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                instance.getTenantId(),
                 instance.getModuleAlias(),
                 instance.getRecordId(),
                 instance.getId(),
@@ -1545,7 +1590,7 @@ public class WorkflowTaskActionService {
                 instance.getStartedBy(),
                 instance.getStartedAt(),
                 instance.getApprovalCompletedAt()
-        )));
+        ))));
     }
 
     private int countStatus(List<WorkflowTask> tasks, WorkflowTaskStatus status) {
@@ -1553,9 +1598,7 @@ public class WorkflowTaskActionService {
     }
 
     private int countCompleted(List<WorkflowTask> tasks) {
-        return (int) tasks.stream()
-                .filter(task -> task.getCompletedAt() != null || task.getTaskStatus() == WorkflowTaskStatus.DONE)
-                .count();
+        return countStatus(tasks, WorkflowTaskStatus.DONE);
     }
 
     private int value(Integer value) {

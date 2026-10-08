@@ -16,6 +16,11 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowRuntimeSubmitServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowSubmitDraftService draftService = mock(WorkflowSubmitDraftService.class);
     private final WorkflowInstanceService instanceService = mock(WorkflowInstanceService.class);
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);

@@ -11,7 +11,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowRuntimeTaskFactoryTest {
-    private final WorkflowRuntimeTaskFactory factory = new WorkflowRuntimeTaskFactory(new WorkflowRuntimeEventFactory());
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
+    private final WorkflowRuntimeTaskFactory factory = new WorkflowRuntimeTaskFactory(new WorkflowRuntimeEventFactory(),
+                java.util.Optional.empty(),
+                WorkflowTestSupport.participants());
 
     @Test
     void shouldCreateTasksForBlockingApprovalAndBusinessNodes() {
@@ -110,8 +117,9 @@ class WorkflowRuntimeTaskFactoryTest {
         delegation.setOrgIds(java.util.Set.of("org-1"));
         String delegationId = delegationService.insert(delegation);
         delegationService.enable(delegationId);
-        WorkflowRuntimeTaskFactory delegatedFactory = new WorkflowRuntimeTaskFactory(
-                new WorkflowRuntimeEventFactory(), delegationService);
+        WorkflowRuntimeTaskFactory delegatedFactory = new WorkflowRuntimeTaskFactory(new WorkflowRuntimeEventFactory(),
+                java.util.Optional.of(delegationService),
+                WorkflowTestSupport.participants());
         WorkflowInstance instance = instance();
         instance.setModuleAlias("sales.contract");
         instance.setAuthOrgId("org-1");
@@ -141,6 +149,7 @@ class WorkflowRuntimeTaskFactoryTest {
         WorkflowInstance instance = instance();
         WorkflowNodeInstance missing = node(instance, "addMissing");
         missing.setAddedByAddSign(true);
+        missing.setParticipantPolicyText(null);
         WorkflowNodeInstance invalid = node(instance, "addInvalid");
         invalid.setAddedByAddSign(true);
         invalid.setParticipantPolicyText("role:finance");
@@ -150,11 +159,11 @@ class WorkflowRuntimeTaskFactoryTest {
         assertThatThrownBy(() -> factory.createBlockingTasks(instance, List.of(missing), missingActivation,
                 "operator-1", Instant.parse("2026-06-05T01:00:00Z")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("participant policy is required");
+                .hasMessageContaining("节点未解析到有效参与人");
         assertThatThrownBy(() -> factory.createBlockingTasks(instance, List.of(invalid), invalidActivation,
                 "operator-1", Instant.parse("2026-06-05T01:00:00Z")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("only supports user:<userId>");
+                .hasMessageContaining("unsupported workflow participant policy");
     }
 
     private WorkflowInstance instance() {
@@ -170,6 +179,7 @@ class WorkflowRuntimeTaskFactoryTest {
         node.setId(key + "-node");
         node.setInstanceId(instance.getId());
         node.setNodeKey(key);
+        node.setParticipantPolicyText("user:user-1");
         return node;
     }
 

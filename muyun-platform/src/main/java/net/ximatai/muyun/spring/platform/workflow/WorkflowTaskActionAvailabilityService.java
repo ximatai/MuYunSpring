@@ -61,11 +61,18 @@ public class WorkflowTaskActionAvailabilityService {
 
     public List<WorkflowTaskAvailableAction> availableActions(String taskId, String operatorId) {
         WorkflowTask task = requireTask(taskId);
-        if (task.getTaskStatus() != WorkflowTaskStatus.TODO || !assignmentPolicyService.canProcess(task, operatorId)) {
-            return List.of();
-        }
         WorkflowInstance instance = requireInstance(task);
         WorkflowNodeInstance node = task.getNodeInstanceId() == null ? null : nodeDao.findById(task.getNodeInstanceId());
+        if (task.getTaskStatus() == WorkflowTaskStatus.DONE && routeDao != null
+                && WorkflowApprovalRevocationPolicy.allowed(task, instance, node,
+                nodeDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL),
+                routeDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL),
+                taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL), operatorId))
+            return List.of(WorkflowTaskAvailableAction.of("revokeApprove", "撤销审批意见").requireReason(true).withTask(task, node, userTitles(task)));
+        if (task.getTaskStatus() != WorkflowTaskStatus.TODO || !assignmentPolicyService.canProcess(task, operatorId)) return List.of();
+        if (task.getTaskKind() != WorkflowTaskKind.NOTICE && task.getTaskKind() != WorkflowTaskKind.RESUBMIT
+                && (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || node == null
+                || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)) return List.of();
         List<WorkflowTaskAvailableAction> actions = new ArrayList<>();
         if (task.getTaskKind() == WorkflowTaskKind.APPROVAL) {
             actions.add(WorkflowTaskAvailableAction.of("approve", "通过"));
@@ -122,7 +129,7 @@ public class WorkflowTaskActionAvailabilityService {
 
     private WorkflowTask requireTask(String taskId) {
         String validTaskId = requireText(taskId, "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(validTaskId);
+        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(validTaskId));
         if (task == null) {
             throw new PlatformException("workflow task not found: " + validTaskId);
         }

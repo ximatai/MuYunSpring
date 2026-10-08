@@ -618,8 +618,8 @@ class WorkflowRuntimeWebControllerTest {
         mvc.perform(get("/workflow/runtime/task/task-1/module-task/prepare"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskId").value("task-1"))
-                .andExpect(jsonPath("$.workflowTaskContext.checkAndContinuePath")
-                        .value("/workflow/runtime/task/task-1/module-task/check-and-continue"));
+                .andExpect(jsonPath("$.workflowTaskContext.workflowTaskId").value("task-1"))
+                .andExpect(jsonPath("$.workflowTaskContext.completionPolicy").value("MANUAL_CONFIRM"));
 
         mvc.perform(post("/workflow/runtime/task/task-1/module-task/check-and-continue")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -689,8 +689,7 @@ class WorkflowRuntimeWebControllerTest {
         definition.setAlias("visit");
         return new WorkflowModuleTaskProcessBundle(taskId, "inst-1", "visit", "crm.contract", "record-1",
                 WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM,
-                new WorkflowModuleTaskContext(taskId, WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM,
-                        "/workflow/runtime/task/" + taskId + "/module-task/check-and-continue"),
+                new WorkflowModuleTaskContext(taskId, WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM),
                 definition,
                 WorkflowModuleTaskEvaluation.manualConfirm(List.of()),
                 null);

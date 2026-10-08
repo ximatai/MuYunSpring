@@ -66,7 +66,7 @@ public class WorkflowHistoryQueryService {
                                                             String startedBy,
                                                             PageRequest pageRequest) {
         requireRecordView(moduleAlias, recordId);
-        Criteria criteria = Criteria.of()
+        Criteria criteria = WorkflowTenantScope.criteria()
                 .eq("moduleAlias", requireText(moduleAlias, "workflow module alias must not be blank"))
                 .eq("recordId", requireText(recordId, "workflow record id must not be blank"));
         if (startedBy != null && !startedBy.isBlank()) {
@@ -84,7 +84,7 @@ public class WorkflowHistoryQueryService {
                                                            String startedBy,
                                                            PageRequest pageRequest) {
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        Criteria criteria = Criteria.of()
+        Criteria criteria = WorkflowTenantScope.criteria()
                 .eq("moduleAlias", requireText(moduleAlias, "workflow module alias must not be blank"));
         if (recordId != null && !recordId.isBlank()) {
             criteria.eq("recordId", recordId);
@@ -233,8 +233,8 @@ public class WorkflowHistoryQueryService {
     }
 
     private WorkflowHistoryInstance requireHistory(String historyInstanceId) {
-        WorkflowHistoryInstance history = historyDao.findById(
-                requireText(historyInstanceId, "workflow history instance id must not be blank"));
+        WorkflowHistoryInstance history = WorkflowTenantScope.visible(historyDao.findById(
+                requireText(historyInstanceId, "workflow history instance id must not be blank")));
         if (history == null) {
             throw new PlatformException("workflow history instance not found: " + historyInstanceId);
         }

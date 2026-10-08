@@ -61,7 +61,7 @@ public class WorkflowAdminService {
         WorkflowAdminInstanceQueryRequest normalized = request == null
                 ? WorkflowAdminInstanceQueryRequest.empty()
                 : request;
-        Criteria criteria = Criteria.of()
+        Criteria criteria = WorkflowTenantScope.criteria()
                 .eq("instanceStatus", normalized.instanceStatus() == null
                         ? WorkflowInstanceStatus.RUNNING
                         : normalized.instanceStatus());
@@ -90,7 +90,7 @@ public class WorkflowAdminService {
     public List<WorkflowTask> currentTodoTasks(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_TODO_TASK_QUERY_ACTION);
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt"));
@@ -99,7 +99,7 @@ public class WorkflowAdminService {
     public List<WorkflowAdminActiveTaskView> currentTodoTaskViews(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_FORCE_APPROVE_ACTION);
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskKind", WorkflowTaskKind.APPROVAL)
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
@@ -129,9 +129,9 @@ public class WorkflowAdminService {
     public WorkflowRuntimeRenderBundle renderCurrentBundle(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowRouteInstance> routes = routeInstanceDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
         return new WorkflowRuntimeRenderBundle("RUNTIME", instance, nodes, routes);
     }
@@ -143,14 +143,28 @@ public class WorkflowAdminService {
     public List<WorkflowEvent> currentEvents(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        return eventDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL,
+        return eventDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL,
                 Sort.asc("occurredAt"), Sort.asc("createdAt"));
+    }
+
+    public List<WorkflowHistoryEventView> currentEventViews(String instanceId) {
+        var events = currentEvents(instanceId);
+        var tasks = currentTasks(instanceId);
+        var bundle = renderCurrentBundle(instanceId);
+        var titles = userTitles(tasks, events.stream().map(WorkflowEvent::getOperatorId).toArray(String[]::new));
+        var byTask = tasks.stream().collect(java.util.stream.Collectors.toMap(WorkflowTask::getId, task -> task));
+        var byId = bundle.nodes().stream().collect(java.util.stream.Collectors.toMap(WorkflowNodeInstance::getId, node -> node));
+        var byKey = bundle.nodes().stream().collect(java.util.stream.Collectors.toMap(WorkflowNodeInstance::getNodeKey, node -> node));
+        var routes = new java.util.LinkedHashMap<String, WorkflowRouteInstance>();
+        for (var route : bundle.routes()) { routes.put(route.getId(), route); routes.put(route.getRouteKey(), route); }
+        return events.stream().map(event -> WorkflowHistoryEventView.from(event, byTask.get(event.getTaskId()),
+                byId, byKey, routes, titles)).toList();
     }
 
     public List<WorkflowTask> currentTasks(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        return taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
+        return taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
     }
 
     public List<WorkflowHistoryInstance> queryHistory(String moduleAlias, String recordId, PageRequest pageRequest) {
@@ -193,11 +207,11 @@ public class WorkflowAdminService {
     }
 
     private WorkflowAdminInstanceView toInstanceView(WorkflowInstance instance) {
-        List<WorkflowTask> todoTasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> todoTasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowNodeInstance> activeNodes = nodeInstanceDao.query(Criteria.of()
+        List<WorkflowNodeInstance> activeNodes = nodeInstanceDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("nodeStatus", WorkflowNodeStatus.ACTIVE),
                 ALL, Sort.asc("createdAt"));
@@ -351,7 +365,7 @@ public class WorkflowAdminService {
 
     private WorkflowInstance requireInstance(String instanceId) {
         String validInstanceId = requireText(instanceId, "workflow instance id must not be blank");
-        WorkflowInstance instance = instanceDao.findById(validInstanceId);
+        WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(validInstanceId));
         if (instance == null) {
             throw new PlatformException("workflow instance not found: " + validInstanceId);
         }

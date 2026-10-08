@@ -12,6 +12,7 @@ import java.util.Optional;
 
 @Service
 public class WorkflowSubmitFacade {
+    @Autowired private org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
     private final WorkflowDefinitionSelector selector;
     private final WorkflowRuntimeSubmitService runtimeSubmitService;
     private final Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter;
@@ -37,10 +38,12 @@ public class WorkflowSubmitFacade {
     @Transactional
     public WorkflowSubmitResult submit(WorkflowSubmitRequest request) {
         WorkflowSubmitRequest normalized = normalize(request);
+        WorkflowMutationLock.record(normalized.moduleAlias(), normalized.recordId());
         recordGuards.forEach(guard -> guard.beforeSubmit(normalized));
         WorkflowDefinitionSelection selection = selector.select(normalized);
         WorkflowSubmitDraft draft = submitDraft(normalized, selection);
         boolean written = writeApprovalSummaryIfNeeded(normalized, draft);
+        if (automaticApprovals != null) automaticApprovals.getObject().continueFor(draft.instance().getId(), normalized.operatorId(), normalized.operatedAt());
         return new WorkflowSubmitResult(draft, written);
     }
 
@@ -79,7 +82,9 @@ public class WorkflowSubmitFacade {
         }
         WorkflowApprovalSummaryWriter writer = approvalSummaryWriter
                 .orElseThrow(() -> new PlatformException("workflow approval summary writer is not configured"));
-        writer.writeSubmitted(new WorkflowApprovalSummary(
+        WorkflowApprovalMutationScope.run(request.moduleAlias(), request.recordId(), "submitApproval",
+                () -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                draft.instance().getTenantId(),
                 request.moduleAlias(),
                 request.recordId(),
                 draft.instance().getId(),
@@ -87,7 +92,7 @@ public class WorkflowSubmitFacade {
                 request.operatorId(),
                 draft.instance().getStartedAt(),
                 draft.instance().getApprovalCompletedAt()
-        ));
+        )));
         return true;
     }
 
@@ -104,7 +109,8 @@ public class WorkflowSubmitFacade {
                     .orElse("system");
         }
         Instant operatedAt = request.operatedAt() == null ? Instant.now() : request.operatedAt();
-        String authOrgId = request.authOrgId();
+        String authOrgId = request.authOrgId() == null ? CurrentUserContext.currentUser()
+                .map(user -> user.organizationId()).orElse(null) : request.authOrgId();
         if (authOrgId != null && authOrgId.isBlank()) {
             authOrgId = null;
         }

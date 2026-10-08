@@ -18,6 +18,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowInstanceActionServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); net.ximatai.muyun.spring.common.tenant.TenantContext.setTenantId("tenant-1"); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); net.ximatai.muyun.spring.common.tenant.TenantContext.clear(); }
+
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowNodeInstanceDao nodeDao = mock(WorkflowNodeInstanceDao.class);
     private final WorkflowRouteInstanceDao routeDao = mock(WorkflowRouteInstanceDao.class);
@@ -55,7 +60,7 @@ class WorkflowInstanceActionServiceTest {
         verify(eventDao).insert(result.event());
         verify(archiveService).archiveCurrentInstance(instance, WorkflowArchiveReason.RECALLED,
                 Instant.parse("2026-06-05T04:00:00Z"));
-        verify(summaryWriter).clearCurrent("sales.contract", "record-1");
+        verify(summaryWriter).clearCurrent("tenant-1", "sales.contract", "record-1");
         verify(summaryWriter, never()).writeSubmitted(any());
         assertThat(plugin.events()).containsExactly(WorkflowRuntimePluginEventType.BEFORE_REVOKE,
                 WorkflowRuntimePluginEventType.AFTER_REVOKE);
@@ -218,7 +223,7 @@ class WorkflowInstanceActionServiceTest {
         assertThat(result.event().getEventType()).isEqualTo(WorkflowEventType.INSTANCE_RESET);
         verify(archiveService).archiveCurrentInstance(instance, WorkflowArchiveReason.RESET,
                 Instant.parse("2026-06-05T05:00:00Z"));
-        verify(summaryWriter).clearCurrent("sales.contract", "record-1");
+        verify(summaryWriter).clearCurrent("tenant-1", "sales.contract", "record-1");
         assertThat(plugin.events()).containsExactly(WorkflowRuntimePluginEventType.BEFORE_RESET,
                 WorkflowRuntimePluginEventType.AFTER_RESET);
     }

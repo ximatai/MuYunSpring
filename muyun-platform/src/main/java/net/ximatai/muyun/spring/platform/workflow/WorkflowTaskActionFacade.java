@@ -22,6 +22,7 @@ public class WorkflowTaskActionFacade {
 
     public WorkflowTaskActionResult execute(String actionCode, WorkflowTaskActionRequest request) {
         return switch (requireActionCode(actionCode)) {
+            case "revokeApprove" -> actionService.revokeApprove(request);
             case "approve" -> actionService.approve(request);
             case "reject" -> actionService.reject(request);
             case "rollback" -> actionService.rollback(request);

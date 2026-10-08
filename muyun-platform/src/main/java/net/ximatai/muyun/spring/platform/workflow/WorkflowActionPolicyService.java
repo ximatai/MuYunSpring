@@ -27,6 +27,7 @@ public class WorkflowActionPolicyService {
     public static final String MANAGEMENT_DELETE_HISTORY_ACTION = "deleteHistory";
     public static final List<String> RUNTIME_RECORD_ACTION_CODES = List.of(
             "approve",
+            "revokeApprove",
             "reject",
             "rollback",
             "resubmit",
@@ -220,7 +221,7 @@ public class WorkflowActionPolicyService {
         }
     }
 
-    private ActionExecutionPolicy runtimePolicy(String actionCode) {
+    public static ActionExecutionPolicy runtimePolicy(String actionCode) {
         return new ActionExecutionPolicy(
                 actionCode,
                 PlatformActionLevel.RECORD,

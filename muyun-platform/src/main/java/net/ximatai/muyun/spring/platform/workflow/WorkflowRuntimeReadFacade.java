@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -44,6 +45,8 @@ public class WorkflowRuntimeReadFacade {
     private final WorkflowActionPolicyService actionPolicyService;
     private final WorkflowTaskAssignmentPolicyService assignmentPolicyService;
     private final WorkflowUserTitleResolver userTitleResolver;
+    private final WorkflowRecordSummaryResolver recordSummaryResolver;
+    private final WorkflowConditionService conditions;
     private final WorkflowManualBranchSelectorResolver manualBranchSelectorResolver =
             new WorkflowManualBranchSelectorResolver();
 
@@ -52,10 +55,10 @@ public class WorkflowRuntimeReadFacade {
                                      WorkflowNodeInstanceDao nodeDao,
                                      WorkflowRouteInstanceDao routeDao,
                                      WorkflowEventDao eventDao,
-                                     WorkflowTaskActionAvailabilityService availabilityService) {
+                                     WorkflowTaskActionAvailabilityService availabilityService, WorkflowConditionService conditions) {
         this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
                 new WorkflowActionPolicyService(), new WorkflowTaskAssignmentPolicyService(),
-                WorkflowUserTitleResolver.NONE);
+                WorkflowUserTitleResolver.NONE, conditions);
     }
 
     @Autowired
@@ -67,11 +70,14 @@ public class WorkflowRuntimeReadFacade {
                                      WorkflowTaskActionAvailabilityService availabilityService,
                                      WorkflowActionPolicyService actionPolicyService,
                                      WorkflowTaskAssignmentPolicyService assignmentPolicyService,
-                                     ObjectProvider<WorkflowUserTitleResolver> userTitleResolver) {
+                                     ObjectProvider<WorkflowUserTitleResolver> userTitleResolver,
+                                     ObjectProvider<WorkflowRecordSummaryResolver> recordSummaryResolver,
+                                     WorkflowConditionService conditions) {
         this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
                 assignmentPolicyService, userTitleResolver == null
                 ? WorkflowUserTitleResolver.NONE
-                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE));
+                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE),
+                recordSummaryResolver.getIfAvailable(() -> WorkflowRecordSummaryResolver.NONE), conditions);
     }
 
     public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao,
@@ -82,7 +88,19 @@ public class WorkflowRuntimeReadFacade {
                                      WorkflowTaskActionAvailabilityService availabilityService,
                                      WorkflowActionPolicyService actionPolicyService,
                                      WorkflowTaskAssignmentPolicyService assignmentPolicyService,
-                                     WorkflowUserTitleResolver userTitleResolver) {
+                                     WorkflowUserTitleResolver userTitleResolver, WorkflowConditionService conditions) {
+        this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
+                assignmentPolicyService, userTitleResolver, WorkflowRecordSummaryResolver.NONE, conditions);
+    }
+
+    public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao, WorkflowTaskDao taskDao,
+                                    WorkflowNodeInstanceDao nodeDao, WorkflowRouteInstanceDao routeDao,
+                                    WorkflowEventDao eventDao, WorkflowTaskActionAvailabilityService availabilityService,
+                                    WorkflowActionPolicyService actionPolicyService,
+                                    WorkflowTaskAssignmentPolicyService assignmentPolicyService,
+                                    WorkflowUserTitleResolver userTitleResolver,
+                                    WorkflowRecordSummaryResolver recordSummaryResolver, WorkflowConditionService conditions) {
+        this.conditions = java.util.Objects.requireNonNull(conditions);
         this.instanceDao = instanceDao;
         this.taskDao = taskDao;
         this.nodeDao = nodeDao;
@@ -96,6 +114,7 @@ public class WorkflowRuntimeReadFacade {
                 ? new WorkflowTaskAssignmentPolicyService()
                 : assignmentPolicyService;
         this.userTitleResolver = userTitleResolver == null ? WorkflowUserTitleResolver.NONE : userTitleResolver;
+        this.recordSummaryResolver = java.util.Objects.requireNonNull(recordSummaryResolver);
     }
 
     public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao,
@@ -104,17 +123,17 @@ public class WorkflowRuntimeReadFacade {
                                      WorkflowRouteInstanceDao routeDao,
                                      WorkflowEventDao eventDao,
                                      WorkflowTaskActionAvailabilityService availabilityService,
-                                     WorkflowActionPolicyService actionPolicyService) {
+                                     WorkflowActionPolicyService actionPolicyService, WorkflowConditionService conditions) {
         this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
-                new WorkflowTaskAssignmentPolicyService(), WorkflowUserTitleResolver.NONE);
+                new WorkflowTaskAssignmentPolicyService(), WorkflowUserTitleResolver.NONE, conditions);
     }
 
     public WorkflowRuntimeRenderBundle renderBundle(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
-        List<WorkflowNodeInstance> nodes = nodeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowNodeInstance> nodes = nodeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowRouteInstance> routes = routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
         return new WorkflowRuntimeRenderBundle("RUNTIME", instance, nodes, routes);
     }
@@ -122,10 +141,105 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowManualBranchCandidateView> manualBranchCandidates(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
-        List<WorkflowNodeInstance> nodes = nodeDao.query(Criteria.of().eq("instanceId", instance.getId()),
-                ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeDao.query(Criteria.of().eq("instanceId", instance.getId()),
-                ALL, Sort.asc("createdAt"));
+        var nodes = safeNodes(instance.getId());
+        var routes = runtimeRoutes(instance.getId());
+        var businessFacts = runtimeBusinessFacts(instance, routes);
+        var frontier = runtimeFrontier(nodes, routes, businessFacts);
+        return manualBranchViews(instance, nodes, routes, businessFacts, frontier);
+    }
+
+    public List<WorkflowManualBranchCandidateView> manualBranchCandidates(String instanceId, String taskId,
+            List<WorkflowManualRouteSelection> selections, String operatorId) {
+        WorkflowInstance instance = requireInstance(instanceId);
+        actionPolicyService.requireRecordView(instance);
+        String operator = requireOperator(operatorId);
+        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(requireText(taskId, "workflow task id must not be blank")));
+        if (task == null || !instance.getId().equals(task.getInstanceId()))
+            throw new PlatformException("workflow task does not belong to instance: " + taskId);
+        if (task.getTaskStatus() != WorkflowTaskStatus.TODO || task.getTaskKind() == null || !Set.of(WorkflowTaskKind.APPROVAL,
+                WorkflowTaskKind.BUSINESS, WorkflowTaskKind.RESUBMIT).contains(task.getTaskKind()))
+            throw new PlatformException("workflow task is not pending continuation: " + taskId);
+        String action = task.getTaskKind() == WorkflowTaskKind.APPROVAL ? "approve"
+                : task.getTaskKind() == WorkflowTaskKind.BUSINESS ? "complete" : "resubmit";
+        actionPolicyService.requireRuntimeAction(instance, action);
+        actionPolicyService.requireTaskOperator(task, action, operator);
+        if (task.getTaskKind() == WorkflowTaskKind.RESUBMIT) return List.of();
+        var nodes = safeNodes(instance.getId());
+        var routes = runtimeRoutes(instance.getId());
+        var source = nodes.stream().filter(node -> task.getNodeInstanceId().equals(node.getId())).findFirst()
+                .orElseThrow(() -> new PlatformException("workflow task node not found: " + taskId));
+        if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || source.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
+            throw new PlatformException("workflow task node is not active: " + taskId);
+        if (!finishesNode(task, source)) return List.of();
+        var graph = WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
+        var selected = new WorkflowManualRouteSelectionPolicy().selectedRoutesForPlanning(graph, selections, null);
+        var businessFacts = runtimeBusinessFacts(instance, routes);
+        var frontier = WorkflowManualBranchFrontier.plan(graph, nodes, routes,
+                continuationTargets(source, routes), selected, businessFacts);
+        return manualBranchViews(instance, nodes, routes, businessFacts, frontier);
+    }
+
+    private boolean finishesNode(WorkflowTask task, WorkflowNodeInstance node) {
+        var siblings = taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", task.getInstanceId())
+                .eq("nodeInstanceId", node.getId()), ALL, Sort.asc("createdAt"));
+        if (task.getTaskKind() == WorkflowTaskKind.BUSINESS)
+            return siblings.stream().noneMatch(other -> !task.getId().equals(other.getId()) && other.getTaskStatus() == WorkflowTaskStatus.TODO);
+        var completed = new WorkflowTask();
+        org.springframework.beans.BeanUtils.copyProperties(task, completed);
+        completed.setTaskStatus(WorkflowTaskStatus.DONE);
+        var effective = new java.util.ArrayList<>(siblings.stream().filter(other -> !task.getId().equals(other.getId())).toList());
+        effective.add(completed);
+        return new WorkflowApprovalTaskPolicyService().isNodePassed(node.getApprovalMode(), node.getApprovalRatio(), effective);
+    }
+
+    private List<WorkflowRouteInstance> runtimeRoutes(String instanceId) {
+        return routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instanceId), ALL, Sort.asc("createdAt"));
+    }
+
+    private Map<String, Object> runtimeBusinessFacts(WorkflowInstance instance, List<WorkflowRouteInstance> routes) {
+        return conditions.businessFacts(routes.stream().filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE)
+                .filter(route -> !Boolean.TRUE.equals(route.getDefaultRoute()))
+                .map(WorkflowRouteInstance::getConditionExpression).toList(), instance.getModuleAlias(), instance.getRecordId());
+    }
+
+    private WorkflowManualBranchFrontier.Decision runtimeFrontier(List<WorkflowNodeInstance> nodes,
+            List<WorkflowRouteInstance> routes, Map<String, Object> businessFacts) {
+        var graph = WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
+        Set<String> reached = new LinkedHashSet<>(), pending = new LinkedHashSet<>();
+        for (var node : nodes) {
+            if (node.getNodeStatus() != WorkflowNodeStatus.ACTIVE) continue;
+            boolean manual = node.getNodeType() == WorkflowNodeType.BRANCH && node.getRouteMode() == WorkflowRouteMode.MANUAL
+                    && routes.stream().anyMatch(route -> node.getNodeKey().equals(route.getSourceNodeKey())
+                    && route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE);
+            boolean blocking = node.getNodeType() == WorkflowNodeType.TASK || node.getNodeType() == WorkflowNodeType.APPROVAL
+                    && node.getApprovalMode() != WorkflowApprovalMode.NOTICE;
+            if (!manual && !blocking) continue;
+            var targets = manual ? List.of(WorkflowActivationTarget.of(node.getNodeKey())) : continuationTargets(node, routes);
+            if (targets.isEmpty()) continue;
+            WorkflowManualBranchFrontier.Decision decision;
+            try {
+                decision = WorkflowManualBranchFrontier.plan(graph, nodes, routes, targets, Map.of(), businessFacts);
+            } catch (net.ximatai.muyun.spring.common.formula.FormulaEvaluationException | PlatformException invalidCondition) {
+                // A read projection still exposes decided history when an old pending topology cannot be evaluated.
+                continue;
+            }
+            reached.addAll(decision.reachedManualBranchNodeKeys());
+            pending.addAll(decision.pendingManualBranchNodeKeys());
+        }
+        return new WorkflowManualBranchFrontier.Decision(reached, pending);
+    }
+
+    private List<WorkflowActivationTarget> continuationTargets(WorkflowNodeInstance node, List<WorkflowRouteInstance> routes) {
+        var outgoing = routes.stream().filter(route -> node.getNodeKey().equals(route.getSourceNodeKey()))
+                .filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE).toList();
+        var defaults = outgoing.stream().filter(route -> Boolean.TRUE.equals(route.getDefaultRoute())).toList();
+        return (defaults.isEmpty() ? outgoing : defaults).stream()
+                .map(route -> new WorkflowActivationTarget(route.getTargetNodeKey(), route.getId())).toList();
+    }
+
+    private List<WorkflowManualBranchCandidateView> manualBranchViews(WorkflowInstance instance,
+            List<WorkflowNodeInstance> nodes, List<WorkflowRouteInstance> routes, Map<String, Object> businessFacts,
+            WorkflowManualBranchFrontier.Decision frontier) {
         Map<String, WorkflowNodeInstance> nodeByKey = nodes.stream()
                 .collect(Collectors.toMap(WorkflowNodeInstance::getNodeKey, Function.identity(), (left, right) -> left,
                         LinkedHashMap::new));
@@ -133,13 +247,24 @@ public class WorkflowRuntimeReadFacade {
                 .filter(route -> MANUAL_BRANCH_CANDIDATE_STATUSES.contains(route.getRouteStatus()))
                 .collect(Collectors.groupingBy(WorkflowRouteInstance::getSourceNodeKey, LinkedHashMap::new,
                         Collectors.toList()));
-        return nodes.stream()
-                .filter(node -> node.getNodeType() == WorkflowNodeType.BRANCH)
-                .filter(node -> node.getRouteMode() == WorkflowRouteMode.MANUAL)
-                .sorted(nodeSort())
-                .map(node -> manualBranchCandidate(node, routesBySourceNodeKey.getOrDefault(node.getNodeKey(),
-                        List.of()), nodeByKey))
-                .toList();
+        Map<String, String> expressions = new LinkedHashMap<>();
+        routes.stream().filter(route -> frontier.reachedManualBranchNodeKeys().contains(route.getSourceNodeKey()))
+                .filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE)
+                .filter(route -> !Boolean.TRUE.equals(route.getDefaultRoute()))
+                .forEach(route -> expressions.put(route.getRouteKey(), route.getConditionExpression()));
+        Map<String, Boolean> matched = conditions.manualMatches(expressions, businessFacts);
+        Map<String, String> titles = routeTitles(instance);
+        return nodes.stream().filter(node -> node.getNodeType() == WorkflowNodeType.BRANCH && node.getRouteMode() == WorkflowRouteMode.MANUAL)
+                .filter(node -> frontier.reachedManualBranchNodeKeys().contains(node.getNodeKey()) || routesBySourceNodeKey
+                        .getOrDefault(node.getNodeKey(), List.of()).stream().anyMatch(route -> route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE))
+                .sorted(nodeSort()).map(node -> {
+                    var view = manualBranchCandidate(node, routesBySourceNodeKey.getOrDefault(node.getNodeKey(), List.of())
+                            .stream().filter(route -> frontier.reachedManualBranchNodeKeys().contains(node.getNodeKey())
+                            || route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE).toList(), nodeByKey, matched, titles);
+                    return new WorkflowManualBranchCandidateView(view.branchNodeKey(), view.branchTitle(), view.routeMode(),
+                            view.selectorNodeKey(), view.requireManualSelectionReason(), view.candidates(),
+                            frontier.pendingManualBranchNodeKeys().contains(node.getNodeKey()));
+                }).toList();
     }
 
     public List<WorkflowManualBranchCandidatePrecheckView> manualBranchCandidatePrechecks(String instanceId,
@@ -147,12 +272,13 @@ public class WorkflowRuntimeReadFacade {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
         String validOperatorId = requireOperator(operatorId);
-        List<WorkflowNodeInstance> nodes = nodeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowNodeInstance> nodes = nodeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowRouteInstance> routes = routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
+        var pending = runtimeFrontier(nodes, routes, runtimeBusinessFacts(instance, routes)).pendingManualBranchNodeKeys();
         Map<String, WorkflowNodeInstance> nodeByKey = nodes.stream()
                 .collect(Collectors.toMap(WorkflowNodeInstance::getNodeKey, Function.identity(), (left, right) -> left,
                         LinkedHashMap::new));
@@ -163,31 +289,34 @@ public class WorkflowRuntimeReadFacade {
         return nodes.stream()
                 .filter(node -> node.getNodeType() == WorkflowNodeType.BRANCH)
                 .filter(node -> node.getRouteMode() == WorkflowRouteMode.MANUAL)
+                .filter(node -> pending.contains(node.getNodeKey()) || routesBySourceNodeKey.getOrDefault(node.getNodeKey(), List.of())
+                        .stream().anyMatch(route -> route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE))
                 .sorted(nodeSort())
                 .map(node -> manualBranchCandidatePrecheck(instance, node, routesBySourceNodeKey.getOrDefault(
-                        node.getNodeKey(), List.of()), nodes, tasks, nodeByKey, validOperatorId))
+                        node.getNodeKey(), List.of()).stream().filter(route -> pending.contains(node.getNodeKey())
+                        || route.getRouteStatus() != WorkflowRouteStatus.CANDIDATE).toList(), nodes, tasks, nodeByKey, validOperatorId))
                 .toList();
     }
 
     public List<WorkflowTask> instanceTasks(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
-        return taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
+        return taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
     }
 
     public List<WorkflowEvent> instanceEvents(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
-        return eventDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL,
+        return eventDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL,
                 Sort.asc("occurredAt"), Sort.asc("createdAt"));
     }
 
     public List<WorkflowRuntimeAddSignExplanationView> addSignExplanations(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
-        List<WorkflowNodeInstance> nodes = nodeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowNodeInstance> nodes = nodeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowRouteInstance> routes = routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
         Map<String, WorkflowNodeInstance> nodesByKey = nodes.stream()
                 .filter(node -> node.getNodeKey() != null)
@@ -212,13 +341,67 @@ public class WorkflowRuntimeReadFacade {
         actionPolicyService.requireRecordView(instance);
         String validOperatorId = requireOperator(operatorId);
         Map<String, WorkflowNodeInstance> nodes = nodeById(instance.getId());
-        return taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"))
+        return taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"))
                 .stream()
-                .filter(task -> task.getTaskStatus() == WorkflowTaskStatus.TODO)
-                .filter(task -> assignmentPolicyService.canProcess(task, validOperatorId))
+                .filter(task -> task.getTaskStatus() == WorkflowTaskStatus.TODO && assignmentPolicyService.canProcess(task, validOperatorId)
+                        || task.getTaskStatus() == WorkflowTaskStatus.DONE && validOperatorId.equals(task.getActualProcessorId()))
                 .flatMap(task -> availabilityService.availableActions(task.getId(), validOperatorId).stream()
                         .map(action -> enrich(action, task, nodes.get(task.getNodeInstanceId()))))
                 .toList();
+    }
+
+    public Map<String, String> workbenchModules() { return recordSummaryResolver.modules(); }
+
+    /** One filtered snapshot owns rows, exact total and available module labels. */
+    public WorkflowWorkbenchPage workbenchPage(String board, String operator, PageRequest pageRequest,
+                                               WorkflowWorkbenchQueryRequest request, String keyword) {
+        List<WorkflowWorkbenchCard> source = switch (board.toUpperCase(java.util.Locale.ROOT)) {
+            case "TODO" -> todoCards(operator, ALL, request);
+            case "DONE" -> doneCards(operator, ALL, request);
+            case "NOTICE" -> noticeCards(operator, ALL, request);
+            case "TRACKING" -> trackingCards(operator, ALL, request);
+            case "DELEGATION" -> delegationCards(operator, ALL, request);
+            default -> throw new PlatformException("unsupported workflow workbench board: " + board);
+        };
+        Map<String, WorkflowRecordSummary> summaries = new LinkedHashMap<>();
+        Map<String, String> moduleTitles = new LinkedHashMap<>(recordSummaryResolver.modules());
+        var enriched = source.stream().map(card -> {
+            var summary = summaries.computeIfAbsent(card.moduleAlias() + ":" + card.recordId(), key -> recordSummaryResolver.resolve(requireInstance(card.instanceId())));
+            moduleTitles.putIfAbsent(card.moduleAlias(), summary == null ? card.moduleAlias() : summary.moduleTitle());
+            return card.withBusiness(summary);
+        }).toList();
+        String search = keyword == null ? "" : keyword.strip().toLowerCase(java.util.Locale.ROOT);
+        var filtered = enriched.stream().filter(card -> search.isEmpty() || (card.business() != null
+                && card.business().readable() && card.business().title() != null
+                && card.business().title().toLowerCase(java.util.Locale.ROOT).contains(search))).toList();
+        var normalizedPage = page(pageRequest);
+        return new WorkflowWorkbenchPage(PageResult.of(pageItems(filtered, normalizedPage), filtered.size(), normalizedPage), moduleTitles);
+    }
+
+    public List<WorkflowHistoryTaskView> instanceTaskViews(String instanceId) {
+        var tasks = instanceTasks(instanceId);
+        var titles = userTitles(tasks);
+        return tasks.stream().map(task -> WorkflowHistoryTaskView.from(task, titles)).toList();
+    }
+
+    public List<WorkflowHistoryEventView> instanceEventViews(String instanceId) {
+        var tasks = instanceTasks(instanceId);
+        var events = instanceEvents(instanceId);
+        var users = new LinkedHashSet<String>();
+        for (var event : events) addUserId(users, event.getOperatorId());
+        var titles = new LinkedHashMap<String, String>(userTitles(tasks));
+        titles.putAll(userTitleResolver.titles(users));
+        var byTask = tasks.stream().collect(Collectors.toMap(WorkflowTask::getId, Function.identity()));
+        var nodes = safeNodes(instanceId);
+        var nodesById = nodes.stream().collect(Collectors.toMap(WorkflowNodeInstance::getId, Function.identity()));
+        var nodesByKey = nodes.stream().collect(Collectors.toMap(WorkflowNodeInstance::getNodeKey, Function.identity()));
+        var routesByIdOrKey = new LinkedHashMap<String, WorkflowRouteInstance>();
+        for (var route : routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instanceId), ALL)) {
+            routesByIdOrKey.put(route.getId(), route);
+            routesByIdOrKey.put(route.getRouteKey(), route);
+        }
+        return events.stream().map(event -> WorkflowHistoryEventView.from(event, byTask.get(event.getTaskId()),
+                nodesById, nodesByKey, routesByIdOrKey, titles)).toList();
     }
 
     public List<WorkflowWorkbenchCard> todoCards(String assigneeId, PageRequest pageRequest) {
@@ -228,7 +411,7 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowWorkbenchCard> todoCards(String assigneeId, PageRequest pageRequest,
                                                  WorkflowWorkbenchQueryRequest request) {
         String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("taskStatus", WorkflowTaskStatus.TODO)
                         .in("taskKind", List.of(WorkflowTaskKind.APPROVAL, WorkflowTaskKind.BUSINESS,
                                 WorkflowTaskKind.RESUBMIT)),
@@ -245,7 +428,7 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowWorkbenchCard> doneCards(String processorId, PageRequest pageRequest,
                                                  WorkflowWorkbenchQueryRequest request) {
         String validProcessorId = requireText(processorId, "workflow processor id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .in("taskStatus", List.of(WorkflowTaskStatus.DONE, WorkflowTaskStatus.REJECTED,
                                 WorkflowTaskStatus.ROLLED_BACK, WorkflowTaskStatus.TRANSFERRED)),
                 ALL, Sort.desc("completedAt"), Sort.desc("updatedAt")).stream()
@@ -262,7 +445,7 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowWorkbenchCard> noticeCards(String assigneeId, PageRequest pageRequest,
                                                    WorkflowWorkbenchQueryRequest request) {
         String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("assigneeId", validAssigneeId)
                         .eq("taskKind", WorkflowTaskKind.NOTICE)
                         .in("taskStatus", List.of(WorkflowTaskStatus.TODO, WorkflowTaskStatus.NOTICED)),
@@ -299,26 +482,58 @@ public class WorkflowRuntimeReadFacade {
 
     private WorkflowManualBranchCandidateView manualBranchCandidate(WorkflowNodeInstance node,
                                                                     List<WorkflowRouteInstance> routes,
-                                                                    Map<String, WorkflowNodeInstance> nodeByKey) {
+                                                                    Map<String, WorkflowNodeInstance> nodeByKey,
+                                                                    Map<String, Boolean> matched,
+                                                                    Map<String, String> routeTitles) {
+        var pending = routes.stream().filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE).toList();
+        boolean anyMatched = pending.stream().anyMatch(route -> Boolean.TRUE.equals(matched.get(route.getRouteKey())));
+        boolean known = pending.stream().filter(route -> !Boolean.TRUE.equals(route.getDefaultRoute()))
+                .allMatch(route -> matched.get(route.getRouteKey()) != null);
         List<WorkflowManualBranchCandidateView.Candidate> candidates = routes.stream()
                 .sorted(routeSort())
                 .map(route -> {
                     WorkflowNodeInstance target = nodeByKey.get(route.getTargetNodeKey());
+                    boolean defaultRoute = Boolean.TRUE.equals(route.getDefaultRoute());
+                    boolean undecided = route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE;
+                    Boolean conditionMatched = undecided
+                            ? (defaultRoute ? Boolean.FALSE : matched.get(route.getRouteKey())) : route.getConditionMatched();
+                    String targetTitle = target == null ? route.getTargetNodeKey() : nodeTitle(target);
                     return new WorkflowManualBranchCandidateView.Candidate(
                             route.getId(),
                             route.getRouteKey(),
                             route.getTargetNodeKey(),
                             target == null ? null : target.getNodeType(),
                             route.getRouteStatus(),
-                            route.getDefaultRoute());
+                            route.getDefaultRoute(), firstText(routeTitles.get(route.getRouteKey()), targetTitle),
+                            targetTitle, conditionMatched,
+                            undecided && known && (defaultRoute ? !anyMatched : Boolean.TRUE.equals(conditionMatched)));
                 })
                 .toList();
         return new WorkflowManualBranchCandidateView(
                 node.getNodeKey(),
+                nodeTitle(node),
                 node.getRouteMode(),
                 node.getSelectorNodeKey(),
                 node.getRequireManualSelectionReason(),
                 candidates);
+    }
+
+    private Map<String, String> routeTitles(WorkflowInstance instance) {
+        if (instance.getSemanticJson() == null || instance.getSemanticJson().isBlank()) return Map.of();
+        Map<String, String> titles = new LinkedHashMap<>();
+        try {
+            JsonNode snapshot = OBJECT_MAPPER.readTree(instance.getSemanticJson());
+            if (snapshot == null) return Map.of();
+            for (JsonNode link : snapshot.path("links")) {
+                String key = blankToNull(link.path("routeKey").asText(null));
+                String title = blankToNull(link.path("title").asText(null));
+                if (key != null && title != null) titles.put(key, title);
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalidSnapshot) {
+            // Older or externally supplied designer snapshots may omit readable labels.
+            return Map.of();
+        }
+        return titles;
     }
 
     private WorkflowManualBranchCandidatePrecheckView manualBranchCandidatePrecheck(WorkflowInstance instance,
@@ -509,7 +724,7 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowWorkbenchCard> trackingCards(String starterId, PageRequest pageRequest,
                                                      WorkflowWorkbenchQueryRequest request) {
         String validStarterId = requireText(starterId, "workflow starter id must not be blank");
-        List<WorkflowInstance> instances = instanceDao.query(Criteria.of().eq("startedBy", validStarterId),
+        List<WorkflowInstance> instances = instanceDao.query(WorkflowTenantScope.criteria().eq("startedBy", validStarterId),
                 ALL, Sort.desc("startedAt"), Sort.desc("updatedAt"));
         Map<String, String> userTitles = userTitles(List.of(), instances);
         List<WorkflowWorkbenchCard> cards = instances.stream()
@@ -528,7 +743,7 @@ public class WorkflowRuntimeReadFacade {
     public List<WorkflowWorkbenchCard> delegationCards(String principalId, PageRequest pageRequest,
                                                        WorkflowWorkbenchQueryRequest request) {
         String validPrincipalId = requireText(principalId, "workflow delegation principal id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("assignmentKind", WorkflowAssignmentKind.DELEGATED)
                         .eq("delegatedFromUserId", validPrincipalId)
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
@@ -773,13 +988,13 @@ public class WorkflowRuntimeReadFacade {
 
     private Map<String, WorkflowNodeInstance> nodeById(String instanceId) {
         Map<String, WorkflowNodeInstance> values = new LinkedHashMap<>();
-        nodeDao.query(Criteria.of().eq("instanceId", instanceId), ALL, Sort.asc("createdAt"))
+        nodeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instanceId), ALL, Sort.asc("createdAt"))
                 .forEach(node -> values.put(node.getId(), node));
         return values;
     }
 
     private List<String> currentAssignees(String instanceId) {
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instanceId)
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt"))
@@ -812,14 +1027,14 @@ public class WorkflowRuntimeReadFacade {
     }
 
     private List<WorkflowNodeInstance> safeNodes(String instanceId) {
-        List<WorkflowNodeInstance> nodes = nodeDao.query(Criteria.of().eq("instanceId", instanceId),
+        List<WorkflowNodeInstance> nodes = nodeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instanceId),
                 ALL, Sort.asc("createdAt"));
         return nodes == null ? List.of() : nodes;
     }
 
     private WorkflowInstance requireInstance(String instanceId) {
         String validInstanceId = requireText(instanceId, "workflow instance id must not be blank");
-        WorkflowInstance instance = instanceDao.findById(validInstanceId);
+        WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(validInstanceId));
         if (instance == null) {
             throw new PlatformException("workflow instance not found: " + validInstanceId);
         }
@@ -908,7 +1123,9 @@ public class WorkflowRuntimeReadFacade {
                     compareSortValue(sortValue(left, field), sortValue(right, field), direction);
             comparator = comparator == null ? fieldComparator : comparator.thenComparing(fieldComparator);
         }
-        return comparator == null ? (left, right) -> 0 : comparator;
+        Comparator<WorkflowWorkbenchCard> stable = Comparator.comparing(WorkflowWorkbenchCard::instanceId)
+                .thenComparing(WorkflowWorkbenchCard::taskId, Comparator.nullsFirst(Comparator.naturalOrder()));
+        return comparator == null ? stable : comparator.thenComparing(stable);
     }
 
     private void validateSortField(String field) {

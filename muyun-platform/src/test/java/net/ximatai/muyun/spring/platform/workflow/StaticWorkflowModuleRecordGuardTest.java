@@ -27,6 +27,11 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class StaticWorkflowModuleRecordGuardTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     @Test
     void shouldPassWhenStaticCrudAbilityCanSelectRecord() {
         CrudAbility<?> ability = mock(CrudAbility.class);

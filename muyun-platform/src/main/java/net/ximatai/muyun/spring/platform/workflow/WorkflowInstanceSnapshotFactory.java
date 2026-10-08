@@ -45,7 +45,7 @@ public class WorkflowInstanceSnapshotFactory {
                 startedBy, startedAt, snapshotText);
         instance.setId(Ids.newId());
         List<WorkflowNodeInstance> nodes = createNodeSnapshots(instance, nodeDefinitions);
-        List<WorkflowRouteInstance> routes = createRouteSnapshots(instance, linkDefinitions);
+        List<WorkflowRouteInstance> routes = createRouteSnapshots(instance, nodeDefinitions, linkDefinitions);
         List<WorkflowEvent> events = List.of(eventFactory.instanceStarted(instance, startedBy, startedAt));
         return new WorkflowInstanceSnapshot(instance, nodes, routes, events);
     }
@@ -73,10 +73,12 @@ public class WorkflowInstanceSnapshotFactory {
             node.setConvergeRatio(definition.getConvergeRatio());
             node.setRouteMode(definition.getRouteMode());
             node.setSelectorNodeKey(definition.getSelectorNodeKey());
+            node.setConvergeNodeKey(definition.getConvergeNodeKey());
             node.setRequireManualSelectionReason(definition.getRequireManualSelectionReason());
             node.setTaskDefinitionId(definition.getTaskDefinitionId());
             node.setParticipantPolicyText(definition.getParticipantPolicyText());
             node.setAllowReject(definition.getAllowReject());
+            node.setAutoApproveSameUser(definition.getAutoApproveSameUser());
             node.setRequireRejectReason(definition.getRequireRejectReason());
             node.setAllowRejectReturnToMe(definition.getAllowRejectReturnToMe());
             node.setAllowRollback(definition.getAllowRollback());
@@ -93,6 +95,7 @@ public class WorkflowInstanceSnapshotFactory {
     }
 
     private List<WorkflowRouteInstance> createRouteSnapshots(WorkflowInstance instance,
+                                                             List<WorkflowNodeDefinition> nodeDefinitions,
                                                              List<WorkflowLinkDefinition> linkDefinitions) {
         if (linkDefinitions == null || linkDefinitions.isEmpty()) {
             return List.of();
@@ -109,6 +112,15 @@ public class WorkflowInstanceSnapshotFactory {
             route.setTargetNodeKey(requireText(definition.getTargetNodeKey(), "workflow target node key must not be blank"));
             route.setRouteStatus(WorkflowRouteStatus.CANDIDATE);
             route.setDefaultRoute(definition.getDefaultRoute());
+            route.setConditionExpression(definition.getConditionExpression());
+            nodeDefinitions.stream().filter(node -> node.getNodeKey().equals(route.getSourceNodeKey()))
+                    .filter(node -> node.getNodeType() == WorkflowNodeType.BRANCH).findFirst().ifPresent(branch -> {
+                        route.setBranchNodeKey(branch.getNodeKey());
+                        route.setBranchRunId(branch.getNodeKey() + ":1");
+                        route.setConvergeNodeKey(branch.getConvergeNodeKey());
+                        route.setConvergeRunId(branch.getConvergeNodeKey() + ":1");
+                        route.setPathRouteId(route.getId());
+                    });
             result.add(route);
         }
         return result;
