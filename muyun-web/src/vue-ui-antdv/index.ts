@@ -104,3 +104,5 @@ export { useUiDropTarget, useUiDragSource } from './useUiTreeDrag';
 export { useTreeLoader as useTreeData } from './useTreeLoader';
 export { default as UiTokenInput } from './components/UiTokenInput.vue';
 export type { UiTokenInputToken } from './components/UiTokenInput.vue';
+
+export { useUiBlockingOverlayState } from './blockingOverlays';

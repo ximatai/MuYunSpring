@@ -249,6 +249,7 @@ it('record containers delegate chain errors to page feedback', () => {
 it('record mode drawer owns detail mode branch switching', () => {
   const drawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
+  const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const detailLayoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
   const operationBarSource = readSource('src/platform-components/DrawerOperationBar.vue');
@@ -296,11 +297,16 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
+  assert.match(detailDrawerSource, /<UiSidePanel[\s\S]*:render-mode="renderMode"[\s\S]*:width="width"/);
+  assert.match(detailDrawerSource, /v-if="renderMode === 'inline' \|\| hasDrawerContainer"/);
+  assert.notMatch(detailDrawerSource, /ant-design-vue|<ADrawer/);
+  assert.match(sidePanelSource, /if \(props\.renderMode === 'inline'\) return false/);
   assert.match(
-    detailDrawerSource,
-    /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/,
+    sidePanelSource,
+    /props\.renderMode === 'inline' \? `min\(\$\{width\}px, calc\(100% - 32px\)\)` : width/,
   );
-  assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
+  assert.match(sidePanelSource, /:get-container="container"/);
+  assert.match(sidePanelSource, /:width="resolvedWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
   assert.notMatch(detailDrawerSource, /<slot name="actions" \/>/);
