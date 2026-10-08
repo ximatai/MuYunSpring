@@ -69,7 +69,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class DynamicEntityService implements
-        CrudAbility<DynamicRecord>,
+        net.ximatai.muyun.spring.ability.ApprovalAbility<DynamicRecord>,
         FieldWriteRulesProvider<DynamicRecord>,
         RecycleBinAbility<DynamicRecord>,
         ChildAbility<DynamicRecord>,
@@ -173,6 +173,18 @@ public class DynamicEntityService implements
                 .toList());
         this.capabilityRuntimes = DynamicEntityCapabilityRuntimeBundle.create(this, this.moduleAlias,
                 dao.getEntity(), module);
+    }
+
+    @Override
+    public boolean supportsApproval() {
+        return dao.getEntity().supports(EntityCapability.APPROVAL);
+    }
+
+    @Override
+    public DynamicRecord copyForApprovalMutation(DynamicRecord record) {
+        DynamicRecord draft = record.copy();
+        record.getChildren().keySet().forEach(key -> draft.setChildren(key, null));
+        return draft;
     }
 
     private static Function<String, DynamicEntityService> unsupportedRelationResolver() {

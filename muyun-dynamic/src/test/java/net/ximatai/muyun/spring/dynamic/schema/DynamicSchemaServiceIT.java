@@ -106,6 +106,68 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void approvalSummaryCommandMustPreserveTenantVersionBusinessValuesAndChangeEvents() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "test.approval_" + suffix;
+        EntityDefinition entity = new EntityDefinition("entry", "approval_command_" + suffix, "Approval", List.of(
+                FieldDefinition.string("title", "Title"))).withCapabilities(EntityCapability.APPROVAL);
+        schemaService.ensureTable(entity);
+        List<RuntimeEvent> events = new ArrayList<>();
+        try (DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations).eventPublisher(events::add).build();
+             var tenant = TenantContext.use("tenant-approval");
+             var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                     CurrentUser.tenantUser("approver", "Approver", "tenant-approval"))) {
+            runtime.register(new ModuleDefinition(module, "Approval", List.of(entity)));
+            DynamicRecordService records = new DynamicRecordService(runtime);
+            DynamicRecord incoming = records.newRecord(module, "entry").setValue("title", "Business");
+            incoming.setApprovalStatus("forged");
+            String id = records.create(module, "entry", incoming);
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isNull();
+            DynamicRecord stale = records.select(module, "entry", id);
+            Instant submittedAt = Instant.parse("2026-10-07T01:02:03.123456789Z");
+            assertThat(records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    new net.ximatai.muyun.spring.ability.ApprovalState("instance", "processing", "submitter", submittedAt, null)))
+                    .isEqualTo(1);
+            DynamicRecord saved = records.select(module, "entry", id);
+            assertThat(saved.getApprovalStatus()).isEqualTo("processing");
+            assertThat(saved.getApprovalInstanceId()).isEqualTo("instance");
+            assertThat(saved.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
+            assertThat(saved.getApprovalCompletedAt()).isNull();
+            assertThat(saved.getValue("title")).isEqualTo("Business");
+            assertThat(saved.getTenantId()).isEqualTo("tenant-approval");
+            assertThat(saved.getVersion()).isEqualTo(stale.getVersion() + 1);
+            assertThat(saved.getUpdatedBy()).isEqualTo("approver");
+            assertThat(events.getLast().mutationSource()).isEqualTo(net.ximatai.muyun.spring.ability.event.RuntimeMutationSource.SYSTEM);
+            assertThat(events.getLast().tenantId()).isEqualTo("tenant-approval");
+            assertThat(events.getLast().systemContext()).isTrue();
+            assertThat(TenantContext.isSystem()).isFalse();
+            assertThatThrownBy(() -> records.writeApprovalBusiness(module, "entry", stale)).isInstanceOf(OptimisticLockException.class);
+            saved.setApprovalStatus("forged");
+            assertThatThrownBy(() -> records.update(module, "entry", saved)).hasMessageContaining("不可直接修改");
+            records.writeApprovalBusiness(module, "entry", saved);
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isEqualTo("processing");
+            try (var foreign = TenantContext.use("foreign")) {
+                assertThat(records.writeApprovalState(module, "entry", id,
+                        net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                        net.ximatai.muyun.spring.ability.ApprovalState.empty())).isZero();
+            }
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isEqualTo("processing");
+            Instant completedAt = Instant.parse("2026-10-07T02:03:04.987654321Z");
+            records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    new net.ximatai.muyun.spring.ability.ApprovalState("instance", "approved", "submitter", submittedAt, completedAt));
+            var completed = records.select(module, "entry", id);
+            assertThat(completed.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
+            assertThat(completed.getApprovalCompletedAt()).isEqualTo(Instant.parse("2026-10-07T02:03:04Z"));
+            records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    net.ximatai.muyun.spring.ability.ApprovalState.empty());
+            assertThat(records.select(module, "entry", id).getApprovalInstanceId()).isNull();
+        }
+    }
+
+    @Test
     void shouldPersistTypedGenericJsonDefaultsAndPartialUpdatesWithoutDoubleEncoding() {
         String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String module = "demo.json_defaults_" + suffix;

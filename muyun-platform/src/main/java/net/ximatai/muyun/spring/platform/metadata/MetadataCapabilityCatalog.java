@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -19,9 +21,11 @@ import java.util.Set;
  */
 public final class MetadataCapabilityCatalog {
     private static final Set<EntityCapability> DECLARABLE = Set.copyOf(EnumSet.of(
-            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN));
+            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN,
+            EntityCapability.APPROVAL));
     private static final Set<EntityCapability> MUTABLE_IN_FIRST_RELEASE = Set.copyOf(EnumSet.of(
-            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN));
+            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN,
+            EntityCapability.APPROVAL));
 
     private MetadataCapabilityCatalog() {
     }
@@ -91,6 +95,10 @@ public final class MetadataCapabilityCatalog {
                         PlatformAbilityFields.SORT_COLUMN, "integer", "RUNTIME", "未填写 sortOrder 时，运行态按分区分配下一个排序值。"));
                 case ENABLE -> metadataFields.add(field(PlatformAbilityFields.ENABLED_FIELD,
                         PlatformAbilityFields.ENABLED_COLUMN, "boolean", "STATIC", "未填写 enabled 时，默认写入 true。"));
+                case APPROVAL -> DynamicAbilityFields.approvalFields().forEach(definition -> metadataFields.add(
+                        field(definition.fieldName(), definition.columnName(),
+                                definition.type() == FieldType.TIMESTAMP ? "datetime" : "string", "CONTEXT",
+                                "审批摘要由流程运行态维护；启用后暂不支持关闭。")));
                 default -> { }
             }
         }
@@ -100,8 +108,7 @@ public final class MetadataCapabilityCatalog {
     /**
      * Adds only declared platform-managed fields missing from persisted metadata. Legacy inference
      * deliberately does not synthesize fields, so reading old metadata cannot alter its schema.
-     * DATA_SCOPE and APPROVAL remain outside this declaration batch and keep their existing
-     * runtime/configuration contracts.
+     * DATA_SCOPE keeps its existing independent configuration contract.
      */
     public static List<FieldDefinition> mergeDeclaredMetadataFields(MetadataCapabilityResolution resolution,
                                                                      List<FieldDefinition> compiledFields) {
@@ -139,7 +146,11 @@ public final class MetadataCapabilityCatalog {
                     PlatformAbilityFields.SORT_COLUMN, "integer") ? FieldDefinition.sortOrder() : null;
             case PlatformAbilityFields.ENABLED_FIELD -> matches(field,
                     PlatformAbilityFields.ENABLED_COLUMN, "boolean") ? FieldDefinition.enabled() : null;
-            default -> null;
+            default -> DynamicAbilityFields.approvalFields().stream()
+                    .filter(definition -> matches(field, definition.columnName(),
+                            definition.type() == FieldType.TIMESTAMP ? "datetime" : "string")
+                            && definition.fieldName().equals(field.getFieldName()))
+                    .findFirst().orElse(null);
         };
     }
 
@@ -151,6 +162,9 @@ public final class MetadataCapabilityCatalog {
                 if (Boolean.TRUE.equals(field.getSortableField())) capabilities.add(EntityCapability.SORT);
                 if (PlatformAbilityFields.ENABLED_FIELD.equals(field.getFieldName())
                         || PlatformAbilityFields.ENABLED_COLUMN.equals(field.getColumnName())) capabilities.add(EntityCapability.ENABLE);
+                if (DynamicAbilityFields.approvalFields().stream().anyMatch(definition ->
+                        definition.fieldName().equals(field.getFieldName())
+                                || definition.columnName().equals(field.getColumnName()))) capabilities.add(EntityCapability.APPROVAL);
             }
         }
         return normalize(capabilities);
@@ -193,8 +207,10 @@ public final class MetadataCapabilityCatalog {
             case PlatformAbilityFields.TREE_PARENT_FIELD -> FieldDefinition.parentId();
             case PlatformAbilityFields.SORT_FIELD -> FieldDefinition.sortOrder();
             case PlatformAbilityFields.ENABLED_FIELD -> FieldDefinition.enabled();
-            default -> throw new IllegalArgumentException("Unsupported platform capability field: "
-                    + contribution.fieldName());
+            default -> DynamicAbilityFields.approvalFields().stream()
+                    .filter(definition -> definition.fieldName().equals(contribution.fieldName()))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("Unsupported platform capability field: "
+                            + contribution.fieldName()));
         };
     }
 

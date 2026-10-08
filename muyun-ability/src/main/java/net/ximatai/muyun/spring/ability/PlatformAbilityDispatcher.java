@@ -228,6 +228,8 @@ final class PlatformAbilityDispatcher {
                                                                 T existing,
                                                                 T entity,
                                                                 boolean update) {
+        ApprovalMutationSupport.retain(ability, entity, existing);
+        ApprovalMutationSupport.requireEditable(ability, entity, existing);
         // Discriminated fields may derive a persisted value from the selected branch. Normalize
         // them before generic option/reference checks so every later write validator sees one
         // coherent record, regardless of whether the declaration is static or dynamic.
@@ -241,6 +243,7 @@ final class PlatformAbilityDispatcher {
         runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);
         entitySaveLifecycleListener.beforeSave(ability, existing, entity);
+        ApprovalMutationSupport.retain(ability, entity, existing);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

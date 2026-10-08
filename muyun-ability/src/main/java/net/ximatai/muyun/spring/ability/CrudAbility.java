@@ -45,6 +45,7 @@ public interface CrudAbility<T extends EntityContract> {
 
     private String insertInTransaction(T entity) {
         PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        ApprovalMutationSupport.retain(this, entity, null);
         FieldWriteSupport.normalize(this, entity);
         normalizeBeforeMutation(entity);
         beforePrepareInsert(entity);
@@ -133,6 +134,8 @@ public interface CrudAbility<T extends EntityContract> {
                 entity.setDeletedAt(null);
                 entity.setDeletedBy(null);
             }
+            ApprovalMutationSupport.retain(this, entity, existing);
+            ApprovalMutationSupport.requireEditable(this, entity, existing);
             FieldWriteSupport.normalize(this, entity);
             normalizeBeforeMutation(entity);
             PlatformAbilityDispatcher.lockMutationParents(this, existing, entity);
@@ -421,7 +424,8 @@ public interface CrudAbility<T extends EntityContract> {
         if (entity == null || entity.getId() == null || entity.getId().isBlank()) {
             return null;
         }
-        return TenantContext.currentTenantId().isPresent() || TenantContext.isSystem() || this instanceof SoftDeleteAbility<?>
+        return entity instanceof net.ximatai.muyun.spring.common.model.capability.ApprovalCapable
+                || TenantContext.currentTenantId().isPresent() || TenantContext.isSystem() || this instanceof SoftDeleteAbility<?>
                 || (this instanceof net.ximatai.muyun.spring.ability.child.ChildAbility<?> child && child.mutationParentKey() != null)
                 ? selectActiveRaw(entity.getId())
                 : null;

@@ -14,7 +14,6 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.RuntimeTableGateway;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.core.orm.TableMeta;
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields;
@@ -23,14 +22,12 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import net.ximatai.muyun.spring.dynamic.runtime.mapping.DynamicRecordMapping;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -373,15 +370,7 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
     }
 
     private List<FieldDefinition> recordFields() {
-        List<FieldDefinition> fields = new ArrayList<>();
-        if (entity.supports(EntityCapability.DATA_SCOPE)) {
-            fields.addAll(DynamicAbilityFields.dataScopeFields());
-        }
-        if (entity.supports(EntityCapability.APPROVAL)) {
-            fields.addAll(DynamicAbilityFields.approvalFields());
-        }
-        fields.addAll(FieldCompanionRules.recordFields(entity));
-        return fields;
+        return DynamicAbilityFields.recordFields(entity);
     }
 
     private List<FieldDefinition> persistentFields() {

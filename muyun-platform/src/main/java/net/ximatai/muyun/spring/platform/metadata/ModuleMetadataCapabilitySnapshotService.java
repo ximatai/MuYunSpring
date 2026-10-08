@@ -53,9 +53,8 @@ public class ModuleMetadataCapabilitySnapshotService {
                 catalogCapability(EntityCapability.RECYCLE_BIN, relation, resolution,
                         relationService.count(Criteria.of().eq("metadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0),
                 dataScopeCapability(relation, metadata),
-                fieldCapability(EntityCapability.APPROVAL, relation, fields, false, this::isApprovalField,
-                        List.of(PlatformAbilityFields.APPROVAL_INSTANCE_FIELD, PlatformAbilityFields.APPROVAL_STATUS_FIELD),
-                        "CONTEXT", "审批字段由审批运行态和流程上下文维护。")
+                catalogCapability(EntityCapability.APPROVAL, relation, resolution,
+                        relationService.count(Criteria.of().eq("metadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0)
         ));
     }
 
@@ -66,12 +65,14 @@ public class ModuleMetadataCapabilitySnapshotService {
         MetadataCapabilityPlan plan = MetadataCapabilityCatalog.plan(java.util.Set.of(capability));
         List<String> contributions = plan.metadataFields().stream()
                 .map(ModuleMetadataCapabilityFieldContribution::fieldName).toList();
-        String defaultKind = capability == EntityCapability.ENABLE ? "STATIC" : "RUNTIME";
+        String defaultKind = capability == EntityCapability.ENABLE ? "STATIC"
+                : capability == EntityCapability.APPROVAL ? "CONTEXT" : "RUNTIME";
         String description = switch (capability) {
             case TREE -> "未填写 parentId 时，运行态写入根节点。";
             case SORT -> "未填写 sortOrder 时，运行态按分区分配下一个排序值。";
             case ENABLE -> "未填写 enabled 时，默认写入 true。";
             case RECYCLE_BIN -> "查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。";
+            case APPROVAL -> "审批摘要由流程运行态维护；启用后暂不支持关闭。";
             default -> "";
         };
         boolean configurable = !child && !blockedByChildUsage;
@@ -115,11 +116,4 @@ public class ModuleMetadataCapabilitySnapshotService {
                 .eq("relationRole", RelationRole.CHILD)) > 0;
     }
 
-    private boolean isApprovalField(MetadataField field) {
-        return PlatformAbilityFields.APPROVAL_INSTANCE_FIELD.equals(field.getFieldName())
-                || PlatformAbilityFields.APPROVAL_STATUS_FIELD.equals(field.getFieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_BY_FIELD.equals(field.getFieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_AT_FIELD.equals(field.getFieldName())
-                || PlatformAbilityFields.APPROVAL_COMPLETED_AT_FIELD.equals(field.getFieldName());
-    }
 }

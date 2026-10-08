@@ -2978,7 +2978,14 @@ class PlatformMetadataServiceContractTest {
         BusinessRulePreview malformed = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(
                 new BusinessRuleProposal("badRule", FormulaRuleKind.CALCULATION, "total", "{quantity} +", false, null))));
         assertThat(malformed.valid()).isFalse();
-        assertThat(malformed.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_FORM_COMPUTE_UNSUPPORTED");
+        assertThat(malformed.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_PARSE_ERROR");
+        String backendAggregate = "SUM({quantity})";
+        assertThat(new net.ximatai.muyun.spring.common.formula.FormulaEngine().evaluateValue(backendAggregate,
+                net.ximatai.muyun.spring.common.formula.FormulaRuntimeData.of(Map.of("quantity", 2)))).isEqualTo(2d);
+        BusinessRulePreview unsupported = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(
+                new BusinessRuleProposal("backendAggregate", FormulaRuleKind.CALCULATION, "total", backendAggregate, true, null))));
+        assertThat(unsupported.valid()).isFalse();
+        assertThat(unsupported.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_FORM_COMPUTE_UNSUPPORTED");
         assertThatThrownBy(() -> governance.apply("crm.quote", new BusinessRuleApplyCommand(List.of(calculation),
                 baseline.baselineFingerprint(), preview.proposalFingerprint()))).isInstanceOf(PlatformException.class)
                 .hasMessageContaining("stale");

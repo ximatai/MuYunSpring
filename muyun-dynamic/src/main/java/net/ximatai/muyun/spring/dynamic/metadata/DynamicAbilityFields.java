@@ -1,11 +1,35 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
 import java.util.List;
 
 public final class DynamicAbilityFields {
     private DynamicAbilityFields() {
+    }
+
+    /** Shared field shape for DDL, record values and DAO mappings, including derived companions. */
+    public static List<FieldDefinition> recordFields(EntityDefinition entity) {
+        var fields = new java.util.ArrayList<FieldDefinition>();
+        if (entity.supports(EntityCapability.DATA_SCOPE)) fields.addAll(dataScopeFields());
+        if (entity.supports(EntityCapability.APPROVAL)) fields.addAll(approvalFields());
+        List<FieldDefinition> managed = List.copyOf(fields);
+        for (FieldDefinition field : FieldCompanionRules.recordFields(entity)) {
+            var canonical = managed.stream().filter(candidate -> candidate.fieldName().equals(field.fieldName())
+                    || candidate.columnName().equals(field.columnName())).findFirst();
+            if (canonical.isEmpty()) {
+                fields.add(field);
+                continue;
+            }
+            var expected = canonical.get();
+            if (!field.isPhysical() || !expected.fieldName().equals(field.fieldName())
+                    || !expected.columnName().equals(field.columnName()) || expected.type() != field.type()) {
+                throw new ModuleDefinitionException("Field conflicts with platform capability storage: " + field.fieldName());
+            }
+            // Authoring metadata can materialize capability fields; the canonical shape owns storage.
+        }
+        return List.copyOf(fields);
     }
 
     public static List<FieldDefinition> dataScopeFields() {

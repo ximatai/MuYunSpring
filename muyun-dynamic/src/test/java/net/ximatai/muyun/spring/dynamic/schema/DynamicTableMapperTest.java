@@ -346,6 +346,37 @@ class DynamicTableMapperTest {
     }
 
     @Test
+    void explicitlyMaterializedApprovalAndImplicitDataScopeProduceEachCanonicalColumnOnce() {
+        var fields = new java.util.ArrayList<>(contractEntity().fields());
+        fields.addAll(net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields());
+        var entity = new EntityDefinition("contract", "app_contract", "Contract", fields)
+                .withCapabilities(EntityCapability.APPROVAL, EntityCapability.DATA_SCOPE);
+        var columns = columnNames(mapper.toTable(entity));
+        assertThat(columns).doesNotHaveDuplicates();
+        assertThat(columns).contains("approval_instance_id", "approval_status", "approval_submitted_at", "auth_user_id");
+        var record = new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord(entity);
+        record.setApprovalStatus("processing");
+        assertThat(record.getApprovalStatus()).isEqualTo("processing");
+        var mapping = new net.ximatai.muyun.spring.dynamic.runtime.mapping.DynamicRecordMapping(entity);
+        for (var field : net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields()) {
+            assertThat(mapping.resolveColumnName(field.fieldName())).isEqualTo(field.columnName());
+            assertThat(mapping.resolveFieldName(field.columnName())).isEqualTo(field.fieldName());
+        }
+    }
+
+    @Test
+    void capabilityColumnsRejectConflictingNamesAndTypesInsteadOfSilentlyOverwritingThem() {
+        for (var conflict : List.of(FieldDefinition.string("businessValue", "Business").column("approval_status"),
+                FieldDefinition.integer("approvalStatus", "Status").column("approval_status"),
+                FieldDefinition.string("approvalStatus", "Status").column("wrong_status"))) {
+            var entity = new EntityDefinition("contract", "app_contract", "Contract", List.of(conflict))
+                    .withCapabilities(EntityCapability.APPROVAL);
+            assertThatThrownBy(() -> mapper.toTable(entity)).isInstanceOf(ModuleDefinitionException.class)
+                    .hasMessageContaining("platform capability storage");
+        }
+    }
+
+    @Test
     void shouldClassifyBaselineFieldAndDefinitionCapabilitiesInSameCatalog() {
         assertThat(EntityCapability.CRUD.isBaseline()).isTrue();
         assertThat(EntityCapability.SOFT_DELETE.isBaseline()).isTrue();

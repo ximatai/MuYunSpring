@@ -91,6 +91,33 @@ class DynamicModuleOverviewModeServiceTest {
     }
 
     @Test
+    void approvalIntentIsConfigurableBeforeMainCreationButPublishedApprovalCannotBeDisabled() {
+        var modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
+        var module = new PlatformModule(); module.setAlias("education.approval"); module.setApplicationAlias("education");
+        module.setTitle("审批模块"); module.setModuleKind(ModuleKind.DYNAMIC); modules.insert(module);
+        var relations = mock(ModuleMetadataRelationService.class); var metadata = mock(MetadataService.class);
+        var fields = mock(MetadataFieldService.class); var preview = mock(MetadataRelationChangeSetPreviewService.class);
+        var apply = mock(MetadataRelationChangeSetApplyService.class);
+        var service = new DynamicModuleOverviewModeService(modules, relations, metadata, fields, preview, apply);
+        service.save(module.getAlias(), new DynamicModuleOverviewModeSaveCommand(DynamicModuleOverviewMode.LIST_CARD,
+                null, Map.of(EntityCapability.APPROVAL, true), null));
+        assertThat(modules.select(module.getAlias()).getMainCapabilityDeclarations()).containsExactly("APPROVAL");
+        verifyNoInteractions(metadata, fields, preview, apply);
+        var relation = new ModuleMetadataRelation(); relation.setId("main"); relation.setMetadataId("metadata");
+        var main = new Metadata(); main.setId("metadata"); main.setVersion(4); main.setCapabilityDeclarations(Set.of("APPROVAL"));
+        when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(relation));
+        when(metadata.select("metadata")).thenReturn(main);
+        var proposal = new MetadataRelationChangeSetPreviewCommand(4, Map.of(), List.of());
+        when(preview.preview(module.getAlias(), "main", proposal)).thenReturn(new MetadataRelationChangeSetPreview(
+                module.getAlias(), "main", "metadata", 4, Set.of(EntityCapability.APPROVAL), List.of(), List.of(), List.of(), List.of(), "checked"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.save(module.getAlias(),
+                new DynamicModuleOverviewModeSaveCommand(DynamicModuleOverviewMode.LIST_CARD, 4,
+                        Map.of(EntityCapability.APPROVAL, false), null))).hasMessageContaining("审批能力启用后暂不支持关闭");
+        verifyNoInteractions(apply);
+        assertThat(modules.select(module.getAlias()).getMainCapabilityDeclarations()).containsExactly("APPROVAL");
+    }
+
+    @Test
     void shouldApplyRequiredTreeCapabilitiesThroughValidatedMainMetadataProposal() {
         PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = new PlatformModule();

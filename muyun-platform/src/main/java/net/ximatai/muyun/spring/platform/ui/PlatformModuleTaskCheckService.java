@@ -1,63 +1,26 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
-import net.ximatai.muyun.spring.platform.impact.RecordImpactRelation;
-import net.ximatai.muyun.spring.platform.impact.RecordImpactRelationService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService;
 
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 @Service
 public class PlatformModuleTaskCheckService {
-    private static final PageRequest FIRST_ROW = new PageRequest(1, 1);
-    private static final int GENERATED_RELATION_PAGE_SIZE = 500;
-
     private final PlatformPageConfigSnapshotService snapshotService;
-    private final PlatformQueryItemService queryItemService;
-    private final DynamicRecordService recordService;
-    private final Optional<RecordImpactRelationService> impactRelationService;
+    private final ModuleCompletionCheckService completionChecks;
     private final PlatformModuleTaskDefinitionRegistry taskDefinitionRegistry;
 
-    @Autowired
     public PlatformModuleTaskCheckService(PlatformPageConfigSnapshotService snapshotService,
-                                          PlatformQueryItemService queryItemService,
-                                          DynamicRecordService recordService,
-                                          Optional<RecordImpactRelationService> impactRelationService,
+                                          ModuleCompletionCheckService completionChecks,
                                           PlatformModuleTaskDefinitionRegistry taskDefinitionRegistry) {
-        this.snapshotService = snapshotService;
-        this.queryItemService = queryItemService;
-        this.recordService = recordService;
-        this.impactRelationService = impactRelationService == null ? Optional.empty() : impactRelationService;
-        this.taskDefinitionRegistry = taskDefinitionRegistry == null
-                ? new PlatformModuleTaskDefinitionRegistry()
-                : taskDefinitionRegistry;
-    }
-
-    PlatformModuleTaskCheckService(PlatformPageConfigSnapshotService snapshotService,
-                                   PlatformQueryItemService queryItemService,
-                                   DynamicRecordService recordService,
-                                   Optional<RecordImpactRelationService> impactRelationService) {
-        this(snapshotService, queryItemService, recordService, impactRelationService,
-                new PlatformModuleTaskDefinitionRegistry());
-    }
-
-    PlatformModuleTaskCheckService(PlatformPageConfigSnapshotService snapshotService,
-                                   PlatformQueryItemService queryItemService,
-                                   DynamicRecordService recordService) {
-        this(snapshotService, queryItemService, recordService, Optional.empty(),
-                new PlatformModuleTaskDefinitionRegistry());
+        this.snapshotService = Objects.requireNonNull(snapshotService);
+        this.completionChecks = Objects.requireNonNull(completionChecks);
+        this.taskDefinitionRegistry = Objects.requireNonNull(taskDefinitionRegistry);
     }
 
     public PlatformModuleTaskCheckResult check(String moduleAlias, String recordId, String uiConfigId) {
@@ -122,91 +85,15 @@ public class PlatformModuleTaskCheckService {
     private PlatformModuleTaskCheckDetail checkOne(PlatformPageConfigSnapshot snapshot,
                                                    String recordId,
                                                    PlatformTaskCheckBlock check) {
-        if (check.checkType() == PlatformTaskCheckType.ASSOCIATION_VIEW) {
-            return checkAssociationView(snapshot.moduleAlias(), recordId, check);
-        }
         if (check.checkType() == PlatformTaskCheckType.QUERY_TEMPLATE) {
-            return checkQueryTemplate(snapshot, recordId, check);
+            PlatformQueryTemplate template = snapshot.queryTemplates().stream()
+                    .filter(item -> Objects.equals(item.getId(), check.queryTemplateId()))
+                    .findFirst()
+                    .orElseThrow(() -> new PlatformException("Task query template is not published in module snapshot: "
+                            + check.queryTemplateId()));
+            return completionChecks.check(snapshot.moduleAlias(), recordId, check, template);
         }
-        if (check.checkType() == PlatformTaskCheckType.GENERATED_RELATION) {
-            return checkGeneratedRelation(snapshot.moduleAlias(), recordId, check);
-        }
-        return new PlatformModuleTaskCheckDetail(check.checkType(), null, null, check.expectedCount(),
-                check.diagnosticPath(), "manual task has no backend check");
-    }
-
-    private PlatformModuleTaskCheckDetail checkAssociationView(String moduleAlias,
-                                                               String recordId,
-                                                               PlatformTaskCheckBlock check) {
-        String entityAlias = recordService.mainEntityAlias(moduleAlias);
-        PageResult<DynamicRecord> page = recordService.associationViewPage(moduleAlias, entityAlias, recordId,
-                check.associationViewCode(), Criteria.of(), FIRST_ROW);
-        long matched = page.getTotal();
-        return countDetail(check, matched);
-    }
-
-    private PlatformModuleTaskCheckDetail checkQueryTemplate(PlatformPageConfigSnapshot snapshot,
-                                                             String recordId,
-                                                             PlatformTaskCheckBlock check) {
-        PlatformQueryTemplate template = snapshot.queryTemplates().stream()
-                .filter(item -> Objects.equals(item.getId(), check.queryTemplateId()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("Task query template is not published in module snapshot: "
-                        + check.queryTemplateId()));
-        Map<String, Object> externalValues = new LinkedHashMap<>();
-        if (hasText(check.externalRecordIdKey())) {
-            externalValues.put(check.externalRecordIdKey(), recordId);
-        }
-        Criteria criteria = queryItemService.compile(template.getId(), externalValues);
-        long matched = recordService.count(template.getModuleAlias(),
-                recordService.mainEntityAlias(template.getModuleAlias()), criteria);
-        return countDetail(check, matched);
-    }
-
-    private PlatformModuleTaskCheckDetail checkGeneratedRelation(String moduleAlias,
-                                                                 String recordId,
-                                                                 PlatformTaskCheckBlock check) {
-        RecordImpactRelationService service = impactRelationService
-                .orElseThrow(() -> new PlatformException("Generated relation task check requires impact relation service"));
-        long matched = countVisibleGeneratedTargets(service, moduleAlias, recordId, check);
-        return countDetail(check, matched);
-    }
-
-    private long countVisibleGeneratedTargets(RecordImpactRelationService service,
-                                              String moduleAlias,
-                                              String recordId,
-                                              PlatformTaskCheckBlock check) {
-        String targetEntityAlias = recordService.mainEntityAlias(check.targetModuleAlias());
-        Set<String> seenTargetIds = new LinkedHashSet<>();
-        long visible = 0;
-        int page = 1;
-        while (visible < check.expectedCount()) {
-            List<RecordImpactRelation> relations = service.listGeneratedTargets(moduleAlias, recordId,
-                    check.targetModuleAlias(), check.generationRuleId(),
-                    PageRequest.of(page, GENERATED_RELATION_PAGE_SIZE));
-            if (relations.isEmpty()) {
-                break;
-            }
-            List<String> candidateIds = relations.stream()
-                    .map(RecordImpactRelation::getTargetRecordId)
-                    .filter(Objects::nonNull)
-                    .filter(seenTargetIds::add)
-                    .toList();
-            if (!candidateIds.isEmpty()) {
-                visible += recordService.count(check.targetModuleAlias(), targetEntityAlias,
-                        Criteria.of().in("id", candidateIds));
-            }
-            if (relations.size() < GENERATED_RELATION_PAGE_SIZE) {
-                break;
-            }
-            page++;
-        }
-        return visible;
-    }
-
-    private PlatformModuleTaskCheckDetail countDetail(PlatformTaskCheckBlock check, long matched) {
-        return new PlatformModuleTaskCheckDetail(check.checkType(), matched >= check.expectedCount(), matched,
-                check.expectedCount(), check.diagnosticPath(), null);
+        return completionChecks.check(snapshot.moduleAlias(), recordId, check);
     }
 
     private PlatformModuleTaskStatus status(PlatformTaskSource source,
