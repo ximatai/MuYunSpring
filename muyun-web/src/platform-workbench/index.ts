@@ -43,7 +43,11 @@ export {
   tryPageDescriptorFromUrl,
   withPageInstanceKey,
 } from './menuNavigation';
-export type { PageDescriptorResolveOptions, PageDescriptorUrlParseOptions } from './menuNavigation';
+export type {
+  ModuleNavigationTarget,
+  PageDescriptorResolveOptions,
+  PageDescriptorUrlParseOptions,
+} from './menuNavigation';
 export {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,

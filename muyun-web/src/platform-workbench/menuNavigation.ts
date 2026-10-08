@@ -1,5 +1,6 @@
 import type {
   MenuNavigationTarget,
+  ModuleMenuTarget,
   MenuRecord,
   MenuPageMode,
   MenuTab,
@@ -12,11 +13,14 @@ import type {
 } from '@muyun/web-contracts';
 import { resolveWorkspaceView } from './workspaceViews';
 
+/** Direct module actions resolve through the same route catalog without a persisted menu. */
+export type ModuleNavigationTarget = Omit<ModuleMenuTarget, 'menuId'> & { menuId?: string };
+
 export interface PageDescriptorResolveOptions {
   title?: string;
   platformRoutePrefixes?: string[];
   businessRoutePrefixes?: string[];
-  /** Optional legacy mapping for framework-owned static business pages. */
+  /** Registered module routes for framework-owned static business pages. */
   businessModuleRoutes?: Record<string, string>;
   /** Semantic overrides in the canonical dynamic module route catalog. */
   dynamicModuleRoutes?: Record<string, string>;
@@ -108,7 +112,7 @@ export function isWindowMenuTarget(target: MenuNavigationTarget): boolean {
 }
 
 export function resolvePageDescriptor(
-  target: MenuNavigationTarget,
+  target: MenuNavigationTarget | ModuleNavigationTarget,
   options: PageDescriptorResolveOptions = {},
 ): PageDescriptor {
   if (target.menuType === 'module') {
@@ -122,8 +126,9 @@ export function resolvePageDescriptor(
         layout: businessRouteLayoutsOf({ route: businessRoute }, options),
         menuId: target.menuId,
         target: { route: businessRoute, moduleAlias: target.moduleAlias },
+        params: target.query,
         entryParamsJson: target.entryParamsJson,
-        tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
+        tabPolicy: { identity: target.menuId ? 'by-menu' : 'by-target', closable: true, cacheable: true },
       };
     }
     return {
@@ -140,7 +145,7 @@ export function resolvePageDescriptor(
       },
       params: target.query,
       entryParamsJson: target.entryParamsJson,
-      tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
+      tabPolicy: { identity: target.menuId ? 'by-menu' : 'by-target', closable: true, cacheable: true },
     };
   }
 

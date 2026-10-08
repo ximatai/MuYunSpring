@@ -79,6 +79,7 @@ import {
 } from './platform-admin-runtime/authSession';
 import { configureAuthenticationRecovery } from './platform-admin-runtime/sessionRecovery';
 import { platformMessage } from './app/platformMessage';
+import { businessNotificationPageDescriptor } from './app/businessNotificationNavigation';
 import { useWorkbenchMenuRefresh } from './app/useWorkbenchMenuRefresh';
 import { createWorkbenchMenuRefresh } from './app/workbenchMenuRefresh';
 import { provideCurrentUserContext } from './platform-admin-runtime/currentUserContext';
@@ -890,17 +891,9 @@ async function executeBusinessNotificationAction(
 ) {
   try {
     if (action.kind === 'navigate') {
-      handleOpenPage({
-        pageType: 'dynamic-module',
-        openMode: 'dynamic-runner',
-        hostType: 'module-page-host',
-        target: {
-          moduleAlias: action.moduleAlias,
-          pageMode: action.pageMode ?? 'LIST',
-        },
-        params: { ...(action.query ?? {}), ...(action.recordId ? { recordId: action.recordId } : {}) },
-        tabPolicy: { identity: action.recordId ? 'by-params' : 'by-target', closable: true, cacheable: true },
-      });
+      handleOpenPage(
+        businessNotificationPageDescriptor(action, platformAdminRouteResolveOptions, startup.value?.menus),
+      );
     } else {
       if (action.confirmation) {
         const confirmed = await confirmAction({

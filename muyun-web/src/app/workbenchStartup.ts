@@ -555,7 +555,8 @@ function directTabTitleOf(descriptor: PageDescriptor): string {
   return descriptor.target.url;
 }
 
-function findMenuByDescriptor(
+/** Resolves the authoritative visible menu presentation for a page intent. */
+export function findMenuByDescriptor(
   nodes: WorkbenchStartupState['menus'],
   descriptor: PageDescriptor,
   options: PageDescriptorResolveOptions,
