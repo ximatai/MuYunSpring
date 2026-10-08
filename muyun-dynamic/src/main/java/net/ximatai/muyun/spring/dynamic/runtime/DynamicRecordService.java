@@ -498,6 +498,13 @@ public class DynamicRecordService {
         return entityService(moduleAlias, entityAlias).selectIgnoreSoftDelete(id);
     }
 
+    /** Tenant-bound existence for authorized platform maintenance; does not enter system mode or use caches. */
+    public boolean existsActiveInCurrentTenant(String moduleAlias, String entityAlias, String id) {
+        var record = entityService(moduleAlias, entityAlias).selectActiveRaw(id);
+        return record != null && java.util.Objects.equals(
+                TenantContext.currentTenantId().orElse(null), record.getTenantId());
+    }
+
     public DynamicRecord selectSystem(String moduleAlias, String entityAlias, String id) {
         return entityService(moduleAlias, entityAlias).select(id);
     }

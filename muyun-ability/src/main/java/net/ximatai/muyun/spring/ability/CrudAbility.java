@@ -201,6 +201,7 @@ public interface CrudAbility<T extends EntityContract> {
             T entity = selectActiveRaw(id);
             PlatformAbilityDispatcher.requireMutationContext(this, entity);
             PlatformAbilityDispatcher.lockMutationParents(this, entity, null);
+            PlatformAbilityDispatcher.validateRecordDeletion(this, entity);
             beforeDelete(id, context);
             if (entity == null) {
                 return 0;

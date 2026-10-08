@@ -118,7 +118,7 @@ class WorkflowInstanceActionServiceTest {
         assertThat(result.event().getEventType()).isEqualTo(WorkflowEventType.INSTANCE_TERMINATED);
         assertThat(result.event().getActionCode()).isEqualTo("forceTerminate");
         verify(archiveService, never()).archiveCurrentInstance(any(), any(), any());
-        verify(summaryWriter).writeSubmitted(any());
+        verify(summaryWriter).writeSubmittedIfPresent(any());
         assertThat(plugin.events()).containsExactly(WorkflowRuntimePluginEventType.BEFORE_TERMINATE,
                 WorkflowRuntimePluginEventType.AFTER_TERMINATE);
         assertThat(plugin.contexts().getFirst().terminateMode()).isEqualTo(WorkflowRuntimeTerminateMode.FORCE);

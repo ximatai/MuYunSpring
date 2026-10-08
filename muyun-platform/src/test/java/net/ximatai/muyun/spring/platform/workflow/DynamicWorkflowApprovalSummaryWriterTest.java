@@ -77,6 +77,21 @@ class DynamicWorkflowApprovalSummaryWriterTest {
         assertThat(TenantContext.hasContext()).isFalse();
     }
 
+    @Test void managementRecoverySkipsOnlyConfirmedMissingRecordsAndKeepsWriteFailuresStrict() {
+        when(records.mainEntityAlias("sales.contract")).thenReturn("contract");
+        var writer = new DynamicWorkflowApprovalSummaryWriter(records);
+        writer.writeSubmittedIfPresent(summary());
+        writer.clearCurrentIfPresent("instance-tenant", "sales.contract", "record");
+        verify(records, never()).writeApprovalState(anyString(), anyString(), anyString(), any(), any());
+        when(records.existsActiveInCurrentTenant("sales.contract", "contract", "record")).thenReturn(true);
+        assertThatThrownBy(() -> writer.writeSubmittedIfPresent(summary())).hasMessageContaining("business record not found");
+        when(records.writeApprovalState(anyString(), anyString(), anyString(), any(), any()))
+                .thenThrow(new net.ximatai.muyun.spring.ability.OptimisticLockException("summary version conflict"));
+        assertThatThrownBy(() -> writer.clearCurrentIfPresent("instance-tenant", "sales.contract", "record"))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
     private WorkflowApprovalSummary summary() {
         return new WorkflowApprovalSummary("instance-tenant", "sales.contract", "record", "instance",
                 WorkflowApprovalStatus.PROCESSING, "submitter", Instant.EPOCH, null);

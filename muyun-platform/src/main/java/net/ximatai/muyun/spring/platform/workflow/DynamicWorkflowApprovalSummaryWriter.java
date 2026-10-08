@@ -37,11 +37,16 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
     }
 
     @Override
-    public void writeSubmitted(WorkflowApprovalSummary summary) {
+    public void writeSubmitted(WorkflowApprovalSummary summary) { writeSubmitted(summary, false); }
+
+    @Override
+    public void writeSubmittedIfPresent(WorkflowApprovalSummary summary) { writeSubmitted(summary, true); }
+
+    private void writeSubmitted(WorkflowApprovalSummary summary, boolean allowMissingRecord) {
         Objects.requireNonNull(summary, "summary");
         write(summary.tenantId(), summary.moduleAlias(), summary.recordId(), new ApprovalState(
                 summary.approvalInstanceId(), Objects.requireNonNull(summary.approvalStatus(), "approvalStatus").getCode(),
-                summary.approvalSubmittedBy(), summary.approvalSubmittedAt(), summary.approvalCompletedAt()));
+                summary.approvalSubmittedBy(), summary.approvalSubmittedAt(), summary.approvalCompletedAt()), allowMissingRecord);
     }
 
     @Override
@@ -51,10 +56,16 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
 
     @Override
     public void clearCurrent(String tenantId, String moduleAlias, String recordId) {
-        write(tenantId, moduleAlias, recordId, ApprovalState.empty());
+        write(tenantId, moduleAlias, recordId, ApprovalState.empty(), false);
     }
 
-    private void write(String tenantId, String moduleAlias, String recordId, ApprovalState state) {
+    @Override
+    public void clearCurrentIfPresent(String tenantId, String moduleAlias, String recordId) {
+        write(tenantId, moduleAlias, recordId, ApprovalState.empty(), true);
+    }
+
+    private void write(String tenantId, String moduleAlias, String recordId, ApprovalState state,
+                       boolean allowMissingRecord) {
         // The tenant comes from the instance, including background/admin execution. Never enter system mode.
         try (var tenant = TenantContext.use(tenantId)) {
             ActionExecutionPolicy policy = ActionExecutionContextHolder.current()
@@ -67,9 +78,15 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
                 if (!(service.get() instanceof ApprovalAbility<?> approval) || !approval.supportsApproval()) {
                     throw new PlatformException("static module does not support approval: " + moduleAlias);
                 }
+                if (allowMissingRecord) {
+                    var record = service.get().selectActiveRaw(recordId);
+                    if (record == null || !Objects.equals(tenantId, record.getTenantId())) return;
+                }
                 updated = approval.writeApprovalState(recordId, policy, state);
             } else {
-                updated = records.writeApprovalState(moduleAlias, records.mainEntityAlias(moduleAlias), recordId, policy, state);
+                String entityAlias = records.mainEntityAlias(moduleAlias);
+                if (allowMissingRecord && !records.existsActiveInCurrentTenant(moduleAlias, entityAlias, recordId)) return;
+                updated = records.writeApprovalState(moduleAlias, entityAlias, recordId, policy, state);
             }
             if (updated != 1) throw new PlatformException("approval business record not found: " + moduleAlias + "." + recordId);
         }
