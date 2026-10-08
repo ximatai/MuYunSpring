@@ -11,8 +11,9 @@ class WorkflowBusinessTaskResolverTest {
     private final DefinitionDao definitions = new DefinitionDao();
     private final CheckDao checks = new CheckDao();
     private final GuideDao guides = new GuideDao();
+    private final WorkflowBusinessTaskReferenceValidator references = org.mockito.Mockito.mock(WorkflowBusinessTaskReferenceValidator.class);
     private final WorkflowBusinessTaskResolver resolver = new WorkflowBusinessTaskResolver(definitions, checks, guides,
-            new WorkflowConditionService(WorkflowTestSupport.facts()));
+            new WorkflowConditionService(WorkflowTestSupport.facts()), references);
 
     @Test
     void publishedNodeKeepsItsCompletionPolicyWhenSharedDefinitionChanges() {
@@ -189,6 +190,16 @@ class WorkflowBusinessTaskResolverTest {
                     new WorkflowBusinessTaskSpec(definition, List.of(), List.of()))));
             assertThatThrownBy(() -> resolver.freeze(node, "sales.contract")).hasMessageContaining("已删除");
         }
+    }
+
+    @Test void referenceResolutionMustSucceedBeforeAnySpecificationIsFrozen() {
+        definition(true);
+        var check = check(WorkflowTaskCheckKind.QUERY_EXISTS);
+        check.setCheckConfigText("{\"checkType\":\"QUERY_TEMPLATE\",\"queryTemplateId\":\"missing\"}"); checks.insert(check);
+        var node = authored();
+        org.mockito.Mockito.doThrow(new PlatformException("任务查询模板不存在")).when(references).check("sales.contract", check);
+        assertThatThrownBy(() -> resolver.freeze(node, "sales.contract")).hasMessageContaining("查询模板不存在");
+        assertThat(node.getNodeConfigText()).isNull();
     }
 
     private WorkflowTaskCheck check(WorkflowTaskCheckKind kind) {

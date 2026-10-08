@@ -357,7 +357,7 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
             return new DefaultModuleRecordFacts(abilities, records);
         }
         @Bean @Primary WorkflowBusinessTaskResolver realSpecifications(WorkflowTaskDefinitionDao definitions, WorkflowTaskCheckDao checks,
-                WorkflowTaskGuideDao guides, WorkflowConditionService conditions) { return new WorkflowBusinessTaskResolver(definitions, checks, guides, conditions); }
+                WorkflowTaskGuideDao guides, WorkflowConditionService conditions) { return new WorkflowBusinessTaskResolver(definitions, checks, guides, conditions, mock(WorkflowBusinessTaskReferenceValidator.class)); }
         @Bean @Primary WorkflowModuleTaskEvaluator realEvaluator(WorkflowBusinessTaskResolver specifications, ModuleCompletionCheckService checks) {
             return new DefaultWorkflowModuleTaskEvaluator(specifications, checks);
         }

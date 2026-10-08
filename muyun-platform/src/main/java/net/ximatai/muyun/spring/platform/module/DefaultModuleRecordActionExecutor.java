@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -26,7 +28,23 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
                                             ActionExecutionPolicyService policies, ObjectMapper mapper) {
         this.abilities = abilities; this.records = records; this.policies = policies; this.mapper = mapper;
     }
-    @Override public boolean supports(String moduleAlias, String actionCode) { return true; }
+    @Override public boolean supports(String moduleAlias, String actionCode) {
+        if (moduleAlias == null || actionCode == null) return false;
+        if (abilities.orderedStream().anyMatch(item -> moduleAlias.equals(item.getModuleAlias())))
+            return "update".equals(actionCode);
+        var definition = records.moduleDefinitions().stream()
+                .filter(item -> moduleAlias.equals(item.moduleAlias())).findFirst();
+        if (definition.isEmpty()) return false;
+        return records.actions(moduleAlias).stream().anyMatch(action -> actionCode.equals(action.code())
+                && action.enabled()
+                && (action.actionLevel() == EntityActionLevel.RECORD || action.actionLevel() == EntityActionLevel.ANY)
+                && (action.executorType() == EntityActionExecutorType.STANDARD
+                    || action.executorType() == EntityActionExecutorType.SERVICE
+                    || action.executorType() == EntityActionExecutorType.GENERATE
+                    || action.executorType() == EntityActionExecutorType.DIALOG)
+                && definition.get().mainEntityAlias() != null
+                && definition.get().mainEntityAlias().equals(records.actionEntityAlias(moduleAlias, actionCode)));
+    }
     @Override public Object execute(ModuleRecordActionCommand command) {
         return execute(command, false);
     }

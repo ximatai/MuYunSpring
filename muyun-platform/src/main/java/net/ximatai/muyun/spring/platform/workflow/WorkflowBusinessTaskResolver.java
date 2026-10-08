@@ -18,11 +18,14 @@ public class WorkflowBusinessTaskResolver {
     private final WorkflowTaskCheckDao checks;
     private final WorkflowTaskGuideDao guides;
     private final WorkflowConditionService conditions;
+    private final WorkflowBusinessTaskReferenceValidator references;
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
 
     public WorkflowBusinessTaskResolver(WorkflowTaskDefinitionDao definitions, WorkflowTaskCheckDao checks,
-                                        WorkflowTaskGuideDao guides, WorkflowConditionService conditions) {
+                                        WorkflowTaskGuideDao guides, WorkflowConditionService conditions,
+                                        WorkflowBusinessTaskReferenceValidator references) {
         this.definitions = definitions; this.checks = checks; this.guides = guides; this.conditions = conditions;
+        this.references = java.util.Objects.requireNonNull(references, "references");
     }
 
     public WorkflowBusinessTaskSpec resolve(WorkflowNodeInstance node) {
@@ -56,6 +59,7 @@ public class WorkflowBusinessTaskResolver {
                 if (!checkKeys.add(check.getCheckKey())) throw new PlatformException("任务检查项编码重复: " + check.getCheckKey());
                 requireChildOwner(check.getTaskDefinitionId(), specification.definition().getId());
                 validateCheck(check);
+                references.check(moduleAlias, check);
             }
             var guideKeys = new java.util.HashSet<String>();
             for (var guide : specification.guides()) {
@@ -81,6 +85,7 @@ public class WorkflowBusinessTaskResolver {
                 if (guide.getGuideKind() == WorkflowTaskGuideKind.OPEN_FORM
                         || guide.getGuideKind() == WorkflowTaskGuideKind.EXECUTE_ACTION && "update".equals(guide.getTargetActionCode()))
                     WorkflowTaskFormPolicy.editableFields(guide);
+                references.guide(moduleAlias, guide);
             }
         } catch (IllegalArgumentException | NullPointerException invalid) {
             throw new PlatformException("业务任务配置无效: " + invalid.getMessage(), invalid);
