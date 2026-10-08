@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
@@ -435,6 +436,161 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(nodeRuns.findById(originalNode).getNodeStatus()).isEqualTo(WorkflowNodeStatus.COMPLETED);
             assertThat(nodeRuns.findById(originalNode).getCompletedTaskCount()).isEqualTo(mode == WorkflowApprovalMode.ANY ? 1 : 2);
         }
+    }
+
+    @Test void addSignCannotSeparateAManualBranchFromItsSelectorAndRejectionLeavesAllRuntimeRowsUnchanged() {
+        try (var context = TenantContext.use(tenant)) {
+            var submitted = addSignManualFixture();
+            String id = submitted.instance().getId();
+            var first = taskFor(id, "first");
+            var before = runtimeSnapshot(id);
+            var request = WorkflowTaskActionRequest.builder(first.getId(), "one")
+                    .addSignSegment(addSignSegment("inserted", "first", "branch", "different-operator"))
+                    .reason("专业复核").designerSnapshot("{\"changed\":true}", "{\"changed\":true}").build();
+
+            assertThatThrownBy(() -> actions.addSign(request))
+                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置");
+
+            assertThat(runtimeSnapshot(id)).usingRecursiveComparison().isEqualTo(before);
+            assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("nodeKey", "branch"), PageRequest.of(1, 1)).getFirst().getSelectorNodeKey())
+                    .isEqualTo("first");
+            actions.approve(WorkflowTaskActionRequest.builder(first.getId(), "one")
+                    .manualRouteSelections(List.of(new WorkflowManualRouteSelection("branch", "branch-left", "原办理人选路"))).build());
+            var left = taskFor(id, "left");
+            actions.approve(WorkflowTaskActionRequest.builder(left.getId(), "left").build());
+            assertThat(instances.findById(id).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
+        }
+    }
+
+    @Test void replacingAnUnactivatedNoticeWithABlockingApprovalCannotBreakTheOriginalManualResponsibility() {
+        try (var context = TenantContext.use(tenant)) {
+            var submitted = addSignManualFixture();
+            String id = submitted.instance().getId();
+            var first = taskFor(id, "first");
+            var notice = addSignSegment("old-notice", "first", "branch", "notice-reader");
+            notice.nodeDefinitions().getFirst().setApprovalMode(WorkflowApprovalMode.NOTICE);
+            var created = actions.addSign(WorkflowTaskActionRequest.addSign(first.getId(), "one", notice, "抄送专业人员"));
+            assertThat(created.addSignEditMode()).isEqualTo(WorkflowAddSignEditMode.CREATE);
+            var before = runtimeSnapshot(id);
+
+            assertThatThrownBy(() -> actions.addSign(WorkflowTaskActionRequest.builder(first.getId(), "one")
+                    .addSignSegment(addSignSegment("replacement-approval", "first", "branch", "different-operator"))
+                    .reason("替换为专业审批").designerSnapshot("{\"replacement\":true}", "{\"replacement\":true}").build()))
+                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置");
+
+            assertThat(runtimeSnapshot(id)).usingRecursiveComparison().isEqualTo(before);
+            assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("addedByAddSign", true), PageRequest.of(1, 10)))
+                    .singleElement().satisfies(node -> {
+                        assertThat(node.getNodeKey()).isEqualTo("old-notice");
+                        assertThat(node.getApprovalMode()).isEqualTo(WorkflowApprovalMode.NOTICE);
+                        assertThat(node.getNodeStatus()).isEqualTo(WorkflowNodeStatus.WAITING);
+                    });
+            assertThat(routeRuns.query(Criteria.of().eq("instanceId", id).eq("addedByAddSign", true), PageRequest.of(1, 10)))
+                    .extracting(WorkflowRouteInstance::getRouteKey).containsExactlyInAnyOrder("old-notice-entry", "old-notice-exit");
+            actions.approve(WorkflowTaskActionRequest.builder(first.getId(), "one")
+                    .manualRouteSelections(List.of(new WorkflowManualRouteSelection("branch", "branch-left", "原办理人继续选路"))).build());
+            actions.approve(WorkflowTaskActionRequest.builder(taskFor(id, "left").getId(), "left").build());
+            assertThat(instances.findById(id).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void addSignOutsideTheManualResponsibilityPathCanBeCreatedAndReplacedWithoutReassigningTheSelector(boolean beforeSelector) {
+        try (var context = TenantContext.use(tenant)) {
+            var submitted = addSignManualFixture(beforeSelector);
+            String id = submitted.instance().getId();
+            if (!beforeSelector) {
+                var first = taskFor(id, "first");
+                actions.approve(WorkflowTaskActionRequest.builder(first.getId(), "one")
+                        .manualRouteSelections(List.of(new WorkflowManualRouteSelection("branch", "branch-left", "原办理人选路"))).build());
+            }
+            String source = beforeSelector ? "upstream" : "left", target = beforeSelector ? "first" : "join";
+            var current = taskFor(id, source);
+            var created = actions.addSign(WorkflowTaskActionRequest.addSign(current.getId(), source,
+                    addSignSegment("old-inserted", source, target, "old-operator"), "增加复核"));
+            assertThat(created.addSignEditMode()).isEqualTo(WorkflowAddSignEditMode.CREATE);
+            var replaced = actions.addSign(WorkflowTaskActionRequest.addSign(current.getId(), source,
+                    addSignSegment("new-inserted", source, target, "new-operator"), "替换尚未激活的复核"));
+            assertThat(replaced.addSignEditMode()).isEqualTo(WorkflowAddSignEditMode.REPLACE);
+            assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("addedByAddSign", true), PageRequest.of(1, 10)))
+                    .extracting(WorkflowNodeInstance::getNodeKey).containsExactly("new-inserted");
+            assertThat(routeRuns.query(Criteria.of().eq("instanceId", id).eq("addedByAddSign", true), PageRequest.of(1, 10)))
+                    .extracting(WorkflowRouteInstance::getRouteKey).containsExactlyInAnyOrder("new-inserted-entry", "new-inserted-exit");
+            assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("nodeKey", "branch"), PageRequest.of(1, 1)).getFirst().getSelectorNodeKey())
+                    .isEqualTo("first");
+            actions.approve(WorkflowTaskActionRequest.builder(current.getId(), source).build());
+            var extra = taskFor(id, "new-inserted");
+            assertThat(extra.getAssigneeId()).isEqualTo("new-operator");
+            actions.approve(WorkflowTaskActionRequest.builder(extra.getId(), "new-operator").build());
+            if (beforeSelector) {
+                var first = taskFor(id, "first");
+                actions.approve(WorkflowTaskActionRequest.builder(first.getId(), "one")
+                        .manualRouteSelections(List.of(new WorkflowManualRouteSelection("branch", "branch-left", "原办理人选路"))).build());
+                actions.approve(WorkflowTaskActionRequest.builder(taskFor(id, "left").getId(), "left").build());
+            }
+            assertThat(instances.findById(id).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
+        }
+    }
+
+    private RuntimeSnapshot runtimeSnapshot(String id) {
+        var criteria = Criteria.of().eq("instanceId", id);
+        var page = PageRequest.of(1, 200);
+        return new RuntimeSnapshot(instances.findById(id), nodeRuns.query(criteria, page, Sort.asc("id")),
+                routeRuns.query(criteria, page, Sort.asc("id")), tasks.query(criteria, page, Sort.asc("id")),
+                events.query(criteria, page, Sort.asc("id")));
+    }
+
+    private record RuntimeSnapshot(WorkflowInstance instance, List<WorkflowNodeInstance> nodes,
+                                   List<WorkflowRouteInstance> routes, List<WorkflowTask> tasks, List<WorkflowEvent> events) { }
+
+    private WorkflowAddSignSegment addSignSegment(String key, String source, String target, String assignee) {
+        var node = new WorkflowNodeDefinition(); node.setNodeKey(key); node.setNodeType(WorkflowNodeType.APPROVAL);
+        node.setTitle(key); node.setApprovalMode(WorkflowApprovalMode.ALL); node.setParticipantPolicyText("user:" + assignee);
+        var entry = new WorkflowLinkDefinition(); entry.setRouteKey(key + "-entry"); entry.setTitle("加签"); entry.setSourceNodeKey(source); entry.setTargetNodeKey(key);
+        var exit = new WorkflowLinkDefinition(); exit.setRouteKey(key + "-exit"); exit.setTitle("继续"); exit.setSourceNodeKey(key); exit.setTargetNodeKey(target);
+        return new WorkflowAddSignSegment(List.of(node), List.of(entry, exit));
+    }
+
+    private WorkflowSubmitResult addSignManualFixture() { return addSignManualFixture(false); }
+
+    private WorkflowSubmitResult addSignManualFixture(boolean beforeSelector) {
+        var definition = new WorkflowDefinition(); definition.setApplicationAlias("test"); definition.setModuleAlias(module);
+        definition.setAlias("add_sign_manual"); definition.setTitle("Manual selector with runtime add sign"); definition.setEnabled(true);
+        definition.setApprovalEnabled(false); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED); definition.setCurrentVersionNo(1);
+        EntityLifecycle.prepareInsert(definition, Instant.now()); definitions.insert(definition);
+        var version = new WorkflowVersion(); version.setDefinitionId(definition.getId()); version.setVersionNo(1);
+        version.setPublishStatus(WorkflowPublishStatus.PUBLISHED);
+        var nodes = new ArrayList<WorkflowNodeDefinition>();
+        var keys = new ArrayList<>(List.of("start", "first", "branch", "left", "right", "join", "end"));
+        if (beforeSelector) keys.add("upstream");
+        for (String key : keys) {
+            var node = new WorkflowNodeDefinition(); node.setNodeKey(key); node.setTitle(key);
+            node.setNodeType(key.equals("start") ? WorkflowNodeType.START : key.equals("end") ? WorkflowNodeType.END
+                    : key.equals("branch") ? WorkflowNodeType.BRANCH : key.equals("join") ? WorkflowNodeType.CONVERGE : WorkflowNodeType.APPROVAL);
+            if (node.getNodeType() == WorkflowNodeType.APPROVAL) {
+                node.setParticipantPolicyText("user:" + (key.equals("first") ? "one" : key));
+                node.setApprovalMode(WorkflowApprovalMode.ALL); node.setAllowAddSign(true);
+            }
+            if (key.equals("branch")) { node.setRouteMode(WorkflowRouteMode.MANUAL); node.setSelectorNodeKey("first"); node.setConvergeNodeKey("join"); }
+            if (key.equals("join")) node.setConvergeMode(WorkflowConvergeMode.ALL);
+            nodes.add(node);
+        }
+        var edges = new ArrayList<WorkflowLinkDefinition>();
+        var pairs = new ArrayList<>(List.of(List.of("start", beforeSelector ? "upstream" : "first"), List.of("first", "branch"), List.of("branch", "left"),
+                List.of("branch", "right"), List.of("left", "join"), List.of("right", "join"), List.of("join", "end")));
+        if (beforeSelector) pairs.add(List.of("upstream", "first"));
+        for (var pair : pairs) {
+            var link = new WorkflowLinkDefinition(); link.setRouteKey(pair.getFirst() + "-" + pair.getLast());
+            link.setTitle(link.getRouteKey()); link.setSourceNodeKey(pair.getFirst()); link.setTargetNodeKey(pair.getLast()); edges.add(link);
+        }
+        var compiler = new WorkflowDesignCompiler(new WorkflowConditionService((alias, record) -> Map.of("id", record)));
+        var document = new WorkflowDesignDocument(nodes, edges, null);
+        compiler.validate(document, true, false);
+        version.setSnapshotText(compiler.serialize(document)); EntityLifecycle.prepareInsert(version, Instant.now()); versions.insert(version);
+        for (var node : nodes) { node.setWorkflowVersionId(version.getId()); EntityLifecycle.prepareInsert(node, Instant.now()); nodeDefinitions.insert(node); }
+        for (var link : edges) { link.setWorkflowVersionId(version.getId()); EntityLifecycle.prepareInsert(link, Instant.now()); links.insert(link); }
+        return submissions.submit(WorkflowSubmitRequest.workflow(module, "record", "add_sign_manual").withOperator("initiator"));
     }
 
     private WorkflowSubmitResult linearFixture() { return linearFixture(WorkflowApprovalMode.ALL, null, List.of("one")); }

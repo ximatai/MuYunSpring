@@ -609,6 +609,8 @@ public class WorkflowTaskActionService {
                 : existingSegment.routeIds();
         AddSignSegmentPlan plan = buildAddSignSegmentPlan(instance, node, originalRoutes, request.addSignSegment(),
                 existingSegment == null ? Set.of() : existingSegment.nodeIds(), operatorId, now);
+        validateAddSignManualTopology(instance.getId(), node.getNodeKey(), existingSegment,
+                Set.copyOf(replacedRouteIds), plan);
 
         if (existingSegment == null) {
             for (WorkflowRouteInstance route : originalRoutes) {
@@ -997,6 +999,40 @@ public class WorkflowTaskActionService {
                 .toList();
         return new AddSignSegmentPlan(nodes, routes,
                 nodes.stream().map(WorkflowNodeInstance::getNodeKey).toList());
+    }
+
+    private void validateAddSignManualTopology(String instanceId, String sourceNodeKey,
+                                               EditableAddSignSegment existingSegment,
+                                               Set<String> replacedRouteIds, AddSignSegmentPlan plan) {
+        Set<String> replacedNodeIds = existingSegment == null ? Set.of() : existingSegment.nodeIds();
+        var nodes = new ArrayList<>(nodeInstanceDao.query(Criteria.of().eq("instanceId", instanceId), ALL).stream()
+                .filter(node -> !replacedNodeIds.contains(node.getId())).toList());
+        nodes.addAll(plan.nodes());
+        var routes = new ArrayList<>(requireRouteDao().query(Criteria.of().eq("instanceId", instanceId), ALL).stream()
+                .filter(route -> !replacedRouteIds.contains(route.getId()))
+                .filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE
+                        || route.getRouteStatus() == WorkflowRouteStatus.EFFECTIVE
+                        || route.getRouteStatus() == WorkflowRouteStatus.CLOSED)
+                .filter(route -> route.getInvalidatedByActionId() == null && route.getInvalidatedAt() == null)
+                .toList());
+        routes.addAll(plan.routes());
+        var graph = WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
+        var outgoing = new LinkedHashMap<String, List<String>>();
+        graph.nodes().keySet().forEach(key -> outgoing.put(key, graph.outgoing(key).stream()
+                .map(WorkflowLinkDefinition::getTargetNodeKey).toList()));
+        // Only downstream decisions can change; completed or pruned historical decisions have no new action boundary.
+        Set<String> affected = reachable(sourceNodeKey, outgoing);
+        for (var node : nodes) {
+            if (!affected.contains(node.getNodeKey()) || node.getNodeType() != WorkflowNodeType.BRANCH
+                    || node.getRouteMode() != WorkflowRouteMode.MANUAL
+                    || node.getNodeStatus() != WorkflowNodeStatus.WAITING && node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
+                continue;
+            try {
+                WorkflowDesignCompiler.validateManualSelectionTopology(graph, graph.requireNode(node.getNodeKey()));
+            } catch (PlatformException invalid) {
+                throw new PlatformException("加签会破坏手工分支的选路责任，请调整加签位置: " + invalid.getMessage(), invalid);
+            }
+        }
     }
 
     private void validateAddSignSegmentGraph(String sourceNodeKey,

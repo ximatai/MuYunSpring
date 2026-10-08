@@ -78,23 +78,12 @@ public class WorkflowDesignCompiler {
                 if (converge == null || converge.getNodeType() != WorkflowNodeType.CONVERGE)
                     throw new PlatformException("分支必须绑定汇聚节点: " + node.getNodeKey());
                 for (var link : outgoing) requireConverges(graph, link.getTargetNodeKey(), converge.getNodeKey(), new HashSet<>());
-                if (node.getRouteMode() == WorkflowRouteMode.MANUAL) {
-                    var selector = graph.nodes().get(node.getSelectorNodeKey());
-                    if (selector == null || (selector.getNodeType() != WorkflowNodeType.START
-                            && selector.getNodeType() != WorkflowNodeType.APPROVAL && selector.getNodeType() != WorkflowNodeType.TASK))
-                        throw new PlatformException("手工分支必须指定开始、审批或任务节点作为选择人来源");
-                    if (selector.getNodeType() == WorkflowNodeType.APPROVAL && selector.getApprovalMode() == WorkflowApprovalMode.NOTICE
-                            || !canReachWithoutBlock(graph, selector.getNodeKey(), node.getNodeKey(), new HashSet<>()))
-                        throw new PlatformException("手工分支选择来源必须在本轮可达路径上: " + node.getNodeKey());
-                }
             }
         }
         validateBranchDomains(graph, document.nodes());
         for (var node : document.nodes()) {
             if (node.getNodeType() != WorkflowNodeType.BRANCH || node.getRouteMode() != WorkflowRouteMode.MANUAL) continue;
-            if (canActivateWithoutSelector(graph, node.getNodeKey(), node.getSelectorNodeKey(), new HashMap<>()))
-                throw new PlatformException("手工分支的所有可达路径必须保证选择人已办理: " + node.getNodeKey());
-            validateSelectionTriggerActors(graph, node);
+            validateManualSelectionTopology(graph, node);
         }
         validateWritableTaskSelections(graph, document.nodes());
         if (approvalEnabled) {
@@ -103,6 +92,21 @@ public class WorkflowDesignCompiler {
             requireApprovalMilestone(graph, graph.startNodes().getFirst().getNodeKey(), false, new HashSet<>());
         }
         return graph;
+    }
+
+    /** Shared frozen/runtime topology contract: a decision belongs to the action completing its selector. */
+    static void validateManualSelectionTopology(WorkflowRuntimeGraph graph, WorkflowNodeDefinition branch) {
+        String responsibility = branch.getNodeKey() + "（选择来源 " + branch.getSelectorNodeKey() + "）";
+        var selector = branch.getSelectorNodeKey() == null ? null : graph.nodes().get(branch.getSelectorNodeKey());
+        if (selector == null || (selector.getNodeType() != WorkflowNodeType.START
+                && selector.getNodeType() != WorkflowNodeType.APPROVAL && selector.getNodeType() != WorkflowNodeType.TASK))
+            throw new PlatformException("手工分支必须指定开始、审批或任务节点作为选择人来源: " + responsibility);
+        if (selector.getNodeType() == WorkflowNodeType.APPROVAL && selector.getApprovalMode() == WorkflowApprovalMode.NOTICE
+                || !canReachWithoutBlock(graph, selector.getNodeKey(), branch.getNodeKey(), new HashSet<>()))
+            throw new PlatformException("手工分支选择来源必须在本轮可达路径上: " + responsibility);
+        if (canActivateWithoutSelector(graph, branch.getNodeKey(), branch.getSelectorNodeKey(), new HashMap<>()))
+            throw new PlatformException("手工分支的所有可达路径必须保证选择人已办理: " + responsibility);
+        validateSelectionTriggerActors(graph, branch);
     }
 
     private void validateBranchDomains(WorkflowRuntimeGraph graph, List<WorkflowNodeDefinition> nodes) {
@@ -128,7 +132,7 @@ public class WorkflowDesignCompiler {
         }
     }
 
-    private void collectBeforeConverge(WorkflowRuntimeGraph graph, String key, String converge, Set<String> visited) {
+    private static void collectBeforeConverge(WorkflowRuntimeGraph graph, String key, String converge, Set<String> visited) {
         if (key.equals(converge) || !visited.add(key)) return;
         graph.outgoing(key).forEach(route -> collectBeforeConverge(graph, route.getTargetNodeKey(), converge, visited));
     }
@@ -144,7 +148,7 @@ public class WorkflowDesignCompiler {
         graph.outgoing(key).forEach(link -> requireConverges(graph, link.getTargetNodeKey(), converge, visited));
     }
 
-    private boolean canReachWithoutBlock(WorkflowRuntimeGraph graph, String key, String target, Set<String> visited) {
+    private static boolean canReachWithoutBlock(WorkflowRuntimeGraph graph, String key, String target, Set<String> visited) {
         if (key.equals(target)) return true;
         if (!visited.add(key)) return false;
         return graph.outgoing(key).stream().anyMatch(link -> {
@@ -198,7 +202,7 @@ public class WorkflowDesignCompiler {
                 nextConditional, conditionalBranches, visited));
     }
 
-    private boolean blocksProgression(WorkflowNodeDefinition node) {
+    private static boolean blocksProgression(WorkflowNodeDefinition node) {
         return node.getNodeType() == WorkflowNodeType.TASK || node.getNodeType() == WorkflowNodeType.APPROVAL
                 && node.getApprovalMode() != WorkflowApprovalMode.NOTICE;
     }
@@ -222,7 +226,7 @@ public class WorkflowDesignCompiler {
 
     /** ALL waits for unconditional AUTO exits, even though no individual graph path dominates the join.
      * Conditional/default exits may be absent; ANY and partial ratios cannot guarantee a particular actor. */
-    private boolean canActivateWithoutSelector(WorkflowRuntimeGraph graph, String key, String selector,
+    private static boolean canActivateWithoutSelector(WorkflowRuntimeGraph graph, String key, String selector,
                                                java.util.Map<String, Boolean> memo) {
         if (key.equals(selector)) return false;
         if (memo.containsKey(key)) return memo.get(key);
@@ -251,22 +255,22 @@ public class WorkflowDesignCompiler {
         return possible;
     }
 
-    private boolean unconditional(String expression) {
+    private static boolean unconditional(String expression) {
         return expression == null || expression.isBlank() || "true".equals(expression.trim());
     }
 
     /** Selection and the action that reaches it are atomic. A join cannot require a different actor's decision. */
-    private void validateSelectionTriggerActors(WorkflowRuntimeGraph graph, WorkflowNodeDefinition branch) {
+    private static void validateSelectionTriggerActors(WorkflowRuntimeGraph graph, WorkflowNodeDefinition branch) {
         var selector = graph.requireNode(branch.getSelectorNodeKey());
         var triggers = new HashSet<String>();
         collectTriggerActors(graph, branch.getNodeKey(), triggers, new HashSet<>());
         for (String key : triggers) {
             if (key.equals(selector.getNodeKey()) || reaches(graph, key, selector.getNodeKey(), new HashSet<>())) continue;
-            throw new PlatformException("手工分支必须由选择来源节点的本次办理触发，请在汇聚后增加独立审批节点或任务节点作为选择来源: " + branch.getNodeKey());
+            throw new PlatformException("手工分支必须由选择来源节点的本次办理触发，请在汇聚后增加独立审批节点或任务节点作为选择来源: " + branch.getNodeKey() + "（选择来源 " + branch.getSelectorNodeKey() + "）");
         }
     }
 
-    private void collectTriggerActors(WorkflowRuntimeGraph graph, String key, Set<String> triggers, Set<String> visited) {
+    private static void collectTriggerActors(WorkflowRuntimeGraph graph, String key, Set<String> triggers, Set<String> visited) {
         if (!visited.add(key)) return;
         for (var route : graph.incoming(key)) {
             var source = graph.requireNode(route.getSourceNodeKey());
@@ -277,7 +281,7 @@ public class WorkflowDesignCompiler {
         }
     }
 
-    private boolean reaches(WorkflowRuntimeGraph graph, String key, String target, Set<String> visited) {
+    private static boolean reaches(WorkflowRuntimeGraph graph, String key, String target, Set<String> visited) {
         if (key.equals(target)) return true;
         return visited.add(key) && graph.outgoing(key).stream()
                 .anyMatch(route -> reaches(graph, route.getTargetNodeKey(), target, visited));
