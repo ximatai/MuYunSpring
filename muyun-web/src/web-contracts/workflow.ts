@@ -79,6 +79,7 @@ export interface WorkflowInstance {
   moduleAlias: string;
   recordId: string;
   definitionTitle?: string;
+  versionNo?: number;
   instanceStatus: string;
   approvalStatus?: string;
   currentNodeKeys?: string;
