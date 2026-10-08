@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.platform.task;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
@@ -94,7 +96,11 @@ public class ModuleCompletionCheckService {
 
     private long count(String moduleAlias, Criteria criteria) {
         var ability = abilities.orderedStream().filter(item -> moduleAlias.equals(item.getModuleAlias())).findFirst();
-        if (ability.isPresent()) return ability.get().count(criteria);
+        if (ability.isPresent()) {
+            var target = ability.get();
+            return target instanceof DataScopeAbility<?> scoped
+                    ? scoped.countForAction(PlatformAction.QUERY, criteria) : target.count(criteria);
+        }
         return records.count(moduleAlias, records.mainEntityAlias(moduleAlias), criteria);
     }
 }

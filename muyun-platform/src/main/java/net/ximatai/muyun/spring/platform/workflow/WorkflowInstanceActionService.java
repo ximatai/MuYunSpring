@@ -145,6 +145,7 @@ public class WorkflowInstanceActionService {
         WorkflowEvent event = eventFactory.instanceReset(instance, operatorId, request.reason(), now);
         EntityLifecycle.prepareInsert(event, now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         dispatchInstanceAction(instance, nodes, tasks, WorkflowRuntimePluginEventType.AFTER_RESET, "reset",
                 operatorId, null, request.reason());
         archiveAndReleaseApproval(instance, WorkflowArchiveReason.RESET, now, management);
@@ -225,6 +226,7 @@ public class WorkflowInstanceActionService {
         };
         EntityLifecycle.prepareInsert(event, now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         dispatchInstanceAction(instance, nodes, tasks, afterEvent(actionCode), actionCode, operatorId,
                 terminateMode, request.reason());
         if (!"revoke".equals(actionCode)) {

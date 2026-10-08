@@ -54,6 +54,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import net.ximatai.muyun.spring.web.BusinessMutation;
 
 import java.time.Instant;
 import java.util.List;
@@ -147,6 +148,7 @@ public class WorkflowRuntimeWebController {
     @CustomActionEndpoint(value = "submitApproval", title = "Submit Approval",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "recordId")
     @PostMapping("/record/{moduleAlias}/{recordId}/actions/submitApproval")
+    @BusinessMutation(actionContextRequired = false)
     public WorkflowSubmitResult submitApproval(@PathVariable String moduleAlias,
                                                @PathVariable String recordId,
                                                @RequestBody(required = false) WorkflowSubmitWebRequest request) {
@@ -162,6 +164,7 @@ public class WorkflowRuntimeWebController {
     }
 
     @PostMapping("/instance/{instanceId}/actions/{actionCode}")
+    @BusinessMutation(actionContextRequired = false)
     public WorkflowInstanceActionResult executeInstanceAction(
             @PathVariable String instanceId,
             @PathVariable String actionCode,
@@ -173,6 +176,7 @@ public class WorkflowRuntimeWebController {
     }
 
     @PostMapping("/task/{taskId}/actions/{actionCode}")
+    @BusinessMutation(actionContextRequired = false)
     public WorkflowTaskActionResult executeTaskAction(
             @PathVariable String taskId,
             @PathVariable String actionCode,
@@ -192,6 +196,7 @@ public class WorkflowRuntimeWebController {
     }
 
     @PostMapping("/task/{taskId}/read")
+    @BusinessMutation(actionContextRequired = false)
     public WorkflowTaskActionResult readNoticeTask(
             @PathVariable String taskId,
             @RequestBody(required = false) WorkflowTaskActionWebRequest request) {
@@ -280,6 +285,7 @@ public class WorkflowRuntimeWebController {
     }
 
     @PostMapping("/task/{taskId}/module-task/check-and-continue")
+    @BusinessMutation(actionContextRequired = false)
     public WorkflowModuleTaskContinueResult checkAndContinueModuleTask(
             @PathVariable String taskId,
             @RequestBody(required = false) WorkflowModuleTaskContinueWebRequest request) {

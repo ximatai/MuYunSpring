@@ -133,7 +133,8 @@ public class WorkflowSubmitReadFacade {
     private WorkflowInstance currentInstance(String moduleAlias, String recordId) {
         return instanceDao.query(WorkflowTenantScope.criteria()
                         .eq("moduleAlias", moduleAlias)
-                        .eq("recordId", recordId),
+                        .eq("recordId", recordId)
+                        .eq("approvalEnabled", true),
                 ONE, Sort.desc("startedAt"), Sort.desc("createdAt")).stream().findFirst().orElse(null);
     }
 

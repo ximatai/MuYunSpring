@@ -38,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import net.ximatai.muyun.spring.web.BusinessMutation;
 
 @RestController
 @RequestMapping("/workflow/runtime/admin")
@@ -111,6 +112,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/instance/{instanceId}/actions/forceTerminate")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_FORCE_TERMINATE_ACTION,
             title = "Force Terminate", level = PlatformActionLevel.LIST)
     public WorkflowInstanceActionResult forceTerminate(
@@ -123,6 +125,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/instance/{instanceId}/actions/reset")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_RESET_ACTION,
             title = "Reset Workflow", level = PlatformActionLevel.LIST)
     public WorkflowInstanceActionResult reset(
@@ -135,6 +138,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/task/{taskId}/actions/forceApprove")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_FORCE_APPROVE_ACTION,
             title = "Force Handle", level = PlatformActionLevel.LIST)
     public WorkflowTaskActionResult forceApprove(

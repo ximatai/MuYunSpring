@@ -21,6 +21,12 @@ import net.ximatai.muyun.spring.dynamic.runtime.*;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService;
+import net.ximatai.muyun.spring.platform.ui.*;
+import net.ximatai.muyun.spring.platform.impact.RecordImpactRelationService;
+import net.ximatai.muyun.spring.platform.impact.RecordImpactRelation;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -41,6 +47,11 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     @DynamicPropertySource static void properties(DynamicPropertyRegistry properties) {
         properties.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
+    @Autowired WorkflowTaskActionService taskActions;
+    @Autowired WorkflowSubmitReadFacade submissionReads;
+    @Autowired ModuleCompletionCheckService completionChecks;
+    @Autowired PlatformQueryItemService queryItems;
+    @Autowired RecordImpactRelationService generatedRelations;
     @Autowired WorkflowModuleSubmitService submitter;
     @Autowired WorkflowConcurrencyRepositoryIT.Pauses pauses;
     @Autowired WorkflowDefinitionDao definitions;
@@ -85,6 +96,7 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     }
     @AfterEach void resetHost() {
         business.rejectSummary = false;
+        org.mockito.Mockito.reset(queryItems, generatedRelations);
         pauses.release.countDown();
         PlatformAbilityRuntime.resetDataScopeCriteriaService();
         PlatformAbilityRuntime.resetRecordDeletionGuard();
@@ -145,10 +157,14 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     @Test void recoveryDoesNotHideExistingRecordWriteFailuresOrCommitHalfAnArchive() {
         for (boolean reset : List.of(false, true)) {
             var fixture = fixture(false, "processing"); business.rejectSummary = true;
-            assertThatThrownBy(() -> {
-                var request = WorkflowInstanceActionRequest.terminate(fixture.instanceId(), "manager", "验证正常写入失败回滚");
-                if (reset) actions.managementReset(request); else actions.forceTerminate(request);
-            }).hasMessageContaining("summary write rejected");
+            var failedFacts = new net.ximatai.muyun.spring.ability.action.MutationContext();
+            try (var mutation = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(failedFacts)) {
+                assertThatThrownBy(() -> {
+                    var request = WorkflowInstanceActionRequest.terminate(fixture.instanceId(), "manager", "验证正常写入失败回滚");
+                    if (reset) actions.managementReset(request); else actions.forceTerminate(request);
+                }).hasMessageContaining("summary write rejected");
+            }
+            assertThat(failedFacts.committedChangeSet(type -> StaticBusiness.MODULE).changes()).isEmpty();
             business.rejectSummary = false;
             assertThat(instances.findById(fixture.instanceId()).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.RUNNING);
             assertThat(tasks.findById(fixture.taskId()).getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
@@ -218,10 +234,82 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
         assertThat(business.selectActiveRaw(id)).isNotNull();
     }
 
-    private String createNonApprovalDefinition() {
+    @ParameterizedTest @org.junit.jupiter.params.provider.EnumSource(value = PlatformTaskCheckType.class, names = {"QUERY_TEMPLATE", "GENERATED_RELATION"})
+    void completionChecksCountOnlyStaticTargetsVisibleToTheCurrentQueryGrant(PlatformTaskCheckType type) {
+        String visible = business.insert(new BusinessRecord());
+        String hidden = business.insert(new BusinessRecord());
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(() -> new AllowAllDataScopeCriteriaService() {
+            @Override public DataScopeCriteriaResult resolveReadScope(String module, ActionExecutionPolicy policy, Criteria criteria, Optional<CurrentUser> user) {
+                assertThat(policy.actionCode()).isEqualTo("query");
+                return DataScopeCriteriaResult.restricted(Criteria.of().and(criteria).eq("id", visible));
+            }
+        });
+        var template = new PlatformQueryTemplate(); template.setId("scoped-targets"); template.setModuleAlias(StaticBusiness.MODULE);
+        when(queryItems.compile(eq(template.getId()), anyMap())).thenReturn(Criteria.of().eq("id", hidden));
+        var relation = new RecordImpactRelation(); relation.setTargetRecordId(hidden);
+        when(generatedRelations.listGeneratedTargets(eq("test.source"), eq("source"), eq(StaticBusiness.MODULE), eq("rule"), any(PageRequest.class)))
+                .thenReturn(List.of(relation));
+        var check = new PlatformTaskCheckBlock(type, null, template.getId(), "sourceId", StaticBusiness.MODULE, "rule", 1, null);
+        assertThat(business.count(Criteria.of().eq("id", hidden))).isEqualTo(1); // Exists in the same real database and tenant.
+        var result = completionChecks.check("test.source", "source", check, template);
+        assertThat(result.actualCount()).isZero();
+        assertThat(result.passed()).isFalse();
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(AllowAllDataScopeCriteriaService::new);
+        assertThat(completionChecks.check("test.source", "source", check, template).passed()).isTrue();
+    }
+
+    @Test void nonApprovalRuntimeDoesNotHideApprovalSubmissionOrTheGoverningApprovalInstance() {
+        String id = business.insert(new BusinessRecord());
+        String taskAlias = createNonApprovalDefinition();
+        String approvalAlias = createDefinition(true);
+        var taskFlow = submitter.submitWorkflow(StaticBusiness.MODULE, id, taskAlias);
+        var before = submissionReads.status(WorkflowSubmitRequest.approval(StaticBusiness.MODULE, id));
+        assertThat(before.canSubmit()).isTrue();
+        assertThat(before.instanceId()).isNull();
+        assertThat(before.definition().definitionAlias()).isEqualTo(approvalAlias);
+        var approval = submitter.submitApproval(StaticBusiness.MODULE, id);
+        var newerTask = new WorkflowInstance(); newerTask.setModuleAlias(StaticBusiness.MODULE); newerTask.setRecordId(id);
+        newerTask.setDefinitionId(taskFlow.instance().getDefinitionId()); newerTask.setWorkflowVersionId(taskFlow.instance().getWorkflowVersionId());
+        newerTask.setVersionNo(1); newerTask.setApprovalEnabled(false); newerTask.setInstanceStatus(WorkflowInstanceStatus.RUNNING);
+        newerTask.setStartedAt(Instant.now().plusSeconds(60)); newerTask.setStartedBy("manager"); newerTask.setSnapshotText("{}");
+        EntityLifecycle.prepareInsert(newerTask, Instant.now()); instances.insert(newerTask);
+        var after = submissionReads.status(WorkflowSubmitRequest.approval(StaticBusiness.MODULE, id));
+        assertThat(after.instanceId()).isEqualTo(approval.instance().getId());
+        assertThat(after.canSubmit()).isFalse();
+        assertThat(after.approvalStatus()).isEqualTo(WorkflowApprovalStatus.PROCESSING);
+    }
+
+    @Test void successfulTransitionsPublishOneOwningRecordFactAndFailedTransitionsPublishNone() {
+        String id = business.insert(new BusinessRecord());
+        String alias = createNonApprovalDefinition();
+        var submittedFacts = new net.ximatai.muyun.spring.ability.action.MutationContext();
+        WorkflowSubmitResult submitted;
+        try (var mutation = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(submittedFacts)) {
+            submitted = submitter.submitWorkflow(StaticBusiness.MODULE, id, alias);
+        }
+        assertThat(submittedFacts.committedChangeSet(type -> StaticBusiness.MODULE).changes()).containsExactly(
+                net.ximatai.muyun.spring.ability.action.DataChange.recordUpdated(StaticBusiness.MODULE, id));
+        var completedFacts = new net.ximatai.muyun.spring.ability.action.MutationContext();
+        var task = submitted.draft().tasks().getFirst();
+        try (var mutation = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(completedFacts)) {
+            taskActions.approve(WorkflowTaskActionRequest.builder(task.getId(), "manager").build());
+        }
+        assertThat(completedFacts.committedChangeSet(type -> StaticBusiness.MODULE).changes()).containsExactly(
+                net.ximatai.muyun.spring.ability.action.DataChange.recordUpdated(StaticBusiness.MODULE, id));
+        var failedFacts = new net.ximatai.muyun.spring.ability.action.MutationContext();
+        try (var mutation = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(failedFacts)) {
+            assertThatThrownBy(() -> taskActions.approve(WorkflowTaskActionRequest.builder(task.getId(), "manager").build()))
+                    .hasMessageContaining("not todo");
+        }
+        assertThat(failedFacts.committedChangeSet(type -> StaticBusiness.MODULE).changes()).isEmpty();
+    }
+
+    private String createNonApprovalDefinition() { return createDefinition(false); }
+
+    private String createDefinition(boolean approval) {
         String alias = "nonapproval_" + UUID.randomUUID().toString().replace("-", "");
         var definition = new WorkflowDefinition(); definition.setApplicationAlias("test"); definition.setModuleAlias(StaticBusiness.MODULE);
-        definition.setAlias(alias); definition.setTitle("Deletion lifecycle"); definition.setApprovalEnabled(false);
+        definition.setAlias(alias); definition.setTitle("Deletion lifecycle"); definition.setApprovalEnabled(approval);
         definition.setEnabled(true); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED); definition.setCurrentVersionNo(1);
         EntityLifecycle.prepareInsert(definition, Instant.now()); definitions.insert(definition);
         var version = new WorkflowVersion(); version.setDefinitionId(definition.getId()); version.setVersionNo(1);
@@ -298,8 +386,14 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     }
     @SpringBootConfiguration
     @Import({WorkflowConcurrencyRepositoryIT.Host.class, WorkflowInstanceActionService.class, WorkflowRecordDeletionGuard.class,
-            StaticWorkflowModuleRecordGuard.class, DynamicWorkflowModuleRecordGuard.class, WorkflowModuleSubmitService.class})
+            StaticWorkflowModuleRecordGuard.class, DynamicWorkflowModuleRecordGuard.class, WorkflowModuleSubmitService.class, WorkflowSubmitReadFacade.class})
     static class Host {
+        @Bean PlatformQueryItemService queryItems() { return mock(PlatformQueryItemService.class); }
+        @Bean RecordImpactRelationService generatedRelations() { return mock(RecordImpactRelationService.class); }
+        @Bean ModuleCompletionCheckService completionChecks(DynamicRecordService records, PlatformQueryItemService queries,
+                RecordImpactRelationService relations, org.springframework.beans.factory.ObjectProvider<CrudAbility<?>> abilities) {
+            return new ModuleCompletionCheckService(records, queries, mock(PlatformQueryTemplateService.class), Optional.of(relations), abilities, (module, id) -> Map.of());
+        }
         @Bean StaticBusiness business(StaticDao dao) { return new StaticBusiness(dao); }
         @Bean DynamicRecordRuntime runtime(IDatabaseOperations<?> operations) { return DynamicRecordRuntime.builder(operations).build(); }
         @Bean DynamicRecordService records(DynamicRecordRuntime runtime) { return new DynamicRecordService(runtime); }

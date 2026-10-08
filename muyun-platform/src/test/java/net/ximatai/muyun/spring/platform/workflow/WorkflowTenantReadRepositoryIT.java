@@ -195,7 +195,7 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         try (var context = TenantContext.use(tenant)) {
             var now = Instant.now();
             var instance = new WorkflowInstance(); instance.setDefinitionId("global-definition"); instance.setWorkflowVersionId("global-version");
-            instance.setVersionNo(1); instance.setModuleAlias(module); instance.setRecordId("record");
+            instance.setVersionNo(1); instance.setApprovalEnabled(true); instance.setApprovalStatus(WorkflowApprovalStatus.PROCESSING); instance.setModuleAlias(module); instance.setRecordId("record");
             instance.setStartedBy("reviewer"); instance.setStartedAt(now); instance.setSnapshotText("{}");
             EntityLifecycle.prepareInsert(instance, now); instances.insert(instance);
             var node = new WorkflowNodeInstance(); node.setInstanceId(instance.getId()); node.setNodeKey("approve");

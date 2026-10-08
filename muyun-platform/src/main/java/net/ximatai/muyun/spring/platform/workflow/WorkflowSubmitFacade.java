@@ -41,6 +41,7 @@ public class WorkflowSubmitFacade {
         WorkflowSubmitDraft draft = submitDraft(normalized, selection);
         boolean written = writeApprovalSummaryIfNeeded(normalized, draft);
         automaticApprovals.getObject().continueFor(draft.instance().getId(), normalized.operatorId(), normalized.operatedAt());
+        WorkflowMutationFacts.recordChanged(draft.instance());
         return new WorkflowSubmitResult(draft, written);
     }
 

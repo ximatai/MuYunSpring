@@ -89,6 +89,7 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
                 updated = records.writeApprovalState(moduleAlias, entityAlias, recordId, policy, state);
             }
             if (updated != 1) throw new PlatformException("approval business record not found: " + moduleAlias + "." + recordId);
+            WorkflowMutationFacts.recordChanged(moduleAlias, recordId);
         }
     }
 }

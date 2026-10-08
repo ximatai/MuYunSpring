@@ -129,6 +129,7 @@ public class WorkflowTaskActionService {
         }
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, automatic ? "auto_approve" : "approve", operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
             progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
@@ -196,7 +197,8 @@ public class WorkflowTaskActionService {
         instance.setCurrentNodeKeys(String.join(",", activeKeys)); instance.setLastActionCode("revokeApprove");
         instance.setLastActionReason(request.reason()); instance.setLastOperatorId(operator); instance.setLastOperatedAt(now); updateInstance(instance, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "revokeApprove", operator, request.reason(), now);
-        eventDao.insert(event); eventDao.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
+        eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance); eventDao.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_REVOKE, "revokeApprove", operator, null, null, request.reason());
         return new WorkflowTaskActionResult(task, retry, node, instance, event);
     }
@@ -248,6 +250,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "forceApprove", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
             progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
@@ -313,6 +316,7 @@ public class WorkflowTaskActionService {
         taskDao.insert(resubmitTask);
         WorkflowEvent event = eventFactory.taskRejected(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         eventDao.insert(eventFactory.taskCreated(instance, resubmitTask, operatorId, now));
         writeApprovalSummary(instance);
@@ -386,6 +390,7 @@ public class WorkflowTaskActionService {
         taskDao.insert(createdTask);
         WorkflowEvent event = eventFactory.nodeRolledBack(instance, currentNode, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         eventDao.insert(eventFactory.taskCreated(instance, previousNode, createdTask, operatorId, now));
         writeApprovalSummary(instance);
@@ -442,6 +447,7 @@ public class WorkflowTaskActionService {
         updateInstance(instance, now);
         WorkflowEvent event = eventFactory.taskResubmitted(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         writeApprovalSummary(instance);
         return new WorkflowTaskActionResult(task, createdTask, node, instance, event);
     }
@@ -483,6 +489,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "complete", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (!remaining) {
             instance = progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
@@ -515,6 +522,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -540,6 +548,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -571,6 +580,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskTransferred(instance, task, operatorId,
                 "transfer to " + targetAssigneeId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         dispatchTask(instance, node, createdTask, WorkflowRuntimePluginEventType.AFTER_TRANSFER, "transfer",
                 operatorId, targetAssigneeId, null, request.reason());
         return WorkflowTaskActionResult.transferred(task, createdTask, event);
@@ -642,6 +652,7 @@ public class WorkflowTaskActionService {
                 addSignPayload(node.getNodeKey(), plan.addedNodeKeys(), replacedRouteIds, editMode,
                         request.semanticJson(), request.layoutJson()), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.addSign(task, node, instance, event, editMode,
                 plan.addedNodeKeys(), replacedRouteIds);
     }
@@ -676,6 +687,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskInvalidated(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -695,6 +707,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskCanceled(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
