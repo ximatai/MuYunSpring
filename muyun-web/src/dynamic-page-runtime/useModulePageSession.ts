@@ -1,4 +1,5 @@
 import { createRelationDraftRegistry } from './relationDraftController';
+import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
 import { createRecordReferenceDisplay } from './recordReferenceDisplay';
 import {
@@ -1080,6 +1081,39 @@ export function useModulePageSession(
       referenceRecordDetailInteraction.value.editing ||
       workflowInteraction.value.editing,
   );
+  useModuleRecordDataChanges({
+    moduleAlias: context.moduleAlias,
+    recordId: () =>
+      detailOpen.value && selectedRecord.value?.id != null ? String(selectedRecord.value.id) : undefined,
+    blocked: () =>
+      interactionBusy.value ||
+      interactionEditing.value ||
+      detailLoading.value ||
+      saving.value ||
+      togglingEnabled.value ||
+      !tenantScopeReady.value ||
+      !runtimePageResolved.value,
+    invalidate: (ids) => context.invalidateRecordActions?.(ids),
+    refreshList,
+    refreshRecord: async (id, isCurrent) => {
+      if (recycleBinDetailActive.value) {
+        if (!isCurrent()) return false;
+        await openRecycleBinRecord({ id });
+        return true;
+      }
+      await refreshWorkflowRecordActions(context, id).catch((cause) =>
+        presentPlatformError(cause, { source: 'module-data-change', phase: 'authorization' }),
+      );
+      if (!isCurrent()) return false;
+      await loadRecord({ id }, 'view', {}, false, (cause) =>
+        reportDetailRefreshFailure(cause, 'module-data-change'),
+      );
+      if (persistentTreeDetail.value && selectedRecord.value?.id === id)
+        selectedTreeRecord.value = selectedRecord.value;
+      return true;
+    },
+    onError: (cause) => presentPlatformError(cause, { source: 'module-data-change', phase: 'load' }),
+  });
   const sessionDirty = computed(
     () =>
       detailDirty.value ||

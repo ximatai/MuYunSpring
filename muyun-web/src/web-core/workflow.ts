@@ -13,6 +13,7 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
+import { actionResultData } from './actionResult';
 import type { ModuleContext } from './module/moduleContext';
 
 /** Workflow mutations change ordinary record rights as well as the record itself. */
@@ -26,7 +27,8 @@ export async function refreshWorkflowRecordActions(
 
 /** All operation rights remain server decisions. The client only carries typed intent. */
 export function createWorkflowClient(http: HttpClient) {
-  const post = <T>(path: string, body: unknown = {}) => http.request<T>({ method: 'POST', path, body });
+  const post = async <T>(path: string, body: unknown = {}) =>
+    actionResultData<T>(await http.request<T>({ method: 'POST', path, body }));
   const get = <T>(path: string) => http.request<T>({ path });
   const runtime = '/workflow/runtime';
   const recordPath = (moduleAlias: string, recordId: string) =>

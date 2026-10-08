@@ -3,6 +3,15 @@ import { createWorkflowClient, refreshWorkflowRecordActions } from '@/web-core/w
 import type { HttpClient } from '@/web-core/http';
 
 describe('workflow client public contracts', () => {
+  it('unwraps standard mutation receipts while retaining plain read results', async () => {
+    const data = { instance: { id: 'instance' }, continued: true };
+    const request = vi.fn(async () => ({ data, changeSetId: 'committed', changes: [] }));
+    const client = createWorkflowClient({ request } as HttpClient);
+    expect(await client.submit('demo.purchase', 'r')).toEqual(data);
+    expect(await client.taskAction('task', 'approve', {})).toEqual(data);
+    request.mockImplementation(async () => data as never);
+    expect(await client.submit('demo.purchase', 'r')).toEqual(data);
+  });
   it('projects submit preview frozen semantic and layout snapshots from the instance', async () => {
     const semanticJson = '{"nodes":[],"links":[]}',
       layoutJson = '{"version":1,"nodes":{}}';

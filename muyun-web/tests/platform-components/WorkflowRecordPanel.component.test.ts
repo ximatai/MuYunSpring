@@ -245,6 +245,7 @@ it('manual branch choices are single-select with readable suggestions and requir
   await confirm();
   expect(wrapper.text()).toContain('路径选择原因');
   picker.vm.$emit('update:value', 'special');
+  await flushPromises();
   await wrapper.find('input[placeholder="路径选择原因（必填）"]').setValue('特殊事项需要补充审批');
   await confirm();
   await flushPromises();

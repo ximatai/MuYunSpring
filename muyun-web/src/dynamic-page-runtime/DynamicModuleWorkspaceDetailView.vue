@@ -37,6 +37,7 @@ import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
+import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { applyReferenceRecordProjection } from './referenceRecordProjection';
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
@@ -50,7 +51,7 @@ const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, saving, togglingEnabled } = detail;
 const workflowInteraction = ref({ editing: false, busy: false, dirty: false });
-const referenceRecordDetailInteraction = ref({ busy: false, dirty: false });
+const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
 useModulePageUnsavedState(
   '记录详情',
   () => isDirty.value || referenceRecordDetailInteraction.value.dirty,
@@ -178,6 +179,31 @@ async function loadRecord() {
   }
 }
 
+useModuleRecordDataChanges({
+  moduleAlias: context.moduleAlias,
+  recordId: () => props.recordId,
+  blocked: () =>
+    mode.value !== 'view' ||
+    loading.value ||
+    saving.value ||
+    togglingEnabled.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
+    referenceRecordDetailInteraction.value.editing ||
+    referenceRecordDetailInteraction.value.busy,
+  invalidate: (ids) => context.invalidateRecordActions?.(ids),
+  refreshList: () => undefined,
+  refreshRecord: async (id, isCurrent) => {
+    await refreshWorkflowRecordActions(context, id).catch((cause) =>
+      presentPlatformError(cause, { source: 'module-data-change', phase: 'authorization' }),
+    );
+    if (!isCurrent()) return false;
+    await loadRecord();
+    return true;
+  },
+  onError: (cause) => presentPlatformError(cause, { source: 'module-data-change', phase: 'load' }),
+});
+
 async function handleWorkflowChanged() {
   await refreshWorkflowRecordActions(context, props.recordId).catch((cause) =>
     presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
@@ -230,8 +256,12 @@ function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
   draft.value = { ...draft.value, [fieldName]: value };
 }
 
-function updateReferenceRecordDetailInteraction(state: { busy: boolean; dirty?: boolean }) {
-  referenceRecordDetailInteraction.value = { busy: state.busy, dirty: state.dirty === true };
+function updateReferenceRecordDetailInteraction(state: { editing: boolean; busy: boolean; dirty?: boolean }) {
+  referenceRecordDetailInteraction.value = {
+    editing: state.editing,
+    busy: state.busy,
+    dirty: state.dirty === true,
+  };
 }
 
 function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {

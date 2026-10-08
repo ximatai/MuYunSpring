@@ -160,3 +160,92 @@ it('refreshes ordinary record rights after workflow changes for an approval reco
   await flushPromises();
   expect(context.action('update', 'r')?.available).toBe(true);
 });
+
+it('reloads sibling workspace details and record rights from committed facts while protecting workflow drafts', async () => {
+  const { appDataChangeDispatcher } = await import('@/platform-admin-runtime/realtime');
+  let version = 1;
+  const request = vi.fn(async ({ path }: { path: string }) => {
+    if (path.endsWith('/context'))
+      return {
+        moduleAlias: 'education.purchase_request',
+        abilities: ['crud', 'approval'],
+        capabilities: [],
+        actions: [
+          { actionCode: 'view', authorized: true },
+          { actionCode: 'update', authorized: true },
+        ],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (path.endsWith('/view/r')) return { id: 'r', version, title: `采购版本 ${version}` };
+    if (path.endsWith('/actions/r'))
+      return { recordId: 'r', actions: [{ actionCode: 'update', available: version === 1 }] };
+    throw new Error(`unexpected request: ${path}`);
+  });
+  const contexts = [1, 2].map(() =>
+    createModuleContext({ http: { request } as HttpClient, moduleAlias: 'education.purchase_request' }),
+  );
+  await Promise.all(
+    contexts.map(async (context) => {
+      await context.runtime.ready;
+      await context.recordActions('r');
+    }),
+  );
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    props: ['title'],
+    setup(props, { slots }) {
+      return () => h('section', [h('h2', props.title), slots.actions?.(), slots.default?.()]);
+    },
+  });
+  const wrappers = contexts.map((context) =>
+    mount(
+      defineComponent({
+        setup: () => () =>
+          h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' })),
+      }),
+      {
+        global: {
+          stubs: {
+            RecordDetailPanel: panel,
+            WorkflowRecordPanel: true,
+            RecordDetailFields: true,
+            RecordFormSurface: true,
+            RecordModeDrawer: true,
+            RecordMetaSection: true,
+            ModuleReferenceRecordDetailBrowser: true,
+            ModuleRecordDetailActions: true,
+          },
+        },
+      },
+    ),
+  );
+  const settle = async () => {
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await flushPromises();
+  };
+  await settle();
+  const workflow = wrappers[0]!.findComponent({ name: 'WorkflowRecordPanel' });
+  workflow.vm.$emit('interaction-change', { editing: true, busy: false, dirty: true });
+  await flushPromises();
+  version = 2;
+  const event = {
+    changeSetId: 'workspace-task-completed',
+    changes: [{ type: 'record-updated', moduleAlias: 'education.purchase_request', recordId: 'r' }],
+  };
+  const readsBefore = request.mock.calls.filter(([options]) => options.path.endsWith('/view/r')).length;
+  await appDataChangeDispatcher.dispatch(event);
+  await appDataChangeDispatcher.dispatch(event);
+  await settle();
+  expect(request.mock.calls.filter(([options]) => options.path.endsWith('/view/r')).length).toBe(
+    readsBefore + 1,
+  );
+  expect(wrappers[0]!.text()).toContain('采购版本 1');
+  expect(wrappers[1]!.text()).toContain('采购版本 2');
+  expect(contexts[1]!.action('update', 'r')?.available).toBe(false);
+  workflow.vm.$emit('interaction-change', { editing: false, busy: false, dirty: false });
+  await settle();
+  expect(wrappers[0]!.text()).toContain('采购版本 2');
+  expect(contexts[0]!.action('update', 'r')?.available).toBe(false);
+  wrappers.forEach((wrapper) => wrapper.unmount());
+});
