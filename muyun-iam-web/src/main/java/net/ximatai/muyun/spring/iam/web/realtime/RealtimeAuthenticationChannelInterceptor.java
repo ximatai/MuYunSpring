@@ -76,6 +76,18 @@ public class RealtimeAuthenticationChannelInterceptor implements ChannelIntercep
             if (currentUser.passwordChangeRequired()) {
                 throw new IllegalArgumentException("password change required");
             }
+            if (StompCommand.SUBSCRIBE.equals(command)) {
+                String destination = accessor.getDestination();
+                if (destination == null || !destination.startsWith("/user/queue/")) {
+                    throw new IllegalArgumentException("realtime subscription requires a private user queue");
+                }
+            }
+            if (StompCommand.SEND.equals(command)) {
+                String destination = accessor.getDestination();
+                if (destination == null || !destination.startsWith("/app/")) {
+                    throw new IllegalArgumentException("realtime send requires an application destination");
+                }
+            }
             CurrentUserPrincipal refreshedPrincipal = new CurrentUserPrincipal(currentUser, principal.token(),
                     principal.loginSessionId());
             accessor.setUser(refreshedPrincipal);

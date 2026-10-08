@@ -21,7 +21,8 @@ vi.mock('@muyun/web-core', () => ({
   sessionActivityCommand: 'session-activity',
 }));
 
-const { connectAppRealtime, disconnectAppRealtime } = await import('@/platform-admin-runtime/realtime.ts');
+const { connectAppRealtime, disconnectAppRealtime, subscribeAppModuleDataChanges } =
+  await import('@/platform-admin-runtime/realtime.ts');
 
 afterEach(async () => {
   await disconnectAppRealtime();
@@ -48,4 +49,11 @@ it('owns one realtime connection, forwards consumer runtime configuration, and r
   expect(realtimeClient.disconnect).toHaveBeenCalledTimes(1);
   expect(unsubscribe).toHaveBeenCalledTimes(4);
   expect(() => connectAppRealtime()).not.toThrow();
+});
+
+it('keeps page module interests local and never binds a shared record topic', () => {
+  const page = subscribeAppModuleDataChanges('sales.order');
+  connectAppRealtime({ token: 'consumer-token' });
+  expect(realtimeClient.subscribe).not.toHaveBeenCalled();
+  page.unsubscribe();
 });

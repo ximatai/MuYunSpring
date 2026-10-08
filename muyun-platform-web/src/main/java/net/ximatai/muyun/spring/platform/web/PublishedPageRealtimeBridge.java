@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class PublishedPageRealtimeBridge implements RuntimeEventListener {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PublishedPageRealtimeBridge.class);
-    public static final String CHANGE_TYPE = "module-page-configuration-changed";
+    public static final String CHANGE_TYPE = net.ximatai.muyun.spring.ability.action.DataChangeTypes.MODULE_PAGE_CONFIGURATION_CHANGED;
     private final DataChangeRealtimePublisher publisher;
 
     public PublishedPageRealtimeBridge(DataChangeRealtimePublisher publisher) {

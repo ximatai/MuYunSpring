@@ -993,8 +993,8 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(realtimeSource, /connectRealtimeBusinessEvents/);
   assert.match(realtimeSource, /subscribeAppBusinessEvents/);
   assert.match(realtimeSource, /subscribeAppModuleDataChanges\(moduleAlias: string\)/);
-  assert.match(realtimeSource, /moduleDataChangeChannel\(moduleAlias\)/);
-  assert.match(realtimeSource, /appDataChangeDispatcher\.dispatch\(changeSet\)/);
+  assert.notMatch(realtimeSource, /moduleDataChangeChannel/);
+  assert.match(realtimeSource, /connectRealtimeDataChanges\(realtime, appDataChangeDispatcher\)/);
   assert.notMatch(realtimeSource, /moduleDataChangeChannel\('iam\.user'\)/);
   assert.match(appSource, /function handleSecurityNotification\(notification: WebUserNotification\)/);
   assert.match(appSource, /startSecurityLogoutCountdown\(5\)/);
