@@ -60,6 +60,15 @@ export interface WorkflowRoute {
   routeReason?: string;
   selectedReason?: string;
 }
+export interface WorkflowAddSignExplanation {
+  dimension: 'NODE' | 'ROUTE';
+  nodeKey?: string;
+  nodeStatus?: string;
+  routeKey?: string;
+  routeSourceNodeKey?: string;
+  routeTargetNodeKey?: string;
+  addSignSourceNodeKey: string;
+}
 export interface WorkflowDesign {
   nodes: WorkflowNode[];
   links: WorkflowRoute[];

@@ -73,6 +73,11 @@ watch(
 function save() {
   if (!props.disabled) emit('update:value', JSON.stringify({ rules: rules.value }));
 }
+function changeRelation(rule: Rule, relation: unknown) {
+  rule.relation = String(relation);
+  rule.depth = rule.relation === 'SUPERVISOR' ? 1 : 0;
+  save();
+}
 function title(record: RecordPickerRecord) {
   const values = record as Record<string, unknown>;
   return String(
@@ -129,7 +134,7 @@ function title(record: RecordPickerRecord) {
       /></label>
       <label v-if="rule.type === 'RELATIVE'"
         >相对关系<UiSelect
-          v-model:value="rule.relation"
+          :value="rule.relation"
           :options="[
             { value: 'SELF', label: '本人' },
             { value: 'SUPERVISOR', label: '上级' },
@@ -139,18 +144,26 @@ function title(record: RecordPickerRecord) {
             { value: 'ORGANIZATION_MANAGER', label: '组织负责人' },
           ]"
           :disabled="disabled"
-          @update:value="save"
+          @update:value="changeRelation(rule, $event)"
       /></label>
-      <label v-if="rule.type === 'RELATIVE' && rule.relation === 'SUPERVISOR'"
-        >上级层数<UiInput
-          :value="rule.depth ?? 1"
+      <label
+        v-if="
+          rule.type === 'RELATIVE' &&
+          ['SUPERVISOR', 'DEPARTMENT', 'DEPARTMENT_MANAGER', 'ORGANIZATION', 'ORGANIZATION_MANAGER'].includes(
+            rule.relation ?? '',
+          )
+        "
+        >{{ rule.relation === 'SUPERVISOR' ? '上级层数' : '部门/组织上溯层数'
+        }}<UiInput
+          :value="rule.depth ?? (rule.relation === 'SUPERVISOR' ? 1 : 0)"
           type="number"
           :disabled="disabled"
           @update:value="
             rule.depth = Number($event);
             save();
           "
-      /></label>
+        /><span v-if="rule.relation !== 'SUPERVISOR'">0 为当前部门/组织，1 为上一级，依此类推。</span></label
+      >
       <UiCheckbox
         v-if="['DEPT', 'ORG', 'RELATIVE'].includes(rule.type)"
         :checked="rule.headOnly"

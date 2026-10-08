@@ -2043,6 +2043,7 @@ export type {
   WorkflowVersion,
   WorkflowNode,
   WorkflowRoute,
+  WorkflowAddSignExplanation,
   WorkflowDesign,
   WorkflowInstance,
   WorkflowTask,

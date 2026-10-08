@@ -178,6 +178,7 @@ const newAlias = ref(''),
   matchPriority = ref('0'),
   fallback = ref(false),
   approvalEnabled = ref(true);
+const frozen = computed(() => ['published', 'archived'].includes(version.value?.publishStatus ?? ''));
 const editable = computed(() => version.value?.publishStatus === 'draft' && !busy.value);
 const node = computed(() => design.value.nodes.find((item) => item.nodeKey === selectedNodeKey.value));
 const route = computed(() => design.value.links.find((item) => item.routeKey === selectedRouteKey.value));
@@ -394,6 +395,7 @@ async function save() {
       `${base}/${selected.value!.id}/versions/${version.value!.id}/design`,
       { version: version.value!.version, design: design.value },
     );
+    versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     dirty.value = false;
     showSuccessMessage('流程草稿已保存');
   });
@@ -696,7 +698,7 @@ function addRoute() {
               >保存匹配规则</UiButton
             ><UiButton :disabled="busy" @click="discardSettings">取消修改</UiButton>
           </form>
-          <p v-if="!editable">此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。</p>
+          <p v-if="frozen">此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。</p>
           <p v-if="dirty">草稿有未保存的修改</p>
           <WorkflowDiagram
             :key="version?.id"

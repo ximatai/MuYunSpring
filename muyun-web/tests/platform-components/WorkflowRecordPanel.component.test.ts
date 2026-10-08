@@ -642,3 +642,92 @@ it('ignores task requirements from an old record and cannot inspect during busin
   resolveExecution({});
   await flushPromises();
 });
+
+it('replaces an unactivated add-sign segment by reconnecting to its original exit', async () => {
+  const { wrapper, request } = fixture();
+  const original = request.getMockImplementation()!;
+  let inserted = false;
+  request.mockImplementation(async (call) => {
+    if (call.path.endsWith('/bundle'))
+      return {
+        instance: { id: 'i', instanceStatus: 'running' },
+        nodes: [
+          { nodeKey: 'approve', nodeTitle: '采购审批' },
+          { nodeKey: 'end', nodeTitle: '完成' },
+        ],
+        routes: inserted
+          ? [
+              { routeKey: 'old', sourceNodeKey: 'approve', targetNodeKey: 'end', routeStatus: 'canceled' },
+              {
+                routeKey: 'added_in',
+                sourceNodeKey: 'approve',
+                targetNodeKey: 'added',
+                routeStatus: 'candidate',
+              },
+              {
+                routeKey: 'added_out',
+                sourceNodeKey: 'added',
+                targetNodeKey: 'end',
+                routeStatus: 'candidate',
+              },
+            ]
+          : [{ routeKey: 'old', sourceNodeKey: 'approve', targetNodeKey: 'end', routeStatus: 'candidate' }],
+      };
+    if (call.path.endsWith('/add-sign-explanations'))
+      return {
+        records: inserted
+          ? [
+              { dimension: 'NODE', nodeKey: 'added', nodeStatus: 'waiting', addSignSourceNodeKey: 'approve' },
+              {
+                dimension: 'ROUTE',
+                routeKey: 'added_in',
+                routeSourceNodeKey: 'approve',
+                routeTargetNodeKey: 'added',
+                addSignSourceNodeKey: 'approve',
+              },
+              {
+                dimension: 'ROUTE',
+                routeKey: 'added_out',
+                routeSourceNodeKey: 'added',
+                routeTargetNodeKey: 'end',
+                addSignSourceNodeKey: 'approve',
+              },
+            ]
+          : [],
+      };
+    if (call.path.endsWith('/actions'))
+      return {
+        records: [
+          { actionCode: 'addSign', title: '加签', taskId: 't', nodeKey: 'approve', reasonRequired: true },
+        ],
+      };
+    if (call.path.endsWith('/actions/addSign')) {
+      inserted = true;
+      return {};
+    }
+    return original(call);
+  });
+  await flushPromises();
+  for (const userId of ['user-a', 'user-b']) {
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+    await flushPromises();
+    wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '增加专业审批');
+    wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', userId);
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '确认加签')!
+      .trigger('click');
+    await flushPromises();
+  }
+  const commands = request.mock.calls
+    .map(([call]) => call)
+    .filter((call) => call.path.endsWith('/actions/addSign'));
+  expect(commands).toHaveLength(2);
+  for (const command of commands)
+    expect(command.body).toMatchObject({
+      addSignSegment: {
+        linkDefinitions: [expect.anything(), expect.objectContaining({ targetNodeKey: 'end' })],
+      },
+    });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createWorkflowClient } from '@/web-core/workflow';
+import { createWorkflowClient, refreshWorkflowRecordActions } from '@/web-core/workflow';
 import type { HttpClient } from '@/web-core/http';
 
 describe('workflow client public contracts', () => {
@@ -64,6 +64,7 @@ describe('workflow client public contracts', () => {
     const client = createWorkflowClient({ request } as HttpClient);
     for (const result of await Promise.all([
       client.tasks('instance'),
+      client.addSignExplanations('instance'),
       client.events('instance'),
       client.actions('instance'),
       client.branches('instance'),
@@ -112,5 +113,22 @@ describe('workflow client public contracts', () => {
       path: '/workflow/runtime/task/task%2Fid/module-task/guides/receive/execute',
       body: { version: 3, values: { delivered: true }, reason: 'arrived' },
     });
+  });
+  it('invalidates the same-record rights snapshot before awaiting refreshed workflow permissions', async () => {
+    const calls: string[] = [];
+    let complete!: () => void;
+    const request = new Promise<void>((resolve) => (complete = resolve));
+    const context = {
+      invalidateRecordActions: (ids?: string[]) => calls.push(`invalidate:${ids?.join(',')}`),
+      recordActions: async (id: string) => {
+        calls.push(`reload:${id}`);
+        await request;
+        return { recordId: id, actions: [] };
+      },
+    };
+    const refreshed = refreshWorkflowRecordActions(context, 'record');
+    expect(calls).toEqual(['invalidate:record', 'reload:record']);
+    complete();
+    await refreshed;
   });
 });

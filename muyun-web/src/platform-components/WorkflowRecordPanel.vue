@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick } from 'vue';
 import { createWorkflowClient, createModuleContext, type ModuleContext } from '@muyun/web-core';
 import type {
   WorkflowAction,
+  WorkflowAddSignExplanation,
   WorkflowBranch,
   WorkflowEvent,
   WorkflowHistoryInstance,
@@ -191,12 +192,35 @@ const accountContext = computed(() =>
 const addSignUserId = ref<string>(),
   addSignTitle = ref('追加审批'),
   addSignRouteKey = ref('');
-const addSignRoutes = computed(
-  () =>
+const addSignExplanations = ref<WorkflowAddSignExplanation[]>([]),
+  addSignReady = ref(false);
+const addSignRoutes = computed(() => {
+  if (!addSignReady.value) return [];
+  const source = activeAction.value?.nodeKey;
+  const segment = addSignExplanations.value.filter((item) => item.addSignSourceNodeKey === source);
+  const nodes = new Set(segment.filter((item) => item.dimension === 'NODE').map((item) => item.nodeKey));
+  if (nodes.size) {
+    // A replacement reconnects to the original segment exit, never to a node being replaced.
+    return segment
+      .filter(
+        (item) =>
+          item.dimension === 'ROUTE' &&
+          nodes.has(item.routeSourceNodeKey) &&
+          !nodes.has(item.routeTargetNodeKey) &&
+          item.routeTargetNodeKey,
+      )
+      .map((item) => ({
+        routeKey: item.routeKey!,
+        targetNodeKey: item.routeTargetNodeKey!,
+        title: bundle.value?.routes.find((route) => route.routeKey === item.routeKey)?.title,
+      }));
+  }
+  return (
     bundle.value?.routes.filter(
-      (route) => route.sourceNodeKey === activeAction.value?.nodeKey && route.routeStatus === 'candidate',
-    ) ?? [],
-);
+      (route) => route.sourceNodeKey === source && route.routeStatus === 'candidate',
+    ) ?? []
+  );
+});
 const selectedAddSignRoute = computed(
   () =>
     addSignRoutes.value.find((route) => route.routeKey === addSignRouteKey.value) ??
@@ -393,9 +417,29 @@ async function choose(action: WorkflowAction) {
   taskGuideKey.value = undefined;
   addSignUserId.value = undefined;
   addSignRouteKey.value = '';
+  addSignExplanations.value = [];
+  addSignReady.value = false;
   manualChoicesReady.value = true;
   if (['approve', 'complete'].includes(action.actionCode) && action.taskId) await refreshManualChoices();
   if (action.actionCode === 'complete' && action.taskId) await inspectTask(action.taskId);
+  if (action.actionCode === 'addSign') await prepareAddSign(action);
+}
+async function prepareAddSign(action: WorkflowAction) {
+  const id = props.instanceId ?? status.value?.instanceId,
+    current = revision;
+  if (!id) return;
+  preparing.value = true;
+  try {
+    const explanations = await client.value.addSignExplanations(id);
+    if (current !== revision || action !== activeAction.value) return;
+    addSignExplanations.value = explanations;
+    addSignReady.value = true;
+  } catch (cause) {
+    if (current === revision && action === activeAction.value)
+      presentPlatformError(cause, { source: 'workflow-add-sign', phase: 'load' });
+  } finally {
+    if (current === revision && action === activeAction.value) preparing.value = false;
+  }
 }
 async function preview() {
   busy.value = true;
@@ -875,19 +919,6 @@ async function execute() {
             :semantic-json="previewBundle.semanticJson"
           />
         </template>
-        <p v-if="activeAction.actionCode === 'addSign'">
-          加签位置：{{ activeAction.nodeTitle }} → {{ addSignTitle }} →
-          {{
-            bundle?.nodes.find(
-              (node) =>
-                node.nodeKey ===
-                bundle?.routes.find(
-                  (route) =>
-                    route.sourceNodeKey === activeAction?.nodeKey && route.routeStatus === 'candidate',
-                )?.targetNodeKey,
-            )?.nodeTitle ?? '请确认唯一后继路径'
-          }}。加签完成后继续后续流程。
-        </p>
         <template v-if="activeAction.actionCode === 'complete' && activeAction.taskId">
           <UiButton @click="inspectTask(activeAction.taskId!)">检查任务完成条件</UiButton>
           <template v-if="taskProcess"

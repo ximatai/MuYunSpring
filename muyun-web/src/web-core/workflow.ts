@@ -1,5 +1,6 @@
 import type {
   WorkflowAction,
+  WorkflowAddSignExplanation,
   WorkflowBranch,
   WorkflowDesign,
   WorkflowEvent,
@@ -12,6 +13,16 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
+import type { ModuleContext } from './module/moduleContext';
+
+/** Workflow mutations change ordinary record rights as well as the record itself. */
+export async function refreshWorkflowRecordActions(
+  context: Pick<ModuleContext<unknown>, 'invalidateRecordActions' | 'recordActions'>,
+  recordId: string,
+) {
+  context.invalidateRecordActions?.([recordId]);
+  await context.recordActions(recordId);
+}
 
 /** All operation rights remain server decisions. The client only carries typed intent. */
 export function createWorkflowClient(http: HttpClient) {
@@ -61,6 +72,9 @@ export function createWorkflowClient(http: HttpClient) {
     submit: (alias: string, id: string, payload: unknown = {}) =>
       post<unknown>(`${recordPath(alias, id)}/actions/submitApproval`, payload),
     bundle: (id: string) => get<WorkflowRenderBundle>(`${instancePath(id)}/bundle`),
+    addSignExplanations: async (id: string) =>
+      (await get<{ records: WorkflowAddSignExplanation[] }>(`${instancePath(id)}/add-sign-explanations`))
+        .records,
     actions: async (id: string) =>
       (await post<{ records: WorkflowAction[] }>(`${instancePath(id)}/actions`)).records,
     tasks: async (id: string) =>

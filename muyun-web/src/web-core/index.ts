@@ -27,7 +27,7 @@ export * from './operationErrors';
 export * from './operationReceipt';
 
 export * from './uuid';
-export { createWorkflowClient } from './workflow';
+export { createWorkflowClient, refreshWorkflowRecordActions } from './workflow';
 
 export { provideWorkspaceUnsavedStateRegistrar, useWorkspaceViewUnsavedState } from './workspaceUnsavedState';
 export type { WorkspaceUnsavedStateRegistrar } from './workspaceUnsavedState';

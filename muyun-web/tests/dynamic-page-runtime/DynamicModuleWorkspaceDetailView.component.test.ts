@@ -3,7 +3,12 @@ import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import DynamicModuleWorkspaceDetailView from '@/dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue';
 import { provideModulePageUnsavedStateHost } from '@/dynamic-page-runtime/modulePageUnsavedState';
-import { configureModuleContext, ModuleContextProvider, type HttpClient } from '@/web-core';
+import {
+  configureModuleContext,
+  createModuleContext,
+  ModuleContextProvider,
+  type HttpClient,
+} from '@/web-core';
 
 const ReferenceDetailBrowserStub = defineComponent({
   name: 'ModuleReferenceRecordDetailBrowser',
@@ -89,4 +94,69 @@ it('reports nested reference record edits and mutations through the workspace st
   expect(reportedBusy?.()).toBe(false);
   wrapper.unmount();
   expect(unregister).toHaveBeenCalledOnce();
+});
+
+it('refreshes ordinary record rights after workflow changes for an approval record without enable', async () => {
+  let locked = false;
+  const request = vi.fn(async (options: { path: string }) => {
+    if (options.path.endsWith('/context'))
+      return {
+        moduleAlias: 'education.purchase_request',
+        abilities: ['crud', 'approval'],
+        capabilities: [],
+        actions: [
+          { actionCode: 'view', authorized: true },
+          { actionCode: 'update', authorized: true },
+        ],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (options.path.endsWith('/actions/r'))
+      return {
+        recordId: 'r',
+        actions: [{ actionCode: 'update', available: !locked }],
+      };
+    if (options.path.endsWith('/view/r')) return { id: 'r', version: locked ? 2 : 1, title: '采购申请' };
+    throw new Error(`unexpected request: ${options.path}`);
+  });
+  const context = createModuleContext({
+    http: { request } as HttpClient,
+    moduleAlias: 'education.purchase_request',
+  });
+  await context.runtime.ready;
+  await context.recordActions('r');
+  const Harness = defineComponent({
+    setup: () => () =>
+      h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' })),
+  });
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    setup(_, { slots }) {
+      return () => h('section', [slots.actions?.(), slots.default?.()]);
+    },
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordDetailPanel: panel,
+        WorkflowRecordPanel: true,
+        RecordDetailFields: true,
+        RecordFormSurface: true,
+        RecordModeDrawer: true,
+        RecordMetaSection: true,
+        ModuleReferenceRecordDetailBrowser: true,
+        ModuleRecordDetailActions: true,
+      },
+    },
+  });
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(true);
+  const workflow = wrapper.findComponent({ name: 'WorkflowRecordPanel' });
+  locked = true;
+  workflow.vm.$emit('changed');
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(false);
+  locked = false;
+  wrapper.findComponent({ name: 'WorkflowRecordPanel' }).vm.$emit('changed');
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(true);
 });

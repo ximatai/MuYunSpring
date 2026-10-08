@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { createModuleContext, useModuleContext } from '@muyun/web-core';
+import { createModuleContext, refreshWorkflowRecordActions, useModuleContext } from '@muyun/web-core';
 import {
   confirmAction,
   handlePlatformActionSuccess,
@@ -179,6 +179,9 @@ async function loadRecord() {
 }
 
 async function handleWorkflowChanged() {
+  await refreshWorkflowRecordActions(context, props.recordId).catch((cause) =>
+    presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
+  );
   refreshModulePageList(context.moduleAlias);
   await loadRecord();
 }

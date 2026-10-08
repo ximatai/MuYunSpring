@@ -82,6 +82,7 @@ import {
   OperationUsageError,
   OperationRejectedError,
   createModuleContext,
+  refreshWorkflowRecordActions,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
   userPreferences,
@@ -4686,12 +4687,9 @@ export function useModulePageSession(
     assistantContextRevision.value += 1;
     const recordId = selectedRecord.value?.id;
     if (recordId != null) {
-      context.invalidateRecordActions?.([String(recordId)]);
-      void context
-        .recordActions(String(recordId))
-        .catch((cause) =>
-          presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
-        );
+      void refreshWorkflowRecordActions(context, String(recordId)).catch((cause) =>
+        presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
+      );
     }
     refreshList();
     retryLoadDetail();

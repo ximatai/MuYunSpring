@@ -80,6 +80,10 @@ const post = <T,>(path: string, body: unknown = {}) =>
   http.value.request<T>({ method: 'POST', path: `/workflow/runtime/admin${path}`, body });
 let revision = 0;
 async function load() {
+  if (busy.value || (pending.value && !(await mayCloseOperation()))) return;
+  await reload();
+}
+async function reload() {
   const current = ++revision;
   busy.value = true;
   error.value = '';
@@ -119,6 +123,7 @@ async function load() {
   }
 }
 async function select(id: string) {
+  if (busy.value || (pending.value && !(await mayCloseOperation()))) return;
   const current = ++revision;
   busy.value = true;
   selectedId.value = id;
@@ -152,23 +157,33 @@ async function select(id: string) {
     if (current === revision) busy.value = false;
   }
 }
+async function query(reset = false) {
+  if (busy.value || (pending.value && !(await mayCloseOperation()))) return;
+  pending.value = undefined;
+  if (reset) {
+    moduleAlias.value = '';
+    recordId.value = '';
+  }
+  if (page.value !== 1) page.value = 1;
+  else await reload();
+}
 async function execute() {
-  if (!pending.value || !selectedId.value || !reason.value.trim()) return;
-  if (
-    !(await confirmAction({
-      title: `确认${operationTitle(pending.value.code)}？`,
-      content: operationImpact(pending.value.code) + ` 原因：${reason.value.trim()}`,
-      danger: true,
-      okText: '确认执行',
-    }))
-  )
-    return;
+  if (busy.value || !pending.value || !selectedId.value || !reason.value.trim()) return;
   busy.value = true;
   try {
+    if (
+      !(await confirmAction({
+        title: `确认${operationTitle(pending.value.code)}？`,
+        content: operationImpact(pending.value.code) + ` 原因：${reason.value.trim()}`,
+        danger: true,
+        okText: '确认执行',
+      }))
+    )
+      return;
     const path = pending.value.taskId ? `/task/${pending.value.taskId}` : `/instance/${selectedId.value}`;
     await post(`${path}/actions/${pending.value.code}`, { reason: reason.value });
     showSuccessMessage('运维操作已完成并记录审计');
-    await load();
+    await reload();
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-admin', phase: 'action' });
   } finally {
@@ -250,11 +265,13 @@ useWorkspaceViewUnsavedState(
   () => busy.value,
 );
 async function mayCloseOperation() {
-  return (
-    !busy.value &&
-    (!reason.value.trim() ||
-      (await confirmAction({ title: '放弃未执行的运维操作？', danger: true, okText: '放弃填写' })))
-  );
+  if (busy.value) return false;
+  const operation = pending.value;
+  const current = revision;
+  const accepted =
+    !reason.value.trim() ||
+    (await confirmAction({ title: '放弃未执行的运维操作？', danger: true, okText: '放弃填写' }));
+  return accepted && !busy.value && current === revision && operation === pending.value;
 }
 async function mayCloseDetail() {
   return !pending.value && !busy.value;
@@ -293,7 +310,7 @@ function title(record: { id?: string; title?: string }) {
       :pages="page + (rows.length === 30 ? 1 : 0)"
       :page-num="page"
       :page-size="30"
-      :pagination-disabled="busy"
+      :pagination-disabled="busy || Boolean(pending)"
       @row-click="select(String($event.id))"
       @page-change="page = $event"
     >
@@ -304,41 +321,26 @@ function title(record: { id?: string; title?: string }) {
           ><RecordPicker
             v-model:value="tenantId"
             :context="tenantContext"
-            :disabled="busy"
+            :disabled="busy || Boolean(pending)"
             :title-of="title"
             mode="list" /></label
         ><label
           ><RecordFieldLabel :required="historyMode">业务模块</RecordFieldLabel
           ><UiSelect
             v-model:value="moduleAlias"
-            :disabled="busy"
+            :disabled="busy || Boolean(pending)"
             show-search
             :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
             :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
         ><label
           >业务记录标识<UiInput
             v-model:value="recordId"
-            :disabled="busy"
+            :disabled="busy || Boolean(pending)"
             placeholder="精确定位异常业务" /></label
       ></template>
       <template #queryControls
-        ><UiButton
-          :disabled="busy || (historyMode && !moduleAlias)"
-          @click="
-            page = 1;
-            load();
-          "
-          >查询</UiButton
-        ><UiButton
-          :disabled="busy"
-          @click="
-            moduleAlias = '';
-            recordId = '';
-            page = 1;
-            load();
-          "
-          >重置</UiButton
-        ></template
+        ><UiButton :disabled="busy || (historyMode && !moduleAlias)" @click="query()">查询</UiButton
+        ><UiButton :disabled="busy" @click="query(true)">重置</UiButton></template
       >
     </RecordQueryListSurface>
     <RecordDetailDrawer
@@ -414,7 +416,7 @@ function title(record: { id?: string; title?: string }) {
       ><p>{{ operationImpact(pending?.code ?? '') }}</p>
       <p>
         当前流程版本：{{
-          bundle?.instance.definitionTitle
+          bundle?.instance.versionNo ?? '未知'
         }}。操作成功后不可直接撤销，并记录操作人、时间和原因。
       </p>
       <label
