@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.iam.web.workflow;
 
 import net.ximatai.muyun.spring.iam.user.UserAccount;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver;
 
@@ -25,9 +26,17 @@ public class IamWorkflowUserTitleResolver implements WorkflowUserTitleResolver {
             if (userId == null || userId.isBlank() || titles.containsKey(userId)) {
                 continue;
             }
-            UserAccount user = userAccountService.select(userId);
-            if (user != null && user.getTitle() != null && !user.getTitle().isBlank()) {
-                titles.put(userId, user.getTitle());
+            UserAccount user;
+            // Workflow actors may include platform accounts; tenant accounts stay in the current tenant.
+            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("workflow actor display title")) {
+                user = userAccountService.select(userId);
+            }
+            if (user != null && user.getTenantId() != null && !user.getTenantId().isBlank()
+                    && !TenantContext.currentTenantId().filter(user.getTenantId()::equals).isPresent()) continue;
+            if (user != null) {
+                String title = user.getTitle() == null || user.getTitle().isBlank()
+                        ? user.getUsername() : user.getTitle();
+                if (title != null && !title.isBlank()) titles.put(userId, title);
             }
         }
         return Map.copyOf(titles);

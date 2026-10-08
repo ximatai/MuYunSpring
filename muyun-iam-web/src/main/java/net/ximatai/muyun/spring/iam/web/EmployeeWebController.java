@@ -119,6 +119,7 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
                         .field("gender", field -> field.label("性别"))
                         .field("mobile", field -> field.label("手机号"))
                         .field("email", field -> field.label("邮箱"))
+                        .field("supervisorEmployeeId", field -> field.label("直属上级").recordPicker())
                         .field("enabled", field -> field.label("启用状态").enabledStatus())))
                 .traits(traits -> traits
                         .operations(operations -> operations.standardCrud().enabledLifecycle().recycleBin())

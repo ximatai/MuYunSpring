@@ -92,6 +92,14 @@ public class WorkflowRuntimeWebController {
         return new WebListResponse<>(runtimeReadFacade.manualBranchCandidates(instanceId));
     }
 
+    @PostMapping("/instance/{instanceId}/manual-branches")
+    public WebListResponse<WorkflowManualBranchCandidateView> planManualBranchCandidates(@PathVariable String instanceId,
+            @RequestBody WorkflowManualBranchPlanWebRequest request) {
+        if (request == null) throw new PlatformException("workflow manual branch plan request must not be null");
+        return new WebListResponse<>(runtimeReadFacade.manualBranchCandidates(instanceId, request.taskId(),
+                request.manualRouteSelections(), currentOperatorId()));
+    }
+
     @GetMapping("/instance/{instanceId}/manual-branch-candidate-prechecks")
     public WebListResponse<WorkflowManualBranchCandidatePrecheckView> manualBranchCandidatePrechecks(
             @PathVariable String instanceId,
@@ -121,6 +129,12 @@ public class WorkflowRuntimeWebController {
                                                  @PathVariable String recordId,
                                                  @RequestBody(required = false) WorkflowSubmitWebRequest request) {
         return submitReadFacade.status(submitRequest(moduleAlias, recordId, request, false));
+    }
+
+    @PostMapping("/record/{moduleAlias}/{recordId}/submit/manual-branches")
+    public WebListResponse<WorkflowManualBranchCandidateView> submitManualBranches(@PathVariable String moduleAlias,
+            @PathVariable String recordId, @RequestBody(required = false) WorkflowSubmitWebRequest request) {
+        return new WebListResponse<>(submitReadFacade.manualBranches(submitRequest(moduleAlias, recordId, request, false)));
     }
 
     @PostMapping("/record/{moduleAlias}/{recordId}/submit/preview")
@@ -184,6 +198,31 @@ public class WorkflowRuntimeWebController {
         return taskActionFacade.execute("read", WorkflowTaskActionRequest.builder(taskId, currentOperatorId())
                 .reason(request == null ? null : request.reason())
                 .build());
+    }
+
+    @GetMapping("/workbench/modules")
+    public java.util.Map<String, String> workbenchModules() {
+        currentOperatorId();
+        return runtimeReadFacade.workbenchModules();
+    }
+
+    @PostMapping("/workbench/{board}/page")
+    public net.ximatai.muyun.spring.web.WebPageResponse<WorkflowWorkbenchCard> workbenchPage(
+            @PathVariable String board, @RequestBody(required = false) WorkflowWorkbenchPageWebRequest request) {
+        var query = normalizeWorkbenchRequest(request == null ? null : request.query());
+        var result = runtimeReadFacade.workbenchPage(board, currentOperatorId(), page(query.page()),
+                query.toQueryRequest(), request == null ? null : request.keyword());
+        return net.ximatai.muyun.spring.web.WebPageResponse.from(result.page(), java.util.Map.of("modules", result.modules()));
+    }
+
+    @GetMapping("/instance/{instanceId}/tasks/view")
+    public WebListResponse<net.ximatai.muyun.spring.platform.workflow.WorkflowHistoryTaskView> taskViews(@PathVariable String instanceId) {
+        return new WebListResponse<>(runtimeReadFacade.instanceTaskViews(instanceId));
+    }
+
+    @GetMapping("/instance/{instanceId}/events/view")
+    public WebListResponse<net.ximatai.muyun.spring.platform.workflow.WorkflowHistoryEventView> eventViews(@PathVariable String instanceId) {
+        return new WebListResponse<>(runtimeReadFacade.instanceEventViews(instanceId));
     }
 
     @PostMapping("/workbench/todo/query")
@@ -297,7 +336,7 @@ public class WorkflowRuntimeWebController {
                                                 boolean requireOperator) {
         WorkflowSubmitWebRequest normalized = request == null ? WorkflowSubmitWebRequest.empty() : request;
         return WorkflowSubmitRequest.approval(moduleAlias, recordId)
-                .withAuthOrgId(normalized.authOrgId())
+                .withAuthOrgId(CurrentUserContext.currentUser().map(user -> user.organizationId()).orElse(null))
                 .withOperator(requireOperator ? currentOperatorId() : currentOperatorIdOrNull())
                 .withSelectedRoute(normalized.selectedRouteKeyOrDirectLinkKey(), normalized.selectedReason())
                 .withManualRouteSelections(normalized.manualRouteSelections());
@@ -403,3 +442,7 @@ record WorkflowModuleTaskContinueWebRequest(String operatorId,
         return selectedRouteKey == null || selectedRouteKey.isBlank() ? selectedDirectLinkKey : selectedRouteKey;
     }
 }
+
+record WorkflowWorkbenchPageWebRequest(WorkflowWorkbenchWebRequest query, String keyword) { }
+
+record WorkflowManualBranchPlanWebRequest(String taskId, List<WorkflowManualRouteSelection> manualRouteSelections) { }

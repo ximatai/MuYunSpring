@@ -39,11 +39,32 @@ public class WorkflowDefinitionWebController
 
     private final PlatformModuleService moduleService;
     private final WorkflowPublishFacade publishFacade;
+    private final net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService designs;
 
     public WorkflowDefinitionWebController(PlatformModuleService moduleService,
-                                           WorkflowPublishFacade publishFacade) {
+                                           WorkflowPublishFacade publishFacade, net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService designs) {
         this.moduleService = Objects.requireNonNull(moduleService, "moduleService must not be null");
         this.publishFacade = Objects.requireNonNull(publishFacade, "publishFacade must not be null");
+        this.designs = Objects.requireNonNull(designs, "designs must not be null");
+    }
+
+    private net.ximatai.muyun.spring.platform.workflow.WorkflowConfigurationCatalogService configurationCatalog;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WorkflowDefinitionWebController(PlatformModuleService modules, WorkflowPublishFacade publish,
+            net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService designs,
+            net.ximatai.muyun.spring.platform.workflow.WorkflowConfigurationCatalogService catalog) {
+        this(modules, publish, designs);
+        this.configurationCatalog = Objects.requireNonNull(catalog);
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/{definitionId}/configuration-catalog")
+    @CustomActionEndpoint(value = "viewWorkflowDesign", title = "查看流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public net.ximatai.muyun.spring.platform.workflow.WorkflowConfigurationCatalogService.Catalog catalog(
+            HttpServletRequest request, @PathVariable String definitionId) {
+        return webScope(() -> { var definition = requireScopedRecord(request, definitionId);
+            return configurationCatalog.forModule(definition.getModuleAlias()); });
     }
 
     @Override
@@ -123,6 +144,14 @@ public class WorkflowDefinitionWebController
         });
     }
 
+    @PostMapping("/{definitionId}/selection")
+    @CustomActionEndpoint(value = "configureWorkflowSelection", title = "调整流程匹配规则",
+            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "definitionId")
+    public WorkflowDefinition configureSelection(HttpServletRequest request, @PathVariable String definitionId,
+            @RequestBody net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.SelectionSettings settings) {
+        return webScope(() -> { requireScopedRecord(request, definitionId); return designs.configureSelection(definitionId, settings); });
+    }
+
     @PostMapping("/{definitionId}/archive")
     @CustomActionEndpoint(value = "archiveWorkflowDefinition", title = "归档工作流定义",
             level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "definitionId")
@@ -132,6 +161,38 @@ public class WorkflowDefinitionWebController
             requireScopedRecord(request, definitionId);
             return publishFacade.archive(definitionId, actionRequest.version());
         });
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/{definitionId}/versions/{versionId}/design")
+    @CustomActionEndpoint(value = "viewWorkflowDesign", title = "查看流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument design(HttpServletRequest request,
+            @PathVariable String definitionId, @PathVariable String versionId) {
+        return webScope(() -> { requireScopedRecord(request, definitionId); return designs.read(definitionId, versionId); });
+    }
+
+    @PostMapping("/{definitionId}/versions/{versionId}/design")
+    @CustomActionEndpoint(value = "editWorkflowDesign", title = "保存流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public WorkflowVersion saveDesign(HttpServletRequest request, @PathVariable String definitionId,
+            @PathVariable String versionId, @RequestBody WorkflowDesignSaveWebRequest payload) {
+        return webScope(() -> { requireScopedRecord(request, definitionId);
+            return designs.save(definitionId, versionId, payload.version(), payload.design()); });
+    }
+
+    @PostMapping("/{definitionId}/versions/{versionId}/validate")
+    @CustomActionEndpoint(value = "validateWorkflowDesign", title = "校验流程设计", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument validateDesign(HttpServletRequest request,
+            @PathVariable String definitionId, @PathVariable String versionId) {
+        return webScope(() -> { requireScopedRecord(request, definitionId); return designs.validate(definitionId, versionId); });
+    }
+
+    @PostMapping("/{definitionId}/upgrade")
+    @CustomActionEndpoint(value = "upgradeWorkflowDefinition", title = "创建流程新版本", level = PlatformActionLevel.RECORD,
+            dataAuth = true, recordIdPathVariable = "definitionId")
+    public WorkflowVersion upgrade(HttpServletRequest request, @PathVariable String definitionId) {
+        return webScope(() -> { requireScopedRecord(request, definitionId); return designs.upgrade(definitionId); });
     }
 
     private String moduleAlias(HttpServletRequest request) {
@@ -176,3 +237,5 @@ public class WorkflowDefinitionWebController
         }
     }
 }
+
+record WorkflowDesignSaveWebRequest(Integer version, net.ximatai.muyun.spring.platform.workflow.WorkflowDesignDocument design) {}

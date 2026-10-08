@@ -3,6 +3,9 @@ package net.ximatai.muyun.spring.platform.workflow;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
+import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaNode;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -14,6 +17,7 @@ import java.util.Set;
 @Service
 public class WorkflowDesignCompiler {
     private final WorkflowConditionService conditions;
+    private final FormulaEngine formulas = new FormulaEngine();
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
@@ -92,6 +96,7 @@ public class WorkflowDesignCompiler {
                 throw new PlatformException("手工分支的所有可达路径必须保证选择人已办理: " + node.getNodeKey());
             validateSelectionTriggerActors(graph, node);
         }
+        validateWritableTaskSelections(graph, document.nodes());
         if (approvalEnabled) {
             if (document.nodes().stream().noneMatch(node -> node.getMilestoneType() == WorkflowMilestoneType.APPROVAL_COMPLETED))
                 throw new PlatformException("审批治理流程必须包含审批完成里程碑");
@@ -144,10 +149,75 @@ public class WorkflowDesignCompiler {
         if (!visited.add(key)) return false;
         return graph.outgoing(key).stream().anyMatch(link -> {
             var next = graph.requireNode(link.getTargetNodeKey());
-            return next.getNodeKey().equals(target) || (next.getNodeType() != WorkflowNodeType.APPROVAL
-                    && next.getNodeType() != WorkflowNodeType.TASK
+            return next.getNodeKey().equals(target) || (!blocksProgression(next)
                     && canReachWithoutBlock(graph, next.getNodeKey(), target, visited));
         });
+    }
+
+    /** Business writes may derive fields or run hooks. A draft cannot predict which conditional AUTO
+     * exits will activate, so a later manual decision needs its own persisted-fact action boundary. */
+    private void validateWritableTaskSelections(WorkflowRuntimeGraph graph, List<WorkflowNodeDefinition> nodes) {
+        var conditionalBranches = new HashSet<String>();
+        for (var node : nodes) {
+            if (node.getNodeType() == WorkflowNodeType.BRANCH && node.getRouteMode() != WorkflowRouteMode.MANUAL
+                    && graph.outgoing(node.getNodeKey()).stream().anyMatch(route -> dependsOnFactsOrTime(route.getConditionExpression())))
+                conditionalBranches.add(node.getNodeKey());
+        }
+        for (var node : nodes) {
+            if (node.getNodeType() != WorkflowNodeType.TASK || !hasWritingGuide(node)) continue;
+            var visited = new HashSet<String>();
+            for (var route : graph.outgoing(node.getNodeKey()))
+                requireStableManualSelection(graph, route.getTargetNodeKey(), node.getNodeKey(), false, conditionalBranches, visited);
+        }
+    }
+
+    private boolean hasWritingGuide(WorkflowNodeDefinition node) {
+        if (node.getNodeConfigText() == null || node.getNodeConfigText().isBlank()) return false;
+        try {
+            var frozen = mapper.readTree(node.getNodeConfigText()).get("task");
+            if (frozen == null || frozen.isNull()) return false;
+            var spec = mapper.treeToValue(frozen, WorkflowBusinessTaskSpec.class);
+            return spec.guides().stream().anyMatch(guide -> guide.getGuideKind() == WorkflowTaskGuideKind.OPEN_FORM
+                    || guide.getGuideKind() == WorkflowTaskGuideKind.EXECUTE_ACTION);
+        } catch (Exception failure) {
+            throw new PlatformException("业务任务冻结规格不合法: " + node.getNodeKey(), failure);
+        }
+    }
+
+    private void requireStableManualSelection(WorkflowRuntimeGraph graph, String key, String task, boolean conditional,
+                                             Set<String> conditionalBranches, Set<String> visited) {
+        var node = graph.requireNode(key);
+        if (blocksProgression(node)) return;
+        conditional |= conditionalBranches.contains(key);
+        if (!visited.add(key + ":" + conditional)) return;
+        if (conditional && node.getNodeType() == WorkflowNodeType.BRANCH && node.getRouteMode() == WorkflowRouteMode.MANUAL)
+            throw new PlatformException("写入业务任务后的条件自动分支不能在同次办理中继续手工选路，请先落业务结果，再增加独立后继审批节点或任务节点作为选择来源: "
+                    + task + " -> " + key);
+        boolean nextConditional = conditional;
+        graph.outgoing(key).forEach(route -> requireStableManualSelection(graph, route.getTargetNodeKey(), task,
+                nextConditional, conditionalBranches, visited));
+    }
+
+    private boolean blocksProgression(WorkflowNodeDefinition node) {
+        return node.getNodeType() == WorkflowNodeType.TASK || node.getNodeType() == WorkflowNodeType.APPROVAL
+                && node.getApprovalMode() != WorkflowApprovalMode.NOTICE;
+    }
+
+    private boolean dependsOnFactsOrTime(String expression) {
+        if (expression == null || expression.isBlank()) return false;
+        if (!formulas.referencedFields(expression).isEmpty()) return true;
+        try {
+            // The issued scalar AST distinguishes time calls from identical text inside literals.
+            // Expressions outside this known subset cannot be proven constant and remain conservative.
+            return usesTime(formulas.compileFormValidationProgram(expression).root());
+        } catch (FormulaEvaluationException unsupported) {
+            return true;
+        }
+    }
+
+    private boolean usesTime(FormulaNode node) {
+        return node.kind() == FormulaNode.Kind.FUNCTION && Set.of("NOW", "TODAY").contains(node.operator())
+                || node.arguments().stream().anyMatch(this::usesTime);
     }
 
     /** ALL waits for unconditional AUTO exits, even though no individual graph path dominates the join.

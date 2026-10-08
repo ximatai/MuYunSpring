@@ -103,4 +103,9 @@ public class Employee extends StandardEnabledSortableEntity {
     /** Employment is part of the employee aggregate and is maintained in the standard detail relation. */
     @Children(relationCode = "positions")
     private List<EmployeePosition> positions;
+    @Column(name = "supervisor_employee_id", type = ColumnType.VARCHAR, length = 32,
+            comment = "Direct supervisor employee")
+    @net.ximatai.muyun.spring.ability.reference.ReferenceTo(target = net.ximatai.muyun.spring.iam.employee.EmployeeService.class)
+    private String supervisorEmployeeId;
+
 }

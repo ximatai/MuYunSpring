@@ -128,6 +128,113 @@ class WorkflowDesignCompilerTest {
         design.node("selector").setNodeType(WorkflowNodeType.TASK); design.node("selector").setTaskDefinitionId("completion");
         assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WorkflowTaskGuideKind.class, names = {"OPEN_FORM", "EXECUTE_ACTION"})
+    void frozenWritingGuidesCannotPredictConditionalAutoBeforeManualSelection(WorkflowTaskGuideKind kind) throws Exception {
+        var design = manualFromTask(kind, "update", true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        assertThatCode(() -> compiler.validate(design.document(), false, false)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false))
+                .hasMessageContaining("请先落业务结果").hasMessageContaining("独立后继审批节点或任务节点")
+                .hasMessageContaining("business -> manual");
+    }
+    @Test void customExecuteActionAlsoRequiresAPersistedBoundaryBeforeConditionalManualSelection() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.EXECUTE_ACTION, "recalculate", true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("请先落业务结果");
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"NOW() > '2020-01-01T00:00:00Z'", "TODAY() == '2030-01-01'", "YEAR(TODAY()) > 2020"})
+    void timeDependentAutoConditionsAlsoNeedAPersistedBoundary(String condition) throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.link("auto_left").setConditionExpression(condition);
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("请先落业务结果");
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "true", "false", "1 > 0", "'NOW()' == 'NOW()'"})
+    void unconditionalAndConstantAutoConditionsDoNotRequireAnotherAction(String condition) throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.link("auto_left").setConditionExpression(condition);
+        assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WorkflowTaskGuideKind.class, names = {"OPEN_FORM", "EXECUTE_ACTION"})
+    void writingTasksCanSelectDirectManualBranches(WorkflowTaskGuideKind kind) throws Exception {
+        var design = manualFromTask(kind, "update", false);
+        assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
+    }
+    @Test void readOnlyGuidesCanReachManualSelectionThroughConditionalAuto() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.READ_INSTRUCTION, null, true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WorkflowNodeType.class, names = {"APPROVAL", "TASK"})
+    void successorActionsCommitBusinessFactsBeforeLaterManualDecisions(WorkflowNodeType type) throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        design.links.removeIf(link -> "autoJoin_manual".equals(link.getRouteKey()));
+        var selector = design.add("selector", type); selector.setParticipantPolicyText("user:operator");
+        if (type == WorkflowNodeType.TASK) selector.setTaskDefinitionId("confirmation");
+        design.node("manual").setSelectorNodeKey("selector");
+        design.edges("autoJoin>selector", "selector>manual");
+        assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
+    }
+    @Test void nestedConditionalAutoCannotHideBehindAnOuterUnconditionalBranch() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.links.removeIf(link -> "auto_left".equals(link.getRouteKey()));
+        design.branch("inner", "innerJoin"); design.converge("innerJoin");
+        design.add("innerRight", WorkflowNodeType.MILESTONE);
+        design.edges("auto>inner", "inner>left", "inner>innerRight", "innerRight>innerJoin", "innerJoin>autoJoin");
+        design.link("left_autoJoin").setTargetNodeKey("innerJoin");
+        design.link("inner_left").setConditionExpression("{amount} > 100");
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("business -> manual");
+    }
+    @Test void nestedManualBranchInsideConditionalAutoAlsoNeedsAnIndependentAction() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.EXECUTE_ACTION, "update", true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        design.links.removeIf(link -> "left_autoJoin".equals(link.getRouteKey())
+                || "autoJoin_manual".equals(link.getRouteKey()) || "manualJoin_end".equals(link.getRouteKey()));
+        design.edges("left>manual", "manualJoin>autoJoin", "autoJoin>end");
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("business -> manual");
+    }
+    @Test void noticeNodesDoNotIntroduceAPersistedActionBoundary() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.links.removeIf(link -> "business_auto".equals(link.getRouteKey()) || "autoJoin_manual".equals(link.getRouteKey()));
+        for (String key : List.of("beforeNotice", "afterNotice")) {
+            design.approval(key); design.node(key).setApprovalMode(WorkflowApprovalMode.NOTICE);
+        }
+        design.edges("business>beforeNotice", "beforeNotice>auto", "autoJoin>afterNotice", "afterNotice>manual");
+        assertThatCode(() -> compiler.validate(design.document(), true, false)).doesNotThrowAnyException();
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("business -> manual");
+    }
+    @Test void aConditionalDefaultRouteStillNeedsAPersistedActionBeforeManualSelection() throws Exception {
+        var design = manualFromTask(WorkflowTaskGuideKind.OPEN_FORM, "update", true);
+        design.link("auto_left").setConditionExpression("{amount} > 100");
+        design.link("auto_right").setDefaultRoute(true); design.link("auto_right").setConditionExpression(null);
+        assertThatThrownBy(() -> compiler.validate(design.document(), true, false)).hasMessageContaining("business -> manual");
+    }
+    private Design manualFromTask(WorkflowTaskGuideKind kind, String action, boolean automatic) throws Exception {
+        var design = new Design();
+        var task = design.add("business", WorkflowNodeType.TASK); task.setParticipantPolicyText("user:operator");
+        task.setTaskDefinitionId("completion");
+        var definition = new WorkflowTaskDefinition(); definition.setId("completion"); definition.setModuleAlias("sales.contract");
+        var guide = new WorkflowTaskGuide(); guide.setGuideKey("guide"); guide.setGuideKind(kind); guide.setTargetActionCode(action);
+        task.setNodeConfigText(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().writeValueAsString(
+                java.util.Map.of("task", new WorkflowBusinessTaskSpec(definition, List.of(), List.of(guide)))));
+        design.branch("manual", "manualJoin"); design.node("manual").setRouteMode(WorkflowRouteMode.MANUAL);
+        design.node("manual").setSelectorNodeKey("business"); design.converge("manualJoin");
+        design.add("x", WorkflowNodeType.MILESTONE); design.add("y", WorkflowNodeType.MILESTONE);
+        design.edges("start>business", "manual>x", "manual>y", "x>manualJoin", "y>manualJoin", "manualJoin>end");
+        if (automatic) {
+            design.branch("auto", "autoJoin"); design.converge("autoJoin");
+            design.add("left", WorkflowNodeType.MILESTONE); design.add("right", WorkflowNodeType.MILESTONE);
+            design.edges("business>auto", "auto>left", "auto>right", "left>autoJoin", "right>autoJoin", "autoJoin>manual");
+        } else design.edges("business>manual");
+        return design;
+    }
     private Design manualAfterJoin() {
         var design = new Design(); design.branch("outer", "outerJoin"); design.converge("outerJoin");
         design.approval("a"); design.approval("b");
@@ -150,6 +257,7 @@ class WorkflowDesignCompilerTest {
         Design() { add("start", WorkflowNodeType.START); add("end", WorkflowNodeType.END); }
         WorkflowNodeDefinition add(String key, WorkflowNodeType type) { var node = new WorkflowNodeDefinition(); node.setNodeKey(key); node.setNodeType(type); nodes.add(node); return node; }
         WorkflowNodeDefinition node(String key) { return nodes.stream().filter(node -> key.equals(node.getNodeKey())).findFirst().orElseThrow(); }
+        WorkflowLinkDefinition link(String key) { return links.stream().filter(link -> key.equals(link.getRouteKey())).findFirst().orElseThrow(); }
         void approval(String key) { add(key, WorkflowNodeType.APPROVAL).setParticipantPolicyText("user:operator"); }
         void converge(String key) { add(key, WorkflowNodeType.CONVERGE).setConvergeMode(WorkflowConvergeMode.ALL); }
         void branch(String key, String join) { var node = add(key, WorkflowNodeType.BRANCH); node.setConvergeNodeKey(join); node.setRouteMode(WorkflowRouteMode.AUTO); }

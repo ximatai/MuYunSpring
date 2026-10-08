@@ -14,6 +14,36 @@ import static org.mockito.Mockito.when;
 
 class RoleMenuVisibilityPolicyServiceTest {
     @Test
+    void loginRequiredPersonalMenuNeedsNoManagementRoleButStillRequiresOpenedApplication() {
+        var roles = mock(RoleService.class);
+        var applications = mock(TenantApplicationService.class);
+        var actions = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleActionService.class);
+        var menu = new net.ximatai.muyun.spring.platform.module.PlatformModuleAction();
+        menu.setActionCode("menu");
+        menu.setAccessMode(net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.LOGIN_REQUIRED);
+        menu.setActionAuth(false);
+        menu.setDataAuth(false);
+        when(actions.findByModuleAliasAndActionCode("iam.workflow_workbench", "menu")).thenReturn(menu);
+        when(applications.isApplicationAvailable("tenant-a", "iam")).thenReturn(true);
+        var service = new RoleMenuVisibilityPolicyService(roles, applications, null, actions);
+        var user = Optional.of(CurrentUser.tenantUser("ordinary", "User", "tenant-a"));
+
+        assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isTrue();
+        assertThat(service.canViewModuleMenu("iam.role", user)).isFalse();
+        assertThat(service.canViewModuleMenu("platform.workflow_admin", user)).isFalse();
+        assertThat(service.canViewModuleMenu("iam.workflow_workbench", Optional.empty())).isFalse();
+        verify(roles, never()).hasActionPermission("ordinary", "iam.workflow_workbench", "menu");
+        menu.setEnabled(false);
+        assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isFalse();
+        menu.setEnabled(true);
+        menu.setAccessModeOverride(net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.AUTH_REQUIRED);
+        assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isFalse();
+        menu.setAccessModeOverride(null);
+        when(applications.isApplicationAvailable("tenant-a", "iam")).thenReturn(false);
+        assertThat(service.canViewModuleMenu("iam.workflow_workbench", user)).isFalse();
+    }
+
+    @Test
     void shouldUseMenuActionPermissionForModuleMenuVisibility() {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);

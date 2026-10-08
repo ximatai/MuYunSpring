@@ -7,7 +7,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 
-@AutoConfiguration(afterName = "net.ximatai.muyun.spring.platform.web.ActionEndpointWebConfiguration")
+@AutoConfiguration(afterName = {"net.ximatai.muyun.spring.platform.web.ActionEndpointWebConfiguration",
+        "net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration"})
 public class IamWorkflowTitleConfiguration {
     @Bean
     @ConditionalOnBean(UserAccountService.class)

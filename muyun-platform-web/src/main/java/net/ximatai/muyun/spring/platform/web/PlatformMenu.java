@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.platform.menu.MenuOpenMode;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -23,6 +24,9 @@ public @interface PlatformMenu {
     String moduleAlias() default "";
 
     int order() default 100;
+
+    /** Personal entries may require login without a role grant; application entitlement still applies. */
+    ActionAccessMode accessMode() default ActionAccessMode.AUTH_REQUIRED;
 
     MenuOpenMode openMode() default MenuOpenMode.TAB;
 

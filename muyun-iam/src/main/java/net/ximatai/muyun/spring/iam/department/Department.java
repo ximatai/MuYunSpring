@@ -40,4 +40,9 @@ public class Department extends StandardEnabledTreeEntity {
     @Required
     @NormalizeText
     private String code;
+    @Column(name = "manager_employee_id", type = ColumnType.VARCHAR, length = 32,
+            comment = "Responsible employee")
+    @net.ximatai.muyun.spring.ability.reference.ReferenceTo(target = net.ximatai.muyun.spring.iam.employee.EmployeeService.class)
+    private String managerEmployeeId;
+
 }
