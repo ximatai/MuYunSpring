@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useModuleContext, createWorkflowClient, createModuleContext } from '@muyun/web-core';
+import { useModuleContext, createWorkflowDefinitionClient, createModuleContext } from '@muyun/web-core';
 import type {
+  WorkflowConfigurationCatalog,
   WorkflowDefinition,
   WorkflowVersion,
   WorkflowDesign,
@@ -10,7 +11,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   WorkflowParticipantEditor,
-  WorkflowBusinessTaskEditor,
+  WorkflowDesignProperties,
   WorkflowDiagram,
   presentPlatformError,
   workflowTitle,
@@ -36,6 +37,8 @@ import {
 } from '@muyun/vue-ui-antdv';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
+  createWorkflowDesign,
+  createWorkflowApprovalNode,
   insertWorkflowNode,
   removeWorkflowNode,
   insertWorkflowBranch,
@@ -46,7 +49,7 @@ import {
 defineOptions({ name: 'WorkflowConfigurationView' });
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
 const context = useModuleContext({ moduleAlias: 'platform.workflow.definition' });
-const client = createWorkflowClient(context.http);
+const client = createWorkflowDefinitionClient(context.http, props.moduleAlias);
 const businessContext = createModuleContext({
   http: context.http,
   moduleAlias: props.moduleAlias,
@@ -58,20 +61,15 @@ const organizationContext = createModuleContext<Record<string, unknown>>({
   runtimeAccess: 'REFERENCE',
 });
 const fields = ref<Array<{ name: string; label: string; valueType?: string; referenceModule?: string }>>([]);
-const catalog = ref<{
-  tasks: { id: string; title: string }[];
-  queries: { id: string; title: string }[];
-  generations: { id: string; title: string; targetModuleAlias: string }[];
-  associations: { id: string; title: string }[];
-}>({ tasks: [], queries: [], generations: [], associations: [] });
-const actionOptions = ref<{ value: string; label: string }[]>([]),
-  associationOptions = ref<{ value: string; label: string }[]>([]);
+const catalog = ref<WorkflowConfigurationCatalog>({
+  tasks: [],
+  queries: [],
+  generations: [],
+  associations: [],
+});
+const actionOptions = ref<{ value: string; label: string }[]>([]);
 async function loadCatalog(id: string) {
-  catalog.value = await context.http.request({ path: `${base}/${id}/configuration-catalog` });
-  associationOptions.value = catalog.value.associations.map((item) => ({
-    value: item.id,
-    label: item.title,
-  }));
+  catalog.value = await client.catalog(id);
 }
 const propertyOpen = ref(false),
   publishReviewOpen = ref(false),
@@ -159,7 +157,6 @@ function participantSummary(text?: string) {
     return '人员配置格式无效';
   }
 }
-const base = `/platform.module/${encodeURIComponent(props.moduleAlias)}/workflow-definitions`;
 const definitions = ref<WorkflowDefinition[]>([]),
   versions = ref<WorkflowVersion[]>([]);
 const selected = ref<WorkflowDefinition>(),
@@ -182,24 +179,6 @@ const frozen = computed(() => ['published', 'archived'].includes(version.value?.
 const editable = computed(() => version.value?.publishStatus === 'draft' && !busy.value);
 const node = computed(() => design.value.nodes.find((item) => item.nodeKey === selectedNodeKey.value));
 const route = computed(() => design.value.links.find((item) => item.routeKey === selectedRouteKey.value));
-const typeOptions = ['approval', 'task', 'milestone'].map((value) => ({
-  value,
-  label: workflowTitle(value),
-}));
-const nodeOptions = computed(() =>
-  design.value.nodes.map((item) => ({ value: item.nodeKey, label: item.title ?? item.nodeKey })),
-);
-const branchRoutes = computed(() =>
-  design.value.links.filter((link) => link.sourceNodeKey === node.value?.nodeKey),
-);
-const routeSource = computed(() =>
-  design.value.nodes.find((item) => item.nodeKey === route.value?.sourceNodeKey),
-);
-const selectorNodeOptions = computed(() =>
-  design.value.nodes
-    .filter((item) => ['start', 'approval', 'task'].includes(item.nodeType))
-    .map((item) => ({ value: item.nodeKey, label: item.title ?? item.nodeKey })),
-);
 function branchConvergenceSummary(branch: WorkflowNode) {
   const convergence = design.value.nodes.find((item) => item.nodeKey === branch.convergeNodeKey);
   const labels: Record<string, string> = { all: '全部到达', any: '任一到达', ratio: '比例到达' };
@@ -218,9 +197,6 @@ onMounted(() => {
   void reload();
   void loadFields();
 });
-async function post<T>(path: string, body: unknown = {}) {
-  return context.http.request<T>({ method: 'POST', path, body });
-}
 async function run(operation: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true;
@@ -234,10 +210,7 @@ async function run(operation: () => Promise<void>) {
 }
 async function reload() {
   await run(async () => {
-    const response = await post<{ records: WorkflowDefinition[] }>(`${base}/query`, {
-      page: { pageNum: 1, pageSize: 200 },
-    });
-    definitions.value = response.records;
+    definitions.value = await client.query();
   });
 }
 async function openDefinition(definition: WorkflowDefinition) {
@@ -256,11 +229,7 @@ async function openDefinition(definition: WorkflowDefinition) {
     matchPriority.value = String(definition.matchPriority ?? 0);
     fallback.value = definition.defaultDefinition === true;
     creating.value = false;
-    versions.value = (
-      await post<{ records: WorkflowVersion[] }>(`${base}/${definition.id}/versions/query`, {
-        page: { pageNum: 1, pageSize: 200 },
-      })
-    ).records.sort((a, b) => b.versionNo - a.versionNo);
+    versions.value = (await client.versions(definition.id)).sort((a, b) => b.versionNo - a.versionNo);
     const latest = versions.value[0];
     if (latest) await loadVersion(latest);
     else {
@@ -271,7 +240,7 @@ async function openDefinition(definition: WorkflowDefinition) {
 }
 async function loadVersion(next: WorkflowVersion) {
   version.value = next;
-  design.value = await client.design(base, selected.value!.id, next.id);
+  design.value = await client.design(selected.value!.id, next.id);
   dirty.value = false;
   selectedNodeKey.value = design.value.nodes[0]?.nodeKey ?? '';
   selectedRouteKey.value = '';
@@ -285,7 +254,7 @@ async function switchVersion(id: string) {
 async function createDefinition() {
   if (!newAlias.value.trim() || !newTitle.value.trim()) return;
   await run(async () => {
-    const definition = await post<WorkflowDefinition>(`${base}/insert`, {
+    const definition = await client.create({
       alias: newAlias.value.trim(),
       title: newTitle.value.trim(),
       approvalEnabled: approvalEnabled.value,
@@ -300,10 +269,10 @@ async function createDefinition() {
     await loadCatalog(definition.id);
     creating.value = false;
     selectionDirty.value = false;
-    const next = await post<WorkflowVersion>(`${base}/${definition.id}/upgrade`);
+    const next = await client.upgrade(definition.id);
     versions.value = [next];
     version.value = next;
-    design.value = basicDesign(approvalEnabled.value);
+    design.value = createWorkflowDesign(approvalEnabled.value);
     dirty.value = true;
     selectNode('approval');
   });
@@ -335,7 +304,7 @@ async function toggleSelection() {
 async function saveSelection() {
   if (busy.value || !selected.value) return;
   await run(async () => {
-    const saved = await post<WorkflowDefinition>(`${base}/${selected.value!.id}/selection`, {
+    const saved = await client.saveSelection(selected.value!.id, {
       version: selected.value!.version,
       title: newTitle.value,
       organizationId: organizationId.value || null,
@@ -350,50 +319,14 @@ async function saveSelection() {
     showSuccessMessage('流程匹配规则已保存，后续提交生效');
   });
 }
-function basicDesign(approval: boolean): WorkflowDesign {
-  const nodes: WorkflowNode[] = [
-    { nodeKey: 'start', nodeType: 'start', title: '提交' },
-    {
-      nodeKey: 'approval',
-      nodeType: 'approval',
-      title: '审批',
-      approvalMode: 'all',
-      participantPolicyText: '{"rules":[]}',
-      allowReject: true,
-      requireRejectReason: true,
-      allowRejectReturnToMe: true,
-      allowRollback: true,
-      requireRollbackReason: true,
-      allowAddSign: true,
-    },
-    ...(approval
-      ? [
-          {
-            nodeKey: 'approved',
-            nodeType: 'milestone',
-            title: '审批完成',
-            milestoneType: 'approval_completed',
-          },
-        ]
-      : []),
-    { nodeKey: 'end', nodeType: 'end', title: '完成' },
-  ];
-  return {
-    nodes,
-    links: nodes.slice(1).map((item, index) => ({
-      routeKey: `route_${index + 1}`,
-      sourceNodeKey: nodes[index]!.nodeKey,
-      targetNodeKey: item.nodeKey,
-      title: '继续',
-    })),
-  };
-}
 async function save() {
   if (!version.value || !selected.value) return;
   await run(async () => {
-    version.value = await post<WorkflowVersion>(
-      `${base}/${selected.value!.id}/versions/${version.value!.id}/design`,
-      { version: version.value!.version, design: design.value },
+    version.value = await client.saveDesign(
+      selected.value!.id,
+      version.value!.id,
+      version.value!.version,
+      design.value,
     );
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     dirty.value = false;
@@ -404,7 +337,7 @@ async function validate() {
   if (dirty.value) await save();
   if (dirty.value || !version.value) return;
   await run(async () => {
-    await post(`${base}/${selected.value!.id}/versions/${version.value!.id}/validate`);
+    await client.validate(selected.value!.id, version.value!.id);
     showSuccessMessage('流程发布校验通过');
   });
 }
@@ -425,14 +358,14 @@ async function publish() {
   if (dirty.value) await save();
   if (dirty.value || !selected.value || !version.value) return;
   await run(async () => {
-    version.value = await post<WorkflowVersion>(
-      `${base}/${selected.value!.id}/versions/${version.value!.id}/publish`,
-      { definitionVersion: selected.value!.version, version: version.value!.version },
+    version.value = await client.publish(
+      selected.value!.id,
+      version.value!.id,
+      selected.value!.version,
+      version.value!.version,
     );
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
-    selected.value = await context.http.request<WorkflowDefinition>({
-      path: `${base}/view/${selected.value!.id}`,
-    });
+    selected.value = await client.view(selected.value!.id);
     dirty.value = false;
     publishReviewOpen.value = false;
     showSuccessMessage('流程已发布，后续新申请使用该版本');
@@ -442,11 +375,11 @@ async function publish() {
 async function upgrade() {
   if (!selected.value) return;
   await run(async () => {
-    const next = await post<WorkflowVersion>(`${base}/${selected.value!.id}/upgrade`);
+    const next = await client.upgrade(selected.value!.id);
     versions.value = [next, ...versions.value.filter((item) => item.id !== next.id)];
     await loadVersion(next);
     if (!design.value.nodes.length) {
-      design.value = basicDesign(selected.value!.approvalEnabled);
+      design.value = createWorkflowDesign(selected.value!.approvalEnabled);
       dirty.value = true;
       selectNode('approval');
     }
@@ -463,9 +396,7 @@ async function statusAction(action: 'disable' | 'archive') {
   )
     return;
   await run(async () => {
-    selected.value = await post<WorkflowDefinition>(`${base}/${selected.value!.id}/${action}`, {
-      version: selected.value!.version,
-    });
+    selected.value = await client.changeStatus(selected.value!.id, action, selected.value!.version);
     showSuccessMessage('流程状态已更新');
   });
   await reload();
@@ -502,6 +433,7 @@ function insertionRoute() {
   return selectedRouteKey.value || (outgoing.length === 1 ? outgoing[0]?.routeKey : undefined) || '';
 }
 function addBranch() {
+  if (!editable.value) return;
   const key = `branch_${Date.now().toString(36)}`;
   try {
     design.value = insertWorkflowBranch(design.value, insertionRoute(), key);
@@ -512,6 +444,7 @@ function addBranch() {
   }
 }
 function appendBranchPath() {
+  if (!editable.value) return;
   try {
     design.value = appendWorkflowBranchPath(
       design.value,
@@ -524,6 +457,7 @@ function appendBranchPath() {
   }
 }
 async function deleteBranch() {
+  if (!editable.value) return;
   try {
     const next = removeWorkflowBranch(design.value, selectedNodeKey.value);
     if (
@@ -544,18 +478,16 @@ async function deleteBranch() {
   }
 }
 function addNode() {
+  if (!editable.value) return;
   const outgoing = design.value.links.filter((item) => item.sourceNodeKey === selectedNodeKey.value);
   const route = selectedRouteKey.value || (outgoing.length === 1 ? outgoing[0]?.routeKey : undefined);
   const key = `node_${Date.now().toString(36)}`;
   try {
-    design.value = insertWorkflowNode(design.value, route ?? '', {
-      nodeKey: key,
-      nodeType: 'approval',
-      title: '新审批节点',
-      approvalMode: 'all',
-      participantPolicyText: '{"rules":[]}',
-      allowReject: true,
-    });
+    design.value = insertWorkflowNode(
+      design.value,
+      route ?? '',
+      createWorkflowApprovalNode(key, '新审批节点'),
+    );
     dirty.value = true;
     selectNode(key);
   } catch (cause) {
@@ -563,6 +495,7 @@ function addNode() {
   }
 }
 function removeNode() {
+  if (!editable.value) return;
   try {
     design.value = removeWorkflowNode(design.value, selectedNodeKey.value);
     dirty.value = true;
@@ -572,7 +505,14 @@ function removeNode() {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
   }
 }
+function removeRoute() {
+  if (!editable.value) return;
+  design.value.links = design.value.links.filter((item) => item.routeKey !== selectedRouteKey.value);
+  selectedRouteKey.value = '';
+  dirty.value = true;
+}
 function addRoute() {
+  if (!editable.value) return;
   const first = design.value.nodes[0],
     last = design.value.nodes.find((item) => item.nodeType === 'end');
   if (!first || !last) return;
@@ -735,259 +675,24 @@ function addRoute() {
             :title="node?.title ? `节点属性 · ${node.title}` : '路径属性'"
             @close="propertyOpen = false"
           >
-            <div v-if="node" class="property-form">
-              <h3>节点属性 · {{ node.title }}</h3>
-              <label
-                >节点名称<UiInput
-                  :value="node.title"
-                  :disabled="!editable"
-                  @update:value="updateNode({ title: $event })" /></label
-              ><label v-if="['approval', 'task', 'milestone'].includes(node.nodeType)"
-                >节点类型<UiSelect
-                  :value="node.nodeType"
-                  :options="typeOptions"
-                  :disabled="!editable"
-                  @update:value="updateNode({ nodeType: String($event) })"
-              /></label>
-              <WorkflowParticipantEditor
-                v-if="['approval', 'task'].includes(node.nodeType)"
-                :value="node.participantPolicyText"
-                :http="context.http"
-                :fields="fields"
-                :disabled="!editable"
-                @update:value="updateNode({ participantPolicyText: $event })"
-              />
-              <template v-if="node.nodeType === 'approval'"
-                ><label
-                  >审批规则<UiSelect
-                    :value="node.approvalMode"
-                    :options="
-                      ['all', 'any', 'ratio', 'notice'].map((value) => ({
-                        value,
-                        label: workflowTitle(value),
-                      }))
-                    "
-                    :disabled="!editable"
-                    @update:value="updateNode({ approvalMode: String($event) })" /></label
-                ><label v-if="node.approvalMode === 'ratio'"
-                  >通过比例 %<UiInput
-                    :value="node.approvalRatio ?? 100"
-                    type="number"
-                    :disabled="!editable"
-                    @update:value="updateNode({ approvalRatio: Number($event) })" /></label
-                ><UiCheckbox
-                  :checked="node.autoApproveSameUser"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ autoApproveSameUser: $event })"
-                  >同一办理人连续审批自动通过</UiCheckbox
-                ><UiCheckbox
-                  :checked="node.allowReject"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ allowReject: $event })"
-                  >允许驳回</UiCheckbox
-                ><UiCheckbox
-                  :checked="node.requireRejectReason"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ requireRejectReason: $event })"
-                  >驳回必须填写原因</UiCheckbox
-                ><UiCheckbox
-                  :checked="node.allowRejectReturnToMe"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ allowRejectReturnToMe: $event })"
-                  >允许重提回到本审批人</UiCheckbox
-                ><UiCheckbox
-                  :checked="node.allowRollback"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ allowRollback: $event })"
-                  >允许回退</UiCheckbox
-                ><UiCheckbox
-                  :checked="node.allowAddSign"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ allowAddSign: $event })"
-                  >允许加签</UiCheckbox
-                ><label
-                  >预警时长（分钟）<UiInput
-                    :value="node.warningDurationMinutes"
-                    type="number"
-                    :disabled="!editable"
-                    @update:value="
-                      updateNode({ warningDurationMinutes: $event ? Number($event) : undefined })
-                    " /></label
-                ><label
-                  >超时时长（分钟）<UiInput
-                    :value="node.overtimeDurationMinutes"
-                    type="number"
-                    :disabled="!editable"
-                    @update:value="
-                      updateNode({ overtimeDurationMinutes: $event ? Number($event) : undefined })
-                    " /></label
-              ></template>
-              <template v-if="node.nodeType === 'branch'"
-                ><label
-                  >选路模式<UiSelect
-                    :value="node.routeMode ?? 'auto'"
-                    :options="['auto', 'manual'].map((value) => ({ value, label: workflowTitle(value) }))"
-                    :disabled="!editable"
-                    @update:value="
-                      updateNode({
-                        routeMode: String($event),
-                        selectorNodeKey: undefined,
-                        requireManualSelectionReason: false,
-                      })
-                    " /></label
-                ><label
-                  >配对汇聚节点<UiSelect
-                    :value="node.convergeNodeKey"
-                    :options="
-                      nodeOptions.filter(
-                        (option) =>
-                          design.nodes.find((item) => item.nodeKey === option.value)?.nodeType === 'converge',
-                      )
-                    "
-                    :disabled="!editable"
-                    @update:value="updateNode({ convergeNodeKey: String($event) })" /></label
-                ><label v-if="node.routeMode === 'manual'"
-                  >路径选择节点<UiSelect
-                    :value="node.selectorNodeKey"
-                    :options="selectorNodeOptions"
-                    :disabled="!editable"
-                    @update:value="updateNode({ selectorNodeKey: String($event) })" /></label
-                ><UiCheckbox
-                  v-if="node.routeMode === 'manual'"
-                  :checked="node.requireManualSelectionReason"
-                  :disabled="!editable"
-                  @update:checked="updateNode({ requireManualSelectionReason: $event })"
-                  >路径选择必须填写原因</UiCheckbox
-                >
-                <p>
-                  {{
-                    node.routeMode === 'manual'
-                      ? '由指定前序节点的实际办理人单选一条出口。条件与默认标记只提供建议，不限制人工选择。'
-                      : '所有命中的非默认出口同时生效；未配置条件表示始终命中。只有全部未命中时才启用默认出口；无兜底则拒绝流转。'
-                  }}
-                </p>
-                <div v-for="link in branchRoutes" :key="link.routeKey">
-                  <UiButton
-                    @click="
-                      selectedRouteKey = link.routeKey;
-                      selectedNodeKey = '';
-                      propertyOpen = true;
-                    "
-                    >配置出口：{{ link.title ?? link.routeKey }}</UiButton
-                  >
-                  <span>{{
-                    link.defaultRoute ? '默认出口' : link.conditionExpression || '无条件（始终命中）'
-                  }}</span>
-                </div>
-                <UiButton :disabled="!editable" @click="appendBranchPath">追加分支出口</UiButton>
-                <UiButton danger :disabled="!editable" @click="deleteBranch">删除整个分支</UiButton>
-              </template>
-              <template v-if="node.nodeType === 'converge'"
-                ><label
-                  >汇聚规则<UiSelect
-                    :value="node.convergeMode ?? 'all'"
-                    :options="[
-                      { value: 'all', label: '全部到达' },
-                      { value: 'any', label: '任一到达' },
-                      { value: 'ratio', label: '比例到达' },
-                    ]"
-                    :disabled="!editable"
-                    @update:value="updateNode({ convergeMode: String($event) })" /></label
-                ><label v-if="node.convergeMode === 'ratio'"
-                  >汇聚比例 %<UiInput
-                    :value="node.convergeRatio ?? 100"
-                    type="number"
-                    :disabled="!editable"
-                    @update:value="updateNode({ convergeRatio: Number($event) })"
-                /></label>
-                <p>只统计本次实际生效的出口；任一或比例达成后，剩余未完成路径及其待办自动取消。</p></template
-              >
-              <template v-if="node.nodeType === 'milestone'"
-                ><label
-                  >里程碑<UiSelect
-                    :value="node.milestoneType ?? 'approval_completed'"
-                    :options="[{ value: 'approval_completed', label: '审批完成' }]"
-                    :disabled="!editable"
-                    @update:value="updateNode({ milestoneType: String($event) })" /></label
-              ></template>
-              <template v-if="node.nodeType === 'task'">
-                <label
-                  >引用已配置任务定义<UiSelect
-                    :options="catalog.tasks.map((item) => ({ value: item.id, label: item.title }))"
-                    show-search
-                    :value="node.taskDefinitionId"
-                    :disabled="!editable"
-                    @update:value="updateNode({ taskDefinitionId: $event ? String($event) : undefined })"
-                /></label>
-                <WorkflowBusinessTaskEditor
-                  :key="node.nodeKey"
-                  :value="node.nodeConfigText"
-                  :module-alias="moduleAlias"
-                  :fields="fields"
-                  :catalog="catalog"
-                  :actions="actionOptions"
-                  :associations="associationOptions"
-                  :disabled="!editable"
-                  @update:value="updateNode({ nodeConfigText: $event })"
-                />
-              </template>
-              <UiButton
-                danger
-                :disabled="!editable || ['start', 'end', 'branch', 'converge'].includes(node.nodeType)"
-                @click="removeNode"
-                >删除并连接前后节点</UiButton
-              >
-            </div>
-            <div v-if="route" class="property-form">
-              <h3>连线属性</h3>
-              <label
-                >路径名称<UiInput
-                  :value="route.title"
-                  :disabled="!editable"
-                  @update:value="updateRoute({ title: $event })" /></label
-              ><label
-                >起点<UiSelect
-                  :value="route.sourceNodeKey"
-                  :options="nodeOptions"
-                  :disabled="!editable"
-                  @update:value="updateRoute({ sourceNodeKey: String($event) })" /></label
-              ><label
-                >终点<UiSelect
-                  :value="route.targetNodeKey"
-                  :options="nodeOptions"
-                  :disabled="!editable"
-                  @update:value="updateRoute({ targetNodeKey: String($event) })" /></label
-              ><label v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute"
-                >出口条件<FormulaExpressionEditor
-                  :fields="fields"
-                  :value="route.conditionExpression ?? ''"
-                  :disabled="!editable"
-                  @update:value="updateRoute({ conditionExpression: $event })" /></label
-              ><UiCheckbox
-                v-if="routeSource?.nodeType === 'branch'"
-                :checked="route.defaultRoute"
-                :disabled="!editable"
-                @update:checked="updateRoute({ defaultRoute: $event })"
-                >默认兜底路径</UiCheckbox
-              >
-              <p v-if="routeSource?.nodeType === 'branch'">
-                {{
-                  route.defaultRoute
-                    ? '其余条件均未命中时走此出口。默认出口不配置条件，每个分支最多一个。'
-                    : '条件为空表示始终命中，可用于并行审批；互斥分支请使用互斥条件。'
-                }}
-              </p>
-              <UiButton
-                danger
-                :disabled="!editable"
-                @click="
-                  design.links = design.links.filter((item) => item.routeKey !== selectedRouteKey);
-                  selectedRouteKey = '';
-                  dirty = true;
-                "
-                >删除连线</UiButton
-              >
-            </div>
+            <WorkflowDesignProperties
+              :design="design"
+              :node-key="selectedNodeKey"
+              :route-key="selectedRouteKey"
+              :editable="editable"
+              :http="context.http"
+              :module-alias="moduleAlias"
+              :fields="fields"
+              :catalog="catalog"
+              :actions="actionOptions"
+              @update-node="updateNode"
+              @update-route="updateRoute"
+              @select-route="selectRoute"
+              @remove-node="removeNode"
+              @remove-route="removeRoute"
+              @append-branch-path="appendBranchPath"
+              @delete-branch="deleteBranch"
+            />
             <template #operation
               ><UiButton :disabled="busy" @click="propertyOpen = false">完成配置</UiButton></template
             >

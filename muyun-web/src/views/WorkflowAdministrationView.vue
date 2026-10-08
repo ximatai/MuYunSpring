@@ -5,8 +5,15 @@ import {
   createModuleContext,
   withHttpHeaders,
   createWorkflowClient,
+  createWorkflowAdminClient,
 } from '@muyun/web-core';
-import type { WorkflowRenderBundle, WorkflowHistoryInstance, WorkflowEvent } from '@muyun/web-contracts';
+import type {
+  WorkflowRenderBundle,
+  WorkflowHistoryInstance,
+  WorkflowEvent,
+  WorkflowAdminInstance,
+  WorkflowAdminTask,
+} from '@muyun/web-contracts';
 import {
   RecordPicker,
   RecordQueryListSurface,
@@ -50,35 +57,15 @@ const tenantContext = createModuleContext<Record<string, unknown>>({
   moduleAlias: 'iam.tenant',
   runtimeAccess: 'REFERENCE',
 });
-interface Instance {
-  instanceId: string;
-  moduleAlias: string;
-  recordId: string;
-  versionNo: number;
-  instanceStatus: string;
-  approvalStatus: string;
-  startedByTitle?: string;
-  activeNodeTitles: string[];
-  currentAssigneeTitles: string[];
-  overtimeStatus?: string;
-}
-interface Task {
-  taskId: string;
-  nodeTitle: string;
-  assigneeTitle?: string;
-  taskKind: string;
-  canForceApprove: boolean;
-}
-const instances = ref<Instance[]>([]),
+const instances = ref<WorkflowAdminInstance[]>([]),
   history = ref<WorkflowHistoryInstance[]>([]),
   bundle = ref<WorkflowRenderBundle>(),
-  tasks = ref<Task[]>([]),
+  tasks = ref<WorkflowAdminTask[]>([]),
   events = ref<WorkflowEvent[]>([]);
 const selectedId = ref<string>(),
   reason = ref(''),
   pending = ref<{ code: string; taskId?: string }>();
-const post = <T,>(path: string, body: unknown = {}) =>
-  http.value.request<T>({ method: 'POST', path: `/workflow/runtime/admin${path}`, body });
+const client = computed(() => createWorkflowAdminClient(http.value));
 let revision = 0;
 async function load() {
   if (busy.value || (pending.value && !(await mayCloseOperation()))) return;
@@ -99,20 +86,20 @@ async function reload() {
         history.value = [];
         return;
       }
-      const result = await post<{ records: WorkflowHistoryInstance[] }>('/history/query', {
+      const result = await client.value.history({
         moduleAlias: moduleAlias.value,
         recordId: recordId.value || undefined,
         page: { pageNum: page.value, pageSize: 30 },
       });
-      if (current === revision) history.value = result.records;
+      if (current === revision) history.value = result;
     } else {
-      const result = await post<{ records: Instance[] }>('/instance/query', {
+      const result = await client.value.instances({
         moduleAlias: moduleAlias.value || undefined,
         recordId: recordId.value || undefined,
         instanceStatus: instanceStatus.value,
         page: { pageNum: page.value, pageSize: 30 },
       });
-      if (current === revision) instances.value = result.records;
+      if (current === revision) instances.value = result;
     }
   } catch (cause) {
     if (current !== revision) return;
@@ -135,22 +122,17 @@ async function select(id: string) {
   events.value = [];
   detailError.value = '';
   try {
-    const path = historyMode.value ? `/history/${id}` : `/instance/${id}`;
     const [graph, timeline] = await Promise.all([
-      post<WorkflowRenderBundle>(`${path}/bundle`),
-      post<{ records: WorkflowEvent[] }>(`${path}/events/view`),
+      client.value.bundle(id, historyMode.value),
+      client.value.events(id, historyMode.value),
     ]);
     const active =
       historyMode.value || graph.instance?.instanceStatus !== 'running'
         ? []
-        : (
-            await http.value.request<{ records: Task[] }>({
-              path: `/workflow/runtime/admin/instance/${id}/active-tasks`,
-            })
-          ).records;
+        : await client.value.activeTasks(id);
     if (current !== revision) return;
     bundle.value = graph;
-    events.value = timeline.records;
+    events.value = timeline;
     tasks.value = active;
   } catch (cause) {
     if (current !== revision) return;
@@ -184,8 +166,7 @@ async function execute() {
       }))
     )
       return;
-    const path = pending.value.taskId ? `/task/${pending.value.taskId}` : `/instance/${selectedId.value}`;
-    await post(`${path}/actions/${pending.value.code}`, { reason: reason.value });
+    await client.value.execute(selectedId.value, pending.value.code, reason.value, pending.value.taskId);
     showSuccessMessage('运维操作已完成并记录审计');
     await reload();
   } catch (cause) {

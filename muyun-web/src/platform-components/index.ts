@@ -352,3 +352,5 @@ export { workflowTitle } from './workflowPresentation';
 export { default as WorkflowParticipantEditor } from './WorkflowParticipantEditor.vue';
 
 export { default as WorkflowBusinessTaskEditor } from './WorkflowBusinessTaskEditor.vue';
+
+export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.vue';

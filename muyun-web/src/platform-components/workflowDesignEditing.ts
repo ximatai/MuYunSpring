@@ -1,6 +1,6 @@
 import type { WorkflowDesign, WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
 
-function branchApproval(nodeKey: string, title: string): WorkflowNode {
+export function createWorkflowApprovalNode(nodeKey: string, title: string): WorkflowNode {
   return {
     nodeKey,
     nodeType: 'approval',
@@ -18,8 +18,8 @@ export function insertWorkflowBranch(design: WorkflowDesign, routeKey: string, k
   const join = `${key}_join`;
   const nodes: WorkflowNode[] = [
     { nodeKey: key, nodeType: 'branch', title: '条件分支', routeMode: 'auto', convergeNodeKey: join },
-    branchApproval(`${key}_path1`, '分支审批1'),
-    branchApproval(`${key}_path2`, '分支审批2'),
+    createWorkflowApprovalNode(`${key}_path1`, '分支审批1'),
+    createWorkflowApprovalNode(`${key}_path2`, '分支审批2'),
     { nodeKey: join, nodeType: 'converge', title: '分支汇聚', convergeMode: 'all' },
   ];
   if (nodes.some((node) => design.nodes.some((existing) => existing.nodeKey === node.nodeKey)))
@@ -65,7 +65,7 @@ export function appendWorkflowBranchPath(
   const index = design.links.filter((link) => link.sourceNodeKey === branchKey).length + 1;
   return {
     ...design,
-    nodes: [...design.nodes, branchApproval(key, `分支审批${index}`)],
+    nodes: [...design.nodes, createWorkflowApprovalNode(key, `分支审批${index}`)],
     links: [
       ...design.links,
       { routeKey: `${key}_in`, sourceNodeKey: branchKey, targetNodeKey: key, title: `路径${index}` },
@@ -178,5 +178,39 @@ export function removeWorkflowNode(design: WorkflowDesign, nodeKey: string): Wor
       .map((item) =>
         item.targetNodeKey === nodeKey ? { ...item, targetNodeKey: outgoing[0]!.targetNodeKey } : item,
       ),
+  };
+}
+
+export function createWorkflowDesign(approval: boolean): WorkflowDesign {
+  const nodes: WorkflowNode[] = [
+    { nodeKey: 'start', nodeType: 'start', title: '提交' },
+    {
+      ...createWorkflowApprovalNode('approval', '审批'),
+      requireRejectReason: true,
+      allowRejectReturnToMe: true,
+      allowRollback: true,
+      requireRollbackReason: true,
+      allowAddSign: true,
+    },
+    ...(approval
+      ? [
+          {
+            nodeKey: 'approved',
+            nodeType: 'milestone',
+            title: '审批完成',
+            milestoneType: 'approval_completed',
+          },
+        ]
+      : []),
+    { nodeKey: 'end', nodeType: 'end', title: '完成' },
+  ];
+  return {
+    nodes,
+    links: nodes.slice(1).map((item, index) => ({
+      routeKey: `route_${index + 1}`,
+      sourceNodeKey: nodes[index]!.nodeKey,
+      targetNodeKey: item.nodeKey,
+      title: '继续',
+    })),
   };
 }

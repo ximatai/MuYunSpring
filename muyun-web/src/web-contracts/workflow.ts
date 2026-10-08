@@ -208,3 +208,63 @@ export interface WorkflowWorkbenchFilters {
   completedFrom?: string;
   completedTo?: string;
 }
+
+export interface WorkflowTaskPreparation {
+  evaluation: {
+    passed: boolean;
+    failureMessage?: string;
+    checkResults: Array<{ checkKey: string; passed: boolean; failureMessage?: string }>;
+    guides: Array<{
+      guideKey: string;
+      title?: string;
+      guideKind: string;
+      guideConfigText?: string;
+      targetModuleAlias?: string;
+      targetActionCode?: string;
+    }>;
+  };
+}
+export interface WorkflowConfigurationCatalog {
+  tasks: { id: string; title: string }[];
+  queries: { id: string; title: string }[];
+  generations: { id: string; title: string; targetModuleAlias: string }[];
+  associations: { id: string; title: string }[];
+}
+export interface WorkflowDefinitionSelection {
+  version: number;
+  title: string;
+  organizationId: string | null;
+  matchExpression: string | null;
+  matchPriority: number;
+  defaultDefinition: boolean;
+}
+export interface WorkflowDefinitionCreate extends Omit<WorkflowDefinitionSelection, 'version'> {
+  alias: string;
+  approvalEnabled: boolean;
+  enabled: boolean;
+}
+export interface WorkflowAdminInstance {
+  instanceId: string;
+  moduleAlias: string;
+  recordId: string;
+  versionNo: number;
+  instanceStatus: string;
+  approvalStatus: string;
+  startedByTitle?: string;
+  activeNodeTitles: string[];
+  currentAssigneeTitles: string[];
+  overtimeStatus?: string;
+}
+export interface WorkflowAdminTask {
+  taskId: string;
+  nodeTitle: string;
+  assigneeTitle?: string;
+  taskKind: string;
+  canForceApprove: boolean;
+}
+export interface WorkflowAdminQuery {
+  moduleAlias?: string;
+  recordId?: string;
+  instanceStatus?: string;
+  page: { pageNum: number; pageSize: number };
+}

@@ -141,3 +141,47 @@ describe('workflow client public contracts', () => {
     await refreshed;
   });
 });
+
+describe('workflow definition and management clients', () => {
+  it('scopes definition commands and carries both optimistic versions through standard receipts', async () => {
+    const { createWorkflowDefinitionClient } = await import('@/web-core/workflow');
+    const data = { id: 'version', version: 4, versionNo: 2, publishStatus: 'published' };
+    const request = vi.fn(async () => ({ data, changeSetId: 'committed', changes: [] }));
+    const client = createWorkflowDefinitionClient({ request } as HttpClient, 'demo/purchase');
+    expect(await client.publish('definition/1', 'version/2', 7, 3)).toEqual(data);
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/platform.module/demo%2Fpurchase/workflow-definitions/definition%2F1/versions/version%2F2/publish',
+      body: { definitionVersion: 7, version: 3 },
+    });
+    const design = { nodes: [], links: [] };
+    await client.saveDesign('definition/1', 'version/2', 3, design);
+    expect(request).toHaveBeenLastCalledWith(expect.objectContaining({ body: { version: 3, design } }));
+  });
+
+  it('unwraps management records and preserves the separate history and task command paths', async () => {
+    const { createWorkflowAdminClient } = await import('@/web-core/workflow');
+    const records = [{ instanceId: 'one' }];
+    const request = vi.fn(async () => ({ records }));
+    const client = createWorkflowAdminClient({ request } as HttpClient);
+    const query = { instanceStatus: 'terminated', page: { pageNum: 2, pageSize: 30 } };
+    expect(await client.instances(query)).toBe(records);
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/workflow/runtime/admin/instance/query',
+      body: query,
+    });
+    await client.events('archive/1', true);
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/workflow/runtime/admin/history/archive%2F1/events/view',
+      body: {},
+    });
+    await client.execute('instance/1', 'forceApprove', '恢复办理', 'task/2');
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/workflow/runtime/admin/task/task%2F2/actions/forceApprove',
+      body: { reason: '恢复办理' },
+    });
+  });
+});

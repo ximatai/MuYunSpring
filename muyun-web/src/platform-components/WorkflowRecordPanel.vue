@@ -10,13 +10,13 @@ import type {
   WorkflowRenderBundle,
   WorkflowStatus,
   WorkflowTask,
+  WorkflowTaskPreparation,
 } from '@muyun/web-contracts';
 import {
   UiButton,
   UiInput,
   UiSelect,
   UiTextArea,
-  UiCheckbox,
   UiError,
   confirmAction,
   showSuccessMessage,
@@ -34,6 +34,7 @@ import { useWorkspaceViewUnsavedState } from '@muyun/web-core';
 import { resolveRecordFormFields } from './recordFormFieldModel';
 import type { RecordFormRecord, RecordFormFieldDescriptor } from './recordFormFieldModel';
 import WorkflowDiagram from './WorkflowDiagram.vue';
+import WorkflowTimeline from './WorkflowTimeline.vue';
 import { workflowTitle, workflowRouteSelectionTitle } from './workflowPresentation';
 defineOptions({ name: 'WorkflowRecordPanel' });
 const props = defineProps<{
@@ -100,62 +101,6 @@ watch(
     }),
   { flush: 'sync', immediate: true },
 );
-function eventReason(event: WorkflowEvent) {
-  if (event.reason) return event.reason;
-  try {
-    const reason = JSON.parse(event.payloadText ?? '{}').reason;
-    if (reason) return String(reason);
-  } catch {
-    /* malformed legacy payload */
-  }
-  return [
-    'task_completed',
-    'task_rejected',
-    'node_rolled_back',
-    'task_resubmitted',
-    'instance_revoked',
-    'instance_terminated',
-    'instance_reset',
-    'task_transferred',
-    'add_sign',
-  ].includes(event.eventType.toLowerCase()) &&
-    event.message &&
-    event.message !==
-      (
-        {
-          task_completed: 'workflow task completed',
-          task_rejected: 'workflow task rejected',
-          node_rolled_back: 'workflow node rolled back',
-          task_resubmitted: 'workflow task resubmitted',
-          task_transferred: 'workflow task transferred',
-          add_sign: 'workflow runtime add sign',
-          instance_revoked: 'workflow instance revoked',
-          instance_terminated: 'workflow instance terminated',
-          instance_reset: 'workflow instance reset',
-        } as Record<string, string>
-      )[event.eventType.toLowerCase()]
-    ? event.message
-    : '';
-}
-const businessEvents = computed(() =>
-  events.value.filter((event) =>
-    [
-      'instance_started',
-      'task_completed',
-      'task_rejected',
-      'task_resubmitted',
-      'task_transferred',
-      'add_sign',
-      'node_rolled_back',
-      'approval_completed',
-      'instance_completed',
-      'instance_revoked',
-      'instance_reset',
-      'instance_terminated',
-    ].includes(event.eventType.toLowerCase()),
-  ),
-);
-const visibleEvents = computed(() => (showTechnicalHistory.value ? events.value : businessEvents.value));
 const operationItems = computed(() =>
   actions.value.map((action, index) => ({
     key: String(index),
@@ -226,21 +171,7 @@ const selectedAddSignRoute = computed(
     addSignRoutes.value.find((route) => route.routeKey === addSignRouteKey.value) ??
     (addSignRoutes.value.length === 1 ? addSignRoutes.value[0] : undefined),
 );
-const taskProcess = ref<{
-  evaluation: {
-    passed: boolean;
-    failureMessage?: string;
-    checkResults: Array<{ checkKey: string; passed: boolean; failureMessage?: string }>;
-    guides: Array<{
-      guideKey: string;
-      title?: string;
-      guideKind: string;
-      guideConfigText?: string;
-      targetModuleAlias?: string;
-      targetActionCode?: string;
-    }>;
-  };
-}>();
+const taskProcess = ref<WorkflowTaskPreparation>();
 const taskDraft = ref<RecordFormRecord>(),
   taskFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   taskGuideKey = ref<string>();
@@ -1065,17 +996,11 @@ async function execute() {
           }))
         "
       />
-      <h4>办理时间线</h4>
-      <UiCheckbox v-model:checked="showTechnicalHistory">展开完整技术审计</UiCheckbox>
-      <ol>
-        <li v-for="event in visibleEvents" :key="event.id">
-          {{ event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '' }} ·
-          {{ workflowTitle(event.actionCode ?? event.eventType) }} ·
-          {{ bundle?.nodes.find((node) => node.id === event.nodeInstanceId)?.nodeTitle ?? '' }} ·
-          {{ event.operatorTitle ?? event.operatorId ?? '' }} ·
-          {{ showTechnicalHistory ? (event.message ?? eventReason(event)) : eventReason(event) }}
-        </li>
-      </ol>
+      <WorkflowTimeline
+        v-model:technical="showTechnicalHistory"
+        :events="events"
+        :nodes="bundle?.nodes ?? []"
+      />
     </div>
   </section>
 </template>

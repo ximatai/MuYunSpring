@@ -2038,6 +2038,13 @@ export type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from 
 
 export * from './operation';
 export type {
+  WorkflowTaskPreparation,
+  WorkflowConfigurationCatalog,
+  WorkflowDefinitionSelection,
+  WorkflowDefinitionCreate,
+  WorkflowAdminInstance,
+  WorkflowAdminTask,
+  WorkflowAdminQuery,
   WorkflowDefinition,
   WorkflowHistoryInstance,
   WorkflowVersion,
