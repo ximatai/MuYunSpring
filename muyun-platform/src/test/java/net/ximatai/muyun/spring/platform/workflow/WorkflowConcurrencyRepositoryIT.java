@@ -321,6 +321,13 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
             var original = submitted.draft().tasks().stream().filter(task -> "one".equals(task.getAssigneeId())).findFirst().orElseThrow();
             var sibling = submitted.draft().tasks().stream().filter(task -> "two".equals(task.getAssigneeId())).findFirst().orElseThrow();
             var transferred = actions.transfer(WorkflowTaskActionRequest.builder(original.getId(), "one").targetAssigneeId("delegate").reason("handover").build()).createdTask();
+            // Exercise storage precision independently of the host clock's timestamp precision.
+            var transferredVersion = transferred.getVersion();
+            transferred.setTransferredAt(Instant.parse("2026-01-01T01:02:03.123456789Z"));
+            EntityLifecycle.prepareUpdate(transferred, Instant.now());
+            assertThat(tasks.updateByIdAndVersion(transferred, transferredVersion)).isOne();
+            var transferredSnapshot = tasks.findById(transferred.getId());
+            assertThat(transferredSnapshot.getTransferredAt()).isNotNull();
             actions.approve(WorkflowTaskActionRequest.builder(transferred.getId(), "delegate").reason("original approval").build());
             assertThatThrownBy(() -> actions.revokeApprove(WorkflowTaskActionRequest.builder(transferred.getId(), "two").reason("not my vote").build()))
                     .hasMessageContaining("不能撤销");
@@ -335,7 +342,7 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(retry.getAssignmentKind()).isEqualTo(WorkflowAssignmentKind.TRANSFERRED);
             assertThat(retry.getTransferredFromUserId()).isEqualTo(transferred.getTransferredFromUserId());
             assertThat(retry.getTransferredBy()).isEqualTo(transferred.getTransferredBy());
-            assertThat(retry.getTransferredAt()).isEqualTo(transferred.getTransferredAt());
+            assertThat(retry.getTransferredAt()).isEqualTo(transferredSnapshot.getTransferredAt());
             assertThat(retry.getActualProcessorId()).isNull(); assertThat(retry.getDecision()).isNull(); assertThat(retry.getCompletedAt()).isNull();
             assertThat(tasks.findById(sibling.getId()).getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
             assertThat(result.node().getNodeStatus()).isEqualTo(WorkflowNodeStatus.ACTIVE);
