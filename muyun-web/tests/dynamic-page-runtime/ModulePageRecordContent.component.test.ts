@@ -25,7 +25,7 @@ it('passes the same read-only detail context to extension subtitle and body comp
 
   const wrapper = mount(ModulePageRecordContent, {
     props: {
-      context: {} as never,
+      context: { abilities: { has: () => false } } as never,
       mode: 'view',
       record,
       selectedRecord: record,
@@ -66,4 +66,48 @@ it('passes the same read-only detail context to extension subtitle and body comp
   expect(detailSectionContext).toHaveBeenCalledTimes(2);
   expect(detailSectionContext).toHaveBeenNthCalledWith(1, record);
   expect(detailSectionContext).toHaveBeenNthCalledWith(2, record);
+});
+
+it('forwards approval interaction and departure guard through the standard detail content', async () => {
+  const mayLeave = vi.fn(async () => false);
+  const Panel = defineComponent({
+    emits: ['interaction-change'],
+    setup(_, { emit, expose }) {
+      expose({ mayLeave });
+      return { open: () => emit('interaction-change', { editing: true, dirty: true, busy: false }) };
+    },
+    template: '<button @click="open">办理审批</button>',
+  });
+  const wrapper = mount(ModulePageRecordContent, {
+    props: {
+      context: { abilities: { has: () => true } } as never,
+      mode: 'view',
+      record: { id: 'record' },
+      detailDisplayFields: new Map(),
+      formFields: new Map(),
+      formSessionKey: 0,
+      validationRequestKey: 0,
+      pickerConfigs: {},
+      relations: [],
+      relationsAvailable: false,
+      relationReloadKey: 0,
+      showSystemInfo: false,
+      extensionSections: [],
+      detailSectionContext: () => ({ reload: vi.fn() }) as never,
+    },
+    global: {
+      stubs: {
+        WorkflowRecordPanel: Panel,
+        RecordDetailFields: true,
+        ModulePageDetailRelations: true,
+        RecordMetaSection: true,
+      },
+    },
+  });
+  await wrapper.get('button').trigger('click');
+  expect(wrapper.emitted('workflow-interaction-change')).toEqual([
+    [{ editing: true, dirty: true, busy: false }],
+  ]);
+  expect(await (wrapper.vm as unknown as { mayLeave: () => Promise<boolean> }).mayLeave()).toBe(false);
+  expect(mayLeave).toHaveBeenCalledOnce();
 });

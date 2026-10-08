@@ -11,6 +11,7 @@ import {
   provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
   RecordDetailFields,
+  WorkflowRecordPanel,
   RecordDetailPanel,
   RecordMetaSection,
   RecordModeDrawer,
@@ -48,6 +49,7 @@ provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, saving, togglingEnabled } = detail;
+const workflowInteraction = ref({ editing: false, busy: false, dirty: false });
 const referenceRecordDetailInteraction = ref({ busy: false, dirty: false });
 useModulePageUnsavedState(
   '记录详情',
@@ -131,6 +133,8 @@ const canToggleEnabled = computed(() => {
     mode.value !== 'view' ||
     loading.value ||
     loadFailed.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
     togglingEnabled.value
   ) {
     return false;
@@ -174,8 +178,19 @@ async function loadRecord() {
   }
 }
 
+async function handleWorkflowChanged() {
+  refreshModulePageList(context.moduleAlias);
+  await loadRecord();
+}
+
 function editRecord() {
-  if (context.can('update') !== true) return;
+  if (
+    saving.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
+    context.can('update') !== true
+  )
+    return;
   detail.beginEdit();
 }
 
@@ -364,7 +379,7 @@ async function toggleEnabled() {
           :context="context"
           :record="record"
           :mode="mode"
-          :saving="saving"
+          :saving="saving || workflowInteraction.editing || workflowInteraction.busy"
           :detail-loading="loading"
           :detail-load-failed="loadFailed"
           :actions="detailActions"
@@ -379,7 +394,7 @@ async function toggleEnabled() {
         <RecordStatusSwitch
           v-if="showStatusSwitch && mode === 'view' && record"
           :enabled="record.enabled !== false"
-          :disabled="!canToggleEnabled"
+          :disabled="!canToggleEnabled || workflowInteraction.editing || workflowInteraction.busy"
           :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
@@ -415,6 +430,14 @@ async function toggleEnabled() {
           />
         </div>
         <template v-if="mode === 'view'">
+          <WorkflowRecordPanel
+            @interaction-change="workflowInteraction = $event"
+            v-if="record.id && context.abilities.has('approval') === true"
+            :context="context"
+            :record-id="String(record.id)"
+            @changed="handleWorkflowChanged"
+            @edit="editRecord"
+          />
           <RecordDetailExtensionSection
             v-for="section in detailSections"
             :key="section.key"

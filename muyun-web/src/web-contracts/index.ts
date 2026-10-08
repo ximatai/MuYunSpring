@@ -2037,3 +2037,20 @@ export type {
 export type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from './referenceTarget';
 
 export * from './operation';
+export type {
+  WorkflowDefinition,
+  WorkflowHistoryInstance,
+  WorkflowVersion,
+  WorkflowNode,
+  WorkflowRoute,
+  WorkflowDesign,
+  WorkflowInstance,
+  WorkflowTask,
+  WorkflowEvent,
+  WorkflowAction,
+  WorkflowStatus,
+  WorkflowRenderBundle,
+  WorkflowBranch,
+  WorkflowWorkbenchCard,
+  WorkflowWorkbenchFilters,
+} from './workflow';

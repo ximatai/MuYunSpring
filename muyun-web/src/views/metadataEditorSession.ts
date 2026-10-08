@@ -253,7 +253,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ? editSession.fieldsForDisplay(selectedRelationId.value, state.allFields.value)
         : state.allFields.value,
     );
-    const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE', 'RECYCLE_BIN']);
+    const firstReleaseDeclaredCapabilities = new Set(['TREE', 'SORT', 'ENABLE', 'RECYCLE_BIN', 'APPROVAL']);
     const capabilityFieldNames = computed(
       () =>
         new Set(

@@ -56,6 +56,11 @@ const recycleBinCapability: CapabilityFact = {
   title: '回收站',
   description: '查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。',
 };
+const approvalCapability: CapabilityFact = {
+  code: 'APPROVAL',
+  title: '审批',
+  description: '允许配置和驱动审批流程；审批摘要由运行态维护，启用后暂不支持关闭。',
+};
 const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, CapabilityFact[]>> = {
   TREE_CARD: {
     required: [
@@ -72,6 +77,7 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
     optional: [
       { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
       recycleBinCapability,
+      approvalCapability,
     ],
   },
   LIST_CARD: {
@@ -87,6 +93,7 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
       { code: 'SORT', title: '排序', description: '允许维护列表展示顺序。' },
       { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
       recycleBinCapability,
+      approvalCapability,
     ],
   },
   MICRO_LIST_CARD: {
@@ -101,6 +108,7 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
     optional: [
       { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
       recycleBinCapability,
+      approvalCapability,
     ],
   },
 };
@@ -110,6 +118,7 @@ const requiredCapabilityCodes = computed(() => [
   ...capabilityGroups.value.required.map((fact) => fact.code),
   ...(profile.value?.publishedRequiredCapabilities ?? []),
   ...(profile.value?.mainCapabilities.includes('RECYCLE_BIN') ? ['RECYCLE_BIN'] : []),
+  ...(profile.value?.mainCapabilities.includes('APPROVAL') ? ['APPROVAL'] : []),
 ]);
 const requiredCapabilities = computed(() => {
   const modeOwned = new Set(['TREE']);

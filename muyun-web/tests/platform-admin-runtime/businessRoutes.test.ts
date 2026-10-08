@@ -13,6 +13,8 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 it('registers every static administration route and keeps role authorization internal', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_platform/workspace',
+    '/workflow/admin',
+    '/workflow/workbench',
     '/platform/logs/runtime',
     '/platform/logs/activity',
     '/platform/logs/errors',
@@ -20,6 +22,8 @@ it('registers every static administration route and keeps role authorization int
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
+    'platform.workflow_admin': '/workflow/admin',
+    'iam.workflow_workbench': '/workflow/workbench',
     'platform.runtime_log': '/platform/logs/runtime',
     'platform.business_activity_log': '/platform/logs/activity',
     'platform.request_error_log': '/platform/logs/errors',
@@ -79,6 +83,25 @@ it('derives standard dynamic module routes without a frontend override catalog',
     assert.equal(descriptor.target.moduleAlias, moduleAlias);
     assert.equal(pageDescriptorToUrl(descriptor), url);
   }
+});
+
+it('opens the personal approval route with its IAM module independently from workflow administration', () => {
+  const descriptor: BusinessRoutePageDescriptor = {
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    target: { route: '/workflow/workbench', moduleAlias: 'iam.workflow_workbench' },
+    tabPolicy: { identity: 'by-menu' },
+  };
+  assert.equal(resolvePlatformAdminRoute(descriptor)?.moduleAlias, 'iam.workflow_workbench');
+  assert.equal(isPlatformAdminRoutePage(descriptor), true);
+  assert.equal(
+    resolvePlatformAdminRoute({
+      ...descriptor,
+      target: { route: '/workflow/workbench', moduleAlias: 'platform.workflow_admin' },
+    }),
+    undefined,
+  );
 });
 
 it('resolves the remaining static page only when both route and backend module match', () => {
