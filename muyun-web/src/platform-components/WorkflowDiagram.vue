@@ -1,220 +1,428 @@
 <script setup lang="ts">
-import { computed, useId, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import type { Graph, Node } from '@antv/x6';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
-import { UiButton } from '@muyun/vue-ui-antdv';
-import { workflowTitle } from './workflowPresentation';
+import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
+import {
+  createWorkflowDiagramModel,
+  serializeWorkflowDiagramLayout,
+  type WorkflowDiagramNode,
+} from './workflowDiagramModel';
+import { presentPlatformError } from './platformErrorFeedback';
+
 defineOptions({ name: 'WorkflowDiagram' });
-const markerId = `workflow-arrow-${useId()}`;
 const props = defineProps<{
   nodes: WorkflowNode[];
   routes: WorkflowRoute[];
   selectedNodeKey?: string;
+  selectedRouteKey?: string;
   interactive?: boolean;
+  editable?: boolean;
+  layoutJson?: string;
+  semanticJson?: string;
 }>();
-const viewport = ref<HTMLElement>(),
-  viewportWidth = ref(800),
-  fit = ref(true);
-let observer: ResizeObserver | undefined;
-onMounted(() => {
-  if (typeof ResizeObserver !== 'undefined' && viewport.value) {
-    observer = new ResizeObserver((entries) => {
-      viewportWidth.value = entries[0]?.contentRect.width ?? 800;
+const emit = defineEmits<{
+  select: [nodeKey: string];
+  selectRoute: [routeKey: string];
+  layoutChange: [layoutJson: string];
+}>();
+const shell = ref<HTMLElement>(),
+  viewport = ref<HTMLElement>(),
+  canvas = ref<HTMLElement>();
+const ready = ref(false),
+  failed = ref(false),
+  zoom = ref(100),
+  fullscreen = ref(false);
+const model = computed(() =>
+  createWorkflowDiagramModel(props.nodes, props.routes, props.layoutJson, props.semanticJson),
+);
+const focusNode = computed(
+  () =>
+    model.value.nodes.find((node) => node.status === 'active') ??
+    model.value.nodes.find((node) => node.type === 'end' && node.status === 'completed') ??
+    model.value.nodes.find((node) => node.type === 'start') ??
+    model.value.nodes[0],
+);
+const focusTitle = computed(() =>
+  focusNode.value?.status === 'active'
+    ? '定位当前节点'
+    : focusNode.value?.type === 'end'
+      ? '定位结束节点'
+      : '定位开始节点',
+);
+let graph: Graph | undefined,
+  observer: ResizeObserver | undefined,
+  disposed = false,
+  initialized = false;
+
+function nodeAttributes(node: WorkflowDiagramNode) {
+  const selected = props.selectedNodeKey === node.key;
+  const color =
+    selected || node.status === 'active'
+      ? 'var(--muyun-primary)'
+      : node.status === 'completed'
+        ? 'var(--muyun-success-text)'
+        : ['branch', 'converge'].includes(node.type)
+          ? 'var(--muyun-primary)'
+          : 'var(--muyun-border)';
+  return {
+    root: {
+      role: props.interactive ? 'button' : 'img',
+      tabindex: props.interactive ? 0 : -1,
+      'aria-label': `${node.title} ${node.subtitle}`,
+      'aria-pressed': props.interactive ? String(selected) : undefined,
+      'data-workflow-node': node.key,
+      style: { cursor: props.editable ? 'move' : props.interactive ? 'pointer' : 'default' },
+      opacity: node.status === 'skipped' ? 0.5 : 1,
+    },
+    body: {
+      width: node.width,
+      height: node.height,
+      rx: ['start', 'end'].includes(node.type) ? 30 : 10,
+      fill: node.status === 'completed' ? 'var(--muyun-success-bg)' : 'var(--muyun-surface)',
+      stroke: color,
+      strokeWidth: selected || node.status === 'active' ? 2 : 1.3,
+    },
+    accent: { x: 16, y: 20, width: 4, height: node.height - 40, rx: 2, fill: color, stroke: 'none' },
+    title: {
+      refX: 0,
+      refY: 0,
+      x: 32,
+      y: node.height === 64 ? 23 : 30,
+      text: node.title,
+      textWrap: { width: node.width - 48, height: node.height === 64 ? 22 : 40, ellipsis: true },
+      textAnchor: 'start',
+      textVerticalAnchor: 'middle',
+      fontSize: 14,
+      fontWeight: 600,
+      fontFamily: 'inherit',
+      fill: 'var(--muyun-text)',
+    },
+    subtitle: {
+      refX: 0,
+      refY: 0,
+      x: 32,
+      y: node.height - 20,
+      text: node.subtitle,
+      fontSize: 11,
+      textAnchor: 'start',
+      fontFamily: 'inherit',
+      fill: 'var(--muyun-text-muted)',
+    },
+  };
+}
+function routeColor(status?: string, selected?: boolean) {
+  return selected
+    ? 'var(--muyun-primary)'
+    : ['effective', 'closed'].includes(status ?? '')
+      ? 'var(--muyun-success-text)'
+      : 'var(--muyun-text-muted)';
+}
+function render() {
+  if (!graph) return;
+  const cards = model.value.nodes.map((node) =>
+    graph!.createNode({
+      id: `node:${node.key}`,
+      shape: 'rect',
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+      data: { key: node.key },
+      markup: [
+        { tagName: 'rect', selector: 'body' },
+        { tagName: 'rect', selector: 'accent' },
+        { tagName: 'text', selector: 'title' },
+        { tagName: 'text', selector: 'subtitle' },
+      ],
+      attrs: nodeAttributes(node),
+      zIndex: 2,
+    }),
+  );
+  const edges = model.value.routes.map((route) => {
+    const selected = props.selectedRouteKey === route.key;
+    const inactive = ['ineffective', 'dropped'].includes(route.status ?? '');
+    const color = routeColor(route.status, selected);
+    const parallel = model.value.routes.filter(
+      (item) => item.source === route.source && item.target === route.target,
+    );
+    const lane = parallel.findIndex((item) => item.key === route.key) - (parallel.length - 1) / 2;
+    const offset = lane * Math.min(32, 160 / parallel.length);
+    const source = model.value.nodes.find((node) => node.key === route.source)!;
+    const target = model.value.nodes.find((node) => node.key === route.target)!;
+    return graph!.createEdge({
+      id: `route:${route.key}`,
+      source: { cell: `node:${route.source}`, anchor: { name: 'bottom', args: { dx: offset } } },
+      target: { cell: `node:${route.target}`, anchor: { name: 'top', args: { dx: offset } } },
+      vertices:
+        parallel.length > 1
+          ? [
+              {
+                x: (source.x + source.width / 2 + target.x + target.width / 2) / 2 + offset,
+                y: (source.y + source.height + target.y) / 2 + offset,
+              },
+            ]
+          : route.vertices,
+      data: { key: route.key },
+      zIndex: 1,
+      router: { name: 'orth', args: { padding: 12 } },
+      connector: { name: 'rounded', args: { radius: 8 } },
+      attrs: {
+        root: {
+          role: props.interactive ? 'button' : 'img',
+          tabindex: props.interactive ? 0 : -1,
+          'aria-label': `路径：${route.title || route.key}`,
+          'data-workflow-route': route.key,
+          style: { cursor: props.interactive ? 'pointer' : 'default' },
+        },
+        line: {
+          stroke: color,
+          strokeWidth: selected ? 2.5 : 1.5,
+          strokeDasharray: inactive ? '5 4' : '',
+          opacity: inactive ? 0.4 : 1,
+          targetMarker: { name: 'block', width: 8, height: 6 },
+        },
+        wrap: { strokeWidth: 16 },
+      },
+      labels: route.title
+        ? [
+            {
+              position: 0.4,
+              attrs: {
+                label: { text: route.title, fontSize: 11, fill: color, fontFamily: 'inherit' },
+                body: { fill: 'var(--muyun-surface)', stroke: 'var(--muyun-border-subtle)', rx: 4, ry: 4 },
+              },
+            },
+          ]
+        : [],
+    });
+  });
+  graph.resetCells([...cards, ...edges]);
+  if (!initialized && cards.length && (viewport.value?.clientWidth ?? 0) > 0) {
+    initialized = true;
+    locate(focusNode.value?.key);
+  }
+}
+function syncSelection() {
+  if (!graph) return;
+  model.value.nodes.forEach((node) =>
+    (graph!.getCellById(`node:${node.key}`) as Node | null)?.setAttrs(nodeAttributes(node)),
+  );
+  model.value.routes.forEach((route) => {
+    const selected = props.selectedRouteKey === route.key;
+    graph!.getCellById(`route:${route.key}`)?.attr('line/stroke', routeColor(route.status, selected));
+    graph!.getCellById(`route:${route.key}`)?.attr('line/strokeWidth', selected ? 2.5 : 1.5);
+  });
+}
+function keyboard(event: KeyboardEvent) {
+  if (!props.interactive || !['Enter', ' '].includes(event.key) || !(event.target instanceof Element)) return;
+  const node = event.target.closest('[data-workflow-node]')?.getAttribute('data-workflow-node');
+  const route = event.target.closest('[data-workflow-route]')?.getAttribute('data-workflow-route');
+  if (node || route) {
+    event.preventDefault();
+    if (node) emit('select', node);
+    else if (route) emit('selectRoute', route);
+  }
+}
+function locate(key?: string) {
+  const cell = key && graph?.getCellById(`node:${key}`);
+  if (!cell || !graph) return;
+  graph.zoomTo(1);
+  const bounds = cell.getBBox();
+  graph.positionPoint({ x: bounds.center.x, y: bounds.center.y }, '50%', '28%');
+}
+function fit() {
+  graph?.zoomToFit({ padding: 36, maxScale: 1, minScale: 0.15 });
+}
+function changeZoom(delta: number) {
+  graph?.zoom(delta);
+}
+function actualSize() {
+  graph?.zoomTo(1);
+}
+function savePositions() {
+  if (!graph || !props.editable) return;
+  emit(
+    'layoutChange',
+    serializeWorkflowDiagramLayout(
+      graph.getNodes().map((node) => ({ key: node.getData<{ key: string }>().key, ...node.position() })),
+      props.routes,
+    ),
+  );
+}
+function autoLayout() {
+  if (!graph || !props.editable) return;
+  emit(
+    'layoutChange',
+    serializeWorkflowDiagramLayout(
+      createWorkflowDiagramModel(props.nodes, props.routes, undefined, props.semanticJson).nodes,
+      props.routes,
+    ),
+  );
+}
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement === shell.value) await document.exitFullscreen();
+    else await shell.value?.requestFullscreen();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-diagram', phase: 'action' });
+  }
+}
+function fullscreenChanged() {
+  fullscreen.value = document.fullscreenElement === shell.value;
+}
+watch(model, render);
+watch(
+  () => props.nodes.find((node) => node.nodeStatus === 'active')?.nodeKey,
+  (key, previous) => {
+    if (initialized && key && key !== previous) locate(key);
+  },
+  { flush: 'post' },
+);
+watch(
+  () => [props.selectedNodeKey, props.selectedRouteKey, props.interactive, props.editable],
+  syncSelection,
+);
+onMounted(async () => {
+  document.addEventListener('fullscreenchange', fullscreenChanged);
+  try {
+    const { Graph } = await import('@antv/x6');
+    if (disposed || !viewport.value || !canvas.value) return;
+    graph = new Graph({
+      container: canvas.value,
+      width: viewport.value.clientWidth,
+      height: viewport.value.clientHeight,
+      async: false,
+      background: false,
+      grid: { size: 1, visible: false },
+      scaling: { min: 0.15, max: 2 },
+      panning: { enabled: true, eventTypes: ['leftMouseDown', 'mouseWheel'] },
+      mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], factor: 1.1 },
+      interacting: () => ({
+        nodeMovable: Boolean(props.editable),
+        edgeMovable: false,
+        edgeLabelMovable: false,
+        arrowheadMovable: false,
+        vertexMovable: false,
+        vertexAddable: false,
+        vertexDeletable: false,
+      }),
+      connecting: { allowBlank: false, allowLoop: false },
+    });
+    graph.on('node:click', ({ node }) => {
+      if (props.interactive) emit('select', node.getData<{ key: string }>().key);
+    });
+    graph.on('edge:click', ({ edge }) => {
+      if (props.interactive) emit('selectRoute', edge.getData<{ key: string }>().key);
+    });
+    graph.on('node:moved', savePositions);
+    graph.on('scale', ({ sx }) => {
+      zoom.value = Math.round(sx * 100);
+    });
+    observer = new ResizeObserver(() => {
+      if (graph && viewport.value) {
+        graph.resize(viewport.value.clientWidth, viewport.value.clientHeight);
+        if (!initialized) render();
+      }
     });
     observer.observe(viewport.value);
+    render();
+    ready.value = true;
+  } catch (cause) {
+    failed.value = true;
+    presentPlatformError(cause, { source: 'workflow-diagram', phase: 'load' });
   }
 });
-onBeforeUnmount(() => observer?.disconnect());
-const scale = computed(() => (fit.value ? Math.min(1, viewportWidth.value / graph.value.width) : 1));
-const emit = defineEmits<{ select: [nodeKey: string] }>();
-const graph = computed(() => {
-  const ranks = new Map(props.nodes.map((node) => [node.nodeKey, 0]));
-  const remaining = new Set(props.nodes.map((node) => node.nodeKey));
-  const ordered: WorkflowNode[] = [];
-  for (let step = 0; step < props.nodes.length; step++) {
-    const ready = props.nodes.filter(
-      (node) =>
-        remaining.has(node.nodeKey) &&
-        !props.routes.some(
-          (route) => route.targetNodeKey === node.nodeKey && remaining.has(route.sourceNodeKey),
-        ),
-    );
-    if (!ready.length) break;
-    for (const node of ready) {
-      remaining.delete(node.nodeKey);
-      const rank = Math.max(
-        0,
-        ...props.routes
-          .filter((route) => route.targetNodeKey === node.nodeKey)
-          .map((route) => (ranks.get(route.sourceNodeKey) ?? 0) + 1),
-      );
-      ranks.set(node.nodeKey, rank);
-      ordered.push(node);
-    }
-  }
-  ordered.push(...props.nodes.filter((node) => remaining.has(node.nodeKey)));
-  const counts = new Map<number, number>();
-  const boxes = ordered.map((node) => {
-    const rank = ranks.get(node.nodeKey) ?? 0;
-    const row = counts.get(rank) ?? 0;
-    counts.set(rank, row + 1);
-    return { node, x: 24 + rank * 205, y: 24 + row * 115 };
-  });
-  const byKey = new Map(boxes.map((box) => [box.node.nodeKey, box]));
-  return {
-    boxes,
-    width: Math.max(400, ...boxes.map((box) => box.x + 185)),
-    height: Math.max(160, ...boxes.map((box) => box.y + 100)),
-    lines: props.routes.flatMap((route) => {
-      const source = byKey.get(route.sourceNodeKey),
-        target = byKey.get(route.targetNodeKey);
-      if (!source || !target) return [];
-      const x1 = source.x + 170,
-        y1 = source.y + 40,
-        x2 = target.x,
-        y2 = target.y + 40;
-      return [
-        {
-          route,
-          path: `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`,
-          x: (x1 + x2) / 2,
-          y: (y1 + y2) / 2 - 8,
-        },
-      ];
-    }),
-  };
+onBeforeUnmount(() => {
+  disposed = true;
+  observer?.disconnect();
+  graph?.dispose();
+  document.removeEventListener('fullscreenchange', fullscreenChanged);
 });
 </script>
 <template>
-  <div class="workflow-diagram" aria-label="流程图">
-    <div class="diagram-tools">
-      <UiButton size="small" :disabled="fit" @click="fit = true">适应宽度</UiButton
-      ><UiButton size="small" :disabled="!fit" @click="fit = false">实际大小</UiButton>
+  <section ref="shell" class="workflow-diagram" aria-label="流程图">
+    <div class="diagram-tools" role="group" aria-label="流程画布工具">
+      <UiButton size="small" :disabled="!ready" @click="fit">全图</UiButton>
+      <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">缩小</UiButton>
+      <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
+      <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">放大</UiButton>
+      <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
+        focusTitle
+      }}</UiButton>
+      <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">自动整理</UiButton>
+      <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
+        fullscreen ? '退出全屏' : '全屏'
+      }}</UiButton>
     </div>
-    <div ref="viewport" class="diagram-viewport" :style="{ height: `${graph.height * scale}px` }">
-      <div
-        class="diagram-canvas"
-        :style="{ width: `${graph.width}px`, height: `${graph.height}px`, transform: `scale(${scale})` }"
-      >
-        <svg
-          :viewBox="`0 0 ${graph.width} ${graph.height}`"
-          :width="graph.width"
-          :height="graph.height"
-          role="img"
-          aria-label="流程连线"
-        >
-          <defs>
-            <marker :id="markerId" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="currentColor" />
-            </marker>
-          </defs>
-          <g
-            v-for="line in graph.lines"
-            :key="line.route.routeKey"
-            :class="['workflow-route', line.route.routeStatus]"
-          >
-            <path :d="line.path" :marker-end="`url(#${markerId})`" />
-            <text :x="line.x" :y="line.y" text-anchor="middle">
-              {{ line.route.title ?? (line.route.defaultRoute ? '默认' : '') }}
-            </text>
-          </g>
-        </svg>
-        <component
-          :is="interactive ? 'button' : 'div'"
-          v-for="box in graph.boxes"
-          :key="box.node.nodeKey"
-          type="button"
-          :class="['workflow-node', box.node.nodeStatus, { selected: selectedNodeKey === box.node.nodeKey }]"
-          :style="{ left: `${box.x}px`, top: `${box.y}px` }"
-          :tabindex="interactive ? 0 : undefined"
-          @click="interactive && emit('select', box.node.nodeKey)"
-        >
-          <strong>{{ box.node.nodeTitle ?? box.node.title ?? box.node.nodeKey }}</strong>
-          <span
-            >{{ workflowTitle(box.node.nodeType) }} ·
-            {{
-              box.node.nodeStatus === 'waiting' && box.node.nodeType !== 'converge'
-                ? '未到达'
-                : workflowTitle(box.node.nodeStatus ?? box.node.approvalMode)
-            }}</span
-          >
-        </component>
-      </div>
+    <div class="diagram-navigation">
+      <UiSelect
+        class="diagram-locator"
+        :value="undefined"
+        placeholder="定位节点"
+        :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
+        @update:value="locate(String($event))"
+      />
+      <span>拖动空白平移 · Ctrl / ⌘ + 滚轮缩放<span v-if="editable"> · 拖动节点调整布局</span></span>
     </div>
-  </div>
+    <p v-if="failed" role="alert">流程图加载失败，请刷新页面重试。</p>
+    <p v-else-if="!nodes.length" class="diagram-empty">暂无流程节点</p>
+    <div ref="viewport" class="diagram-viewport" @keydown="keyboard">
+      <div ref="canvas" class="diagram-canvas" />
+    </div>
+  </section>
 </template>
 <style scoped>
 .workflow-diagram {
-  position: relative;
-  overflow: auto;
-  background: var(--muyun-hover);
+  overflow: hidden;
   border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
+  background: var(--muyun-surface);
 }
 .diagram-tools {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--muyun-border-subtle);
 }
-.diagram-viewport {
-  position: relative;
-  overflow: auto;
-  min-height: 120px;
-}
-.diagram-canvas {
-  position: relative;
-  transform-origin: top left;
-}
-.workflow-node {
-  position: absolute;
-  width: 170px;
-  min-height: 80px;
-  padding: 12px;
-  text-align: left;
-  border: 1px solid var(--muyun-border);
-  border-radius: 8px;
-  background: var(--muyun-surface);
-  color: inherit;
-  cursor: default;
-  display: grid;
-  gap: 8px;
-}
-button.workflow-node {
-  cursor: pointer;
-}
-.workflow-node span {
+.diagram-navigation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 12px;
   font-size: 12px;
   color: var(--muyun-text-muted);
 }
-.workflow-node.active,
-.workflow-node.selected {
-  border: 2px solid var(--muyun-primary);
+.diagram-locator {
+  width: 160px;
 }
-.workflow-node.completed {
-  border-color: var(--muyun-success-text);
-  background: var(--muyun-success-bg);
+.diagram-viewport {
+  height: 480px;
+  min-width: 0;
+  background: var(--muyun-hover);
 }
-.workflow-node.skipped {
-  opacity: 0.5;
-}
-.workflow-route {
+.diagram-empty {
+  padding: 12px;
   color: var(--muyun-text-muted);
 }
-.workflow-route path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
+.workflow-diagram:fullscreen {
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
 }
-.workflow-route text {
-  fill: currentColor;
-  font-size: 11px;
+.workflow-diagram:fullscreen .diagram-viewport {
+  flex: 1;
+  height: auto;
 }
-.workflow-route.effective,
-.workflow-route.closed {
-  color: var(--muyun-success-text);
+.diagram-viewport :deep([role='button']:focus-visible) {
+  outline: none;
 }
-.workflow-route.ineffective,
-.workflow-route.dropped {
-  opacity: 0.4;
+.diagram-viewport :deep([role='button']:focus-visible > rect:first-child) {
+  stroke: var(--muyun-primary);
+  stroke-width: 3px;
 }
 </style>

@@ -47,11 +47,17 @@ export function createWorkflowClient(http: HttpClient) {
         `${runtime}/task/${encodeURIComponent(id)}/module-task/guides/${encodeURIComponent(guideKey)}/execute`,
         payload,
       ),
-    preview: (alias: string, id: string, payload: unknown = {}) =>
-      post<WorkflowRenderBundle & { tasks: WorkflowTask[]; taskViews?: WorkflowTask[] }>(
+    preview: async (alias: string, id: string, payload: unknown = {}) => {
+      const result = await post<WorkflowRenderBundle & { tasks: WorkflowTask[]; taskViews?: WorkflowTask[] }>(
         `${recordPath(alias, id)}/submit/preview`,
         payload,
-      ),
+      );
+      return {
+        ...result,
+        semanticJson: result.semanticJson ?? result.instance?.semanticJson,
+        layoutJson: result.layoutJson ?? result.instance?.layoutJson,
+      };
+    },
     submit: (alias: string, id: string, payload: unknown = {}) =>
       post<unknown>(`${recordPath(alias, id)}/actions/submitApproval`, payload),
     bundle: (id: string) => get<WorkflowRenderBundle>(`${instancePath(id)}/bundle`),

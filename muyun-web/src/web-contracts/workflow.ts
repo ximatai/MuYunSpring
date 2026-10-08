@@ -76,6 +76,8 @@ export interface WorkflowInstance {
   startedAt?: string;
   startedBy?: string;
   completedAt?: string;
+  semanticJson?: string;
+  layoutJson?: string;
 }
 export interface WorkflowTask {
   id: string;
@@ -131,6 +133,8 @@ export interface WorkflowRenderBundle {
   instance: WorkflowInstance;
   nodes: WorkflowNode[];
   routes: WorkflowRoute[];
+  semanticJson?: string;
+  layoutJson?: string;
 }
 export interface WorkflowBranch {
   branchNodeKey: string;

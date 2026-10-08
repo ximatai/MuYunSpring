@@ -871,6 +871,8 @@ async function execute() {
             v-if="previewReady && previewBundle"
             :nodes="previewBundle.nodes"
             :routes="previewBundle.routes"
+            :layout-json="previewBundle.layoutJson"
+            :semantic-json="previewBundle.semanticJson"
           />
         </template>
         <p v-if="activeAction.actionCode === 'addSign'">
@@ -978,7 +980,14 @@ async function execute() {
         <UiButton :disabled="busy || preparing" @click="cancelAction">取消操作</UiButton>
       </template>
     </RecordDetailDrawer>
-    <WorkflowDiagram v-if="bundle" :nodes="bundle.nodes" :routes="bundle.routes" />
+    <WorkflowDiagram
+      v-if="bundle"
+      :key="bundle.instance.id"
+      :nodes="bundle.nodes"
+      :routes="bundle.routes"
+      :layout-json="bundle.layoutJson"
+      :semantic-json="bundle.semanticJson"
+    />
     <details v-if="decidedBranchRoutes.length">
       <summary>路径判定记录</summary>
       <ul>

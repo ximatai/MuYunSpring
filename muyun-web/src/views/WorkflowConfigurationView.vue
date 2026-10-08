@@ -473,6 +473,16 @@ function selectNode(key: string) {
   selectedRouteKey.value = '';
   propertyOpen.value = Boolean(key);
 }
+function selectRoute(key: string) {
+  selectedRouteKey.value = key;
+  selectedNodeKey.value = '';
+  propertyOpen.value = Boolean(key);
+}
+function updateLayout(layoutJson: string) {
+  if (!editable.value || design.value.layoutJson === layoutJson) return;
+  design.value = { ...design.value, layoutJson };
+  dirty.value = true;
+}
 function updateNode(patch: Partial<WorkflowNode>) {
   if (node.value && editable.value) {
     Object.assign(node.value, patch);
@@ -689,11 +699,17 @@ function addRoute() {
           <p v-if="!editable">此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。</p>
           <p v-if="dirty">草稿有未保存的修改</p>
           <WorkflowDiagram
+            :key="version?.id"
             :nodes="design.nodes"
             :routes="design.links"
             :selected-node-key="selectedNodeKey"
+            :selected-route-key="selectedRouteKey"
+            :layout-json="design.layoutJson"
+            :editable="editable"
             interactive
             @select="selectNode"
+            @select-route="selectRoute"
+            @layout-change="updateLayout"
           />
           <div class="toolbar">
             <UiButton :disabled="!editable" @click="addNode">插入审批节点</UiButton
@@ -708,11 +724,7 @@ function addRoute() {
                   label: `${item.title ?? '路径'}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
                 }))
               "
-              @update:value="
-                selectedRouteKey = String($event);
-                selectedNodeKey = '';
-                propertyOpen = true;
-              "
+              @update:value="selectRoute(String($event))"
             />
           </div>
           <RecordDetailDrawer
@@ -1039,7 +1051,7 @@ function addRoute() {
         </ul>
         <p>汇聚：{{ branchConvergenceSummary(branch) }}，只计算有效出口。</p>
       </div>
-      <WorkflowDiagram :nodes="design.nodes" :routes="design.links" />
+      <WorkflowDiagram :nodes="design.nodes" :routes="design.links" :layout-json="design.layoutJson" />
       <template #operation
         ><UiButton type="primary" :loading="busy" @click="publish">确认发布</UiButton></template
       >

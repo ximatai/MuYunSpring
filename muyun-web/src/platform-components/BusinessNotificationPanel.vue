@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { UiActionButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { WebBusinessNotification, WebBusinessNotificationAction } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
@@ -22,6 +22,60 @@ const emit = defineEmits<{
 
 const executing = ref<string>();
 const expanded = ref(false);
+const panel = ref<HTMLElement>();
+const overlayOpen = ref(false);
+let mounted = false;
+let overlayObserver: MutationObserver | undefined;
+let overlayFrame: number | undefined;
+
+function syncOverlayVisibility() {
+  overlayFrame = undefined;
+  // Open drawers may be retained in a hidden consumer host. Only foreground
+  // surfaces defer reminders; CSS visibility checks include their ancestors.
+  overlayOpen.value = [...document.querySelectorAll('.ant-drawer-open, .ant-modal-wrap')].some((element) =>
+    typeof element.checkVisibility === 'function'
+      ? element.checkVisibility({ checkVisibilityCSS: true })
+      : element.getClientRects().length > 0 &&
+        !['hidden', 'collapse'].includes(getComputedStyle(element).visibility),
+  );
+}
+function scheduleOverlayCheck() {
+  overlayFrame ??= requestAnimationFrame(syncOverlayVisibility);
+}
+function stopOverlayObservation() {
+  overlayObserver?.disconnect();
+  overlayObserver = undefined;
+  if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame);
+  overlayFrame = undefined;
+  window.removeEventListener('resize', scheduleOverlayCheck);
+}
+function observeOverlays() {
+  if (!mounted) return;
+  stopOverlayObservation();
+  overlayOpen.value = false;
+  if (!props.notifications.length) return;
+  syncOverlayVisibility();
+  overlayObserver = new MutationObserver((records) => {
+    // Ignore our own presentation and action mutations, including hidden updates.
+    if (records.some((record) => !panel.value?.contains(record.target))) scheduleOverlayCheck();
+  });
+  overlayObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+  });
+  window.addEventListener('resize', scheduleOverlayCheck);
+}
+watch(() => Boolean(props.notifications.length), observeOverlays);
+onMounted(() => {
+  mounted = true;
+  observeOverlays();
+});
+onBeforeUnmount(() => {
+  mounted = false;
+  stopOverlayObservation();
+});
 const orderedNotifications = computed(() => [
   ...props.notifications.filter((notification) => !notification.dismissible),
   ...props.notifications.filter((notification) => notification.dismissible),
@@ -60,6 +114,8 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
 <template>
   <aside
     v-if="visible.length"
+    ref="panel"
+    :hidden="overlayOpen"
     class="business-notification-panel"
     :class="{ 'business-notification-panel--expanded': expanded }"
     aria-live="polite"
@@ -160,6 +216,9 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
   width: min(480px, calc(100vw - 32px));
   gap: 12px;
   pointer-events: none;
+}
+.business-notification-panel[hidden] {
+  display: none;
 }
 .business-notification-panel--expanded {
   max-height: calc(100vh - 48px);

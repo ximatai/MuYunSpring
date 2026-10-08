@@ -3,6 +3,26 @@ import { createWorkflowClient } from '@/web-core/workflow';
 import type { HttpClient } from '@/web-core/http';
 
 describe('workflow client public contracts', () => {
+  it('projects submit preview frozen semantic and layout snapshots from the instance', async () => {
+    const semanticJson = '{"nodes":[],"links":[]}',
+      layoutJson = '{"version":1,"nodes":{}}';
+    const response = {
+      instance: { id: 'preview', semanticJson, layoutJson },
+      nodes: [],
+      routes: [],
+      tasks: [],
+      taskViews: [],
+    };
+    const request = vi.fn(async () => response);
+    const client = createWorkflowClient({ request } as HttpClient);
+    expect(await client.preview('demo.purchase', 'record')).toMatchObject({
+      semanticJson,
+      layoutJson,
+      tasks: [],
+      taskViews: [],
+    });
+    expect(response).not.toHaveProperty('layoutJson');
+  });
   it('carries exact paging and title filters together and resolves user-facing projections', async () => {
     const request = vi.fn(async () => ({
       records: [],
