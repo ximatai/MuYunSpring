@@ -27,3 +27,6 @@ export * from './operationErrors';
 export * from './operationReceipt';
 
 export * from './uuid';
+
+export { provideWorkspaceUnsavedStateRegistrar, useWorkspaceViewUnsavedState } from './workspaceUnsavedState';
+export type { WorkspaceUnsavedStateRegistrar } from './workspaceUnsavedState';

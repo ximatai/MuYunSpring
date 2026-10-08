@@ -227,7 +227,7 @@ function groupEndsAt(index: number) {
             />
             <UiSwitch
               v-else-if="field.controlType === 'switch'"
-              :checked="props.record[field.fieldName] !== false"
+              :checked="props.record[field.fieldName] === true"
               disabled
             />
             <RecordImageFileReferencePreview

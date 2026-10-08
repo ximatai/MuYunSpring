@@ -35,7 +35,6 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   presentPlatformError,
-  presentPlatformMessage,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
   BusinessNotificationPanel,
@@ -124,11 +123,11 @@ import {
   type OpenRouteOptions,
 } from './platform-workbench/workbenchNavigation';
 import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
+import { clearWorkspaceViewUnsavedState } from './platform-workbench/workspaceViewUnsavedState';
 import {
-  clearWorkspaceViewUnsavedState,
-  workspaceViewBusyStateSources,
-  workspaceViewUnsavedStateSources,
-} from './platform-workbench/workspaceViewUnsavedState';
+  confirmDiscardWorkspaceViewState,
+  hasWorkspaceViewDiscardProtection,
+} from './platform-workbench/workspaceViewDiscardGuard';
 import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
 import WorkspaceRouteView from './views/WorkspaceRouteView.vue';
 import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
@@ -1037,6 +1036,8 @@ function handleCloseCurrentTab(fallbackPath: string) {
   const current = startup.value;
   const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
   if (!current || !currentTabKey) return { created: false };
+  if (!hasWorkspaceViewDiscardProtection([currentTabKey]))
+    return closeCurrentTabNow(fallbackPath, currentTabKey);
 
   // WorkbenchNavigation keeps a synchronous result contract for consumers,
   // while confirmation is asynchronous.  Start the guarded close here rather
@@ -1048,9 +1049,12 @@ function handleCloseCurrentTab(fallbackPath: string) {
 
 async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
   if (!(await confirmDiscardWorkspaceViewState([currentTabKey]))) return;
+  return closeCurrentTabNow(fallbackPath, currentTabKey);
+}
 
+function closeCurrentTabNow(fallbackPath: string, currentTabKey: string) {
   const current = startup.value;
-  if (!current || !(current.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
+  if (!current || !(current.tabs ?? []).some((tab) => tab.key === currentTabKey)) return { created: false };
   const result = closeMenuTab(current.tabs ?? [], activeTabKey.value, currentTabKey);
   scheduleTabPageStateDiscard([currentTabKey]);
   clearWorkspaceViewUnsavedState(currentTabKey);
@@ -1256,22 +1260,6 @@ async function handleCloseTabs(keys: string[]) {
   syncBrowserUrl(startup.value, 'replace');
 }
 
-async function confirmDiscardWorkspaceViewState(keys: readonly string[]): Promise<boolean> {
-  const busySources = [...new Set(keys.flatMap(workspaceViewBusyStateSources))];
-  if (busySources.length > 0) {
-    presentPlatformMessage(`“${busySources.join('、')}”正在处理操作，请完成后再关闭。`);
-    return false;
-  }
-  const dirtySources = [...new Set(keys.flatMap(workspaceViewUnsavedStateSources))];
-  if (dirtySources.length === 0) return true;
-  const summary = dirtySources.join('、');
-  return confirmAction({
-    title: '关闭标签',
-    content: `“${summary}”存在未保存的更改，关闭后将丢失。是否继续？`,
-    okText: '关闭',
-  });
-}
-
 function handleChangeTab(key: string) {
   activeTabKey.value = key;
   const current = startup.value;
@@ -1392,7 +1380,9 @@ function pageRefreshRevisionFor(tabKey: string | undefined) {
 }
 
 /** Rebuilds exactly the requested page instance without touching other cached tabs. */
-function refreshPage(tabKey: string) {
+async function refreshPage(tabKey: string) {
+  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh'))) return;
+  if (!(startup.value?.tabs ?? []).some((tab) => tab.key === tabKey)) return;
   pageRefreshRevisions.value = {
     ...pageRefreshRevisions.value,
     [tabKey]: pageRefreshRevisionFor(tabKey) + 1,

@@ -38,6 +38,11 @@ import {
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
 import { syncModulePageWorkspaceViewContributions } from '../platform-workbench/modulePageWorkspaceViews';
+import { clearWorkspaceViewUnsavedState } from '../platform-workbench/workspaceViewUnsavedState';
+import {
+  confirmDiscardWorkspaceViewState,
+  hasWorkspaceViewDiscardProtection,
+} from '../platform-workbench/workspaceViewDiscardGuard';
 import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
 defineOptions({ name: 'AppWorkbenchShell' });
@@ -137,19 +142,29 @@ function changeTab(key: string) {
   update({ ...props.startup, activeTabKey: key }, 'push');
 }
 
-function closeTab(key: string) {
+async function refreshPage(key: string) {
+  if (!(await confirmDiscardWorkspaceViewState([key], 'refresh')) || !isMounted) return;
+  if (!(props.startup.tabs ?? []).some((tab) => tab.key === key)) return;
+  emit('refreshPage', key);
+}
+
+async function closeTab(key: string) {
+  if (!(await confirmDiscardWorkspaceViewState([key])) || !isMounted) return;
   const result = closeMenuTab(props.startup.tabs ?? [], props.startup.activeTabKey, key);
   if (lockedTabs.value.some((tab) => tab.key === key)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
   }
   update({ ...props.startup, tabs: result.tabs, activeTabKey: result.activeTabKey }, 'replace');
+  clearWorkspaceViewUnsavedState(key);
 }
 
-function closeTabs(keys: string[]) {
+async function closeTabs(keys: string[]) {
+  if (!(await confirmDiscardWorkspaceViewState(keys)) || !isMounted) return;
   const result = closeMenuTabs(props.startup.tabs ?? [], props.startup.activeTabKey, keys);
   const lockedKeys = keys.filter((key) => lockedTabs.value.some((tab) => tab.key === key));
   if (lockedKeys.length > 0) persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, lockedKeys));
   update({ ...props.startup, tabs: result.tabs, activeTabKey: result.activeTabKey }, 'replace');
+  keys.forEach(clearWorkspaceViewUnsavedState);
 }
 
 function reorderTabs(keys: string[]) {
@@ -258,12 +273,26 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   return { created: false };
 }
 
+/** The synchronous result describes immediate navigation; a guarded close finishes after confirmation. */
 function closeCurrentTab(fallbackPath: string) {
   const currentTabKey = props.startup.activeTabKey;
-  const result = currentTabKey
-    ? closeMenuTab(props.startup.tabs ?? [], currentTabKey, currentTabKey)
-    : { tabs: props.startup.tabs ?? [], activeTabKey: props.startup.activeTabKey };
-  if (currentTabKey && lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
+  if (!currentTabKey) return navigateRoute(routeUrlWithOpenOptions(fallbackPath), 'replace', props.startup);
+  if (!hasWorkspaceViewDiscardProtection([currentTabKey]))
+    return closeCurrentTabNow(fallbackPath, currentTabKey);
+  void closeCurrentTabAfterConfirm(fallbackPath, currentTabKey);
+  return { created: false };
+}
+
+async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey])) || !isMounted) return;
+  if (!(props.startup.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
+  return closeCurrentTabNow(fallbackPath, currentTabKey);
+}
+
+function closeCurrentTabNow(fallbackPath: string, currentTabKey: string) {
+  const result = closeMenuTab(props.startup.tabs ?? [], props.startup.activeTabKey, currentTabKey);
+  clearWorkspaceViewUnsavedState(currentTabKey);
+  if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }
   const fallback = result.tabs.find((tab) => {
@@ -391,7 +420,7 @@ async function restoreLockedTabs() {
     @close-tabs="closeTabs"
     @reorder-tabs="reorderTabs"
     @toggle-tab-lock="toggleTabLock"
-    @refresh-page="emit('refreshPage', $event)"
+    @refresh-page="refreshPage"
     @user-command="emit('userCommand', $event)"
     @retry-load="emit('retryLoad')"
   >

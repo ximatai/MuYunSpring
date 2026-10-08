@@ -1,3 +1,4 @@
+import { provideWorkspaceUnsavedStateRegistrar } from '@muyun/web-core';
 import { inject, provide, type InjectionKey } from 'vue';
 import type { RouteQueryValue } from '@muyun/web-contracts';
 import type { WorkspaceViewPresentation } from './workspaceViewContract';
@@ -18,6 +19,7 @@ const workspaceViewHostKey: InjectionKey<WorkspaceViewHost> = Symbol('workspace-
 
 export function provideWorkspaceViewHost(host: WorkspaceViewHost) {
   provide(workspaceViewHostKey, host);
+  provideWorkspaceUnsavedStateRegistrar(host);
 }
 
 export function useWorkspaceViewHost() {
