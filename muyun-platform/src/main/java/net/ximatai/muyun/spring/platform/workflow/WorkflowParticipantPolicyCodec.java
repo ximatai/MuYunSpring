@@ -62,18 +62,4 @@ final class WorkflowParticipantPolicyCodec {
                 node.path("relation").asText(null), node.path("depth").asInt(0), node.path("headOnly").asBoolean(false));
     }
 
-    static ParticipantPolicy parse(String text, String nodeKey) {
-        var rules = rules(text, nodeKey);
-        if (rules.stream().anyMatch(rule -> !"USER".equals(rule.type())))
-            throw new PlatformException("workflow participant requires identity resolution: " + nodeKey);
-        return new ParticipantPolicy(rules.stream().flatMap(rule -> rule.ids().stream()).distinct().toList());
-    }
-
-    record ParticipantPolicy(List<String> userIds) {
-        String requireSingleUser(String emptyMessage, String multiMessage) {
-            if (userIds.isEmpty()) throw new PlatformException(emptyMessage);
-            if (userIds.size() != 1) throw new PlatformException(multiMessage);
-            return userIds.getFirst();
-        }
-    }
 }

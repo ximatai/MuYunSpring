@@ -254,7 +254,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   const detailLayoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
   const operationBarSource = readSource('src/platform-components/DrawerOperationBar.vue');
   const indexSource = readSource('src/platform-components/index.ts');
-  const pageRealtimeSource = readSource('src/platform-admin-runtime/pageRealtime.ts');
 
   assert.match(indexSource, /export \{ default as RecordModeDrawer \}/);
   assert.match(indexSource, /export \{ default as RecordExternalChangeNotice \}/);
@@ -334,7 +333,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /scope\?: UiSidePanelScope/);
   assert.match(drawerSource, /:scope="scope"/);
   assert.match(detailLayoutSource, /overflow: auto/);
-  assert.match(pageRealtimeSource, /subscribeAppModuleDataChanges\(options\.moduleAlias\)/);
 
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
   assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
@@ -978,7 +976,6 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(appSource, /onUserNotification: handleSecurityNotification/);
   assert.match(pageRealtimeSource, /export interface PageRealtimeSubscription/);
   assert.match(pageRealtimeSource, /export function usePageRealtimeSubscription/);
-  assert.match(pageRealtimeSource, /usePageModuleDataChanges\(moduleAlias: string\)/);
   assert.match(pageRealtimeSource, /usePageBusinessEventHandler/);
   assert.match(
     pageRealtimeSource,
@@ -992,7 +989,6 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(pageRealtimeSource, /onUnmounted\(\(\) => \{/);
   assert.match(realtimeSource, /connectRealtimeBusinessEvents/);
   assert.match(realtimeSource, /subscribeAppBusinessEvents/);
-  assert.match(realtimeSource, /subscribeAppModuleDataChanges\(moduleAlias: string\)/);
   assert.notMatch(realtimeSource, /moduleDataChangeChannel/);
   assert.match(realtimeSource, /connectRealtimeDataChanges\(realtime, appDataChangeDispatcher\)/);
   assert.notMatch(realtimeSource, /moduleDataChangeChannel\('iam\.user'\)/);

@@ -145,12 +145,6 @@ function createSessionActivityReporter(realtime: RealtimeClient) {
   }
 }
 
-/** @deprecated Data changes arrive through the authenticated user queue; page handlers filter modules locally. */
-export function subscribeAppModuleDataChanges(moduleAlias: string) {
-  if (!moduleAlias.trim()) throw new Error('Module data change subscription requires a moduleAlias');
-  return { unsubscribe() {} };
-}
-
 export function subscribeAppDataChanges(handler: (changeSet: WebCommittedChangeSet) => void | Promise<void>) {
   return appDataChangeDispatcher.subscribe(handler);
 }
