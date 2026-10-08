@@ -47,6 +47,10 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     @DynamicPropertySource static void properties(DynamicPropertyRegistry properties) {
         properties.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
+    @Autowired WorkflowNodeInstanceDao nodeRuns;
+    @Autowired WorkflowRouteInstanceDao routeRuns;
+    @Autowired WorkflowEventDao events;
+    @Autowired WorkflowActionPolicyService actionPolicies;
     @Autowired WorkflowTaskActionService taskActions;
     @Autowired WorkflowSubmitReadFacade submissionReads;
     @Autowired ModuleCompletionCheckService completionChecks;
@@ -151,6 +155,27 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
         assertThat(retained).hasSize(1);
         assertThat(archive.parseSnapshot(retained.getFirst()).tasks()).hasSize(1)
                 .allMatch(task -> task.getTaskStatus() == WorkflowTaskStatus.CANCELED);
+        assertThat(active(fixture)).isFalse();
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void managersCanReadTerminatedOrphanThenResetAndInspectItsArchive(boolean dynamic) {
+        var fixture = fixture(dynamic, "processing"); corruptDelete(fixture, false);
+        actions.forceTerminate(WorkflowInstanceActionRequest.terminate(fixture.instanceId(), "manager", "失联流程终止"));
+        var admin = new WorkflowAdminService(instances, tasks, nodeRuns, routeRuns, events, actionPolicies,
+                actions, taskActions, mock(WorkflowHistoryQueryService.class), Optional.empty());
+        assertThat(admin.renderCurrentBundle(fixture.instanceId()).instance().getInstanceStatus())
+                .isEqualTo(WorkflowInstanceStatus.TERMINATED);
+        assertThat(admin.currentTasks(fixture.instanceId())).allMatch(task -> task.getTaskStatus() != WorkflowTaskStatus.TODO);
+        assertThat(admin.currentEvents(fixture.instanceId())).isNotEmpty();
+        assertThat(admin.currentEventViews(fixture.instanceId())).isNotEmpty();
+        assertThatThrownBy(() -> admin.currentTodoTaskViews(fixture.instanceId())).hasMessageContaining("not running");
+        admin.reset(WorkflowInstanceActionRequest.terminate(fixture.instanceId(), "manager", "终止后归档重置"));
+        assertThat(instances.findById(fixture.instanceId())).isNull();
+        var retained = histories.query(Criteria.of().eq("id", fixture.instanceId()), PageRequest.of(1, 10));
+        assertThat(retained).hasSize(1);
+        assertThat(archive.parseSnapshot(retained.getFirst()).events()).isNotEmpty();
         assertThat(active(fixture)).isFalse();
     }
 

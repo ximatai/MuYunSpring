@@ -46,7 +46,7 @@ it.each(['refresh', 'query', 'select'])(
           ],
         };
       if (options.path.endsWith('/bundle'))
-        return { instance: { id: 'i', versionNo: 7 }, nodes: [], routes: [] };
+        return { instance: { id: 'i', versionNo: 7, instanceStatus: 'running' }, nodes: [], routes: [] };
       return { records: [] };
     });
     const context = {
@@ -99,3 +99,97 @@ it.each(['refresh', 'query', 'select'])(
     expect(wrapper.findComponent({ name: 'UiTextArea' }).exists()).toBe(false);
   },
 );
+
+it('opens terminal current instances and resets them without querying active-only tasks', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(true);
+  let reset = false;
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/instance/query'))
+      return {
+        records: reset
+          ? []
+          : [
+              {
+                instanceId: 'terminal',
+                instanceStatus: 'terminated',
+                moduleAlias: 'demo.purchase',
+                activeNodeTitles: [],
+                currentAssigneeTitles: [],
+              },
+            ],
+      };
+    if (options.path.endsWith('/bundle'))
+      return {
+        instance: { id: 'terminal', versionNo: 3, instanceStatus: 'terminated' },
+        nodes: [],
+        routes: [],
+      };
+    if (options.path.endsWith('/active-tasks')) throw new Error('not running');
+    if (options.path.endsWith('/actions/reset')) {
+      reset = true;
+      return { data: {}, changeSetId: 'reset' };
+    }
+    return { records: [] };
+  });
+  const context = {
+    moduleAlias: 'platform.workflow_admin',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const Harness = defineComponent({
+    setup: () => () => h(ModuleContextProvider, { context }, () => h(WorkflowAdministrationView)),
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordQueryListSurface: surface,
+        RecordPicker: true,
+        RecordDetailDrawer: drawer,
+        WorkflowDiagram: true,
+        AdaptiveHeaderActionBar: true,
+        ManagementTabs: true,
+      },
+    },
+  });
+  await flushPromises();
+  const status = wrapper
+    .findAllComponents({ name: 'UiSelect' })
+    .find((select) =>
+      select.props('options')?.some((option: { value: string }) => option.value === 'terminated'),
+    )!;
+  status.vm.$emit('update:value', 'terminated');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text().replaceAll(' ', '') === '查询')!
+    .trigger('click');
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith(
+    expect.objectContaining({
+      path: '/workflow/runtime/admin/instance/query',
+      body: expect.objectContaining({ instanceStatus: 'terminated' }),
+    }),
+  );
+  wrapper.findComponent(surface).vm.$emit('row-click', { id: 'terminal' });
+  await flushPromises();
+  expect(request.mock.calls.some(([call]) => call.path.endsWith('/active-tasks'))).toBe(false);
+  const actions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
+  expect(actions.props('actions').map((action: { key: string }) => action.key)).toEqual(['reset']);
+  actions.vm.$emit('action', { key: 'reset' });
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '清理已终止的失联实例');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text().replaceAll(' ', '') === '确认操作')!
+    .trigger('click');
+  await flushPromises();
+  expect(request).toHaveBeenCalledWith(
+    expect.objectContaining({
+      path: '/workflow/runtime/admin/instance/terminal/actions/reset',
+      body: { reason: '清理已终止的失联实例' },
+    }),
+  );
+  expect(wrapper.findComponent(surface).props('rows')).toEqual([]);
+  expect(wrapper.findComponent(drawer).props('open')).toBe(false);
+  wrapper.unmount();
+});

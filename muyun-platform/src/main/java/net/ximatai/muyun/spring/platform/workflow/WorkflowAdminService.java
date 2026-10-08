@@ -127,7 +127,7 @@ public class WorkflowAdminService {
     }
 
     public WorkflowRuntimeRenderBundle renderCurrentBundle(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
         List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
@@ -141,7 +141,7 @@ public class WorkflowAdminService {
     }
 
     public List<WorkflowEvent> currentEvents(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
         return eventDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL,
                 Sort.asc("occurredAt"), Sort.asc("createdAt"));
@@ -162,7 +162,7 @@ public class WorkflowAdminService {
     }
 
     public List<WorkflowTask> currentTasks(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
         return taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
     }

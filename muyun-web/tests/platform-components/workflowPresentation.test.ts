@@ -24,5 +24,7 @@ describe('frozen branch decision labels', () => {
     expect(workflowRouteSelectionTitle({ ...route, routeStatus: 'dropped' }, manual)).toBe('人工选择');
     expect(workflowRouteSelectionTitle({ ...route, routeStatus: 'ineffective' }, manual)).toBe('人工未选择');
     expect(workflowTitle('normal_converged')).toBe('汇聚已满足');
+    expect(workflowTitle('forceTerminate')).toBe('强制终止');
+    expect(workflowTitle('reset')).toBe('重置审批');
   });
 });

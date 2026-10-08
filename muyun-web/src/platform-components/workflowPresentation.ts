@@ -14,6 +14,8 @@ const titles: Record<string, string> = {
   instance_reset: '重置审批',
   instance_terminated: '终止流程',
   instance_force_terminated: '强制终止',
+  forceTerminate: '强制终止',
+  reset: '重置审批',
   add_sign: '加签',
   start: '开始',
   end: '结束',

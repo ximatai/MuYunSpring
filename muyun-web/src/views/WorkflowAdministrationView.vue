@@ -35,6 +35,7 @@ const context = useModuleContext({ moduleAlias: 'platform.workflow_admin' }),
 const tenantId = ref<string>(),
   moduleAlias = ref(''),
   recordId = ref(''),
+  instanceStatus = ref('running'),
   page = ref(1),
   busy = ref(false),
   historyMode = ref(false),
@@ -108,6 +109,7 @@ async function reload() {
       const result = await post<{ records: Instance[] }>('/instance/query', {
         moduleAlias: moduleAlias.value || undefined,
         recordId: recordId.value || undefined,
+        instanceStatus: instanceStatus.value,
         page: { pageNum: page.value, pageSize: 30 },
       });
       if (current === revision) instances.value = result.records;
@@ -138,13 +140,14 @@ async function select(id: string) {
       post<WorkflowRenderBundle>(`${path}/bundle`),
       post<{ records: WorkflowEvent[] }>(`${path}/events/view`),
     ]);
-    const active = historyMode.value
-      ? []
-      : (
-          await http.value.request<{ records: Task[] }>({
-            path: `/workflow/runtime/admin/instance/${id}/active-tasks`,
-          })
-        ).records;
+    const active =
+      historyMode.value || graph.instance?.instanceStatus !== 'running'
+        ? []
+        : (
+            await http.value.request<{ records: Task[] }>({
+              path: `/workflow/runtime/admin/instance/${id}/active-tasks`,
+            })
+          ).records;
     if (current !== revision) return;
     bundle.value = graph;
     events.value = timeline.records;
@@ -163,6 +166,7 @@ async function query(reset = false) {
   if (reset) {
     moduleAlias.value = '';
     recordId.value = '';
+    instanceStatus.value = 'running';
   }
   if (page.value !== 1) page.value = 1;
   else await reload();
@@ -238,10 +242,12 @@ const taskColumns = [
   { key: 'nodeTitle', title: '节点', dataIndex: 'nodeTitle' },
   { key: 'assigneeTitle', title: '办理人', dataIndex: 'assigneeTitle' },
 ];
-const detailActions = [
-  { key: 'forceTerminate', title: '终止流程', danger: true },
+const detailActions = computed(() => [
+  ...(bundle.value?.instance?.instanceStatus === 'running'
+    ? [{ key: 'forceTerminate', title: '终止流程', danger: true }]
+    : []),
   { key: 'reset', title: '重置业务审批', danger: true },
-];
+]);
 function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
 }
@@ -332,6 +338,18 @@ function title(record: { id?: string; title?: string }) {
             show-search
             :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
             :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
+        ><label v-if="!historyMode"
+          ><RecordFieldLabel>流程状态</RecordFieldLabel
+          ><UiSelect
+            v-model:value="instanceStatus"
+            :disabled="busy || Boolean(pending)"
+            :options="[
+              { value: 'running', label: '进行中' },
+              { value: 'completed', label: '已完成' },
+              { value: 'rejected', label: '已驳回' },
+              { value: 'revoked', label: '已撤回' },
+              { value: 'terminated', label: '已终止' },
+            ]" /></label
         ><label
           >业务记录标识<UiInput
             v-model:value="recordId"
