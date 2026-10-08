@@ -78,6 +78,34 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
     @Test void staticStandardUpdateAndLiveCheckMustCommitOrRollbackAsOneTransaction() { checkAtomicUpdate(false, "edit"); }
     @Test void dynamicStandardUpdateAndLiveCheckMustCommitOrRollbackAsOneTransaction() { checkAtomicUpdate(true, "save-action"); }
 
+    @Test void customDynamicActionKeepsApprovalProtectionAndRollsBackWithCompletionChecks() {
+        try (var tenantContext = TenantContext.use(tenant);
+             var actor = CurrentUserContext.use(CurrentUser.tenantUser("operator", "Operator", tenant))) {
+            var fixture = fixture(true, false, true);
+            assertThatThrownBy(() -> dynamicRecords.executeAction(fixture.module(), "finishBusiness",
+                    DynamicActionExecutionRequest.id(fixture.recordId()).withPayload(Map.of("ready", true))))
+                    .hasMessageContaining("不可直接修改");
+            assertThatThrownBy(() -> businessActions.execute(fixture.taskId(), "custom-failed", fixture.recordVersion(),
+                    Map.of(), Map.of(), "operator", "complete"))
+                    .hasMessageContaining("业务准备尚未完成");
+            assertThat(facts(fixture)).containsEntry("title", "initial").containsEntry("manualConfirm", false)
+                    .containsEntry("version", fixture.recordVersion());
+            assertThat(tasks.findById(fixture.taskId()).getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
+            assertThat(checkResults.query(Criteria.of().eq("taskId", fixture.taskId()), PageRequest.of(1, 10))).isEmpty();
+
+            var completed = businessActions.execute(fixture.taskId(), "custom-ready", fixture.recordVersion(),
+                    Map.of(), Map.of(), "operator", "complete");
+            assertThat(completed.actionResult().task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+            assertThat(facts(fixture)).containsEntry("title", "custom action").containsEntry("manualConfirm", true)
+                    .containsEntry("version", fixture.recordVersion() + 1).containsEntry("updatedBy", "operator");
+            assertThat(dynamicRecords.select(fixture.module(), "entry", fixture.recordId()).getApprovalStatus()).isEqualTo("processing");
+            assertThat(instances.findById(fixture.instanceId()).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
+            assertThatThrownBy(() -> dynamicRecords.executeAction(fixture.module(), "finishBusiness",
+                    DynamicActionExecutionRequest.id(fixture.recordId()).withPayload(Map.of("ready", true))))
+                    .hasMessageContaining("不可直接修改");
+        }
+    }
+
     private void checkAtomicUpdate(boolean dynamic, String guide) {
         try (var tenantContext = TenantContext.use(tenant);
              var actor = CurrentUserContext.use(CurrentUser.tenantUser("operator", "Operator", tenant))) {
@@ -179,15 +207,44 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
     }
 
     private Fixture fixture(boolean dynamic, boolean manualContinuation) {
+        return fixture(dynamic, manualContinuation, false);
+    }
+
+    private Fixture fixture(boolean dynamic, boolean manualContinuation, boolean customAction) {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String module = dynamic ? "test.atomic_" + suffix : StaticBusiness.MODULE;
         String recordId;
         if (dynamic) {
             var entity = new EntityDefinition("entry", "atomic_business_" + suffix, "Atomic business", List.of(
                     FieldDefinition.string("title", "Title"), FieldDefinition.of("manualConfirm", FieldType.BOOLEAN, "Ready").column("manual_confirm")));
-            schema.ensureTable(entity); dynamicRuntime.register(new ModuleDefinition(module, "Atomic business", List.of(entity)));
+            if (customAction) entity = entity.withCapabilities(EntityCapability.APPROVAL);
+            schema.ensureTable(entity);
+            var actionDefinitions = new ArrayList<EntityActionDefinition>();
+            if (customAction) {
+                var executor = new DynamicActionExecutor() {
+                    @Override public String executorKey() { return "finish_business_" + suffix; }
+                    @Override public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
+                        throw new UnsupportedOperationException("business action requires standard operations");
+                    }
+                    @Override public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request,
+                                                    DynamicActionOperations operations) {
+                        var record = operations.select(request.recordId());
+                        record.setValue("title", "custom action").setValue("manualConfirm", request.payload().get("ready"));
+                        record.setApprovalStatus("forged");
+                        return operations.update(record);
+                    }
+                };
+                dynamicRuntime.actionExecutorRegistry().register(executor);
+                actionDefinitions.add(new EntityActionDefinition("entry", "finishBusiness", "Finish", true,
+                        EntityActionLevel.RECORD, EntityActionCategory.CUSTOM, null, true, false, null, null, null,
+                        EntityActionExecutorType.SERVICE, executor.executorKey()));
+            }
+            dynamicRuntime.register(ModuleDefinition.builder(module, "Atomic business").entities(List.of(entity))
+                    .actions(actionDefinitions).build());
             recordId = dynamicRecords.create(module, "entry", dynamicRecords.newRecord(module, "entry")
                     .setValue("title", "initial").setValue("manualConfirm", false));
+            if (customAction) dynamicRecords.writeApprovalState(module, "entry", recordId, PlatformAction.UPDATE.executionPolicy(),
+                    new ApprovalState("approval-instance", "processing", "operator", Instant.now(), null));
         } else {
             var record = new WorkflowTaskDefinition(); record.setModuleAlias(module); record.setAlias("business_" + suffix);
             record.setTitle("initial"); record.setManualConfirm(false); recordId = business.insert(record);
@@ -206,6 +263,15 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
         guide(taskDefinition.getId(), "edit", WorkflowTaskGuideKind.OPEN_FORM, module, null);
         guide(taskDefinition.getId(), "save-action", WorkflowTaskGuideKind.EXECUTE_ACTION, module, "update");
         guide(taskDefinition.getId(), "instructions", WorkflowTaskGuideKind.READ_INSTRUCTION, null, null);
+        if (customAction) {
+            for (var ready : List.of(false, true)) {
+                var guide = new WorkflowTaskGuide(); guide.setTaskDefinitionId(taskDefinition.getId());
+                guide.setGuideKey(ready ? "custom-ready" : "custom-failed"); guide.setTitle("Custom action");
+                guide.setEnabled(true); guide.setGuideKind(WorkflowTaskGuideKind.EXECUTE_ACTION);
+                guide.setTargetModuleAlias(module); guide.setTargetActionCode("finishBusiness");
+                guide.setGuideConfigText("{\"payload\":{\"ready\":" + ready + "}}"); insert(guide, guides::insert);
+            }
+        }
         var authoredNodes = new ArrayList<WorkflowNodeDefinition>();
         var authoredLinks = new ArrayList<WorkflowLinkDefinition>();
         var nodeKeys = manualContinuation ? List.of("start", "review", "business", "choice", "selected", "alternate", "merge", "end")

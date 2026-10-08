@@ -37,8 +37,11 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
         var service = abilities.orderedStream().filter(item -> command.moduleAlias().equals(item.getModuleAlias())).findFirst();
         if (!"update".equals(command.actionCode())) {
             if (service.isPresent()) throw new PlatformException("静态业务动作未注册领域执行器: " + command.actionCode());
-            return records.executeAction(command.moduleAlias(), command.actionCode(),
-                    DynamicActionExecutionRequest.id(command.recordId()).withPayload(command.payload()));
+            return approvalBusiness
+                    ? records.executeApprovalBusinessAction(command.moduleAlias(), command.actionCode(),
+                        command.recordId(), command.payload())
+                    : records.executeAction(command.moduleAlias(), command.actionCode(),
+                        DynamicActionExecutionRequest.id(command.recordId()).withPayload(command.payload()));
         }
         if (command.version() == null) throw new PlatformException("业务保存必须携带记录版本");
         var context = ActionExecutionContext.ofPlatformAction(command.moduleAlias(), PlatformAction.UPDATE,

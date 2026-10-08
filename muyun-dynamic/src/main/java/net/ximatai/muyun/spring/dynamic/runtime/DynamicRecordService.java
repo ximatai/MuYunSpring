@@ -287,6 +287,13 @@ public class DynamicRecordService {
         return actionRuntime.executeAction(moduleAlias, actionCode, request);
     }
 
+    /** Trusted task orchestration after operator and frozen-guide authorization. The ordinary action
+     * policy still applies; only this main record's synchronous updates receive approval write access. */
+    public DynamicActionExecutionResult executeApprovalBusinessAction(String moduleAlias, String actionCode,
+                                                                      String recordId, Map<String, Object> payload) {
+        return actionRuntime.executeApprovalBusinessAction(moduleAlias, actionCode, recordId, payload);
+    }
+
     public List<DynamicActionDescriptor> actions(String moduleAlias, String entityAlias) {
         return entityDescriptor(moduleAlias, entityAlias).actions();
     }
