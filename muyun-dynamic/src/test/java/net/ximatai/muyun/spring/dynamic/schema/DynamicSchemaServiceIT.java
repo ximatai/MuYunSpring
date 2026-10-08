@@ -124,12 +124,21 @@ class DynamicSchemaServiceIT {
             String id = records.create(module, "entry", incoming);
             assertThat(records.select(module, "entry", id).getApprovalStatus()).isNull();
             DynamicRecord stale = records.select(module, "entry", id);
+            assertThat(records.actionAvailability(module, "update", stale).available()).isTrue();
             Instant submittedAt = Instant.parse("2026-10-07T01:02:03.123456789Z");
             assertThat(records.writeApprovalState(module, "entry", id,
                     net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
                     new net.ximatai.muyun.spring.ability.ApprovalState("instance", "processing", "submitter", submittedAt, null)))
                     .isEqualTo(1);
             DynamicRecord saved = records.select(module, "entry", id);
+            // A client draft (even a stale pre-submission draft) cannot fake the stored approval boundary.
+            assertThat(records.actionAvailability(module, "update", stale).available()).isFalse();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update", "delete"), List.of(id)))
+                    .singleElement().satisfies(availability -> {
+                        assertThat(availability.actions().get("update").available()).isFalse();
+                        assertThat(availability.actions().get("update").message()).contains("不可直接修改");
+                        assertThat(availability.actions().get("delete").available()).isTrue();
+                    });
             assertThat(saved.getApprovalStatus()).isEqualTo("processing");
             assertThat(saved.getApprovalInstanceId()).isEqualTo("instance");
             assertThat(saved.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
@@ -158,12 +167,19 @@ class DynamicSchemaServiceIT {
                     net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
                     new net.ximatai.muyun.spring.ability.ApprovalState("instance", "approved", "submitter", submittedAt, completedAt));
             var completed = records.select(module, "entry", id);
+            assertThat(records.actionAvailability(module, "update", completed).available()).isFalse();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update"), List.of(id)))
+                    .singleElement().satisfies(availability -> assertThat(availability.actions().get("update").available()).isFalse());
+            assertThatThrownBy(() -> records.update(module, "entry", completed)).hasMessageContaining("不可直接修改");
             assertThat(completed.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
             assertThat(completed.getApprovalCompletedAt()).isEqualTo(Instant.parse("2026-10-07T02:03:04Z"));
             records.writeApprovalState(module, "entry", id,
                     net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
                     net.ximatai.muyun.spring.ability.ApprovalState.empty());
             assertThat(records.select(module, "entry", id).getApprovalInstanceId()).isNull();
+            assertThat(records.actionAvailability(module, "update", records.select(module, "entry", id)).available()).isTrue();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update"), List.of(id)))
+                    .singleElement().satisfies(availability -> assertThat(availability.actions().get("update").available()).isTrue());
         }
     }
 

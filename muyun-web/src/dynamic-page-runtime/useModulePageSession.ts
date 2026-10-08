@@ -382,11 +382,12 @@ export function useModulePageSession(
   } = useRecordEditingSession(context, detail, () => {
     detailRelationReloadKey.value += 1;
   });
-  function openRecord(
+  async function openRecord(
     record: QueryListRecord,
     mode: 'edit' | 'view',
     options: RecordDetailTransitionOptions = {},
   ) {
+    if (mode === 'edit' && !(await recordActionAvailable(String(record.id ?? ''), 'update'))) return;
     return loadRecord(
       record,
       mode,
@@ -3458,41 +3459,40 @@ export function useModulePageSession(
     if (parentId) createRecord(parentId);
   }
 
-  /** Keeps target authorization checks inside the mounted reference-detail session. */
-  async function recordOnlyActionAvailable(recordId: string, actionCode: string): Promise<boolean> {
-    if (!props.recordOnly) return true;
+  /** Ordinary editors consume server record decisions, including capability-owned mutation boundaries. */
+  async function recordActionAvailable(recordId: string, actionCode: string): Promise<boolean> {
+    if (!recordId || context.can(actionCode) !== true) return false;
     const session = recordOnlySession;
-    recordOnlyAuthorizing.value = true;
+    const revision = assistantContextRevision.value;
+    const interaction = assistantInteractionRevision.value;
+    if (props.recordOnly) recordOnlyAuthorizing.value = true;
     try {
       const availability = await context.recordActions(recordId);
       return (
-        session === recordOnlySession &&
-        detailOpen.value &&
+        revision === assistantContextRevision.value &&
+        interaction === assistantInteractionRevision.value &&
+        context.can(actionCode) === true &&
+        (!props.recordOnly || (session === recordOnlySession && detailOpen.value)) &&
         availability.actions.some((action) => action.actionCode === actionCode && action.available)
       );
     } catch (cause) {
-      if (session === recordOnlySession) {
-        presentPlatformError(cause, { source: 'module-record-only', phase: 'authorization' });
+      if (revision === assistantContextRevision.value && session === recordOnlySession) {
+        presentPlatformError(cause, { source: 'module-record-action', phase: 'authorization' });
       }
       return false;
     } finally {
-      if (session === recordOnlySession) recordOnlyAuthorizing.value = false;
+      if (props.recordOnly && session === recordOnlySession) recordOnlyAuthorizing.value = false;
     }
   }
 
   async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
     if (!recordEditReady() || context.can('update') !== true) return;
-    if (props.recordOnly) {
-      const recordId = record.id == null ? undefined : String(record.id);
-      if (!recordId) return;
-      if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
-      if (!recordEditReady()) return;
-    }
+    if (!(await recordActionAvailable(String(record.id ?? ''), 'update')) || !recordEditReady()) return;
     if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) {
       assistantInteractionRevision.value += 1;
       return;
     }
-    await openRecord(record, 'edit', { cancelDestination });
+    await loadRecord(record, 'edit', { cancelDestination });
     if (editorMode.value === 'edit') assistantInteractionRevision.value += 1;
   }
 
@@ -3623,7 +3623,7 @@ export function useModulePageSession(
     if (props.recordOnly && editorMode.value === 'edit') {
       const recordId = draft.id == null ? undefined : String(draft.id);
       if (!recordId) return;
-      if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
+      if (!(await recordActionAvailable(recordId, 'update'))) return;
     }
     if (
       !canMutateModuleDetail({
@@ -4123,7 +4123,7 @@ export function useModulePageSession(
     )
       return;
     if (props.recordOnly) {
-      if (!(await recordOnlyActionAvailable(id, 'delete'))) return;
+      if (!(await recordActionAvailable(id, 'delete'))) return;
     }
     deleting.value = true;
     try {
@@ -4163,7 +4163,7 @@ export function useModulePageSession(
     if (!record || !id || version === undefined || !canToggleEnabled.value) return;
     if (props.recordOnly) {
       const actionCode = record.enabled === false ? 'enable' : 'disable';
-      if (!(await recordOnlyActionAvailable(id, actionCode))) return;
+      if (!(await recordActionAvailable(id, actionCode))) return;
     }
 
     assistantInteractionRevision.value += 1;
@@ -4683,6 +4683,16 @@ export function useModulePageSession(
   }
 
   function handleWorkflowChanged() {
+    assistantContextRevision.value += 1;
+    const recordId = selectedRecord.value?.id;
+    if (recordId != null) {
+      context.invalidateRecordActions?.([String(recordId)]);
+      void context
+        .recordActions(String(recordId))
+        .catch((cause) =>
+          presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
+        );
+    }
     refreshList();
     retryLoadDetail();
   }

@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 /** Exact record binding: an approval command cannot authorize a second record or ordinary update. */
 final class ApprovalMutationSupport {
+    static final String ORDINARY_UPDATE_BLOCKED = "审批中或已批准的业务不可直接修改，请通过当前任务办理指引更新";
     private record Binding(MutationServiceIdentity service, EntityContract record, String id, String tenantId, ApprovalState state) {}
     private static final ThreadLocal<Binding> CURRENT = new ThreadLocal<>();
     private record BusinessBinding(MutationServiceIdentity service, EntityContract record, String id, String tenantId) {}
@@ -30,14 +31,17 @@ final class ApprovalMutationSupport {
 
     static void requireEditable(CrudAbility<?> service, EntityContract incoming, EntityContract existing) {
         if (!(service instanceof ApprovalAbility<?> ability) || !ability.supportsApproval()
-                || !(existing instanceof ApprovalCapable approval)) return;
-        String status = approval.getApprovalStatus();
-        if (!"processing".equalsIgnoreCase(status) && !"approved".equalsIgnoreCase(status)) return;
+                || !blocksOrdinaryUpdate(existing)) return;
         Binding summary = CURRENT.get();
         if (summary != null && summary.service().equals(service.mutationServiceIdentity()) && summary.record() == incoming) return;
         BusinessBinding business = BUSINESS.get();
         if (business != null && business.service().equals(service.mutationServiceIdentity()) && business.record() == incoming) return;
-        throw new PlatformException("审批中或已批准的业务不可直接修改，请通过当前任务办理指引更新");
+        throw new PlatformException(ORDINARY_UPDATE_BLOCKED);
+    }
+
+    static boolean blocksOrdinaryUpdate(EntityContract existing) {
+        if (!(existing instanceof ApprovalCapable approval)) return false;
+        return "processing".equalsIgnoreCase(approval.getApprovalStatus()) || "approved".equalsIgnoreCase(approval.getApprovalStatus());
     }
 
     static <T extends EntityContract & ApprovalCapable> int update(ApprovalAbility<T> service, String id,

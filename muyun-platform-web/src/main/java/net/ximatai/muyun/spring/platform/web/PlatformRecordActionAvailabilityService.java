@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.ApprovalAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -108,17 +109,18 @@ public class PlatformRecordActionAvailabilityService {
                 .filter(this::isStaticRecordAvailabilityAction)
                 .toList();
         Map<String, Set<String>> dataScopedIdsByAction = new LinkedHashMap<>();
-        Set<String> dataScopedUnion = new LinkedHashSet<>();
+        Set<String> protectedRecordIds = new LinkedHashSet<>();
+        CrudAbility<?> ability = crudAbility(moduleAlias);
         for (PlatformModuleRuntimeAction action : actions) {
             Set<String> scopedIds = action.authorized()
                     ? dataScopedRecordIds(moduleAlias, policy(action), recordIds)
                     : Set.of();
             dataScopedIdsByAction.put(action.actionCode(), scopedIds);
-            dataScopedUnion.addAll(scopedIds);
+            if (requiresProtectedRecord(ability, action.actionCode())) protectedRecordIds.addAll(scopedIds);
         }
-        Map<String, EntityContract> records = dataScopedUnion.isEmpty()
+        Map<String, EntityContract> records = protectedRecordIds.isEmpty()
                 ? Map.of()
-                : platformManagedRecords(moduleAlias, List.copyOf(dataScopedUnion));
+                : protectedMutationRecords(moduleAlias, List.copyOf(protectedRecordIds));
         Map<String, List<PlatformRecordActionAvailability.Action>> actionsByRecordId = new LinkedHashMap<>();
         for (String recordId : recordIds) {
             actionsByRecordId.put(recordId, new java.util.ArrayList<>());
@@ -140,7 +142,7 @@ public class PlatformRecordActionAvailabilityService {
                     if (business.isPresent() && !business.get().available()) {
                         decision = unavailable(action.actionCode(), business.get().reason());
                     } else {
-                        Optional<RecordActionAvailabilityDecision> protection = platformManagedAvailability(moduleAlias,
+                        Optional<RecordActionAvailabilityDecision> protection = ordinaryMutationAvailability(moduleAlias,
                                 action.actionCode(), records.get(recordId));
                         decision = protection.filter(value -> !value.available())
                                 .map(value -> unavailable(action.actionCode(), value.reason()))
@@ -281,7 +283,7 @@ public class PlatformRecordActionAvailabilityService {
         if (businessDecision.isPresent() && !businessDecision.get().available()) {
             return unavailable(action.actionCode(), businessDecision.get().reason());
         }
-        Optional<RecordActionAvailabilityDecision> protectionDecision = platformManagedAvailability(moduleAlias,
+        Optional<RecordActionAvailabilityDecision> protectionDecision = ordinaryMutationAvailability(moduleAlias,
                 action.actionCode(), recordId);
         if (protectionDecision.isPresent() && !protectionDecision.get().available()) {
             return unavailable(action.actionCode(), protectionDecision.get().reason());
@@ -360,9 +362,10 @@ public class PlatformRecordActionAvailabilityService {
         }
     }
 
-    private Map<String, EntityContract> platformManagedRecords(String moduleAlias, List<String> recordIds) {
+    private Map<String, EntityContract> protectedMutationRecords(String moduleAlias, List<String> recordIds) {
         CrudAbility<?> ability = crudAbility(moduleAlias);
-        if (!(ability instanceof PlatformManagedProtectionAbility<?>)) {
+        if (!(ability instanceof PlatformManagedProtectionAbility<?>)
+                && !(ability instanceof ApprovalAbility<?> approval && approval.supportsApproval())) {
             return Map.of();
         }
         @SuppressWarnings({"rawtypes", "unchecked"})
@@ -373,28 +376,31 @@ public class PlatformRecordActionAvailabilityService {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private Optional<RecordActionAvailabilityDecision> platformManagedAvailability(String moduleAlias,
+    private Optional<RecordActionAvailabilityDecision> ordinaryMutationAvailability(String moduleAlias,
                                                                                    String actionCode,
                                                                                    EntityContract record) {
         CrudAbility<?> ability = crudAbility(moduleAlias);
-        if (!(ability instanceof PlatformManagedProtectionAbility<?> protectionAbility)) {
-            return Optional.empty();
+        if (ability instanceof ApprovalAbility<?> approval && approval.supportsApproval()) {
+            Optional<RecordActionAvailabilityDecision> decision = ((ApprovalAbility) approval)
+                    .ordinaryApprovalRecordActionAvailability(actionCode, record);
+            if (decision.isPresent() && !decision.get().available()) return decision;
         }
-        return ((PlatformManagedProtectionAbility) protectionAbility)
-                .ordinaryRecordActionAvailability(actionCode, record);
+        return ability instanceof PlatformManagedProtectionAbility<?> protection
+                ? ((PlatformManagedProtectionAbility) protection).ordinaryRecordActionAvailability(actionCode, record)
+                : Optional.empty();
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private Optional<RecordActionAvailabilityDecision> platformManagedAvailability(String moduleAlias,
+    private Optional<RecordActionAvailabilityDecision> ordinaryMutationAvailability(String moduleAlias,
                                                                                    String actionCode,
                                                                                    String recordId) {
         CrudAbility<?> ability = crudAbility(moduleAlias);
-        if (!(ability instanceof PlatformManagedProtectionAbility<?> protectionAbility)) {
-            return Optional.empty();
-        }
-        EntityContract record = ability.select(recordId);
-        return ((PlatformManagedProtectionAbility) protectionAbility)
-                .ordinaryRecordActionAvailability(actionCode, record);
+        if (!requiresProtectedRecord(ability, actionCode)) return Optional.empty();
+        return ordinaryMutationAvailability(moduleAlias, actionCode, ability.select(recordId));
+    }
+
+    private boolean requiresProtectedRecord(CrudAbility<?> ability, String actionCode) {
+        return ability instanceof PlatformManagedProtectionAbility<?> || ability instanceof ApprovalAbility<?> approval
+                && approval.supportsApproval() && net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.matches(actionCode);
     }
 
     private CrudAbility<?> crudAbility(String moduleAlias) {

@@ -41,12 +41,15 @@ class ApprovalAbilityContractTest {
             assertThat(saved.getUpdatedBy()).isEqualTo("actor");
             assertThat(service.updated).isEqualTo(1);
             saved.setApprovalStatus("approved"); saved.setApprovalInstanceId("forged"); saved.setTitle("Changed");
+            assertThat(service.ordinaryApprovalRecordActionAvailability("update", service.select(id)))
+                    .get().satisfies(decision -> assertThat(decision.available()).isFalse());
             assertThatThrownBy(() -> service.update(saved)).hasMessageContaining("不可直接修改");
             service.writeApprovalBusiness(saved);
             assertThat(service.select(id).getApprovalStatus()).isEqualTo("processing");
             assertThat(service.select(id).getTitle()).isEqualTo("Changed");
             service.writeApprovalState(id, POLICY, ApprovalState.empty());
             assertThat(service.select(id).getApprovalInstanceId()).isNull();
+            assertThat(service.ordinaryApprovalRecordActionAvailability("update", service.select(id))).isEmpty();
             assertThat(ActionExecutionContextHolder.current()).isEmpty();
         }
     }
@@ -66,10 +69,14 @@ class ApprovalAbilityContractTest {
             service.writeApprovalBusiness(delivery);
             assertThat(service.select(id).getTitle()).isEqualTo("delivery");
             assertThat(service.select(id).getApprovalStatus()).isEqualTo("approved");
+            assertThat(service.ordinaryApprovalRecordActionAvailability("update", service.select(id)))
+                    .get().satisfies(decision -> assertThat(decision.available()).isFalse());
+            assertThat(service.ordinaryApprovalRecordActionAvailability("delete", service.select(id))).isEmpty();
             service.writeApprovalState(id, POLICY, new ApprovalState("instance", "rejected", "submitter", Instant.EPOCH, null));
             var correction = service.copyForApprovalMutation(service.select(id)); correction.setTitle("correction");
             service.update(correction);
             assertThat(service.select(id).getTitle()).isEqualTo("correction");
+            assertThat(service.ordinaryApprovalRecordActionAvailability("update", service.select(id))).isEmpty();
         }
     }
 

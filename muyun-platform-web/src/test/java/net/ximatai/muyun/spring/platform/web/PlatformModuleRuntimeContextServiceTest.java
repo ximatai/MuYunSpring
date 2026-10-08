@@ -1695,6 +1695,50 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
+    void shouldProjectApprovalUpdateProtectionIntoSingleAndBatchRecordAvailability() {
+        PlatformModuleService moduleCatalog = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleCatalog.resolveVisibleModule("test.approval"))
+                .thenReturn(module("test.approval", "审批业务", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("test.approval"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("test", "test.approval", "审批业务")
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE))).build();
+        ApprovalRecordAbility ability = mock(ApprovalRecordAbility.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        when(ability.getModuleAlias()).thenReturn("test.approval");
+        var records = new java.util.ArrayList<net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity>();
+        for (String status : List.of("processing", "approved", "rejected")) {
+            var record = new net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity() {};
+            record.setId(status); record.setApprovalStatus(status); records.add(record);
+            org.mockito.Mockito.doReturn(record).when(ability).select(status);
+        }
+        org.mockito.Mockito.doReturn(records).when(ability).list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class));
+        PlatformModuleRuntimeContextService runtimeContextService = new PlatformModuleRuntimeContextService(
+                moduleCatalog, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null, null, null, allowAllPolicy());
+        var service = new PlatformRecordActionAvailabilityService(runtimeContextService, null, null, List.of(ability),
+                List.of((module, action, id) -> java.util.Optional.of(RecordActionAvailabilityDecision.allow())));
+        var ids = List.of("processing", "approved", "rejected");
+        var batch = service.recordActions("test.approval", ids);
+        for (int index = 0; index < ids.size(); index++) {
+            String id = ids.get(index);
+            var single = service.recordActions("test.approval", id);
+            assertThat(single).isEqualTo(batch.get(index));
+            assertThat(single.actions()).filteredOn(action -> "update".equals(action.actionCode()))
+                    .singleElement().satisfies(action -> {
+                        assertThat(action.available()).isEqualTo("rejected".equals(id));
+                        if (!action.available()) assertThat(action.reason()).contains("不可直接修改");
+                    });
+            assertThat(single.actions()).filteredOn(action -> !"update".equals(action.actionCode()))
+                    .allSatisfy(action -> assertThat(action.available()).isTrue());
+        }
+        // Non-update standard actions must not trigger extra reads for approval-only services.
+        for (String id : ids) org.mockito.Mockito.verify(ability, org.mockito.Mockito.times(1)).select(id);
+    }
+
+    private interface ApprovalRecordAbility extends net.ximatai.muyun.spring.ability.ApprovalAbility<net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity> {}
+
+    @Test
     void shouldProjectPlatformManagedProtectionIntoStaticRecordActionAvailability() {
         PlatformModuleService moduleCatalog = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);

@@ -25,7 +25,7 @@ MAIN 元数据声明 APPROVAL；模块的 MAIN 能力意图可用于创建元数
 | `approvalSubmittedAt` | 提交时间 |
 | `approvalCompletedAt` | 审批完成时间 |
 
-普通 CRUD 不能覆盖摘要。processing、approved 状态禁止普通更新；被驳回业务可修改后重提。摘要写入走 `ApprovalAbility.writeApprovalState` 或动态记录服务对应门面，继续执行正常数据权限、乐观锁和保存生命周期。
+普通 CRUD 不能覆盖摘要。processing、approved 状态禁止普通更新；被驳回业务可修改后重提。标准动作可用性和实际执行共同表达该审批更新限制，前端编辑入口消费记录动作可用性及受限原因；受信任务办理仍由独立命令授权。摘要写入走 `ApprovalAbility.writeApprovalState` 或动态记录服务对应门面，继续执行正常数据权限、乐观锁和保存生命周期。
 
 ## 流程与业务任务
 
