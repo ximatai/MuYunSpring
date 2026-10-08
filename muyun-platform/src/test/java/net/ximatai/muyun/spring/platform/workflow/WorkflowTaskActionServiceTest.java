@@ -15,6 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
@@ -39,6 +41,8 @@ class WorkflowTaskActionServiceTest {
         var definition = new WorkflowTaskDefinition(); definition.setManualConfirm(true);
         when(taskSpecifications.resolve(any())).thenReturn(new WorkflowBusinessTaskSpec(definition, List.of(), List.of()));
         when(taskEvaluator.evaluate(any(), any(), any(), any())).thenReturn(WorkflowModuleTaskEvaluation.manualConfirm(List.of()));
+        when(progressionService.advanceFromNode(anyString(), anyString(), anyString(), any(), any(), any(), anyList()))
+                .thenAnswer(call -> WorkflowProgressionResult.empty(instanceDao.findById(call.getArgument(0))));
     }
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -726,9 +730,14 @@ class WorkflowTaskActionServiceTest {
         when(taskDao.updateByIdAndVersion(task, 3)).thenReturn(1);
         when(nodeDao.updateByIdAndVersion(node, 2)).thenReturn(1);
 
+        var completedInstance = instance(); completedInstance.setInstanceStatus(WorkflowInstanceStatus.COMPLETED);
+        when(progressionService.advanceFromNode(anyString(), anyString(), anyString(), any(), any(), any(), anyList()))
+                .thenReturn(WorkflowProgressionResult.empty(completedInstance));
         WorkflowTaskActionResult result = service.completeBusinessTask(request(
                 "task-1", "user-1", null, null, "done", Instant.parse("2026-06-05T02:00:00Z")));
 
+        assertThat(result.instance()).isSameAs(completedInstance);
+        assertThat(result.instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
         assertThat(result.task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
         assertThat(result.task().getActualProcessorId()).isEqualTo("user-1");
         assertThat(result.task().getDecision()).isEqualTo("complete");

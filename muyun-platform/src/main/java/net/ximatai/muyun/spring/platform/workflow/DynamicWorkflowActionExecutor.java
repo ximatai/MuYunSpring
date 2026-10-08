@@ -60,10 +60,10 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                     submitWorkflow(context, request, workflowDefinitionAlias(context, request)));
             case ACTION_TASK_ACTION -> DynamicActionResultBody.refreshed(taskActionFacade.execute(
                     requireText(payload(request, "taskActionCode"), "workflow task action code must not be blank"),
-                    taskRequest(request)));
+                    taskRequest(context, request)));
             case ACTION_AVAILABLE_TASK_ACTIONS -> DynamicActionResultBody.of(taskActionFacade.availableActions(
                     requireText(payload(request, "taskId"), "workflow task id must not be blank"),
-                    operatorId(context, request)));
+                    operatorId(context)));
             default -> executeBoundWorkflowAction(context, request, workflowAction);
         };
     }
@@ -83,7 +83,7 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
             return DynamicActionResultBody.refreshed(instanceActionFacade.execute(workflowAction,
                     instanceRequest(context, request)));
         }
-        return DynamicActionResultBody.refreshed(taskActionFacade.execute(workflowAction, taskRequest(request)));
+        return DynamicActionResultBody.refreshed(taskActionFacade.execute(workflowAction, taskRequest(context, request)));
     }
 
     private WorkflowSubmitResult submitApproval(DynamicActionExecutionContext context,
@@ -130,10 +130,10 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         return text(action.getBindingAlias(), null);
     }
 
-    private WorkflowTaskActionRequest taskRequest(DynamicActionExecutionRequest request) {
+    private WorkflowTaskActionRequest taskRequest(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
         return WorkflowTaskActionRequest.builder(
                         requireText(payload(request, "taskId"), "workflow task id must not be blank"),
-                        text(payload(request, "operatorId"), null))
+                        operatorId(context))
                 .targetAssigneeId(text(payload(request, "targetAssigneeId"), null))
                 .addSignSegment(addSignSegment(payload(request, "addSignSegment")))
                 .rejectResubmitMode(rejectResubmitMode(payload(request, "rejectResubmitMode")))
@@ -150,7 +150,7 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                                                           DynamicActionExecutionRequest request) {
         return new WorkflowInstanceActionRequest(
                 requireText(payload(request, "instanceId"), "workflow instance id must not be blank"),
-                operatorId(context, request),
+                operatorId(context),
                 text(payload(request, "reason"), null),
                 operatedAt(payload(request, "operatedAt")));
     }
@@ -250,17 +250,13 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         return requireText(recordId, "workflow record id must not be blank");
     }
 
-    private String operatorId(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
-        String operatorId = text(payload(request, "operatorId"), null);
-        if (operatorId != null) {
-            return operatorId;
-        }
+    private String operatorId(DynamicActionExecutionContext context) {
         if (context != null && text(context.operatorId(), null) != null) {
             return context.operatorId();
         }
         return CurrentUserContext.currentUser()
                 .map(user -> user.userId())
-                .orElse("system");
+                .orElseThrow(() -> new PlatformException("authenticated workflow operator is required"));
     }
 
     private Object payload(DynamicActionExecutionRequest request, String key) {

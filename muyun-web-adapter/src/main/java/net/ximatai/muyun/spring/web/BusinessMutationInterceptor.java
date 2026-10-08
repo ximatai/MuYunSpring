@@ -61,9 +61,14 @@ public class BusinessMutationInterceptor implements AsyncHandlerInterceptor {
                 };
             }
         }
-        return WebAnnotationSupport.hasMergedMethodOrTypeAnnotation(handlerMethod.getMethod(),
-                handlerMethod.getBeanType(), BusinessMutation.class)
-                && ActionExecutionContextHolder.current().isPresent();
+        BusinessMutation mutation = WebAnnotationSupport.findMergedMethodAnnotation(handlerMethod.getMethod(),
+                handlerMethod.getBeanType(), BusinessMutation.class);
+        if (mutation == null) {
+            mutation = org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
+                    handlerMethod.getBeanType(), BusinessMutation.class);
+        }
+        return mutation != null && (!mutation.actionContextRequired()
+                || ActionExecutionContextHolder.current().isPresent());
     }
 
     private void closeMutationContext(HttpServletRequest request) {

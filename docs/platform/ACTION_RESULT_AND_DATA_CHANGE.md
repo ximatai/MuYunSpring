@@ -495,3 +495,5 @@ Web Adapter
 | `PlatformWebError`                                          | 继续由异常处理链路返回，保留 HTTP 失败状态                                                                                                                      | 可复用 `ActionMessage` 结构表达业务错误性质                                  |
 
 项目未上线，不保留旧顶层 `record` 包装的过渡兼容。前端静态客户端只消费原始记录、原始计数或统一 `ActionResult`；计数型动作进入动作包装后通过 `data` 读取真实计数。
+
+通过任务等间接目标办理业务的接口，可声明 `@BusinessMutation(actionContextRequired = false)`，由领域服务校验身份、任务归属与真实业务动作权限，并在事务内产生变更事实。该声明只开启事实收集和标准结果交付，不提供授权，也不取代领域校验。业务接口默认仍要求已解析的模块动作上下文。

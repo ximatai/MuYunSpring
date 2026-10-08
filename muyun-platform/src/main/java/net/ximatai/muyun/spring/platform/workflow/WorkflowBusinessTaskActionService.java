@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.ability.action.DataChange;
+import net.ximatai.muyun.spring.ability.action.ActionMessage;
+import net.ximatai.muyun.spring.ability.action.MutationContextHolder;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordActionCommand;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordActionExecutor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -60,6 +63,10 @@ public class WorkflowBusinessTaskActionService {
                 action, version, values, configuredPayload));
         var result = actions.execute("complete", WorkflowTaskActionRequest.builder(taskId, operatorId).reason(reason)
                 .manualRouteSelections(manualRouteSelections).build());
+        MutationContextHolder.current().ifPresent(context -> {
+            context.record(DataChange.recordUpdated(instance.getModuleAlias(), instance.getRecordId()));
+            context.message(ActionMessage.success("workflow.business-task.completed", "业务任务已完成"));
+        });
         return new Result(businessResult, result);
     }
     public record Result(Object businessResult, WorkflowTaskActionResult actionResult) {}

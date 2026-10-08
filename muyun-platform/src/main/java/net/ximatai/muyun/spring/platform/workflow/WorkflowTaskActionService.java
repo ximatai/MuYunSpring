@@ -484,8 +484,10 @@ public class WorkflowTaskActionService {
                 request.reason(), now);
         eventDao.insert(event);
         createDelegationCompletionNotice(instance, task, operatorId, now);
-        if (!remaining) progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
-                request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
+        if (!remaining) {
+            instance = progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
+                    request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections()).instance();
+        }
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_COMPLETE, "complete",
                 operatorId, null, null, request.reason());
         return WorkflowTaskActionResult.of(task, node, instance, event);

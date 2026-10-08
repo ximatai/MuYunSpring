@@ -220,7 +220,7 @@ class DynamicWorkflowActionExecutorTest {
                 .withPayload(Map.of("workflowAction", "availableTaskActions", "taskId", "task-1",
                         "operatorId", "user-1"));
 
-        Object result = executor.execute(context("availableTaskActions", null), request);
+        Object result = executor.execute(context("availableTaskActions", null, "user-1"), request);
 
         assertThat(((DynamicActionResultBody) result).value()).isSameAs(actions);
     }
@@ -235,8 +235,37 @@ class DynamicWorkflowActionExecutorTest {
                 .hasMessageContaining("unsupported dynamic workflow action");
     }
 
+    @Test
+    void clientCannotImpersonateTaskAssigneeOrInstanceOperator() {
+        for (String action : List.of("taskAction", "approve", "terminate", "availableTaskActions")) {
+            executor.execute(context(action, "record-1", "authenticated-user"),
+                    DynamicActionExecutionRequest.id("record-1").withPayload(Map.of(
+                            "taskId", "task-1", "instanceId", "instance-1",
+                            "taskActionCode", "approve", "operatorId", "victim")));
+        }
+        verify(taskActionFacade, org.mockito.Mockito.times(2)).execute(
+                org.mockito.ArgumentMatchers.eq("approve"), org.mockito.ArgumentMatchers.argThat(
+                        request -> "authenticated-user".equals(request.operatorId())));
+        verify(instanceActionFacade).execute(org.mockito.ArgumentMatchers.eq("terminate"),
+                org.mockito.ArgumentMatchers.argThat(request -> "authenticated-user".equals(request.operatorId())));
+        verify(taskActionFacade).availableActions("task-1", "authenticated-user");
+    }
+
+    @Test
+    void payloadIdentityCannotAuthorizeAnUnauthenticatedAction() {
+        var context = context("approve", "record-1", null);
+        assertThatThrownBy(() -> executor.execute(context, DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("taskId", "task-1", "operatorId", "victim"))))
+                .hasMessageContaining("authenticated workflow operator");
+        org.mockito.Mockito.verifyNoInteractions(taskActionFacade);
+    }
+
     private DynamicActionExecutionContext context(String actionCode, String recordId) {
+        return context(actionCode, recordId, "manager-1");
+    }
+
+    private DynamicActionExecutionContext context(String actionCode, String recordId, String operator) {
         return new DynamicActionExecutionContext("sales.contract", "contract", actionCode, null,
-                recordId, "trace-1", "tenant-1", false, null);
+                recordId, "trace-1", "tenant-1", false, null, operator, "USER", null, null, null, null);
     }
 }

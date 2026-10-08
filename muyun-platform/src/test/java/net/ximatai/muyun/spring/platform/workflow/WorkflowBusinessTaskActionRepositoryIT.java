@@ -96,6 +96,7 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
             var completed = businessActions.execute(fixture.taskId(), "custom-ready", fixture.recordVersion(),
                     Map.of(), Map.of(), "operator", "complete");
             assertThat(completed.actionResult().task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+            assertThat(completed.actionResult().instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
             assertThat(facts(fixture)).containsEntry("title", "custom action").containsEntry("manualConfirm", true)
                     .containsEntry("version", fixture.recordVersion() + 1).containsEntry("updatedBy", "operator");
             assertThat(dynamicRecords.select(fixture.module(), "entry", fixture.recordId()).getApprovalStatus()).isEqualTo("processing");
@@ -111,18 +112,29 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
              var actor = CurrentUserContext.use(CurrentUser.tenantUser("operator", "Operator", tenant))) {
             var fixture = fixture(dynamic);
             var before = facts(fixture);
-            assertThatThrownBy(() -> businessActions.execute(fixture.taskId(), guide, fixture.recordVersion(),
-                    Map.of("title", "must rollback", "manualConfirm", false), Map.of(), "operator", "finish"))
-                    .isInstanceOf(PlatformException.class).hasMessageContaining("业务准备尚未完成");
+            var failedMutation = new net.ximatai.muyun.spring.ability.action.MutationContext();
+            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(failedMutation)) {
+                assertThatThrownBy(() -> businessActions.execute(fixture.taskId(), guide, fixture.recordVersion(),
+                        Map.of("title", "must rollback", "manualConfirm", false), Map.of(), "operator", "finish"))
+                        .isInstanceOf(PlatformException.class).hasMessageContaining("业务准备尚未完成");
+            }
+            assertThat(failedMutation.committedChangeSet(type -> fixture.module()).changes()).isEmpty();
             assertThat(facts(fixture)).containsEntry("title", before.get("title")).containsEntry("manualConfirm", false)
                     .containsEntry("version", fixture.recordVersion());
             assertThat(tasks.findById(fixture.taskId()).getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
             assertThat(instances.findById(fixture.instanceId()).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.RUNNING);
             assertThat(checkResults.query(Criteria.of().eq("taskId", fixture.taskId()), PageRequest.of(1, 10))).isEmpty();
 
-            var completed = businessActions.execute(fixture.taskId(), guide, fixture.recordVersion(),
-                    Map.of("title", "saved with workflow", "manualConfirm", true), Map.of(), "operator", "finish");
+            var successfulMutation = new net.ximatai.muyun.spring.ability.action.MutationContext();
+            WorkflowBusinessTaskActionService.Result completed;
+            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(successfulMutation)) {
+                completed = businessActions.execute(fixture.taskId(), guide, fixture.recordVersion(),
+                        Map.of("title", "saved with workflow", "manualConfirm", true), Map.of(), "operator", "finish");
+            }
+            assertThat(successfulMutation.committedChangeSet(type -> fixture.module()).changes())
+                    .contains(net.ximatai.muyun.spring.ability.action.DataChange.recordUpdated(fixture.module(), fixture.recordId()));
             assertThat(completed.actionResult().task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+            assertThat(completed.actionResult().instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
             assertThat(facts(fixture)).containsEntry("title", "saved with workflow").containsEntry("manualConfirm", true)
                     .containsEntry("version", fixture.recordVersion() + 1).containsEntry("updatedBy", "operator");
             assertThat(instances.findById(fixture.instanceId()).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
@@ -187,6 +199,7 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
                     Map.of("title", "saved and selected", "manualConfirm", true), Map.of(), "operator", "finish",
                     List.of(new WorkflowManualRouteSelection("choice", "choice-selected", "choose selected route")));
             assertThat(completed.actionResult().task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+            assertThat(completed.actionResult().instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
             assertThat(facts(fixture)).containsEntry("title", "saved and selected").containsEntry("manualConfirm", true)
                     .containsEntry("version", fixture.recordVersion() + 1).containsEntry("updatedBy", "operator");
             assertThat(instances.findById(fixture.instanceId()).getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
