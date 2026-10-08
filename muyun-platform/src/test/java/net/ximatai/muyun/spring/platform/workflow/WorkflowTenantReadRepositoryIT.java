@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 /** Exercise repository filtering, including the same user and business record in two tenants. */
-@SpringBootTest(classes = WorkflowConcurrencyRepositoryIT.Host.class)
+@SpringBootTest(classes = WorkflowTenantReadRepositoryIT.Host.class)
 class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
     @DynamicPropertySource static void properties(DynamicPropertyRegistry properties) {
         properties.add("muyun.database.repository-schema-mode", () -> "ENSURE");
@@ -67,7 +67,9 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         module = "test.tenant_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         var policy = new WorkflowActionPolicyService();
         runtime = new WorkflowRuntimeReadFacade(instances, tasks, nodes, routes, events,
-                mock(WorkflowTaskActionAvailabilityService.class), policy, conditions);
+                mock(WorkflowTaskActionAvailabilityService.class), policy, new WorkflowTaskAssignmentPolicyService(),
+                WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE),
+                WorkflowTestSupport.provider(WorkflowRecordSummaryResolver.NONE), conditions);
         queries = new WorkflowTaskQueryService(tasks, events);
         history = new WorkflowHistoryQueryService(histories, mock(WorkflowArchiveService.class), policy);
         admin = new WorkflowAdminService(instances, tasks, nodes, routes, events, policy,
@@ -213,4 +215,8 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
     private record Fixture(WorkflowInstance instance, WorkflowTask task, WorkflowHistoryInstance history) {}
+    @org.springframework.boot.SpringBootConfiguration
+    @org.springframework.context.annotation.Import(WorkflowRepositoryTestConfiguration.class)
+    static class Host {}
+
 }

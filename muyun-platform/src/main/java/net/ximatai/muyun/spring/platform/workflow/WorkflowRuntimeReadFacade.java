@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -55,77 +54,23 @@ public class WorkflowRuntimeReadFacade {
                                      WorkflowNodeInstanceDao nodeDao,
                                      WorkflowRouteInstanceDao routeDao,
                                      WorkflowEventDao eventDao,
-                                     WorkflowTaskActionAvailabilityService availabilityService, WorkflowConditionService conditions) {
-        this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
-                new WorkflowActionPolicyService(), new WorkflowTaskAssignmentPolicyService(),
-                WorkflowUserTitleResolver.NONE, conditions);
-    }
-
-    @Autowired
-    public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao,
-                                     WorkflowTaskDao taskDao,
-                                     WorkflowNodeInstanceDao nodeDao,
-                                     WorkflowRouteInstanceDao routeDao,
-                                     WorkflowEventDao eventDao,
                                      WorkflowTaskActionAvailabilityService availabilityService,
                                      WorkflowActionPolicyService actionPolicyService,
                                      WorkflowTaskAssignmentPolicyService assignmentPolicyService,
                                      ObjectProvider<WorkflowUserTitleResolver> userTitleResolver,
                                      ObjectProvider<WorkflowRecordSummaryResolver> recordSummaryResolver,
                                      WorkflowConditionService conditions) {
-        this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
-                assignmentPolicyService, userTitleResolver == null
-                ? WorkflowUserTitleResolver.NONE
-                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE),
-                recordSummaryResolver.getIfAvailable(() -> WorkflowRecordSummaryResolver.NONE), conditions);
-    }
-
-    public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao,
-                                     WorkflowTaskDao taskDao,
-                                     WorkflowNodeInstanceDao nodeDao,
-                                     WorkflowRouteInstanceDao routeDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowTaskActionAvailabilityService availabilityService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowTaskAssignmentPolicyService assignmentPolicyService,
-                                     WorkflowUserTitleResolver userTitleResolver, WorkflowConditionService conditions) {
-        this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
-                assignmentPolicyService, userTitleResolver, WorkflowRecordSummaryResolver.NONE, conditions);
-    }
-
-    public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao, WorkflowTaskDao taskDao,
-                                    WorkflowNodeInstanceDao nodeDao, WorkflowRouteInstanceDao routeDao,
-                                    WorkflowEventDao eventDao, WorkflowTaskActionAvailabilityService availabilityService,
-                                    WorkflowActionPolicyService actionPolicyService,
-                                    WorkflowTaskAssignmentPolicyService assignmentPolicyService,
-                                    WorkflowUserTitleResolver userTitleResolver,
-                                    WorkflowRecordSummaryResolver recordSummaryResolver, WorkflowConditionService conditions) {
+        this.instanceDao = java.util.Objects.requireNonNull(instanceDao);
+        this.taskDao = java.util.Objects.requireNonNull(taskDao);
+        this.nodeDao = java.util.Objects.requireNonNull(nodeDao);
+        this.routeDao = java.util.Objects.requireNonNull(routeDao);
+        this.eventDao = java.util.Objects.requireNonNull(eventDao);
+        this.availabilityService = java.util.Objects.requireNonNull(availabilityService);
+        this.actionPolicyService = java.util.Objects.requireNonNull(actionPolicyService);
+        this.assignmentPolicyService = java.util.Objects.requireNonNull(assignmentPolicyService);
         this.conditions = java.util.Objects.requireNonNull(conditions);
-        this.instanceDao = instanceDao;
-        this.taskDao = taskDao;
-        this.nodeDao = nodeDao;
-        this.routeDao = routeDao;
-        this.eventDao = eventDao;
-        this.availabilityService = availabilityService;
-        this.actionPolicyService = actionPolicyService == null
-                ? new WorkflowActionPolicyService()
-                : actionPolicyService;
-        this.assignmentPolicyService = assignmentPolicyService == null
-                ? new WorkflowTaskAssignmentPolicyService()
-                : assignmentPolicyService;
-        this.userTitleResolver = userTitleResolver == null ? WorkflowUserTitleResolver.NONE : userTitleResolver;
-        this.recordSummaryResolver = java.util.Objects.requireNonNull(recordSummaryResolver);
-    }
-
-    public WorkflowRuntimeReadFacade(WorkflowInstanceDao instanceDao,
-                                     WorkflowTaskDao taskDao,
-                                     WorkflowNodeInstanceDao nodeDao,
-                                     WorkflowRouteInstanceDao routeDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowTaskActionAvailabilityService availabilityService,
-                                     WorkflowActionPolicyService actionPolicyService, WorkflowConditionService conditions) {
-        this(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService,
-                new WorkflowTaskAssignmentPolicyService(), WorkflowUserTitleResolver.NONE, conditions);
+        this.userTitleResolver = userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE);
+        this.recordSummaryResolver = recordSummaryResolver.getIfAvailable(() -> WorkflowRecordSummaryResolver.NONE);
     }
 
     public WorkflowRuntimeRenderBundle renderBundle(String instanceId) {

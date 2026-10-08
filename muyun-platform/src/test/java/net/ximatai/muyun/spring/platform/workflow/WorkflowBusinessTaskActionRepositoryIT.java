@@ -355,7 +355,7 @@ class WorkflowBusinessTaskActionRepositoryIT extends PlatformPostgresIntegration
     }
 
     @SpringBootConfiguration
-    @Import({WorkflowConcurrencyRepositoryIT.Host.class, WorkflowModuleTaskRuntimeService.class,
+    @Import({WorkflowRepositoryTestConfiguration.class, WorkflowModuleTaskRuntimeService.class,
             WorkflowBusinessTaskActionService.class, DefaultModuleRecordActionExecutor.class, ModuleCompletionCheckService.class})
     static class Host {
         @Bean StaticBusiness business(WorkflowTaskDefinitionDao dao) { return new StaticBusiness(dao); }

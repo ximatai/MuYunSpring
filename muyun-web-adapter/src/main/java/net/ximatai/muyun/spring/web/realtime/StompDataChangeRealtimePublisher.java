@@ -10,14 +10,10 @@ public class StompDataChangeRealtimePublisher implements DataChangeRealtimePubli
     private final RealtimeMessagePublisher messagePublisher;
     private final DataChangeRealtimePublisher fanOutPublisher;
 
-    public StompDataChangeRealtimePublisher(RealtimeMessagePublisher messagePublisher) {
-        this(messagePublisher, changeSet -> {});
-    }
-
     public StompDataChangeRealtimePublisher(RealtimeMessagePublisher messagePublisher,
                                            DataChangeRealtimePublisher fanOutPublisher) {
-        this.messagePublisher = messagePublisher;
-        this.fanOutPublisher = fanOutPublisher;
+        this.messagePublisher = java.util.Objects.requireNonNull(messagePublisher);
+        this.fanOutPublisher = java.util.Objects.requireNonNull(fanOutPublisher);
     }
 
     @Override

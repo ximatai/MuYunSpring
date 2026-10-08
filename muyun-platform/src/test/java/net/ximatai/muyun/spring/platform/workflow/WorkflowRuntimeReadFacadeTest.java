@@ -39,8 +39,7 @@ class WorkflowRuntimeReadFacadeTest {
     private final WorkflowActionPolicyService actionPolicyService = mock(WorkflowActionPolicyService.class);
     private final ModuleRecordFacts facts = mock(ModuleRecordFacts.class);
     private final WorkflowConditionService conditions = new WorkflowConditionService(facts);
-    private final WorkflowRuntimeReadFacade facade = new WorkflowRuntimeReadFacade(
-            instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService, actionPolicyService, conditions);
+    private final WorkflowRuntimeReadFacade facade = readFacade(WorkflowUserTitleResolver.NONE, WorkflowRecordSummaryResolver.NONE);
 
     @Test
     void shouldLoadRuntimeRenderBundle() {
@@ -1117,8 +1116,7 @@ class WorkflowRuntimeReadFacadeTest {
         var summaries = mock(WorkflowRecordSummaryResolver.class);
         when(summaries.resolve(any())).thenAnswer(call->((WorkflowInstance)call.getArgument(0)).getRecordId().equals("secret")
                 ? new WorkflowRecordSummary(null,"销售合同",false) : new WorkflowRecordSummary("合同 ***", "销售合同", true));
-        var paging = new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
-                actionPolicyService, new WorkflowTaskAssignmentPolicyService(), WorkflowUserTitleResolver.NONE, summaries, conditions);
+        var paging = readFacade(WorkflowUserTitleResolver.NONE, summaries);
         var one = paging.workbenchPage("todo", "user-1", PageRequest.of(1,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
         var two = paging.workbenchPage("todo", "user-1", PageRequest.of(2,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
         assertThat(one.page().getTotal()).isEqualTo(2);
@@ -1238,7 +1236,12 @@ class WorkflowRuntimeReadFacadeTest {
     }
 
     private WorkflowRuntimeReadFacade facadeWithTitles(Map<String, String> userTitles) {
-        return new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
-                actionPolicyService, new WorkflowTaskAssignmentPolicyService(), userIds -> userTitles, conditions);
+        return readFacade(userIds -> userTitles, WorkflowRecordSummaryResolver.NONE);
     }
+    private WorkflowRuntimeReadFacade readFacade(WorkflowUserTitleResolver titles, WorkflowRecordSummaryResolver summaries) {
+        return new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao, availabilityService,
+                actionPolicyService, new WorkflowTaskAssignmentPolicyService(),
+                WorkflowTestSupport.provider(titles), WorkflowTestSupport.provider(summaries), conditions);
+    }
+
 }

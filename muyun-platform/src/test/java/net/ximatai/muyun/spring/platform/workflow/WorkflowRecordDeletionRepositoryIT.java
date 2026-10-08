@@ -57,7 +57,7 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     @Autowired PlatformQueryItemService queryItems;
     @Autowired RecordImpactRelationService generatedRelations;
     @Autowired WorkflowModuleSubmitService submitter;
-    @Autowired WorkflowConcurrencyRepositoryIT.Pauses pauses;
+    @Autowired WorkflowConcurrencyProbe pauses;
     @Autowired WorkflowDefinitionDao definitions;
     @Autowired WorkflowVersionDao versions;
     @Autowired WorkflowNodeDefinitionDao nodeDefinitions;
@@ -410,7 +410,7 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
         }
     }
     @SpringBootConfiguration
-    @Import({WorkflowConcurrencyRepositoryIT.Host.class, WorkflowInstanceActionService.class, WorkflowRecordDeletionGuard.class,
+    @Import({WorkflowRepositoryTestConfiguration.class, WorkflowConcurrencyProbe.Configuration.class, WorkflowInstanceActionService.class, WorkflowRecordDeletionGuard.class,
             StaticWorkflowModuleRecordGuard.class, DynamicWorkflowModuleRecordGuard.class, WorkflowModuleSubmitService.class, WorkflowSubmitReadFacade.class})
     static class Host {
         @Bean PlatformQueryItemService queryItems() { return mock(PlatformQueryItemService.class); }

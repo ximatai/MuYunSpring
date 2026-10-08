@@ -3,18 +3,14 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
-import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.*;
 import org.springframework.boot.*;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,13 +18,10 @@ import org.springframework.test.context.*;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 import javax.sql.DataSource;
-import java.lang.reflect.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.mock;
 
 @SpringBootTest(classes = WorkflowConcurrencyRepositoryIT.Host.class)
 class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
@@ -51,7 +44,7 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired WorkflowApprovalSummaryWriter summaries;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired DataSource dataSource;
-    @Autowired Pauses pauses;
+    @Autowired WorkflowConcurrencyProbe pauses;
     private String module;
     private final String tenant = "concurrent-tenant";
 
@@ -758,52 +751,7 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
 
-    static class Pauses implements WorkflowModuleRecordGuard {
-        volatile String submitRecord;
-        final AtomicBoolean approvalQuery = new AtomicBoolean();
-        CountDownLatch reached; CountDownLatch release;
-        void reset() { submitRecord = null; approvalQuery.set(false); reached = new CountDownLatch(1); release = new CountDownLatch(1); }
-        @Override public void beforeSubmit(WorkflowSubmitRequest request) {
-            if (request.recordId().equals(submitRecord) && Thread.currentThread().getName().equals("first-submit")) await();
-        }
-        void await() { reached.countDown(); try { if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("pause timed out"); }
-            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException(interrupted); } }
-        WorkflowTaskDao observe(WorkflowTaskDao delegate) {
-            return (WorkflowTaskDao) Proxy.newProxyInstance(WorkflowTaskDao.class.getClassLoader(), new Class<?>[]{WorkflowTaskDao.class}, (proxy, method, arguments) -> {
-                try {
-                    Object result = method.invoke(delegate, arguments);
-                    // Capture the first transaction's sibling snapshot while its task update is uncommitted.
-                    if (method.getName().equals("query") && Thread.currentThread().getName().equals("first-approval") && approvalQuery.compareAndSet(true, false)) await();
-                    return result;
-                } catch (InvocationTargetException failure) { throw failure.getCause(); }
-            });
-        }
-    }
-
-    @SpringBootConfiguration @EnableAutoConfiguration
-    @EnableMuYunRepositories(basePackageClasses = WorkflowInstanceDao.class)
-    @Import({WorkflowDefinitionService.class, WorkflowVersionService.class, WorkflowDefinitionSelector.class,
-            WorkflowConditionService.class, WorkflowInstanceService.class, WorkflowInstanceStateService.class,
-            WorkflowNodeInstanceStateService.class, WorkflowRouteInstanceStateService.class, WorkflowRouteRuntimeService.class,
-            WorkflowRuntimeEventFactory.class, WorkflowInstanceSnapshotFactory.class, WorkflowParticipantService.class,
-            WorkflowRuntimeTaskFactory.class, WorkflowSubmitDraftService.class, WorkflowRuntimeSubmitService.class,
-            WorkflowSubmitFacade.class, WorkflowRuntimeActivationService.class, WorkflowRuntimeProgressionService.class,
-            WorkflowTaskActionService.class, WorkflowAutomaticApprovalService.class, WorkflowActionPolicyService.class, WorkflowTaskAssignmentPolicyService.class,
-            WorkflowApprovalTaskPolicyService.class, WorkflowDelegationService.class, WorkflowDelegationCompletionNoticeService.class,
-            WorkflowRuntimePluginDispatcher.class, WorkflowArchiveService.class})
-    static class Host {
-        @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
-        @Bean ModuleRecordFacts facts() { return (module, id) -> Map.of("id", id); }
-        @Bean WorkflowApprovalSummaryWriter summary() { return mock(WorkflowApprovalSummaryWriter.class); }
-        @Bean WorkflowModuleTaskEvaluator evaluator() { return mock(WorkflowModuleTaskEvaluator.class); }
-        @Bean WorkflowBusinessTaskResolver specifications() { return mock(WorkflowBusinessTaskResolver.class); }
-        @Bean Pauses pauses() { return new Pauses(); }
-        @Bean static org.springframework.beans.factory.config.BeanPostProcessor taskQueryProbe(Pauses pauses) {
-            return new org.springframework.beans.factory.config.BeanPostProcessor() {
-                @Override public Object postProcessAfterInitialization(Object bean, String name) {
-                    return bean instanceof WorkflowTaskDao tasks ? pauses.observe(tasks) : bean;
-                }
-            };
-        }
-    }
+    @SpringBootConfiguration
+    @Import({WorkflowRepositoryTestConfiguration.class, WorkflowConcurrencyProbe.Configuration.class})
+    static class Host {}
 }

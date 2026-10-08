@@ -56,7 +56,7 @@ class RealtimePublisherTest {
     @Test
     void shouldSendDataChangeEnvelopeToCurrentUserQueue() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
         CommittedChangeSet changeSet = new CommittedChangeSet("change-set-1",
                 List.of(DataChange.recordUpdated("iam.employee", "employee-1")));
 
@@ -76,7 +76,7 @@ class RealtimePublisherTest {
     @Test
     void shouldNeverBroadcastRecordOrResourceIdentifiersToSharedTopics() {
         RecordingRealtimeMessagePublisher messages = new RecordingRealtimeMessagePublisher();
-        var publisher = new StompDataChangeRealtimePublisher(messages);
+        var publisher = new StompDataChangeRealtimePublisher(messages, changeSet -> {});
         try (var scope = CurrentUserContext.use(CurrentUser.tenantUser("source", "Source", "tenant-a"))) {
             publisher.publish(new CommittedChangeSet("change", List.of(
                     DataChange.recordDeleted("iam.employee", "private-record"),
@@ -89,7 +89,7 @@ class RealtimePublisherTest {
     @Test
     void shouldSkipDataChangeWithoutCurrentUser() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
 
         publisher.publish(new CommittedChangeSet("change-set-1",
                 List.of(DataChange.recordUpdated("iam.employee", "employee-1"))));
@@ -100,7 +100,7 @@ class RealtimePublisherTest {
     @Test
     void shouldSkipEmptyChangeSet() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
 
         publisher.publish(CommittedChangeSet.empty("change-set-1"));
 
