@@ -28,8 +28,46 @@ class WorkflowRuntimeSubmitServiceTest {
     private final WorkflowRouteInstanceDao routeDao = mock(WorkflowRouteInstanceDao.class);
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowEventDao eventDao = mock(WorkflowEventDao.class);
+    private final WorkflowArchiveService archives = mock(WorkflowArchiveService.class);
     private final WorkflowRuntimeSubmitService service = new WorkflowRuntimeSubmitService(
-            draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, eventDao);
+            draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, eventDao,
+                    new WorkflowRuntimePluginDispatcher(List.of()), WorkflowTestSupport.provider(archives));
+
+    @Test
+    void constructionRequiresArchiveProviderWithoutResolvingItEarly() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new WorkflowRuntimeSubmitService(draftService,
+                instanceService, instanceDao, nodeDao, routeDao, taskDao, eventDao,
+                new WorkflowRuntimePluginDispatcher(List.of()), null))
+                .isInstanceOf(NullPointerException.class).hasMessage("archives");
+        @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowArchiveService>)
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        new WorkflowRuntimeSubmitService(draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao,
+                eventDao, new WorkflowRuntimePluginDispatcher(List.of()), provider);
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void restartUsesArchiveProviderSuppliedThroughTheNormalConstructor() {
+        var draft = draft();
+        draft.instance().setApprovalEnabled(true); draft.instance().setStartedBy("user-1");
+        var previous = new WorkflowInstance(); previous.setId("previous"); previous.setModuleAlias(draft.instance().getModuleAlias());
+        previous.setRecordId(draft.instance().getRecordId()); previous.setStartedBy("user-1");
+        previous.setInstanceStatus(WorkflowInstanceStatus.REJECTED); previous.setApprovalStatus(WorkflowApprovalStatus.REJECTED);
+        previous.setRejectResubmitMode(WorkflowRejectResubmitMode.RESTART);
+        var resubmit = new WorkflowTask(); resubmit.setId("resubmit"); resubmit.setAssigneeId("user-1");
+        resubmit.setInstanceId("previous"); resubmit.setTaskKind(WorkflowTaskKind.RESUBMIT); resubmit.setTaskStatus(WorkflowTaskStatus.TODO); resubmit.setVersion(0);
+        when(instanceDao.query(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(List.of(previous));
+        when(instanceDao.findById("previous")).thenReturn(previous);
+        when(taskDao.query(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(List.of(resubmit), List.of());
+        when(taskDao.updateByIdAndVersion(resubmit, 0)).thenReturn(1);
+        Instant now = Instant.parse("2026-06-05T01:00:00Z");
+
+        service.persist(draft, now);
+
+        verify(archives).archiveCurrentInstance(previous, WorkflowArchiveReason.RESTARTED, now);
+        assertThat(draft.instance().getPreviousInstanceId()).isEqualTo("previous");
+        assertThat(resubmit.getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+    }
 
     @Test
     void shouldPersistSubmitDraftInStableOrder() {
@@ -86,7 +124,7 @@ class WorkflowRuntimeSubmitServiceTest {
         RecordingPlugin plugin = new RecordingPlugin();
         WorkflowRuntimeSubmitService pluginService = new WorkflowRuntimeSubmitService(
                 draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, eventDao,
-                new WorkflowRuntimePluginDispatcher(List.of(plugin)));
+                new WorkflowRuntimePluginDispatcher(List.of(plugin)), WorkflowTestSupport.provider(mock(WorkflowArchiveService.class)));
         WorkflowDefinition definition = new WorkflowDefinition();
         WorkflowVersion version = new WorkflowVersion();
         WorkflowSubmitDraft draft = draft();
@@ -123,7 +161,7 @@ class WorkflowRuntimeSubmitServiceTest {
         };
         WorkflowRuntimeSubmitService pluginService = new WorkflowRuntimeSubmitService(
                 draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, eventDao,
-                new WorkflowRuntimePluginDispatcher(List.of(blocker)));
+                new WorkflowRuntimePluginDispatcher(List.of(blocker)), WorkflowTestSupport.provider(mock(WorkflowArchiveService.class)));
         WorkflowDefinition definition = new WorkflowDefinition();
         WorkflowVersion version = new WorkflowVersion();
         WorkflowSubmitDraft draft = draft();

@@ -24,8 +24,20 @@ class WorkflowSubmitFacadeTest {
     private final WorkflowRuntimeSubmitService runtimeSubmitService = mock(WorkflowRuntimeSubmitService.class);
     private final WorkflowApprovalSummaryWriter writer = mock(WorkflowApprovalSummaryWriter.class);
     private final WorkflowModuleRecordGuard recordGuard = mock(WorkflowModuleRecordGuard.class);
+    private final WorkflowAutomaticApprovalService automaticApprovals = mock(WorkflowAutomaticApprovalService.class);
     private final WorkflowSubmitFacade facade = new WorkflowSubmitFacade(
-            selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard));
+            selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), WorkflowTestSupport.provider(automaticApprovals));
+
+    @Test
+    void constructionRequiresTheLazyAutomaticApprovalProvider() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new WorkflowSubmitFacade(selector,
+                runtimeSubmitService, Optional.of(writer), List.of(recordGuard), null))
+                .isInstanceOf(NullPointerException.class).hasMessage("automaticApprovals");
+        @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService>)
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        new WorkflowSubmitFacade(selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), provider);
+        verifyNoInteractions(provider);
+    }
 
     @Test
     void shouldSubmitThroughSelectedDefinitionAndWriteApprovalSummary() {
@@ -42,6 +54,7 @@ class WorkflowSubmitFacadeTest {
 
         WorkflowSubmitResult result = facade.submit(request);
 
+        verify(automaticApprovals).continueFor("instance-1", "user-1", Instant.parse("2026-06-05T01:00:00Z"));
         assertThat(result.draft()).isEqualTo(draft);
         assertThat(result.approvalSummaryWritten()).isTrue();
         var order = inOrder(recordGuard, selector, runtimeSubmitService);

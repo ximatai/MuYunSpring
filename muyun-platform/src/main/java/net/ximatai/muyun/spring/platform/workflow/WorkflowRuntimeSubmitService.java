@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,19 +21,8 @@ public class WorkflowRuntimeSubmitService {
     private final WorkflowTaskDao taskDao;
     private final WorkflowEventDao eventDao;
     private final WorkflowRuntimePluginDispatcher pluginDispatcher;
-    @Autowired private org.springframework.beans.factory.ObjectProvider<WorkflowArchiveService> archives;
+    private final ObjectProvider<WorkflowArchiveService> archives;
     private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
-
-    public WorkflowRuntimeSubmitService(WorkflowSubmitDraftService submitDraftService,
-                                        WorkflowInstanceService instanceService,
-                                        WorkflowInstanceDao instanceDao,
-                                        WorkflowNodeInstanceDao nodeInstanceDao,
-                                        WorkflowRouteInstanceDao routeInstanceDao,
-                                        WorkflowTaskDao taskDao,
-                                        WorkflowEventDao eventDao) {
-        this(submitDraftService, instanceService, instanceDao, nodeInstanceDao, routeInstanceDao, taskDao, eventDao,
-                null);
-    }
 
     @Autowired
     public WorkflowRuntimeSubmitService(WorkflowSubmitDraftService submitDraftService,
@@ -42,7 +32,9 @@ public class WorkflowRuntimeSubmitService {
                                         WorkflowRouteInstanceDao routeInstanceDao,
                                         WorkflowTaskDao taskDao,
                                         WorkflowEventDao eventDao,
-                                        WorkflowRuntimePluginDispatcher pluginDispatcher) {
+                                        WorkflowRuntimePluginDispatcher pluginDispatcher,
+                                        ObjectProvider<WorkflowArchiveService> archives) {
+        this.archives = java.util.Objects.requireNonNull(archives, "archives");
         this.submitDraftService = submitDraftService;
         this.instanceService = instanceService;
         this.instanceDao = instanceDao;
@@ -50,7 +42,7 @@ public class WorkflowRuntimeSubmitService {
         this.routeInstanceDao = routeInstanceDao;
         this.taskDao = taskDao;
         this.eventDao = eventDao;
-        this.pluginDispatcher = pluginDispatcher == null ? new WorkflowRuntimePluginDispatcher(List.of()) : pluginDispatcher;
+        this.pluginDispatcher = java.util.Objects.requireNonNull(pluginDispatcher, "pluginDispatcher");
     }
 
     @Transactional
@@ -243,7 +235,6 @@ public class WorkflowRuntimeSubmitService {
                 if (taskDao.updateByIdAndVersion(leftover, leftoverVersion) == 0)
                     throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
             }
-            if (archives == null) throw new net.ximatai.muyun.spring.common.exception.PlatformException("workflow archive adapter is required for restart");
             archives.getObject().archiveCurrentInstance(instance, WorkflowArchiveReason.RESTARTED, now);
         }
     }

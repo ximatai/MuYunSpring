@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,7 +45,7 @@ public class WorkflowTaskActionService {
     private final WorkflowBusinessTaskResolver taskSpecifications;
     private final WorkflowTaskCheckResultDao taskCheckResults;
 
-    @Autowired private org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
+    private final ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
 
     @Autowired
     public WorkflowTaskActionService(WorkflowTaskDao taskDao,
@@ -62,7 +63,9 @@ public class WorkflowTaskActionService {
                                      WorkflowRuntimePluginDispatcher pluginDispatcher,
                                      WorkflowModuleTaskEvaluator taskEvaluator,
                                      WorkflowBusinessTaskResolver taskSpecifications,
-                                     WorkflowTaskCheckResultDao taskCheckResults) {
+                                     WorkflowTaskCheckResultDao taskCheckResults,
+                                     ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals) {
+        this.automaticApprovals = java.util.Objects.requireNonNull(automaticApprovals, "automaticApprovals");
         this.taskEvaluator = java.util.Objects.requireNonNull(taskEvaluator, "taskEvaluator");
         this.taskSpecifications = java.util.Objects.requireNonNull(taskSpecifications, "taskSpecifications");
         this.taskCheckResults = java.util.Objects.requireNonNull(taskCheckResults, "taskCheckResults");
@@ -133,7 +136,7 @@ public class WorkflowTaskActionService {
         }
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_APPROVE, "approve",
                 operatorId, null, null, request.reason());
-        if (automaticApprovals != null) automaticApprovals.getObject().continueFor(instance.getId(), operatorId, now);
+        automaticApprovals.getObject().continueFor(instance.getId(), operatorId, now);
         return WorkflowTaskActionResult.of(task, node, instance, event);
     }
 

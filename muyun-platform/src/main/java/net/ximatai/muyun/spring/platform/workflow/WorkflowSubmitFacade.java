@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,23 +13,19 @@ import java.util.Optional;
 
 @Service
 public class WorkflowSubmitFacade {
-    @Autowired private org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
+    private final ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
     private final WorkflowDefinitionSelector selector;
     private final WorkflowRuntimeSubmitService runtimeSubmitService;
     private final Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter;
     private final List<WorkflowModuleRecordGuard> recordGuards;
 
-    public WorkflowSubmitFacade(WorkflowDefinitionSelector selector,
-                                WorkflowRuntimeSubmitService runtimeSubmitService,
-                                Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(selector, runtimeSubmitService, approvalSummaryWriter, List.of());
-    }
-
     @Autowired
     public WorkflowSubmitFacade(WorkflowDefinitionSelector selector,
                                 WorkflowRuntimeSubmitService runtimeSubmitService,
                                 Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                List<WorkflowModuleRecordGuard> recordGuards) {
+                                List<WorkflowModuleRecordGuard> recordGuards,
+                                ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals) {
+        this.automaticApprovals = java.util.Objects.requireNonNull(automaticApprovals, "automaticApprovals");
         this.selector = selector;
         this.runtimeSubmitService = runtimeSubmitService;
         this.approvalSummaryWriter = approvalSummaryWriter == null ? Optional.empty() : approvalSummaryWriter;
@@ -43,7 +40,7 @@ public class WorkflowSubmitFacade {
         WorkflowDefinitionSelection selection = selector.select(normalized);
         WorkflowSubmitDraft draft = submitDraft(normalized, selection);
         boolean written = writeApprovalSummaryIfNeeded(normalized, draft);
-        if (automaticApprovals != null) automaticApprovals.getObject().continueFor(draft.instance().getId(), normalized.operatorId(), normalized.operatedAt());
+        automaticApprovals.getObject().continueFor(draft.instance().getId(), normalized.operatorId(), normalized.operatedAt());
         return new WorkflowSubmitResult(draft, written);
     }
 
