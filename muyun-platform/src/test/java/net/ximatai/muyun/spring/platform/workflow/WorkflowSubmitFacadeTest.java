@@ -26,16 +26,16 @@ class WorkflowSubmitFacadeTest {
     private final WorkflowModuleRecordGuard recordGuard = mock(WorkflowModuleRecordGuard.class);
     private final WorkflowAutomaticApprovalService automaticApprovals = mock(WorkflowAutomaticApprovalService.class);
     private final WorkflowSubmitFacade facade = new WorkflowSubmitFacade(
-            selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), WorkflowTestSupport.provider(automaticApprovals));
+            selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), WorkflowTestSupport.provider(automaticApprovals), WorkflowTestSupport.submissionPolicies());
 
     @Test
     void constructionRequiresTheLazyAutomaticApprovalProvider() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new WorkflowSubmitFacade(selector,
-                runtimeSubmitService, Optional.of(writer), List.of(recordGuard), null))
+                runtimeSubmitService, Optional.of(writer), List.of(recordGuard), null, WorkflowTestSupport.submissionPolicies()))
                 .isInstanceOf(NullPointerException.class).hasMessage("automaticApprovals");
         @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService>)
                 mock(org.springframework.beans.factory.ObjectProvider.class);
-        new WorkflowSubmitFacade(selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), provider);
+        new WorkflowSubmitFacade(selector, runtimeSubmitService, Optional.of(writer), List.of(recordGuard), provider, WorkflowTestSupport.submissionPolicies());
         verifyNoInteractions(provider);
     }
 

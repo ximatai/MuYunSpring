@@ -29,7 +29,7 @@ class DynamicWorkflowModuleRecordGuardTest {
     void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
 
     private final DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
-    private final DynamicWorkflowModuleRecordGuard guard = new DynamicWorkflowModuleRecordGuard(dynamicRecordService);
+    private final DynamicWorkflowModuleRecordGuard guard = new DynamicWorkflowModuleRecordGuard(dynamicRecordService, WorkflowTestSupport.submissionPolicies());
 
     @Test
     void shouldRequireDynamicMainRecordSubmitScopeBeforeStartingWorkflow() {

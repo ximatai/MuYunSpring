@@ -26,6 +26,7 @@ import static org.mockito.Mockito.mock;
             WorkflowApprovalTaskPolicyService.class, WorkflowDelegationService.class, WorkflowDelegationCompletionNoticeService.class,
             WorkflowRuntimePluginDispatcher.class, WorkflowArchiveService.class})
 class WorkflowRepositoryTestConfiguration extends PlatformPostgresIntegrationTest {
+    @Bean WorkflowSubmitActionPolicyResolver submissionPolicies() { return WorkflowTestSupport.submissionPolicies(); }
     @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
     @Bean ModuleRecordFacts facts() { return (module, id) -> Map.of("id", id); }
     @Bean WorkflowApprovalSummaryWriter summary() { return mock(WorkflowApprovalSummaryWriter.class); }
