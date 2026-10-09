@@ -123,3 +123,36 @@ it('keeps parallel branch exits separately visible and selectable', async () => 
   await page.getByRole('button', { name: '路径：另一路径', exact: true }).click();
   expect(wrapper.emitted('selectRoute')).toEqual([['in'], ['alternative']]);
 });
+
+it('preserves the selected node and user zoom when saving or resizing its workspace', async () => {
+  await page.viewport(1920, 1080);
+  const wrapper = fixture({ interactive: true, editable: true, selectedNodeKey: 'approval' });
+  await expect.poll(() => wrapper.find('[data-workflow-node="approval"]').exists()).toBe(true);
+  await page.getByRole('button', { name: /^放\s*大$/, exact: true }).click();
+  await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+  await wrapper.setProps({ editable: false });
+  await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+  wrapper.element.setAttribute('style', 'width:760px');
+  await expect.poll(() => (wrapper.get('.diagram-canvas').element as HTMLElement).style.width).toBe('758px');
+  await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+  const node = wrapper.get('[data-workflow-node="approval"]').element.getBoundingClientRect();
+  const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+  expect(node.left).toBeGreaterThan(viewport.left);
+  expect(node.right).toBeLessThan(viewport.right);
+  expect(node.top).toBeGreaterThan(viewport.top);
+  expect(node.bottom).toBeLessThan(viewport.bottom);
+});
+
+it('keeps the selected route centered when its property drawer narrows the canvas', async () => {
+  await page.viewport(1920, 1080);
+  const wrapper = fixture({ interactive: true, selectedRouteKey: 'in' });
+  wrapper.element.setAttribute('style', 'width:1400px');
+  await expect.poll(() => wrapper.find('[data-workflow-route="in"]').exists()).toBe(true);
+  wrapper.element.setAttribute('style', 'width:640px');
+  await expect.poll(() => (wrapper.get('.diagram-canvas').element as HTMLElement).style.width).toBe('638px');
+  const route = wrapper.get('[data-workflow-route="in"]').element.getBoundingClientRect();
+  const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+  expect((route.left + route.right) / 2).toBeCloseTo((viewport.left + viewport.right) / 2, 0);
+  // SVG labels and arrowheads extend beyond the edge geometry used for centering.
+  expect(Math.abs((route.top + route.bottom - viewport.top - viewport.bottom) / 2)).toBeLessThan(12);
+});

@@ -108,6 +108,7 @@ export interface WorkflowTask {
 }
 export interface WorkflowEvent {
   id: string;
+  taskId?: string;
   eventType: string;
   actionCode?: string;
   nodeKey?: string;

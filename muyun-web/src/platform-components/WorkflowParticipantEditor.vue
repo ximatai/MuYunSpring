@@ -94,7 +94,7 @@ function title(record: RecordPickerRecord) {
     <legend>参与人规则</legend>
     <p v-if="error" role="alert">{{ error }}</p>
     <div v-for="(rule, index) in rules" :key="index" class="participant-rule">
-      <label
+      <label class="workflow-field"
         >人员来源<UiSelect
           v-model:value="rule.type"
           :options="kinds"
@@ -107,7 +107,7 @@ function title(record: RecordPickerRecord) {
             save();
           "
       /></label>
-      <label v-if="contexts[rule.type]"
+      <label class="workflow-field" v-if="contexts[rule.type]"
         >选择目标<RecordMultiPicker
           :context="contexts[rule.type]!"
           :load-options="rule.type === 'USER' ? accountOptions : undefined"
@@ -119,7 +119,7 @@ function title(record: RecordPickerRecord) {
             save();
           "
       /></label>
-      <label v-if="['FIELD', 'RELATIVE'].includes(rule.type)"
+      <label class="workflow-field" v-if="['FIELD', 'RELATIVE'].includes(rule.type)"
         ><RecordFieldLabel :required="rule.type === 'FIELD'">人员字段</RecordFieldLabel
         ><UiSelect
           v-model:value="rule.fieldName"
@@ -132,7 +132,7 @@ function title(record: RecordPickerRecord) {
           :disabled="disabled"
           @update:value="save"
       /></label>
-      <label v-if="rule.type === 'RELATIVE'"
+      <label class="workflow-field" v-if="rule.type === 'RELATIVE'"
         >相对关系<UiSelect
           :value="rule.relation"
           :options="[
@@ -147,6 +147,7 @@ function title(record: RecordPickerRecord) {
           @update:value="changeRelation(rule, $event)"
       /></label>
       <label
+        class="workflow-field"
         v-if="
           rule.type === 'RELATIVE' &&
           ['SUPERVISOR', 'DEPARTMENT', 'DEPARTMENT_MANAGER', 'ORGANIZATION', 'ORGANIZATION_MANAGER'].includes(
@@ -209,10 +210,10 @@ function title(record: RecordPickerRecord) {
 }
 .participant-rule {
   display: grid;
-  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 12px;
 }
-label {
+.workflow-field {
   display: grid;
   gap: 6px;
 }

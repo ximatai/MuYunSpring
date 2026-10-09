@@ -63,13 +63,12 @@ const selectorNodeOptions = computed(() =>
 </script>
 <template>
   <div v-if="node" class="property-form">
-    <h3>节点属性 · {{ node.title }}</h3>
-    <label
+    <label class="workflow-field"
       >节点名称<UiInput
         :value="node.title"
         :disabled="!editable"
         @update:value="updateNode({ title: $event })" /></label
-    ><label v-if="['approval', 'task', 'milestone'].includes(node.nodeType)"
+    ><label class="workflow-field" v-if="['approval', 'task', 'milestone'].includes(node.nodeType)"
       >节点类型<UiSelect
         :value="node.nodeType"
         :options="typeOptions"
@@ -85,7 +84,7 @@ const selectorNodeOptions = computed(() =>
       @update:value="updateNode({ participantPolicyText: $event })"
     />
     <template v-if="node.nodeType === 'approval'"
-      ><label
+      ><label class="workflow-field"
         >审批规则<UiSelect
           :value="node.approvalMode"
           :options="
@@ -96,7 +95,7 @@ const selectorNodeOptions = computed(() =>
           "
           :disabled="!editable"
           @update:value="updateNode({ approvalMode: String($event) })" /></label
-      ><label v-if="node.approvalMode === 'ratio'"
+      ><label class="workflow-field" v-if="node.approvalMode === 'ratio'"
         >通过比例 %<UiInput
           :value="node.approvalRatio ?? 100"
           type="number"
@@ -132,7 +131,7 @@ const selectorNodeOptions = computed(() =>
         :disabled="!editable"
         @update:checked="updateNode({ allowAddSign: $event })"
         >允许加签</UiCheckbox
-      ><label
+      ><label class="workflow-field"
         >预警时长（分钟）<UiInput
           :value="node.warningDurationMinutes"
           type="number"
@@ -140,7 +139,7 @@ const selectorNodeOptions = computed(() =>
           @update:value="
             updateNode({ warningDurationMinutes: $event ? Number($event) : undefined })
           " /></label
-      ><label
+      ><label class="workflow-field"
         >超时时长（分钟）<UiInput
           :value="node.overtimeDurationMinutes"
           type="number"
@@ -150,7 +149,7 @@ const selectorNodeOptions = computed(() =>
           " /></label
     ></template>
     <template v-if="node.nodeType === 'branch'"
-      ><label
+      ><label class="workflow-field"
         >选路模式<UiSelect
           :value="node.routeMode ?? 'auto'"
           :options="['auto', 'manual'].map((value) => ({ value, label: workflowTitle(value) }))"
@@ -162,7 +161,7 @@ const selectorNodeOptions = computed(() =>
               requireManualSelectionReason: false,
             })
           " /></label
-      ><label
+      ><label class="workflow-field"
         >配对汇聚节点<UiSelect
           :value="node.convergeNodeKey"
           :options="
@@ -172,7 +171,7 @@ const selectorNodeOptions = computed(() =>
           "
           :disabled="!editable"
           @update:value="updateNode({ convergeNodeKey: String($event) })" /></label
-      ><label v-if="node.routeMode === 'manual'"
+      ><label class="workflow-field" v-if="node.routeMode === 'manual'"
         >路径选择节点<UiSelect
           :value="node.selectorNodeKey"
           :options="selectorNodeOptions"
@@ -192,7 +191,7 @@ const selectorNodeOptions = computed(() =>
             : '所有命中的非默认出口同时生效；未配置条件表示始终命中。只有全部未命中时才启用默认出口；无兜底则拒绝流转。'
         }}
       </p>
-      <div v-for="link in branchRoutes" :key="link.routeKey">
+      <div v-for="link in branchRoutes" :key="link.routeKey" class="branch-exit">
         <UiButton @click="emit('select-route', link.routeKey)"
           >配置出口：{{ link.title ?? link.routeKey }}</UiButton
         >
@@ -202,7 +201,7 @@ const selectorNodeOptions = computed(() =>
       <UiButton danger :disabled="!editable" @click="emit('delete-branch')">删除整个分支</UiButton>
     </template>
     <template v-if="node.nodeType === 'converge'"
-      ><label
+      ><label class="workflow-field"
         >汇聚规则<UiSelect
           :value="node.convergeMode ?? 'all'"
           :options="[
@@ -212,7 +211,7 @@ const selectorNodeOptions = computed(() =>
           ]"
           :disabled="!editable"
           @update:value="updateNode({ convergeMode: String($event) })" /></label
-      ><label v-if="node.convergeMode === 'ratio'"
+      ><label class="workflow-field" v-if="node.convergeMode === 'ratio'"
         >汇聚比例 %<UiInput
           :value="node.convergeRatio ?? 100"
           type="number"
@@ -222,7 +221,7 @@ const selectorNodeOptions = computed(() =>
       <p>只统计本次实际生效的出口；任一或比例达成后，剩余未完成路径及其待办自动取消。</p></template
     >
     <template v-if="node.nodeType === 'milestone'"
-      ><label
+      ><label class="workflow-field"
         >里程碑<UiSelect
           :value="node.milestoneType ?? 'approval_completed'"
           :options="[{ value: 'approval_completed', label: '审批完成' }]"
@@ -230,7 +229,7 @@ const selectorNodeOptions = computed(() =>
           @update:value="updateNode({ milestoneType: String($event) })" /></label
     ></template>
     <template v-if="node.nodeType === 'task'">
-      <label
+      <label class="workflow-field property-section"
         >引用已配置任务定义<UiSelect
           :options="catalog.tasks.map((item) => ({ value: item.id, label: item.title }))"
           show-search
@@ -239,6 +238,7 @@ const selectorNodeOptions = computed(() =>
           @update:value="updateNode({ taskDefinitionId: $event ? String($event) : undefined })"
       /></label>
       <WorkflowBusinessTaskEditor
+        class="property-section"
         :key="node.nodeKey"
         :value="node.nodeConfigText"
         :module-alias="moduleAlias"
@@ -258,25 +258,24 @@ const selectorNodeOptions = computed(() =>
     >
   </div>
   <div v-if="route" class="property-form">
-    <h3>连线属性</h3>
-    <label
+    <label class="workflow-field"
       >路径名称<UiInput
         :value="route.title"
         :disabled="!editable"
         @update:value="updateRoute({ title: $event })" /></label
-    ><label
+    ><label class="workflow-field"
       >起点<UiSelect
         :value="route.sourceNodeKey"
         :options="nodeOptions"
         :disabled="!editable"
         @update:value="updateRoute({ sourceNodeKey: String($event) })" /></label
-    ><label
+    ><label class="workflow-field"
       >终点<UiSelect
         :value="route.targetNodeKey"
         :options="nodeOptions"
         :disabled="!editable"
         @update:value="updateRoute({ targetNodeKey: String($event) })" /></label
-    ><label v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute"
+    ><label class="workflow-field" v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute"
       >出口条件<FormulaExpressionEditor
         :fields="fields"
         :value="route.conditionExpression ?? ''"
@@ -302,18 +301,31 @@ const selectorNodeOptions = computed(() =>
 <style scoped>
 .property-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 14px;
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
   max-width: 850px;
 }
-.property-form h3 {
+.property-section,
+.branch-exit {
   grid-column: 1/-1;
 }
 .property-form p {
   grid-column: 1/-1;
 }
-label {
+.workflow-field {
   display: grid;
   gap: 6px;
+}
+.branch-exit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.branch-exit span {
+  flex: 1 1 180px;
+  overflow-wrap: anywhere;
+  color: var(--muyun-text-muted);
 }
 </style>

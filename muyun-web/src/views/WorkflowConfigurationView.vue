@@ -11,6 +11,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   WorkflowParticipantEditor,
+  WorkflowBusinessTaskEditor,
   WorkflowDesignProperties,
   WorkflowDiagram,
   presentPlatformError,
@@ -562,28 +563,29 @@ function addRoute() {
       <RecordDetailPanel :title="selected?.title ?? '流程配置'">
         <form v-if="creating" class="property-form" @submit.prevent="createDefinition">
           <h3>新建流程</h3>
-          <label
+          <label class="workflow-field"
             ><RecordFieldLabel required>流程名称</RecordFieldLabel
             ><UiInput :disabled="busy" v-model:value="newTitle" aria-label="流程名称" /></label
-          ><label
+          ><label class="workflow-field"
             ><RecordFieldLabel required>流程编码</RecordFieldLabel
             ><UiInput :disabled="busy" v-model:value="newAlias" aria-label="流程编码"
           /></label>
           <UiCheckbox :disabled="busy" v-model:checked="approvalEnabled">驱动业务审批状态</UiCheckbox
-          ><label
+          ><label class="workflow-field"
             >适用组织<RecordPicker
               :value="organizationId || undefined"
               :context="organizationContext"
               :disabled="busy"
               mode="tree"
               @update:value="organizationId = $event ?? ''" /></label
-          ><label
+          ><label class="workflow-field"
             >匹配条件<FormulaExpressionEditor
               :disabled="busy"
               v-model:value="matchExpression"
               :fields="fields"
               placeholder="留空匹配所有记录" /></label
-          ><label>优先级<UiInput :disabled="busy" v-model:value="matchPriority" type="number" /></label
+          ><label class="workflow-field"
+            >优先级<UiInput :disabled="busy" v-model:value="matchPriority" type="number" /></label
           ><UiCheckbox :disabled="busy" v-model:checked="fallback">作为当前组织范围的兜底流程</UiCheckbox
           ><UiButton
             type="primary"
@@ -594,7 +596,7 @@ function addRoute() {
           ><UiButton :disabled="busy" @click="discardSettings">取消新建</UiButton>
         </form>
         <template v-else-if="selected">
-          <div class="toolbar">
+          <div class="toolbar" :class="{ 'configuration-toolbar--properties': propertyOpen }">
             <UiSelect
               :value="version?.id"
               :options="
@@ -613,11 +615,11 @@ function addRoute() {
           </div>
           <form v-if="configuringSelection" class="property-form" @submit.prevent="saveSelection">
             <h3>流程匹配规则</h3>
-            <label
+            <label class="workflow-field"
               ><RecordFieldLabel required>流程名称</RecordFieldLabel
               ><UiInput :disabled="busy" v-model:value="newTitle"
             /></label>
-            <label
+            <label class="workflow-field"
               >适用组织<RecordPicker
                 :value="organizationId || undefined"
                 :context="organizationContext"
@@ -625,13 +627,15 @@ function addRoute() {
                 mode="tree"
                 @update:value="organizationId = $event ?? ''"
             /></label>
-            <label
+            <label class="workflow-field"
               >匹配条件<FormulaExpressionEditor
                 :disabled="busy"
                 v-model:value="matchExpression"
                 :fields="fields"
             /></label>
-            <label>优先级<UiInput :disabled="busy" v-model:value="matchPriority" type="number" /></label>
+            <label class="workflow-field"
+              >优先级<UiInput :disabled="busy" v-model:value="matchPriority" type="number"
+            /></label>
             <UiCheckbox :disabled="busy" v-model:checked="fallback">作为当前组织范围的兜底流程</UiCheckbox>
             <p>调整仅影响后续提交，已有实例保留原发布版本和分派快照。</p>
             <UiButton type="primary" :loading="busy" :disabled="busy" @click="saveSelection"
@@ -640,37 +644,39 @@ function addRoute() {
           </form>
           <p v-if="frozen">此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。</p>
           <p v-if="dirty">草稿有未保存的修改</p>
-          <WorkflowDiagram
-            :key="version?.id"
-            :nodes="design.nodes"
-            :routes="design.links"
-            :selected-node-key="selectedNodeKey"
-            :selected-route-key="selectedRouteKey"
-            :layout-json="design.layoutJson"
-            :editable="editable"
-            interactive
-            @select="selectNode"
-            @select-route="selectRoute"
-            @layout-change="updateLayout"
-          />
-          <div class="toolbar">
-            <UiButton :disabled="!editable" @click="addNode">插入审批节点</UiButton
-            ><UiButton :disabled="!editable" @click="addBranch">插入分支与汇聚</UiButton
-            ><UiButton :disabled="!editable" @click="addRoute">添加连线</UiButton
-            ><UiSelect
-              :value="selectedRouteKey || undefined"
-              placeholder="选择连线"
-              :options="
-                design.links.map((item) => ({
-                  value: item.routeKey,
-                  label: `${item.title ?? '路径'}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
-                }))
-              "
-              @update:value="selectRoute(String($event))"
+          <div class="configuration-design" :class="{ 'configuration-design--properties': propertyOpen }">
+            <WorkflowDiagram
+              :key="version?.id"
+              :nodes="design.nodes"
+              :routes="design.links"
+              :selected-node-key="selectedNodeKey"
+              :selected-route-key="selectedRouteKey"
+              :layout-json="design.layoutJson"
+              :editable="editable"
+              interactive
+              @select="selectNode"
+              @select-route="selectRoute"
+              @layout-change="updateLayout"
             />
+            <div class="toolbar">
+              <UiButton :disabled="!editable" @click="addNode">插入审批节点</UiButton
+              ><UiButton :disabled="!editable" @click="addBranch">插入分支与汇聚</UiButton
+              ><UiButton :disabled="!editable" @click="addRoute">添加连线</UiButton
+              ><UiSelect
+                :value="selectedRouteKey || undefined"
+                placeholder="选择连线"
+                :options="
+                  design.links.map((item) => ({
+                    value: item.routeKey,
+                    label: `${item.title ?? '路径'}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
+                  }))
+                "
+                @update:value="selectRoute(String($event))"
+              />
+            </div>
           </div>
           <RecordDetailDrawer
-            render-mode="inline"
+            width="wide"
             :open="propertyOpen"
             :title="node?.title ? `节点属性 · ${node.title}` : '路径属性'"
             @close="propertyOpen = false"
@@ -702,7 +708,7 @@ function addRoute() {
       </RecordDetailPanel>
     </ManagementWorkspace>
     <RecordDetailDrawer
-      render-mode="inline"
+      width="extraWide"
       :open="publishReviewOpen"
       title="确认发布流程"
       @close="publishReviewOpen = false"
@@ -717,18 +723,39 @@ function addRoute() {
         }}。
         {{ selected?.matchExpression ? `匹配条件：${selected.matchExpression}` : '未设置额外条件' }}
       </p>
-      <ul>
+      <ul class="publish-nodes">
         <li
           v-for="item in design.nodes.filter((node) => ['approval', 'task'].includes(node.nodeType))"
           :key="item.nodeKey"
         >
           <strong>{{ item.title }}</strong> · {{ participantSummary(item.participantPolicyText) }}
-          <WorkflowParticipantEditor
-            :value="item.participantPolicyText"
-            :http="context.http"
-            :fields="fields"
-            disabled
-          />
+          <details>
+            <summary>查看完整人员规则</summary>
+            <WorkflowParticipantEditor
+              :value="item.participantPolicyText"
+              :http="context.http"
+              :fields="fields"
+              disabled
+            />
+          </details>
+          <details v-if="item.nodeType === 'task'">
+            <summary>查看业务任务检查与办理指引</summary>
+            <p v-if="item.taskDefinitionId">
+              引用任务：{{
+                catalog.tasks.find((task) => task.id === item.taskDefinitionId)?.title ??
+                item.taskDefinitionId
+              }}
+            </p>
+            <WorkflowBusinessTaskEditor
+              :value="item.nodeConfigText"
+              :module-alias="moduleAlias"
+              :fields="fields"
+              :catalog="catalog"
+              :actions="actionOptions"
+              :associations="catalog.associations.map((item) => ({ value: item.id, label: item.title }))"
+              disabled
+            />
+          </details>
           <p v-if="item.participantPolicyText?.includes('INITIATOR_SELF')">
             此节点由提交人本人办理，请确认符合业务要求。
           </p>
@@ -758,7 +785,15 @@ function addRoute() {
         </ul>
         <p>汇聚：{{ branchConvergenceSummary(branch) }}，只计算有效出口。</p>
       </div>
-      <WorkflowDiagram :nodes="design.nodes" :routes="design.links" :layout-json="design.layoutJson" />
+      <details>
+        <summary>查看发布流程图</summary>
+        <WorkflowDiagram
+          presentation="detail"
+          :nodes="design.nodes"
+          :routes="design.links"
+          :layout-json="design.layoutJson"
+        />
+      </details>
       <template #operation
         ><UiButton type="primary" :loading="busy" @click="publish">确认发布</UiButton></template
       >
@@ -769,7 +804,11 @@ function addRoute() {
 .workflow-configuration {
   padding: 12px;
   height: 100%;
-  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  container-type: inline-size;
 }
 header,
 .toolbar {
@@ -785,8 +824,8 @@ h2 {
 }
 .property-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
   max-width: 850px;
 }
 .property-form h3 {
@@ -795,7 +834,7 @@ h2 {
 .property-form p {
   grid-column: 1/-1;
 }
-label {
+.workflow-field {
   display: grid;
   gap: 6px;
 }
@@ -805,5 +844,29 @@ label {
 .configuration-action-bar {
   flex: 1 1 420px;
   min-width: 0;
+}
+.configuration-design {
+  min-width: 0;
+}
+.configuration-design :deep(.diagram-viewport) {
+  height: clamp(360px, calc(100dvh - 420px), 720px);
+}
+@container (min-width: 1600px) {
+  .configuration-toolbar--properties,
+  .configuration-design--properties {
+    margin-right: 760px;
+  }
+}
+.publish-nodes {
+  display: grid;
+  gap: 16px;
+  padding-left: 20px;
+}
+.publish-nodes details {
+  margin-top: 8px;
+}
+summary {
+  cursor: pointer;
+  color: var(--muyun-primary);
 }
 </style>

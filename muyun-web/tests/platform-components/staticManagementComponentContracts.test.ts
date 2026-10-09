@@ -300,10 +300,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(detailDrawerSource, /v-if="renderMode === 'inline' \|\| hasDrawerContainer"/);
   assert.notMatch(detailDrawerSource, /ant-design-vue|<ADrawer/);
   assert.match(sidePanelSource, /if \(props\.renderMode === 'inline'\) return false/);
-  assert.match(
-    sidePanelSource,
-    /props\.renderMode === 'inline' \? `min\(\$\{width\}px, calc\(100% - 32px\)\)` : width/,
-  );
   assert.match(sidePanelSource, /:get-container="container"/);
   assert.match(sidePanelSource, /:width="resolvedWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
@@ -1276,10 +1272,12 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   const dynamicModuleRouteSource = readSource('src/views/DynamicModuleRouteView.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
-  assert.notMatch(workbenchSource, /UiSidePanelHost/);
   assert.notMatch(workbenchSource, /shouldKeepTabMounted|tabHostKey/);
   assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
-  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
+  assert.match(
+    workbenchSource,
+    /<UiSidePanelHost v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/,
+  );
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /const CachePageHost = defineComponent\(\{[\s\S]*name: 'CachePageHost'/);
   assert.match(

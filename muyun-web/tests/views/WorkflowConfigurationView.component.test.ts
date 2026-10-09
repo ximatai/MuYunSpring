@@ -90,3 +90,54 @@ it('keeps pending saves as disabled drafts and retains their optimistic lock ver
     request.mock.calls.filter(([options]) => options.path.endsWith('/design') && options.method === 'POST'),
   ).toHaveLength(2);
 });
+
+it('retains association choices in the read-only business task publication review', async () => {
+  const definition = { id: 'definition', title: '采购交付' };
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/context') || options.path.endsWith('/view-context'))
+      return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
+    if (options.path.endsWith('/configuration-catalog'))
+      return {
+        tasks: [],
+        queries: [],
+        generations: [],
+        associations: [{ id: 'delivery-lines', title: '到货明细' }],
+      };
+    if (options.path.endsWith('/versions/query'))
+      return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
+    if (options.path.endsWith('/design'))
+      return { nodes: [{ nodeKey: 'delivery', nodeType: 'task', title: '到货办理' }], links: [] };
+    if (options.path.endsWith('/query')) return { records: [definition] };
+    throw new Error(`unexpected request: ${options.path}`);
+  });
+  const context = {
+    moduleAlias: 'platform.workflow.definition',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const wrapper = mount(ModuleContextProvider, {
+    props: { context },
+    slots: { default: () => h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase' }) },
+    global: {
+      stubs: {
+        WorkflowDiagram: true,
+        WorkflowParticipantEditor: true,
+        WorkflowBusinessTaskEditor: true,
+        RecordListExplorer: true,
+        RecordDetailDrawer: { template: '<section><slot /></section>' },
+        AdaptiveHeaderActionBar: true,
+        RecordPicker: true,
+      },
+    },
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('select', definition);
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'publish' });
+  await flushPromises();
+  const taskReview = wrapper
+    .findAllComponents({ name: 'WorkflowBusinessTaskEditor' })
+    .find((item) => item.props('disabled'))!;
+  expect(taskReview.props('disabled')).toBe(true);
+  expect(taskReview.props('associations')).toEqual([{ value: 'delivery-lines', label: '到货明细' }]);
+  wrapper.unmount();
+});

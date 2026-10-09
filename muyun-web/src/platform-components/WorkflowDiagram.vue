@@ -20,6 +20,8 @@ const props = defineProps<{
   editable?: boolean;
   layoutJson?: string;
   semanticJson?: string;
+  /** Detail views keep business facts visible; the designer retains a larger canvas. */
+  presentation?: 'detail' | 'designer';
 }>();
 const emit = defineEmits<{
   select: [nodeKey: string];
@@ -220,19 +222,27 @@ function keyboard(event: KeyboardEvent) {
   const route = event.target.closest('[data-workflow-route]')?.getAttribute('data-workflow-route');
   if (node || route) {
     event.preventDefault();
-    if (node) emit('select', node);
-    else if (route) emit('selectRoute', route);
+    if (node) void selectObject('node', node);
+    else if (route) void selectObject('route', route);
   }
 }
-function locate(key?: string) {
+function locate(key?: string, preserveZoom = false) {
   const cell = key && graph?.getCellById(`node:${key}`);
   if (!cell || !graph) return;
-  graph.zoomTo(1);
+  if (!preserveZoom) graph.zoomTo(1);
   const bounds = cell.getBBox();
-  graph.positionPoint({ x: bounds.center.x, y: bounds.center.y }, '50%', '28%');
+  graph.positionPoint({ x: bounds.center.x, y: bounds.center.y }, '50%', '50%');
 }
 function fit() {
   graph?.zoomToFit({ padding: 36, maxScale: 1, minScale: 0.15 });
+}
+function locateSelectedRoute() {
+  const cell = props.selectedRouteKey && graph?.getCellById(`route:${props.selectedRouteKey}`);
+  if (cell && graph) graph.positionPoint(cell.getBBox().center, '50%', '50%');
+}
+function locateSelection() {
+  if (props.selectedNodeKey) locate(props.selectedNodeKey, true);
+  else locateSelectedRoute();
 }
 function changeZoom(delta: number) {
   graph?.zoom(delta);
@@ -283,6 +293,18 @@ watch(
   () => [props.selectedNodeKey, props.selectedRouteKey, props.interactive, props.editable],
   syncSelection,
 );
+watch(
+  () => props.selectedNodeKey,
+  (key) => {
+    if (key) locate(key);
+  },
+);
+watch(() => props.selectedRouteKey, locateSelectedRoute);
+async function selectObject(kind: 'node' | 'route', key: string) {
+  if (document.fullscreenElement === shell.value) await document.exitFullscreen();
+  if (kind === 'node') emit('select', key);
+  else emit('selectRoute', key);
+}
 onMounted(async () => {
   document.addEventListener('fullscreenchange', fullscreenChanged);
   try {
@@ -310,10 +332,10 @@ onMounted(async () => {
       connecting: { allowBlank: false, allowLoop: false },
     });
     graph.on('node:click', ({ node }) => {
-      if (props.interactive) emit('select', node.getData<{ key: string }>().key);
+      if (props.interactive) void selectObject('node', node.getData<{ key: string }>().key);
     });
     graph.on('edge:click', ({ edge }) => {
-      if (props.interactive) emit('selectRoute', edge.getData<{ key: string }>().key);
+      if (props.interactive) void selectObject('route', edge.getData<{ key: string }>().key);
     });
     graph.on('node:moved', savePositions);
     graph.on('scale', ({ sx }) => {
@@ -322,7 +344,9 @@ onMounted(async () => {
     observer = new ResizeObserver(() => {
       if (graph && viewport.value) {
         graph.resize(viewport.value.clientWidth, viewport.value.clientHeight);
+        if (viewport.value.clientWidth === 0 || viewport.value.clientHeight === 0) return;
         if (!initialized) render();
+        else locateSelection();
       }
     });
     observer.observe(viewport.value);
@@ -341,29 +365,36 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <section ref="shell" class="workflow-diagram" aria-label="流程图">
-    <div class="diagram-tools" role="group" aria-label="流程画布工具">
-      <UiButton size="small" :disabled="!ready" @click="fit">全图</UiButton>
-      <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">缩小</UiButton>
-      <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
-      <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">放大</UiButton>
-      <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
-        focusTitle
-      }}</UiButton>
-      <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">自动整理</UiButton>
-      <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
-        fullscreen ? '退出全屏' : '全屏'
-      }}</UiButton>
-    </div>
-    <div class="diagram-navigation">
-      <UiSelect
-        class="diagram-locator"
-        :value="undefined"
-        placeholder="定位节点"
-        :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
-        @update:value="locate(String($event))"
-      />
-      <span>拖动空白平移 · Ctrl / ⌘ + 滚轮缩放<span v-if="editable"> · 拖动节点调整布局</span></span>
+  <section
+    ref="shell"
+    class="workflow-diagram"
+    :class="{ 'workflow-diagram--detail': presentation === 'detail' }"
+    aria-label="流程图"
+  >
+    <div class="diagram-header">
+      <div class="diagram-tools" role="group" aria-label="流程画布工具">
+        <UiButton size="small" :disabled="!ready" @click="fit">全图</UiButton>
+        <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">缩小</UiButton>
+        <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
+        <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">放大</UiButton>
+        <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
+          focusTitle
+        }}</UiButton>
+        <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">自动整理</UiButton>
+        <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
+          fullscreen ? '退出全屏' : '全屏'
+        }}</UiButton>
+      </div>
+      <div class="diagram-navigation">
+        <UiSelect
+          class="diagram-locator"
+          :value="undefined"
+          placeholder="定位节点"
+          :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
+          @update:value="locate(String($event))"
+        />
+        <span>拖动空白平移 · Ctrl / ⌘ + 滚轮缩放<span v-if="editable"> · 拖动节点调整布局</span></span>
+      </div>
     </div>
     <p v-if="failed" role="alert">流程图加载失败，请刷新页面重试。</p>
     <p v-else-if="!nodes.length" class="diagram-empty">暂无流程节点</p>
@@ -379,13 +410,18 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--muyun-surface);
 }
+.diagram-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid var(--muyun-border-subtle);
+}
 .diagram-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--muyun-border-subtle);
 }
 .diagram-navigation {
   display: flex;
@@ -403,6 +439,9 @@ onBeforeUnmount(() => {
   height: 480px;
   min-width: 0;
   background: var(--muyun-hover);
+}
+.workflow-diagram--detail .diagram-viewport {
+  height: 320px;
 }
 .diagram-empty {
   padding: 12px;
