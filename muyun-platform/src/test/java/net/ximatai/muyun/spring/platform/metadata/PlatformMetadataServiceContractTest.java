@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItem;
@@ -2914,7 +2916,7 @@ class PlatformMetadataServiceContractTest {
 
     @Test
     void shouldGovernPortableBusinessRulesWithoutWritingOnTrialAndRunAppliedDefinitionOnSave() {
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new MemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new MemoryDao<>(), moduleService);
         ModuleMetadataFormulaRuleService formulaRules = new ModuleMetadataFormulaRuleService(new MemoryDao<>(), relationService,
                 fieldService, Optional.of(runtimeRefreshCoordinator));
         PlatformModuleDefinitionCompiler compiler = new PlatformModuleDefinitionCompiler(moduleService, metadataService,
@@ -3204,7 +3206,7 @@ class PlatformMetadataServiceContractTest {
 
     private PlatformModuleDefinitionCompiler moduleDefinitionCompiler() {
         PlatformModuleActionService actionService =
-                new PlatformModuleActionService(new MemoryDao<PlatformModuleAction>(), moduleService);
+                ModuleActionTestServices.withDeclaredDataPolicy(new MemoryDao<PlatformModuleAction>(), moduleService);
         ModuleMetadataFormulaRuleService formulaRuleService =
                 new ModuleMetadataFormulaRuleService(new MemoryDao<>(), relationService, fieldService);
         return new PlatformModuleDefinitionCompiler(

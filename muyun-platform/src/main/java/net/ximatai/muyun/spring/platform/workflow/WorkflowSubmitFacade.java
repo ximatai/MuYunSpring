@@ -18,13 +18,16 @@ public class WorkflowSubmitFacade {
     private final WorkflowRuntimeSubmitService runtimeSubmitService;
     private final Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter;
     private final List<WorkflowModuleRecordGuard> recordGuards;
+    private final WorkflowSubmitActionPolicyResolver submissionPolicies;
 
     @Autowired
     public WorkflowSubmitFacade(WorkflowDefinitionSelector selector,
                                 WorkflowRuntimeSubmitService runtimeSubmitService,
                                 Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
                                 List<WorkflowModuleRecordGuard> recordGuards,
-                                ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals) {
+                                ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals,
+                                WorkflowSubmitActionPolicyResolver submissionPolicies) {
+        this.submissionPolicies = java.util.Objects.requireNonNull(submissionPolicies, "submissionPolicies");
         this.automaticApprovals = java.util.Objects.requireNonNull(automaticApprovals, "automaticApprovals");
         this.selector = selector;
         this.runtimeSubmitService = runtimeSubmitService;
@@ -80,7 +83,7 @@ public class WorkflowSubmitFacade {
         }
         WorkflowApprovalSummaryWriter writer = approvalSummaryWriter
                 .orElseThrow(() -> new PlatformException("workflow approval summary writer is not configured"));
-        WorkflowApprovalMutationScope.run(request.moduleAlias(), request.recordId(), "submitApproval",
+        WorkflowApprovalMutationScope.run(request.moduleAlias(), request.recordId(), submissionPolicies.resolve(request),
                 () -> writer.writeSubmitted(new WorkflowApprovalSummary(
                 draft.instance().getTenantId(),
                 request.moduleAlias(),

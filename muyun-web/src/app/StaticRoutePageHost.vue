@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue';
+import { computed, nextTick, onActivated, ref, type Component } from 'vue';
 import type { RouteLocationNormalizedLoaded } from 'vue-router';
+import { UiSidePanelHost } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
 import { provideModulePageNavigation, type ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
@@ -57,6 +58,20 @@ const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.va
 // for an explicit page refresh, so ordinary static pages retain reactive route
 // updates and their local state contract.
 const pageContentKey = computed(() => props.refreshRevision ?? 0);
+const scrollContent = ref<HTMLElement>();
+let scrollTop = 0;
+let scrollLeft = 0;
+function rememberScroll() {
+  if (!scrollContent.value?.isConnected) return;
+  scrollTop = scrollContent.value.scrollTop;
+  scrollLeft = scrollContent.value.scrollLeft;
+}
+onActivated(async () => {
+  await nextTick();
+  if (!scrollContent.value) return;
+  scrollContent.value.scrollLeft = scrollLeft;
+  scrollContent.value.scrollTop = scrollTop;
+});
 
 syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
@@ -84,10 +99,38 @@ function workspaceViewDefinitionForModulePage(view: ModulePageWorkspaceView) {
 </script>
 
 <template>
-  <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
-    <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
-    <component :is="component" v-else :key="pageContentKey" />
-  </ModuleContextProvider>
-  <WorkspaceViewOutlet v-else-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
-  <component :is="component" v-else :key="pageContentKey" />
+  <UiSidePanelHost>
+    <div
+      ref="scrollContent"
+      class="static-route-page-content"
+      :class="{ 'static-route-page-content--workspace': layout === 'workspace' }"
+      @scroll="rememberScroll"
+    >
+      <ModuleContextProvider v-if="moduleAlias" :module-alias="moduleAlias">
+        <WorkspaceViewOutlet v-if="workspaceView" :key="pageContentKey" :descriptor="workspaceDescriptor" />
+        <component :is="component" v-else :key="pageContentKey" />
+      </ModuleContextProvider>
+      <WorkspaceViewOutlet
+        v-else-if="workspaceView"
+        :key="pageContentKey"
+        :descriptor="workspaceDescriptor"
+      />
+      <component :is="component" v-else :key="pageContentKey" />
+    </div>
+  </UiSidePanelHost>
 </template>
+<style scoped>
+.static-route-page-content {
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.static-route-page-content--workspace {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+</style>

@@ -2059,6 +2059,7 @@ export type {
   WorkflowAction,
   WorkflowStatus,
   WorkflowRenderBundle,
+  WorkflowSubmitPreview,
   WorkflowBranch,
   WorkflowWorkbenchCard,
   WorkflowWorkbenchFilters,

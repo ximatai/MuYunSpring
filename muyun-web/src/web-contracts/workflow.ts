@@ -108,6 +108,7 @@ export interface WorkflowTask {
 }
 export interface WorkflowEvent {
   id: string;
+  taskId?: string;
   eventType: string;
   actionCode?: string;
   nodeKey?: string;
@@ -145,6 +146,11 @@ export interface WorkflowRenderBundle {
   routes: WorkflowRoute[];
   semanticJson?: string;
   layoutJson?: string;
+}
+export interface WorkflowSubmitPreview extends WorkflowRenderBundle {
+  definition?: WorkflowStatus['definition'];
+  tasks: WorkflowTask[];
+  taskViews?: WorkflowTask[];
 }
 export interface WorkflowBranch {
   branchNodeKey: string;

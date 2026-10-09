@@ -74,7 +74,7 @@ public class PlatformRoleActionGrantVerifier implements RoleActionGrantVerifier 
         if (!registeredActions.isEmpty()) {
             return registeredActions.stream()
                     .filter(action -> actionCode.equals(action.getActionCode()))
-                    .map(PlatformModuleAction::effectiveDataAuth)
+                    .map(moduleActionService::effectiveDataAuth)
                     .findFirst()
                     .orElseThrow(() -> new PlatformException("role action requires configured module action: "
                             + moduleAlias + "." + actionCode));

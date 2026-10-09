@@ -57,6 +57,7 @@ describe('RecordDetailDrawer', () => {
       },
     });
 
+    await wrapper.setProps({ open: false });
     wrapper.findComponent({ name: 'ADrawer' }).vm.$emit('afterOpenChange', false);
     await wrapper.vm.$nextTick();
     expect(wrapper.emitted('afterClose')).toHaveLength(1);

@@ -174,17 +174,17 @@ function changeKind(check: Check, kind: string) {
       <p>所有检查项必须通过，才允许完成任务。已发布的检查与办理指引随流程版本冻结。</p>
       <fieldset v-for="(check, index) in spec.checks" :key="check.checkKey">
         <legend>完成检查 {{ index + 1 }}</legend>
-        <label
+        <label class="workflow-field"
           >检查名称<UiInput v-model:value="check.title" :disabled="disabled" @update:value="save"
         /></label>
-        <label
+        <label class="workflow-field"
           >判定方式<UiSelect
             :value="check.checkKind"
             :options="checkOptions"
             :disabled="disabled"
             @update:value="changeKind(check, String($event))"
         /></label>
-        <label v-if="check.checkKind === 'FORMULA'"
+        <label class="workflow-field" v-if="check.checkKind === 'FORMULA'"
           ><RecordFieldLabel required>业务字段公式</RecordFieldLabel
           ><FormulaExpressionEditor
             :value="check.expression ?? ''"
@@ -199,7 +199,7 @@ function changeKind(check: Check, kind: string) {
         <template v-else>
           <template v-if="check.checkKind === 'QUERY_EXISTS'">
             <p v-if="!catalog?.queries.length">本模块暂无已发布查询模板，请先发布业务查询模板。</p>
-            <label
+            <label class="workflow-field"
               >已发布查询模板<UiSelect
                 :options="catalog?.queries.map((item) => ({ value: item.id, label: item.title })) ?? []"
                 show-search
@@ -207,7 +207,7 @@ function changeKind(check: Check, kind: string) {
                 :disabled="disabled"
                 @update:value="setConfig(check, 'queryTemplateId', $event)"
             /></label>
-            <label
+            <label class="workflow-field"
               >当前业务 ID 的查询参数名<UiInput
                 :value="String(config(check).externalRecordIdKey ?? '')"
                 :disabled="disabled"
@@ -217,7 +217,7 @@ function changeKind(check: Check, kind: string) {
           <p v-if="check.checkKind === 'RELATED_QUERY_EXISTS' && !associations?.length">
             本模块暂无可查询的关联视图，请先配置关联视图。
           </p>
-          <label v-if="check.checkKind === 'RELATED_QUERY_EXISTS'"
+          <label class="workflow-field" v-if="check.checkKind === 'RELATED_QUERY_EXISTS'"
             >关联视图<UiSelect
               :options="[...(associations ?? [])]"
               show-search
@@ -227,7 +227,7 @@ function changeKind(check: Check, kind: string) {
           /></label>
           <template v-if="check.checkKind === 'GENERATED_QUERY_EXISTS'">
             <p v-if="!catalog?.generations.length">本模块暂无启用的生成规则，请先配置业务生成规则。</p>
-            <label
+            <label class="workflow-field"
               >生成目标模块<UiSelect
                 :options="generationTargets"
                 show-search
@@ -235,7 +235,7 @@ function changeKind(check: Check, kind: string) {
                 :disabled="disabled"
                 @update:value="setConfig(check, 'targetModuleAlias', $event)"
             /></label>
-            <label
+            <label class="workflow-field"
               >生成规则（可选）<UiSelect
                 :options="
                   catalog?.generations
@@ -248,7 +248,7 @@ function changeKind(check: Check, kind: string) {
                 @update:value="setConfig(check, 'generationRuleId', $event)"
             /></label>
           </template>
-          <label
+          <label class="workflow-field"
             ><RecordFieldLabel required>最少业务记录数</RecordFieldLabel
             ><UiInput
               type="number"
@@ -257,7 +257,7 @@ function changeKind(check: Check, kind: string) {
               @update:value="setConfig(check, 'expectedCount', Number($event))"
           /></label>
         </template>
-        <label
+        <label class="workflow-field"
           >未完成提示<UiInput v-model:value="check.failureMessage" :disabled="disabled" @update:value="save"
         /></label>
         <UiButton
@@ -273,10 +273,10 @@ function changeKind(check: Check, kind: string) {
       <UiButton :disabled="disabled" @click="addCheck">添加完成检查</UiButton>
       <fieldset v-for="(guide, index) in spec.guides" :key="guide.guideKey">
         <legend>办理指引 {{ index + 1 }}</legend>
-        <label
+        <label class="workflow-field"
           >指引名称<UiInput v-model:value="guide.title" :disabled="disabled" @update:value="save"
         /></label>
-        <label
+        <label class="workflow-field"
           >办理方式<UiSelect
             :value="guide.guideKind"
             :options="guideOptions"
@@ -287,7 +287,7 @@ function changeKind(check: Check, kind: string) {
               save();
             "
         /></label>
-        <label v-if="['OPEN_FORM', 'EXECUTE_ACTION'].includes(guide.guideKind)"
+        <label class="workflow-field" v-if="['OPEN_FORM', 'EXECUTE_ACTION'].includes(guide.guideKind)"
           ><RecordFieldLabel required>可编辑字段</RecordFieldLabel
           ><UiSelect
             :value="(config(guide).editableFields as string[] | undefined) ?? []"
@@ -298,11 +298,11 @@ function changeKind(check: Check, kind: string) {
             placeholder="选择允许在任务中修改的业务字段"
             @update:value="setConfig(guide, 'editableFields', $event)"
         /></label>
-        <label v-if="guide.guideKind === 'OPEN_LIST'"
+        <label class="workflow-field" v-if="guide.guideKind === 'OPEN_LIST'"
           >目标模块<UiInput v-model:value="guide.targetModuleAlias" :disabled="disabled" @update:value="save"
         /></label>
         <template v-if="guide.guideKind === 'EXECUTE_ACTION'">
-          <label
+          <label class="workflow-field"
             ><RecordFieldLabel required>业务动作</RecordFieldLabel
             ><UiSelect
               :options="[...(actions ?? [])]"
@@ -311,7 +311,7 @@ function changeKind(check: Check, kind: string) {
               :disabled="disabled"
               @update:value="save"
           /></label>
-          <label
+          <label class="workflow-field"
             >动作参数（JSON 对象）<UiTextArea
               :value="payloadText(guide)"
               :disabled="disabled"
@@ -321,7 +321,7 @@ function changeKind(check: Check, kind: string) {
             动作参数必须是有效 JSON 对象，修正后才能发布。
           </p>
         </template>
-        <label v-if="guide.guideKind === 'FOCUS_FIELD'"
+        <label class="workflow-field" v-if="guide.guideKind === 'FOCUS_FIELD'"
           ><RecordFieldLabel required>业务字段</RecordFieldLabel
           ><UiSelect
             :options="fieldOptions"
@@ -330,7 +330,7 @@ function changeKind(check: Check, kind: string) {
             :disabled="disabled"
             @update:value="setConfig(guide, 'field', $event)"
         /></label>
-        <label v-if="guide.guideKind === 'READ_INSTRUCTION'"
+        <label class="workflow-field" v-if="guide.guideKind === 'READ_INSTRUCTION'"
           >办理说明<UiTextArea
             :value="String(config(guide).instruction ?? '')"
             :disabled="disabled"
@@ -353,11 +353,12 @@ function changeKind(check: Check, kind: string) {
 <style scoped>
 .task-editor,
 fieldset,
-label {
+.workflow-field {
   display: grid;
   gap: 8px;
 }
 fieldset {
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 6px;

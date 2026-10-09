@@ -8,6 +8,7 @@ import type {
   WorkflowEvent,
   WorkflowHistoryInstance,
   WorkflowRenderBundle,
+  WorkflowSubmitPreview,
   WorkflowStatus,
   WorkflowTask,
   WorkflowTaskPreparation,
@@ -73,7 +74,7 @@ const manualChoicesReady = ref(true);
 let branchRequest = 0;
 const preparing = ref(false),
   previewReady = ref(false);
-const previewBundle = ref<WorkflowRenderBundle>(),
+const previewBundle = ref<WorkflowSubmitPreview>(),
   previewTasks = ref<WorkflowTask[]>([]);
 const dirty = computed(() =>
   Boolean(
@@ -684,7 +685,7 @@ async function execute() {
     </header>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="status?.errorMessage">{{ status.errorMessage }}</p>
-    <label v-if="archives.length"
+    <label class="workflow-field" v-if="archives.length"
       >查看流程轮次<UiSelect
         :disabled="busy || preparing || Boolean(activeAction)"
         :value="selectedHistory ?? ''"
@@ -729,7 +730,6 @@ async function execute() {
       }}</UiButton>
     </div>
     <RecordDetailDrawer
-      render-mode="inline"
       :open="Boolean(activeAction)"
       :title="activeAction?.actionCode === 'complete' ? '办理业务任务' : (activeAction?.title ?? '审批操作')"
       width="wide"
@@ -739,9 +739,10 @@ async function execute() {
       <form v-if="activeAction" class="workflow-action-form" @submit.prevent="execute">
         <UiError v-if="error" title="请检查办理内容" :message="error" />
         <p v-if="preparing">正在加载办理要求…</p>
-        <strong>{{ activeAction.title }}</strong>
-        <label>操作意见<UiTextArea v-model:value="reason" aria-label="操作意见" :rows="2" /></label>
-        <label v-if="activeAction.targetAssigneeRequired"
+        <label class="workflow-field"
+          >操作意见<UiTextArea v-model:value="reason" aria-label="操作意见" :rows="2"
+        /></label>
+        <label class="workflow-field" v-if="activeAction.targetAssigneeRequired"
           >接收人<RecordPicker
             :context="accountContext"
             :load-options="accountOptions"
@@ -751,8 +752,8 @@ async function execute() {
             @update:value="targetAssigneeId = $event ?? ''"
         /></label>
         <template v-if="activeAction.actionCode === 'addSign'"
-          ><label>加签节点名称<UiInput v-model:value="addSignTitle" /></label
-          ><label
+          ><label class="workflow-field">加签节点名称<UiInput v-model:value="addSignTitle" /></label
+          ><label class="workflow-field"
             >加签人员<RecordPicker
               v-model:value="addSignUserId"
               :context="accountContext"
@@ -761,7 +762,7 @@ async function execute() {
               :title-of="(record) => userTitle(record)" /></label
         ></template>
         <template v-if="activeAction.actionCode === 'addSign'"
-          ><label v-if="addSignRoutes.length > 1"
+          ><label class="workflow-field" v-if="addSignRoutes.length > 1"
             >插入路径<UiSelect
               v-model:value="addSignRouteKey"
               :options="
@@ -782,7 +783,7 @@ async function execute() {
             }}。仅改变本次实例。
           </p></template
         >
-        <label v-if="activeAction.actionCode === 'reject'"
+        <label class="workflow-field" v-if="activeAction.actionCode === 'reject'"
           >重新提交方式<UiSelect
             v-model:value="rejectMode"
             :options="[
@@ -826,7 +827,9 @@ async function execute() {
           <UiButton :loading="preparing" @click="refreshPreview">预览所选审批路径</UiButton>
           <p v-if="previewReady">
             流程：{{
-              previewBundle?.instance.definitionTitle ?? status?.definition?.definitionTitle
+              previewBundle?.definition?.definitionTitle ??
+              previewBundle?.instance.definitionTitle ??
+              status?.definition?.definitionTitle
             }}。以下为提交后首批办理人，后续节点到达时解析人员。
           </p>
           <ul v-if="previewReady">
@@ -843,6 +846,7 @@ async function execute() {
             </li>
           </ul>
           <WorkflowDiagram
+            presentation="detail"
             v-if="previewReady && previewBundle"
             :nodes="previewBundle.nodes"
             :routes="previewBundle.routes"
@@ -942,36 +946,6 @@ async function execute() {
         <UiButton :disabled="busy || preparing" @click="cancelAction">取消操作</UiButton>
       </template>
     </RecordDetailDrawer>
-    <WorkflowDiagram
-      v-if="bundle"
-      :key="bundle.instance.id"
-      :nodes="bundle.nodes"
-      :routes="bundle.routes"
-      :layout-json="bundle.layoutJson"
-      :semantic-json="bundle.semanticJson"
-    />
-    <details v-if="decidedBranchRoutes.length">
-      <summary>路径判定记录</summary>
-      <ul>
-        <li v-for="route in decidedBranchRoutes" :key="route.routeKey">
-          {{ bundle?.nodes.find((node) => node.nodeKey === route.sourceNodeKey)?.nodeTitle }} →
-          {{ bundle?.nodes.find((node) => node.nodeKey === route.targetNodeKey)?.nodeTitle }}：
-          {{ workflowTitle(route.routeStatus) }} ·
-          {{
-            workflowRouteSelectionTitle(
-              route,
-              bundle?.nodes.find((node) => node.nodeKey === route.sourceNodeKey),
-            )
-          }}
-          {{
-            ['normal_converged', 'converge_reached'].includes(route.routeReason ?? '')
-              ? ` · ${workflowTitle(route.routeReason)}`
-              : ''
-          }}
-          {{ route.selectedReason ? ` · ${route.selectedReason}` : '' }}
-        </li>
-      </ul>
-    </details>
     <div v-if="showHistory" class="workflow-history">
       <h4>任务记录</h4>
       <RecordQueryListSurface
@@ -999,9 +973,43 @@ async function execute() {
       <WorkflowTimeline
         v-model:technical="showTechnicalHistory"
         :events="events"
+        :tasks="tasks"
         :nodes="bundle?.nodes ?? []"
       />
     </div>
+    <details v-if="bundle" class="workflow-map">
+      <summary>查看流程图与路径判定</summary>
+      <WorkflowDiagram
+        presentation="detail"
+        :key="bundle.instance.id"
+        :nodes="bundle.nodes"
+        :routes="bundle.routes"
+        :layout-json="bundle.layoutJson"
+        :semantic-json="bundle.semanticJson"
+      />
+      <details v-if="decidedBranchRoutes.length">
+        <summary>路径判定记录</summary>
+        <ul>
+          <li v-for="route in decidedBranchRoutes" :key="route.routeKey">
+            {{ bundle?.nodes.find((node) => node.nodeKey === route.sourceNodeKey)?.nodeTitle }} →
+            {{ bundle?.nodes.find((node) => node.nodeKey === route.targetNodeKey)?.nodeTitle }}：
+            {{ workflowTitle(route.routeStatus) }} ·
+            {{
+              workflowRouteSelectionTitle(
+                route,
+                bundle?.nodes.find((node) => node.nodeKey === route.sourceNodeKey),
+              )
+            }}
+            {{
+              ['normal_converged', 'converge_reached'].includes(route.routeReason ?? '')
+                ? ` · ${workflowTitle(route.routeReason)}`
+                : ''
+            }}
+            {{ route.selectedReason ? ` · ${route.selectedReason}` : '' }}
+          </li>
+        </ul>
+      </details>
+    </details>
   </section>
 </template>
 <style scoped>
@@ -1028,27 +1036,23 @@ header strong {
 .workflow-action-form {
   display: grid;
   gap: 12px;
-  padding: 16px;
-  background: var(--muyun-hover);
-  border-radius: 8px;
+  min-width: 0;
 }
-label {
+.workflow-field {
   display: grid;
   gap: 6px;
 }
-pre {
-  max-height: 250px;
-  overflow: auto;
-  font-size: 12px;
+.workflow-history {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
+.workflow-history h4 {
+  margin: 0;
 }
-td,
-th {
-  padding: 6px;
-  border-bottom: 1px solid var(--muyun-border-subtle);
+.workflow-map summary {
+  padding: 8px 0;
+  cursor: pointer;
+  color: var(--muyun-primary);
 }
 </style>

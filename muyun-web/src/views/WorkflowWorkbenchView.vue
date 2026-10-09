@@ -442,6 +442,7 @@ async function togglePolicy(policy: Delegation) {
       :pages="pages"
       :page-num="page"
       :page-size="pageSize"
+      :page-size-options="[10, 20, 30, 50]"
       :pagination-disabled="editing || loading"
       @update:quick-search-value="keyword = $event"
       @quick-search="query"
@@ -462,59 +463,61 @@ async function togglePolicy(policy: Delegation) {
           >个人代办设置</UiButton
         ></template
       >
-      <template #persistentQueries>
-        <label v-if="currentUser?.system"
-          ><RecordFieldLabel>业务租户</RecordFieldLabel
-          ><RecordPicker
-            v-model:value="tenantId"
-            :disabled="editing || delegationOpen || delegationBusy"
-            :context="tenantContext"
-            mode="list"
-            :title-of="pickerTitle"
-        /></label>
-        <label
-          ><RecordFieldLabel>业务模块</RecordFieldLabel
-          ><UiSelect
-            v-model:value="filters.moduleAlias"
-            :options="moduleOptions"
-            :disabled="editing"
-            show-search
-            placeholder="全部业务模块"
-        /></label>
-        <label v-if="accountScopeReady"
-          ><RecordFieldLabel>发起人</RecordFieldLabel
-          ><RecordPicker
-            v-model:value="filters.submitterUserId"
-            :disabled="editing"
-            :context="accountContext"
-            :load-options="accountOptions"
-            mode="list"
-            :title-of="pickerTitle"
-        /></label>
-        <label
-          ><RecordFieldLabel>时效</RecordFieldLabel
-          ><UiSelect
-            v-model:value="filters.overtimeStatus"
-            :disabled="editing"
-            :options="[
-              { value: 'normal', label: '正常' },
-              { value: 'warned', label: '预警' },
-              { value: 'overdue', label: '超期' },
-            ]"
-            placeholder="全部"
-        /></label>
-      </template>
-      <template #queryControls
-        ><UiButton :disabled="editing || loading" @click="query">查询</UiButton
-        ><UiButton :disabled="editing || loading" @click="resetQuery">重置</UiButton></template
-      >
       <template #conditions
-        ><div class="date-filters">
-          <label>接收开始日期<UiInput v-model:value="receivedFrom" type="date" :disabled="editing" /></label
-          ><label
-            >接收结束日期<UiInput v-model:value="receivedTo" type="date" :disabled="editing"
-          /></label></div
-      ></template>
+        ><div class="workflow-query-fields">
+          <label class="workflow-field" v-if="currentUser?.system"
+            ><RecordFieldLabel>业务租户</RecordFieldLabel
+            ><RecordPicker
+              v-model:value="tenantId"
+              :disabled="editing || delegationOpen || delegationBusy"
+              :context="tenantContext"
+              mode="list"
+              :title-of="pickerTitle"
+          /></label>
+          <label class="workflow-field"
+            ><RecordFieldLabel>业务模块</RecordFieldLabel
+            ><UiSelect
+              v-model:value="filters.moduleAlias"
+              :options="moduleOptions"
+              :disabled="editing"
+              show-search
+              placeholder="全部业务模块"
+          /></label>
+          <label class="workflow-field" v-if="accountScopeReady"
+            ><RecordFieldLabel>发起人</RecordFieldLabel
+            ><RecordPicker
+              v-model:value="filters.submitterUserId"
+              :disabled="editing"
+              :context="accountContext"
+              :load-options="accountOptions"
+              mode="list"
+              :title-of="pickerTitle"
+          /></label>
+          <label class="workflow-field"
+            ><RecordFieldLabel>时效</RecordFieldLabel
+            ><UiSelect
+              v-model:value="filters.overtimeStatus"
+              :disabled="editing"
+              :options="[
+                { value: 'normal', label: '正常' },
+                { value: 'warned', label: '预警' },
+                { value: 'overdue', label: '超期' },
+              ]"
+              placeholder="全部"
+          /></label>
+          <div class="date-filters">
+            <label class="workflow-field"
+              >接收开始日期<UiInput v-model:value="receivedFrom" type="date" :disabled="editing" /></label
+            ><label class="workflow-field"
+              >接收结束日期<UiInput v-model:value="receivedTo" type="date" :disabled="editing"
+            /></label>
+          </div>
+          <div class="workflow-query-controls">
+            <UiButton :disabled="editing || loading" @click="query">查询</UiButton
+            ><UiButton :disabled="editing || loading" @click="resetQuery">重置</UiButton>
+          </div>
+        </div></template
+      >
       <template #cell="{ column, record, value }"
         ><span
           :class="{ 'workflow-urgency': column.key === 'urgency' && record.overtimeStatus === 'overdue' }"
@@ -523,7 +526,6 @@ async function togglePolicy(policy: Delegation) {
       >
     </RecordQueryListSurface>
     <RecordDetailDrawer
-      render-mode="inline"
       :open="Boolean(selected)"
       :title="(businessRecord?.title as string) ?? selected?.business?.title ?? '业务办理详情'"
       width="wide"
@@ -555,7 +557,6 @@ async function togglePolicy(policy: Delegation) {
       <template #operation><UiButton :disabled="editing" @click="closeDetail">关闭详情</UiButton></template>
     </RecordDetailDrawer>
     <RecordDetailDrawer
-      render-mode="inline"
       :open="delegationOpen"
       :title="policyDraft.id ? '编辑个人委托' : '个人代办设置'"
       :before-close="mayClosePolicy"
@@ -563,10 +564,10 @@ async function togglePolicy(policy: Delegation) {
     >
       <UiError v-if="policyError" title="请完善委托规则" :message="policyError" />
       <div class="policy-form">
-        <label
+        <label class="workflow-field"
           ><RecordFieldLabel required>规则名称</RecordFieldLabel
           ><UiInput v-model:value="policyDraft.title" :disabled="delegationBusy" /></label
-        ><label
+        ><label class="workflow-field"
           ><RecordFieldLabel required>代办人</RecordFieldLabel
           ><RecordPicker
             v-model:value="policyDraft.delegateUserId"
@@ -575,7 +576,7 @@ async function togglePolicy(policy: Delegation) {
             mode="list"
             :title-of="pickerTitle"
             :disabled="delegationBusy" /></label
-        ><label
+        ><label class="workflow-field"
           >适用范围<UiSelect
             v-model:value="policyDraft.moduleScopeType"
             :disabled="delegationBusy"
@@ -584,7 +585,7 @@ async function togglePolicy(policy: Delegation) {
               { value: 'all', label: '全部业务模块' },
               { value: 'include', label: '指定业务模块' },
             ]" /></label
-        ><label v-if="policyDraft.moduleScopeType === 'include'"
+        ><label class="workflow-field" v-if="policyDraft.moduleScopeType === 'include'"
           >业务模块<UiSelect
             v-model:value="policyDraft.moduleAliases"
             :disabled="delegationBusy"
@@ -633,13 +634,14 @@ async function togglePolicy(policy: Delegation) {
   height: 100%;
   min-height: 0;
   padding: 12px;
-  overflow: auto;
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.workflow-workbench :deep(.record-query-list-surface) {
+.workflow-workbench > .record-query-list-surface {
   flex: 1;
   min-height: 320px;
 }
-label,
+.workflow-field,
 .policy-form {
   display: grid;
   gap: 8px;
@@ -666,5 +668,21 @@ label,
 .workflow-urgency {
   color: var(--muyun-danger-base);
   font-weight: 600;
+}
+.workflow-query-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.workflow-query-fields > .workflow-field {
+  flex: 0 1 200px;
+  min-width: min(180px, 100%);
+}
+.workflow-query-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 1px;
 }
 </style>

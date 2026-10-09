@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { WorkflowEvent, WorkflowNode } from '@muyun/web-contracts';
+import type { WorkflowEvent, WorkflowNode, WorkflowTask } from '@muyun/web-contracts';
 import { UiCheckbox } from '@muyun/vue-ui-antdv';
 import { workflowTitle } from './workflowPresentation';
 
 defineOptions({ name: 'WorkflowTimeline' });
-const props = defineProps<{ events: WorkflowEvent[]; nodes: WorkflowNode[] }>();
+const props = withDefaults(
+  defineProps<{ events: WorkflowEvent[]; nodes: WorkflowNode[]; tasks?: WorkflowTask[] }>(),
+  { tasks: () => [] },
+);
 const showTechnicalHistory = defineModel<boolean>('technical', { default: false });
 function eventReason(event: WorkflowEvent) {
   if (event.reason) return event.reason;
@@ -63,17 +66,100 @@ const businessEvents = computed(() =>
   ),
 );
 const visibleEvents = computed(() => (showTechnicalHistory.value ? props.events : businessEvents.value));
+const timelineItems = computed(() =>
+  visibleEvents.value.map((event) => {
+    const task = event.taskId ? props.tasks.find((task) => task.id === event.taskId) : undefined;
+    const nodeInstanceId = event.nodeInstanceId ?? task?.nodeInstanceId;
+    const nodeKey = event.nodeKey ?? task?.nodeKey;
+    const node =
+      props.nodes.find((node) => Boolean(nodeInstanceId) && node.id === nodeInstanceId) ??
+      props.nodes.find((node) => Boolean(nodeKey) && node.nodeKey === nodeKey);
+    const reason = eventReason(event);
+    const eventType = event.eventType.toLowerCase();
+    return {
+      ...event,
+      title: workflowTitle(
+        eventType.startsWith('instance_') || eventType === 'approval_completed'
+          ? eventType
+          : (event.actionCode ?? eventType),
+      ),
+      nodeTitle: node?.nodeTitle ?? node?.title,
+      detail: showTechnicalHistory.value ? (event.message ?? reason) : reason,
+    };
+  }),
+);
 </script>
 <template>
-  <h4>办理时间线</h4>
-  <UiCheckbox v-model:checked="showTechnicalHistory">展开完整技术审计</UiCheckbox>
-  <ol>
-    <li v-for="event in visibleEvents" :key="event.id">
-      {{ event.occurredAt ? new Date(event.occurredAt).toLocaleString() : '' }} ·
-      {{ workflowTitle(event.actionCode ?? event.eventType) }} ·
-      {{ nodes.find((node) => node.id === event.nodeInstanceId)?.nodeTitle ?? '' }} ·
-      {{ event.operatorTitle ?? event.operatorId ?? '' }} ·
-      {{ showTechnicalHistory ? (event.message ?? eventReason(event)) : eventReason(event) }}
-    </li>
-  </ol>
+  <section class="workflow-timeline" aria-label="办理时间线">
+    <header>
+      <h4>办理时间线</h4>
+      <UiCheckbox v-model:checked="showTechnicalHistory">展开完整技术审计</UiCheckbox>
+    </header>
+    <ol>
+      <li v-for="event in timelineItems" :key="event.id">
+        <div class="timeline-facts">
+          <strong>{{ event.title }}</strong
+          ><span v-if="event.nodeTitle">{{ event.nodeTitle }}</span
+          ><span v-if="event.operatorTitle || event.operatorId">{{
+            event.operatorTitle ?? event.operatorId
+          }}</span
+          ><time v-if="event.occurredAt" :datetime="event.occurredAt">{{
+            new Date(event.occurredAt).toLocaleString()
+          }}</time>
+        </div>
+        <p v-if="event.detail">{{ event.detail }}</p>
+      </li>
+    </ol>
+  </section>
 </template>
+<style scoped>
+.workflow-timeline {
+  min-width: 0;
+}
+header,
+.timeline-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+h4 {
+  margin: 0;
+  margin-right: auto;
+}
+ol {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+li {
+  position: relative;
+  padding: 0 0 16px 20px;
+  border-left: 1px solid var(--muyun-border);
+  margin-left: 4px;
+}
+li::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muyun-primary);
+}
+li:last-child {
+  padding-bottom: 0;
+  border-left-color: transparent;
+}
+time {
+  margin-left: auto;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+p {
+  margin: 8px 0 0;
+  color: var(--muyun-text-muted);
+  overflow-wrap: anywhere;
+}
+</style>

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
 
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
@@ -174,7 +176,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         dynamicModule.setAlias("crm.customer");
         dynamicModule.setModuleKind(ModuleKind.DYNAMIC);
         when(moduleService.select("crm.customer")).thenReturn(dynamicModule);
-        PlatformModuleActionService actionHook = new PlatformModuleActionService(
+        PlatformModuleActionService actionHook = ModuleActionTestServices.withDeclaredDataPolicy(
                 new TestMemoryDao<>(), moduleService, Optional.of(refreshCoordinator));
 
         ModuleMetadataRelation relation = relation("rel-customer-main", "crm.customer", "metadata-customer");
@@ -217,7 +219,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         staticModule.setAlias("platform.code_issue_log");
         staticModule.setModuleKind(ModuleKind.STATIC);
         when(moduleService.select("platform.code_issue_log")).thenReturn(staticModule);
-        PlatformModuleActionService actionHook = new PlatformModuleActionService(
+        PlatformModuleActionService actionHook = ModuleActionTestServices.withDeclaredDataPolicy(
                 new TestMemoryDao<>(), moduleService, Optional.of(refreshCoordinator));
 
         PlatformModuleAction action = action("platform.code_issue_log");

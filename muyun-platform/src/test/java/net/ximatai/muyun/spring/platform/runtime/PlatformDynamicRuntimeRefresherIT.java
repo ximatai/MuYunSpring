@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 
 import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
@@ -383,7 +385,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
         MetadataViewFieldService viewFieldService =
                 new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);
-        PlatformModuleActionService actionService = new PlatformModuleActionService(actionDao, moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(actionDao, moduleService);
         ModuleMetadataFormulaRuleService formulaRuleService =
                 new ModuleMetadataFormulaRuleService(formulaRuleDao, relationService, fieldService);
         MenuSchemeService schemeService = new MenuSchemeService(schemeDao);

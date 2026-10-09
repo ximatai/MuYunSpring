@@ -413,6 +413,9 @@ class WorkflowRecordDeletionRepositoryIT extends PlatformPostgresIntegrationTest
     @Import({WorkflowRepositoryTestConfiguration.class, WorkflowConcurrencyProbe.Configuration.class, WorkflowInstanceActionService.class, WorkflowRecordDeletionGuard.class,
             StaticWorkflowModuleRecordGuard.class, DynamicWorkflowModuleRecordGuard.class, WorkflowModuleSubmitService.class, WorkflowSubmitReadFacade.class})
     static class Host {
+        @Bean net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService authorization() {
+            return new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService();
+        }
         @Bean PlatformQueryItemService queryItems() { return mock(PlatformQueryItemService.class); }
         @Bean RecordImpactRelationService generatedRelations() { return mock(RecordImpactRelationService.class); }
         @Bean ModuleCompletionCheckService completionChecks(DynamicRecordService records, PlatformQueryItemService queries,

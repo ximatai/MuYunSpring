@@ -140,6 +140,7 @@ defineSlots<{
     :class="{
       'is-embedded': embedded,
       'is-chrome-free': chromeFree,
+      'is-content-height': !fillHeight,
     }"
   >
     <ManagementPanelHeader
@@ -295,6 +296,16 @@ defineSlots<{
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.record-query-list-surface.is-content-height {
+  height: auto;
+  grid-template-rows: auto;
+  align-content: start;
+}
+
+.record-query-list-surface.is-content-height .record-query-list-table {
+  height: auto;
 }
 
 .record-query-list-surface.is-chrome-free {

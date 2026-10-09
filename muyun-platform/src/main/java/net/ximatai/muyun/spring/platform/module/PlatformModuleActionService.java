@@ -25,6 +25,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutorDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutorRegistry;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -48,28 +49,20 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
     private final PlatformModuleService moduleService;
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator;
     private final DynamicActionExecutorRegistry actionExecutorRegistry;
+    private final ObjectProvider<ModuleActionDataAuthResolver> dataAuthResolver;
     private final ThreadLocal<Integer> runtimeRefreshSuppressionDepth = ThreadLocal.withInitial(() -> 0);
-
-    public PlatformModuleActionService(BaseDao<PlatformModuleAction, String> actionDao,
-                                       PlatformModuleService moduleService) {
-        this(actionDao, moduleService, Optional.empty(), Optional.empty());
-    }
-
-    public PlatformModuleActionService(BaseDao<PlatformModuleAction, String> actionDao,
-                                       PlatformModuleService moduleService,
-                                       Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
-        this(actionDao, moduleService, runtimeRefreshCoordinator, Optional.empty());
-    }
 
     @Autowired
     public PlatformModuleActionService(BaseDao<PlatformModuleAction, String> actionDao,
                                        PlatformModuleService moduleService,
                                        Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
-                                       Optional<DynamicActionExecutorRegistry> actionExecutorRegistry) {
+                                       Optional<DynamicActionExecutorRegistry> actionExecutorRegistry,
+                                       ObjectProvider<ModuleActionDataAuthResolver> dataAuthResolver) {
         super(MODULE_ALIAS, PlatformModuleAction.class, actionDao);
-        this.moduleService = moduleService;
+        this.moduleService = Objects.requireNonNull(moduleService, "moduleService");
         this.runtimeRefreshCoordinator = runtimeRefreshCoordinator.orElse(null);
         this.actionExecutorRegistry = actionExecutorRegistry.orElse(null);
+        this.dataAuthResolver = Objects.requireNonNull(dataAuthResolver, "dataAuthResolver");
     }
 
     @Override
@@ -179,7 +172,14 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         if (action == null || Boolean.FALSE.equals(action.getEnabled())) {
             throw new PlatformAccessDeniedException("模块动作尚未发布或已停用：" + moduleAlias + "." + actionCode);
         }
-        return action.executionPolicy();
+        ActionExecutionPolicy policy = action.executionPolicy();
+        return new ActionExecutionPolicy(policy.actionCode(), policy.level(), policy.accessMode(),
+                policy.actionAuth(), effectiveDataAuth(action), policy.defaultGrantPolicy(), policy.inheritActionCode());
+    }
+
+    /** Shared effective data policy for runtime execution and the role grant directory. */
+    public boolean effectiveDataAuth(PlatformModuleAction action) {
+        return dataAuthResolver.getObject().resolve(action);
     }
 
     /** Restores the permission policy declared by the action contributor or static module. */

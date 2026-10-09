@@ -17,6 +17,7 @@ const surface = defineComponent({
         slots.operations?.(),
         slots.persistentQueries?.(),
         slots.queryControls?.(),
+        slots.conditions?.(),
         slots.rowActions?.({ record: {} }),
       ]);
   },
@@ -64,7 +65,6 @@ it.each(['refresh', 'query', 'select'])(
           RecordPicker: true,
           WorkflowDiagram: true,
           ManagementTabs: true,
-          AdaptiveHeaderActionBar: true,
         },
       },
     });
@@ -72,7 +72,10 @@ it.each(['refresh', 'query', 'select'])(
     const list = wrapper.findComponent(surface);
     list.vm.$emit('row-click', { id: 'i' });
     await flushPromises();
-    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'forceTerminate' });
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '终止流程')!
+      .trigger('click');
     await flushPromises();
     expect(wrapper.text()).toMatch(/当前流程版本：\s*7\s*。/);
     wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '需要保留的运维原因');
@@ -145,7 +148,6 @@ it('opens terminal current instances and resets them without querying active-onl
         RecordPicker: true,
         RecordDetailDrawer: drawer,
         WorkflowDiagram: true,
-        AdaptiveHeaderActionBar: true,
         ManagementTabs: true,
       },
     },
@@ -172,9 +174,11 @@ it('opens terminal current instances and resets them without querying active-onl
   wrapper.findComponent(surface).vm.$emit('row-click', { id: 'terminal' });
   await flushPromises();
   expect(request.mock.calls.some(([call]) => call.path.endsWith('/active-tasks'))).toBe(false);
-  const actions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
-  expect(actions.props('actions').map((action: { key: string }) => action.key)).toEqual(['reset']);
-  actions.vm.$emit('action', { key: 'reset' });
+  expect(wrapper.findAll('button').some((button) => button.text() === '终止流程')).toBe(false);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '重置业务审批')!
+    .trigger('click');
   await flushPromises();
   wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '清理已终止的失联实例');
   await flushPromises();

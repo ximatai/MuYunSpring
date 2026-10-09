@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { UiButton, UiDropdown, UiEmpty, UiError, UiIcon, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
+import {
+  UiButton,
+  UiDropdown,
+  UiEmpty,
+  UiError,
+  UiIcon,
+  UiSpin,
+  UiTabs,
+  UiSidePanelHost,
+} from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -640,7 +649,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               <UiError :message="error" />
               <UiButton icon="reload" @click="emit('retryLoad')">重试加载</UiButton>
             </div>
-            <div v-else-if="activeTab" class="tab-panel-host">
+            <UiSidePanelHost v-else-if="activeTab" class="tab-panel-host">
               <div
                 class="tab-page"
                 :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
@@ -651,7 +660,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                   :page-descriptor="activePageDescriptor"
                 />
               </div>
-            </div>
+            </UiSidePanelHost>
             <UiEmpty v-else description="暂无页面" />
           </section>
         </section>
@@ -1162,6 +1171,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .tab-page--workspace {
   overflow-x: auto;
   overflow-y: hidden;
+}
+/* Cached page hosts own their scroll container and side-panel target together. */
+.tab-page:has(> .ui-side-panel-host) {
+  padding: 0;
+  overflow: hidden;
 }
 
 /* The menu compacts below 980px, but tablet and narrow desktop workspaces remain viewport-bound.

@@ -20,8 +20,10 @@ class WorkflowModuleActionContributorTest {
     @org.junit.jupiter.api.AfterEach
     void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
 
+    private final net.ximatai.muyun.spring.platform.module.PlatformModuleService modules = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class);
+    private final net.ximatai.muyun.spring.platform.module.PlatformModuleActionService actions = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleActionService.class);
     private final ModuleActionContributionRegistrar registrar = mock(ModuleActionContributionRegistrar.class);
-    private final WorkflowModuleActionContributor contributor = new WorkflowModuleActionContributor(registrar);
+    private final WorkflowModuleActionContributor contributor = new WorkflowModuleActionContributor(registrar, modules, actions);
 
     @Test
     void shouldContributeActionForNonApprovalWorkflow() {
@@ -69,6 +71,46 @@ class WorkflowModuleActionContributorTest {
     }
 
     @Test
+    void dynamicApprovalHasGrantableSubmissionWhileStaticEndpointKeepsItsOwnership() {
+        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule();
+        module.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC);
+        org.mockito.Mockito.when(modules.resolveVisibleModule("sales.contract")).thenReturn(module);
+        assertThat(contributor.contributions(definition(true), version()))
+                .filteredOn(action -> "submitApproval".equals(action.actionCode())).singleElement()
+                .satisfies(action -> {
+                    assertThat(action.permissionActionCode()).isEqualTo("submitApproval");
+                    assertThat(action.sourceType()).isEqualTo(ModuleActionSourceType.WORKFLOW_RUNTIME);
+                });
+        module.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.STATIC);
+        assertThat(contributor.contributions(definition(true), version()))
+                .extracting(ModuleActionContribution::actionCode).doesNotContain("submitApproval");
+        module.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC);
+        assertThat(contributor.contributions(definition(false), version()))
+                .extracting(ModuleActionContribution::actionCode).doesNotContain("submitApproval");
+    }
+
+    @Test
+    void publishingOtherWorkflowsPreservesTheModuleSubmissionDeclaration() {
+        var modules = new net.ximatai.muyun.spring.platform.module.PlatformModuleService(
+                new net.ximatai.muyun.spring.platform.support.TestMemoryDao<>(), event -> {});
+        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule();
+        module.setId("sales.contract");
+        module.setApplicationAlias("sales");
+        module.setModuleKind(net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC);
+        module.setTitle("合同");
+        modules.insert(module);
+        var actions = net.ximatai.muyun.spring.platform.support.ModuleActionTestServices.withDeclaredDataPolicy(
+                new net.ximatai.muyun.spring.platform.support.TestMemoryDao<>(), modules);
+        var contributor = new WorkflowModuleActionContributor(new ModuleActionContributionRegistrar(actions), modules, actions);
+        contributor.registerPublishedWorkflowAction(definition(true), version());
+        contributor.registerPublishedWorkflowAction(definition(false), version());
+        var submission = actions.findByModuleAliasAndActionCode("sales.contract", "submitApproval");
+        assertThat(submission.getEnabled()).isTrue();
+        assertThat(submission.getSourceType()).isEqualTo(ModuleActionSourceType.WORKFLOW_RUNTIME);
+        assertThat(actions.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow").getEnabled()).isTrue();
+    }
+
+    @Test
     void shouldContributeRuntimeAndDefinitionActionForNonApprovalWorkflow() {
         List<ModuleActionContribution> contributions = contributor.contributions(definition(false), version());
 
@@ -85,6 +127,24 @@ class WorkflowModuleActionContributorTest {
         assertThatThrownBy(() -> contributor.contribution(definition, version()))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("non-approval workflow actionCode must not be blank");
+    }
+
+    @Test
+    void shouldLockTheSharedModuleDirectoryBeforeReconcilingPublishedActions() {
+        var partitions = new java.util.ArrayList<String>();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureMutationTransactionOperator(
+                new net.ximatai.muyun.spring.ability.MutationTransactionOperator() {
+                    @Override public <T> T execute(java.util.function.Supplier<T> work) { return work.get(); }
+                    @Override public void lock(String scope, String key) { partitions.add(scope + ":" + key); }
+                });
+        org.mockito.Mockito.when(modules.resolveVisibleModule("sales.contract")).thenAnswer(invocation -> {
+            assertThat(partitions).containsExactly("workflow.module.actions:sales.contract");
+            return null;
+        });
+
+        contributor.registerPublishedWorkflowAction(definition(false), version());
+
+        verify(registrar).registerAll(org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test

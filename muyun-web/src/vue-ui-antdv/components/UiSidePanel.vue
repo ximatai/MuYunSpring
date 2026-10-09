@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, ref, type CSSProperties } from 'vue';
+import { computed, inject, ref, onActivated, onDeactivated, type CSSProperties } from 'vue';
 import { Drawer as ADrawer } from 'ant-design-vue';
 import { resolveUiDrawerWidth, type UiDrawerWidth } from '../drawerWidth';
 import {
@@ -36,6 +36,15 @@ const props = withDefaults(
   },
 );
 
+const active = ref(true);
+onActivated(() => {
+  active.value = true;
+});
+onDeactivated(() => {
+  active.value = false;
+});
+const visibleOpen = computed(() => props.open && active.value);
+
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const container = computed(() => {
   if (props.renderMode === 'inline') return false;
@@ -51,10 +60,10 @@ const rootStyle = computed<CSSProperties>(() =>
 );
 const resolvedWidth = computed(() => {
   const width = resolveUiDrawerWidth(props.width);
-  return props.renderMode === 'inline' ? `min(${width}px, calc(100% - 32px))` : width;
+  return props.renderMode === 'inline' ? `min(${width}px, calc(100% - 32px))` : `min(${width}px, 100%)`;
 });
 const overlayContent = ref<HTMLElement>();
-const updateOverlayVisibility = useUiBlockingOverlayVisibility(() => props.open, overlayContent);
+const updateOverlayVisibility = useUiBlockingOverlayVisibility(() => visibleOpen.value, overlayContent);
 const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
   dismissal: props.dismissal,
   closeOnOutside: props.closeOnOutside,
@@ -70,7 +79,7 @@ const emit = defineEmits<{
 
 function handleAfterVisibleChange(visible: boolean) {
   updateOverlayVisibility(visible);
-  if (!visible) emit('afterClose');
+  if (!visible && !props.open) emit('afterClose');
 }
 
 async function requestOutsideClose() {
@@ -82,7 +91,7 @@ async function requestOutsideClose() {
 
 <template>
   <ADrawer
-    :open="open"
+    :open="visibleOpen"
     placement="right"
     :width="resolvedWidth"
     :get-container="container"

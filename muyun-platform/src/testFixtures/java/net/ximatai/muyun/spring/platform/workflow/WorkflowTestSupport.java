@@ -13,6 +13,14 @@ public final class WorkflowTestSupport {
         @SuppressWarnings("unchecked") Class<T> type = (Class<T>) value.getClass();
         return factory.getBeanProvider(type);
     }
+    /** Routing fixtures explicitly publish default submission permission facts. */
+    public static WorkflowSubmitActionPolicyResolver submissionPolicies() {
+        var actions = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.module.PlatformModuleActionService.class);
+        org.mockito.Mockito.when(actions.requireExecutionPolicy(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("submitApproval")))
+                .thenReturn(WorkflowActionPolicyService.runtimePolicy("submitApproval"));
+        return new WorkflowSubmitActionPolicyResolver(provider(actions));
+    }
     public static ModuleRecordFacts facts() { return (moduleAlias, recordId) -> Map.of("id", recordId); }
     public static WorkflowParticipantService participants() { return new WorkflowParticipantService(List.of(), facts()); }
 }

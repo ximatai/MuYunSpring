@@ -20,7 +20,6 @@ import {
   RecordDetailDrawer,
   ManagementTabs,
   RecordFieldLabel,
-  AdaptiveHeaderActionBar,
   WorkflowDiagram,
   workflowTitle,
   presentPlatformError,
@@ -297,55 +296,63 @@ function title(record: { id?: string; title?: string }) {
       :pages="page + (rows.length === 30 ? 1 : 0)"
       :page-num="page"
       :page-size="30"
+      :page-size-options="[30]"
       :pagination-disabled="busy || Boolean(pending)"
       @row-click="select(String($event.id))"
       @page-change="page = $event"
     >
       <template #operations><UiButton :loading="busy" @click="load">刷新</UiButton></template>
-      <template #persistentQueries
-        ><label v-if="user?.system"
-          ><RecordFieldLabel>业务租户</RecordFieldLabel
-          ><RecordPicker
-            v-model:value="tenantId"
-            :context="tenantContext"
-            :disabled="busy || Boolean(pending)"
-            :title-of="title"
-            mode="list" /></label
-        ><label
-          ><RecordFieldLabel :required="historyMode">业务模块</RecordFieldLabel
-          ><UiSelect
-            v-model:value="moduleAlias"
-            :disabled="busy || Boolean(pending)"
-            show-search
-            :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
-            :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
-        ><label v-if="!historyMode"
-          ><RecordFieldLabel>流程状态</RecordFieldLabel
-          ><UiSelect
-            v-model:value="instanceStatus"
-            :disabled="busy || Boolean(pending)"
-            :options="[
-              { value: 'running', label: '进行中' },
-              { value: 'completed', label: '已完成' },
-              { value: 'rejected', label: '已驳回' },
-              { value: 'revoked', label: '已撤回' },
-              { value: 'terminated', label: '已终止' },
-            ]" /></label
-        ><label
-          >业务记录标识<UiInput
-            v-model:value="recordId"
-            :disabled="busy || Boolean(pending)"
-            placeholder="精确定位异常业务" /></label
-      ></template>
-      <template #queryControls
-        ><UiButton :disabled="busy || (historyMode && !moduleAlias)" @click="query()">查询</UiButton
-        ><UiButton :disabled="busy" @click="query(true)">重置</UiButton></template
+      <template #conditions
+        ><div class="workflow-query-fields">
+          <label class="workflow-field" v-if="user?.system"
+            ><RecordFieldLabel>业务租户</RecordFieldLabel
+            ><RecordPicker
+              v-model:value="tenantId"
+              :context="tenantContext"
+              :disabled="busy || Boolean(pending)"
+              :title-of="title"
+              mode="list" /></label
+          ><label class="workflow-field"
+            ><RecordFieldLabel :required="historyMode">业务模块</RecordFieldLabel
+            ><UiSelect
+              v-model:value="moduleAlias"
+              :disabled="busy || Boolean(pending)"
+              show-search
+              :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
+              :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
+          ><label class="workflow-field" v-if="!historyMode"
+            ><RecordFieldLabel>流程状态</RecordFieldLabel
+            ><UiSelect
+              v-model:value="instanceStatus"
+              :disabled="busy || Boolean(pending)"
+              :options="[
+                { value: 'running', label: '进行中' },
+                { value: 'completed', label: '已完成' },
+                { value: 'rejected', label: '已驳回' },
+                { value: 'revoked', label: '已撤回' },
+                { value: 'terminated', label: '已终止' },
+              ]" /></label
+          ><label class="workflow-field"
+            >业务记录标识<UiInput
+              v-model:value="recordId"
+              :disabled="busy || Boolean(pending)"
+              placeholder="精确定位异常业务"
+          /></label>
+          <div class="workflow-query-controls">
+            <UiButton :disabled="busy || (historyMode && !moduleAlias)" @click="query()">查询</UiButton
+            ><UiButton :disabled="busy" @click="query(true)">重置</UiButton>
+          </div>
+        </div></template
       >
     </RecordQueryListSurface>
     <RecordDetailDrawer
-      render-mode="inline"
       :open="Boolean(selectedId)"
       title="流程运维详情"
+      :subtitle="
+        bundle
+          ? `${moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias} · ${workflowTitle(bundle.instance.instanceStatus)} · 版本 ${bundle.instance.versionNo}`
+          : undefined
+      "
       width="extraWide"
       :before-close="mayCloseDetail"
       @close="selectedId = undefined"
@@ -356,15 +363,10 @@ function title(record: { id?: string; title?: string }) {
         >重试</UiButton
       >
       <p v-if="busy">正在加载…</p>
-      <template v-if="bundle"
-        ><WorkflowDiagram :nodes="bundle.nodes" :routes="bundle.routes" />
-        <AdaptiveHeaderActionBar
-          v-if="!historyMode"
-          :actions="detailActions.map((item) => ({ ...item, disabled: busy || Boolean(pending) }))"
-          @action="chooseOperation($event.key)"
-        />
+      <template v-if="bundle">
         <RecordQueryListSurface
-          v-if="!historyMode"
+          v-if="!historyMode && tasks.length"
+          embedded
           title="当前待办"
           :columns="taskColumns"
           :rows="tasks.map((task) => ({ ...task, id: task.taskId }))"
@@ -381,7 +383,19 @@ function title(record: { id?: string; title?: string }) {
             ></template
           ></RecordQueryListSurface
         >
+        <p v-if="!historyMode && !tasks.length" class="workflow-empty-tasks">当前没有待办任务</p>
+        <details class="workflow-map">
+          <summary>查看流程图</summary>
+          <WorkflowDiagram
+            presentation="detail"
+            :nodes="bundle.nodes"
+            :routes="bundle.routes"
+            :layout-json="bundle.layoutJson"
+            :semantic-json="bundle.semanticJson"
+          />
+        </details>
         <RecordQueryListSurface
+          embedded
           title="运维审计"
           :columns="[
             { key: 'occurred', title: '时间', dataIndex: 'occurred', width: 170 },
@@ -401,24 +415,36 @@ function title(record: { id?: string; title?: string }) {
         />
       </template>
       <template #operation
+        ><template v-if="bundle && !historyMode"
+          ><UiButton
+            v-for="item in detailActions"
+            :key="item.key"
+            :danger="item.danger"
+            :disabled="busy || Boolean(pending)"
+            @click="chooseOperation(item.key)"
+            >{{ item.title }}</UiButton
+          ></template
         ><UiButton :disabled="busy || Boolean(pending)" @click="selectedId = undefined"
           >关闭详情</UiButton
         ></template
       >
     </RecordDetailDrawer>
     <RecordDetailDrawer
-      render-mode="inline"
       :open="Boolean(pending)"
       :title="operationTitle(pending?.code ?? '')"
       :before-close="mayCloseOperation"
       @close="pending = undefined"
-      ><p>{{ operationImpact(pending?.code ?? '') }}</p>
+      ><p v-if="bundle">
+        业务：{{ moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias }} · 记录
+        {{ bundle.instance.recordId }}
+      </p>
+      <p>{{ operationImpact(pending?.code ?? '') }}</p>
       <p>
         当前流程版本：{{
           bundle?.instance.versionNo ?? '未知'
         }}。操作成功后不可直接撤销，并记录操作人、时间和原因。
       </p>
-      <label
+      <label class="workflow-field"
         ><RecordFieldLabel required>运维原因</RecordFieldLabel
         ><UiTextArea v-model:value="reason" :disabled="busy" aria-label="运维原因" /></label
       ><template #operation
@@ -445,15 +471,41 @@ function title(record: { id?: string; title?: string }) {
   padding: 12px;
   height: 100%;
   min-height: 0;
-  overflow: auto;
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.workflow-admin :deep(.record-query-list-surface) {
+.workflow-admin > .record-query-list-surface {
   flex: 1;
   min-height: 240px;
 }
-label {
+.workflow-field {
   display: grid;
   gap: 8px;
   min-width: 0;
+}
+.workflow-query-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.workflow-query-fields > .workflow-field {
+  flex: 0 1 200px;
+  min-width: min(180px, 100%);
+}
+.workflow-query-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 1px;
+}
+.workflow-empty-tasks {
+  margin: 0;
+  color: var(--muyun-text-muted);
+}
+.workflow-map summary {
+  cursor: pointer;
+  color: var(--muyun-primary);
+  padding: 8px 0;
 }
 </style>
