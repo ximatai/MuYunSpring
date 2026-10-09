@@ -56,7 +56,7 @@ class RealtimePublisherTest {
     @Test
     void shouldSendDataChangeEnvelopeToCurrentUserQueue() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
         CommittedChangeSet changeSet = new CommittedChangeSet("change-set-1",
                 List.of(DataChange.recordUpdated("iam.employee", "employee-1")));
 
@@ -74,79 +74,22 @@ class RealtimePublisherTest {
     }
 
     @Test
-    void shouldBroadcastOnlyDataChangeSummariesToModuleAndRecordTopics() {
-        RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
-        CurrentUser source = CurrentUser.tenantUser("source-1", "Source", "tenant-a");
-        CommittedChangeSet changeSet = new CommittedChangeSet("change-set-1", List.of(
-                new DataChange("record-updated", "iam.employee", "employee-1", null, null,
-                        Map.of("name", "敏感姓名")),
-                DataChange.recordUpdated("iam.employee", "employee-1"),
-                DataChange.recordDeleted("iam.employee", "employee-2"),
-                DataChange.collectionChanged("iam.user")));
-
-        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(source)) {
-            publisher.publish(changeSet);
+    void shouldNeverBroadcastRecordOrResourceIdentifiersToSharedTopics() {
+        RecordingRealtimeMessagePublisher messages = new RecordingRealtimeMessagePublisher();
+        var publisher = new StompDataChangeRealtimePublisher(messages, changeSet -> {});
+        try (var scope = CurrentUserContext.use(CurrentUser.tenantUser("source", "Source", "tenant-a"))) {
+            publisher.publish(new CommittedChangeSet("change", List.of(
+                    DataChange.recordDeleted("iam.employee", "private-record"),
+                    DataChange.resourceRecordUpdated("platform.field_ui_control", "properties", "parent", "child"))));
         }
-
-        assertThat(messagePublisher.userMessages)
-                .extracting(UserMessage::userId)
-                .containsExactly("source-1");
-        assertThat(((RealtimeEnvelope<?>) messagePublisher.userMessages.get(0).payload()).payload())
-                .isEqualTo(changeSet);
-        assertThat(messagePublisher.broadcasts)
-                .extracting(BroadcastMessage::topic)
-                .containsExactly(
-                        RealtimeDestinations.moduleDataChanges("iam.employee"),
-                        RealtimeDestinations.moduleDataChanges("iam.user"),
-                        RealtimeDestinations.recordDataChanges("iam.employee", "employee-1"),
-                        RealtimeDestinations.recordDataChanges("iam.employee", "employee-2"));
-        RealtimeEnvelope<?> employeeEnvelope = (RealtimeEnvelope<?>) messagePublisher.broadcasts.get(0).payload();
-        assertThat(employeeEnvelope.payload()).isInstanceOf(CommittedChangeSet.class);
-        CommittedChangeSet employeeSummary = (CommittedChangeSet) employeeEnvelope.payload();
-        assertThat(employeeSummary.changeSetId()).isEqualTo("change-set-1");
-        assertThat(employeeSummary.changes()).containsExactly(
-                DataChange.recordUpdated("iam.employee", "employee-1"),
-                DataChange.recordUpdated("iam.employee", "employee-1"),
-                DataChange.recordDeleted("iam.employee", "employee-2"));
-        assertThat(employeeSummary.changes())
-                .allSatisfy(change -> assertThat(change.facts()).isEmpty());
-
-        RealtimeEnvelope<?> collectionEnvelope = (RealtimeEnvelope<?>) messagePublisher.broadcasts.get(1).payload();
-        CommittedChangeSet collectionSummary = (CommittedChangeSet) collectionEnvelope.payload();
-        assertThat(collectionSummary.changes()).containsExactly(DataChange.collectionChanged("iam.user"));
-    }
-
-    @Test
-    void shouldRouteResourceChangesToResourceChildAndOwningParentTopics() {
-        RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
-        DataChange resourceChange = DataChange.resourceRecordUpdated(
-                "platform.field_ui_control", "properties", "control-1", "property-1");
-
-        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
-                CurrentUser.tenantUser("source-1", "Source", "tenant-a"))) {
-            publisher.publish(new CommittedChangeSet("change-set-1", List.of(resourceChange)));
-        }
-
-        assertThat(messagePublisher.broadcasts)
-                .extracting(BroadcastMessage::topic)
-                .containsExactly(
-                        RealtimeDestinations.moduleDataChanges("platform.field_ui_control"),
-                        RealtimeDestinations.recordDataChanges("platform.field_ui_control", "control-1"),
-                        RealtimeDestinations.resourceDataChanges("platform.field_ui_control", "properties"),
-                        RealtimeDestinations.resourceRecordDataChanges(
-                                "platform.field_ui_control", "properties", "property-1"));
-        assertThat(messagePublisher.broadcasts)
-                .extracting(BroadcastMessage::topic)
-                .doesNotContain(RealtimeDestinations.recordDataChanges(
-                        "platform.field_ui_control", "property-1"));
+        assertThat(messages.userMessages).hasSize(1);
+        assertThat(messages.broadcasts).isEmpty();
     }
 
     @Test
     void shouldSkipDataChangeWithoutCurrentUser() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
 
         publisher.publish(new CommittedChangeSet("change-set-1",
                 List.of(DataChange.recordUpdated("iam.employee", "employee-1"))));
@@ -157,7 +100,7 @@ class RealtimePublisherTest {
     @Test
     void shouldSkipEmptyChangeSet() {
         RecordingRealtimeMessagePublisher messagePublisher = new RecordingRealtimeMessagePublisher();
-        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher);
+        StompDataChangeRealtimePublisher publisher = new StompDataChangeRealtimePublisher(messagePublisher, changeSet -> {});
 
         publisher.publish(CommittedChangeSet.empty("change-set-1"));
 

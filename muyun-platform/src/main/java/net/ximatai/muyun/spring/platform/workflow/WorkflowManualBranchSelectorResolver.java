@@ -25,10 +25,11 @@ final class WorkflowManualBranchSelectorResolver {
             return SelectorResolution.unresolved(null, null, SELECTOR_NOT_FOUND);
         }
         String resolvedUserId;
-        if ("START".equalsIgnoreCase(effectiveSelectorNodeKey)) {
+        WorkflowNodeInstance selectorNode = nodesByKey(nodes).get(effectiveSelectorNodeKey);
+        if (selectorNode != null && selectorNode.getNodeType() == WorkflowNodeType.START
+                || selectorNode == null && "START".equalsIgnoreCase(effectiveSelectorNodeKey)) {
             resolvedUserId = firstText(instance == null ? null : instance.getStartedBy(), null);
         } else {
-            WorkflowNodeInstance selectorNode = nodesByKey(nodes).get(effectiveSelectorNodeKey);
             if (selectorNode == null) {
                 return SelectorResolution.unresolved(effectiveSelectorNodeKey, null, SELECTOR_NOT_FOUND);
             }

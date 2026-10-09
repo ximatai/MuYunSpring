@@ -9,6 +9,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowApprovalTaskPolicyServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowApprovalTaskPolicyService service = new WorkflowApprovalTaskPolicyService();
 
     @Test

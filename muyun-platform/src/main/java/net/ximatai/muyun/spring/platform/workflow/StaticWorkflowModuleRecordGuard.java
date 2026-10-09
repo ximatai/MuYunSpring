@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -50,6 +52,9 @@ public class StaticWorkflowModuleRecordGuard implements WorkflowModuleRecordGuar
         EntityContract record = selectVisibleRecord(ability, recordId, policy);
         if (record == null) {
             throw new PlatformException("static record not found: " + moduleAlias + "." + recordId);
+        }
+        if (!Objects.equals(record.getTenantId(), TenantContext.currentTenantId().orElse(null))) {
+            throw new PlatformException("workflow record tenant does not match current tenant: " + moduleAlias + "." + recordId);
         }
     }
 

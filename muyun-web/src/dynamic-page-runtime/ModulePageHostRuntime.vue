@@ -12,6 +12,7 @@ import {
   RecordActionBar,
   RecordDetailExtensionSection,
   RecordDetailFields,
+  WorkflowRecordPanel,
   RecordExplorerPanel,
   RecordFormFields,
   RecordMetaSection,
@@ -57,6 +58,7 @@ export default defineComponent({
     RecordActionBar,
     RecordDetailExtensionSection,
     RecordDetailFields,
+    WorkflowRecordPanel,
     RecordExplorerPanel,
     RecordFormFields,
     RecordMetaSection,
@@ -128,6 +130,10 @@ export default defineComponent({
     const businessVisible = computed(() => !props.pending && !props.businessError);
     return {
       businessVisible,
+      bindWorkflowPanel(panel: unknown) {
+        const workflow = panel as { mayLeave?: () => Promise<boolean> } | null;
+        props.session.setWorkflowLeaveGuard(workflow?.mayLeave ? () => workflow.mayLeave!() : undefined);
+      },
       retryBusinessSession: () => emit('retry'),
       ...sessionViewBindings(() => props.session),
       handleFlatManagementLoaded: (records: CrudRecordListBase[]) =>
@@ -493,6 +499,9 @@ export default defineComponent({
         <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
         <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
         <ModulePageRecordContent
+          :ref="bindWorkflowPanel"
+          @workflow-interaction-change="updateWorkflowInteraction"
+          @workflow-changed="handleWorkflowChanged"
           v-else-if="editingRecord"
           :context="context"
           :cross-module-http="rawContext.http"
@@ -504,7 +513,7 @@ export default defineComponent({
           :form-session-key="formSessionKey"
           :validation-request-key="formValidationRequestKey"
           :picker-configs="referencePickerConfigs"
-          :saving="detailActionBusy"
+          :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
           :ui-descriptor="runtimeUiDescriptor"
           :relations="executableDetailRelations"
           :relations-available="detailRelationsAvailable"
@@ -536,7 +545,7 @@ export default defineComponent({
     <ManagementWorkspace
       v-else-if="listDetailCardPage"
       class="module-list-detail-workspace"
-      :editing="editorMode !== 'view'"
+      :editing="editorMode !== 'view' || workflowInteraction.editing"
       :explorer-count="navigatorExplorerCount + tenantScopeExplorerCount"
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
@@ -744,7 +753,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -785,6 +794,9 @@ export default defineComponent({
           <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
           <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
           <ModulePageRecordContent
+            :ref="bindWorkflowPanel"
+            @workflow-interaction-change="updateWorkflowInteraction"
+            @workflow-changed="handleWorkflowChanged"
             v-else-if="editingRecord"
             :context="context"
             :cross-module-http="rawContext.http"
@@ -796,7 +808,7 @@ export default defineComponent({
             :form-session-key="formSessionKey"
             :validation-request-key="formValidationRequestKey"
             :picker-configs="referencePickerConfigs"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :relations-available="detailRelationsAvailable"
@@ -829,7 +841,7 @@ export default defineComponent({
     <ManagementWorkspace
       v-else-if="treeManagementPage || treeModule"
       class="module-tree-workspace"
-      :editing="editorMode !== 'view'"
+      :editing="editorMode !== 'view' || workflowInteraction.editing"
       :explorer-count="navigatorExplorerCount + tenantScopeExplorerCount + 1"
     >
       <ManagementExplorerColumn
@@ -1056,7 +1068,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -1106,6 +1118,15 @@ export default defineComponent({
                 :option-context="context"
                 :file-transfer-context="context"
                 :exclude-field-names="['enabled']"
+              />
+              <WorkflowRecordPanel
+                :ref="bindWorkflowPanel"
+                @interaction-change="updateWorkflowInteraction"
+                v-if="editingRecord.id && context.abilities.has('approval') === true"
+                :context="context"
+                :record-id="String(editingRecord.id)"
+                @changed="handleWorkflowChanged"
+                @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
               />
               <RecordDetailExtensionSection
                 v-for="section in enhancementDetailSections"
@@ -1317,7 +1338,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -1345,6 +1366,9 @@ export default defineComponent({
               :context="recordViewContext(editingRecord)"
             />
             <ModulePageRecordContent
+              :ref="bindWorkflowPanel"
+              @workflow-interaction-change="updateWorkflowInteraction"
+              @workflow-changed="handleWorkflowChanged"
               v-else
               :context="context"
               :cross-module-http="rawContext.http"
@@ -1356,7 +1380,7 @@ export default defineComponent({
               :form-session-key="formSessionKey"
               :validation-request-key="formValidationRequestKey"
               :picker-configs="referencePickerConfigs"
-              :saving="detailActionBusy"
+              :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
               :relations-available="detailRelationsAvailable"
@@ -1376,6 +1400,9 @@ export default defineComponent({
         </template>
         <template #form>
           <ModulePageRecordContent
+            :ref="bindWorkflowPanel"
+            @workflow-interaction-change="updateWorkflowInteraction"
+            @workflow-changed="handleWorkflowChanged"
             v-if="editingRecord"
             :context="context"
             :cross-module-http="rawContext.http"
@@ -1387,7 +1414,7 @@ export default defineComponent({
             :form-session-key="formSessionKey"
             :validation-request-key="formValidationRequestKey"
             :picker-configs="referencePickerConfigs"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :relations-available="detailRelationsAvailable"

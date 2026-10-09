@@ -1,4 +1,5 @@
 import { createRelationDraftRegistry } from './relationDraftController';
+import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
 import { createRecordReferenceDisplay } from './recordReferenceDisplay';
 import {
@@ -82,6 +83,7 @@ import {
   OperationUsageError,
   OperationRejectedError,
   createModuleContext,
+  refreshWorkflowRecordActions,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
   userPreferences,
@@ -382,11 +384,12 @@ export function useModulePageSession(
   } = useRecordEditingSession(context, detail, () => {
     detailRelationReloadKey.value += 1;
   });
-  function openRecord(
+  async function openRecord(
     record: QueryListRecord,
     mode: 'edit' | 'view',
     options: RecordDetailTransitionOptions = {},
   ) {
+    if (mode === 'edit' && !(await recordActionAvailable(String(record.id ?? ''), 'update'))) return;
     return loadRecord(
       record,
       mode,
@@ -506,6 +509,17 @@ export function useModulePageSession(
       Boolean(unresolvedRecordSave.value) ||
       Boolean(recordSaveRecoveryError.value),
   );
+  const workflowInteraction = ref({ editing: false, busy: false, dirty: false });
+  let workflowLeaveGuard: (() => boolean | Promise<boolean>) | undefined;
+  function updateWorkflowInteraction(state: { editing: boolean; busy: boolean; dirty: boolean }) {
+    const current = workflowInteraction.value;
+    if (current.editing !== state.editing || current.busy !== state.busy || current.dirty !== state.dirty)
+      workflowInteraction.value = state;
+  }
+  function setWorkflowLeaveGuard(guard: (() => boolean | Promise<boolean>) | undefined) {
+    workflowLeaveGuard = guard;
+    if (!guard) updateWorkflowInteraction({ editing: false, busy: false, dirty: false });
+  }
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
@@ -1056,21 +1070,57 @@ export function useModulePageSession(
       navigatorManagementDetail.loading.value ||
       navigatorManagementDetail.saving.value ||
       navigatorManagementTogglingEnabled.value ||
-      referenceRecordDetailInteraction.value.busy,
+      referenceRecordDetailInteraction.value.busy ||
+      workflowInteraction.value.busy,
   );
   const interactionEditing = computed(
     () =>
       Boolean(detailOpen.value && editorMode.value !== 'view') ||
       navigatorManagementDetail.open.value ||
       localEditOpen.value ||
-      referenceRecordDetailInteraction.value.editing,
+      referenceRecordDetailInteraction.value.editing ||
+      workflowInteraction.value.editing,
   );
+  useModuleRecordDataChanges({
+    moduleAlias: context.moduleAlias,
+    recordId: () =>
+      detailOpen.value && selectedRecord.value?.id != null ? String(selectedRecord.value.id) : undefined,
+    blocked: () =>
+      interactionBusy.value ||
+      interactionEditing.value ||
+      detailLoading.value ||
+      saving.value ||
+      togglingEnabled.value ||
+      !tenantScopeReady.value ||
+      !runtimePageResolved.value,
+    invalidate: (ids) => context.invalidateRecordActions?.(ids),
+    refreshList,
+    refreshRecord: async (id, isCurrent) => {
+      if (recycleBinDetailActive.value) {
+        if (!isCurrent()) return false;
+        await openRecycleBinRecord({ id });
+        return true;
+      }
+      await refreshWorkflowRecordActions(context, id).catch((cause) =>
+        presentPlatformError(cause, { source: 'module-data-change', phase: 'authorization' }),
+      );
+      if (!isCurrent()) return false;
+      await loadRecord({ id }, 'view', {}, false, (cause) =>
+        reportDetailRefreshFailure(cause, 'module-data-change'),
+      );
+      if (persistentTreeDetail.value && selectedRecord.value?.id === id)
+        selectedTreeRecord.value = selectedRecord.value;
+      return true;
+    },
+    onError: (cause) => presentPlatformError(cause, { source: 'module-data-change', phase: 'load' }),
+  });
   const sessionDirty = computed(
     () =>
       detailDirty.value ||
       navigatorManagementDetail.isDirty.value ||
       localEditDirty.value ||
-      referenceRecordDetailInteraction.value.dirty,
+      referenceRecordDetailInteraction.value.dirty ||
+      workflowInteraction.value.dirty,
   );
   function updateReferenceRecordDetailInteraction(state: {
     editing: boolean;
@@ -1856,13 +1906,21 @@ export function useModulePageSession(
         key: 'edit',
         actionCode: 'update',
         title: '编辑',
-        disabled: !selectedRecord.value || detailActionBusy.value,
+        disabled:
+          !selectedRecord.value ||
+          detailActionBusy.value ||
+          workflowInteraction.value.editing ||
+          workflowInteraction.value.busy,
       },
       {
         key: 'delete',
         actionCode: 'delete',
         title: '删除',
-        disabled: !selectedRecord.value || detailActionBusy.value,
+        disabled:
+          !selectedRecord.value ||
+          detailActionBusy.value ||
+          workflowInteraction.value.editing ||
+          workflowInteraction.value.busy,
         loading: activeDetailActionKey.value === 'delete',
         danger: true,
       },
@@ -3436,41 +3494,40 @@ export function useModulePageSession(
     if (parentId) createRecord(parentId);
   }
 
-  /** Keeps target authorization checks inside the mounted reference-detail session. */
-  async function recordOnlyActionAvailable(recordId: string, actionCode: string): Promise<boolean> {
-    if (!props.recordOnly) return true;
+  /** Ordinary editors consume server record decisions, including capability-owned mutation boundaries. */
+  async function recordActionAvailable(recordId: string, actionCode: string): Promise<boolean> {
+    if (!recordId || context.can(actionCode) !== true) return false;
     const session = recordOnlySession;
-    recordOnlyAuthorizing.value = true;
+    const revision = assistantContextRevision.value;
+    const interaction = assistantInteractionRevision.value;
+    if (props.recordOnly) recordOnlyAuthorizing.value = true;
     try {
       const availability = await context.recordActions(recordId);
       return (
-        session === recordOnlySession &&
-        detailOpen.value &&
+        revision === assistantContextRevision.value &&
+        interaction === assistantInteractionRevision.value &&
+        context.can(actionCode) === true &&
+        (!props.recordOnly || (session === recordOnlySession && detailOpen.value)) &&
         availability.actions.some((action) => action.actionCode === actionCode && action.available)
       );
     } catch (cause) {
-      if (session === recordOnlySession) {
-        presentPlatformError(cause, { source: 'module-record-only', phase: 'authorization' });
+      if (revision === assistantContextRevision.value && session === recordOnlySession) {
+        presentPlatformError(cause, { source: 'module-record-action', phase: 'authorization' });
       }
       return false;
     } finally {
-      if (session === recordOnlySession) recordOnlyAuthorizing.value = false;
+      if (props.recordOnly && session === recordOnlySession) recordOnlyAuthorizing.value = false;
     }
   }
 
   async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
     if (!recordEditReady() || context.can('update') !== true) return;
-    if (props.recordOnly) {
-      const recordId = record.id == null ? undefined : String(record.id);
-      if (!recordId) return;
-      if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
-      if (!recordEditReady()) return;
-    }
+    if (!(await recordActionAvailable(String(record.id ?? ''), 'update')) || !recordEditReady()) return;
     if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) {
       assistantInteractionRevision.value += 1;
       return;
     }
-    await openRecord(record, 'edit', { cancelDestination });
+    await loadRecord(record, 'edit', { cancelDestination });
     if (editorMode.value === 'edit') assistantInteractionRevision.value += 1;
   }
 
@@ -3601,7 +3658,7 @@ export function useModulePageSession(
     if (props.recordOnly && editorMode.value === 'edit') {
       const recordId = draft.id == null ? undefined : String(draft.id);
       if (!recordId) return;
-      if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
+      if (!(await recordActionAvailable(recordId, 'update'))) return;
     }
     if (
       !canMutateModuleDetail({
@@ -4092,9 +4149,16 @@ export function useModulePageSession(
   async function deleteRecord(record: QueryListRecord, actionKey = 'delete') {
     const id = record.id == null ? undefined : String(record.id);
     const version = typeof record.version === 'number' ? record.version : undefined;
-    if (!id || version === undefined || detailActionBusy.value) return;
+    if (
+      !id ||
+      version === undefined ||
+      detailActionBusy.value ||
+      workflowInteraction.value.editing ||
+      workflowInteraction.value.busy
+    )
+      return;
     if (props.recordOnly) {
-      if (!(await recordOnlyActionAvailable(id, 'delete'))) return;
+      if (!(await recordActionAvailable(id, 'delete'))) return;
     }
     deleting.value = true;
     try {
@@ -4134,7 +4198,7 @@ export function useModulePageSession(
     if (!record || !id || version === undefined || !canToggleEnabled.value) return;
     if (props.recordOnly) {
       const actionCode = record.enabled === false ? 'enable' : 'disable';
-      if (!(await recordOnlyActionAvailable(id, actionCode))) return;
+      if (!(await recordActionAvailable(id, actionCode))) return;
     }
 
     assistantInteractionRevision.value += 1;
@@ -4307,6 +4371,7 @@ export function useModulePageSession(
   }
 
   function handleDetailAction(action: { key?: string }) {
+    if (workflowInteraction.value.editing || workflowInteraction.value.busy) return;
     markAssistantUserInteraction();
     if (detailPageActions.value.some((item) => item.key === action.key)) {
       handleConfiguredAction(action);
@@ -4522,6 +4587,7 @@ export function useModulePageSession(
   }
 
   function refreshList() {
+    if (workflowInteraction.value.editing || workflowInteraction.value.busy) return;
     if (persistentTreeDetail.value) {
       treeReloadKey.value += 1;
       return;
@@ -4561,6 +4627,7 @@ export function useModulePageSession(
    * selection and independent workbench tabs as well.
    */
   async function mayLeaveDetailSession() {
+    if (workflowLeaveGuard && !(await workflowLeaveGuard())) return false;
     if (detailActionBusy.value) return false;
     if (!detailDirty.value) return true;
     return confirmAction({
@@ -4648,6 +4715,18 @@ export function useModulePageSession(
       return;
     }
     void openRecord(record, editorMode.value);
+  }
+
+  function handleWorkflowChanged() {
+    assistantContextRevision.value += 1;
+    const recordId = selectedRecord.value?.id;
+    if (recordId != null) {
+      void refreshWorkflowRecordActions(context, String(recordId)).catch((cause) =>
+        presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
+      );
+    }
+    refreshList();
+    retryLoadDetail();
   }
 
   function recordTitle(record: QueryListRecord | undefined) {
@@ -4886,11 +4965,15 @@ export function useModulePageSession(
     confirmDetailDrawerClose,
     finishRecordOnlyDetailClose,
     retryLoadDetail,
+    handleWorkflowChanged,
     recordViewContext,
     narrowDetailSurface,
     usePinnedDetailSurface,
     referenceRecordDetailBrowser,
     handleReferenceRecordChange,
+    workflowInteraction,
+    updateWorkflowInteraction,
+    setWorkflowLeaveGuard,
     referenceRecordDetailInteraction,
     updateReferenceRecordDetailInteraction,
     permissionsOpen,

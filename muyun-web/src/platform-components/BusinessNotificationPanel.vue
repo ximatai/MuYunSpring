@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { UiActionButton, UiIcon } from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiIcon, useUiBlockingOverlayState } from '@muyun/vue-ui-antdv';
 import type { WebBusinessNotification, WebBusinessNotificationAction } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
 
@@ -21,15 +21,21 @@ const emit = defineEmits<{
 }>();
 
 const executing = ref<string>();
-const expanded = ref(false);
+const presentation = ref<'preview' | 'expanded' | 'collapsed'>('preview');
+const expanded = computed(() => presentation.value === 'expanded');
+const overlayOpen = useUiBlockingOverlayState();
 const orderedNotifications = computed(() => [
   ...props.notifications.filter((notification) => !notification.dismissible),
   ...props.notifications.filter((notification) => notification.dismissible),
 ]);
 const visible = computed(() =>
-  expanded.value ? orderedNotifications.value : orderedNotifications.value.slice(0, 3),
+  presentation.value === 'collapsed'
+    ? []
+    : expanded.value
+      ? orderedNotifications.value
+      : orderedNotifications.value.slice(0, 1),
 );
-const hiddenCount = computed(() => Math.max(orderedNotifications.value.length - 3, 0));
+const hiddenCount = computed(() => Math.max(orderedNotifications.value.length - 1, 0));
 
 function actionsFor(notification: WebBusinessNotification, placement: 'leading' | 'trailing') {
   return notification.actions.filter((action) => (action.placement ?? 'leading') === placement);
@@ -59,94 +65,117 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
 
 <template>
   <aside
-    v-if="visible.length"
+    v-if="orderedNotifications.length"
+    :hidden="overlayOpen"
     class="business-notification-panel"
-    :class="{ 'business-notification-panel--expanded': expanded }"
+    :class="{
+      'business-notification-panel--expanded': expanded,
+      'business-notification-panel--collapsed': presentation === 'collapsed',
+    }"
     aria-live="polite"
     aria-label="业务提醒"
   >
-    <article
-      v-for="notification in visible"
-      :key="notification.id"
-      class="business-notification-card"
-      :class="[
-        `business-notification-card--${toneFor(notification)}`,
-        { 'business-notification-card--with-accessory': shouldShowAccessory(notification) },
-      ]"
+    <button
+      v-if="presentation === 'collapsed'"
+      class="business-notification-summary"
+      type="button"
+      aria-expanded="false"
+      @click="presentation = 'expanded'"
     >
-      <button
-        v-if="notification.dismissible"
-        class="business-notification-close"
-        type="button"
-        aria-label="关闭提醒"
-        @click="emit('dismiss', notification.id)"
+      业务提醒（{{ orderedNotifications.length }} 条）
+    </button>
+    <div v-else class="business-notification-controls">
+      <span>业务提醒（{{ orderedNotifications.length }} 条）</span>
+      <div>
+        <button
+          v-if="hiddenCount && !expanded"
+          class="business-notification-more"
+          type="button"
+          aria-expanded="false"
+          @click="presentation = 'expanded'"
+        >
+          查看全部（还有 {{ hiddenCount }} 条）
+        </button>
+        <button class="business-notification-collapse" type="button" @click="presentation = 'collapsed'">
+          收起提醒
+        </button>
+      </div>
+    </div>
+    <div v-if="visible.length" class="business-notification-list">
+      <article
+        v-for="notification in visible"
+        :key="notification.id"
+        class="business-notification-card"
+        :class="[
+          `business-notification-card--${toneFor(notification)}`,
+          { 'business-notification-card--with-accessory': shouldShowAccessory(notification) },
+        ]"
       >
-        <UiIcon name="close" />
-      </button>
-      <div class="business-notification-card-surface">
-        <div class="business-notification-copy">
-          <header class="business-notification-header">
-            <span class="business-notification-status-dot" aria-hidden="true" />
-            <h2>{{ notification.title }}</h2>
-            <DateTimeText
-              v-if="notification.occurredAt"
-              class="business-notification-time"
-              :value="notification.occurredAt"
-            />
-          </header>
-          <p v-if="notification.subtitle" class="business-notification-subtitle">
-            {{ notification.subtitle }}
-          </p>
-          <p class="business-notification-content">{{ notification.content }}</p>
-          <div v-if="notification.actions.length" class="business-notification-actions">
-            <div
-              v-if="actionsFor(notification, 'leading').length"
-              class="business-notification-action-region"
-            >
-              <UiActionButton
-                v-for="action in actionsFor(notification, 'leading')"
-                :key="action.key"
-                density="compact"
-                :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
-                :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-                :loading="executing === `${notification.id}:${action.key}`"
-                @click="run(notification, action)"
+        <button
+          v-if="notification.dismissible"
+          class="business-notification-close"
+          type="button"
+          aria-label="关闭提醒"
+          @click="emit('dismiss', notification.id)"
+        >
+          <UiIcon name="close" />
+        </button>
+        <div class="business-notification-card-surface">
+          <div class="business-notification-copy">
+            <header class="business-notification-header">
+              <span class="business-notification-status-dot" aria-hidden="true" />
+              <h2>{{ notification.title }}</h2>
+              <DateTimeText
+                v-if="notification.occurredAt"
+                class="business-notification-time"
+                :value="notification.occurredAt"
+              />
+            </header>
+            <p v-if="notification.subtitle" class="business-notification-subtitle">
+              {{ notification.subtitle }}
+            </p>
+            <p class="business-notification-content">{{ notification.content }}</p>
+            <div v-if="notification.actions.length" class="business-notification-actions">
+              <div
+                v-if="actionsFor(notification, 'leading').length"
+                class="business-notification-action-region"
               >
-                {{ action.label }}
-              </UiActionButton>
-            </div>
-            <div
-              v-if="actionsFor(notification, 'trailing').length"
-              class="business-notification-action-region business-notification-action-region--trailing"
-            >
-              <UiActionButton
-                v-for="action in actionsFor(notification, 'trailing')"
-                :key="action.key"
-                density="compact"
-                emphasis="secondary"
-                :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-                :loading="executing === `${notification.id}:${action.key}`"
-                @click="run(notification, action)"
+                <UiActionButton
+                  v-for="action in actionsFor(notification, 'leading')"
+                  :key="action.key"
+                  density="compact"
+                  :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
+                  :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+                  :loading="executing === `${notification.id}:${action.key}`"
+                  @click="run(notification, action)"
+                >
+                  {{ action.label }}
+                </UiActionButton>
+              </div>
+              <div
+                v-if="actionsFor(notification, 'trailing').length"
+                class="business-notification-action-region business-notification-action-region--trailing"
               >
-                {{ action.label }}
-              </UiActionButton>
+                <UiActionButton
+                  v-for="action in actionsFor(notification, 'trailing')"
+                  :key="action.key"
+                  density="compact"
+                  emphasis="secondary"
+                  :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+                  :loading="executing === `${notification.id}:${action.key}`"
+                  @click="run(notification, action)"
+                >
+                  {{ action.label }}
+                </UiActionButton>
+              </div>
             </div>
           </div>
+          <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
+            <slot name="accessory" :notification="notification" />
+          </div>
         </div>
-        <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
-          <slot name="accessory" :notification="notification" />
-        </div>
-      </div>
-    </article>
-    <button
-      v-if="hiddenCount || expanded"
-      class="business-notification-more"
-      type="button"
-      :aria-expanded="expanded"
-      @click="expanded = !expanded"
-    >
-      {{ expanded ? '收起提醒' : `查看全部（还有 ${hiddenCount} 条）` }}
-    </button>
+      </article>
+    </div>
   </aside>
 </template>
 
@@ -161,9 +190,45 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
   gap: 12px;
   pointer-events: none;
 }
+.business-notification-panel[hidden] {
+  display: none;
+}
 .business-notification-panel--expanded {
   max-height: calc(100vh - 48px);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.business-notification-panel--collapsed {
+  width: auto;
+}
+.business-notification-list {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  padding: 8px 8px 0 0;
+}
+.business-notification-panel--expanded .business-notification-list {
   overflow-y: auto;
+  pointer-events: auto;
+}
+.business-notification-controls,
+.business-notification-controls > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.business-notification-controls {
+  justify-content: space-between;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.business-notification-summary {
+  padding: 6px 12px;
+  border: 1px solid var(--muyun-border);
+  border-radius: 16px;
+  background: var(--muyun-surface);
+  color: var(--muyun-text-body);
+  box-shadow: 0 4px 12px rgb(15 23 42 / 12%);
+  cursor: pointer;
   pointer-events: auto;
 }
 .business-notification-card {
@@ -337,7 +402,8 @@ h2 {
     transform: none;
   }
 }
-.business-notification-more {
+.business-notification-more,
+.business-notification-collapse {
   justify-self: end;
   padding: 0 8px;
   border: 0;
@@ -348,7 +414,8 @@ h2 {
   font-size: 12px;
   text-align: right;
 }
-.business-notification-more:hover {
+.business-notification-more:hover,
+.business-notification-collapse:hover {
   color: var(--muyun-primary);
 }
 @keyframes notification-unfold {

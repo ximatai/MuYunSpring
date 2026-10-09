@@ -8,6 +8,11 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowArchiveServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final MemoryWorkflowInstanceDao instanceDao = new MemoryWorkflowInstanceDao();
     private final MemoryWorkflowNodeInstanceDao nodeDao = new MemoryWorkflowNodeInstanceDao();
     private final MemoryWorkflowRouteInstanceDao routeDao = new MemoryWorkflowRouteInstanceDao();

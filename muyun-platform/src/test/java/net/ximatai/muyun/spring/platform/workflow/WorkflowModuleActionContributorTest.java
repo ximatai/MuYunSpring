@@ -15,6 +15,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class WorkflowModuleActionContributorTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final ModuleActionContributionRegistrar registrar = mock(ModuleActionContributionRegistrar.class);
     private final WorkflowModuleActionContributor contributor = new WorkflowModuleActionContributor(registrar);
 

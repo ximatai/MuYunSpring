@@ -287,6 +287,13 @@ public class DynamicRecordService {
         return actionRuntime.executeAction(moduleAlias, actionCode, request);
     }
 
+    /** Trusted task orchestration after operator and frozen-guide authorization. The ordinary action
+     * policy still applies; only this main record's synchronous updates receive approval write access. */
+    public DynamicActionExecutionResult executeApprovalBusinessAction(String moduleAlias, String actionCode,
+                                                                      String recordId, Map<String, Object> payload) {
+        return actionRuntime.executeApprovalBusinessAction(moduleAlias, actionCode, recordId, payload);
+    }
+
     public List<DynamicActionDescriptor> actions(String moduleAlias, String entityAlias) {
         return entityDescriptor(moduleAlias, entityAlias).actions();
     }
@@ -491,6 +498,13 @@ public class DynamicRecordService {
         return entityService(moduleAlias, entityAlias).selectIgnoreSoftDelete(id);
     }
 
+    /** Tenant-bound existence for authorized platform maintenance; does not enter system mode or use caches. */
+    public boolean existsActiveInCurrentTenant(String moduleAlias, String entityAlias, String id) {
+        var record = entityService(moduleAlias, entityAlias).selectActiveRaw(id);
+        return record != null && java.util.Objects.equals(
+                TenantContext.currentTenantId().orElse(null), record.getTenantId());
+    }
+
     public DynamicRecord selectSystem(String moduleAlias, String entityAlias, String id) {
         return entityService(moduleAlias, entityAlias).select(id);
     }
@@ -519,6 +533,20 @@ public class DynamicRecordService {
                       DynamicRecord record,
                       Map<String, Object> mutationMetadata) {
         return mutationRuntime.update(moduleAlias, entityAlias, record, RuntimeMutationSource.BUSINESS, null, mutationMetadata);
+    }
+
+    /** Narrow platform-owned summary command; preserves current tenant and standard Ability semantics. */
+    @Transactional
+    public int writeApprovalState(String moduleAlias, String entityAlias, String recordId,
+                                  net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy policy,
+                                  net.ximatai.muyun.spring.ability.ApprovalState state) {
+        return mutationRuntime.writeApprovalState(moduleAlias, entityAlias, recordId, policy, state);
+    }
+
+    /** Trusted task/domain write; retains normal runtime hooks, tenant scope and optimistic locking. */
+    @Transactional
+    public int writeApprovalBusiness(String moduleAlias, String entityAlias, DynamicRecord record) {
+        return mutationRuntime.updateApprovalBusiness(moduleAlias, entityAlias, record);
     }
 
     @Transactional

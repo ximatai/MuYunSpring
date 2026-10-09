@@ -7,10 +7,7 @@ import { tabKeyOf } from './menuNavigation';
 import { useWorkbenchNavigation } from './workbenchNavigation';
 import { provideWorkspaceViewHost } from './workspaceViewHost';
 import { dismissWorkspaceViewDescriptor, resolveWorkspaceView } from './workspaceViews';
-import {
-  clearWorkspaceViewUnsavedState,
-  registerWorkspaceViewUnsavedState,
-} from './workspaceViewUnsavedState';
+import { registerWorkspaceViewUnsavedState } from './workspaceViewUnsavedState';
 
 const props = defineProps<{ descriptor: BusinessRoutePageDescriptor }>();
 const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
@@ -19,9 +16,16 @@ const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
 // a descriptor that may now describe a different navigation state.
 const ownerPageKey = tabKeyOf(props.descriptor);
 const navigation = useWorkbenchNavigation();
+const ownedRegistrations = new Set<() => void>();
 
 function registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
-  return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty, isBusy);
+  const unregister = registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty, isBusy);
+  const release = () => {
+    unregister();
+    ownedRegistrations.delete(release);
+  };
+  ownedRegistrations.add(release);
+  return release;
 }
 
 provideWorkspaceViewHost({
@@ -57,7 +61,7 @@ provideWorkspaceViewHost({
 });
 provideModulePageUnsavedStateHost({ registerUnsavedState });
 
-onUnmounted(() => clearWorkspaceViewUnsavedState(ownerPageKey));
+onUnmounted(() => ownedRegistrations.forEach((release) => release()));
 </script>
 <template>
   <component

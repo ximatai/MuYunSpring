@@ -72,6 +72,9 @@ class RealtimeWebSocketIT {
     @Autowired
     private PlatformRecordActionAvailabilityService actionAvailabilityService;
 
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    private net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService runtimeContexts;
+
     @Autowired
     private SimpUserRegistry userRegistry;
 
@@ -98,6 +101,52 @@ class RealtimeWebSocketIT {
         @Bean
         PlatformRecordActionAvailabilityService actionAvailabilityService() {
             return mock(PlatformRecordActionAvailabilityService.class);
+        }
+    }
+
+    @Test
+    void shouldFanOutOnlyAuthorizedCollectionHintsThroughRealUserQueues() throws Exception {
+        var source = CurrentUser.tenantUser("fan-source", "Source", "tenant-a");
+        var viewer = CurrentUser.tenantUser("fan-viewer", "Viewer", "tenant-a");
+        var denied = CurrentUser.tenantUser("fan-denied", "Denied", "tenant-a");
+        var foreign = CurrentUser.tenantUser("fan-foreign", "Foreign", "tenant-b");
+        var permission = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(runtimeContexts.context("sales.order")).thenAnswer(invocation -> {
+            var context = mock(net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContext.class);
+            var query = mock(net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeAction.class);
+            when(query.actionCode()).thenReturn("query");
+            when(query.authorized()).thenReturn(permission.get() && CurrentUserContext.currentUser().orElseThrow().equals(viewer));
+            when(context.actions()).thenReturn(List.of(query)); return context;
+        });
+        for (var user : List.of(source, viewer, denied, foreign)) {
+            when(userSessionService.currentUser(user.userId())).thenReturn(Optional.of(user));
+            when(userSessionService.currentUserSnapshot(user.userId())).thenReturn(Optional.of(user));
+            when(userSessionService.currentSessionId(user.userId())).thenReturn(Optional.of(user.userId() + "-session"));
+        }
+        var client = stompClient(); var connected = new java.util.ArrayList<StompSession>();
+        var queues = new java.util.LinkedHashMap<String, BlockingQueue<JsonNode>>();
+        try {
+            for (var user : List.of(source, viewer, denied, foreign)) {
+                var session = connect(client, user.userId()); connected.add(session);
+                var queue = new LinkedBlockingQueue<JsonNode>(); queues.put(user.userId(), queue);
+                session.subscribe(userDataChangeDestination(), frameHandler(queue));
+            }
+            awaitServerSubscriptions(userDataChangeDestination(), 4);
+            try (var user = CurrentUserContext.use(source); var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant-a")) {
+                dataChangeRealtimePublisher.publish(new CommittedChangeSet("fan-one", List.of(DataChange.recordUpdated("sales.order", "private-id"))));
+                var hint = queues.get(viewer.userId()).poll(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                assertThat(hint).isNotNull();
+                var change = hint.path("payload").path("changes").get(0);
+                assertThat(change.path("type").asText()).isEqualTo("collection-changed");
+                assertThat(change.path("recordId").isNull() || change.path("recordId").isMissingNode()).isTrue();
+                assertThat(queues.get(denied.userId()).poll(100, TimeUnit.MILLISECONDS)).isNull();
+                assertThat(queues.get(foreign.userId()).poll(100, TimeUnit.MILLISECONDS)).isNull();
+                permission.set(false);
+                dataChangeRealtimePublisher.publish(new CommittedChangeSet("fan-two", List.of(DataChange.recordDeleted("sales.order", "private-id"))));
+                assertThat(queues.get(viewer.userId()).poll(200, TimeUnit.MILLISECONDS)).isNull();
+            }
+        } finally {
+            connected.forEach(session -> { if (session.isConnected()) session.disconnect(); }); client.stop();
         }
     }
 

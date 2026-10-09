@@ -1,7 +1,7 @@
 /* eslint-disable vue/one-component-per-file -- local contract-test harness */
 
 import { mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, nextTick, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import WorkspaceViewOutlet from '@/platform-workbench/WorkspaceViewOutlet.vue';
 import { provideWorkbenchNavigation } from '@/platform-workbench/workbenchNavigation.ts';
@@ -11,6 +11,8 @@ import {
   createWorkspaceViewDescriptor,
 } from '@/platform-workbench/workspaceViews.ts';
 import { tabKeyOf } from '@/platform-workbench/menuNavigation.ts';
+import { useWorkspaceViewUnsavedState } from '@/web-core/workspaceUnsavedState';
+import { workspaceViewUnsavedStateSources } from '@/platform-workbench/workspaceViewUnsavedState';
 
 it('routes a workspace close intent through the owning Workbench navigation', async () => {
   const closePage = vi.fn();
@@ -54,6 +56,44 @@ it('routes a workspace close intent through the owning Workbench navigation', as
   } finally {
     configureWorkspaceViewContributions('workspace-close-test', []);
   }
+});
+
+it('retains the new neutral draft registration when an old host with the same tab key unmounts', async () => {
+  let instance = 0;
+  const DirtyWorkspace = defineComponent({
+    setup() {
+      const generation = ++instance;
+      useWorkspaceViewUnsavedState(`草稿 ${generation}`, () => true);
+      return () => h('div', `实例 ${generation}`);
+    },
+  });
+  const definition = {
+    type: 'crm.customer.refresh',
+    route: '/_workspace/crm.customer.refresh',
+    moduleAlias: 'crm.customer',
+    component: DirtyWorkspace,
+    presentations: ['tab'] as const,
+    titleOf: ({ recordId }: { recordId: string }) => `客户 ${recordId}`,
+    parse: (query: Record<string, unknown>) =>
+      typeof query.recordId === 'string' ? { recordId: query.recordId } : undefined,
+  };
+  configureWorkspaceViewContributions('workspace-refresh-test', [definition]);
+  const descriptor = createWorkspaceViewDescriptor(definition, { recordId: 'customer-1' });
+  const revision = ref(0);
+  const Harness = defineComponent({
+    setup: () => () => h(WorkspaceViewOutlet, { descriptor, key: revision.value }),
+  });
+  const wrapper = mount(Harness);
+  try {
+    expect(workspaceViewUnsavedStateSources(tabKeyOf(descriptor))).toEqual(['草稿 1']);
+    revision.value += 1;
+    await nextTick();
+    expect(workspaceViewUnsavedStateSources(tabKeyOf(descriptor))).toEqual(['草稿 2']);
+  } finally {
+    wrapper.unmount();
+    configureWorkspaceViewContributions('workspace-refresh-test', []);
+  }
+  expect(workspaceViewUnsavedStateSources(tabKeyOf(descriptor))).toEqual([]);
 });
 
 it('replaces workspace navigation state within the existing workbench tab', async () => {

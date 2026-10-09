@@ -80,6 +80,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
             T entity = selectIgnoreSoftDelete(id);
             PlatformAbilityDispatcher.requireMutationContext(this, entity);
             PlatformAbilityDispatcher.lockMutationParents(this, entity, null);
+            if (!isSoftDeleted(entity)) PlatformAbilityDispatcher.validateRecordDeletion(this, entity);
             beforeDelete(id, context);
             if (isSoftDeleted(entity)) {
                 return 0;

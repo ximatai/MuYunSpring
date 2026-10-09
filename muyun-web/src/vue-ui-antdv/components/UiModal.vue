@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Modal as AModal } from 'ant-design-vue';
+import { ref } from 'vue';
+import { useUiBlockingOverlayVisibility } from '../blockingOverlays';
 
 defineOptions({ name: 'UiModal', inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
@@ -23,6 +25,9 @@ withDefaults(
     width: 420,
   },
 );
+
+const overlayContent = ref<HTMLElement>();
+const updateOverlayVisibility = useUiBlockingOverlayVisibility(() => props.open, overlayContent);
 
 const emit = defineEmits<{
   confirm: [];
@@ -46,7 +51,8 @@ const emit = defineEmits<{
     :style="$attrs.style"
     @ok="emit('confirm')"
     @cancel="emit('cancel')"
+    @after-close="updateOverlayVisibility(false)"
   >
-    <slot />
+    <div ref="overlayContent"><slot /></div>
   </AModal>
 </template>

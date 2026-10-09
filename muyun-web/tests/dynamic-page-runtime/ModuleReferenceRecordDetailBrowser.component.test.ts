@@ -961,6 +961,8 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
             note: '服务器备注',
           } as never;
         }
+        if (options.path === '/crm.order/actions/order-1')
+          return { recordId: 'order-1', actions: [{ actionCode: 'update', available: true }] } as never;
         throw new Error(`unexpected request: ${options.path}`);
       },
     };
@@ -1005,6 +1007,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     sourceActions.vm.$emit('edit');
     await flush();
     const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+    expect(content.props('mode')).toBe('edit');
     content.vm.$emit('update:field', 'note', '本地草稿');
     await flush();
     browser.vm.$emit('record-change', {

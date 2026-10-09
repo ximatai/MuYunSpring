@@ -1,83 +1,99 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.ability.ApprovalAbility;
+import net.ximatai.muyun.spring.ability.ApprovalState;
+import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.common.platform.*;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.junit.jupiter.api.Test;
-
+import org.springframework.beans.factory.ObjectProvider;
 import java.time.Instant;
-import java.util.List;
 import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import java.util.stream.Stream;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class DynamicWorkflowApprovalSummaryWriterTest {
-    private final DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
-    private final DynamicWorkflowApprovalSummaryWriter writer = new DynamicWorkflowApprovalSummaryWriter(dynamicRecordService);
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
 
-    @Test
-    void shouldWriteApprovalSummaryToDynamicMainEntityBySystemUpdate() {
-        DynamicRecord record = new DynamicRecord(entity());
-        record.setId("record-1");
-        when(dynamicRecordService.mainEntityAlias("sales.contract")).thenReturn("contract");
-        when(dynamicRecordService.entityDescriptor("sales.contract", "contract")).thenReturn(descriptor());
-        when(dynamicRecordService.selectSystem("sales.contract", "contract", "record-1")).thenReturn(record);
+    private final DynamicRecordService records = mock(DynamicRecordService.class);
 
-        writer.writeSubmitted(new WorkflowApprovalSummary(
-                "sales.contract",
-                "record-1",
-                "instance-1",
-                WorkflowApprovalStatus.PROCESSING,
-                "user-1",
-                Instant.parse("2026-06-05T01:00:00Z"),
-                null
-        ));
-
-        assertThat(record.getApprovalInstanceId()).isEqualTo("instance-1");
-        assertThat(record.getApprovalStatus()).isEqualTo("processing");
-        assertThat(record.getApprovalSubmittedBy()).isEqualTo("user-1");
-        assertThat(record.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-06-05T01:00:00Z"));
-        verify(dynamicRecordService).updateSystem("sales.contract", "contract", record, "workflow submit");
+    @Test void dynamicDispatchUsesNarrowCommandAndInstanceTenantWhileKeepingAuthorizedAction() {
+        var writer = new DynamicWorkflowApprovalSummaryWriter(records);
+        var policy = new ActionExecutionPolicy("approve", PlatformActionLevel.RECORD,
+                ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.NONE, null);
+        when(records.mainEntityAlias("sales.contract")).thenReturn("contract");
+        when(records.writeApprovalState(eq("sales.contract"), eq("contract"), eq("record"), eq(policy), any()))
+                .thenAnswer(invocation -> {
+                    assertThat(TenantContext.currentTenantId()).contains("instance-tenant");
+                    assertThat(TenantContext.isSystem()).isFalse();
+                    return 1;
+                });
+        var summary = summary();
+        try (var tenant = TenantContext.use("outer-tenant");
+             var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(
+                     "sales.contract", policy, Set.of("record"), java.util.Optional.empty()))) {
+            writer.writeSubmitted(summary);
+            assertThat(TenantContext.currentTenantId()).contains("outer-tenant");
+            verify(records).writeApprovalState("sales.contract", "contract", "record", policy,
+                    new ApprovalState("instance", "processing", "submitter", Instant.EPOCH, null));
+        }
+        verify(records, never()).updateSystem(anyString(), anyString(), any(), anyString());
     }
 
-    @Test
-    void shouldClearApprovalSummaryBySystemUpdate() {
-        DynamicRecord record = new DynamicRecord(entity());
-        record.setId("record-1");
-        record.setApprovalInstanceId("instance-1");
-        record.setApprovalStatus("processing");
-        record.setApprovalSubmittedBy("user-1");
-        record.setApprovalSubmittedAt(Instant.parse("2026-06-05T01:00:00Z"));
-        record.setApprovalCompletedAt(Instant.parse("2026-06-05T02:00:00Z"));
-        when(dynamicRecordService.mainEntityAlias("sales.contract")).thenReturn("contract");
-        when(dynamicRecordService.entityDescriptor("sales.contract", "contract")).thenReturn(descriptor());
-        when(dynamicRecordService.selectSystem("sales.contract", "contract", "record-1")).thenReturn(record);
-
-        writer.clearCurrent("sales.contract", "record-1");
-
-        assertThat(record.getApprovalInstanceId()).isNull();
-        assertThat(record.getApprovalStatus()).isNull();
-        assertThat(record.getApprovalSubmittedBy()).isNull();
-        assertThat(record.getApprovalSubmittedAt()).isNull();
-        assertThat(record.getApprovalCompletedAt()).isNull();
-        verify(dynamicRecordService).updateSystem("sales.contract", "contract", record, "workflow archive");
+    @Test void staticModuleUsesApprovalAbilityAndClearsInSameTenantScope() {
+        @SuppressWarnings("unchecked") ApprovalAbility<?> ability = mock(ApprovalAbility.class);
+        @SuppressWarnings("unchecked") ObjectProvider<CrudAbility<?>> provider = mock(ObjectProvider.class);
+        when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(ability));
+        when(ability.getModuleAlias()).thenReturn("sales.contract");
+        when(ability.supportsApproval()).thenReturn(true);
+        when(ability.writeApprovalState(eq("record"), any(), any())).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).contains("instance-tenant");
+            return 1;
+        });
+        var writer = new DynamicWorkflowApprovalSummaryWriter(records, provider);
+        writer.writeSubmitted(summary());
+        writer.clearCurrent("instance-tenant", "sales.contract", "record");
+        verify(ability).writeApprovalState("record", PlatformAction.UPDATE.executionPolicy(), ApprovalState.empty());
+        verifyNoInteractions(records);
+        assertThat(TenantContext.hasContext()).isFalse();
     }
 
-    private EntityDefinition entity() {
-        return new EntityDefinition("contract", "app_contract", "Contract",
-                List.of(FieldDefinition.string("code", "Code")))
-                .withCapabilities(EntityCapability.APPROVAL);
+    @Test void missingRecordAndUnsupportedStaticModuleFailInsteadOfSilentlyDroppingSummary() {
+        when(records.mainEntityAlias("sales.contract")).thenReturn("contract");
+        var writer = new DynamicWorkflowApprovalSummaryWriter(records);
+        assertThatThrownBy(() -> writer.writeSubmitted(summary())).hasMessageContaining("business record not found");
+        @SuppressWarnings("unchecked") CrudAbility<?> ability = mock(CrudAbility.class);
+        @SuppressWarnings("unchecked") ObjectProvider<CrudAbility<?>> provider = mock(ObjectProvider.class);
+        when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(ability));
+        when(ability.getModuleAlias()).thenReturn("sales.contract");
+        assertThatThrownBy(() -> new DynamicWorkflowApprovalSummaryWriter(records, provider).writeSubmitted(summary()))
+                .hasMessageContaining("static module does not support approval");
+        assertThat(TenantContext.hasContext()).isFalse();
     }
 
-    private DynamicEntityDescriptor descriptor() {
-        return new DynamicEntityDescriptor("contract", "Contract",
-                Set.of(EntityCapability.APPROVAL.name(), EntityCapability.WORKFLOW.name()),
-                List.of(), List.of(), List.of(), List.of(), List.of());
+    @Test void managementRecoverySkipsOnlyConfirmedMissingRecordsAndKeepsWriteFailuresStrict() {
+        when(records.mainEntityAlias("sales.contract")).thenReturn("contract");
+        var writer = new DynamicWorkflowApprovalSummaryWriter(records);
+        writer.writeSubmittedIfPresent(summary());
+        writer.clearCurrentIfPresent("instance-tenant", "sales.contract", "record");
+        verify(records, never()).writeApprovalState(anyString(), anyString(), anyString(), any(), any());
+        when(records.existsActiveInCurrentTenant("sales.contract", "contract", "record")).thenReturn(true);
+        assertThatThrownBy(() -> writer.writeSubmittedIfPresent(summary())).hasMessageContaining("business record not found");
+        when(records.writeApprovalState(anyString(), anyString(), anyString(), any(), any()))
+                .thenThrow(new net.ximatai.muyun.spring.ability.OptimisticLockException("summary version conflict"));
+        assertThatThrownBy(() -> writer.clearCurrentIfPresent("instance-tenant", "sales.contract", "record"))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    private WorkflowApprovalSummary summary() {
+        return new WorkflowApprovalSummary("instance-tenant", "sales.contract", "record", "instance",
+                WorkflowApprovalStatus.PROCESSING, "submitter", Instant.EPOCH, null);
     }
 }

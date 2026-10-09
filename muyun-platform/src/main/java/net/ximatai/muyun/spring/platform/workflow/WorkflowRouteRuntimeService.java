@@ -19,15 +19,28 @@ public class WorkflowRouteRuntimeService {
                                                 String operatorId, Instant selectedAt, String selectedReason) {
         route.setRouteStatus(WorkflowRouteStatus.EFFECTIVE);
         route.setRouteReason(reason);
-        route.setConditionMatched(reason == WorkflowRouteReason.CONDITION_MATCHED
-                || reason == WorkflowRouteReason.DEFAULT_SELECTED
-                || reason == WorkflowRouteReason.MANUAL_SELECTED);
+        if (reason != WorkflowRouteReason.MANUAL_SELECTED) {
+            route.setConditionMatched(reason == WorkflowRouteReason.CONDITION_MATCHED);
+        }
         route.setSelectedBy(operatorId);
         route.setSelectedAt(selectedAt);
         if (reason == WorkflowRouteReason.MANUAL_SELECTED) {
             route.setSelectedReason(textOrNull(selectedReason));
         }
         return route;
+    }
+
+    /** Attach the manual decision without reopening a path that already reached convergence. */
+    public void recordManualSelection(WorkflowRouteInstance route, String operatorId,
+                                      Instant selectedAt, String selectedReason) {
+        if (route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE
+                || route.getRouteStatus() == WorkflowRouteStatus.EFFECTIVE) {
+            route.setRouteStatus(WorkflowRouteStatus.EFFECTIVE);
+            route.setRouteReason(WorkflowRouteReason.MANUAL_SELECTED);
+        }
+        route.setSelectedBy(operatorId);
+        route.setSelectedAt(selectedAt);
+        route.setSelectedReason(textOrNull(selectedReason));
     }
 
     public WorkflowRouteInstance ineffectiveRoute(WorkflowRouteInstance route, WorkflowRouteReason reason,

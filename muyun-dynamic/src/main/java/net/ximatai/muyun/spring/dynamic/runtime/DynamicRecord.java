@@ -466,7 +466,8 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
 
     @Override
     public void setApprovalSubmittedAt(Instant approvalSubmittedAt) {
-        setApprovalValue(PlatformAbilityFields.APPROVAL_SUBMITTED_AT_FIELD, approvalSubmittedAt);
+        setApprovalValue(PlatformAbilityFields.APPROVAL_SUBMITTED_AT_FIELD, approvalSubmittedAt == null ? null
+                : approvalSubmittedAt.truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
     }
 
     @Override
@@ -476,7 +477,8 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
 
     @Override
     public void setApprovalCompletedAt(Instant approvalCompletedAt) {
-        setApprovalValue(PlatformAbilityFields.APPROVAL_COMPLETED_AT_FIELD, approvalCompletedAt);
+        setApprovalValue(PlatformAbilityFields.APPROVAL_COMPLETED_AT_FIELD, approvalCompletedAt == null ? null
+                : approvalCompletedAt.truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
     }
 
     Set<String> fieldCodes() {
@@ -608,15 +610,7 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
     }
 
     private static List<FieldDefinition> recordFields(EntityDefinition entity) {
-        List<FieldDefinition> values = new ArrayList<>();
-        if (entity.supports(EntityCapability.DATA_SCOPE)) {
-            values.addAll(DynamicAbilityFields.dataScopeFields());
-        }
-        if (entity.supports(EntityCapability.APPROVAL)) {
-            values.addAll(DynamicAbilityFields.approvalFields());
-        }
-        values.addAll(FieldCompanionRules.recordFields(entity));
-        return List.copyOf(values);
+        return DynamicAbilityFields.recordFields(entity);
     }
 
     private String dataScopeValue(String fieldCode) {

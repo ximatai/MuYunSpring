@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
+import net.ximatai.muyun.spring.ability.deletion.RecordDeletionGuard;
 import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
@@ -20,6 +21,20 @@ import javax.sql.DataSource;
  */
 @Configuration(proxyBeanMethods = false)
 public class MuYunSpringMutationConfiguration {
+    @Bean
+    RecordDeletionGuardRegistration recordDeletionGuardRegistration(
+            ObjectProvider<RecordDeletionGuard> guards) {
+        return new RecordDeletionGuardRegistration((ability, record) ->
+                guards.orderedStream().forEach(guard -> guard.validate(ability, record)));
+    }
+
+    static final class RecordDeletionGuardRegistration implements DisposableBean {
+        RecordDeletionGuardRegistration(RecordDeletionGuard guard) {
+            PlatformAbilityRuntime.configureRecordDeletionGuard(guard);
+        }
+        @Override public void destroy() { PlatformAbilityRuntime.resetRecordDeletionGuard(); }
+    }
+
     @Bean
     /** 注入删除生命周期监听器；应用未提供时使用显式空实现。 */
     DeletionLifecycleListenerRegistration deletionLifecycleListenerRegistration(

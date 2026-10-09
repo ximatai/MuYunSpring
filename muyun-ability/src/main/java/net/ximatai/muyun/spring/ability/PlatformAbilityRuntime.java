@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.ability;
 import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
+import net.ximatai.muyun.spring.ability.deletion.RecordDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
@@ -72,6 +73,14 @@ public final class PlatformAbilityRuntime {
 
     public static void resetEntitySaveLifecycleListener() {
         PlatformAbilityDispatcher.resetEntitySaveLifecycleListener();
+    }
+
+    public static void configureRecordDeletionGuard(RecordDeletionGuard guard) {
+        PlatformAbilityDispatcher.setRecordDeletionGuard(guard);
+    }
+
+    public static void resetRecordDeletionGuard() {
+        PlatformAbilityDispatcher.setRecordDeletionGuard(RecordDeletionGuard.NONE);
     }
 
     public static void configureDeletionLifecycleListener(DeletionLifecycleListener listener) {

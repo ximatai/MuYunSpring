@@ -15,6 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
@@ -25,6 +27,24 @@ import static org.mockito.Mockito.when;
 import org.mockito.ArgumentCaptor;
 
 class WorkflowTaskActionServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); net.ximatai.muyun.spring.common.tenant.TenantContext.setTenantId("tenant-1"); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); net.ximatai.muyun.spring.common.tenant.TenantContext.clear(); }
+
+    private final WorkflowModuleTaskEvaluator taskEvaluator = mock(WorkflowModuleTaskEvaluator.class);
+    private final WorkflowBusinessTaskResolver taskSpecifications = mock(WorkflowBusinessTaskResolver.class);
+    private final WorkflowTaskCheckResultDao checkResultDao = mock(WorkflowTaskCheckResultDao.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void configureBusinessCompletionPolicy() {
+        var definition = new WorkflowTaskDefinition(); definition.setManualConfirm(true);
+        when(taskSpecifications.resolve(any())).thenReturn(new WorkflowBusinessTaskSpec(definition, List.of(), List.of()));
+        when(taskEvaluator.evaluate(any(), any(), any(), any())).thenReturn(WorkflowModuleTaskEvaluation.manualConfirm(List.of()));
+        when(progressionService.advanceFromNode(anyString(), anyString(), anyString(), any(), any(), any(), anyList()))
+                .thenAnswer(call -> WorkflowProgressionResult.empty(instanceDao.findById(call.getArgument(0))));
+    }
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
@@ -36,9 +56,37 @@ class WorkflowTaskActionServiceTest {
     private final WorkflowApprovalTaskPolicyService approvalTaskPolicyService = new WorkflowApprovalTaskPolicyService();
     private final WorkflowActionPolicyService actionPolicyService = new WorkflowActionPolicyService();
     private final WorkflowRuntimeProgressionService progressionService = mock(WorkflowRuntimeProgressionService.class);
-    private final WorkflowTaskActionService service = new WorkflowTaskActionService(
-            taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory, approvalTaskPolicyService,
-            actionPolicyService, progressionService, Optional.empty());
+    private final WorkflowAutomaticApprovalService automaticApprovals = mock(WorkflowAutomaticApprovalService.class);
+    private final WorkflowTaskActionService service = new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                actionPolicyService,
+                progressionService,
+                Optional.empty(),
+                mock(WorkflowDelegationService.class),
+                null,
+                null,
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(automaticApprovals));
+
+    @Test
+    void constructionRequiresTheLazyAutomaticApprovalProvider() {
+        assertThatThrownBy(() -> new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao,
+                eventFactory, approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(),
+                mock(WorkflowDelegationService.class), null, null, taskEvaluator, taskSpecifications, checkResultDao, null))
+                .isInstanceOf(NullPointerException.class).hasMessage("automaticApprovals");
+        @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService>)
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory,
+                approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(),
+                mock(WorkflowDelegationService.class), null, null, taskEvaluator, taskSpecifications, checkResultDao, provider);
+        verifyNoInteractions(provider);
+    }
 
     @Test
     void shouldApproveApprovalTaskAndCompleteAnyNode() {
@@ -56,6 +104,7 @@ class WorkflowTaskActionServiceTest {
         WorkflowTaskActionResult result = service.approve(request(
                 "task-1", "user-1", null, null, "agree", Instant.parse("2026-06-05T02:00:00Z")));
 
+        verify(automaticApprovals).continueFor("instance-1", "user-1", Instant.parse("2026-06-05T02:00:00Z"));
         assertThat(result.task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
         assertThat(result.task().getDecision()).isEqualTo("approve");
         assertThat(result.node().getNodeStatus()).isEqualTo(WorkflowNodeStatus.COMPLETED);
@@ -94,9 +143,22 @@ class WorkflowTaskActionServiceTest {
         WorkflowInstance instance = instance();
         WorkflowNodeInstance node = node(WorkflowApprovalMode.ANY, null);
         WorkflowActionPolicyService policyService = mock(WorkflowActionPolicyService.class);
-        WorkflowTaskActionService authorizedService = new WorkflowTaskActionService(
-                taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory, approvalTaskPolicyService,
-                policyService, progressionService, Optional.empty());
+        WorkflowTaskActionService authorizedService = new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                policyService,
+                progressionService,
+                Optional.empty(),
+                mock(WorkflowDelegationService.class),
+                null,
+                null,
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(mock(WorkflowAutomaticApprovalService.class)));
         when(taskDao.findById("task-1")).thenReturn(task);
         when(instanceDao.findById("instance-1")).thenReturn(instance);
         when(nodeDao.findById("node-1")).thenReturn(node);
@@ -174,9 +236,22 @@ class WorkflowTaskActionServiceTest {
         WorkflowTask task = task("task-1", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
         WorkflowNodeInstance node = node(WorkflowApprovalMode.ANY, null);
         WorkflowActionPolicyService policyService = mock(WorkflowActionPolicyService.class);
-        WorkflowTaskActionService adminService = new WorkflowTaskActionService(
-                taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory, approvalTaskPolicyService,
-                policyService, progressionService, Optional.empty());
+        WorkflowTaskActionService adminService = new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                policyService,
+                progressionService,
+                Optional.empty(),
+                mock(WorkflowDelegationService.class),
+                null,
+                null,
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(mock(WorkflowAutomaticApprovalService.class)));
         when(taskDao.findById("task-1")).thenReturn(task);
         when(instanceDao.findById("instance-1")).thenReturn(instance());
         when(nodeDao.findById("node-1")).thenReturn(node);
@@ -655,9 +730,14 @@ class WorkflowTaskActionServiceTest {
         when(taskDao.updateByIdAndVersion(task, 3)).thenReturn(1);
         when(nodeDao.updateByIdAndVersion(node, 2)).thenReturn(1);
 
+        var completedInstance = instance(); completedInstance.setInstanceStatus(WorkflowInstanceStatus.COMPLETED);
+        when(progressionService.advanceFromNode(anyString(), anyString(), anyString(), any(), any(), any(), anyList()))
+                .thenReturn(WorkflowProgressionResult.empty(completedInstance));
         WorkflowTaskActionResult result = service.completeBusinessTask(request(
                 "task-1", "user-1", null, null, "done", Instant.parse("2026-06-05T02:00:00Z")));
 
+        assertThat(result.instance()).isSameAs(completedInstance);
+        assertThat(result.instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
         assertThat(result.task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
         assertThat(result.task().getActualProcessorId()).isEqualTo("user-1");
         assertThat(result.task().getDecision()).isEqualTo("complete");
@@ -671,6 +751,25 @@ class WorkflowTaskActionServiceTest {
         verify(eventDao).insert(result.event());
         verify(progressionService).advanceFromNode("instance-1", "approve", "user-1",
                 Instant.parse("2026-06-05T02:00:00Z"), null, null, List.of());
+    }
+
+    @Test
+    void shouldRecheckBusinessFactsEvenWhenHistoricalTaskCheckPassed() {
+        var task = task("task-1", WorkflowTaskKind.BUSINESS, WorkflowTaskStatus.TODO);
+        task.setCheckStatus(WorkflowTaskCheckStatus.PASSED);
+        var instance = instance();
+        var node = node(null, null); node.setNodeType(WorkflowNodeType.TASK);
+        when(taskDao.findById("task-1")).thenReturn(task);
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(nodeDao.findById("node-1")).thenReturn(node);
+        when(taskEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(WorkflowModuleTaskEvaluation.failed("current business facts no longer pass", List.of(), List.of()));
+
+        assertThatThrownBy(() -> service.completeBusinessTask(WorkflowTaskActionRequest.complete("task-1", "user-1", "done")))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("no longer pass");
+        assertThat(task.getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
+        verify(taskDao, never()).updateByIdAndVersion(any(), any());
+        verifyNoInteractions(eventDao, checkResultDao, progressionService);
     }
 
     @Test
@@ -1234,9 +1333,22 @@ class WorkflowTaskActionServiceTest {
         WorkflowNodeInstance node = node(WorkflowApprovalMode.ALL, null);
         node.setAllowAddSign(true);
         WorkflowActionPolicyService policyService = mock(WorkflowActionPolicyService.class);
-        WorkflowTaskActionService authorizedService = new WorkflowTaskActionService(
-                taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory, approvalTaskPolicyService,
-                policyService, progressionService, Optional.empty());
+        WorkflowTaskActionService authorizedService = new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                policyService,
+                progressionService,
+                Optional.empty(),
+                mock(WorkflowDelegationService.class),
+                null,
+                null,
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(mock(WorkflowAutomaticApprovalService.class)));
         when(taskDao.findById("task-1")).thenReturn(task);
         when(instanceDao.findById("instance-1")).thenReturn(instance);
         when(nodeDao.findById("node-1")).thenReturn(node);
@@ -1363,7 +1475,7 @@ class WorkflowTaskActionServiceTest {
                         linkDefinition("entry-invalid", "approve", "add-invalid"),
                         linkDefinition("exit-invalid", "add-invalid", "next"))), "need review")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("only supports user:<userId>");
+                .hasMessageContaining("unsupported workflow participant policy");
         assertThatThrownBy(() -> service.addSign(WorkflowTaskActionRequest.addSign(
                 "task-1", "user-1",
                 new WorkflowAddSignSegment(List.of(nodeDefinition("add-task", WorkflowNodeType.TASK,
@@ -1524,6 +1636,33 @@ class WorkflowTaskActionServiceTest {
         verifyNoInteractions(eventDao);
     }
 
+    @Test
+    void withdrawingVoteFromActiveParallelNodeRetainsOtherActiveKeysAndRecountsOnlyEffectiveApprovedVotes() {
+        var original = task("vote", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.DONE);
+        original.setActualProcessorId("user-1"); original.setDecision("approve");
+        original.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z")); original.setCreatedBy("original-creator");
+        var approved = task("other-vote", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.DONE); approved.setAssigneeId("user-2");
+        var historical = task("history", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.ROLLED_BACK);
+        var source = node(WorkflowApprovalMode.ALL, null);
+        var parallel = node("parallel", "parallelApproval", WorkflowNodeType.APPROVAL, WorkflowNodeStatus.ACTIVE);
+        var instance = instance();
+        when(taskDao.findById("vote")).thenReturn(original); when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(nodeDao.findById("node-1")).thenReturn(source);
+        when(nodeDao.query(any(), any())).thenReturn(List.of(source, parallel)); when(routeDao.query(any(), any())).thenReturn(List.of());
+        when(taskDao.query(any(), any())).thenReturn(List.of(original, approved, historical));
+        when(taskDao.updateByIdAndVersion(any(), any())).thenReturn(1); when(nodeDao.updateByIdAndVersion(any(), any())).thenReturn(1);
+        when(instanceDao.updateByIdAndVersion(any(), any())).thenReturn(1);
+        var now = Instant.parse("2026-10-08T00:00:00Z");
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("user-1", "actor"))) {
+            var result = service.revokeApprove(WorkflowTaskActionRequest.builder("vote", "user-1").reason("correct vote").operatedAt(now).build());
+            assertThat(result.instance().getCurrentNodeKeys().split(",")).containsExactlyInAnyOrder("approve", "parallelApproval");
+            assertThat(result.node().getApprovedTaskCount()).isOne(); assertThat(result.node().getCompletedTaskCount()).isOne();
+            assertThat(approved.getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+            assertThat(result.createdTask().getCreatedAt()).isEqualTo(now); assertThat(result.createdTask().getCreatedBy()).isEqualTo("user-1");
+        }
+    }
+
     private WorkflowTask task(String id, WorkflowTaskKind kind, WorkflowTaskStatus status) {
         WorkflowTask task = new WorkflowTask();
         task.setId(id);
@@ -1609,17 +1748,43 @@ class WorkflowTaskActionServiceTest {
     }
 
     private WorkflowTaskActionService serviceWithPlugin(WorkflowRuntimePlugin plugin) {
-        return new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(), null,
-                new WorkflowRuntimePluginDispatcher(List.of(plugin)));
+        return new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                actionPolicyService,
+                progressionService,
+                Optional.empty(),
+                null,
+                null,
+                new WorkflowRuntimePluginDispatcher(List.of(plugin)),
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(mock(WorkflowAutomaticApprovalService.class)));
     }
 
     private WorkflowTaskActionService serviceWithDelegationCompletionNotice() {
         WorkflowDelegationCompletionNoticeService completionNoticeService =
                 new WorkflowDelegationCompletionNoticeService(taskDao, eventDao, eventFactory);
-        return new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(), null,
-                completionNoticeService, null);
+        return new WorkflowTaskActionService(taskDao,
+                instanceDao,
+                nodeDao,
+                routeDao,
+                eventDao,
+                eventFactory,
+                approvalTaskPolicyService,
+                actionPolicyService,
+                progressionService,
+                Optional.empty(),
+                null,
+                completionNoticeService,
+                null,
+                taskEvaluator,
+                taskSpecifications,
+                checkResultDao, WorkflowTestSupport.provider(mock(WorkflowAutomaticApprovalService.class)));
     }
 
     private static final class RecordingPlugin implements WorkflowRuntimePlugin {

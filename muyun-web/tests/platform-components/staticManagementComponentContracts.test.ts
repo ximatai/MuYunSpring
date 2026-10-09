@@ -249,11 +249,11 @@ it('record containers delegate chain errors to page feedback', () => {
 it('record mode drawer owns detail mode branch switching', () => {
   const drawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
+  const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const detailLayoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
   const operationBarSource = readSource('src/platform-components/DrawerOperationBar.vue');
   const indexSource = readSource('src/platform-components/index.ts');
-  const pageRealtimeSource = readSource('src/platform-admin-runtime/pageRealtime.ts');
 
   assert.match(indexSource, /export \{ default as RecordModeDrawer \}/);
   assert.match(indexSource, /export \{ default as RecordExternalChangeNotice \}/);
@@ -296,11 +296,16 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
+  assert.match(detailDrawerSource, /<UiSidePanel[\s\S]*:render-mode="renderMode"[\s\S]*:width="width"/);
+  assert.match(detailDrawerSource, /v-if="renderMode === 'inline' \|\| hasDrawerContainer"/);
+  assert.notMatch(detailDrawerSource, /ant-design-vue|<ADrawer/);
+  assert.match(sidePanelSource, /if \(props\.renderMode === 'inline'\) return false/);
   assert.match(
-    detailDrawerSource,
-    /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/,
+    sidePanelSource,
+    /props\.renderMode === 'inline' \? `min\(\$\{width\}px, calc\(100% - 32px\)\)` : width/,
   );
-  assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
+  assert.match(sidePanelSource, /:get-container="container"/);
+  assert.match(sidePanelSource, /:width="resolvedWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
   assert.notMatch(detailDrawerSource, /<slot name="actions" \/>/);
@@ -328,7 +333,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /scope\?: UiSidePanelScope/);
   assert.match(drawerSource, /:scope="scope"/);
   assert.match(detailLayoutSource, /overflow: auto/);
-  assert.match(pageRealtimeSource, /subscribeAppModuleDataChanges\(options\.moduleAlias\)/);
 
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
   assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
@@ -972,7 +976,6 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(appSource, /onUserNotification: handleSecurityNotification/);
   assert.match(pageRealtimeSource, /export interface PageRealtimeSubscription/);
   assert.match(pageRealtimeSource, /export function usePageRealtimeSubscription/);
-  assert.match(pageRealtimeSource, /usePageModuleDataChanges\(moduleAlias: string\)/);
   assert.match(pageRealtimeSource, /usePageBusinessEventHandler/);
   assert.match(
     pageRealtimeSource,
@@ -986,9 +989,8 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(pageRealtimeSource, /onUnmounted\(\(\) => \{/);
   assert.match(realtimeSource, /connectRealtimeBusinessEvents/);
   assert.match(realtimeSource, /subscribeAppBusinessEvents/);
-  assert.match(realtimeSource, /subscribeAppModuleDataChanges\(moduleAlias: string\)/);
-  assert.match(realtimeSource, /moduleDataChangeChannel\(moduleAlias\)/);
-  assert.match(realtimeSource, /appDataChangeDispatcher\.dispatch\(changeSet\)/);
+  assert.notMatch(realtimeSource, /moduleDataChangeChannel/);
+  assert.match(realtimeSource, /connectRealtimeDataChanges\(realtime, appDataChangeDispatcher\)/);
   assert.notMatch(realtimeSource, /moduleDataChangeChannel\('iam\.user'\)/);
   assert.match(appSource, /function handleSecurityNotification\(notification: WebUserNotification\)/);
   assert.match(appSource, /startSecurityLogoutCountdown\(5\)/);

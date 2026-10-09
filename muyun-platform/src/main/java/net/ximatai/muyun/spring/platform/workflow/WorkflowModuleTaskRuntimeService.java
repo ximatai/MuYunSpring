@@ -10,20 +10,25 @@ public class WorkflowModuleTaskRuntimeService {
     private final WorkflowTaskDao taskDao;
     private final WorkflowInstanceDao instanceDao;
     private final WorkflowNodeInstanceDao nodeDao;
-    private final WorkflowTaskDefinitionDao taskDefinitionDao;
+    private final WorkflowBusinessTaskResolver specifications;
+    private final WorkflowTaskAssignmentPolicyService assignments;
+    private final WorkflowActionPolicyService actionPolicies;
     private final WorkflowModuleTaskEvaluator evaluator;
     private final WorkflowTaskActionFacade taskActionFacade;
 
     public WorkflowModuleTaskRuntimeService(WorkflowTaskDao taskDao,
                                             WorkflowInstanceDao instanceDao,
                                             WorkflowNodeInstanceDao nodeDao,
-                                            WorkflowTaskDefinitionDao taskDefinitionDao,
+                                            WorkflowBusinessTaskResolver specifications, WorkflowTaskAssignmentPolicyService assignments,
+                                            WorkflowActionPolicyService actionPolicies,
                                             WorkflowModuleTaskEvaluator evaluator,
                                             WorkflowTaskActionFacade taskActionFacade) {
         this.taskDao = taskDao;
         this.instanceDao = instanceDao;
         this.nodeDao = nodeDao;
-        this.taskDefinitionDao = taskDefinitionDao;
+        this.specifications = specifications;
+        this.assignments = assignments;
+        this.actionPolicies = actionPolicies;
         this.evaluator = evaluator;
         this.taskActionFacade = taskActionFacade;
     }
@@ -33,20 +38,24 @@ public class WorkflowModuleTaskRuntimeService {
         return bundle(context);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public WorkflowModuleTaskContinueResult checkAndContinue(String taskId, String operatorId, String reason) {
         return checkAndContinue(taskId, operatorId, reason, null, null);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public WorkflowModuleTaskContinueResult checkAndContinue(String taskId, String operatorId, String reason,
                                                              String selectedRouteKey, String selectedReason) {
         return checkAndContinue(taskId, operatorId, reason, selectedRouteKey, selectedReason, List.of());
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public WorkflowModuleTaskContinueResult checkAndContinue(String taskId, String operatorId, String reason,
                                                              List<WorkflowManualRouteSelection> manualRouteSelections) {
         return checkAndContinue(taskId, operatorId, reason, null, null, manualRouteSelections);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public WorkflowModuleTaskContinueResult checkAndContinue(String taskId, String operatorId, String reason,
                                                              String selectedRouteKey, String selectedReason,
                                                              List<WorkflowManualRouteSelection> manualRouteSelections) {
@@ -75,8 +84,7 @@ public class WorkflowModuleTaskRuntimeService {
                 context.instance().getModuleAlias(),
                 context.instance().getRecordId(),
                 policy,
-                new WorkflowModuleTaskContext(context.task().getId(), policy,
-                        "/workflow/runtime/task/" + context.task().getId() + "/module-task/check-and-continue"),
+                new WorkflowModuleTaskContext(context.task().getId(), policy),
                 context.taskDefinition(),
                 evaluation,
                 evaluation.guides().isEmpty() ? null : evaluation.guides().getFirst()
@@ -106,7 +114,7 @@ public class WorkflowModuleTaskRuntimeService {
         if (task.getTaskStatus() != WorkflowTaskStatus.TODO) {
             throw new PlatformException("workflow task is not todo: " + taskId);
         }
-        if (operatorId == null || operatorId.isBlank() || !operatorId.equals(task.getAssigneeId())) {
+        if (!assignments.canProcess(task, operatorId)) {
             throw new PlatformException("workflow task action operator is not assignee: " + taskId);
         }
         WorkflowInstance instance = requireInstance(task);
@@ -117,7 +125,8 @@ public class WorkflowModuleTaskRuntimeService {
         if (node.getNodeType() != WorkflowNodeType.TASK || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE) {
             throw new PlatformException("workflow node is not active task node: " + node.getNodeKey());
         }
-        WorkflowTaskDefinition definition = requireTaskDefinition(node);
+        actionPolicies.requireRuntimeAction(instance, "complete");
+        WorkflowTaskDefinition definition = specifications.resolve(node).definition();
         return new Context(instance, node, task, definition);
     }
 
@@ -125,7 +134,7 @@ public class WorkflowModuleTaskRuntimeService {
         if (taskId == null || taskId.isBlank()) {
             throw new PlatformException("workflow task id must not be blank");
         }
-        WorkflowTask task = taskDao.findById(taskId);
+        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(taskId));
         if (task == null) {
             throw new PlatformException("workflow task not found: " + taskId);
         }
@@ -146,18 +155,6 @@ public class WorkflowModuleTaskRuntimeService {
             throw new PlatformException("workflow node instance not found: " + task.getNodeInstanceId());
         }
         return node;
-    }
-
-    private WorkflowTaskDefinition requireTaskDefinition(WorkflowNodeInstance node) {
-        String taskDefinitionId = node.getTaskDefinitionId();
-        if (taskDefinitionId == null || taskDefinitionId.isBlank()) {
-            throw new PlatformException("workflow task node missing task definition: " + node.getNodeKey());
-        }
-        WorkflowTaskDefinition definition = taskDefinitionDao.findById(taskDefinitionId);
-        if (definition == null || !Boolean.TRUE.equals(definition.getEnabled())) {
-            throw new PlatformException("workflow task definition not found or disabled: " + taskDefinitionId);
-        }
-        return definition;
     }
 
     private record Context(WorkflowInstance instance,

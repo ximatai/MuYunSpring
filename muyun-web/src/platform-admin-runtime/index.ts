@@ -24,7 +24,6 @@ export {
   disconnectAppRealtime,
   subscribeAppBusinessEvents,
   subscribeAppDataChanges,
-  subscribeAppModuleDataChanges,
 } from './realtime';
 export type { AppRealtimeConnection, AppRealtimeOptions } from './realtime';
 export {

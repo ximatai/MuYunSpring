@@ -194,6 +194,10 @@ public class DynamicModuleOverviewModeService {
                 && main.capabilities().contains(EntityCapability.RECYCLE_BIN)) {
             throw new PlatformException("回收站启用后暂不支持关闭，请保留已有删除记录的恢复入口。");
         }
+        if (Boolean.FALSE.equals(command.capabilitySelections().get(EntityCapability.APPROVAL))
+                && main.capabilities().contains(EntityCapability.APPROVAL)) {
+            throw new PlatformException("审批能力启用后暂不支持关闭，请保留审批摘要及流程使用契约。");
+        }
         Set<EntityCapability> result = new java.util.LinkedHashSet<>(effectiveCapabilities);
         // JSON object member order is not a dependency order.  Remove dependent contracts first.
         for (EntityCapability capability : List.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE)) {

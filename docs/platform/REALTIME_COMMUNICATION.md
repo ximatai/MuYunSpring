@@ -284,21 +284,15 @@ simpMessagingTemplate.convertAndSend("/user/queue/platform/notifications", paylo
 
 ### 5.2.3 典型业务场景
 
-单据详情或编辑协同：
+单据详情、模块列表和子资源变化统一经用户私有队列接收：
 
 ```text
-/topic/platform/modules/{moduleAlias}/records/{recordId}/data-changes
+/user/queue/platform/data-changes
 ```
 
-用户打开详情页或编辑页时按需订阅。record channel 只承载低敏脏标记，页面收到后重新查询详情；敏感记录的完整 payload 必须选择精确 fan-out 到用户 queue。
+发起用户的多个会话收到完整变化事实。其他在线用户在发送时重新验证登录态和模块 QUERY 权限，只收到 `collection-changed`，不包含记录标识、资源标识、scope 或业务 facts。普通数据变化限于本次操作的租户分区；接收者通过原查询接口重新读取当前可见数据。
 
-模块列表新增、删除或集合变化：
-
-```text
-/topic/platform/modules/{moduleAlias}/data-changes
-```
-
-列表页打开时按需订阅。新增、删除通常发送 `collection-changed`，可不携带具体 `recordId`。如果模块涉及复杂数据权限，优先发送低敏集合变化信号，前端收到后自行重新查询当前列表。
+页面配置发布采用无记录身份的 `module-page-configuration-changed`，按接收者当前模块 QUERY 权限分发，可跨业务租户通知共享配置失效。模块和记录 topic 路径仅保留为未来兴趣频道命名，当前不启用订阅或广播。
 
 内部 IM 私信：
 
@@ -346,11 +340,11 @@ payload 表达稳定安全事实，例如 `platform.security.password-changed`�
 
 payload 只表达低敏脏标记，例如 `type=iam.user.session.collectionChanged`、`moduleAlias=iam.user`、`recordId=userId`、`reason=LOGGED_IN/LOGGED_OUT/REVOKED` 和 `sensitivity=DIRTY_MARKER`，不携带 `sessionId`、IP、User-Agent、token hash 或终端明细。在线用户扫描、接收者 session 复核、当前用户/租户上下文绑定和 user queue 投递由平台业务实时 fan-out 门面负责；“某模块某记录需要某动作权限”的接收策略由平台 recipient policy 工厂负责。IAM adapter 只负责把会话生命周期事实转换为集合变化事件，并声明目标用户需要 `iam.user.sessions` 记录动作权限。用户管理页收到后只刷新当前可见用户的在线状态；如果目标用户子列表已展开，再通过 `/iam.user/{id}/sessions` 权限接口读取会话明细。
 
-前端业务页面需要订阅模块、记录或上下文 topic 时，必须通过页面实时生命周期封装接入。基础规则：
+前端业务页面通过页面实时生命周期封装消费用户队列中的事实。基础规则：
 
 - 通用页面订阅使用 `usePageRealtimeSubscription`，业务优先使用更具体的 `usePageDataChange`、`usePageBusinessEvent`、`usePageRecordExternalChange`；
 - 页面只声明所需实时事实、过滤条件和处理函数，由封装负责挂载时订阅、卸载时反订阅；
-- 全局 realtime 连接重建时，由 `app/realtime` 统一恢复页面级 topic 订阅；
+- 全局 realtime 连接重建时，由 `app/realtime` 恢复用户私有队列；页面按模块和记录在公共 dispatcher 中过滤；
 - 编辑中记录需要提示外部变更时，使用 `usePageRecordExternalChange` 统一处理模块订阅、当前记录匹配、编辑态判断和保存中自身事件保护；
 - 需要按实时事件刷新列表、状态摘要或子资源时，优先使用 `createRealtimeRefreshQueue` 合并短时间内的重复刷新，并用 latest guard 丢弃过期响应；
 - 主子表页面收到子资源集合变化事件时，主表只刷新当前可见记录的摘要；子表只有在对应主记录已展开时才刷新明细。页面不得因为低敏脏标记而全量重查所有主表记录或预取所有子资源；
@@ -393,7 +387,7 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 | 消息类型      | 门面                                                           | 默认 destination                                                         | payload 边界                                                                                         |
 | ------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| 数据变化      | `DataChangeRealtimePublisher`                                  | 发起用户 `/user/queue/platform/data-changes`；公共 module / record topic | user queue 可发送完整 `CommittedChangeSet`；公共 topic 只能发送清空 `facts` 的低敏脏标记             |
+| 数据变化      | `DataChangeRealtimePublisher`                                  | 授权用户 `/user/queue/platform/data-changes` | 发起用户收到完整变化；其他用户收到按租户与 QUERY 权限过滤的无记录身份集合变化             |
 | 安全通知      | `SecurityRealtimeNotifier`                                     | `/user/queue/platform/notifications`                                     | 只表达安全事实、是否需要退出、目标 session；不携带 token、IP、User-Agent 或 UI 指令                  |
 | 业务私有事件  | `BusinessRealtimeNotifier` / `BusinessRealtimeFanOutPublisher` | `/user/queue/platform/business-events`                                   | 只发送给经 recipient policy 判定的用户；普通业务状态变化优先发送低敏脏标记，详情通过业务查询接口读取 |
 | 会话 presence | `UserSessionPresenceLookup` + `UserSessionLifecycleEvent`      | 用户管理仍复用 `/user/queue/platform/business-events`                    | presence 只表达 WebSocket 连接观测，不替代 session 有效性；管理页通过会话查询接口读取完整状态        |
@@ -454,15 +448,15 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 1. CONNECT 阶段校验 token。
 2. 建立 STOMP Principal 和当前用户上下文，并保留可复核的登录态标识。
-3. SUBSCRIBE 阶段复核登录态仍有效，并校验 destination 权限。
-4. SEND 阶段复核登录态仍有效，并校验 command 权限。
+3. SUBSCRIBE 阶段复核登录态仍有效，仅允许 `/user/queue/**`。
+4. SEND 阶段复核登录态仍有效，仅允许 `/app/**`，具体命令继续执行领域权限校验，禁止直接写入 broker。
 5. 用户级消息必须通过 user destination 发送，不手写用户私有 topic。
 
 权限粒度按能力演进：
 
 | 阶段         | 权限口径                                                                                                                           |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 数据变化广播 | 发起用户始终收到完整 user queue；module / record 共享 topic 只能承载低敏脏标记；跨用户完整 payload 必须通过按权限过滤的 user queue |
+| 数据变化广播 | 发起用户收到完整 user queue；其他用户发送前复核会话、租户与 QUERY 权限，只收到无记录身份的集合变化 |
 | 用户通知     | 只能接收当前用户 queue                                                                                                             |
 | IM / 协同    | 按房间、会话、参与者或业务资源校验                                                                                                 |
 | 动态能力     | 通过动态元数据、动作权限和数据权限 adapter 接入                                                                                    |
@@ -473,18 +467,19 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 当前采用保守策略：
 
-- 数据变化先发送到当前发起用户的 user queue；
-- 普通记录变化可以广播到 module / record topic，但只能发送低敏摘要；
-- 公共 topic 摘要不得携带 `facts`、业务字段、会话明细、token、IP、User-Agent 等敏感载荷；
-- 跨用户完整业务 payload 必须走 user queue，并在发送前完成接收者权限过滤；
-- 无法判断当前用户时不发送实时数据变化；
-- 系统态变化和跨用户共享广播后续需要显式声明可见范围。
+- 发起用户通过私有队列同步同账号的多个会话；
+- 其他用户逐次复核有效登录态，并在接收者身份下重新计算模块 QUERY 权限；
+- 普通变化只向本次操作租户内的用户和通过授权的系统用户发送集合失效事实；
+- 集合失效事实不包含记录 ID、子资源 ID、scope 或 `facts`，包含删除和已不可见记录的变化；
+- 共享页面配置发布保留安全的配置失效类型，避免把配置更新误当作普通数据刷新；
+- 当前普通 CRUD 的跨租户授权写入，实时提示以外层操作分区为准。若需覆盖实际 owner 分区，必须先为变化事实建立可信的 owner 分区契约，不得恢复全局记录广播；
+- 无法判断发起用户时不发送实时数据变化。
 
-公共 topic 的多租户和数据权限边界按“脏标记”处理，允许接收者收到可能无权查看的低敏变化提示。真正的数据读取仍由查询接口负责权限判断。
+权限撤销、会话失效和租户变化在每次发送时复核，不能只在建立订阅时校验。当前模块、记录及资源 topic 均不承载数据变化。
 
 后续支持租户和机构公共频道时，订阅可以按身份归属处理，但发送必须按事件可见性处理。
 
-前端可以默认订阅：
+以下租户与机构频道仅为后续预留，当前订阅鉴权不接受这些 topic：
 
 ```text
 /topic/platform/tenants/{tenantId}/public/data-changes
@@ -510,15 +505,14 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 - 业务交易数据；
 - 任何需要角色、数据权限或记录级可见性判断的变化。
 
-敏感或专有变化应选择：
+当前敏感或专有变化只能通过服务端按权限 fan-out 到用户队列：
 
 ```text
 精确到人：/user/queue/platform/**
-业务级兴趣频道：/topic/platform/modules/**、/topic/platform/contexts/**
-服务端按权限 fan-out：后续能力
+服务端按权限 fan-out：逐次验证会话、租户与模块权限
 ```
 
-因此，安全边界不依赖前端是否订阅了 tenant/org public channel，而依赖后端只把公共事件发送到公共频道。
+后续开放兴趣频道前必须补齐订阅与发送两侧的可见性契约；当前安全边界由用户私有队列和发送时授权共同保证。
 
 ## 6. 前端设计
 
@@ -669,7 +663,7 @@ STOMP message
 
 ### 7.2 DataChange Payload
 
-数据变化消息 payload 复用 `CommittedChangeSet`。用户私有队列可以承载完整数据变化；公共 topic 只能承载低敏摘要，必须清空 `facts`：
+数据变化消息 payload 复用 `CommittedChangeSet`。以下完整记录事实只发送给发起用户；其他用户收到相同变化批次下不含记录身份的 `collection-changed`：
 
 ```json
 {
@@ -700,7 +694,7 @@ STOMP message
 - 是否跳转路由；
 - 具体 UI 文案。
 
-公共 topic 上的 `DataChange` 只作为脏标记使用。接收页面不得据此认定当前用户具备记录可见权限，也不得直接展示业务字段；需要展示数据时必须重新调用查询或详情接口，让原有租户、权限和字段控制兜底。
+接收页面不能从集合失效事实推断记录可见性；列表、详情和子资源仍通过既有授权查询接口读取。编辑中的页面保留草稿，结束交互后再消费待处理变化。
 
 ### 7.3 命令与事件分离
 
@@ -726,7 +720,7 @@ Command: 客户端请求服务端执行的动作
   -> 形成 CommittedChangeSet
   -> 发布进程内事件
   -> 发起用户 user queue 接收完整 payload
-  -> module / record topic 接收低敏脏标记
+  -> 其他在线授权用户的 user queue 接收集合失效事实
 ```
 
 约束：
@@ -735,7 +729,7 @@ Command: 客户端请求服务端执行的动作
 - 事务回滚不得广播数据变化；
 - HTTP ActionResult 和实时广播共享同一份 `CommittedChangeSet`；
 - 前端以 HTTP 回执作为发起动作的即时结果，以实时通道作为当前用户多端和跨用户脏标记信号；
-- 公共 topic 不得携带 `facts` 或业务字段，不能依赖前端自行丢弃无权数据；
+- 其他用户的集合事实不得携带记录身份或业务字段，不能依赖前端自行丢弃无权数据；
 - 后续如需要跨用户完整 payload fan-out，必须按接收人过滤变化集合。
 
 ### 8.2 后续 Outbox

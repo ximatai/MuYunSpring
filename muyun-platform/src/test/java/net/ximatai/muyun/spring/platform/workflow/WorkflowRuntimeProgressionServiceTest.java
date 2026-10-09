@@ -15,6 +15,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowRuntimeProgressionServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowNodeInstanceDao nodeDao = mock(WorkflowNodeInstanceDao.class);
     private final WorkflowRouteInstanceDao routeDao = mock(WorkflowRouteInstanceDao.class);
@@ -141,7 +146,7 @@ class WorkflowRuntimeProgressionServiceTest {
         assertThat(result.events()).extracting(WorkflowEvent::getEventType)
                 .contains(WorkflowEventType.APPROVAL_COMPLETED, WorkflowEventType.INSTANCE_COMPLETED);
         verify(summaryWriter).writeSubmitted(new WorkflowApprovalSummary(
-                "sales.contract", "record-1", "instance-1", WorkflowApprovalStatus.APPROVED,
+                "tenant-1", "sales.contract", "record-1", "instance-1", WorkflowApprovalStatus.APPROVED,
                 "starter-1", Instant.parse("2026-06-05T01:00:00Z"),
                 Instant.parse("2026-06-05T03:00:00Z")
         ));
@@ -186,6 +191,9 @@ class WorkflowRuntimeProgressionServiceTest {
         WorkflowInstance instance = instance();
         WorkflowNodeInstance branch = node("node-branch", "branch", WorkflowNodeType.BRANCH,
                 WorkflowNodeStatus.COMPLETED);
+        branch.setRouteMode(WorkflowRouteMode.MANUAL);
+        branch.setSelectorNodeKey("START");
+        instance.setStartedBy("user-1");
         WorkflowNodeInstance left = node("node-left", "leftTask", WorkflowNodeType.TASK, WorkflowNodeStatus.WAITING);
         WorkflowNodeInstance right = node("node-right", "rightTask", WorkflowNodeType.TASK, WorkflowNodeStatus.WAITING);
         WorkflowRouteInstance leftRoute = route("route-left", "leftRoute", "branch", "leftTask", false);
@@ -221,14 +229,14 @@ class WorkflowRuntimeProgressionServiceTest {
         WorkflowInstance instance = instance();
         WorkflowNodeInstance approve = node("node-approve", "approve", WorkflowNodeType.APPROVAL,
                 WorkflowNodeStatus.COMPLETED);
-        WorkflowNodeInstance branch = node("node-branch", "branch", WorkflowNodeType.BRANCH,
-                WorkflowNodeStatus.WAITING);
+        WorkflowNodeInstance branch = manualBranch("node-branch", "branch", "approve", false);
         WorkflowNodeInstance left = node("node-left", "leftTask", WorkflowNodeType.TASK, WorkflowNodeStatus.WAITING);
         WorkflowNodeInstance right = node("node-right", "rightTask", WorkflowNodeType.TASK, WorkflowNodeStatus.WAITING);
         WorkflowRouteInstance entry = route("route-entry", "toBranch", "approve", "branch", true);
         WorkflowRouteInstance leftRoute = route("route-left", "leftRoute", "branch", "leftTask", false);
         WorkflowRouteInstance rightRoute = route("route-right", "rightRoute", "branch", "rightTask", true);
         when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(taskDao.query(any(), any())).thenReturn(List.of(task("completed-approval", approve, "user-1")));
         when(nodeDao.query(any(), any())).thenReturn(List.of(approve, branch, left, right));
         when(routeDao.query(any(), any())).thenReturn(List.of(entry, leftRoute, rightRoute));
         when(instanceDao.updateByIdAndVersion(instance, 5)).thenReturn(1);
@@ -255,7 +263,7 @@ class WorkflowRuntimeProgressionServiceTest {
         assertThat(left.getNodeStatus()).isEqualTo(WorkflowNodeStatus.ACTIVE);
         assertThat(right.getNodeStatus()).isEqualTo(WorkflowNodeStatus.WAITING);
         assertThat(result.selectedRoutes()).containsExactly(entry);
-        assertThat(result.activation().traversedRouteKeys()).containsExactly("leftRoute");
+        assertThat(result.activation().traversedRouteKeys()).containsExactly("toBranch", "leftRoute");
     }
 
     @Test
@@ -315,7 +323,7 @@ class WorkflowRuntimeProgressionServiceTest {
         assertThat(taskB2.getNodeStatus()).isEqualTo(WorkflowNodeStatus.ACTIVE);
         assertThat(result.selectedRoutes()).containsExactly(entry);
         assertThat(result.activation().traversedRouteKeys())
-                .containsExactly("toBranchA", "toBranchB", "routeA1", "routeB2");
+                .containsExactly("toSplit", "toBranchA", "toBranchB", "routeA1", "routeB2");
     }
 
     @Test
@@ -377,7 +385,7 @@ class WorkflowRuntimeProgressionServiceTest {
         assertThat(leftRoute.getSelectedBy()).isEqualTo("approver-1");
         assertThat(rightRoute.getRouteStatus()).isEqualTo(WorkflowRouteStatus.INEFFECTIVE);
         assertThat(left.getNodeStatus()).isEqualTo(WorkflowNodeStatus.ACTIVE);
-        assertThat(result.activation().traversedRouteKeys()).containsExactly("leftRoute");
+        assertThat(result.activation().traversedRouteKeys()).containsExactly("toBranch", "leftRoute");
     }
 
     @Test
@@ -444,8 +452,7 @@ class WorkflowRuntimeProgressionServiceTest {
     }
 
     private WorkflowRuntimeProgressionService service(Optional<WorkflowApprovalSummaryWriter> writer) {
-        return new WorkflowRuntimeProgressionService(
-                instanceDao,
+        return new WorkflowRuntimeProgressionService(instanceDao,
                 nodeDao,
                 routeDao,
                 taskDao,
@@ -455,10 +462,12 @@ class WorkflowRuntimeProgressionServiceTest {
                 new WorkflowNodeInstanceStateService(),
                 new WorkflowRouteInstanceStateService(),
                 new WorkflowRouteRuntimeService(),
-                new WorkflowRuntimeTaskFactory(eventFactory),
+                new WorkflowRuntimeTaskFactory(eventFactory,
+                java.util.Optional.empty(),
+                WorkflowTestSupport.participants()),
                 eventFactory,
-                writer
-        );
+                writer,
+                WorkflowTestSupport.facts());
     }
 
     private WorkflowInstance instance() {
@@ -486,6 +495,7 @@ class WorkflowRuntimeProgressionServiceTest {
         node.setNodeKey(key);
         node.setNodeRunId(key + ":1");
         node.setNodeType(type);
+        node.setParticipantPolicyText("user:user-1");
         node.setNodeStatus(status);
         return node;
     }

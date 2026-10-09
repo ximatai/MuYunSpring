@@ -11,6 +11,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowRuntimeActivationServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowRuntimeActivationService service = new WorkflowRuntimeActivationService();
 
     @Test
@@ -55,6 +60,7 @@ class WorkflowRuntimeActivationServiceTest {
                         link("rightRoute", "branch", "right", true))
         );
 
+        graph.outgoing("branch").getFirst().setConditionExpression("false");
         WorkflowActivationResult result = service.activate(WorkflowActivationRequest.from(graph, "branch"));
 
         assertThat(result.traversedRouteKeys()).containsExactly("rightRoute");
@@ -63,8 +69,10 @@ class WorkflowRuntimeActivationServiceTest {
 
     @Test
     void shouldUseExplicitBranchSelection() {
+        WorkflowNodeDefinition branch = node("branch", WorkflowNodeType.BRANCH);
+        branch.setRouteMode(WorkflowRouteMode.MANUAL);
         WorkflowRuntimeGraph graph = WorkflowRuntimeGraph.of(
-                List.of(node("branch", WorkflowNodeType.BRANCH),
+                List.of(branch,
                         node("left", WorkflowNodeType.TASK),
                         node("right", WorkflowNodeType.TASK)),
                 List.of(link("leftRoute", "branch", "left", false),
@@ -77,6 +85,50 @@ class WorkflowRuntimeActivationServiceTest {
 
         assertThat(result.traversedRouteKeys()).containsExactly("leftRoute");
         assertThat(result.blockingTaskNodeKeys()).containsExactly("left");
+    }
+
+    @Test
+    void shouldRejectManualOverrideOfAutoBranchEvenWhenItsConditionWouldMatch() {
+        for (WorkflowRouteMode mode : new WorkflowRouteMode[]{null, WorkflowRouteMode.AUTO}) {
+            WorkflowNodeDefinition branch = node("branch", WorkflowNodeType.BRANCH);
+            branch.setRouteMode(mode);
+            WorkflowRuntimeGraph graph = WorkflowRuntimeGraph.of(
+                    List.of(branch, node("left", WorkflowNodeType.TASK)),
+                    List.of(link("leftRoute", "branch", "left", false)));
+            graph.outgoing("branch").getFirst().setConditionExpression("true");
+            var request = new WorkflowActivationRequest(graph, List.of(WorkflowActivationTarget.of("branch")),
+                    Map.of("branch", Set.of("leftRoute")), Set.of(), 512);
+            assertThatThrownBy(() -> service.activate(request)).isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("requires MANUAL branch: branch");
+        }
+    }
+
+    @Test
+    void shouldActivateEveryMatchingAutoRouteAndExcludeDefault() {
+        WorkflowRuntimeGraph graph = WorkflowRuntimeGraph.of(
+                List.of(node("branch", WorkflowNodeType.BRANCH), node("left", WorkflowNodeType.TASK),
+                        node("right", WorkflowNodeType.TASK), node("fallback", WorkflowNodeType.TASK)),
+                List.of(link("leftRoute", "branch", "left", false),
+                        link("rightRoute", "branch", "right", false), link("fallbackRoute", "branch", "fallback", true)));
+        graph.outgoing("branch").stream().filter(route -> !route.getDefaultRoute())
+                .forEach(route -> route.setConditionExpression("true"));
+        var result = service.activate(WorkflowActivationRequest.from(graph, "branch"));
+        assertThat(result.traversedRouteKeys()).containsExactly("leftRoute", "rightRoute");
+        assertThat(result.blockingTaskNodeKeys()).containsExactly("left", "right");
+    }
+
+    @Test
+    void shouldRejectNonBooleanAutoConditionWithoutSilentlyTakingTheDefault() {
+        var graph = WorkflowRuntimeGraph.of(List.of(node("branch", WorkflowNodeType.BRANCH),
+                        node("left", WorkflowNodeType.TASK), node("fallback", WorkflowNodeType.TASK)),
+                List.of(link("leftRoute", "branch", "left", false), link("fallbackRoute", "branch", "fallback", true)));
+        for (var expression : List.of("{status}", "1", "'true'", "{missing}")) {
+            graph.link("leftRoute").setConditionExpression(expression);
+            var request = new WorkflowActivationRequest(graph, List.of(WorkflowActivationTarget.of("branch")),
+                    Map.of(), Set.of(), 512, Map.of("status", "REJECTED"));
+            assertThatThrownBy(() -> service.activate(request)).isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("必须返回布尔值");
+        }
     }
 
     @Test

@@ -12,7 +12,26 @@ import java.util.Set;
 
 @Service
 public class WorkflowRuntimeActivationService {
+    private final net.ximatai.muyun.spring.common.formula.FormulaEngine formulas;
+
+    public WorkflowRuntimeActivationService() {
+        this(java.time.Clock.systemUTC());
+    }
+
+    WorkflowRuntimeActivationService(java.time.Clock clock) {
+        this.formulas = new net.ximatai.muyun.spring.common.formula.FormulaEngine(
+                java.util.Objects.requireNonNull(clock, "clock"));
+    }
+
     public WorkflowActivationResult activate(WorkflowActivationRequest request) {
+        return activate(request, false);
+    }
+
+    WorkflowActivationResult activateUntilManualSelection(WorkflowActivationRequest request) {
+        return activate(request, true);
+    }
+
+    private WorkflowActivationResult activate(WorkflowActivationRequest request, boolean pauseForManualSelection) {
         if (request == null || request.graph() == null) {
             throw new PlatformException("workflow activation request and graph must not be null");
         }
@@ -52,6 +71,11 @@ public class WorkflowRuntimeActivationService {
                 continue;
             }
             if (node.getNodeType() == WorkflowNodeType.BRANCH) {
+                Set<String> selected = request.selectedRouteKeysByBranch().get(nodeKey);
+                if (pauseForManualSelection && node.getRouteMode() == WorkflowRouteMode.MANUAL
+                        && (selected == null || selected.isEmpty())) {
+                    continue;
+                }
                 enqueueSelectedBranchRoutes(request, nodeKey, queue, routes);
                 continue;
             }
@@ -77,9 +101,23 @@ public class WorkflowRuntimeActivationService {
                                              ArrayDeque<WorkflowActivationTarget> queue, List<String> traversedRouteKeys) {
         List<WorkflowLinkDefinition> outgoing = request.graph().outgoing(nodeKey);
         Set<String> selected = request.selectedRouteKeysByBranch().get(nodeKey);
-        List<WorkflowLinkDefinition> matched = selected == null || selected.isEmpty()
-                ? defaultRoutes(outgoing)
-                : outgoing.stream().filter(link -> selected.contains(link.getRouteKey())).toList();
+        var node = request.graph().requireNode(nodeKey);
+        List<WorkflowLinkDefinition> matched;
+        if (selected != null && !selected.isEmpty()) {
+            if (node.getRouteMode() != WorkflowRouteMode.MANUAL) {
+                throw new PlatformException("workflow manual route selection requires MANUAL branch: " + nodeKey);
+            }
+            matched = outgoing.stream().filter(link -> selected.contains(link.getRouteKey())).toList();
+        } else if (node.getRouteMode() == WorkflowRouteMode.MANUAL) {
+            throw new PlatformException("请选择手工分支: " + nodeKey);
+        } else {
+            matched = outgoing.stream().filter(link -> !Boolean.TRUE.equals(link.getDefaultRoute()))
+                    .filter(link -> link.getConditionExpression() == null || link.getConditionExpression().isBlank()
+                            || WorkflowConditionService.requireBoolean(formulas.evaluateValue(link.getConditionExpression(),
+                            net.ximatai.muyun.spring.common.formula.FormulaRuntimeData.of(request.businessFacts()))))
+                    .toList();
+            if (matched.isEmpty()) matched = outgoing.stream().filter(link -> Boolean.TRUE.equals(link.getDefaultRoute())).toList();
+        }
         if (matched.isEmpty()) {
             throw new PlatformException("workflow branch has no selected route: " + nodeKey);
         }

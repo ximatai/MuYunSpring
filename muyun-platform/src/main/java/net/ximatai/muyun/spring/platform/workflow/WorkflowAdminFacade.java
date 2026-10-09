@@ -50,6 +50,10 @@ public class WorkflowAdminFacade {
         return adminService.currentEvents(instanceId);
     }
 
+    public List<WorkflowHistoryEventView> currentEventViews(String instanceId) {
+        return adminService.currentEventViews(instanceId);
+    }
+
     public List<WorkflowTask> currentTasks(String instanceId) {
         return adminService.currentTasks(instanceId);
     }

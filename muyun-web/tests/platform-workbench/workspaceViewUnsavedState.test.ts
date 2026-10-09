@@ -48,3 +48,20 @@ it('reports in-flight mutations separately from unsaved drafts', () => {
   expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
   expect(workspaceViewBusyStateSources(pageKey)).toEqual(['记录详情']);
 });
+
+it('keeps identically named panels independent when one unmounts', () => {
+  const unregisterFirst = registerWorkspaceViewUnsavedState(pageKey, '审批办理', () => true);
+  const unregisterSecond = registerWorkspaceViewUnsavedState(
+    pageKey,
+    '审批办理',
+    () => false,
+    () => true,
+  );
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual(['审批办理']);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual(['审批办理']);
+  unregisterSecond();
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual(['审批办理']);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual([]);
+  unregisterFirst();
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+});

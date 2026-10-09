@@ -9,6 +9,11 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowRuntimeEventFactoryTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final WorkflowRuntimeEventFactory factory = new WorkflowRuntimeEventFactory();

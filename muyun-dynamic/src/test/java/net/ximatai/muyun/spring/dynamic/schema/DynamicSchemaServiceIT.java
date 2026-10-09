@@ -50,6 +50,15 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordDao;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutor;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutorRegistry;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionOperations;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -103,6 +112,186 @@ class DynamicSchemaServiceIT {
         this.operations = operations;
         this.dataSource = dataSource;
         this.transactionProbe = transactionProbe;
+    }
+
+    @Test
+    void approvalSummaryCommandMustPreserveTenantVersionBusinessValuesAndChangeEvents() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "test.approval_" + suffix;
+        EntityDefinition entity = new EntityDefinition("entry", "approval_command_" + suffix, "Approval", List.of(
+                FieldDefinition.string("title", "Title"))).withCapabilities(EntityCapability.APPROVAL);
+        schemaService.ensureTable(entity);
+        List<RuntimeEvent> events = new ArrayList<>();
+        try (DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations).eventPublisher(events::add).build();
+             var tenant = TenantContext.use("tenant-approval");
+             var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                     CurrentUser.tenantUser("approver", "Approver", "tenant-approval"))) {
+            runtime.register(new ModuleDefinition(module, "Approval", List.of(entity)));
+            DynamicRecordService records = new DynamicRecordService(runtime);
+            DynamicRecord incoming = records.newRecord(module, "entry").setValue("title", "Business");
+            incoming.setApprovalStatus("forged");
+            String id = records.create(module, "entry", incoming);
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isNull();
+            DynamicRecord stale = records.select(module, "entry", id);
+            assertThat(records.actionAvailability(module, "update", stale).available()).isTrue();
+            Instant submittedAt = Instant.parse("2026-10-07T01:02:03.123456789Z");
+            assertThat(records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    new net.ximatai.muyun.spring.ability.ApprovalState("instance", "processing", "submitter", submittedAt, null)))
+                    .isEqualTo(1);
+            DynamicRecord saved = records.select(module, "entry", id);
+            // A client draft (even a stale pre-submission draft) cannot fake the stored approval boundary.
+            assertThat(records.actionAvailability(module, "update", stale).available()).isFalse();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update", "delete"), List.of(id)))
+                    .singleElement().satisfies(availability -> {
+                        assertThat(availability.actions().get("update").available()).isFalse();
+                        assertThat(availability.actions().get("update").message()).contains("不可直接修改");
+                        assertThat(availability.actions().get("delete").available()).isTrue();
+                    });
+            assertThat(saved.getApprovalStatus()).isEqualTo("processing");
+            assertThat(saved.getApprovalInstanceId()).isEqualTo("instance");
+            assertThat(saved.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
+            assertThat(saved.getApprovalCompletedAt()).isNull();
+            assertThat(saved.getValue("title")).isEqualTo("Business");
+            assertThat(saved.getTenantId()).isEqualTo("tenant-approval");
+            assertThat(saved.getVersion()).isEqualTo(stale.getVersion() + 1);
+            assertThat(saved.getUpdatedBy()).isEqualTo("approver");
+            assertThat(events.getLast().mutationSource()).isEqualTo(net.ximatai.muyun.spring.ability.event.RuntimeMutationSource.SYSTEM);
+            assertThat(events.getLast().tenantId()).isEqualTo("tenant-approval");
+            assertThat(events.getLast().systemContext()).isTrue();
+            assertThat(TenantContext.isSystem()).isFalse();
+            assertThatThrownBy(() -> records.writeApprovalBusiness(module, "entry", stale)).isInstanceOf(OptimisticLockException.class);
+            saved.setApprovalStatus("forged");
+            assertThatThrownBy(() -> records.update(module, "entry", saved)).hasMessageContaining("不可直接修改");
+            records.writeApprovalBusiness(module, "entry", saved);
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isEqualTo("processing");
+            try (var foreign = TenantContext.use("foreign")) {
+                assertThat(records.writeApprovalState(module, "entry", id,
+                        net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                        net.ximatai.muyun.spring.ability.ApprovalState.empty())).isZero();
+            }
+            assertThat(records.select(module, "entry", id).getApprovalStatus()).isEqualTo("processing");
+            Instant completedAt = Instant.parse("2026-10-07T02:03:04.987654321Z");
+            records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    new net.ximatai.muyun.spring.ability.ApprovalState("instance", "approved", "submitter", submittedAt, completedAt));
+            var completed = records.select(module, "entry", id);
+            assertThat(records.actionAvailability(module, "update", completed).available()).isFalse();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update"), List.of(id)))
+                    .singleElement().satisfies(availability -> assertThat(availability.actions().get("update").available()).isFalse());
+            assertThatThrownBy(() -> records.update(module, "entry", completed)).hasMessageContaining("不可直接修改");
+            assertThat(completed.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-10-07T01:02:03Z"));
+            assertThat(completed.getApprovalCompletedAt()).isEqualTo(Instant.parse("2026-10-07T02:03:04Z"));
+            records.writeApprovalState(module, "entry", id,
+                    net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy(),
+                    net.ximatai.muyun.spring.ability.ApprovalState.empty());
+            assertThat(records.select(module, "entry", id).getApprovalInstanceId()).isNull();
+            assertThat(records.actionAvailability(module, "update", records.select(module, "entry", id)).available()).isTrue();
+            assertThat(records.recordActionAvailability(module, "entry", List.of("update"), List.of(id)))
+                    .singleElement().satisfies(availability -> assertThat(availability.actions().get("update").available()).isTrue());
+        }
+    }
+
+    @Test
+    void trustedServiceActionCanUpdateProcessingRecordWithoutGrantingOrdinaryEditing() {
+        checkApprovalBusinessAction("processing");
+    }
+
+    @Test
+    void trustedServiceActionCanUpdateApprovedRecordWithoutLeakingItsAuthority() {
+        checkApprovalBusinessAction("approved");
+    }
+
+    private void checkApprovalBusinessAction(String approvalStatus) {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "test.trusted_action_" + suffix;
+        var entity = new EntityDefinition("entry", "trusted_action_" + suffix, "Approval action",
+                List.of(FieldDefinition.string("title", "Title"))).withCapabilities(EntityCapability.APPROVAL);
+        schemaService.ensureTable(entity);
+        var retained = new java.util.concurrent.atomic.AtomicReference<DynamicActionOperations>();
+        var executor = new DynamicActionExecutor() {
+            @Override public String executorKey() { return "complete-business"; }
+            @Override public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
+                throw new UnsupportedOperationException("business action requires standard operations");
+            }
+            @Override public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request,
+                                            DynamicActionOperations actionOperations) {
+                retained.set(actionOperations);
+                String target = (String) request.payload().getOrDefault("target", request.recordId());
+                var record = actionOperations.select(target);
+                record.setValue("title", request.payload().getOrDefault("title", "completed"));
+                record.setApprovalStatus("forged");
+                if (request.payload().containsKey("tenant")) record.setTenantId((String) request.payload().get("tenant"));
+                if (request.payload().containsKey("version")) record.setVersion((Integer) request.payload().get("version"));
+                return actionOperations.update(record);
+            }
+        };
+        var action = new EntityActionDefinition("entry", "completeBusiness", "Complete business", true,
+                EntityActionLevel.RECORD, EntityActionCategory.CUSTOM, null, true, false, null, null, null,
+                EntityActionExecutorType.SERVICE, executor.executorKey());
+        List<RuntimeEvent> events = new ArrayList<>();
+        try (var runtime = DynamicRecordRuntime.builder(operations).eventPublisher(events::add)
+                .actionExecutorRegistry(new DynamicActionExecutorRegistry(List.of(executor))).build();
+             var tenant = TenantContext.use("trusted-tenant");
+             var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                     CurrentUser.tenantUser("operator", "Operator", "trusted-tenant"))) {
+            runtime.register(ModuleDefinition.builder(module, "Approval action").entities(List.of(entity))
+                    .actions(List.of(action)).build());
+            var records = new DynamicRecordService(runtime);
+            String id = records.create(module, "entry", records.newRecord(module, "entry").setValue("title", "initial"));
+            String otherId = records.create(module, "entry", records.newRecord(module, "entry").setValue("title", "other"));
+            var policy = net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy();
+            for (String target : List.of(id, otherId)) records.writeApprovalState(module, "entry", target, policy,
+                    new net.ximatai.muyun.spring.ability.ApprovalState("instance", approvalStatus, "submitter", Instant.now(), null));
+            var before = records.select(module, "entry", id);
+            assertThatThrownBy(() -> records.executeAction(module, action.actionCode(), DynamicActionExecutionRequest.id(id)))
+                    .hasMessageContaining("不可直接修改");
+            assertThatThrownBy(() -> records.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of("target", otherId)))
+                    .hasMessageContaining("不可直接修改");
+            assertThatThrownBy(() -> records.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of("tenant", "foreign")))
+                    .hasMessageContaining("租户不可修改");
+            assertThatThrownBy(() -> records.executeApprovalBusinessAction(module, action.actionCode(), id,
+                    Map.of("version", before.getVersion() - 1))).hasRootCauseInstanceOf(OptimisticLockException.class);
+            var denied = new DynamicRecordService(runtime, context -> { throw new PlatformException("action denied"); },
+                    new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService());
+            assertThatThrownBy(() -> denied.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of()))
+                    .hasMessageContaining("action denied");
+            try (var foreign = TenantContext.use("foreign")) {
+                assertThatThrownBy(() -> records.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of()))
+                        .hasMessageContaining("不属于当前租户");
+            }
+            var otherBefore = records.select(module, "entry", otherId);
+            var redirecting = new DynamicRecordService(runtime, new AllowAllActionExecutionPolicyService(),
+                    new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService(),
+                    new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordMutationCoordinator() {
+                        @Override public void beforeUpdate(String moduleAlias, String entityAlias,
+                                                           DynamicRecord stored, DynamicRecord incoming) {
+                            incoming.setId(otherId);
+                        }
+                    });
+            assertThatThrownBy(() -> redirecting.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of()))
+                    .hasMessageContaining("绑定的记录不可修改");
+            var otherAfter = records.select(module, "entry", otherId);
+            assertThat(otherAfter.getValue("title")).isEqualTo("other");
+            assertThat(otherAfter.getVersion()).isEqualTo(otherBefore.getVersion());
+            assertThat(otherAfter.getApprovalStatus()).isEqualTo(approvalStatus);
+            assertThat(records.select(module, "entry", id).getValue("title")).isEqualTo("initial");
+            assertThat(records.executeApprovalBusinessAction(module, action.actionCode(), id, Map.of()).value()).isEqualTo(1);
+            var updated = records.select(module, "entry", id);
+            assertThat(updated.getValue("title")).isEqualTo("completed");
+            assertThat(updated.getApprovalStatus()).isEqualTo(approvalStatus);
+            assertThat(updated.getApprovalInstanceId()).isEqualTo("instance");
+            assertThat(updated.getVersion()).isEqualTo(before.getVersion() + 1);
+            assertThat(updated.getUpdatedBy()).isEqualTo("operator");
+            assertThat(records.select(module, "entry", otherId).getValue("title")).isEqualTo("other");
+            assertThat(events).anySatisfy(event -> {
+                assertThat(event.mutationSource()).isEqualTo(net.ximatai.muyun.spring.ability.event.RuntimeMutationSource.ACTION);
+                assertThat(event.tenantId()).isEqualTo("trusted-tenant");
+            });
+            assertThatThrownBy(() -> retained.get().update(updated)).hasMessageContaining("不可直接修改");
+            assertThatThrownBy(() -> records.executeAction(module, action.actionCode(), DynamicActionExecutionRequest.id(id)))
+                    .hasMessageContaining("不可直接修改");
+        }
     }
 
     @Test

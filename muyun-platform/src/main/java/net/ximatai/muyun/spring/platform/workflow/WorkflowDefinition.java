@@ -38,6 +38,18 @@ public class WorkflowDefinition extends StandardEnabledSortableEntity {
             comment = "Definition status", defaultVal = @Default(varchar = "draft"))
     private WorkflowDefinitionStatus definitionStatus = WorkflowDefinitionStatus.DRAFT;
 
+    @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, comment = "Applicable organization and descendants")
+    private String organizationId;
+
+    @Column(name = "match_expression", type = ColumnType.TEXT, comment = "Business matching condition")
+    private String matchExpression;
+
+    @Column(name = "match_priority", type = ColumnType.INT, comment = "Higher value wins within organization scope")
+    private Integer matchPriority = 0;
+
+    @Column(name = "default_definition", type = ColumnType.BOOLEAN, comment = "Fallback within organization scope")
+    private Boolean defaultDefinition = Boolean.FALSE;
+
     @Column(name = "current_version_no", type = ColumnType.INT, comment = "Current published version number")
     private Integer currentVersionNo;
 }

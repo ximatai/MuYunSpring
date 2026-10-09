@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.platform.workflow.WorkflowNodeInstance;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowNodeType;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowManualBranchCandidatePrecheckView;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowManualBranchCandidateView;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowManualRouteSelection;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRejectResubmitMode;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRouteMode;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRouteStatus;
@@ -100,6 +101,41 @@ class WorkflowRuntimeWebControllerTest {
     void tearDown() {
         CurrentUserContext.clear();
         TenantContext.clear();
+    }
+
+    @Test
+    void submissionCannotReplaceAuthenticatedOrganizationOrOperator() throws Exception {
+        mvc.perform(post("/workflow/runtime/record/test.order/record-1/submit/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"operatorId\":\"forged-user\",\"authOrgId\":\"forged-organization\"}"))
+                .andExpect(status().isOk());
+        verify(submitReadFacade).status(argThat(request -> request.authOrgId() == null
+                && "user-1".equals(request.operatorId())));
+    }
+
+    @Test
+    void taskManualBranchPlanningUsesTheAuthenticatedOperatorAndPreservesPartialSelections() throws Exception {
+        var selections = List.of(new WorkflowManualRouteSelection("first", "choice", null));
+        when(runtimeReadFacade.manualBranchCandidates("inst-1", "task-1", selections, "user-1"))
+                .thenReturn(List.of(new WorkflowManualBranchCandidateView("next", "后续分支", WorkflowRouteMode.MANUAL,
+                        "approve", false, List.of(), true)));
+        mvc.perform(post("/workflow/runtime/instance/inst-1/manual-branches")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"taskId\":\"task-1\",\"manualRouteSelections\":[{\"branchNodeKey\":\"first\",\"routeKey\":\"choice\"}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].branchTitle").value("后续分支"))
+                .andExpect(jsonPath("$.records[0].selectionPending").value(true));
+        verify(runtimeReadFacade).manualBranchCandidates("inst-1", "task-1", selections, "user-1");
+    }
+
+    @Test
+    void submissionPlanningRetainsAlreadySelectedBranchesForTheNextFrontier() throws Exception {
+        mvc.perform(post("/workflow/runtime/record/test.order/record-1/submit/manual-branches")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"manualRouteSelections\":[{\"branchNodeKey\":\"first\",\"routeKey\":\"choice\"}]}"))
+                .andExpect(status().isOk());
+        verify(submitReadFacade).manualBranches(argThat(request -> request.manualRouteSelections().equals(
+                List.of(new WorkflowManualRouteSelection("first", "choice", null))) && "user-1".equals(request.operatorId())));
     }
 
     @Test
@@ -618,8 +654,8 @@ class WorkflowRuntimeWebControllerTest {
         mvc.perform(get("/workflow/runtime/task/task-1/module-task/prepare"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskId").value("task-1"))
-                .andExpect(jsonPath("$.workflowTaskContext.checkAndContinuePath")
-                        .value("/workflow/runtime/task/task-1/module-task/check-and-continue"));
+                .andExpect(jsonPath("$.workflowTaskContext.workflowTaskId").value("task-1"))
+                .andExpect(jsonPath("$.workflowTaskContext.completionPolicy").value("MANUAL_CONFIRM"));
 
         mvc.perform(post("/workflow/runtime/task/task-1/module-task/check-and-continue")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -689,8 +725,7 @@ class WorkflowRuntimeWebControllerTest {
         definition.setAlias("visit");
         return new WorkflowModuleTaskProcessBundle(taskId, "inst-1", "visit", "crm.contract", "record-1",
                 WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM,
-                new WorkflowModuleTaskContext(taskId, WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM,
-                        "/workflow/runtime/task/" + taskId + "/module-task/check-and-continue"),
+                new WorkflowModuleTaskContext(taskId, WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM),
                 definition,
                 WorkflowModuleTaskEvaluation.manualConfirm(List.of()),
                 null);

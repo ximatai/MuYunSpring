@@ -314,6 +314,8 @@ class MuYunSpringApplicationContextIT {
 
     @Test
     void shouldLoadApplicationContextWithRealDatabase() {
+        assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
+                .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);
         assertThat(applicationContext.containsBean("educationApplication")).isFalse();
         assertThat(applicationContext.containsBean("studentService")).isFalse();
         assertThat(applicationContext.containsBean("studentDao")).isFalse();

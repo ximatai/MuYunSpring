@@ -345,3 +345,12 @@ export { referenceDisplayProjections } from './recordFormFieldModel';
 export { referencePickerDisplayTitle } from './referencePickerModel';
 
 export { queryNumericValueSchema } from './queryNumericValue';
+export { default as WorkflowRecordPanel } from './WorkflowRecordPanel.vue';
+export { default as WorkflowDiagram } from './WorkflowDiagram.vue';
+export { workflowTitle } from './workflowPresentation';
+
+export { default as WorkflowParticipantEditor } from './WorkflowParticipantEditor.vue';
+
+export { default as WorkflowBusinessTaskEditor } from './WorkflowBusinessTaskEditor.vue';
+
+export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.vue';

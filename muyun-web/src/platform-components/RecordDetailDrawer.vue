@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, watch } from 'vue';
-import { Drawer as ADrawer } from 'ant-design-vue';
 import {
-  resolveUiDrawerWidth,
   UiActionButton,
   UiSidePanel,
-  allowsUiDrawerOutsideDismissal,
   mayCloseUiDrawer,
   type UiDrawerCloseGuard,
   type UiDrawerDismissal,
@@ -66,24 +63,11 @@ const emit = defineEmits<{
 
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const hasDrawerContainer = computed(() => props.scope === 'viewport' || Boolean(sidePanelHost?.value));
-const inlineWidth = computed(() => {
-  const resolvedWidth = resolveUiDrawerWidth(props.width);
-  const requestedWidth = typeof resolvedWidth === 'number' ? `${resolvedWidth}px` : resolvedWidth;
-  // Inline drawers share the workspace's containing block. Reserve a visible
-  // edge so a wide business surface never starts outside that block.
-  return `min(${requestedWidth}, calc(100% - 32px))`;
-});
 const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
   dismissal: props.dismissal,
   closeOnOutside: props.closeOnOutside,
   beforeClose: props.beforeClose,
 }));
-const outsideDismissalAllowed = computed(() => allowsUiDrawerOutsideDismissal(dismissalOptions.value));
-
-function handleAfterVisibleChange(visible: boolean) {
-  if (!visible) emit('afterClose');
-}
-
 async function requestClose(reason: 'close-button' | 'outside') {
   if (await mayCloseUiDrawer(dismissalOptions.value, reason)) {
     emit('close');
@@ -103,7 +87,8 @@ watch(
 
 <template>
   <UiSidePanel
-    v-if="renderMode === 'portal' && hasDrawerContainer"
+    v-if="renderMode === 'inline' || hasDrawerContainer"
+    :render-mode="renderMode"
     :open="open"
     :width="width"
     :scope="scope"
@@ -148,52 +133,4 @@ watch(
       </template>
     </RecordDetailLayout>
   </UiSidePanel>
-  <!-- The host already renders this drawer inside its scoped workspace. Keeping
-       the drawer inline avoids moving Vue's slot anchors into a Teleport target. -->
-  <ADrawer
-    v-else-if="renderMode === 'inline'"
-    :open="open"
-    placement="right"
-    :width="inlineWidth"
-    :get-container="false"
-    :mask="outsideDismissalAllowed"
-    :mask-closable="outsideDismissalAllowed"
-    :mask-style="{ background: 'transparent' }"
-    :keyboard="outsideDismissalAllowed"
-    :closable="false"
-    :header-style="{ display: 'none' }"
-    :body-style="{ height: '100%', padding: 0 }"
-    :root-style="{ position: 'absolute', inset: 0, zIndex: 6 }"
-    @close="requestClose('outside')"
-    @after-open-change="handleAfterVisibleChange"
-  >
-    <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
-      <template v-if="$slots['title-prefix']" #title-prefix><slot name="title-prefix" /></template>
-      <template #status><slot name="status" /></template>
-      <template #title-actions>
-        <slot name="title-actions" />
-        <UiActionButton
-          v-if="promotion"
-          emphasis="quiet"
-          icon-name="export"
-          :title="promotion.title ?? '固定为页签'"
-          @click="promotion.promote()"
-        />
-      </template>
-      <template #actions>
-        <slot name="header-actions" />
-        <UiActionButton
-          emphasis="quiet"
-          icon-name="close"
-          :title="closeTitle"
-          @click="requestClose('close-button')"
-        />
-      </template>
-      <slot />
-      <template v-if="$slots['operation-summary']" #operation-summary>
-        <slot name="operation-summary" />
-      </template>
-      <template v-if="$slots.operation" #operation><slot name="operation" /></template>
-    </RecordDetailLayout>
-  </ADrawer>
 </template>

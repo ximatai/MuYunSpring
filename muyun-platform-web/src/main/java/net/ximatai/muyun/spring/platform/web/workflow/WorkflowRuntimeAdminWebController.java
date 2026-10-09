@@ -38,13 +38,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import net.ximatai.muyun.spring.web.BusinessMutation;
 
 @RestController
 @RequestMapping("/workflow/runtime/admin")
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
         alias = WorkflowActionPolicyService.MANAGEMENT_MODULE_ALIAS,
-        title = "Workflow Admin")
+        title = "Workflow Admin", route = "/workflow/admin")
 @PlatformMenu(parent = PlatformMenuGroups.OPS, title = "工作流运维", order = 20)
 public class WorkflowRuntimeAdminWebController {
     private final WorkflowAdminFacade adminFacade;
@@ -95,6 +96,13 @@ public class WorkflowRuntimeAdminWebController {
         return new WebListResponse<>(adminFacade.currentEvents(instanceId));
     }
 
+    @PostMapping("/instance/{instanceId}/events/view")
+    @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION,
+            title = "Workflow Admin Query", level = PlatformActionLevel.LIST)
+    public WebListResponse<WorkflowHistoryEventView> currentEventViews(@PathVariable String instanceId) {
+        return new WebListResponse<>(adminFacade.currentEventViews(instanceId));
+    }
+
     @PostMapping("/instance/{instanceId}/tasks")
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION,
             title = "Workflow Admin Query", level = PlatformActionLevel.LIST)
@@ -104,6 +112,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/instance/{instanceId}/actions/forceTerminate")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_FORCE_TERMINATE_ACTION,
             title = "Force Terminate", level = PlatformActionLevel.LIST)
     public WorkflowInstanceActionResult forceTerminate(
@@ -116,6 +125,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/instance/{instanceId}/actions/reset")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_RESET_ACTION,
             title = "Reset Workflow", level = PlatformActionLevel.LIST)
     public WorkflowInstanceActionResult reset(
@@ -128,6 +138,7 @@ public class WorkflowRuntimeAdminWebController {
     }
 
     @PostMapping("/task/{taskId}/actions/forceApprove")
+    @BusinessMutation(actionContextRequired = false)
     @CustomActionEndpoint(value = WorkflowActionPolicyService.MANAGEMENT_FORCE_APPROVE_ACTION,
             title = "Force Handle", level = PlatformActionLevel.LIST)
     public WorkflowTaskActionResult forceApprove(

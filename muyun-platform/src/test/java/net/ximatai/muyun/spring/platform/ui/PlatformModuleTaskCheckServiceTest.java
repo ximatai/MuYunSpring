@@ -42,8 +42,9 @@ class PlatformModuleTaskCheckServiceTest {
                 eq("contracts"), any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(PageResult.of(List.of(mock(DynamicRecord.class)), 1, new PageRequest(1, 1)));
 
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService);
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.empty()),
+                new PlatformModuleTaskDefinitionRegistry());
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -81,8 +82,9 @@ class PlatformModuleTaskCheckServiceTest {
         when(recordService.mainEntityAlias("crm.customer")).thenReturn("customer");
         when(recordService.count("crm.customer", "customer", compiled)).thenReturn(0L);
 
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService);
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.empty()),
+                new PlatformModuleTaskDefinitionRegistry());
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -136,8 +138,9 @@ class PlatformModuleTaskCheckServiceTest {
                 eq("crm.contract"), eq("rule-1"), any(PageRequest.class)))
                 .thenReturn(List.of(relation));
         when(recordService.count(eq("crm.contract"), eq("contract"), any(Criteria.class))).thenReturn(1L);
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService, Optional.of(impactRelationService));
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.of(impactRelationService)),
+                new PlatformModuleTaskDefinitionRegistry());
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -187,8 +190,9 @@ class PlatformModuleTaskCheckServiceTest {
         when(recordService.count(eq("crm.contract"), eq("contract"), any(Criteria.class)))
                 .thenReturn(0L)
                 .thenReturn(2L);
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService, Optional.of(impactRelationService));
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.of(impactRelationService)),
+                new PlatformModuleTaskDefinitionRegistry());
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -216,8 +220,9 @@ class PlatformModuleTaskCheckServiceTest {
                         "/crm.customer/view/{id}", "crm.customer", "detail", "name", "补充资料")),
                 List.of(new PlatformModuleTaskCheckDefinition("profile-ready", PlatformTaskCheckType.QUERY_TEMPLATE,
                         null, "q-ready", "recordId", null, null, 1, "/crm.customer/query"))));
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService, Optional.empty(), registry);
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.empty()),
+                registry);
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -260,8 +265,9 @@ class PlatformModuleTaskCheckServiceTest {
                 null, false, false, true, 1, null, List.of(),
                 List.of(new PlatformModuleTaskCheckDefinition("ready", PlatformTaskCheckType.QUERY_TEMPLATE,
                         null, "q-ready", "recordId", null, null, 1, null))));
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, queryItemService, recordService, Optional.empty(), registry);
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(queryItemService, recordService, Optional.empty()),
+                registry);
 
         PlatformModuleTaskCheckResult result = service.check("crm.customer", "customer-1", "ui-detail");
 
@@ -277,8 +283,9 @@ class PlatformModuleTaskCheckServiceTest {
     void shouldRejectUnknownUiConfig() {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         when(snapshotService.snapshot("crm.customer")).thenReturn(snapshot("{}", List.of()));
-        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(
-                snapshotService, mock(PlatformQueryItemService.class), mock(DynamicRecordService.class));
+        PlatformModuleTaskCheckService service = new PlatformModuleTaskCheckService(snapshotService,
+                completionChecks(mock(PlatformQueryItemService.class), mock(DynamicRecordService.class), Optional.empty()),
+                new PlatformModuleTaskDefinitionRegistry());
 
         assertThatThrownBy(() -> service.check("crm.customer", "customer-1", "missing"))
                 .isInstanceOf(PlatformException.class)
@@ -379,6 +386,68 @@ class PlatformModuleTaskCheckServiceTest {
                 )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate taskCode");
+    }
+
+    @Test
+    void pageAndWorkflowShareTenantScopedStaticCountWithoutDynamicRecordFallback() {
+        var snapshots = mock(PlatformPageConfigSnapshotService.class);
+        var queries = mock(PlatformQueryItemService.class);
+        var records = mock(DynamicRecordService.class);
+        var templates = mock(PlatformQueryTemplateService.class);
+        var dao = new net.ximatai.muyun.spring.platform.support.TestMemoryDao<PlatformQueryTemplate>();
+        var own = queryTemplate("own-contract", "crm.contract"); own.setTenantId("tenant-a"); dao.insert(own);
+        var foreign = queryTemplate("foreign-contract", "crm.contract"); foreign.setTenantId("tenant-b"); dao.insert(foreign);
+        var ability = new net.ximatai.muyun.spring.ability.AbstractAbilityService<PlatformQueryTemplate>(
+                "crm.contract", PlatformQueryTemplate.class, dao) {};
+        org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.ability.CrudAbility<?>> abilities = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(abilities.orderedStream()).thenAnswer(invocation -> java.util.stream.Stream.of(ability));
+        var relations = mock(RecordImpactRelationService.class);
+        when(relations.listGeneratedTargets(eq("crm.customer"), eq("customer-1"), eq("crm.contract"), eq(null), any(PageRequest.class)))
+                .thenReturn(List.of(relation("own-contract"), relation("own-contract"), relation("foreign-contract")));
+        var checker = new net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService(records, queries, templates,
+                Optional.of(relations), abilities, (module, record) -> Map.of("id", record));
+        var published = queryTemplate("q-contracts", "crm.contract");
+        when(templates.select("q-contracts")).thenReturn(published);
+        when(queries.compile(eq("q-contracts"), any(Map.class))).thenAnswer(invocation -> Criteria.of());
+        when(snapshots.snapshot("crm.customer")).thenReturn(snapshot("""
+                {"blocks":[{"type":"taskPanel","key":"ready","checkType":"QUERY_TEMPLATE","queryTemplateId":"q-contracts"}]}
+                """, List.of(published)));
+        var page = new PlatformModuleTaskCheckService(snapshots, checker, new PlatformModuleTaskDefinitionRegistry());
+        try (var ignored = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant-a")) {
+            var pageResult = page.check("crm.customer", "customer-1", "ui-detail");
+            var workflowResult = checker.check("crm.customer", "customer-1", new PlatformTaskCheckBlock(
+                    PlatformTaskCheckType.QUERY_TEMPLATE, null, "q-contracts", null, null, null, 1, null));
+            assertThat(pageResult.tasks().getFirst().checks().getFirst().actualCount()).isEqualTo(1L);
+            assertThat(workflowResult.actualCount()).isEqualTo(1L);
+            var generated = checker.check("crm.customer", "customer-1", new PlatformTaskCheckBlock(
+                    PlatformTaskCheckType.GENERATED_RELATION, null, null, null, "crm.contract", null, 2, null));
+            assertThat(generated.actualCount()).isEqualTo(1L);
+            assertThat(generated.passed()).isFalse();
+        }
+        org.mockito.Mockito.verifyNoInteractions(records);
+        org.mockito.Mockito.verify(templates).select("q-contracts");
+    }
+
+    @Test
+    void pageQueryTemplateCannotUseLiveTemplateOutsideItsPublishedSnapshot() {
+        var snapshots = mock(PlatformPageConfigSnapshotService.class);
+        var checker = mock(net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService.class);
+        when(snapshots.snapshot("crm.customer")).thenReturn(snapshot("""
+                {"blocks":[{"type":"taskPanel","key":"ready","checkType":"QUERY_TEMPLATE","queryTemplateId":"unpublished"}]}
+                """, List.of()));
+        var page = new PlatformModuleTaskCheckService(snapshots, checker, new PlatformModuleTaskDefinitionRegistry());
+        assertThatThrownBy(() -> page.check("crm.customer", "customer-1", "ui-detail"))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("not published in module snapshot");
+        org.mockito.Mockito.verifyNoInteractions(checker);
+    }
+
+    private net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService completionChecks(
+            PlatformQueryItemService queries, DynamicRecordService records, Optional<RecordImpactRelationService> relations) {
+        org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.ability.CrudAbility<?>> abilities = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(abilities.orderedStream()).thenAnswer(invocation -> java.util.stream.Stream.empty());
+        return new net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService(records, queries,
+                mock(PlatformQueryTemplateService.class), relations, abilities,
+                (module, record) -> Map.of("id", record));
     }
 
     private PlatformPageConfigSnapshot snapshot(String layoutJson, List<PlatformQueryTemplate> templates) {

@@ -20,6 +20,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowAdminServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowNodeInstanceDao nodeInstanceDao = mock(WorkflowNodeInstanceDao.class);
@@ -265,9 +270,10 @@ class WorkflowAdminServiceTest {
         verify(taskActionService).forceApprove(taskRequest);
     }
 
-    @Test
-    void shouldReadCurrentInstanceDetailsThroughManagementQueryPolicy() {
-        WorkflowInstance instance = instance(WorkflowInstanceStatus.RUNNING);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(WorkflowInstanceStatus.class)
+    void shouldReadCurrentInstanceDetailsThroughManagementQueryPolicy(WorkflowInstanceStatus status) {
+        WorkflowInstance instance = instance(status);
         WorkflowNodeInstance node = node("node-active", WorkflowNodeStatus.ACTIVE, WorkflowNodeType.APPROVAL);
         WorkflowRouteInstance route = new WorkflowRouteInstance();
         route.setId("route-1");
@@ -295,10 +301,10 @@ class WorkflowAdminServiceTest {
     }
 
     @Test
-    void shouldRejectCurrentDetailsForNonRunningInstance() {
+    void shouldKeepActiveHandlingRestrictedToRunningInstances() {
         when(instanceDao.findById("instance-1")).thenReturn(instance(WorkflowInstanceStatus.COMPLETED));
 
-        assertThatThrownBy(() -> service.renderCurrentBundle("instance-1"))
+        assertThatThrownBy(() -> service.currentTodoTaskViews("instance-1"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("not running");
 

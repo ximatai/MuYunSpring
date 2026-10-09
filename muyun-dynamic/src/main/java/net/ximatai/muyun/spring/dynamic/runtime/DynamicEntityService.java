@@ -69,7 +69,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class DynamicEntityService implements
-        CrudAbility<DynamicRecord>,
+        net.ximatai.muyun.spring.ability.ApprovalAbility<DynamicRecord>,
         FieldWriteRulesProvider<DynamicRecord>,
         RecycleBinAbility<DynamicRecord>,
         ChildAbility<DynamicRecord>,
@@ -175,6 +175,18 @@ public class DynamicEntityService implements
                 dao.getEntity(), module);
     }
 
+    @Override
+    public boolean supportsApproval() {
+        return dao.getEntity().supports(EntityCapability.APPROVAL);
+    }
+
+    @Override
+    public DynamicRecord copyForApprovalMutation(DynamicRecord record) {
+        DynamicRecord draft = record.copy();
+        record.getChildren().keySet().forEach(key -> draft.setChildren(key, null));
+        return draft;
+    }
+
     private static Function<String, DynamicEntityService> unsupportedRelationResolver() {
         return entityAlias -> {
             throw new IllegalStateException("dynamic relation service resolver is not configured");
@@ -235,12 +247,16 @@ public class DynamicEntityService implements
         if (!action.enabled()) {
             return DynamicActionAvailability.unavailable(action.actionCode(), disabledActionMessage(action));
         }
+        DynamicRecord existing = record != null && record.getId() != null && !record.getId().isBlank()
+                && (action.hasAvailabilityCondition() || supportsApproval()
+                    && net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.matches(action.actionCode()))
+                ? activeRaw(record.getId()) : null;
+        var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), existing);
+        if (approval.isPresent() && !approval.get().available())
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }
-        DynamicRecord existing = record != null && record.getId() != null && !record.getId().isBlank()
-                ? activeRaw(record.getId())
-                : null;
         return new DynamicActionAvailabilityRuntime(dao.getEntity(), module).evaluate(action, record, existing);
     }
 
@@ -253,6 +269,9 @@ public class DynamicEntityService implements
         if (!action.enabled()) {
             return DynamicActionAvailability.unavailable(action.actionCode(), disabledActionMessage(action));
         }
+        var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), record);
+        if (approval.isPresent() && !approval.get().available())
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }

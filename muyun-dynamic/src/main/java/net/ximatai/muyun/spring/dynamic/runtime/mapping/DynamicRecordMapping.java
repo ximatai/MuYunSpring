@@ -1,8 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime.mapping;
 
 import net.ximatai.muyun.database.core.orm.RuntimeColumnMapper;
-import net.ximatai.muyun.spring.common.platform.EntityCapability;
-import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -30,14 +28,7 @@ public final class DynamicRecordMapping implements RuntimeColumnMapper {
         put(StandardEntitySchema.CREATED_AT_FIELD, StandardEntitySchema.CREATED_AT_COLUMN);
         put(StandardEntitySchema.UPDATED_BY_FIELD, StandardEntitySchema.UPDATED_BY_COLUMN);
         put(StandardEntitySchema.UPDATED_AT_FIELD, StandardEntitySchema.UPDATED_AT_COLUMN);
-        if (entity.supports(EntityCapability.DATA_SCOPE)) {
-            PlatformDataScopeSchema.fieldToColumn().forEach(this::put);
-        }
-        if (entity.supports(EntityCapability.APPROVAL)) {
-            DynamicAbilityFields.approvalFields()
-                    .forEach(field -> put(field.code(), field.columnName()));
-        }
-        for (FieldDefinition field : entity.fields()) {
+        for (FieldDefinition field : DynamicAbilityFields.recordFields(entity)) {
             if (field.isPhysical()) {
                 put(field.code(), field.columnName());
             }

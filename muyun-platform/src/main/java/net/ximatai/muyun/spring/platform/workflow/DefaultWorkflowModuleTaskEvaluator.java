@@ -1,53 +1,50 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.database.core.orm.Sort;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService;
+import net.ximatai.muyun.spring.platform.ui.PlatformTaskCheckBlock;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
+import java.time.Instant;
+import java.util.ArrayList;
 
 @Service
 public class DefaultWorkflowModuleTaskEvaluator implements WorkflowModuleTaskEvaluator {
-    private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
+    private final WorkflowBusinessTaskResolver specifications;
+    private final ModuleCompletionCheckService checks;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    private final WorkflowTaskCheckResultDao checkResultDao;
-    private final WorkflowTaskGuideDao guideDao;
-
-    public DefaultWorkflowModuleTaskEvaluator(WorkflowTaskCheckResultDao checkResultDao,
-                                              WorkflowTaskGuideDao guideDao) {
-        this.checkResultDao = checkResultDao;
-        this.guideDao = guideDao;
+    public DefaultWorkflowModuleTaskEvaluator(WorkflowBusinessTaskResolver specifications, ModuleCompletionCheckService checks) {
+        this.specifications = specifications; this.checks = checks;
     }
 
-    @Override
-    public WorkflowModuleTaskEvaluation evaluate(WorkflowInstance instance,
-                                                 WorkflowNodeInstance node,
-                                                 WorkflowTask task,
-                                                 WorkflowTaskDefinition taskDefinition) {
-        List<WorkflowTaskGuide> guides = guideDao.query(Criteria.of()
-                        .eq("taskDefinitionId", taskDefinition.getId())
-                        .eq("enabled", true),
-                ALL, Sort.asc("sortOrder"), Sort.asc("createdAt"));
-        if (task.getCheckStatus() == WorkflowTaskCheckStatus.NO_CHECK
-                || Boolean.TRUE.equals(taskDefinition.getManualConfirm())) {
-            return WorkflowModuleTaskEvaluation.manualConfirm(guides);
+    @Override public WorkflowModuleTaskEvaluation evaluate(WorkflowInstance instance, WorkflowNodeInstance node,
+            WorkflowTask task, WorkflowTaskDefinition ignoredDefinition) {
+        var specification = specifications.resolve(node);
+        var results = new ArrayList<WorkflowTaskCheckResult>();
+        for (var check : specification.checks()) {
+            var result = new WorkflowTaskCheckResult();
+            result.setTaskId(task.getId()); result.setTenantId(task.getTenantId());
+            result.setCheckKey(check.getCheckKey()); result.setCheckKind(check.getCheckKind());
+            result.setCheckRunId(net.ximatai.muyun.spring.common.id.Ids.newId()); result.setCheckedAt(Instant.now());
+            boolean passed;
+            if (check.getCheckKind() == WorkflowTaskCheckKind.MANUAL_CONFIRM) continue;
+            if (check.getCheckKind() == WorkflowTaskCheckKind.FORMULA) {
+                passed = checks.formula(instance.getModuleAlias(), instance.getRecordId(), check.getExpression());
+            } else {
+                try {
+                    var block = mapper.readValue(check.getCheckConfigText(), PlatformTaskCheckBlock.class);
+                    var detail = checks.check(instance.getModuleAlias(), instance.getRecordId(), block);
+                    passed = Boolean.TRUE.equals(detail.passed()); result.setResultPayloadText(mapper.writeValueAsString(detail));
+                } catch (Exception failure) { throw new PlatformException("业务完成项检查失败: " + check.getCheckKey(), failure); }
+            }
+            result.setPassed(passed); result.setCheckStatus(passed ? WorkflowTaskCheckStatus.PASSED : WorkflowTaskCheckStatus.FAILED);
+            result.setFailureMessage(passed ? null : check.getFailureMessage()); results.add(result);
         }
-        List<WorkflowTaskCheckResult> results = checkResultDao.query(Criteria.of().eq("taskId", task.getId()),
-                ALL, Sort.asc("createdAt"));
-        if (results.isEmpty()) {
-            return WorkflowModuleTaskEvaluation.failed("workflow module task check result is empty", results, guides);
-        }
-        boolean allPassed = results.stream().allMatch(result -> Boolean.TRUE.equals(result.getPassed())
-                || result.getCheckStatus() == WorkflowTaskCheckStatus.PASSED);
-        if (allPassed) {
-            return WorkflowModuleTaskEvaluation.passed(results, guides);
-        }
-        String message = results.stream()
-                .map(WorkflowTaskCheckResult::getFailureMessage)
-                .filter(value -> value != null && !value.isBlank())
-                .findFirst()
-                .orElse("workflow module task check failed");
-        return WorkflowModuleTaskEvaluation.failed(message, results, guides);
+        var failed = results.stream().filter(result -> !Boolean.TRUE.equals(result.getPassed())).findFirst();
+        if (failed.isPresent()) return WorkflowModuleTaskEvaluation.failed(failed.get().getFailureMessage(), results, specification.guides());
+        if (Boolean.TRUE.equals(specification.definition().getManualConfirm()) || results.isEmpty())
+            return new WorkflowModuleTaskEvaluation(WorkflowTaskCheckStatus.NO_CHECK, true, null, results, specification.guides());
+        return WorkflowModuleTaskEvaluation.passed(results, specification.guides());
     }
 }

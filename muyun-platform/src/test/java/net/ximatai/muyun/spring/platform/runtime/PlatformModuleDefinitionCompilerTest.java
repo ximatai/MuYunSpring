@@ -81,6 +81,7 @@ import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -857,6 +858,26 @@ class PlatformModuleDefinitionCompilerTest {
                     assertThat(action.executorType()).isEqualTo(EntityActionExecutorType.SERVICE);
                     assertThat(action.executorKey()).isEqualTo(DynamicWorkflowActionExecutor.EXECUTOR_KEY);
                 });
+    }
+
+    @Test
+    void declaredApprovalPublishesCanonicalFieldsAndAnExplicitEmptyDeclarationDoesNotInferItFromFields() {
+        moduleService.insert(module("sales.contract", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("sales", "contract"));
+        relationService.insert(mainRelation("sales.contract", metadataId));
+        var governed = metadataService.select(metadataId); governed.setCapabilityDeclarations(Set.of("APPROVAL"));
+        metadataDao.updateById(governed);
+        var definition = compiler.compile("sales.contract");
+        assertThat(definition.entities().getFirst().capabilities()).contains(EntityCapability.APPROVAL, EntityCapability.WORKFLOW);
+        assertThat(definition.entities().getFirst().fields())
+                .containsAll(net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields());
+        assertThat(definition.actions()).extracting(action -> action.actionCode()).containsExactly("submitApproval");
+        fieldService.insert(field(metadataId, PlatformAbilityFields.APPROVAL_STATUS_FIELD,
+                PlatformAbilityFields.APPROVAL_STATUS_COLUMN, FieldType.STRING));
+        governed.setCapabilityDeclarations(Set.of()); metadataDao.updateById(governed);
+        definition = compiler.compile("sales.contract");
+        assertThat(definition.entities().getFirst().capabilities()).doesNotContain(EntityCapability.APPROVAL, EntityCapability.WORKFLOW);
+        assertThat(definition.actions()).isEmpty();
     }
 
     @Test

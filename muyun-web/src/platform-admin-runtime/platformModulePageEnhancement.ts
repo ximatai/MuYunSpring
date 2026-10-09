@@ -1,6 +1,7 @@
 import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
 import type { QueryListRecord } from '@muyun/platform-components';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
+import { workflowConfigurationWorkspaceView } from '../views/workflowConfigurationWorkspaceView';
 import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
 import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
@@ -8,6 +9,7 @@ import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspac
 // Workspace definitions use the platform-workbench's serializable input
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
 // contract, so adapt them once at this composition edge.
+const workflowWorkspaceView = workflowConfigurationWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as ModulePageWorkspaceView;
 
@@ -23,10 +25,20 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   target: { moduleAlias: 'platform.module' },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
-  workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView],
+  workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView, workflowWorkspaceView],
   detail: {
     sections: [{ key: 'module-menu-entries', title: '菜单入口', component: ModuleMenuEntriesSection }],
     actions: [
+      {
+        key: 'module-workflow-workspace',
+        title: '审批流程',
+        state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
+        run({ record, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (moduleAlias)
+            openWorkspaceTab(workflowWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
+        },
+      },
       {
         key: 'module-add-to-menu',
         title: '添加到菜单',

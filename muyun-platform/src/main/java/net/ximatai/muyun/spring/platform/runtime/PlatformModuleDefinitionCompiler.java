@@ -318,27 +318,13 @@ public class PlatformModuleDefinitionCompiler {
             if (field.isTitle()) {
                 capabilities.add(EntityCapability.REFERENCE);
             }
-            if (isApprovalField(field)) {
-                capabilities.add(EntityCapability.APPROVAL);
-            }
         }
         capabilities.addAll(capabilityResolution.capabilities());
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE);
         return capabilities;
     }
 
-    private boolean isApprovalField(FieldDefinition field) {
-        return PlatformAbilityFields.APPROVAL_INSTANCE_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_STATUS_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_BY_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_AT_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_COMPLETED_AT_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_INSTANCE_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_STATUS_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_BY_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_AT_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_COMPLETED_AT_COLUMN.equals(field.columnName());
-    }
+
 
     private EntityRelationDefinition childRelation(ModuleMetadataRelation relation, Map<String, Metadata> metadataById) {
         Metadata parent = metadataById.get(relation.getParentMetadataId());

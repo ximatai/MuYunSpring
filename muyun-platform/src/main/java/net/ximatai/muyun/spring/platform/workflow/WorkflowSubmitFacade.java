@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,22 +13,19 @@ import java.util.Optional;
 
 @Service
 public class WorkflowSubmitFacade {
+    private final ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
     private final WorkflowDefinitionSelector selector;
     private final WorkflowRuntimeSubmitService runtimeSubmitService;
     private final Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter;
     private final List<WorkflowModuleRecordGuard> recordGuards;
 
-    public WorkflowSubmitFacade(WorkflowDefinitionSelector selector,
-                                WorkflowRuntimeSubmitService runtimeSubmitService,
-                                Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(selector, runtimeSubmitService, approvalSummaryWriter, List.of());
-    }
-
     @Autowired
     public WorkflowSubmitFacade(WorkflowDefinitionSelector selector,
                                 WorkflowRuntimeSubmitService runtimeSubmitService,
                                 Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                List<WorkflowModuleRecordGuard> recordGuards) {
+                                List<WorkflowModuleRecordGuard> recordGuards,
+                                ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals) {
+        this.automaticApprovals = java.util.Objects.requireNonNull(automaticApprovals, "automaticApprovals");
         this.selector = selector;
         this.runtimeSubmitService = runtimeSubmitService;
         this.approvalSummaryWriter = approvalSummaryWriter == null ? Optional.empty() : approvalSummaryWriter;
@@ -37,10 +35,13 @@ public class WorkflowSubmitFacade {
     @Transactional
     public WorkflowSubmitResult submit(WorkflowSubmitRequest request) {
         WorkflowSubmitRequest normalized = normalize(request);
+        WorkflowMutationLock.record(normalized.moduleAlias(), normalized.recordId());
         recordGuards.forEach(guard -> guard.beforeSubmit(normalized));
         WorkflowDefinitionSelection selection = selector.select(normalized);
         WorkflowSubmitDraft draft = submitDraft(normalized, selection);
         boolean written = writeApprovalSummaryIfNeeded(normalized, draft);
+        automaticApprovals.getObject().continueFor(draft.instance().getId(), normalized.operatorId(), normalized.operatedAt());
+        WorkflowMutationFacts.recordChanged(draft.instance());
         return new WorkflowSubmitResult(draft, written);
     }
 
@@ -79,7 +80,9 @@ public class WorkflowSubmitFacade {
         }
         WorkflowApprovalSummaryWriter writer = approvalSummaryWriter
                 .orElseThrow(() -> new PlatformException("workflow approval summary writer is not configured"));
-        writer.writeSubmitted(new WorkflowApprovalSummary(
+        WorkflowApprovalMutationScope.run(request.moduleAlias(), request.recordId(), "submitApproval",
+                () -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                draft.instance().getTenantId(),
                 request.moduleAlias(),
                 request.recordId(),
                 draft.instance().getId(),
@@ -87,7 +90,7 @@ public class WorkflowSubmitFacade {
                 request.operatorId(),
                 draft.instance().getStartedAt(),
                 draft.instance().getApprovalCompletedAt()
-        ));
+        )));
         return true;
     }
 
@@ -104,7 +107,8 @@ public class WorkflowSubmitFacade {
                     .orElse("system");
         }
         Instant operatedAt = request.operatedAt() == null ? Instant.now() : request.operatedAt();
-        String authOrgId = request.authOrgId();
+        String authOrgId = request.authOrgId() == null ? CurrentUserContext.currentUser()
+                .map(user -> user.organizationId()).orElse(null) : request.authOrgId();
         if (authOrgId != null && authOrgId.isBlank()) {
             authOrgId = null;
         }

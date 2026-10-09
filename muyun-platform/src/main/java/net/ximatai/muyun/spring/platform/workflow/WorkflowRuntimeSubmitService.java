@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,17 +21,8 @@ public class WorkflowRuntimeSubmitService {
     private final WorkflowTaskDao taskDao;
     private final WorkflowEventDao eventDao;
     private final WorkflowRuntimePluginDispatcher pluginDispatcher;
-
-    public WorkflowRuntimeSubmitService(WorkflowSubmitDraftService submitDraftService,
-                                        WorkflowInstanceService instanceService,
-                                        WorkflowInstanceDao instanceDao,
-                                        WorkflowNodeInstanceDao nodeInstanceDao,
-                                        WorkflowRouteInstanceDao routeInstanceDao,
-                                        WorkflowTaskDao taskDao,
-                                        WorkflowEventDao eventDao) {
-        this(submitDraftService, instanceService, instanceDao, nodeInstanceDao, routeInstanceDao, taskDao, eventDao,
-                null);
-    }
+    private final ObjectProvider<WorkflowArchiveService> archives;
+    private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
 
     @Autowired
     public WorkflowRuntimeSubmitService(WorkflowSubmitDraftService submitDraftService,
@@ -40,7 +32,9 @@ public class WorkflowRuntimeSubmitService {
                                         WorkflowRouteInstanceDao routeInstanceDao,
                                         WorkflowTaskDao taskDao,
                                         WorkflowEventDao eventDao,
-                                        WorkflowRuntimePluginDispatcher pluginDispatcher) {
+                                        WorkflowRuntimePluginDispatcher pluginDispatcher,
+                                        ObjectProvider<WorkflowArchiveService> archives) {
+        this.archives = java.util.Objects.requireNonNull(archives, "archives");
         this.submitDraftService = submitDraftService;
         this.instanceService = instanceService;
         this.instanceDao = instanceDao;
@@ -48,7 +42,7 @@ public class WorkflowRuntimeSubmitService {
         this.routeInstanceDao = routeInstanceDao;
         this.taskDao = taskDao;
         this.eventDao = eventDao;
-        this.pluginDispatcher = pluginDispatcher == null ? new WorkflowRuntimePluginDispatcher(List.of()) : pluginDispatcher;
+        this.pluginDispatcher = java.util.Objects.requireNonNull(pluginDispatcher, "pluginDispatcher");
     }
 
     @Transactional
@@ -178,6 +172,7 @@ public class WorkflowRuntimeSubmitService {
     @Transactional
     public void persist(WorkflowSubmitDraft draft, Instant operatedAt) {
         Instant now = operatedAt == null ? Instant.now() : operatedAt;
+        prepareRestart(draft.instance(), now);
         prepareInsert(draft.instance(), now);
         instanceService.beforeInsert(draft.instance());
         instanceDao.insert(draft.instance());
@@ -197,6 +192,51 @@ public class WorkflowRuntimeSubmitService {
             prepareInsert(event, now);
             eventDao.insert(event);
         });
+    }
+
+    /** A restart closes the rejected round in the same transaction as the replacement submission. */
+    private void prepareRestart(WorkflowInstance replacement, Instant now) {
+        if (!Boolean.TRUE.equals(replacement.getApprovalEnabled())) return;
+        WorkflowMutationLock.record(replacement.getModuleAlias(), replacement.getRecordId());
+        var all = new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE);
+        var previous = instanceDao.query(WorkflowTenantScope.criteria().eq("moduleAlias", replacement.getModuleAlias())
+                .eq("recordId", replacement.getRecordId()).eq("approvalEnabled", true), all);
+        for (var pointer : previous) {
+            WorkflowMutationLock.instance(pointer.getId());
+            var instance = WorkflowTenantScope.visible(instanceDao.findById(pointer.getId()));
+            if (instance == null) continue;
+            if (instance.getInstanceStatus() == WorkflowInstanceStatus.RUNNING || instance.getApprovalStatus() == WorkflowApprovalStatus.APPROVED)
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("approval workflow already running or approved for record: " + replacement.getRecordId());
+            if (instance.getInstanceStatus() != WorkflowInstanceStatus.REJECTED) continue;
+            if (instance.getRejectResubmitMode() != WorkflowRejectResubmitMode.RESTART)
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("请通过当前重提任务返回驳回人");
+            if (!java.util.Objects.equals(instance.getStartedBy(), replacement.getStartedBy()))
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("只有原发起人可以重新发起被驳回的申请");
+            var pending = taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId())
+                    .eq("taskKind", WorkflowTaskKind.RESUBMIT).eq("taskStatus", WorkflowTaskStatus.TODO), all);
+            if (pending.size() != 1 || !java.util.Objects.equals(pending.getFirst().getAssigneeId(), replacement.getStartedBy()))
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("重新发起的申请缺少有效重提任务");
+            var task = pending.getFirst();
+            task.setTaskStatus(WorkflowTaskStatus.DONE); task.setActualProcessorId(replacement.getStartedBy());
+            task.setDecision("resubmit_restart"); task.setCompletedAt(now); task.setResultMessage("重新发起审批");
+            var expected = task.getVersion();
+            EntityLifecycle.prepareUpdate(task, now, EntityLifecycle.nextVersion(expected));
+            if (taskDao.updateByIdAndVersion(task, expected) == 0) throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
+            var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", now);
+            prepareInsert(event, now); eventDao.insert(event);
+            replacement.setPreviousInstanceId(instance.getId());
+            instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason("重新发起审批");
+            instance.setLastOperatorId(replacement.getStartedBy()); instance.setLastOperatedAt(now);
+            for (var leftover : taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()).eq("taskStatus", WorkflowTaskStatus.TODO), all)) {
+                leftover.setTaskStatus(WorkflowTaskStatus.CANCELED); leftover.setDecision("resubmit_restart");
+                leftover.setActualProcessorId(replacement.getStartedBy()); leftover.setCompletedAt(now);
+                var leftoverVersion = leftover.getVersion();
+                EntityLifecycle.prepareUpdate(leftover, now, EntityLifecycle.nextVersion(leftoverVersion));
+                if (taskDao.updateByIdAndVersion(leftover, leftoverVersion) == 0)
+                    throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
+            }
+            archives.getObject().archiveCurrentInstance(instance, WorkflowArchiveReason.RESTARTED, now);
+        }
     }
 
     private void prepareInsert(net.ximatai.muyun.spring.common.model.contract.EntityContract entity, Instant now) {

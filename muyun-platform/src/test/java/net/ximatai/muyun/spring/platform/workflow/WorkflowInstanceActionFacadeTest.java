@@ -8,6 +8,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class WorkflowInstanceActionFacadeTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowInstanceActionService actionService = mock(WorkflowInstanceActionService.class);
     private final WorkflowInstanceActionFacade facade = new WorkflowInstanceActionFacade(actionService);
 

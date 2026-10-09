@@ -30,6 +30,8 @@
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
+    "@antv/x6": "3.1.8",
+    "@dagrejs/dagre": "3.1.1",
     "@scalar/api-reference": "^1.64.0",
     "@stomp/stompjs": "^7.3.0",
     "@tanstack/vue-query": "^5.101.0",

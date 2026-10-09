@@ -36,6 +36,12 @@ public class WorkflowRouteInstance extends StandardEntity {
             comment = "Target node key")
     private String targetNodeKey;
 
+    @Column(name = "condition_expression", type = ColumnType.TEXT, comment = "Frozen route condition")
+    private String conditionExpression;
+
+    @Column(name = "path_route_id", type = ColumnType.VARCHAR, length = 32, comment = "Owning branch path run")
+    private String pathRouteId;
+
     @Column(name = "branch_node_key", type = ColumnType.VARCHAR, length = 64, comment = "Branch node key")
     private String branchNodeKey;
 
@@ -61,7 +67,7 @@ public class WorkflowRouteInstance extends StandardEntity {
     @Column(name = "route_reason", type = ColumnType.VARCHAR, length = 32, comment = "Route reason")
     private WorkflowRouteReason routeReason;
 
-    @Column(name = "condition_matched", type = ColumnType.BOOLEAN, nullable = false,
+    @Column(name = "condition_matched", type = ColumnType.BOOLEAN,
             comment = "Whether condition matched", defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean conditionMatched = Boolean.FALSE;
 

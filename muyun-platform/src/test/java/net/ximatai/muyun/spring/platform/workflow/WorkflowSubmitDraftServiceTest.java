@@ -9,17 +9,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowSubmitDraftServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
     private final WorkflowInstanceStateService instanceStateService = new WorkflowInstanceStateService();
-    private final WorkflowSubmitDraftService service = new WorkflowSubmitDraftService(
-            new WorkflowInstanceSnapshotFactory(instanceStateService, eventFactory),
-            new WorkflowRuntimeActivationService(),
-            instanceStateService,
-            new WorkflowNodeInstanceStateService(),
-            new WorkflowRouteInstanceStateService(),
-            new WorkflowRouteRuntimeService(),
-            new WorkflowRuntimeTaskFactory(eventFactory)
-    );
+    private final WorkflowSubmitDraftService service = new WorkflowSubmitDraftService(new WorkflowInstanceSnapshotFactory(instanceStateService, eventFactory),
+                new WorkflowRuntimeActivationService(),
+                instanceStateService,
+                new WorkflowNodeInstanceStateService(),
+                new WorkflowRouteInstanceStateService(),
+                new WorkflowRouteRuntimeService(),
+                new WorkflowRuntimeTaskFactory(eventFactory,
+                java.util.Optional.empty(),
+                WorkflowTestSupport.participants()),
+                WorkflowTestSupport.facts());
 
     @Test
     void shouldBuildSubmitDraftUntilFirstApprovalBlock() {
@@ -52,7 +58,7 @@ class WorkflowSubmitDraftServiceTest {
                         node("leftTask", WorkflowNodeType.TASK),
                         node("rightTask", WorkflowNodeType.TASK)),
                 List.of(link("toBranch", "start", "branch"),
-                        link("leftRoute", "branch", "leftTask"),
+                        conditionLink("leftRoute", "branch", "leftTask", "false"),
                         defaultLink("rightRoute", "branch", "rightTask")),
                 "record-1", "user-1", Instant.parse("2026-06-05T01:00:00Z"));
 
@@ -63,16 +69,21 @@ class WorkflowSubmitDraftServiceTest {
         assertThat(draft.routes()).filteredOn(route -> route.getRouteKey().equals("rightRoute"))
                 .first()
                 .satisfies(route -> assertThat(route.getRouteStatus()).isEqualTo(WorkflowRouteStatus.EFFECTIVE));
+        assertThat(draft.routes()).filteredOn(route -> route.getRouteKey().equals("rightRoute"))
+                .first().satisfies(route -> {
+                    assertThat(route.getRouteReason()).isEqualTo(WorkflowRouteReason.DEFAULT_SELECTED);
+                    assertThat(route.getConditionMatched()).isFalse();
+                });
         assertThat(draft.routes()).filteredOn(route -> route.getRouteKey().equals("leftRoute"))
                 .first()
-                .satisfies(route -> assertThat(route.getRouteStatus()).isEqualTo(WorkflowRouteStatus.CANDIDATE));
+                .satisfies(route -> assertThat(route.getRouteStatus()).isEqualTo(WorkflowRouteStatus.INEFFECTIVE));
     }
 
     @Test
     void shouldUseSelectedRouteKeyForReachableInitialBranch() {
         WorkflowSubmitDraft draft = service.build(definition(false), version(),
                 List.of(node("start", WorkflowNodeType.START),
-                        node("branch", WorkflowNodeType.BRANCH),
+                        manualBranch("branch", "start", false),
                         node("leftTask", WorkflowNodeType.TASK),
                         node("rightTask", WorkflowNodeType.TASK)),
                 List.of(link("toBranch", "start", "branch"),
@@ -210,7 +221,7 @@ class WorkflowSubmitDraftServiceTest {
         assertThatThrownBy(() -> service.build(definition(false), version(),
                 List.of(node("start", WorkflowNodeType.START),
                         node("approve", WorkflowNodeType.APPROVAL),
-                        node("branch", WorkflowNodeType.BRANCH),
+                        manualBranch("branch", "approve", false),
                         node("leftTask", WorkflowNodeType.TASK)),
                 List.of(link("toApprove", "start", "approve"),
                         link("toBranch", "approve", "branch"),
@@ -232,6 +243,39 @@ class WorkflowSubmitDraftServiceTest {
         assertThat(draft.instance().getCurrentNodeKeys()).isEmpty();
         assertThat(draft.tasks()).isEmpty();
         assertThat(draft.activation().completed()).isTrue();
+    }
+
+    @Test
+    void manualOverrideFreezesFalseConditionAndReasonWithoutReopeningConvergedPath() {
+        var branch = manualBranch("branch", "start", true); branch.setConvergeNodeKey("merge");
+        var merge = node("merge", WorkflowNodeType.CONVERGE); merge.setConvergeMode(WorkflowConvergeMode.ALL);
+        var draft = service.build(definition(false), version(),
+                List.of(node("start", WorkflowNodeType.START), branch, merge, node("end", WorkflowNodeType.END)),
+                List.of(link("enter", "start", "branch"), conditionLink("selected", "branch", "merge", "false"),
+                        defaultLink("other", "branch", "merge"), link("exit", "merge", "end")),
+                "record", "user-1", Instant.now(), "selected", "override advice");
+        assertThat(draft.instance().getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
+        assertThat(draft.routes()).filteredOn(route -> route.getRouteKey().equals("selected")).singleElement()
+                .satisfies(route -> {
+                    assertThat(route.getRouteStatus()).isEqualTo(WorkflowRouteStatus.CLOSED);
+                    assertThat(route.getRouteReason()).isEqualTo(WorkflowRouteReason.NORMAL_CONVERGED);
+                    assertThat(route.getConditionMatched()).isFalse();
+                    assertThat(route.getSelectedReason()).isEqualTo("override advice");
+                });
+    }
+
+    @Test
+    void automaticMatchedRouteStoresConditionFactAndReason() {
+        var draft = service.build(definition(false), version(),
+                List.of(node("start", WorkflowNodeType.START), node("branch", WorkflowNodeType.BRANCH),
+                        node("task", WorkflowNodeType.TASK)),
+                List.of(link("enter", "start", "branch"), conditionLink("matched", "branch", "task", "true")),
+                "record", "user-1", Instant.now());
+        assertThat(draft.routes()).filteredOn(route -> route.getRouteKey().equals("matched")).singleElement()
+                .satisfies(route -> {
+                    assertThat(route.getConditionMatched()).isTrue();
+                    assertThat(route.getRouteReason()).isEqualTo(WorkflowRouteReason.CONDITION_MATCHED);
+                });
     }
 
     private WorkflowDefinition definition(boolean approvalEnabled) {
@@ -257,6 +301,7 @@ class WorkflowSubmitDraftServiceTest {
         WorkflowNodeDefinition node = new WorkflowNodeDefinition();
         node.setNodeKey(key);
         node.setNodeType(type);
+        node.setParticipantPolicyText("user:user-1");
         return node;
     }
 
@@ -274,6 +319,10 @@ class WorkflowSubmitDraftServiceTest {
         link.setSourceNodeKey(source);
         link.setTargetNodeKey(target);
         return link;
+    }
+
+    private WorkflowLinkDefinition conditionLink(String key, String source, String target, String condition) {
+        var link = link(key, source, target); link.setConditionExpression(condition); return link;
     }
 
     private WorkflowLinkDefinition defaultLink(String key, String source, String target) {
