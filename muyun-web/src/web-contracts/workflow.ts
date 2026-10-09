@@ -262,9 +262,19 @@ export interface WorkflowAdminTask {
   taskKind: string;
   canForceApprove: boolean;
 }
-export interface WorkflowAdminQuery {
+export interface WorkflowAdminInstanceQuery {
   moduleAlias?: string;
   recordId?: string;
+  starterId?: string;
   instanceStatus?: string;
+  approvalStatus?: string;
+  currentAssigneeId?: string;
+  overtimeStatus?: string;
+  page: { pageNum: number; pageSize: number };
+}
+export interface WorkflowAdminHistoryQuery {
+  moduleAlias?: string;
+  recordId?: string;
+  startedBy?: string;
   page: { pageNum: number; pageSize: number };
 }

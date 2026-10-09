@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { createWorkflowClient, refreshWorkflowRecordActions } from '@/web-core/workflow';
 import type { HttpClient } from '@/web-core/http';
 
@@ -182,6 +182,41 @@ describe('workflow definition and management clients', () => {
       method: 'POST',
       path: '/workflow/runtime/admin/task/task%2F2/actions/forceApprove',
       body: { reason: '恢复办理' },
+    });
+  });
+
+  it('exposes history starter filters separately from current instance filters', async () => {
+    const { createWorkflowAdminClient } = await import('@/web-core/workflow');
+    const records = [{ instanceId: 'archived' }];
+    const request = vi.fn(async () => ({ records }));
+    const client = createWorkflowAdminClient({ request } as HttpClient);
+    expectTypeOf<Parameters<typeof client.history>[0]>().not.toHaveProperty('instanceStatus');
+    const historyQuery = {
+      moduleAlias: 'demo.purchase',
+      recordId: 'record',
+      startedBy: 'starter',
+      page: { pageNum: 1, pageSize: 30 },
+    };
+    expect(await client.history(historyQuery)).toBe(records);
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/workflow/runtime/admin/history/query',
+      body: historyQuery,
+    });
+    const instanceQuery = {
+      moduleAlias: 'demo.purchase',
+      starterId: 'starter',
+      instanceStatus: 'running',
+      approvalStatus: 'approved',
+      currentAssigneeId: 'assignee',
+      overtimeStatus: 'overdue',
+      page: { pageNum: 2, pageSize: 30 },
+    };
+    await client.instances(instanceQuery);
+    expect(request).toHaveBeenLastCalledWith({
+      method: 'POST',
+      path: '/workflow/runtime/admin/instance/query',
+      body: instanceQuery,
     });
   });
 });

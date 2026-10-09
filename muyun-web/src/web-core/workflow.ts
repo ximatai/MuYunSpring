@@ -7,7 +7,8 @@ import type {
   WorkflowDefinitionCreate,
   WorkflowAdminInstance,
   WorkflowAdminTask,
-  WorkflowAdminQuery,
+  WorkflowAdminInstanceQuery,
+  WorkflowAdminHistoryQuery,
   WorkflowAction,
   WorkflowAddSignExplanation,
   WorkflowBranch,
@@ -186,9 +187,9 @@ export function createWorkflowAdminClient(http: HttpClient) {
   const item = (id: string, history: boolean) =>
     `/${history ? 'history' : 'instance'}/${encodeURIComponent(id)}`;
   return {
-    instances: async (query: WorkflowAdminQuery) =>
+    instances: async (query: WorkflowAdminInstanceQuery) =>
       (await post<{ records: WorkflowAdminInstance[] }>('/instance/query', query)).records,
-    history: async (query: WorkflowAdminQuery) =>
+    history: async (query: WorkflowAdminHistoryQuery) =>
       (await post<{ records: WorkflowHistoryInstance[] }>('/history/query', query)).records,
     bundle: (id: string, history: boolean) => post<WorkflowRenderBundle>(`${item(id, history)}/bundle`),
     events: async (id: string, history: boolean) =>
