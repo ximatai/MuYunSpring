@@ -8,6 +8,7 @@ import type {
   WorkflowEvent,
   WorkflowHistoryInstance,
   WorkflowRenderBundle,
+  WorkflowSubmitPreview,
   WorkflowStatus,
   WorkflowTask,
   WorkflowTaskPreparation,
@@ -73,7 +74,7 @@ const manualChoicesReady = ref(true);
 let branchRequest = 0;
 const preparing = ref(false),
   previewReady = ref(false);
-const previewBundle = ref<WorkflowRenderBundle>(),
+const previewBundle = ref<WorkflowSubmitPreview>(),
   previewTasks = ref<WorkflowTask[]>([]);
 const dirty = computed(() =>
   Boolean(
@@ -826,7 +827,9 @@ async function execute() {
           <UiButton :loading="preparing" @click="refreshPreview">预览所选审批路径</UiButton>
           <p v-if="previewReady">
             流程：{{
-              previewBundle?.instance.definitionTitle ?? status?.definition?.definitionTitle
+              previewBundle?.definition?.definitionTitle ??
+              previewBundle?.instance.definitionTitle ??
+              status?.definition?.definitionTitle
             }}。以下为提交后首批办理人，后续节点到达时解析人员。
           </p>
           <ul v-if="previewReady">

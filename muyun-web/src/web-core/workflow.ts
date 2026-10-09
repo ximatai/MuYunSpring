@@ -16,6 +16,7 @@ import type {
   WorkflowEvent,
   WorkflowHistoryInstance,
   WorkflowRenderBundle,
+  WorkflowSubmitPreview,
   WorkflowStatus,
   WorkflowTask,
   WorkflowWorkbenchCard,
@@ -77,10 +78,7 @@ export function createWorkflowClient(http: HttpClient) {
         payload,
       ),
     preview: async (alias: string, id: string, payload: unknown = {}) => {
-      const result = await post<WorkflowRenderBundle & { tasks: WorkflowTask[]; taskViews?: WorkflowTask[] }>(
-        `${recordPath(alias, id)}/submit/preview`,
-        payload,
-      );
+      const result = await post<WorkflowSubmitPreview>(`${recordPath(alias, id)}/submit/preview`, payload);
       return {
         ...result,
         semanticJson: result.semanticJson ?? result.instance?.semanticJson,

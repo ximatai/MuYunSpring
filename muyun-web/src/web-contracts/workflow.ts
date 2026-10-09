@@ -147,6 +147,11 @@ export interface WorkflowRenderBundle {
   semanticJson?: string;
   layoutJson?: string;
 }
+export interface WorkflowSubmitPreview extends WorkflowRenderBundle {
+  definition?: WorkflowStatus['definition'];
+  tasks: WorkflowTask[];
+  taskViews?: WorkflowTask[];
+}
 export interface WorkflowBranch {
   branchNodeKey: string;
   branchTitle?: string;

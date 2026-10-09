@@ -685,13 +685,4 @@ async function togglePolicy(policy: Delegation) {
   align-items: center;
   padding-bottom: 1px;
 }
-.workflow-empty-tasks {
-  margin: 0;
-  color: var(--muyun-text-muted);
-}
-.workflow-map summary {
-  cursor: pointer;
-  color: var(--muyun-primary);
-  padding: 8px 0;
-}
 </style>
