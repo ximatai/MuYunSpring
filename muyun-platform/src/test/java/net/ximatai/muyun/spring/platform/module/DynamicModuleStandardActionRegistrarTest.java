@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -22,7 +24,7 @@ class DynamicModuleStandardActionRegistrarTest {
                 listener.get().reconcile(changed);
             }
         });
-        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
+        PlatformModuleActionService actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), modules);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(modules,
                 new ModuleActionContributionRegistrar(actions));
         listener.set(registrar);
@@ -51,7 +53,7 @@ class DynamicModuleStandardActionRegistrarTest {
         PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {
             if (event instanceof DynamicModuleChangedEvent changed) listener.get().reconcile(changed);
         });
-        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
+        PlatformModuleActionService actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), modules);
         listener.set(new DynamicModuleStandardActionRegistrar(modules, new ModuleActionContributionRegistrar(actions)));
         PlatformModule module = new PlatformModule();
         module.setAlias("education.global_project");
@@ -69,7 +71,7 @@ class DynamicModuleStandardActionRegistrarTest {
     @Test
     void shouldRegisterOnlyRuntimeSupportedStandardActionsForDynamicModule() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));
         PlatformModule module = new PlatformModule();
@@ -105,7 +107,7 @@ class DynamicModuleStandardActionRegistrarTest {
     @Test
     void shouldAddIndependentPermissionManagementWithoutChangingCrudAuthorizationDefaults() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));
         PlatformModule module = new PlatformModule();
@@ -129,7 +131,7 @@ class DynamicModuleStandardActionRegistrarTest {
     @Test
     void shouldDisableNoLongerSupportedCapabilityActionsDuringReconciliation() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));
         PlatformModule module = new PlatformModule();

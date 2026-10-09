@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.platform.module.*;
@@ -149,7 +151,7 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
         }
         @Bean PlatformModuleService modules(PlatformModuleDao dao) { return new PlatformModuleService(dao, event -> {}); }
         @Bean PlatformModuleActionService actions(PlatformModuleActionDao dao, PlatformModuleService modules) {
-            return new PlatformModuleActionService(dao, modules);
+            return ModuleActionTestServices.withDeclaredDataPolicy(dao, modules);
         }
         @Bean ModuleActionContributionRegistrar contributions(PlatformModuleActionService actions) {
             return new ModuleActionContributionRegistrar(actions);

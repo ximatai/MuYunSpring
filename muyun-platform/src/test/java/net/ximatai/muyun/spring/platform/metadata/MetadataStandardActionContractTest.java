@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.module.*;
@@ -20,7 +22,7 @@ import static org.mockito.Mockito.mock;
 class MetadataStandardActionContractTest {
     private final StaticListableBeanFactory beans = new StaticListableBeanFactory();
     private final PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
-    private final PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
+    private final PlatformModuleActionService actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), modules);
     private DynamicModuleStandardActionRegistrar registrar;
     private final ApplicationEventPublisher events = event -> {
         if (registrar != null && event instanceof MetadataChangedEvent changed) registrar.reconcile(changed);

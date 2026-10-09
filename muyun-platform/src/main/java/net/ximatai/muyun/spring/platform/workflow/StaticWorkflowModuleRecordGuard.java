@@ -31,6 +31,9 @@ public class StaticWorkflowModuleRecordGuard implements WorkflowModuleRecordGuar
             null
     );
 
+    private static final ActionExecutionPolicy APPROVAL_SUBMIT_POLICY =
+            WorkflowActionPolicyService.runtimePolicy("submitApproval");
+
     private final List<CrudAbility<?>> abilities;
 
     public StaticWorkflowModuleRecordGuard(List<CrudAbility<?>> abilities) {
@@ -78,6 +81,6 @@ public class StaticWorkflowModuleRecordGuard implements WorkflowModuleRecordGuar
                 .filter(context -> request.moduleAlias().equals(context.moduleAlias()))
                 .filter(context -> !context.hasRecordContext() || context.recordIds().contains(request.recordId()))
                 .map(context -> context.actionPolicy())
-                .orElse(SUBMIT_POLICY);
+                .orElse(request.approvalRequired() ? APPROVAL_SUBMIT_POLICY : SUBMIT_POLICY);
     }
 }

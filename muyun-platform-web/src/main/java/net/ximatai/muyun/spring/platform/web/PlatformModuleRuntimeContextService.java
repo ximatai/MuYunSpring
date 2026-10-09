@@ -1530,7 +1530,7 @@ public class PlatformModuleRuntimeContextService {
                 toPlatformLevel(action.getActionLevel()),
                 toAccessMode(action.effectiveAccessMode()),
                 action.effectiveActionAuth(),
-                action.effectiveDataAuth(),
+                actionService.effectiveDataAuth(action),
                 action.effectiveDefaultGrantPolicy(),
                 inheritActionCode(action.getActionCode(), permissionActionCode, action.effectiveActionAuth())
         );

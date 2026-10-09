@@ -47,6 +47,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityPolicy;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.ModuleActionDataAuthResolver;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
@@ -699,7 +700,8 @@ public class PlatformModuleDefinitionCompiler {
                 action.getCategory(),
                 action.effectiveAccessMode(),
                 action.effectiveActionAuth(),
-                action.effectiveDataAuth(),
+                ModuleActionDataAuthResolver.resolve(action,
+                        Boolean.TRUE.equals(metadataByAlias.get(entityAlias).getDataScopeEnabled())),
                 action.effectiveDefaultGrantPolicy(),
                 inheritedActionCode(action),
                 action.getAvailableExpression(),

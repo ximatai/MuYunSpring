@@ -143,6 +143,8 @@ class RoleGrantableActionResolverTest {
     void shouldExposeSelfRegisteredStaticRoleActionsInPermissionMatrix() {
         List<PlatformModuleAction> registeredActions = scannedRoleModuleActions();
         PlatformModuleActionService moduleActionService = mock(PlatformModuleActionService.class);
+        when(moduleActionService.effectiveDataAuth(any(PlatformModuleAction.class)))
+                .thenAnswer(call -> call.getArgument(0, PlatformModuleAction.class).effectiveDataAuth());
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         when(moduleService.resolveVisibleModule("iam.role")).thenReturn(module("iam.role", ModuleKind.STATIC));
         when(moduleActionService.listByModuleAliases(List.of("iam.role"))).thenReturn(registeredActions);

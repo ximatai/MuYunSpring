@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
@@ -37,7 +39,34 @@ class DynamicWorkflowModuleRecordGuardTest {
 
         guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
 
-        verify(dynamicRecordService).requireRecordActionScope(eq("sales.contract"), eq("contract"), any(),
+        verify(dynamicRecordService).requireRecordActionScope(eq("sales.contract"), eq("contract"), org.mockito.ArgumentMatchers.argThat(policy -> "submitApproval".equals(policy.actionCode())),
+                eq(Set.of("record-1")), eq(Optional.empty()));
+    }
+
+    @Test
+    void shouldKeepNonApprovalSubmissionPolicy() {
+        when(dynamicRecordService.mainEntityAlias("sales.contract")).thenReturn("contract");
+        when(dynamicRecordService.selectSystem("sales.contract", "contract", "record-1")).thenReturn(record("record-1"));
+
+        guard.beforeSubmit(WorkflowSubmitRequest.workflow("sales.contract", "record-1", "sync"));
+
+        verify(dynamicRecordService).requireRecordActionScope(eq("sales.contract"), eq("contract"),
+                org.mockito.ArgumentMatchers.argThat(policy -> "submit".equals(policy.actionCode())),
+                eq(Set.of("record-1")), eq(Optional.empty()));
+    }
+
+    @Test
+    void shouldPreserveTheCallingActionPolicy() {
+        when(dynamicRecordService.mainEntityAlias("sales.contract")).thenReturn("contract");
+        when(dynamicRecordService.selectSystem("sales.contract", "contract", "record-1")).thenReturn(record("record-1"));
+        var policy = WorkflowActionPolicyService.runtimePolicy("resubmit");
+
+        try (var ignored = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(
+                "sales.contract", policy, Set.of("record-1"), Optional.empty()))) {
+            guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
+        }
+
+        verify(dynamicRecordService).requireRecordActionScope(eq("sales.contract"), eq("contract"), eq(policy),
                 eq(Set.of("record-1")), eq(Optional.empty()));
     }
 

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -29,7 +31,7 @@ class WorkflowPublishFacadeTest {
     private final WorkflowVersionService versionService = new WorkflowVersionService(new TestMemoryDao<>(),
             definitionService);
     private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
-    private final PlatformModuleActionService actionService = new PlatformModuleActionService(actionDao, moduleService);
+    private final PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(actionDao, moduleService);
     private final TestWorkflowLinkDefinitionDao linkDefinitionDao = new TestWorkflowLinkDefinitionDao();
     private final WorkflowDesignCompiler compiler = new WorkflowDesignCompiler(new WorkflowConditionService(WorkflowTestSupport.facts()));
     private final WorkflowDesignService designs = new WorkflowDesignService(definitionService, versionService,
@@ -37,7 +39,7 @@ class WorkflowPublishFacadeTest {
     private final WorkflowPublishFacade facade = new WorkflowPublishFacade(
             definitionService,
             versionService,
-            new WorkflowModuleActionContributor(new ModuleActionContributionRegistrar(actionService)),
+            new WorkflowModuleActionContributor(new ModuleActionContributionRegistrar(actionService), moduleService, actionService),
             nodeDefinitionDao, designs, compiler);
 
     @Test

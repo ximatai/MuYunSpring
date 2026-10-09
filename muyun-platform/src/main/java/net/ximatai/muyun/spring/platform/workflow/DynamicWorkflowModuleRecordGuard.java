@@ -26,6 +26,9 @@ public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGua
             null
     );
 
+    private static final ActionExecutionPolicy APPROVAL_SUBMIT_POLICY =
+            WorkflowActionPolicyService.runtimePolicy("submitApproval");
+
     private final DynamicRecordService dynamicRecordService;
 
     public DynamicWorkflowModuleRecordGuard(DynamicRecordService dynamicRecordService) {
@@ -63,6 +66,6 @@ public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGua
                 .filter(context -> request.moduleAlias().equals(context.moduleAlias()))
                 .filter(context -> !context.hasRecordContext() || context.recordIds().contains(request.recordId()))
                 .map(context -> context.actionPolicy())
-                .orElse(SUBMIT_POLICY);
+                .orElse(request.approvalRequired() ? APPROVAL_SUBMIT_POLICY : SUBMIT_POLICY);
     }
 }
