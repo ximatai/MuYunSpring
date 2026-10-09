@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
 import type { AppWorkbenchNavigation } from '@/consumer/workbenchNavigation';
 import Workbench from '@/platform-workbench/Workbench.vue';
+import RecordDetailDrawer from '@/platform-components/RecordDetailDrawer.vue';
 import { useWorkbenchNavigation, type WorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
 import type { MenuTreeNode, WorkbenchStartupState } from '@/web-contracts';
 import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
@@ -482,5 +483,24 @@ it('rejects an old menu response after the session has changed', async () => {
   const rejection = expect(pending).rejects.toThrow('登录状态已变化');
   resolve([]);
   await rejection;
+  wrapper.unmount();
+});
+
+it('provides a tab-scoped portal host to pages supplied through the public shell slot', async () => {
+  const wrapper = mount(AppWorkbenchShell, {
+    attachTo: document.body,
+    props: { startup: startup(), location: tabs[0]!.fullPath },
+    slots: { default: () => h(RecordDetailDrawer, { open: true, title: '采购办理' }) },
+    global: {
+      stubs: {
+        ADrawer: { name: 'ADrawer', props: ['getContainer'], template: '<section><slot /></section>' },
+      },
+    },
+  });
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(
+    wrapper.get('.tab-panel-host').element,
+  );
+  expect(wrapper.findComponent(RecordDetailDrawer).exists()).toBe(true);
   wrapper.unmount();
 });
