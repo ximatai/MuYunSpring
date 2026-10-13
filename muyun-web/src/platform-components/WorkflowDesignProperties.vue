@@ -243,15 +243,28 @@ const selectorNodeOptions = computed(() =>
       <p>
         {{
           node.routeMode === 'manual'
-            ? '由指定前序节点的实际办理人单选一条出口。条件与默认标记只提供建议，不限制人工选择。'
-            : '所有命中的非默认出口同时生效；未配置条件表示始终命中。只有全部未命中时才启用默认出口；无兜底则拒绝流转。'
+            ? workflowLanguage.t(
+                'platform.workflow-config.manual-help',
+                '由指定前序节点的实际办理人单选一条出口。条件与默认标记只提供建议，不限制人工选择。',
+              )
+            : workflowLanguage.t(
+                'platform.workflow-config.auto-help',
+                '所有命中的非默认出口同时生效；未配置条件表示始终命中。只有全部未命中时才启用默认出口；无兜底则拒绝流转。',
+              )
         }}
       </p>
       <div v-for="link in branchRoutes" :key="link.routeKey" class="branch-exit">
-        <UiButton @click="emit('select-route', link.routeKey)"
-          >配置出口：{{ link.title ?? link.routeKey }}</UiButton
-        >
-        <span>{{ link.defaultRoute ? '默认出口' : link.conditionExpression || '无条件（始终命中）' }}</span>
+        <UiButton @click="emit('select-route', link.routeKey)">{{
+          workflowLanguage.t('platform.workflow-config.configure-exit', '配置出口：{title}', {
+            title: link.title ?? link.routeKey,
+          })
+        }}</UiButton>
+        <span>{{
+          link.defaultRoute
+            ? workflowLanguage.t('platform.workflow-config.default-exit', '默认出口')
+            : link.conditionExpression ||
+              workflowLanguage.t('platform.workflow-config.unconditional', '无条件（始终命中）')
+        }}</span>
       </div>
       <UiButton :disabled="!editable" @click="emit('append-branch-path')">{{
         workflowLanguage.t('platform.screen.WorkflowDesignProperties.add-branch-route', '追加分支出口')
@@ -266,9 +279,12 @@ const selectorNodeOptions = computed(() =>
         }}<UiSelect
           :value="node.convergeMode ?? 'all'"
           :options="[
-            { value: 'all', label: '全部到达' },
-            { value: 'any', label: '任一到达' },
-            { value: 'ratio', label: '比例到达' },
+            { value: 'all', label: workflowLanguage.t('platform.workflow-config.all-arrive', '全部到达') },
+            { value: 'any', label: workflowLanguage.t('platform.workflow-config.any-arrive', '任一到达') },
+            {
+              value: 'ratio',
+              label: workflowLanguage.t('platform.workflow-config.ratio-arrive', '比例到达'),
+            },
           ]"
           :disabled="!editable"
           @update:value="updateNode({ convergeMode: String($event) })" /></label
@@ -294,7 +310,12 @@ const selectorNodeOptions = computed(() =>
         >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.milestone', '里程碑')
         }}<UiSelect
           :value="node.milestoneType ?? 'approval_completed'"
-          :options="[{ value: 'approval_completed', label: '审批完成' }]"
+          :options="[
+            {
+              value: 'approval_completed',
+              label: workflowLanguage.t('platform.workflow.approval_completed', '审批完成'),
+            },
+          ]"
           :disabled="!editable"
           @update:value="updateNode({ milestoneType: String($event) })" /></label
     ></template>
@@ -377,8 +398,14 @@ const selectorNodeOptions = computed(() =>
     <p v-if="routeSource?.nodeType === 'branch'">
       {{
         route.defaultRoute
-          ? '其余条件均未命中时走此出口。默认出口不配置条件，每个分支最多一个。'
-          : '条件为空表示始终命中，可用于并行审批；互斥分支请使用互斥条件。'
+          ? workflowLanguage.t(
+              'platform.workflow-config.default-help',
+              '其余条件均未命中时走此出口。默认出口不配置条件，每个分支最多一个。',
+            )
+          : workflowLanguage.t(
+              'platform.workflow-config.condition-help',
+              '条件为空表示始终命中，可用于并行审批；互斥分支请使用互斥条件。',
+            )
       }}
     </p>
     <UiButton danger :disabled="!editable" @click="emit('remove-route')">{{

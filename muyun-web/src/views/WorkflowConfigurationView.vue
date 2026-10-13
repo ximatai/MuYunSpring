@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { displayModuleRuntime, useLanguageContext } from '@muyun/web-core';
 import {
   workflowParticipantRules,
   hasWorkflowParticipants,
@@ -41,6 +41,7 @@ import {
   confirmAction,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
+import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   createWorkflowDesign,
@@ -63,22 +64,48 @@ const context = useModuleContext({ moduleAlias: 'platform.workflow.definition' }
 const client = createWorkflowDefinitionClient(context.http, props.moduleAlias);
 const businessContext = createModuleContext({
   http: context.http,
+  language: workflowLanguage,
   moduleAlias: props.moduleAlias,
   runtimeAccess: 'VIEW',
 });
 const organizationContext = createModuleContext<Record<string, unknown>>({
   http: context.http,
+  language: workflowLanguage,
   moduleAlias: 'iam.organization',
   runtimeAccess: 'REFERENCE',
 });
-const fields = ref<Array<{ name: string; label: string; valueType?: string; referenceModule?: string }>>([]);
+usePageDataChange({
+  moduleAlias: props.moduleAlias,
+  predicate: (change) => change.type === 'configuration-translations-changed',
+  handler: async () => {
+    try {
+      await businessContext.runtime.refreshTexts?.();
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'workflow-design', phase: 'load' });
+    }
+  },
+});
+const businessRuntime = computed(() => displayModuleRuntime(businessContext.runtime));
+const fields = computed(() =>
+  [...resolveRecordFormFields(businessRuntime.value?.uiDescriptor)].map(([name, field]) => ({
+    name,
+    label: field.label ?? name,
+    valueType: field.valueType,
+    referenceModule: field.reference?.targetModuleAlias,
+  })),
+);
 const catalog = ref<WorkflowConfigurationCatalog>({
   tasks: [],
   queries: [],
   generations: [],
   associations: [],
 });
-const actionOptions = ref<{ value: string; label: string }[]>([]);
+const actionOptions = computed(() =>
+  (businessRuntime.value?.actions ?? []).map((action) => ({
+    value: action.actionCode,
+    label: action.title ?? workflowTitle(action.actionCode),
+  })),
+);
 async function loadCatalog(id: string) {
   catalog.value = await client.catalog(id);
 }
@@ -87,17 +114,7 @@ const propertyOpen = ref(false),
   selectionDirty = ref(false);
 async function loadFields() {
   try {
-    const runtime = await businessContext.runtime.ready;
-    actionOptions.value = runtime.actions.map((action) => ({
-      value: action.actionCode,
-      label: action.title ?? workflowTitle(action.actionCode),
-    }));
-    fields.value = [...resolveRecordFormFields(runtime.uiDescriptor)].map(([name, field]) => ({
-      name,
-      label: field.label ?? name,
-      valueType: field.valueType,
-      referenceModule: field.reference?.targetModuleAlias,
-    }));
+    await businessContext.runtime.ready;
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'load' });
   }
@@ -165,24 +182,26 @@ function participantSummary(text?: string) {
         .map(
           (rule: { type: string; ids?: string[]; fieldName?: string }) =>
             (({
-              INITIATOR_SELF: '提交人本人',
-              USER: '指定账号',
-              ROLE: '角色成员',
-              DEPT: '部门成员',
-              ORG: '组织成员',
-              FIELD: '业务人员字段',
-              RELATIVE: '相对人员',
+              INITIATOR_SELF: workflowLanguage.t('platform.workflow-participant.initiator', '提交人本人'),
+              USER: workflowLanguage.t('platform.workflow-participant.named-accounts', '指定账号'),
+              ROLE: workflowLanguage.t('platform.workflow-participant.role-members', '角色成员'),
+              DEPT: workflowLanguage.t('platform.workflow-participant.department-members', '部门成员'),
+              ORG: workflowLanguage.t('platform.workflow-participant.organization-members', '组织成员'),
+              FIELD: workflowLanguage.t('platform.workflow-participant.participant-field', '业务人员字段'),
+              RELATIVE: workflowLanguage.t('platform.workflow-participant.relative-participants', '相对人员'),
             })[rule.type] ?? rule.type) +
             (rule.ids?.length
-              ? `（${rule.ids.length} 个目标）`
+              ? workflowLanguage.t('platform.workflow-config.target-count', '（{count} 个目标）', {
+                  count: rule.ids.length,
+                })
               : rule.fieldName
                 ? `（${fields.value.find((field) => field.name === rule.fieldName)?.label ?? rule.fieldName}）`
                 : ''),
         )
-        .join('、') || '尚未配置参与人'
+        .join('、') || workflowLanguage.t('platform.workflow-config.empty-participants', '尚未配置参与人')
     );
   } catch {
-    return '人员配置格式无效';
+    return workflowLanguage.t('platform.workflow-config.invalid-participants', '人员配置格式无效');
   }
 }
 const definitions = ref<WorkflowDefinition[]>([]),
@@ -209,12 +228,16 @@ const node = computed(() => design.value.nodes.find((item) => item.nodeKey === s
 const route = computed(() => design.value.links.find((item) => item.routeKey === selectedRouteKey.value));
 function branchConvergenceSummary(branch: WorkflowNode) {
   const convergence = design.value.nodes.find((item) => item.nodeKey === branch.convergeNodeKey);
-  const labels: Record<string, string> = { all: '全部到达', any: '任一到达', ratio: '比例到达' };
+  const labels: Record<string, string> = {
+    all: workflowLanguage.t('platform.workflow-config.all-arrive', '全部到达'),
+    any: workflowLanguage.t('platform.workflow-config.any-arrive', '任一到达'),
+    ratio: workflowLanguage.t('platform.workflow-config.ratio-arrive', '比例到达'),
+  };
   const mode = convergence?.convergeMode ?? 'all';
   return `${labels[mode]}${mode === 'ratio' ? ` ${convergence?.convergeRatio ?? 100}%` : ''}`;
 }
 useWorkspaceViewUnsavedState(
-  '流程配置',
+  workflowLanguage.t('platform.workflow-config.configuration', '流程配置'),
   () => dirty.value || selectionDirty.value,
   () => busy.value,
 );
@@ -243,7 +266,10 @@ async function reload() {
 }
 async function openDefinition(definition: WorkflowDefinition) {
   if (dirty.value || selectionDirty.value) {
-    presentPlatformError(new Error('请先保存流程设计'), { source: 'workflow-design', phase: 'validation' });
+    presentPlatformError(
+      new Error(workflowLanguage.t('platform.workflow-config.save-first', '请先保存流程设计')),
+      { source: 'workflow-design', phase: 'validation' },
+    );
     return;
   }
   selectionDirty.value = false;
@@ -308,7 +334,11 @@ async function createDefinition() {
 async function discardSettings() {
   if (
     selectionDirty.value &&
-    !(await confirmAction({ title: '放弃未保存的流程设置？', danger: true, okText: '放弃修改' }))
+    !(await confirmAction({
+      title: workflowLanguage.t('platform.workflow-config.discard-confirm', '放弃未保存的流程设置？'),
+      danger: true,
+      okText: workflowLanguage.t('platform.workflow-config.discard', '放弃修改'),
+    }))
   )
     return;
   creating.value = false;
@@ -344,7 +374,9 @@ async function saveSelection() {
     selected.value = saved;
     configuringSelection.value = false;
     selectionDirty.value = false;
-    showSuccessMessage('流程匹配规则已保存，后续提交生效');
+    showSuccessMessage(
+      workflowLanguage.t('platform.workflow-config.matching-saved', '流程匹配规则已保存，后续提交生效'),
+    );
   });
 }
 async function save() {
@@ -358,7 +390,7 @@ async function save() {
     );
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     dirty.value = false;
-    showSuccessMessage('流程草稿已保存');
+    showSuccessMessage(workflowLanguage.t('platform.workflow-config.draft-saved', '流程草稿已保存'));
   });
 }
 async function validate() {
@@ -366,7 +398,7 @@ async function validate() {
   if (dirty.value || !version.value) return;
   await run(async () => {
     await client.validate(selected.value!.id, version.value!.id);
-    showSuccessMessage('流程发布校验通过');
+    showSuccessMessage(workflowLanguage.t('platform.workflow-config.validated', '流程发布校验通过'));
   });
 }
 async function publish() {
@@ -376,10 +408,18 @@ async function publish() {
         ['approval', 'task'].includes(node.nodeType) && !hasWorkflowParticipants(node.participantPolicyText),
     )
   ) {
-    presentPlatformError(new Error('请为每个审批或业务任务节点明确配置参与人'), {
-      source: 'workflow-design',
-      phase: 'validation',
-    });
+    presentPlatformError(
+      new Error(
+        workflowLanguage.t(
+          'platform.workflow-config.participants-required',
+          '请为每个审批或业务任务节点明确配置参与人',
+        ),
+      ),
+      {
+        source: 'workflow-design',
+        phase: 'validation',
+      },
+    );
     return;
   }
   if (dirty.value) await save();
@@ -395,7 +435,9 @@ async function publish() {
     selected.value = await client.view(selected.value!.id);
     dirty.value = false;
     publishReviewOpen.value = false;
-    showSuccessMessage('流程已发布，后续新申请使用该版本');
+    showSuccessMessage(
+      workflowLanguage.t('platform.workflow-config.published', '流程已发布，后续新申请使用该版本'),
+    );
   });
   await reload();
 }
@@ -416,15 +458,21 @@ async function statusAction(action: 'disable' | 'archive') {
   if (!selected.value) return;
   if (
     !(await confirmAction({
-      title: action === 'archive' ? '归档此流程？' : '停用此流程？',
-      content: '此操作影响后续新申请，已有实例继续使用冻结版本。',
+      title:
+        action === 'archive'
+          ? workflowLanguage.t('platform.workflow-config.archive-confirm', '归档此流程？')
+          : workflowLanguage.t('platform.workflow-config.disable-confirm', '停用此流程？'),
+      content: workflowLanguage.t(
+        'platform.workflow-config.future-only',
+        '此操作影响后续新申请，已有实例继续使用冻结版本。',
+      ),
       danger: true,
     }))
   )
     return;
   await run(async () => {
     selected.value = await client.changeStatus(selected.value!.id, action, selected.value!.version);
-    showSuccessMessage('流程状态已更新');
+    showSuccessMessage(workflowLanguage.t('platform.workflow-config.status-updated', '流程状态已更新'));
   });
   await reload();
 }
@@ -489,10 +537,14 @@ async function deleteBranch() {
     const next = removeWorkflowBranch(design.value, selectedNodeKey.value);
     if (
       !(await confirmAction({
-        title: '删除整个分支？',
-        content: `将删除分支、配对汇聚及其中 ${design.value.nodes.length - next.nodes.length - 2} 个节点，并连接前后路径。`,
+        title: workflowLanguage.t('platform.workflow-config.delete-branch-confirm', '删除整个分支？'),
+        content: workflowLanguage.t(
+          'platform.workflow-config.delete-branch-detail',
+          '将删除分支、配对汇聚及其中 {count} 个节点，并连接前后路径。',
+          { count: design.value.nodes.length - next.nodes.length - 2 },
+        ),
         danger: true,
-        okText: '删除分支',
+        okText: workflowLanguage.t('platform.workflow-config.delete-branch', '删除分支'),
       }))
     )
       return;
@@ -590,7 +642,9 @@ function addRoute() {
             @select="openDefinition(definitions.find((item) => item.id === $event.id)!)"
           /> </RecordExplorerPanel
       ></ManagementExplorerColumn>
-      <RecordDetailPanel :title="selected?.title ?? '流程配置'">
+      <RecordDetailPanel
+        :title="selected?.title ?? workflowLanguage.t('platform.workflow-config.configuration', '流程配置')"
+      >
         <form v-if="creating" class="property-form" @submit.prevent="createDefinition">
           <h3>
             {{ workflowLanguage.t('platform.screen.WorkflowConfigurationView.new-workflow', '新建流程') }}
@@ -807,7 +861,7 @@ function addRoute() {
                 :options="
                   design.links.map((item) => ({
                     value: item.routeKey,
-                    label: `${item.title ?? '路径'}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
+                    label: `${item.title ?? workflowLanguage.t('platform.workflow-config.route', '路径')}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
                   }))
                 "
                 @update:value="selectRoute(String($event))"
@@ -817,7 +871,13 @@ function addRoute() {
           <RecordDetailDrawer
             width="wide"
             :open="propertyOpen"
-            :title="node?.title ? `节点属性 · ${node.title}` : '路径属性'"
+            :title="
+              node?.title
+                ? workflowLanguage.t('platform.workflow-config.node-properties', '节点属性 · {title}', {
+                    title: node.title,
+                  })
+                : workflowLanguage.t('platform.workflow-config.route-properties', '路径属性')
+            "
             @close="propertyOpen = false"
           >
             <WorkflowDesignProperties
@@ -870,14 +930,32 @@ function addRoute() {
       @close="publishReviewOpen = false"
     >
       <p>
-        流程：{{ selected?.title }} · 版本 {{ version?.versionNo }}。发布后配置冻结；已有实例继续使用原版本。
+        {{
+          workflowLanguage.t(
+            'platform.workflow-config.publication-frozen',
+            '流程：{title} · 版本 {version}。发布后配置冻结；已有实例继续使用原版本。',
+            { title: selected?.title, version: version?.versionNo },
+          )
+        }}
       </p>
       <p>
-        匹配范围：{{ selected?.organizationId ? '指定组织及下级组织' : '模块内全部组织' }}； 优先级
+        {{ workflowLanguage.t('platform.workflow-config.matching-scope', '匹配范围') }}：{{
+          selected?.organizationId
+            ? workflowLanguage.t('platform.workflow-config.scoped-organizations', '指定组织及下级组织')
+            : workflowLanguage.t('platform.workflow-config.all-organizations', '模块内全部组织')
+        }}； {{ workflowLanguage.t('platform.workflow-config.priority', '优先级') }}
         {{ selected?.matchPriority ?? 0 }}；{{
-          selected?.defaultDefinition ? '作为默认兜底流程' : '按匹配条件选择'
+          selected?.defaultDefinition
+            ? workflowLanguage.t('platform.workflow-config.default-workflow', '作为默认兜底流程')
+            : workflowLanguage.t('platform.workflow-config.conditional-workflow', '按匹配条件选择')
         }}。
-        {{ selected?.matchExpression ? `匹配条件：${selected.matchExpression}` : '未设置额外条件' }}
+        {{
+          selected?.matchExpression
+            ? workflowLanguage.t('platform.workflow-config.matching-expression', '匹配条件：{expression}', {
+                expression: selected.matchExpression,
+              })
+            : workflowLanguage.t('platform.workflow-config.no-matching-condition', '未设置额外条件')
+        }}
       </p>
       <ul class="publish-nodes">
         <li
@@ -911,7 +989,7 @@ function addRoute() {
               }}
             </summary>
             <p v-if="item.taskDefinitionId">
-              引用任务：{{
+              {{ workflowLanguage.t('platform.workflow-config.referenced-task', '引用任务') }}：{{
                 catalog.tasks.find((task) => task.id === item.taskDefinitionId)?.title ??
                 item.taskDefinitionId
               }}
@@ -939,22 +1017,38 @@ function addRoute() {
       <div v-for="branch in design.nodes.filter((item) => item.nodeType === 'branch')" :key="branch.nodeKey">
         <strong
           >{{ branch.title }} ·
-          {{ branch.routeMode === 'manual' ? '人工单选' : '自动判定（全部命中出口）' }}</strong
+          {{
+            branch.routeMode === 'manual'
+              ? workflowLanguage.t('platform.workflow-config.manual-route', '人工单选')
+              : workflowLanguage.t('platform.workflow-config.auto-route', '自动判定（全部命中出口）')
+          }}</strong
         >
         <p v-if="branch.routeMode === 'manual'">
-          由
           {{
-            design.nodes.find((item) => item.nodeKey === branch.selectorNodeKey)?.title ?? '未配置选择节点'
+            workflowLanguage.t(
+              'platform.workflow-config.selector-summary',
+              '由{title}的实际办理人选路；{reason}。',
+              {
+                title:
+                  design.nodes.find((item) => item.nodeKey === branch.selectorNodeKey)?.title ??
+                  workflowLanguage.t('platform.workflow-config.missing-selector', '未配置选择节点'),
+                reason: branch.requireManualSelectionReason
+                  ? workflowLanguage.t('platform.workflow-config.reason-required', '必须填写原因')
+                  : workflowLanguage.t('platform.workflow-config.reason-optional', '原因选填'),
+              },
+            )
           }}
-          的实际办理人选路；{{ branch.requireManualSelectionReason ? '必须填写原因' : '原因选填' }}。
         </p>
         <ul>
           <li
             v-for="link in design.links.filter((item) => item.sourceNodeKey === branch.nodeKey)"
             :key="link.routeKey"
           >
-            {{ link.title ?? '出口' }}：{{
-              link.defaultRoute ? '默认兜底' : link.conditionExpression || '无条件（始终命中）'
+            {{ link.title ?? workflowLanguage.t('platform.workflow-config.exit', '出口') }}：{{
+              link.defaultRoute
+                ? workflowLanguage.t('platform.workflow-config.fallback-exit', '默认兜底')
+                : link.conditionExpression ||
+                  workflowLanguage.t('platform.workflow-config.unconditional', '无条件（始终命中）')
             }}
           </li>
         </ul>

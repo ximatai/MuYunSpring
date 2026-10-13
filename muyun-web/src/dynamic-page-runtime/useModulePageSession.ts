@@ -262,6 +262,7 @@ export function useModulePageSession(
   const rawContext = props.recordOnly
     ? baseContext
     : createModuleContext<QueryListRecord>({
+        language,
         moduleAlias: props.descriptor.target.moduleAlias,
         http: withHttpHeaders(
           props.http ?? baseContext.http,
@@ -986,7 +987,11 @@ export function useModulePageSession(
         referencePickerPresentationOf(field),
       );
       configs[pickerFieldName] = {
-        context: createModuleContext({ http: rawContext.http, moduleAlias: reference.targetModuleAlias }),
+        context: createModuleContext({
+          http: rawContext.http,
+          moduleAlias: reference.targetModuleAlias,
+          language,
+        }),
         mode: recordPickerModeOf(reference.pickerMode),
         allowClear: !field.required?.constant,
         ...sourceReferencePickerConfig,

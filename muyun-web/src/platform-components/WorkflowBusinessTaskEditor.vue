@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import FormulaExpressionEditor from './FormulaExpressionEditor.vue';
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import { UiButton, UiInput, UiTextArea, UiSelect, UiCheckbox } from '@muyun/vue-ui-antdv';
 defineOptions({ name: 'WorkflowBusinessTaskEditor' });
+const language = useLanguageContext();
 const props = defineProps<{
   value?: string;
   moduleAlias: string;
@@ -41,7 +43,7 @@ interface Spec {
   guides: Guide[];
 }
 const spec = ref<Spec>({ definition: { manualConfirm: false, enabled: true }, checks: [], guides: [] });
-const error = ref('');
+const error = ref(false);
 const fieldOptions = computed(() =>
   (props.fields ?? []).map((field) => ({ value: field.name, label: field.label })),
 );
@@ -51,19 +53,31 @@ const generationTargets = computed(() =>
     label: value,
   })),
 );
-const checkOptions = [
-  { value: 'FORMULA', label: '业务字段公式' },
-  { value: 'QUERY_EXISTS', label: '查询模板计数' },
-  { value: 'RELATED_QUERY_EXISTS', label: '关联视图计数' },
-  { value: 'GENERATED_QUERY_EXISTS', label: '已生成业务计数' },
-];
-const guideOptions = [
-  { value: 'OPEN_FORM', label: '填写当前业务并完成任务' },
-  { value: 'EXECUTE_ACTION', label: '执行业务动作并完成任务' },
-  { value: 'OPEN_LIST', label: '查看业务列表' },
-  { value: 'FOCUS_FIELD', label: '查看指定字段' },
-  { value: 'READ_INSTRUCTION', label: '办理说明' },
-];
+const checkOptions = computed(() => [
+  { value: 'FORMULA', label: language.t('platform.workflow-task-editor.field-formula', '业务字段公式') },
+  { value: 'QUERY_EXISTS', label: language.t('platform.workflow-task-editor.query-count', '查询模板计数') },
+  {
+    value: 'RELATED_QUERY_EXISTS',
+    label: language.t('platform.workflow-task-editor.association-count', '关联视图计数'),
+  },
+  {
+    value: 'GENERATED_QUERY_EXISTS',
+    label: language.t('platform.workflow-task-editor.generated-count', '已生成业务计数'),
+  },
+]);
+const guideOptions = computed(() => [
+  {
+    value: 'OPEN_FORM',
+    label: language.t('platform.workflow-task-editor.edit-complete', '填写当前业务并完成任务'),
+  },
+  {
+    value: 'EXECUTE_ACTION',
+    label: language.t('platform.workflow-task-editor.execute-complete', '执行业务动作并完成任务'),
+  },
+  { value: 'OPEN_LIST', label: language.t('platform.workflow-task-editor.record-list', '查看业务列表') },
+  { value: 'FOCUS_FIELD', label: language.t('platform.workflow-task-editor.view-field', '查看指定字段') },
+  { value: 'READ_INSTRUCTION', label: language.t('platform.workflow-task-editor.instructions', '办理说明') },
+]);
 watch(
   () => props.value,
   (value) => {
@@ -80,9 +94,9 @@ watch(
       spec.value.definition.moduleAlias = props.moduleAlias;
       spec.value.checks.forEach((item) => (item.checkKind = item.checkKind.toUpperCase()));
       spec.value.guides.forEach((item) => (item.guideKind = item.guideKind.toUpperCase()));
-      error.value = '';
+      error.value = false;
     } catch {
-      error.value = '任务配置格式无效，请修复配置后再编辑';
+      error.value = true;
     }
   },
   { immediate: true },
@@ -160,7 +174,9 @@ function changeKind(check: Check, kind: string) {
 </script>
 <template>
   <div class="task-editor">
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="error" role="alert">
+      {{ language.t('platform.workflow-task-editor.invalid-config', '任务配置格式无效，请修复配置后再编辑') }}
+    </p>
     <template v-else>
       <UiCheckbox
         :checked="spec.definition.manualConfirm === true"
@@ -169,28 +185,43 @@ function changeKind(check: Check, kind: string) {
           spec.definition.manualConfirm = $event;
           save();
         "
-        >明确人工确认完成</UiCheckbox
+        >{{ language.t('platform.workflow-task-editor.manual-confirm', '明确人工确认完成') }}</UiCheckbox
       >
-      <p>所有检查项必须通过，才允许完成任务。已发布的检查与办理指引随流程版本冻结。</p>
+      <p>
+        {{
+          language.t(
+            'platform.workflow-task-editor.frozen-help',
+            '所有检查项必须通过，才允许完成任务。已发布的检查与办理指引随流程版本冻结。',
+          )
+        }}
+      </p>
       <fieldset v-for="(check, index) in spec.checks" :key="check.checkKey">
-        <legend>完成检查 {{ index + 1 }}</legend>
+        <legend>
+          {{ language.t('platform.workflow-task-editor.completion-check', '完成检查') }} {{ index + 1 }}
+        </legend>
         <label class="workflow-field"
-          >检查名称<UiInput v-model:value="check.title" :disabled="disabled" @update:value="save"
+          >{{ language.t('platform.workflow-task-editor.check-name', '检查名称')
+          }}<UiInput v-model:value="check.title" :disabled="disabled" @update:value="save"
         /></label>
         <label class="workflow-field"
-          >判定方式<UiSelect
+          >{{ language.t('platform.workflow-task-editor.check-method', '判定方式')
+          }}<UiSelect
             :value="check.checkKind"
             :options="checkOptions"
             :disabled="disabled"
             @update:value="changeKind(check, String($event))"
         /></label>
         <label class="workflow-field" v-if="check.checkKind === 'FORMULA'"
-          ><RecordFieldLabel required>业务字段公式</RecordFieldLabel
+          ><RecordFieldLabel required>{{
+            language.t('platform.workflow-task-editor.field-formula', '业务字段公式')
+          }}</RecordFieldLabel
           ><FormulaExpressionEditor
             :value="check.expression ?? ''"
             :fields="fields ?? []"
             :disabled="disabled"
-            placeholder="例如 {delivered} == true"
+            :placeholder="
+              language.t('platform.workflow-task-editor.formula-example', '例如 {delivered} == true')
+            "
             @update:value="
               check.expression = $event;
               save();
@@ -198,9 +229,17 @@ function changeKind(check: Check, kind: string) {
         /></label>
         <template v-else>
           <template v-if="check.checkKind === 'QUERY_EXISTS'">
-            <p v-if="!catalog?.queries.length">本模块暂无已发布查询模板，请先发布业务查询模板。</p>
+            <p v-if="!catalog?.queries.length">
+              {{
+                language.t(
+                  'platform.workflow-task-editor.missing-query',
+                  '本模块暂无已发布查询模板，请先发布业务查询模板。',
+                )
+              }}
+            </p>
             <label class="workflow-field"
-              >已发布查询模板<UiSelect
+              >{{ language.t('platform.workflow-task-editor.published-query', '已发布查询模板')
+              }}<UiSelect
                 :options="catalog?.queries.map((item) => ({ value: item.id, label: item.title })) ?? []"
                 show-search
                 :value="String(config(check).queryTemplateId ?? '')"
@@ -208,17 +247,24 @@ function changeKind(check: Check, kind: string) {
                 @update:value="setConfig(check, 'queryTemplateId', $event)"
             /></label>
             <label class="workflow-field"
-              >当前业务 ID 的查询参数名<UiInput
+              >{{ language.t('platform.workflow-task-editor.record-id-parameter', '当前业务 ID 的查询参数名')
+              }}<UiInput
                 :value="String(config(check).externalRecordIdKey ?? '')"
                 :disabled="disabled"
                 @update:value="setConfig(check, 'externalRecordIdKey', $event)"
             /></label>
           </template>
           <p v-if="check.checkKind === 'RELATED_QUERY_EXISTS' && !associations?.length">
-            本模块暂无可查询的关联视图，请先配置关联视图。
+            {{
+              language.t(
+                'platform.workflow-task-editor.missing-association',
+                '本模块暂无可查询的关联视图，请先配置关联视图。',
+              )
+            }}
           </p>
           <label class="workflow-field" v-if="check.checkKind === 'RELATED_QUERY_EXISTS'"
-            >关联视图<UiSelect
+            >{{ language.t('platform.workflow-task-editor.association', '关联视图')
+            }}<UiSelect
               :options="[...(associations ?? [])]"
               show-search
               :value="String(config(check).associationViewCode ?? '')"
@@ -226,9 +272,17 @@ function changeKind(check: Check, kind: string) {
               @update:value="setConfig(check, 'associationViewCode', $event)"
           /></label>
           <template v-if="check.checkKind === 'GENERATED_QUERY_EXISTS'">
-            <p v-if="!catalog?.generations.length">本模块暂无启用的生成规则，请先配置业务生成规则。</p>
+            <p v-if="!catalog?.generations.length">
+              {{
+                language.t(
+                  'platform.workflow-task-editor.missing-generation',
+                  '本模块暂无启用的生成规则，请先配置业务生成规则。',
+                )
+              }}
+            </p>
             <label class="workflow-field"
-              >生成目标模块<UiSelect
+              >{{ language.t('platform.workflow-task-editor.generation-target', '生成目标模块')
+              }}<UiSelect
                 :options="generationTargets"
                 show-search
                 :value="String(config(check).targetModuleAlias ?? '')"
@@ -236,7 +290,8 @@ function changeKind(check: Check, kind: string) {
                 @update:value="setConfig(check, 'targetModuleAlias', $event)"
             /></label>
             <label class="workflow-field"
-              >生成规则（可选）<UiSelect
+              >{{ language.t('platform.workflow-task-editor.generation-rule', '生成规则（可选）')
+              }}<UiSelect
                 :options="
                   catalog?.generations
                     .filter((item) => item.targetModuleAlias === config(check).targetModuleAlias)
@@ -249,7 +304,9 @@ function changeKind(check: Check, kind: string) {
             /></label>
           </template>
           <label class="workflow-field"
-            ><RecordFieldLabel required>最少业务记录数</RecordFieldLabel
+            ><RecordFieldLabel required>{{
+              language.t('platform.workflow-task-editor.minimum-count', '最少业务记录数')
+            }}</RecordFieldLabel
             ><UiInput
               type="number"
               :value="String(config(check).expectedCount ?? 1)"
@@ -258,7 +315,8 @@ function changeKind(check: Check, kind: string) {
           /></label>
         </template>
         <label class="workflow-field"
-          >未完成提示<UiInput v-model:value="check.failureMessage" :disabled="disabled" @update:value="save"
+          >{{ language.t('platform.workflow-task-editor.failure-message', '未完成提示')
+          }}<UiInput v-model:value="check.failureMessage" :disabled="disabled" @update:value="save"
         /></label>
         <UiButton
           danger
@@ -267,17 +325,23 @@ function changeKind(check: Check, kind: string) {
             spec.checks.splice(index, 1);
             save();
           "
-          >删除检查</UiButton
+          >{{ language.t('platform.workflow-task-editor.delete-check', '删除检查') }}</UiButton
         >
       </fieldset>
-      <UiButton :disabled="disabled" @click="addCheck">添加完成检查</UiButton>
+      <UiButton :disabled="disabled" @click="addCheck">{{
+        language.t('platform.workflow-task-editor.add-check', '添加完成检查')
+      }}</UiButton>
       <fieldset v-for="(guide, index) in spec.guides" :key="guide.guideKey">
-        <legend>办理指引 {{ index + 1 }}</legend>
+        <legend>
+          {{ language.t('platform.workflow-task-editor.task-guide', '办理指引') }} {{ index + 1 }}
+        </legend>
         <label class="workflow-field"
-          >指引名称<UiInput v-model:value="guide.title" :disabled="disabled" @update:value="save"
+          >{{ language.t('platform.workflow-task-editor.guide-name', '指引名称')
+          }}<UiInput v-model:value="guide.title" :disabled="disabled" @update:value="save"
         /></label>
         <label class="workflow-field"
-          >办理方式<UiSelect
+          >{{ language.t('platform.workflow-task-editor.guide-method', '办理方式')
+          }}<UiSelect
             :value="guide.guideKind"
             :options="guideOptions"
             :disabled="disabled"
@@ -288,22 +352,32 @@ function changeKind(check: Check, kind: string) {
             "
         /></label>
         <label class="workflow-field" v-if="['OPEN_FORM', 'EXECUTE_ACTION'].includes(guide.guideKind)"
-          ><RecordFieldLabel required>可编辑字段</RecordFieldLabel
+          ><RecordFieldLabel required>{{
+            language.t('platform.workflow-task-editor.editable-fields', '可编辑字段')
+          }}</RecordFieldLabel
           ><UiSelect
             :value="(config(guide).editableFields as string[] | undefined) ?? []"
             :options="fieldOptions"
             mode="multiple"
             show-search
             :disabled="disabled"
-            placeholder="选择允许在任务中修改的业务字段"
+            :placeholder="
+              language.t(
+                'platform.workflow-task-editor.editable-placeholder',
+                '选择允许在任务中修改的业务字段',
+              )
+            "
             @update:value="setConfig(guide, 'editableFields', $event)"
         /></label>
         <label class="workflow-field" v-if="guide.guideKind === 'OPEN_LIST'"
-          >目标模块<UiInput v-model:value="guide.targetModuleAlias" :disabled="disabled" @update:value="save"
+          >{{ language.t('platform.workflow-task-editor.target-module', '目标模块')
+          }}<UiInput v-model:value="guide.targetModuleAlias" :disabled="disabled" @update:value="save"
         /></label>
         <template v-if="guide.guideKind === 'EXECUTE_ACTION'">
           <label class="workflow-field"
-            ><RecordFieldLabel required>业务动作</RecordFieldLabel
+            ><RecordFieldLabel required>{{
+              language.t('platform.workflow-task-editor.business-action', '业务动作')
+            }}</RecordFieldLabel
             ><UiSelect
               :options="[...(actions ?? [])]"
               show-search
@@ -312,17 +386,25 @@ function changeKind(check: Check, kind: string) {
               @update:value="save"
           /></label>
           <label class="workflow-field"
-            >动作参数（JSON 对象）<UiTextArea
+            >{{ language.t('platform.workflow-task-editor.action-parameters', '动作参数（JSON 对象）')
+            }}<UiTextArea
               :value="payloadText(guide)"
               :disabled="disabled"
               @update:value="setPayload(guide, $event)"
           /></label>
           <p v-if="typeof config(guide).payload === 'string'" role="alert">
-            动作参数必须是有效 JSON 对象，修正后才能发布。
+            {{
+              language.t(
+                'platform.workflow-task-editor.invalid-parameters',
+                '动作参数必须是有效 JSON 对象，修正后才能发布。',
+              )
+            }}
           </p>
         </template>
         <label class="workflow-field" v-if="guide.guideKind === 'FOCUS_FIELD'"
-          ><RecordFieldLabel required>业务字段</RecordFieldLabel
+          ><RecordFieldLabel required>{{
+            language.t('platform.workflow-task-editor.business-field', '业务字段')
+          }}</RecordFieldLabel
           ><UiSelect
             :options="fieldOptions"
             show-search
@@ -331,7 +413,8 @@ function changeKind(check: Check, kind: string) {
             @update:value="setConfig(guide, 'field', $event)"
         /></label>
         <label class="workflow-field" v-if="guide.guideKind === 'READ_INSTRUCTION'"
-          >办理说明<UiTextArea
+          >{{ language.t('platform.workflow-task-editor.instructions', '办理说明')
+          }}<UiTextArea
             :value="String(config(guide).instruction ?? '')"
             :disabled="disabled"
             @update:value="setConfig(guide, 'instruction', $event)"
@@ -343,10 +426,12 @@ function changeKind(check: Check, kind: string) {
             spec.guides.splice(index, 1);
             save();
           "
-          >删除指引</UiButton
+          >{{ language.t('platform.workflow-task-editor.delete-guide', '删除指引') }}</UiButton
         >
       </fieldset>
-      <UiButton :disabled="disabled" @click="addGuide">添加办理指引</UiButton>
+      <UiButton :disabled="disabled" @click="addGuide">{{
+        language.t('platform.workflow-task-editor.add-guide', '添加办理指引')
+      }}</UiButton>
     </template>
   </div>
 </template>

@@ -141,6 +141,8 @@ const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
 const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
+// Malformed editor input stays local while the last valid business draft remains unchanged.
+const invalidEditorInputs = ref<Record<string, string>>({});
 const referenceFieldValidity = ref<Record<string, ReferencePickerValidity>>({});
 const dictionaryFieldValidity = ref<Record<string, DictionaryPickerValidity>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
@@ -164,8 +166,8 @@ const requiredFieldErrors = computed<Record<string, string>>(() => {
 const formValidity = computed<RecordFormValidity>(() => {
   const errors = {
     ...requiredFieldErrors.value,
-    ...optionFieldErrors.value,
-    ...editorFieldErrors.value,
+    ...translatedErrors(optionFieldErrors.value),
+    ...translatedErrors(editorFieldErrors.value),
   };
   for (const field of fieldStates.value) {
     const constraintError =
@@ -180,7 +182,8 @@ const formValidity = computed<RecordFormValidity>(() => {
     const referenceError = referenceFieldError(field);
     if (referenceError) errors[field.fieldName] = referenceError;
     if (field.controlType === 'unsupported') {
-      errors[field.fieldName] = field.rendererDiagnostic ?? '该字段控件当前不可编辑';
+      errors[field.fieldName] =
+        field.rendererDiagnostic ?? language.t('platform.form.unsupported', '该字段控件当前不可编辑');
     }
   }
   return { valid: Object.keys(errors).length === 0, errors };
@@ -198,6 +201,7 @@ watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   touchedFields.value = {};
   editorFieldErrors.value = {};
+  invalidEditorInputs.value = {};
   referenceFieldValidity.value = {};
   dictionaryFieldValidity.value = {};
   clearReferenceSelectionContext();
@@ -266,6 +270,8 @@ function recordPickerFieldValue(fieldName: string) {
 }
 
 function editorFieldValue(field: RecordFormFieldState) {
+  if (Object.hasOwn(invalidEditorInputs.value, field.fieldName))
+    return invalidEditorInputs.value[field.fieldName];
   const value = props.record[field.fieldName];
   if (field.controlType === 'dateTimeInput') {
     return formatDateTimeLocalEditorValue(value);
@@ -315,22 +321,30 @@ function overrideOptions(field: RecordFormFieldState) {
   const options =
     field.valueType === 'BOOLEAN'
       ? [
-          { label: '开启', value: 'true' },
-          { label: '关闭', value: 'false' },
+          { label: language.t('platform.form.enabled', '开启'), value: 'true' },
+          { label: language.t('platform.form.disabled', '关闭'), value: 'false' },
         ]
       : optionFieldOptions(field);
   return [
-    { label: `继承（${overrideInheritedLabel(field, inheritedValue)}）`, value: INHERIT_OPTION_VALUE },
+    {
+      label: language.t('platform.form.inherit', '继承（{label}）', {
+        label: overrideInheritedLabel(field, inheritedValue),
+      }),
+      value: INHERIT_OPTION_VALUE,
+    },
     ...options,
   ];
 }
 
 function overrideInheritedLabel(field: RecordFormFieldState, value: unknown): string {
-  if (field.valueType === 'BOOLEAN') return value === true ? '开启' : '关闭';
+  if (field.valueType === 'BOOLEAN')
+    return value === true
+      ? language.t('platform.form.enabled', '开启')
+      : language.t('platform.form.disabled', '关闭');
   const code = optionWireValue(value);
   return (
     optionFieldOptions(field).find((option) => option.value === code)?.label ??
-    (code == null ? '未设置' : String(code))
+    (code == null ? language.t('platform.form.unset', '未设置') : String(code))
   );
 }
 
@@ -347,24 +361,31 @@ function optionFieldLoading(field: RecordFormFieldState) {
 }
 
 function optionFieldError(field: RecordFormFieldState) {
-  return optionFieldErrors.value[field.fieldName] ?? dictionaryRendererErrorOf(field);
+  return translatedErrors(optionFieldErrors.value)[field.fieldName] ?? dictionaryRendererErrorOf(field);
 }
 
 function optionFieldLoadError(field: RecordFormFieldState) {
-  return optionFieldErrors.value[field.fieldName];
+  return translatedErrors(optionFieldErrors.value)[field.fieldName];
 }
 
 function dictionaryRendererErrorOf(field: RecordFormFieldState) {
   if (field.controlType !== 'dictionaryRadioGroup' || optionFieldLoading(field)) return undefined;
   const items = optionFieldItems(field);
   if (items.some((item) => Boolean(item.parentCode))) {
-    return '层级字典不支持 radio 单选组，请在页面编排中改用下拉或弹框。';
+    return language.t(
+      'platform.form.hierarchy-radio',
+      '层级字典不支持 radio 单选组，请在页面编排中改用下拉或弹框。',
+    );
   }
   const configured = Number(field.fieldControl?.properties?.maxOptions ?? '12');
   const maxOptions = Number.isSafeInteger(configured) && configured > 0 ? configured : 12;
   const enabledCount = items.filter((item) => item.enabled).length;
   if (enabledCount > maxOptions) {
-    return `当前有 ${enabledCount} 个启用候选，radio 单选组最多支持 ${maxOptions} 个；请调整页面配置。`;
+    return language.t(
+      'platform.form.radio-limit',
+      '当前有 {count} 个启用候选，radio 单选组最多支持 {max} 个；请调整页面配置。',
+      { count: enabledCount, max: maxOptions },
+    );
   }
   return undefined;
 }
@@ -402,7 +423,10 @@ function dictionaryPickerErrorOf(field: RecordFormFieldState) {
   // Dictionary completion is local to its picker, while the form owns save blocking and messaging.
   const validity = dictionaryFieldValidity.value[field.fieldName];
   if (!dictionaryPickerMode(field) || fieldDisabled(field) || !validity || validity.valid) return undefined;
-  return validity.message ?? `请完成${field.label}的选择`;
+  return (
+    validity.message ??
+    language.t('platform.form.complete-selection', '请完成{label}的选择', { label: field.label })
+  );
 }
 
 function retryOptionField(field: RecordFormFieldState) {
@@ -454,7 +478,7 @@ async function loadOptionField(field: RecordFormFieldDescriptor, forceRefresh = 
     optionFieldErrors.value = errors;
   } catch {
     if (!current()) return;
-    optionFieldErrors.value = { ...optionFieldErrors.value, [fieldName]: '选项加载失败，请重试' };
+    optionFieldErrors.value = { ...optionFieldErrors.value, [fieldName]: 'platform.form.options-failed' };
   } finally {
     if (current()) {
       const next = new Set(loadingOptionFields.value);
@@ -587,29 +611,34 @@ function updateEditorField(field: RecordFormFieldState, value: string) {
     clearEditorFieldError(field.fieldName);
     emit('update:field', field.fieldName, decoded);
   } catch (error) {
-    setEditorFieldError(field.fieldName, error instanceof Error ? error.message : '字段值格式无效');
+    invalidEditorInputs.value = { ...invalidEditorInputs.value, [field.fieldName]: value };
+    setEditorFieldError(field.fieldName, error instanceof Error ? error.message : 'platform.form.invalid');
   }
 }
 
 function decodeEditorValue(field: RecordFormFieldState, value: string): RecordFormFieldValue {
   if (field.controlType === 'numberInput') {
     const decoded = decodeNumberEditorValue(value, field.valueType);
-    if (decoded === undefined && value.trim()) throw new Error('请输入有效数字');
+    if (decoded === undefined && value.trim()) throw new Error('platform.form.number');
     return decoded;
   }
   if (field.controlType === 'dateTimeInput') {
     const decoded = decodeDateTimeLocalEditorValue(value);
-    if (decoded === undefined && value.trim()) throw new Error('请输入有效日期时间');
+    if (decoded === undefined && value.trim()) throw new Error('platform.form.datetime');
     return decoded;
   }
   if (field.fieldControl?.rendererType === 'JSON') {
     try {
       return decodeJsonEditorValue(value);
     } catch {
-      throw new Error('请输入有效 JSON');
+      throw new Error('platform.form.json');
     }
   }
   return value;
+}
+
+function translatedErrors(errors: Record<string, string>) {
+  return Object.fromEntries(Object.entries(errors).map(([field, key]) => [field, language.t(key, key)]));
 }
 
 function setEditorFieldError(fieldName: string, message: string) {
@@ -617,6 +646,9 @@ function setEditorFieldError(fieldName: string, message: string) {
 }
 
 function clearEditorFieldError(fieldName: string) {
+  const inputs = { ...invalidEditorInputs.value };
+  delete inputs[fieldName];
+  invalidEditorInputs.value = inputs;
   if (!editorFieldErrors.value[fieldName]) return;
   const errors = { ...editorFieldErrors.value };
   delete errors[fieldName];
@@ -625,7 +657,7 @@ function clearEditorFieldError(fieldName: string) {
 
 function editorFieldError(field: RecordFormFieldState) {
   return (
-    editorFieldErrors.value[field.fieldName] ??
+    translatedErrors(editorFieldErrors.value)[field.fieldName] ??
     (!field.readOnly &&
     field.visible &&
     (touchedFields.value[field.fieldName] || props.validationRequestKey > 0)
@@ -650,7 +682,10 @@ function referenceFieldError(field: RecordFormFieldState) {
     validity.valid
   )
     return undefined;
-  return validity.message ?? `请完成${field.label}的选择`;
+  return (
+    validity.message ??
+    language.t('platform.form.complete-selection', '请完成{label}的选择', { label: field.label })
+  );
 }
 
 function fieldShowsError(field: RecordFormFieldState) {
@@ -801,7 +836,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
               :disabled="optionFieldLoading(field)"
               @click="retryOptionField(field)"
             >
-              重试
+              {{ language.t('platform.form.retry', '重试') }}
             </UiButton>
           </div>
           <div v-if="!field.readOnly && editorFieldError(field)" class="record-form-field-error" role="alert">
@@ -901,7 +936,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
                 :disabled="fieldDisabled(field) || field.pickerConfig.scopedTree.disabled"
                 @click="openScopedTreePicker(field)"
               >
-                展开选择
+                {{ language.t('platform.form.expand', '展开选择') }}
               </UiButton>
               <small v-if="field.pickerConfig.scopedTree.unavailableMessage">
                 {{ field.pickerConfig.scopedTree.unavailableMessage }}
@@ -967,8 +1002,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :items="optionFieldItems(field)"
             :selection-mode="field.optionSelectionMode ?? 'SINGLE'"
             :mode="dictionaryPickerMode(field)!"
-            :title="`选择${field.label}`"
-            :placeholder="field.placeholder ?? '搜索并选择'"
+            :title="language.t('platform.form.select', '选择{label}', { label: field.label })"
+            :placeholder="field.placeholder ?? language.t('platform.form.search-select', '搜索并选择')"
             :disabled="fieldDisabled(field) || optionFieldLoading(field)"
             :allow-clear="!field.required"
             @update:value="updateDictionaryPickerValue(field, $event)"
