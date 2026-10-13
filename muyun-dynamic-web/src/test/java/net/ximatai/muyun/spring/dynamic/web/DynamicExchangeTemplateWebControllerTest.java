@@ -55,7 +55,9 @@ class DynamicExchangeTemplateWebControllerTest {
         writer = mock(ExcelWorkbookPlanWriter.class);
         mvc = MockMvcBuilders
                 .standaloneSetup(new DynamicExchangeTemplateWebController(
-                        recordService, activeTenantVerifier, templatePlanBuilder, writer))
+                        recordService, activeTenantVerifier, templatePlanBuilder, writer,
+                        new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation(
+                                new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(net.ximatai.muyun.spring.common.i18n.TextResolver.class))))
                 .setControllerAdvice(new PlatformWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))

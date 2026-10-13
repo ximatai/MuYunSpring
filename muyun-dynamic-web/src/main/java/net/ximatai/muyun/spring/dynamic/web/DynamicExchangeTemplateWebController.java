@@ -41,32 +41,26 @@ public class DynamicExchangeTemplateWebController {
     private final ActiveTenantVerifier activeTenantVerifier;
     private final DynamicExchangeTemplatePlanBuilder templatePlanBuilder;
     private final ExcelWorkbookPlanWriter workbookWriter;
-    private ExcelWorkbookPresentation presentation;
+    private final ExcelWorkbookPresentation presentation;
 
+    @Autowired
     public DynamicExchangeTemplateWebController(DynamicRecordService recordService,
-                                                ActiveTenantVerifier activeTenantVerifier,
-                                                OptionSourceRegistry optionSourceRegistry) {
+            ActiveTenantVerifier activeTenantVerifier, OptionSourceRegistry optionSourceRegistry,
+            ExcelWorkbookPresentation presentation) {
         this(recordService, activeTenantVerifier,
                 new DynamicExchangeTemplatePlanBuilder(optionSourceRegistry,
                         new DynamicRecordReferenceDropdownResolver(recordService)),
-                new ExcelWorkbookPlanWriter());
-    }
-
-    @Autowired
-    public DynamicExchangeTemplateWebController(DynamicRecordService records, ActiveTenantVerifier tenants,
-            OptionSourceRegistry options, ExcelWorkbookPresentation presentation) {
-        this(records, tenants, options);
-        this.presentation = presentation;
+                new ExcelWorkbookPlanWriter(), presentation);
     }
 
     DynamicExchangeTemplateWebController(DynamicRecordService recordService,
-                                         ActiveTenantVerifier activeTenantVerifier,
-                                         DynamicExchangeTemplatePlanBuilder templatePlanBuilder,
-                                         ExcelWorkbookPlanWriter workbookWriter) {
-        this.recordService = recordService;
-        this.activeTenantVerifier = activeTenantVerifier;
-        this.templatePlanBuilder = templatePlanBuilder;
-        this.workbookWriter = workbookWriter;
+            ActiveTenantVerifier activeTenantVerifier, DynamicExchangeTemplatePlanBuilder templatePlanBuilder,
+            ExcelWorkbookPlanWriter workbookWriter, ExcelWorkbookPresentation presentation) {
+        this.recordService = java.util.Objects.requireNonNull(recordService, "recordService");
+        this.activeTenantVerifier = java.util.Objects.requireNonNull(activeTenantVerifier, "activeTenantVerifier");
+        this.templatePlanBuilder = java.util.Objects.requireNonNull(templatePlanBuilder, "templatePlanBuilder");
+        this.workbookWriter = java.util.Objects.requireNonNull(workbookWriter, "workbookWriter");
+        this.presentation = java.util.Objects.requireNonNull(presentation, "presentation");
     }
 
     @PostMapping("/template")
@@ -86,7 +80,7 @@ public class DynamicExchangeTemplateWebController {
         DynamicModuleDescriptor descriptor = recordService.describe(moduleAlias);
         requireExchangeCapability(descriptor);
         ExcelWorkbookPlan plan = templatePlanBuilder.build(descriptor, templateOptions(request));
-        if (presentation != null) plan = presentation.project(plan, descriptor);
+        plan = presentation.project(plan, descriptor);
         byte[] bytes = workbookWriter.writeToBytes(plan);
         writeXlsx(response, moduleAlias.replace('.', '_') + "-exchange-template.xlsx", bytes);
     }

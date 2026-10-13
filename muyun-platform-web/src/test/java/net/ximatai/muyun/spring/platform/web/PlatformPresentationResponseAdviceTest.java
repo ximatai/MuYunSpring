@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.workflow.*;
 import net.ximatai.muyun.spring.web.WebListResponse;
+import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebTreeNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -43,6 +44,44 @@ class PlatformPresentationResponseAdviceTest {
         }
         assertThat(menu.getTitle()).isEqualTo("业务菜单");
         assertThat(option.title()).isEqualTo("已参加");
+    }
+    @Test void projectsTheActualPaginatedWorkbenchResponseWithoutChangingPagingOrBusinessFacts() throws Exception {
+        var card = mapper.convertValue(Map.of("instanceId", "instance-1", "moduleAlias", "sales.order",
+                "recordId", "record-1", "workflowVersionId", "version-1", "nodeKey", "approval", "nodeTitle", "旧节点"), WorkflowWorkbenchCard.class);
+        var source = ConfigurationTextSources.workflowNodeTitle("version-1", "approval", "旧节点");
+        var projection = advice(Map.of(source, "Previous approval"));
+        var method = java.util.Arrays.stream(net.ximatai.muyun.spring.platform.web.workflow.WorkflowRuntimeWebController.class.getDeclaredMethods())
+                .filter(candidate -> candidate.getName().equals("workbenchPage")).findFirst().orElseThrow();
+        assertThat(projection.supports(new org.springframework.core.MethodParameter(method, -1),
+                org.springframework.http.converter.json.MappingJackson2HttpMessageConverter.class)).isTrue();
+        var page = new WebPageResponse<>(List.of(card), 87, 3, 20, 5, true, Map.of("cursor", "unchanged"));
+        try (var language = LanguageContext.use("en")) {
+            var projected = mapper.valueToTree(projection.project(page));
+            assertThat(projected.at("/records/0/nodeTitle").asText()).isEqualTo("Previous approval");
+            assertThat(projected.at("/records/0/nodeTitleText/source/originalText").asText()).isEqualTo("旧节点");
+            assertThat(projected.at("/records/0/recordId").asText()).isEqualTo("record-1");
+            assertThat(projected.get("total").asLong()).isEqualTo(87);
+            assertThat(projected.get("pageNum").asInt()).isEqualTo(3);
+            assertThat(projected.at("/navigation/cursor").asText()).isEqualTo("unchanged");
+        }
+        assertThat(card.nodeTitle()).isEqualTo("旧节点");
+    }
+    @Test void projectsFrozenTaskGuideDisplaySlotsWithoutTouchingExecutableConfiguration() {
+        var guide = new WorkflowTaskGuide(); guide.setGuideKey("read"); guide.setTitle("办理说明");
+        guide.setGuideConfigText("{\"instruction\":\"请核对数据\",\"payload\":{\"title\":\"业务原值\"}}");
+        var title = ConfigurationTextSources.workflowGuideText("v1", "task", "read", "title", "办理说明");
+        var instruction = ConfigurationTextSources.workflowGuideText("v1", "task", "read", "instruction", "请核对数据");
+        var process = new WorkflowModuleTaskProcessBundle("task-1", "instance-1", "v1", "task", "sales.order", "record-1", null, null, null,
+                WorkflowModuleTaskEvaluation.manualConfirm(List.of(guide)), guide);
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice(Map.of(title, "Task instructions", instruction, "Check the data")).project(process));
+            assertThat(output.at("/evaluation/guides/0/title").asText()).isEqualTo("Task instructions");
+            assertThat(output.at("/evaluation/guides/0/instructionText/source/originalText").asText()).isEqualTo("请核对数据");
+            assertThat(output.at("/evaluation/guides/0/instruction").asText()).isEqualTo("Check the data");
+            assertThat(output.at("/evaluation/guides/0/guideConfigText").asText()).isEqualTo(guide.getGuideConfigText());
+            assertThat(output.at("/nextGuide/titleText/source/sourceId").asText()).isEqualTo(title.sourceId());
+        }
+        assertThat(guide.getTitle()).isEqualTo("办理说明");
     }
     @Test void resolvesFrozenWorkflowVersionRatherThanCurrentNodeNameAndLeavesUserAddedNodesUntouched() {
         var instance = new WorkflowInstance(); instance.setWorkflowVersionId("version-1");

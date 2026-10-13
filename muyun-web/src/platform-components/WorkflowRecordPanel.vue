@@ -5,6 +5,7 @@ import {
   createWorkflowClient,
   createModuleContext,
   displayModuleRuntime,
+  presentationLabel,
   type ModuleContext,
 } from '@muyun/web-core';
 import type {
@@ -130,10 +131,17 @@ watch(
     }),
   { flush: 'sync', immediate: true },
 );
+function actionTitle(action: WorkflowAction) {
+  const title = workflowTitle(action.actionCode);
+  return title === action.actionCode ? action.title : title;
+}
+function actionNodeTitle(action: WorkflowAction) {
+  return bundle.value?.nodes.find((node) => node.nodeKey === action.nodeKey)?.nodeTitle ?? action.nodeTitle;
+}
 const operationItems = computed(() =>
   actions.value.map((action, index) => ({
     key: String(index),
-    title: `${action.nodeTitle ? action.nodeTitle + ' · ' : ''}${action.actionCode === 'complete' ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.process-task', '办理任务') : action.title}`,
+    title: `${actionNodeTitle(action) ? actionNodeTitle(action) + ' · ' : ''}${action.actionCode === 'complete' ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.process-task', '办理任务') : actionTitle(action)}`,
     level: ['approve', 'complete', 'resubmit', 'read'].includes(action.actionCode)
       ? ('primary' as const)
       : ('secondary' as const),
@@ -207,6 +215,21 @@ const selectedAddSignRoute = computed(
     (addSignRoutes.value.length === 1 ? addSignRoutes.value[0] : undefined),
 );
 const taskProcess = ref<WorkflowTaskPreparation>();
+const displayTaskGuides = computed(
+  () =>
+    taskProcess.value?.evaluation.guides.map((guide) => ({
+      ...guide,
+      title:
+        guide.title == null ? undefined : presentationLabel(guide.title, guide.titleText, workflowLanguage),
+    })) ?? [],
+);
+function guideInstruction(guide: WorkflowTaskPreparation['evaluation']['guides'][number]) {
+  const original = guideConfig(guide).instruction;
+  return typeof original === 'string'
+    ? presentationLabel(original, guide.instructionText, workflowLanguage)
+    : guide.title;
+}
+
 const taskDraft = ref<RecordFormRecord>(),
   originalTaskFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   taskGuideKey = ref<string>();
@@ -243,6 +266,7 @@ async function openReadGuide(guide: {
     guideListTitle.value = guide.title ?? '业务记录';
     guideListContext.value = createModuleContext<Record<string, unknown>>({
       http: props.context.http,
+      language: workflowLanguage,
       moduleAlias: guide.targetModuleAlias ?? props.context.moduleAlias,
     });
   } else {
@@ -294,10 +318,13 @@ watch(
     const workflowRevision = revision;
     const history = selectedHistory.value;
     const context = props.context;
+    const process = taskProcess.value;
+    const taskId = activeAction.value?.taskId;
     try {
-      const [next, nextEvents] = await Promise.all([
+      const [next, nextEvents, nextProcess] = await Promise.all([
         history ? client.value.historyBundle(history) : client.value.bundle(current.instance.id),
         history ? client.value.historyEvents(history) : client.value.eventViews(current.instance.id),
+        process && taskId ? client.value.prepareTask(taskId) : undefined,
       ]);
       if (
         request !== textResourceRequest ||
@@ -308,6 +335,29 @@ watch(
       )
         return;
       originalBundle.value = refreshWorkflowTextResources(originalBundle.value, next);
+      if (process && nextProcess && taskProcess.value === process && activeAction.value?.taskId === taskId) {
+        taskProcess.value = {
+          ...process,
+          evaluation: {
+            ...process.evaluation,
+            guides: process.evaluation.guides.map((guide) => {
+              const refreshed = nextProcess.evaluation.guides.find(
+                (item) => item.guideKey === guide.guideKey,
+              );
+              return {
+                ...guide,
+                titleText: sameWorkflowTextSource(guide.titleText, refreshed?.titleText)
+                  ? refreshed?.titleText
+                  : guide.titleText,
+                instructionText: sameWorkflowTextSource(guide.instructionText, refreshed?.instructionText)
+                  ? refreshed?.instructionText
+                  : guide.instructionText,
+              };
+            }),
+          },
+        };
+      }
+
       events.value = events.value.map((event) => {
         const refreshed = nextEvents.find((item) => item.id === event.id);
         return sameWorkflowTextSource(event.messageText, refreshed?.messageText)
@@ -831,7 +881,11 @@ async function execute() {
     </div>
     <RecordDetailDrawer
       :open="Boolean(activeAction)"
-      :title="activeAction?.actionCode === 'complete' ? '办理业务任务' : (activeAction?.title ?? '审批操作')"
+      :title="
+        activeAction
+          ? actionTitle(activeAction)
+          : workflowLanguage.t('platform.screen.WorkflowRecordPanel.workflow-operation', '审批操作')
+      "
       width="wide"
       :before-close="mayLeave"
       @close="activeAction = undefined"
@@ -904,7 +958,7 @@ async function execute() {
               "
           /></label>
           <p>
-            插入影响：{{ activeAction.nodeTitle }} → {{ addSignTitle }} →
+            插入影响：{{ actionNodeTitle(activeAction) }} → {{ addSignTitle }} →
             {{
               bundle?.nodes.find((node) => node.nodeKey === selectedAddSignRoute?.targetNodeKey)?.nodeTitle ??
               '请选择下游路径'
@@ -1020,7 +1074,7 @@ async function execute() {
                 {{ check.checkKey }} · {{ check.passed ? '通过' : (check.failureMessage ?? '尚未完成') }}
               </li>
             </ul>
-            <template v-for="guide in taskProcess.evaluation.guides" :key="guide.guideKey"
+            <template v-for="guide in displayTaskGuides" :key="guide.guideKey"
               ><UiButton
                 v-if="
                   guide.guideKind === 'open_form' ||
@@ -1040,7 +1094,7 @@ async function execute() {
                 @click="openReadGuide(guide)"
                 >{{ guide.title ?? '查看办理指引' }}</UiButton
               >
-              <p v-else>{{ guideConfig(guide).instruction ?? guide.title }}</p></template
+              <p v-else>{{ guideInstruction(guide) }}</p></template
             ></template
           >
           <RecordQueryListPanel
@@ -1097,7 +1151,11 @@ async function execute() {
             (activeAction.actionCode === 'submitApproval' && !previewReady)
           "
           @click="execute"
-          >确认{{ activeAction.title }}</UiButton
+          >{{
+            workflowLanguage.t('platform.screen.WorkflowRecordPanel.confirm-action', '确认{action}', {
+              action: actionTitle(activeAction),
+            })
+          }}</UiButton
         >
         <UiButton :disabled="busy || preparing" @click="cancelAction">{{
           workflowLanguage.t('platform.screen.WorkflowRecordPanel.cancel-operation', '取消操作')

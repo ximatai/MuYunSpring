@@ -227,6 +227,8 @@ export interface WorkflowTaskPreparation {
     guides: Array<{
       guideKey: string;
       title?: string;
+      titleText?: TextPresentation;
+      instructionText?: TextPresentation;
       guideKind: string;
       guideConfigText?: string;
       targetModuleAlias?: string;

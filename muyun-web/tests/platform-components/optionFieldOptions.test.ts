@@ -54,3 +54,50 @@ it('uses each consumer language for option labels and saved title companions whi
   expect(record).toEqual({ attendance: 'ATTENDED', attendanceTitle: '已参加', opinion: '张三的原文意见' });
   expect(items[0]?.title).toBe('已参加');
 });
+
+it('resolves multiple option identities before raw title companions and preserves empty and unknown codes', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const items = ['ATTENDED', 'ABSENT'].map((code) => ({
+    code,
+    title: code === 'ATTENDED' ? '已参加' : '缺考',
+    enabled: true,
+    titleText: {
+      source: {
+        sourceKind: 'CONFIG' as const,
+        sourceId: `item/${code}`,
+        sourceVersion: 'v1',
+        originalText: code,
+      },
+      languages: {
+        en: {
+          text: code === 'ATTENDED' ? 'Attended' : 'Absent',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+      },
+    },
+  }));
+  const field = {
+    fieldName: 'status',
+    hasOption: true,
+    optionTitleField: 'statusTitle',
+  } as RecordFormFieldState;
+  for (const status of [['ATTENDED', 'ABSENT'], '["ATTENDED","ABSENT"]']) {
+    const record = { status, statusTitle: ['已参加', '缺考'] };
+    expect(resolveRecordDetailDisplayValue(field, record, { optionItems: items, language })).toBe(
+      'Attended、Absent',
+    );
+    expect(record.status).toEqual(status);
+    expect(record.statusTitle).toEqual(['已参加', '缺考']);
+  }
+  expect(resolveRecordDetailDisplayValue(field, { status: [] }, { optionItems: items, language })).toBe('-');
+  expect(
+    resolveRecordDetailDisplayValue(
+      field,
+      { status: ['ABSENT', 'UNKNOWN'] },
+      { optionItems: items, language },
+    ),
+  ).toBe('Absent、UNKNOWN');
+});

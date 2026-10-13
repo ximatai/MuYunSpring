@@ -14,6 +14,10 @@ public final class ConfigurationTextSources {
     public static TextReference workflowNodeTitle(String versionId, String nodeKey, String original) {
         return TextReference.configured("config/workflow/version/" + segment(versionId) + "/node/" + segment(nodeKey) + "/title", original);
     }
+    public static TextReference workflowGuideText(String versionId, String nodeKey, String guideKey, String property, String original) {
+        return TextReference.configured("config/workflow/version/" + segment(versionId) + "/node/" + segment(nodeKey)
+                + "/guide/" + segment(guideKey) + "/" + segment(property), original);
+    }
     public static TextReference metadataFieldTitle(String module, String entity, String field, String original) {
         return TextReference.configured("config/metadata/" + segment(module) + "/entity/" + segment(entity) + "/field/" + segment(field) + "/title", original);
     }

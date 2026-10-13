@@ -48,3 +48,20 @@ export function optionItemsToTree(
   });
   return roots;
 }
+
+/** Option identities remain stable for scalar, array and JSON-array storage forms. */
+export function selectionCodesOf(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== 'string') return value == null ? [] : [String(value)];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      /* A scalar code may begin with "[". */
+    }
+  }
+  return [value];
+}

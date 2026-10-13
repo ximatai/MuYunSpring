@@ -7,10 +7,13 @@ import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRuntimeRenderBundle;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowModuleTaskProcessBundle;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowTaskGuide;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowWorkbenchCard;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowEvent;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowHistoryEventView;
 import net.ximatai.muyun.spring.web.WebListResponse;
+import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebTreeNode;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.MethodParameter;
@@ -35,7 +38,9 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
         return WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
+                WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
+                WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class;
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
@@ -67,6 +72,7 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
     }
     private void collect(Object value, String path, List<Slot> slots) {
         if (value instanceof WebListResponse<?> list) collect(list.records(), path + "/records", slots);
+        else if (value instanceof WebPageResponse<?> page) collect(page.records(), path + "/records", slots);
         else if (value instanceof List<?> list) for (int i = 0; i < list.size(); i++) collect(list.get(i), path + "/" + i, slots);
         else if (value instanceof WebTreeNode<?> node) {
             collect(node.record(), path + "/record", slots); collect(node.children(), path + "/children", slots);
@@ -81,6 +87,10 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             frozenMessage(path, event.getMessage(), event.getMessageSourceText(), slots);
         } else if (value instanceof WorkflowHistoryEventView event) {
             frozenMessage(path, event.message(), event.messageSourceText(), slots);
+        } else if (value instanceof WorkflowModuleTaskProcessBundle process && process.workflowVersionId() != null) {
+            for (int i = 0; i < process.evaluation().guides().size(); i++)
+                guideSources(process, process.evaluation().guides().get(i), path + "/evaluation/guides/" + i, slots);
+            if (process.nextGuide() != null) guideSources(process, process.nextGuide(), path + "/nextGuide", slots);
         } else if (value instanceof WorkflowRuntimeRenderBundle bundle && bundle.instance() != null && bundle.instance().getWorkflowVersionId() != null) {
             for (int i = 0; i < bundle.nodes().size(); i++) {
                 var node = bundle.nodes().get(i);
@@ -88,6 +98,16 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                     slots.add(new Slot(path + "/nodes/" + i, "nodeTitle", ConfigurationTextSources.workflowNodeTitle(bundle.instance().getWorkflowVersionId(), node.getNodeKey(), node.getNodeTitle())));
             }
         }
+    }
+    private void guideSources(WorkflowModuleTaskProcessBundle process, WorkflowTaskGuide guide, String path, List<Slot> slots) {
+        if (guide.getTitle() != null && !guide.getTitle().isBlank())
+            slots.add(new Slot(path, "title", ConfigurationTextSources.workflowGuideText(process.workflowVersionId(), process.nodeKey(), guide.getGuideKey(), "title", guide.getTitle())));
+        if (guide.getGuideConfigText() == null || guide.getGuideConfigText().isBlank()) return;
+        try {
+            var instruction = mapper.readTree(guide.getGuideConfigText()).path("instruction");
+            if (instruction.isTextual() && !instruction.asText().isBlank())
+                slots.add(new Slot(path, "instruction", ConfigurationTextSources.workflowGuideText(process.workflowVersionId(), process.nodeKey(), guide.getGuideKey(), "instruction", instruction.asText())));
+        } catch (Exception ignored) { /* Keep unverified authored configuration unchanged. */ }
     }
     private void frozenMessage(String path, String original, String declaration, List<Slot> slots) {
         if (declaration == null || original == null) return;

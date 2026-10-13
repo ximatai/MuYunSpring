@@ -22,24 +22,21 @@ public class StompBusinessNotificationNotifier implements BusinessNotificationNo
     private final java.util.function.Supplier<TextResolver> resolvers;
     private final java.util.function.Supplier<LanguageCatalog> catalogs;
 
-    public StompBusinessNotificationNotifier(RealtimeMessagePublisher messagePublisher) {
-        this(messagePublisher, () -> null, () -> null);
-    }
-
     public StompBusinessNotificationNotifier(RealtimeMessagePublisher messagePublisher,
             java.util.function.Supplier<TextResolver> resolvers,
             java.util.function.Supplier<LanguageCatalog> catalogs) {
-        this.messagePublisher = messagePublisher;
-        this.resolvers = resolvers; this.catalogs = catalogs;
+        this.messagePublisher = java.util.Objects.requireNonNull(messagePublisher, "messagePublisher");
+        this.resolvers = java.util.Objects.requireNonNull(resolvers, "resolvers");
+        this.catalogs = java.util.Objects.requireNonNull(catalogs, "catalogs");
     }
 
     @Override
     public void notifyUser(String userId, BusinessNotification notification) {
         if (userId == null || userId.isBlank() || notification == null) return;
         var body = WebBusinessNotification.from(notification);
-        var resolver = resolvers.get();
-        var catalog = catalogs.get();
-        if (resolver != null && catalog != null && !notification.textSources().isEmpty()) {
+        var resolver = java.util.Objects.requireNonNull(resolvers.get(), "textResolver");
+        var catalog = java.util.Objects.requireNonNull(catalogs.get(), "languageCatalog");
+        if (!notification.textSources().isEmpty()) {
             var sources = new ArrayList<>(notification.textSources().values());
             notification.messageArgs().values().stream().filter(TextReference.class::isInstance)
                     .map(TextReference.class::cast).forEach(sources::add);

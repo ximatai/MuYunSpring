@@ -124,7 +124,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
     public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher,
             org.springframework.beans.factory.ObjectProvider<TextResolver> texts,
             org.springframework.beans.factory.ObjectProvider<LanguageCatalog> languages) {
-        return new StompBusinessNotificationNotifier(messagePublisher, texts::getIfAvailable, languages::getIfAvailable);
+        return new StompBusinessNotificationNotifier(messagePublisher, texts::getObject, languages::getObject);
     }
 
     @Bean

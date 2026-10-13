@@ -1,3 +1,4 @@
+import { selectionCodesOf } from './optionFieldOptions';
 import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
@@ -55,15 +56,19 @@ export function resolveRecordDetailDisplayValue(
   }
   // Saved name projections have no identity binding to a newly computed draft code.
   const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
-  const sourcedOption = (field.optionItems ?? options.optionItems ?? []).find(
-    (item) => item.code === String(value) && (item.titleText || item.titleSource),
-  );
-  if (sourcedOption)
-    return presentationLabel(
-      sourcedOption.title,
-      sourcedOption.titleText,
-      options.language ?? platformLanguageContext,
-    );
+  const items = field.optionItems ?? options.optionItems ?? [];
+  const codes = selectionCodesOf(value);
+  if (items.some((item) => item.titleText || item.titleSource)) {
+    if (!codes.length) return emptyText;
+    return codes
+      .map((code) => {
+        const item = items.find((candidate) => candidate.code === code);
+        return item
+          ? presentationLabel(item.title, item.titleText, options.language ?? platformLanguageContext)
+          : code;
+      })
+      .join('、');
+  }
   const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
     return String(optionTitle);

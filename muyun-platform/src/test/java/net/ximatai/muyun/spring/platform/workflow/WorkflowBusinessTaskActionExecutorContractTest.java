@@ -49,7 +49,7 @@ class WorkflowBusinessTaskActionExecutorContractTest {
         when(instances.findById("instance")).thenReturn(instance);
         var guide = new WorkflowTaskGuide(); guide.setGuideKey("deliver"); guide.setGuideKind(WorkflowTaskGuideKind.EXECUTE_ACTION); guide.setTargetActionCode("deliver");
         when(runtime.prepare("task", "operator")).thenReturn(new WorkflowModuleTaskProcessBundle(
-                "task", "instance", "visit", "sales.contract", "record", null, null, null,
+                "task", "instance", "version-1", "visit", "sales.contract", "record", null, null, null,
                 WorkflowModuleTaskEvaluation.manualConfirm(List.of(guide)), guide));
         var service = new WorkflowBusinessTaskActionService(tasks, instances, runtime, actions, executors);
 

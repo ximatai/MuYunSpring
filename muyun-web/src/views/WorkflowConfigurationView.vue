@@ -103,30 +103,47 @@ async function loadFields() {
   }
 }
 const configurationActions = computed(() => [
-  { key: 'save', title: '保存草稿', level: 'primary' as const, disabled: !editable.value || !dirty.value },
-  { key: 'validate', title: '校验流程', disabled: !editable.value },
+  {
+    key: 'save',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.save-draft', '保存草稿'),
+    level: 'primary' as const,
+    disabled: !editable.value || !dirty.value,
+  },
+  {
+    key: 'validate',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.validate-workflow', '校验流程'),
+    disabled: !editable.value,
+  },
   {
     key: 'publish',
-    title: version.value?.publishStatus === 'published' ? '启用已发布版本' : '发布流程',
+    title:
+      version.value?.publishStatus === 'published'
+        ? workflowLanguage.t('platform.screen.WorkflowConfigurationView.enable-published', '启用已发布版本')
+        : workflowLanguage.t('platform.screen.WorkflowConfigurationView.publish-workflow', '发布流程'),
     disabled: !version.value || busy.value || selectionDirty.value,
   },
   {
     key: 'upgrade',
-    title: '创建新版本',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.create-version', '创建新版本'),
     level: 'secondary' as const,
     disabled: busy.value || dirty.value || selectionDirty.value,
   },
-  { key: 'selection', title: '匹配规则', level: 'secondary' as const, disabled: busy.value || dirty.value },
+  {
+    key: 'selection',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.matching-rules', '匹配规则'),
+    level: 'secondary' as const,
+    disabled: busy.value || dirty.value,
+  },
   {
     key: 'disable',
-    title: '停用',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.disable', '停用'),
     level: 'secondary' as const,
     danger: true,
     disabled: busy.value || dirty.value || selectionDirty.value,
   },
   {
     key: 'archive',
-    title: '归档',
+    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.archive', '归档'),
     level: 'secondary' as const,
     danger: true,
     disabled: busy.value || dirty.value || selectionDirty.value,

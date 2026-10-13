@@ -16,28 +16,25 @@ import java.util.Objects;
 public class DynamicExportFacade {
     private final DynamicExportExecutor executor;
     private final ExcelWorkbookPlanWriter workbookWriter;
-    private ExcelWorkbookPresentation presentation;
-
-    public DynamicExportFacade(DynamicRecordService recordService, OptionSourceRegistry optionSourceRegistry) {
-        this(new DynamicExportExecutor(recordService, new DynamicExchangeTemplatePlanBuilder(optionSourceRegistry)),
-                new ExcelWorkbookPlanWriter());
-    }
+    private final ExcelWorkbookPresentation presentation;
 
     @Autowired
     public DynamicExportFacade(DynamicRecordService records, OptionSourceRegistry options,
             ExcelWorkbookPresentation presentation) {
-        this(records, options);
-        this.presentation = presentation;
+        this(new DynamicExportExecutor(records, new DynamicExchangeTemplatePlanBuilder(options)),
+                new ExcelWorkbookPlanWriter(), presentation);
     }
 
-    DynamicExportFacade(DynamicExportExecutor executor, ExcelWorkbookPlanWriter workbookWriter) {
+    DynamicExportFacade(DynamicExportExecutor executor, ExcelWorkbookPlanWriter workbookWriter,
+            ExcelWorkbookPresentation presentation) {
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         this.workbookWriter = Objects.requireNonNull(workbookWriter, "workbookWriter must not be null");
+        this.presentation = Objects.requireNonNull(presentation, "presentation must not be null");
     }
 
     public byte[] exportWorkbook(DynamicExportCommand command) {
         ExcelWorkbookPlan plan = executor.export(command);
-        if (presentation != null) plan = presentation.project(plan, command.descriptor());
+        plan = presentation.project(plan, command.descriptor());
         return workbookWriter.writeToBytes(plan);
     }
 }

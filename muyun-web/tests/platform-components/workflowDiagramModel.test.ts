@@ -109,3 +109,42 @@ it('keeps parallel routes independent, ignores unresolved endpoints and accepts 
   expect(model.nodes).toHaveLength(nodes.length);
   expect(createWorkflowDiagramModel([], [])).toEqual({ nodes: [], routes: [] });
 });
+
+it('uses the consumer language for frozen labels and diagram semantics without changing topology', async () => {
+  const { createLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const nodes = [
+    {
+      nodeKey: 'approval',
+      nodeType: 'approval',
+      nodeTitle: '旧审批',
+      nodeStatus: 'active',
+      nodeTitleText: {
+        source: {
+          sourceKind: 'CONFIG' as const,
+          sourceId: 'old-approval',
+          sourceVersion: 'v1',
+          originalText: '旧审批',
+        },
+        languages: {
+          en: {
+            text: 'Previous approval',
+            requestedTag: 'en',
+            resourceTag: 'en',
+            missing: false,
+            fallback: false,
+          },
+        },
+      },
+    },
+  ];
+  const english = createWorkflowDiagramModel(nodes, [], undefined, undefined, language);
+  expect(english.nodes[0]?.title).toBe('Previous approval');
+  expect(english.nodes[0]?.subtitle).toBe('Approval · Current node');
+  language.setLanguage('zh-CN');
+  const chinese = createWorkflowDiagramModel(nodes, [], undefined, undefined, language);
+  expect(chinese.nodes[0]?.title).toBe('旧审批');
+  expect(chinese.nodes[0]?.key).toBe(english.nodes[0]?.key);
+  expect(chinese.nodes[0]?.x).toBe(english.nodes[0]?.x);
+  expect(nodes[0]?.nodeTitle).toBe('旧审批');
+});

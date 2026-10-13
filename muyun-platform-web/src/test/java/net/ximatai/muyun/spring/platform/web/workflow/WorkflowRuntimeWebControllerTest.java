@@ -723,7 +723,7 @@ class WorkflowRuntimeWebControllerTest {
         definition.setId("task-def-1");
         definition.setModuleAlias("crm.contract");
         definition.setAlias("visit");
-        return new WorkflowModuleTaskProcessBundle(taskId, "inst-1", "visit", "crm.contract", "record-1",
+        return new WorkflowModuleTaskProcessBundle(taskId, "inst-1", "version-1", "visit", "crm.contract", "record-1",
                 WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM,
                 new WorkflowModuleTaskContext(taskId, WorkflowModuleTaskCompletionPolicy.MANUAL_CONFIRM),
                 definition,

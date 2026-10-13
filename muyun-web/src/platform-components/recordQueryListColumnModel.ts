@@ -1,3 +1,4 @@
+import { selectionCodesOf } from './optionFieldOptions';
 import type {
   OptionItemDescriptor,
   QuerySchemaField,
@@ -175,22 +176,6 @@ function optionTitlesOf(
     const item = optionItems.find((item) => item.code === code);
     return item ? presentationLabel(item.title, item.titleText, language) : code;
   });
-}
-
-function selectionCodesOf(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value !== 'string') return value == null ? [] : [String(value)];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {
-      // A scalar string may begin with "[".
-    }
-  }
-  return [value];
 }
 
 function columnType(

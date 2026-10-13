@@ -44,7 +44,7 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
             var versionDao = versions.getIfAvailable();
             if (definitionService != null && versionDao != null) {
                 var ids = definitionService.list(Criteria.of().eq("moduleAlias", moduleAlias), ALL).stream().map(WorkflowDefinition::getId).toList();
-                if (!ids.isEmpty()) for (var version : versionDao.query(Criteria.of().in("definitionId", ids).eq("publishStatus", WorkflowPublishStatus.PUBLISHED), ALL))
+                if (!ids.isEmpty()) for (var version : versionDao.query(Criteria.of().in("definitionId", ids).in("publishStatus", List.of(WorkflowPublishStatus.PUBLISHED, WorkflowPublishStatus.RETIRED)), ALL))
                     result.addAll(workflowSources(version));
             }
         }
@@ -53,8 +53,25 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
     private List<TextReference> workflowSources(WorkflowVersion version) {
         try {
             var snapshot = mapper.readValue(version.getSnapshotText(), WorkflowDesignDocument.class);
-            return snapshot.nodes().stream().filter(node -> node.getTitle() != null && !node.getTitle().isBlank())
-                    .map(node -> ConfigurationTextSources.workflowNodeTitle(version.getId(), node.getNodeKey(), node.getTitle())).toList();
+            var result = new ArrayList<TextReference>();
+            for (var node : snapshot.nodes()) {
+                if (node.getTitle() != null && !node.getTitle().isBlank())
+                    result.add(ConfigurationTextSources.workflowNodeTitle(version.getId(), node.getNodeKey(), node.getTitle()));
+                if (node.getNodeConfigText() == null || node.getNodeConfigText().isBlank()) continue;
+                var task = mapper.readTree(node.getNodeConfigText()).path("task");
+                if (task.isMissingNode()) continue;
+                var specification = mapper.treeToValue(task, WorkflowBusinessTaskSpec.class);
+                for (var guide : specification.guides()) {
+                    if (guide.getTitle() != null && !guide.getTitle().isBlank())
+                        result.add(ConfigurationTextSources.workflowGuideText(version.getId(), node.getNodeKey(), guide.getGuideKey(), "title", guide.getTitle()));
+                    if (guide.getGuideConfigText() != null && !guide.getGuideConfigText().isBlank()) {
+                        var instruction = mapper.readTree(guide.getGuideConfigText()).path("instruction");
+                        if (instruction.isTextual() && !instruction.asText().isBlank())
+                            result.add(ConfigurationTextSources.workflowGuideText(version.getId(), node.getNodeKey(), guide.getGuideKey(), "instruction", instruction.asText()));
+                    }
+                }
+            }
+            return List.copyOf(result);
         } catch (Exception failure) { throw new IllegalStateException("Cannot read published workflow text sources: " + version.getId(), failure); }
     }
 }
