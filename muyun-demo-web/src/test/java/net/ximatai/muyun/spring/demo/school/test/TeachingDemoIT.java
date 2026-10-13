@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -196,6 +197,41 @@ public class TeachingDemoIT {
     private net.ximatai.muyun.spring.iam.department.DepartmentService departments;
     @Autowired
     private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
+
+    @Test
+    void actualDynamicStandardActionsKeepCodeTitlesThroughRegistrationCompilationAndWebProjection() throws Exception {
+        var moduleAlias = ExamDemoBootstrapTask.MODULE_ALIAS;
+        var actions = webApplicationContext.getBean(PlatformModuleActionService.class);
+        var contexts = webApplicationContext.getBean(PlatformModuleRuntimeContextService.class);
+        var records = webApplicationContext.getBean(DynamicRecordService.class);
+        var catalog = webApplicationContext.getBean(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.class);
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        var mapper = webApplicationContext.getBean(com.fasterxml.jackson.databind.ObjectMapper.class);
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("dynamic-action-i18n", "Dynamic Actions"));
+             var system = TenantContext.system("dynamic action producer contract")) {
+            var persisted = actions.findByModuleAliasAndActionCode(moduleAlias, "update");
+            assertThat(persisted.getSystemManaged()).isTrue();
+            assertThat(persisted.getSourceType()).isEqualTo(net.ximatai.muyun.spring.platform.module.ModuleActionSourceType.DYNAMIC_MODULE);
+            var compiled = records.describe(moduleAlias).actions().stream().filter(action -> action.code().equals("update")).findFirst().orElseThrow();
+            assertThat(compiled.titleSource()).isEqualTo(persisted.titleSource());
+            var context = contexts.context(moduleAlias);
+            var runtime = context.actions().stream().filter(action -> action.actionCode().equals("update")).findFirst().orElseThrow();
+            assertThat(runtime.titleSource()).isEqualTo(compiled.titleSource());
+            assertThat(runtime.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+            assertThat(runtime.titleSource().sourceId()).isEqualTo(PlatformAction.UPDATE.titleKey());
+            assertThat(resources.resolve(runtime.titleSource(), java.util.Map.of(), "en").text()).isEqualTo("Edit");
+            MockMvc mvc = webAppContextSetup(webApplicationContext).addFilters(
+                    webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+            var response = mvc.perform(get("/platform.module/" + moduleAlias + "/context").header("Accept-Language", "en")).andReturn();
+            assertThat(response.getResponse().getStatus()).as(response.getResponse().getContentAsString()).isEqualTo(200);
+            var output = mapper.readTree(response.getResponse().getContentAsString());
+            var update = java.util.stream.StreamSupport.stream(output.path("actions").spliterator(), false)
+                    .filter(action -> action.path("actionCode").asText().equals("update")).findFirst().orElseThrow();
+            assertThat(update.path("title").asText()).isEqualTo("Edit");
+            assertThat(update.at("/titleSource/sourceKind").asText()).isEqualTo("CODE");
+            assertThat(persisted.getTitle()).isEqualTo(PlatformAction.UPDATE.title());
+        }
+    }
 
     @Test
     void deployedEnglishResourcesCoverTheActualStaticModuleAndEnumSourceDirectory() {

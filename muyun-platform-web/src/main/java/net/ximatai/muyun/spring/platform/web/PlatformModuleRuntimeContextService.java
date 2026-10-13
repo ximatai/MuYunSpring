@@ -1472,7 +1472,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 action.isBindingPending(),
                 Boolean.TRUE.equals(action.getFormSupported())
-        ).withTitleSource(action.getTitle() == null ? null : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle(action.getModuleAlias(), action.getActionCode(), action.getTitle()));
+        ).withTitleSource(action.titleSource());
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, StaticModuleActionDefinition action) {

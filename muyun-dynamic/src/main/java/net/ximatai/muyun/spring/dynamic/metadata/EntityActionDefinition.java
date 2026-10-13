@@ -18,7 +18,8 @@ public record EntityActionDefinition(
         String availableExpression,
         String unavailableMessage,
         EntityActionExecutorType executorType,
-        String executorKey
+        String executorKey,
+        net.ximatai.muyun.spring.common.i18n.TextReference titleSource
 ) {
     public EntityActionDefinition {
         category = category == null ? defaultCategory(actionCode) : category;
@@ -28,6 +29,20 @@ public record EntityActionDefinition(
         dataAuth = dataAuth != null && dataAuth;
         defaultGrantPolicy = defaultGrantPolicy == null ? ActionDefaultGrantPolicy.NONE : defaultGrantPolicy;
         executorType = executorType == null ? defaultExecutorType(category) : executorType;
+    }
+
+    public EntityActionDefinition withTitleSource(net.ximatai.muyun.spring.common.i18n.TextReference source) {
+        return new EntityActionDefinition(entityAlias, actionCode, title, enabled, level, category, accessMode,
+                actionAuth, dataAuth, defaultGrantPolicy, authInheritActionCode, availableExpression,
+                unavailableMessage, executorType, executorKey, source);
+    }
+    public EntityActionDefinition(String entityAlias, String actionCode, String title, boolean enabled,
+            EntityActionLevel level, EntityActionCategory category, EntityActionAccessMode accessMode,
+            Boolean actionAuth, Boolean dataAuth, ActionDefaultGrantPolicy defaultGrantPolicy,
+            String authInheritActionCode, String availableExpression, String unavailableMessage,
+            EntityActionExecutorType executorType, String executorKey) {
+        this(entityAlias, actionCode, title, enabled, level, category, accessMode, actionAuth, dataAuth,
+                defaultGrantPolicy, authInheritActionCode, availableExpression, unavailableMessage, executorType, executorKey, null);
     }
 
     public EntityActionDefinition(String entityAlias,
@@ -79,7 +94,7 @@ public record EntityActionDefinition(
     public EntityActionDefinition availableWhen(String expression, String message) {
         return new EntityActionDefinition(entityAlias, actionCode, title, enabled, level, category,
                 accessMode, actionAuth, dataAuth, defaultGrantPolicy, authInheritActionCode,
-                expression, message, executorType, executorKey);
+                expression, message, executorType, executorKey, titleSource);
     }
 
     public boolean hasAvailabilityCondition() {

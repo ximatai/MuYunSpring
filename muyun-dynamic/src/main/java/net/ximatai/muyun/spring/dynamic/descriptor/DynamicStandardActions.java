@@ -55,7 +55,7 @@ final class DynamicStandardActions {
         if (moduleAlias == null) {
             return descriptor;
         }
-        var source = onlineConfiguration
+        var source = configured.titleSource() != null ? configured.titleSource() : onlineConfiguration
                 ? net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.configured(moduleAlias, configured.actionCode(), configured.title())
                 : net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(moduleAlias, configured.actionCode(), configured.title());
         return descriptor.withTitleSource(source).withPermission(moduleAlias);

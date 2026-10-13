@@ -678,7 +678,7 @@ public class PlatformModuleDefinitionCompiler {
                 null,
                 EntityActionExecutorType.SERVICE,
                 DynamicWorkflowActionExecutor.EXECUTOR_KEY
-        );
+        ).withTitleSource(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.workflow.action." + actionCode + ".title", title));
     }
 
     private EntityActionDefinition action(PlatformModuleAction action,
@@ -708,7 +708,7 @@ public class PlatformModuleDefinitionCompiler {
                 action.getUnavailableMessage(),
                 action.getExecutorType(),
                 action.getExecutorKey()
-        );
+        ).withTitleSource(action.titleSource());
     }
 
     private String inheritedActionCode(PlatformModuleAction action) {
