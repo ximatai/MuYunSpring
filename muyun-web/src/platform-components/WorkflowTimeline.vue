@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { WorkflowEvent, WorkflowNode, WorkflowTask } from '@muyun/web-contracts';
 import { UiCheckbox } from '@muyun/vue-ui-antdv';
-import { workflowTitle } from './workflowPresentation';
+import { workflowTitle as localizedWorkflowTitle } from './workflowPresentation';
+import { presentationLabel } from '@muyun/web-core';
 
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
 defineOptions({ name: 'WorkflowTimeline' });
 const props = withDefaults(
   defineProps<{ events: WorkflowEvent[]; nodes: WorkflowNode[]; tasks?: WorkflowTask[] }>(),
@@ -18,34 +24,7 @@ function eventReason(event: WorkflowEvent) {
   } catch {
     /* malformed legacy payload */
   }
-  return [
-    'task_completed',
-    'task_rejected',
-    'node_rolled_back',
-    'task_resubmitted',
-    'instance_revoked',
-    'instance_terminated',
-    'instance_reset',
-    'task_transferred',
-    'add_sign',
-  ].includes(event.eventType.toLowerCase()) &&
-    event.message &&
-    event.message !==
-      (
-        {
-          task_completed: 'workflow task completed',
-          task_rejected: 'workflow task rejected',
-          node_rolled_back: 'workflow node rolled back',
-          task_resubmitted: 'workflow task resubmitted',
-          task_transferred: 'workflow task transferred',
-          add_sign: 'workflow runtime add sign',
-          instance_revoked: 'workflow instance revoked',
-          instance_terminated: 'workflow instance terminated',
-          instance_reset: 'workflow instance reset',
-        } as Record<string, string>
-      )[event.eventType.toLowerCase()]
-    ? event.message
-    : '';
+  return '';
 }
 const businessEvents = computed(() =>
   props.events.filter((event) =>
@@ -84,16 +63,23 @@ const timelineItems = computed(() =>
           : (event.actionCode ?? eventType),
       ),
       nodeTitle: node?.nodeTitle ?? node?.title,
-      detail: showTechnicalHistory.value ? (event.message ?? reason) : reason,
+      detail: showTechnicalHistory.value
+        ? presentationLabel(event.message ?? reason, event.messageText, workflowLanguage)
+        : reason,
     };
   }),
 );
 </script>
 <template>
-  <section class="workflow-timeline" aria-label="办理时间线">
+  <section
+    class="workflow-timeline"
+    :aria-label="workflowLanguage.t('platform.screen.WorkflowTimeline.processing-timeline', '办理时间线')"
+  >
     <header>
-      <h4>办理时间线</h4>
-      <UiCheckbox v-model:checked="showTechnicalHistory">展开完整技术审计</UiCheckbox>
+      <h4>{{ workflowLanguage.t('platform.screen.WorkflowTimeline.processing-timeline', '办理时间线') }}</h4>
+      <UiCheckbox v-model:checked="showTechnicalHistory">{{
+        workflowLanguage.t('platform.screen.WorkflowTimeline.show-full-technical-audit', '展开完整技术审计')
+      }}</UiCheckbox>
     </header>
     <ol>
       <li v-for="event in timelineItems" :key="event.id">

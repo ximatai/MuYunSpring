@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.web.realtime;
 
+import net.ximatai.muyun.spring.common.i18n.LanguageCatalog;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
+
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
 import net.ximatai.muyun.spring.platform.web.realtime.BusinessRealtimeRecipientPolicyFactory;
 import net.ximatai.muyun.spring.platform.notification.BusinessNotificationDelivery;
@@ -47,6 +50,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.setErrorHandler(new PlatformStompErrorHandler());
         var endpoint = registry.addEndpoint("/ws/platform");
         List<String> allowedOrigins = corsProperties == null ? List.of() : corsProperties.getAllowedOrigins();
         if (allowedOrigins != null && !allowedOrigins.isEmpty()) {
@@ -117,8 +121,10 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Bean
     @ConditionalOnMissingBean(BusinessNotificationNotifier.class)
-    public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher) {
-        return new StompBusinessNotificationNotifier(messagePublisher);
+    public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher,
+            org.springframework.beans.factory.ObjectProvider<TextResolver> texts,
+            org.springframework.beans.factory.ObjectProvider<LanguageCatalog> languages) {
+        return new StompBusinessNotificationNotifier(messagePublisher, texts::getObject, languages::getObject);
     }
 
     @Bean

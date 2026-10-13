@@ -7,7 +7,8 @@ public enum RuntimeEventType {
     ACTION_EXECUTED(true),
     ACTION_FAILED(true),
     MODULE_REFRESHED(false),
-    MODULE_PAGE_CONFIG_PUBLISHED(false);
+    MODULE_PAGE_CONFIG_PUBLISHED(false),
+    CONFIG_TRANSLATION_PUBLISHED(false);
 
     private final boolean requiresEntityAlias;
 

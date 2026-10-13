@@ -1113,12 +1113,16 @@ class WorkflowRuntimeReadFacadeTest {
         var restricted = instance("instance-secret");restricted.setRecordId("secret");
         when(instanceDao.findById("instance-secret")).thenReturn(restricted);
         when(nodeDao.findById("node-1")).thenReturn(node("node-1", "approve"));
-        var summaries = mock(WorkflowRecordSummaryResolver.class);
+        var summaries = mock(WorkflowRecordSummaryResolver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        var titleSource = net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource("sales.contract", "销售合同");
         when(summaries.resolve(any())).thenAnswer(call->((WorkflowInstance)call.getArgument(0)).getRecordId().equals("secret")
-                ? new WorkflowRecordSummary(null,"销售合同",false) : new WorkflowRecordSummary("合同 ***", "销售合同", true));
+                ? new WorkflowRecordSummary(null,"销售合同",false, titleSource) : new WorkflowRecordSummary("合同 ***", "销售合同", true, titleSource));
         var paging = readFacade(WorkflowUserTitleResolver.NONE, summaries);
         var one = paging.workbenchPage("todo", "user-1", PageRequest.of(1,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
         var two = paging.workbenchPage("todo", "user-1", PageRequest.of(2,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
+        assertThat(one.modules()).containsEntry("sales.contract", "销售合同");
+        assertThat(one.moduleTitles().modules().get("sales.contract").titleSource()).isEqualTo(titleSource);
+        assertThat(one.page().getRecords().getFirst().business().moduleTitleSource()).isEqualTo(titleSource);
         assertThat(one.page().getTotal()).isEqualTo(2);
         assertThat(one.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-a");
         assertThat(two.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-b");

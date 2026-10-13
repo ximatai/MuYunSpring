@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue';
+import { ref, computed, watch, type Ref } from 'vue';
 import {
   resolveRecordDetailFields,
   resolveRecordFormFields,
@@ -7,12 +7,17 @@ import {
 } from '@muyun/platform-components';
 import type {
   ResolvedModuleUiDescriptor,
-  ResolvedModulePageDescriptor,
   ResolvedPageContextBindingDescriptor,
   ResolvedPageNavigatorLevelDescriptor,
   RouteQueryValue,
 } from '@muyun/web-contracts';
-import { createModuleContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  displayModuleRuntime,
+  useLanguageContext,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { navigatorEntrySelectionOf, type NavigatorEntrySelection } from '../navigatorEntrySelection';
 
 export interface NavigatorSortViewState {
@@ -51,14 +56,33 @@ export function useNavigatorRuntime(
   context: ModuleContext<QueryListRecord>,
   crossModuleHttp: HttpClient = context.http,
 ) {
-  const formFields = ref<Map<string, RecordFormFieldDescriptor>>(resolveRecordFormFields(undefined));
-  const detailDisplayFields = ref(resolveRecordDetailFields(undefined));
-  const runtimePage = ref<ResolvedModulePageDescriptor>();
-  const runtimeUiDescriptor = ref<ResolvedModuleUiDescriptor>();
+  const language = useLanguageContext();
+  const originalDescriptor = ref<ResolvedModuleUiDescriptor>();
+  const runtimeUiDescriptor = computed(
+    () => displayModuleRuntime(context.runtime)?.uiDescriptor ?? originalDescriptor.value,
+  );
+  const runtimePage = computed(() => runtimeUiDescriptor.value?.page);
+  const activeTreeResource = ref<string>();
+  const formFields = computed<Map<string, RecordFormFieldDescriptor>>(() =>
+    resolveRecordFormFields(runtimeUiDescriptor.value, activeTreeResource.value),
+  );
+  const detailDisplayFields = computed(() =>
+    resolveRecordDetailFields(runtimeUiDescriptor.value, activeTreeResource.value),
+  );
   /** True once the host's own descriptor has settled, including modules without a page DSL. */
   const runtimePageResolved = ref(false);
   const treeModule = ref(false);
   const navigatorLevels = ref<NavigatorLevelRuntime[]>([]);
+  watch(
+    runtimePage,
+    (page) => {
+      for (const level of navigatorLevels.value) {
+        const display = page?.navigator?.levels.find((candidate) => candidate.key === level.descriptor.key);
+        if (display) level.descriptor = display;
+      }
+    },
+    { flush: 'sync' },
+  );
   const pageContextBindings = ref<ResolvedPageContextBindingDescriptor[]>([]);
   const selectedNavigatorRecords = ref<Record<string, QueryListRecord | undefined>>({});
   const navigatorSingleResultKeys = ref<string[]>([]);
@@ -202,12 +226,10 @@ export function useNavigatorRuntime(
    */
   async function loadRuntimeDescriptor() {
     const runtimeContext = await context.runtime.ready;
-    runtimeUiDescriptor.value = runtimeContext.uiDescriptor;
-    runtimePage.value = runtimeContext.uiDescriptor?.page;
+    originalDescriptor.value = runtimeContext.uiDescriptor;
     runtimePageResolved.value = true;
     treeModule.value = context.abilities.hasTree() === true;
-    formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
-    detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor);
+    activeTreeResource.value = undefined;
   }
 
   async function loadRuntimeForm(
@@ -229,10 +251,11 @@ export function useNavigatorRuntime(
     navigatorEntrySelectionRevision += 1;
     settledNavigatorEntrySelectionIdentity.value = undefined;
     navigatorEntrySelectionResolutions.clear();
-    navigatorLevels.value = await Promise.all(
+    const loadedLevels = await Promise.all(
       descriptors.map(async (descriptor) => {
         const navigatorContext = createModuleContext<QueryListRecord>({
           http: crossModuleHttp,
+          language,
           moduleAlias: descriptor.sourceModuleAlias,
           runtimeAccess: 'REFERENCE',
           navigatorReference: {
@@ -257,9 +280,13 @@ export function useNavigatorRuntime(
         };
       }),
     );
-    const treeResource = runtimePage.value?.treeResource?.resource;
-    formFields.value = resolveRecordFormFields(runtimeUiDescriptor.value, treeResource);
-    detailDisplayFields.value = resolveRecordDetailFields(runtimeUiDescriptor.value, treeResource);
+    navigatorLevels.value = loadedLevels.map((level) => ({
+      ...level,
+      descriptor:
+        runtimePage.value?.navigator?.levels.find((current) => current.key === level.descriptor.key) ??
+        level.descriptor,
+    }));
+    activeTreeResource.value = runtimePage.value?.treeResource?.resource;
   }
 
   return {

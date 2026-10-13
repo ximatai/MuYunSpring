@@ -238,9 +238,10 @@ export function createMenuTab(
     throw new Error(`WINDOW menu target cannot be opened as a workbench tab: ${target.menuId}`);
   }
 
-  const pageDescriptor = withPageInstanceKey(
-    resolvePageDescriptor(target, { ...options, title: options.title ?? menu.title }),
-  );
+  const pageDescriptor = withPageInstanceKey({
+    ...resolvePageDescriptor(target, { ...options, title: options.title ?? menu.title }),
+    ...(options.title === undefined && menu.titleText ? { titleText: menu.titleText } : {}),
+  });
   const instanceKey = pageInstanceKeyOf(pageDescriptor)!;
   return {
     instanceKey,

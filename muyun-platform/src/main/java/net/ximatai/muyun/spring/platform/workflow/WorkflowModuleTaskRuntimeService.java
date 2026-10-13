@@ -80,6 +80,7 @@ public class WorkflowModuleTaskRuntimeService {
         return new WorkflowModuleTaskProcessBundle(
                 context.task().getId(),
                 context.instance().getId(),
+                context.instance().getWorkflowVersionId(),
                 context.node().getNodeKey(),
                 context.instance().getModuleAlias(),
                 context.instance().getRecordId(),

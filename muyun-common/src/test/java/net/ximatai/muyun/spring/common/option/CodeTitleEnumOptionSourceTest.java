@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.common.option;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+
 import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 import org.junit.jupiter.api.Test;
 
@@ -16,8 +18,8 @@ class CodeTitleEnumOptionSourceTest {
         assertThat(source.binding())
                 .isEqualTo(OptionBinding.enumType(OrderState.class));
         assertThat(source.options()).containsExactly(
-                new OptionItem("draft", "Draft", true, 1, null),
-                new OptionItem("approved", "Approved", true, 2, null)
+                new OptionItem("draft", "Draft", true, 1, null, TextReference.code("enum/" + OrderState.class.getName() + "/draft/title", "Draft")),
+                new OptionItem("approved", "Approved", true, 2, null, TextReference.code("enum/" + OrderState.class.getName() + "/approved/title", "Approved"))
         );
         assertThat(source.resolve("approved").title()).isEqualTo("Approved");
     }

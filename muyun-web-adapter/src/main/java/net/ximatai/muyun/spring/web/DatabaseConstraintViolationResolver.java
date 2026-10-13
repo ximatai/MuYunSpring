@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.web;
 
 import net.ximatai.muyun.spring.common.exception.ErrorTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 import java.lang.reflect.Method;
 import java.sql.SQLException;
@@ -32,13 +33,13 @@ final class DatabaseConstraintViolationResolver {
                 String column = extractColumn(sqlException);
                 List<ErrorTarget> targets = column == null ? List.of() : List.of(ErrorTarget.field(column));
                 return Optional.of(new ResolvedViolation(PlatformErrorCodes.VALIDATION_FAILED, 400,
-                        "字段为必填，请补充后重试", targets));
+                        "字段为必填，请补充后重试", targets, TextReference.code("platform.validation.database.required", "字段为必填，请补充后重试")));
             }
             if (current instanceof SQLException sqlException
                     && UNIQUE_VIOLATION.equals(sqlException.getSQLState())) {
                 // Prefer domain constraint errors when available; this fallback never exposes SQL or other records.
                 return Optional.of(new ResolvedViolation(PlatformErrorCodes.CONFLICT_UNIQUE, 409,
-                        "标识或唯一值已被使用，请修改后重新保存", List.of()));
+                        "标识或唯一值已被使用，请修改后重新保存", List.of(), TextReference.code("platform.validation.database.unique", "标识或唯一值已被使用，请修改后重新保存")));
             }
             current = current.getCause();
         }
@@ -63,6 +64,6 @@ final class DatabaseConstraintViolationResolver {
         }
     }
 
-    record ResolvedViolation(String code, int status, String message, List<ErrorTarget> targets) {
+    record ResolvedViolation(String code, int status, String message, List<ErrorTarget> targets, TextReference textSource) {
     }
 }

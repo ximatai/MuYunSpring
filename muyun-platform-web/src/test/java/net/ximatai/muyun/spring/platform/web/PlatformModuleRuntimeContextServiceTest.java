@@ -382,7 +382,7 @@ class PlatformModuleRuntimeContextServiceTest {
                 module("iam.organization", "组织管理", ModuleKind.STATIC)
         ));
         when(dynamicRecordService.describe("education.exam"))
-                .thenThrow(new ModuleDefinitionException("unknown module alias: education.exam"));
+                .thenThrow(new net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException("education.exam"));
         when(dynamicRecordService.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor(
                 "sales.contract", "合同", "contract", List.of(), List.of(), List.of(), List.of(), List.of()));
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
@@ -1241,6 +1241,8 @@ class PlatformModuleRuntimeContextServiceTest {
                 .satisfies(action -> {
                     assertThat(action.authorized()).isTrue();
                     assertThat(action.title()).isEqualTo(PlatformAction.VIEW.title());
+                    assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+                    assertThat(action.titleSource().sourceId()).isEqualTo(PlatformAction.VIEW.titleKey());
                     assertThat(action.permissionActionCode()).isEqualTo(PlatformAction.VIEW.permissionActionCode());
                     assertThat(action.actionAuth()).isFalse();
                     assertThat(action.authorizationDecision()).isEqualTo(ActionAuthorizationResult.DECISION_ALLOWED);
@@ -1402,6 +1404,11 @@ class PlatformModuleRuntimeContextServiceTest {
 
         PlatformModuleRuntimeContext context = service.context("sales.contract");
 
+        assertThat(context.actions()).allSatisfy(action -> {
+            assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+            assertThat(action.titleSource().originalText()).isEqualTo(action.title());
+            assertThat(action.titleSource().sourceId()).startsWith("config/action/sales.contract/");
+        });
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
                 .containsExactly("update", "view");
         assertThat(context.actions()).filteredOn(action -> "update".equals(action.actionCode()))

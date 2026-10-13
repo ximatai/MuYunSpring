@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { presentationLabel, useLanguageContext } from '@muyun/web-core';
 import { UiActionButton, UiIcon, useUiBlockingOverlayState } from '@muyun/vue-ui-antdv';
 import type { WebBusinessNotification, WebBusinessNotificationAction } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
@@ -24,9 +25,26 @@ const executing = ref<string>();
 const presentation = ref<'preview' | 'expanded' | 'collapsed'>('preview');
 const expanded = computed(() => presentation.value === 'expanded');
 const overlayOpen = useUiBlockingOverlayState();
+const language = useLanguageContext();
+const displayNotifications = computed(() =>
+  props.notifications.map((notification) => ({
+    ...notification,
+    title: presentationLabel(notification.title, notification.textResources?.title, language),
+    subtitle: presentationLabel(notification.subtitle ?? '', notification.textResources?.subtitle, language),
+    content: presentationLabel(notification.content, notification.textResources?.content, language),
+    actions: notification.actions.map((action) => ({
+      ...action,
+      label: presentationLabel(
+        action.label,
+        notification.textResources?.[`action/${action.key}/label`],
+        language,
+      ),
+    })),
+  })),
+);
 const orderedNotifications = computed(() => [
-  ...props.notifications.filter((notification) => !notification.dismissible),
-  ...props.notifications.filter((notification) => notification.dismissible),
+  ...displayNotifications.value.filter((notification) => !notification.dismissible),
+  ...displayNotifications.value.filter((notification) => notification.dismissible),
 ]);
 const visible = computed(() =>
   presentation.value === 'collapsed'
@@ -52,11 +70,14 @@ function shouldShowAccessory(notification: WebBusinessNotification) {
 }
 
 async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
+  const original = props.notifications.find((item) => item.id === notification.id);
+  const originalAction = original?.actions.find((item) => item.key === action.key);
+  if (!original || !originalAction) return;
   const key = `${notification.id}:${action.key}`;
   if (executing.value) return;
   executing.value = key;
   try {
-    await props.executeAction(notification, action);
+    await props.executeAction(original, originalAction);
   } finally {
     if (executing.value === key) executing.value = undefined;
   }
@@ -73,7 +94,7 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
       'business-notification-panel--collapsed': presentation === 'collapsed',
     }"
     aria-live="polite"
-    aria-label="业务提醒"
+    :aria-label="language.t('platform.screen.BusinessNotificationPanel.business-reminders', '业务提醒')"
   >
     <button
       v-if="presentation === 'collapsed'"
@@ -97,7 +118,7 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
           查看全部（还有 {{ hiddenCount }} 条）
         </button>
         <button class="business-notification-collapse" type="button" @click="presentation = 'collapsed'">
-          收起提醒
+          {{ language.t('platform.screen.BusinessNotificationPanel.collapse-reminders', '收起提醒') }}
         </button>
       </div>
     </div>
@@ -115,7 +136,7 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
           v-if="notification.dismissible"
           class="business-notification-close"
           type="button"
-          aria-label="关闭提醒"
+          :aria-label="language.t('platform.screen.BusinessNotificationPanel.dismiss-reminder', '关闭提醒')"
           @click="emit('dismiss', notification.id)"
         >
           <UiIcon name="close" />

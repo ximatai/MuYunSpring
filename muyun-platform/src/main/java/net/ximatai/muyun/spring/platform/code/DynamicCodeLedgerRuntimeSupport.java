@@ -107,9 +107,8 @@ public class DynamicCodeLedgerRuntimeSupport {
     }
 
     private boolean canFallbackReleaseBasis(PlatformException ex) {
-        String message = ex.getMessage();
-        return message != null && (message.startsWith("Code segment source has no value:")
-                || message.startsWith("Code value mapping not found for source:"));
+        return CodePreviewService.SOURCE_VALUE_MISSING.equals(ex.code())
+                || CodePreviewService.VALUE_MAPPING_MISSING.equals(ex.code());
     }
 
     private String basisName(CodeRule rule, String segmentId) {

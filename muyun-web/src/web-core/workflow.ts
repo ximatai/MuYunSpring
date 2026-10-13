@@ -112,7 +112,8 @@ export function createWorkflowClient(http: HttpClient) {
           moduleAlias,
         })
       ).records,
-    workbenchModules: () => get<Record<string, string>>(`${runtime}/workbench/modules`),
+    workbenchModules: () =>
+      get<import('@muyun/web-contracts').ModuleTitleCatalog>(`${runtime}/workbench/modules`),
     workbenchPage: (
       board: string,
       pageNum = 1,
@@ -120,13 +121,17 @@ export function createWorkflowClient(http: HttpClient) {
       keyword = '',
       pageSize = 30,
     ) =>
-      post<WebPageResponse<WorkflowWorkbenchCard> & { navigation?: { modules: Record<string, string> } }>(
-        `${runtime}/workbench/${board}/page`,
-        {
-          query: { ...filters, page: { pageNum, pageSize } },
-          keyword,
-        },
-      ),
+      post<
+        WebPageResponse<WorkflowWorkbenchCard> & {
+          navigation?: {
+            modules: Record<string, string>;
+            moduleTitles?: import('@muyun/web-contracts').ModuleTitleCatalog;
+          };
+        }
+      >(`${runtime}/workbench/${board}/page`, {
+        query: { ...filters, page: { pageNum, pageSize } },
+        keyword,
+      }),
     taskViews: async (id: string) =>
       (await get<{ records: WorkflowTask[] }>(`${instancePath(id)}/tasks/view`)).records,
     eventViews: async (id: string) =>

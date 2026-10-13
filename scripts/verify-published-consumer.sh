@@ -45,7 +45,15 @@ for _ in {1..60}; do
   # A protected endpoint must return 401 without a bearer token. This proves
   # both that Spring is ready and that the configured API context is mounted.
   status="$(curl --noproxy '*' --connect-timeout 2 --max-time 3 --silent --output /dev/null --write-out '%{http_code}' "$probe_url" || true)"
-  if [[ "$status" == "401" ]]; then
+  if [[ "$status" == "401" ]] && grep -Fq "Published consumer localization verified" "$log_file"; then
+    catalog_headers="$repository_root/build/published-consumer-catalog.headers"
+    catalog_body="$(curl --noproxy '*' --fail --connect-timeout 2 --max-time 5 --silent \
+      -H 'Accept-Language: fr-CA' -D "$catalog_headers" \
+      "http://127.0.0.1:$consumer_port$api_context_path/platform.localization/catalog")"
+    if ! grep -Eiq '^Content-Language: fr[[:space:]]*$' "$catalog_headers" || [[ "$catalog_body" != *'"tag":"fr"'* ]]; then
+      echo "Published consumer did not expose the enabled French catalog." >&2
+      exit 1
+    fi
     exit 0
   fi
   if ! kill -0 "$consumer_pid" 2>/dev/null; then
@@ -56,5 +64,5 @@ for _ in {1..60}; do
 done
 
 cat "$log_file"
-echo "Published consumer did not expose its protected API within 120 seconds: $probe_url (last HTTP status: $status)." >&2
+echo "Published consumer did not complete localization and protected API verification within 120 seconds: $probe_url (last HTTP status: $status)." >&2
 exit 1

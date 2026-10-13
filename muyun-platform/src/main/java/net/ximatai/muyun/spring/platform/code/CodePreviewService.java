@@ -18,6 +18,8 @@ import java.util.Objects;
 
 @Service
 public class CodePreviewService {
+    public static final String SOURCE_VALUE_MISSING = "platform.code.source-value-missing";
+    public static final String VALUE_MAPPING_MISSING = "platform.code.value-mapping-missing";
     private final FormulaEngine formulaEngine;
     private final Clock clock;
 
@@ -144,7 +146,7 @@ public class CodePreviewService {
                         .filter(mapping -> Boolean.TRUE.equals(mapping.getDefaultMapping()))
                         .map(CodeValueMapping::getTargetValue)
                         .findFirst()
-                        .orElseThrow(() -> new PlatformException("Code value mapping not found for source: " + sourceValue)));
+                        .orElseThrow(() -> new PlatformException(VALUE_MAPPING_MISSING, 400, "Code value mapping not found for source: " + sourceValue)));
     }
 
     private String evaluateFormula(CodeRuleSegment segment, Map<String, Object> context) {
@@ -160,7 +162,7 @@ public class CodePreviewService {
         return switch (policy) {
             case SKIP_SEGMENT -> null;
             case USE_DEFAULT -> segment.getFixedValue();
-            case ERROR -> throw new PlatformException("Code segment source has no value: " + segment.getSourceRef());
+            case ERROR -> throw new PlatformException(SOURCE_VALUE_MISSING, 400, "Code segment source has no value: " + segment.getSourceRef());
         };
     }
 

@@ -1,4 +1,10 @@
-import { pageActionIntent, pageActionEntryTitle, pageActionEntryVisible } from '@muyun/web-core';
+import {
+  pageActionIntent,
+  pageActionEntryTitle,
+  pageActionEntryVisible,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 import type { RecordActionItem } from '@muyun/platform-components';
 import type { ResolvedPageActionDescriptor } from '@muyun/web-contracts';
 
@@ -21,6 +27,7 @@ export function resolvePlacedPageActions(
   mode: 'create' | 'edit' | 'view',
   managed = false,
   record?: { enabled?: unknown },
+  language: LanguageContext = platformLanguageContext,
 ): RecordActionItem[] {
   return placements.flatMap((placement) => {
     if (placement.anchor !== anchor) return [];
@@ -45,22 +52,20 @@ export function resolvePlacedPageActions(
           ? ['create', 'query'].includes(action.actionCode)
           : ['update', 'delete', 'enable', 'disable', 'managePermissions'].includes(action.actionCode) ||
             detailActions.some((candidate) => candidate.actionCode === action.actionCode));
-    const statusReason =
-      managed && anchor === 'DETAIL' && record
-        ? action.actionCode === 'enable' && record.enabled !== false
-          ? '当前记录已启用'
-          : action.actionCode === 'disable' && record.enabled === false
-            ? '当前记录已停用'
-            : undefined
-        : undefined;
-    if (statusReason) return [];
+    const unchangedStatus =
+      managed &&
+      anchor === 'DETAIL' &&
+      record &&
+      ((action.actionCode === 'enable' && record.enabled !== false) ||
+        (action.actionCode === 'disable' && record.enabled === false));
+    if (unchangedStatus) return [];
     return [
       {
         key: `page-placement:${anchor}:${action.actionCode}`,
         actionCode: action.actionCode,
         title: managed
           ? (placement.title ??
-            (invoke ? (action.title ?? action.actionCode) : pageActionEntryTitle(placement)))
+            (invoke ? (action.title ?? action.actionCode) : pageActionEntryTitle(placement, language)))
           : (action.title ?? action.actionCode),
         danger: action.actionCode === 'delete',
         actionLevel:
@@ -69,8 +74,10 @@ export function resolvePlacedPageActions(
             : action.actionCode === 'delete'
               ? 'secondary'
               : 'standard',
-        disabled: !supported || Boolean(statusReason),
-        disabledReason: supported ? statusReason : '该动作尚未提供当前区域的执行入口',
+        disabled: !supported,
+        disabledReason: supported
+          ? undefined
+          : language.t('platform.action.no-entry', '该动作尚未提供当前区域的执行入口'),
         iconName: placement.statusMode === 'INPUT_VALIDATION' ? 'reload' : undefined,
       },
     ];

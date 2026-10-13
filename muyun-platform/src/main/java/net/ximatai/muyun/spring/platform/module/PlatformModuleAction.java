@@ -164,4 +164,14 @@ public class PlatformModuleAction extends StandardEnabledSortableEntity implemen
                         : ActionAccessMode.valueOf(effectiveAccessMode().name()),
                 effectiveActionAuth(), effectiveDataAuth(), effectiveDefaultGrantPolicy(), inherited);
     }
+    /** Durable contributor facts retain the title producer even when actions are read back from the catalogue. */
+    public net.ximatai.muyun.spring.common.i18n.TextReference titleSource() {
+        if (Boolean.TRUE.equals(systemManaged) && sourceType == ModuleActionSourceType.WORKFLOW_RUNTIME && title != null)
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.workflow.action." + actionCode + ".title", title);
+        boolean declared = Boolean.TRUE.equals(systemManaged) && (sourceType == ModuleActionSourceType.STATIC_MODULE
+                || sourceType == ModuleActionSourceType.CODE_EXTENSION || sourceType == ModuleActionSourceType.DYNAMIC_MODULE);
+        return declared ? net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(moduleAlias, actionCode, title)
+                : net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.configured(moduleAlias, actionCode, title);
+    }
+
 }

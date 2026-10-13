@@ -2,6 +2,8 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebBusinessNotification } from '@muyun/web-contracts';
 import BusinessNotificationPanel from '@/platform-components/BusinessNotificationPanel.vue';
+import { defineComponent, h, nextTick } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 
 function notification(
   id: string,
@@ -20,6 +22,59 @@ function notification(
 }
 
 describe('BusinessNotificationPanel', () => {
+  it('renders receiver-language resources while executing the original declarative action', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const action = {
+      kind: 'record' as const,
+      key: 'save',
+      label: '处理',
+      moduleAlias: 'demo.order',
+      recordId: 'record',
+      actionCode: 'approve',
+      arguments: { opinion: '中文意见原文' },
+      dismissOnSuccess: false,
+    };
+    const notice: WebBusinessNotification = {
+      ...notification('notice', true),
+      title: '待办原文',
+      actions: [action],
+      textResources: {
+        title: {
+          source: { sourceKind: 'CODE', sourceId: 'title', sourceVersion: 'v1', originalText: '待办原文' },
+          languages: {
+            en: { text: 'Pending task', requestedTag: 'en', missing: false, fallback: false },
+          },
+        },
+        'action/save/label': {
+          source: { sourceKind: 'CODE', sourceId: 'action', sourceVersion: 'v1', originalText: '处理' },
+          languages: {
+            en: { text: 'Process', requestedTag: 'en', missing: false, fallback: false },
+          },
+        },
+      },
+    };
+    const executeAction = vi.fn();
+    const host = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(BusinessNotificationPanel, { notifications: [notice], executeAction });
+      },
+    });
+    const wrapper = mount(host);
+    expect(wrapper.text()).toContain('Pending task');
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.text()).toContain('待办原文');
+    language.setLanguage('en');
+    await nextTick();
+    const button = wrapper.findAll('button').find((item) => item.text() === 'Process');
+    expect(button).toBeDefined();
+    await button!.trigger('click');
+    expect(executeAction).toHaveBeenCalledWith(notice, action);
+    expect(action.arguments.opinion).toBe('中文意见原文');
+    wrapper.unmount();
+  });
+
   it('prioritizes non-dismissible reminders and lets the user expand the temporary queue', async () => {
     const wrapper = mount(BusinessNotificationPanel, {
       props: {

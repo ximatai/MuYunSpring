@@ -29,7 +29,8 @@ public record WorkflowAdminActiveTaskView(
         Boolean addedByAddSign,
         String addSignSourceNodeKey,
         String addSignOperatorId,
-        Instant addSignAt
+        Instant addSignAt,
+        String workflowVersionId
 ) {
     public WorkflowAdminActiveTaskView {
         boolean isAddedByAddSign = Boolean.TRUE.equals(addedByAddSign);
@@ -42,11 +43,11 @@ public record WorkflowAdminActiveTaskView(
     }
 
     public static WorkflowAdminActiveTaskView from(WorkflowTask task, WorkflowNodeInstance node) {
-        return from(task, node, java.util.Map.of());
+        return from(task, node, java.util.Map.of(), null);
     }
 
     public static WorkflowAdminActiveTaskView from(WorkflowTask task, WorkflowNodeInstance node,
-                                                   java.util.Map<String, String> userTitles) {
+                                                   java.util.Map<String, String> userTitles, String workflowVersionId) {
         boolean addedByAddSign = Boolean.TRUE.equals(node.getAddedByAddSign());
         return new WorkflowAdminActiveTaskView(
                 task.getId(),
@@ -75,7 +76,7 @@ public record WorkflowAdminActiveTaskView(
                 addedByAddSign,
                 addedByAddSign ? blankToNull(node.getAddSignSourceNodeKey()) : null,
                 addedByAddSign ? blankToNull(node.getAddSignOperatorId()) : null,
-                addedByAddSign ? node.getAddSignAt() : null);
+                addedByAddSign ? node.getAddSignAt() : null, workflowVersionId);
     }
 
     private static String blankToNull(String value) {

@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import {
   useModuleContext,
+  presentationLabel,
   createModuleContext,
   withHttpHeaders,
   createWorkflowClient,
   createWorkflowAdminClient,
 } from '@muyun/web-core';
 import type {
+  ModuleTitleView,
   WorkflowRenderBundle,
   WorkflowHistoryInstance,
   WorkflowEvent,
@@ -21,7 +24,7 @@ import {
   ManagementTabs,
   RecordFieldLabel,
   WorkflowDiagram,
-  workflowTitle,
+  workflowTitle as localizedWorkflowTitle,
   presentPlatformError,
 } from '@muyun/platform-components';
 import {
@@ -35,6 +38,16 @@ import {
 } from '@muyun/vue-ui-antdv';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
+import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
+import {
+  refreshWorkflowTextResources,
+  sameWorkflowTextSource,
+} from '../platform-components/workflowPresentation';
+
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
 defineOptions({ name: 'WorkflowAdministrationView' });
 const context = useModuleContext({ moduleAlias: 'platform.workflow_admin' }),
   user = useCurrentUserContext();
@@ -47,12 +60,21 @@ const tenantId = ref<string>(),
   historyMode = ref(false),
   error = ref(''),
   detailError = ref(''),
-  moduleLabels = ref<Record<string, string>>({});
+  moduleTitles = ref<Record<string, ModuleTitleView>>({});
+const moduleLabels = computed(() =>
+  Object.fromEntries(
+    Object.entries(moduleTitles.value).map(([alias, view]) => [
+      alias,
+      presentationLabel(view.title, view.titleText, workflowLanguage),
+    ]),
+  ),
+);
 const http = computed(() =>
   tenantId.value ? withHttpHeaders(context.http, { 'X-MuYun-Tenant-Id': tenantId.value }) : context.http,
 );
 const tenantContext = createModuleContext<Record<string, unknown>>({
   http: context.http,
+  language: workflowLanguage,
   moduleAlias: 'iam.tenant',
   runtimeAccess: 'REFERENCE',
 });
@@ -66,6 +88,91 @@ const selectedId = ref<string>(),
   pending = ref<{ code: string; taskId?: string }>();
 const client = computed(() => createWorkflowAdminClient(http.value));
 let revision = 0;
+let textRevision = 0;
+usePageDataChangeHandler(async (changeSet) => {
+  const modules = new Set(
+    changeSet.changes
+      .filter((change) => change.type === 'configuration-translations-changed')
+      .map((change) => change.moduleAlias),
+  );
+  const original = bundle.value;
+  const refreshList = !historyMode.value && instances.value.some((item) => modules.has(item.moduleAlias));
+  const refreshDetail = original && modules.has(original.instance.moduleAlias);
+  const refreshDirectory = Object.keys(moduleTitles.value).some((alias) => modules.has(alias));
+  if (!refreshList && !refreshDetail && !refreshDirectory) return;
+  const request = ++textRevision,
+    current = revision,
+    history = historyMode.value,
+    id = selectedId.value,
+    owner = user?.value?.userId;
+  try {
+    const [nextInstances, next, nextEvents, directory] = await Promise.all([
+      refreshList
+        ? client.value.instances({
+            moduleAlias: moduleAlias.value || undefined,
+            recordId: recordId.value || undefined,
+            instanceStatus: instanceStatus.value,
+            page: { pageNum: page.value, pageSize: 30 },
+          })
+        : undefined,
+      refreshDetail && id ? client.value.bundle(id, history) : undefined,
+      refreshDetail && id ? client.value.events(id, history) : undefined,
+      refreshDirectory ? createWorkflowClient(http.value).workbenchModules() : undefined,
+    ]);
+    if (
+      request !== textRevision ||
+      current !== revision ||
+      id !== selectedId.value ||
+      history !== historyMode.value ||
+      owner !== user?.value?.userId
+    )
+      return;
+    if (directory) {
+      moduleTitles.value = Object.fromEntries(
+        Object.entries(moduleTitles.value).map(([alias, view]) => {
+          const text = directory.modules[alias]?.titleText;
+          return [alias, sameWorkflowTextSource(view.titleText, text) ? { ...view, titleText: text } : view];
+        }),
+      );
+    }
+    if (nextInstances)
+      instances.value = instances.value.map((item) => {
+        const updated = nextInstances.find(
+          (row) => row.instanceId === item.instanceId && row.workflowVersionId === item.workflowVersionId,
+        );
+        return {
+          ...item,
+          activeNodeLabels: item.activeNodeLabels?.map((label) => {
+            const refreshed = updated?.activeNodeLabels?.find(
+              (candidate) => candidate.nodeKey === label.nodeKey,
+            );
+            return sameWorkflowTextSource(label.titleText, refreshed?.titleText)
+              ? { ...label, titleText: refreshed?.titleText }
+              : label;
+          }),
+        };
+      });
+    if (!original || !next || bundle.value?.instance.id !== original.instance.id) return;
+    bundle.value = refreshWorkflowTextResources(bundle.value, next);
+    tasks.value = tasks.value.map((task) => {
+      const node = next.nodes.find(
+        (candidate) => candidate.id === task.nodeInstanceId && candidate.nodeKey === task.nodeKey,
+      );
+      return sameWorkflowTextSource(task.nodeTitleText, node?.nodeTitleText)
+        ? { ...task, nodeTitleText: node?.nodeTitleText }
+        : task;
+    });
+    events.value = events.value.map((event) => {
+      const nextEvent = nextEvents?.find((item) => item.id === event.id);
+      return sameWorkflowTextSource(event.messageText, nextEvent?.messageText)
+        ? { ...event, messageText: nextEvent?.messageText }
+        : event;
+    });
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-text-resources', phase: 'load' });
+  }
+});
+
 async function load() {
   if (busy.value || (pending.value && !(await mayCloseOperation()))) return;
   await reload();
@@ -102,7 +209,10 @@ async function reload() {
     }
   } catch (cause) {
     if (current !== revision) return;
-    error.value = '流程加载失败，请重试。';
+    error.value = workflowLanguage.t(
+      'platform.screen.WorkflowAdministrationView.load-failed',
+      '流程加载失败，请重试。',
+    );
     instances.value = [];
     history.value = [];
     presentPlatformError(cause, { source: 'workflow-admin', phase: 'load' });
@@ -135,7 +245,10 @@ async function select(id: string) {
     tasks.value = active;
   } catch (cause) {
     if (current !== revision) return;
-    detailError.value = '流程详情加载失败，请重试。';
+    detailError.value = workflowLanguage.t(
+      'platform.screen.WorkflowAdministrationView.detail-load-failed',
+      '流程详情加载失败，请重试。',
+    );
     presentPlatformError(cause, { source: 'workflow-admin', phase: 'load' });
   } finally {
     if (current === revision) busy.value = false;
@@ -158,15 +271,28 @@ async function execute() {
   try {
     if (
       !(await confirmAction({
-        title: `确认${operationTitle(pending.value.code)}？`,
-        content: operationImpact(pending.value.code) + ` 原因：${reason.value.trim()}`,
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.confirm-action-title',
+          '确认{operation}？',
+          { operation: operationTitle(pending.value.code) },
+        ),
+        content: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.confirm-action-content',
+          '{impact} 原因：{reason}',
+          { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
+        ),
         danger: true,
-        okText: '确认执行',
+        okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.confirm-execute', '确认执行'),
       }))
     )
       return;
     await client.value.execute(selectedId.value, pending.value.code, reason.value, pending.value.taskId);
-    showSuccessMessage('运维操作已完成并记录审计');
+    showSuccessMessage(
+      workflowLanguage.t(
+        'platform.screen.WorkflowAdministrationView.operation-completed',
+        '运维操作已完成并记录审计',
+      ),
+    );
     await reload();
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-admin', phase: 'action' });
@@ -176,11 +302,21 @@ async function execute() {
 }
 watch(
   tenantId,
-  async () => {
+  async (_, __, onCleanup) => {
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    moduleTitles.value = {};
     moduleAlias.value = '';
     recordId.value = '';
     page.value = 1;
-    moduleLabels.value = await createWorkflowClient(http.value).workbenchModules();
+    try {
+      const catalog = await createWorkflowClient(http.value).workbenchModules();
+      if (active) moduleTitles.value = catalog.modules ?? {};
+    } catch (cause) {
+      if (active) presentPlatformError(cause, { source: 'workflow-module-titles', phase: 'load' });
+    }
   },
   { immediate: true },
 );
@@ -192,7 +328,7 @@ const rows = computed(() =>
         id: item.id,
         moduleTitle: moduleLabels.value[item.moduleAlias] ?? item.moduleAlias,
         status: workflowTitle(item.instanceStatus),
-        active: '已归档',
+        active: workflowTitle('archived'),
         assignees: '—',
         starter: item.startedByTitle ?? '—',
         started: formatTime(item.startedAt),
@@ -203,43 +339,113 @@ const rows = computed(() =>
         moduleTitle: moduleLabels.value[item.moduleAlias] ?? item.moduleAlias,
         status: workflowTitle(item.instanceStatus),
         approval: workflowTitle(item.approvalStatus),
-        active: item.activeNodeTitles.join('、'),
+        active: item.activeNodeLabels?.length
+          ? item.activeNodeLabels
+              .map((label) => presentationLabel(label.title, label.titleText, workflowLanguage))
+              .join('、')
+          : item.activeNodeTitles.join('、'),
         assignees: item.currentAssigneeTitles.join('、'),
         starter: item.startedByTitle,
         urgency: workflowTitle(item.overtimeStatus),
       })),
 );
-const columns = [
-  { key: 'moduleTitle', title: '业务模块', dataIndex: 'moduleTitle', width: 160 },
-  { key: 'versionNo', title: '流程版本', dataIndex: 'versionNo', width: 100 },
-  { key: 'status', title: '状态', dataIndex: 'status', width: 100 },
-  { key: 'active', title: '当前节点', dataIndex: 'active', width: 180 },
-  { key: 'assignees', title: '办理人', dataIndex: 'assignees', width: 180 },
-  { key: 'starter', title: '发起人', dataIndex: 'starter', width: 110 },
-  { key: 'recordId', title: '业务记录标识', dataIndex: 'recordId', width: 220 },
-];
-const taskColumns = [
-  { key: 'nodeTitle', title: '节点', dataIndex: 'nodeTitle' },
-  { key: 'assigneeTitle', title: '办理人', dataIndex: 'assigneeTitle' },
-];
+const columns = computed(() => [
+  {
+    key: 'moduleTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.business-module', '业务模块'),
+    dataIndex: 'moduleTitle',
+    width: 160,
+  },
+  {
+    key: 'versionNo',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-version', '流程版本'),
+    dataIndex: 'versionNo',
+    width: 100,
+  },
+  {
+    key: 'status',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.status', '状态'),
+    dataIndex: 'status',
+    width: 100,
+  },
+  {
+    key: 'active',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.current-node', '当前节点'),
+    dataIndex: 'active',
+    width: 180,
+  },
+  {
+    key: 'assignees',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.processors', '办理人'),
+    dataIndex: 'assignees',
+    width: 180,
+  },
+  {
+    key: 'starter',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.submitter', '发起人'),
+    dataIndex: 'starter',
+    width: 110,
+  },
+  {
+    key: 'recordId',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.record-id', '业务记录标识'),
+    dataIndex: 'recordId',
+    width: 220,
+  },
+]);
+const taskColumns = computed(() => [
+  {
+    key: 'nodeTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.node', '节点'),
+    dataIndex: 'nodeTitle',
+  },
+  {
+    key: 'assigneeTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.processors', '办理人'),
+    dataIndex: 'assigneeTitle',
+  },
+]);
 const detailActions = computed(() => [
   ...(bundle.value?.instance?.instanceStatus === 'running'
-    ? [{ key: 'forceTerminate', title: '终止流程', danger: true }]
+    ? [
+        {
+          key: 'forceTerminate',
+          title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.terminate', '终止流程'),
+          danger: true,
+        },
+      ]
     : []),
-  { key: 'reset', title: '重置业务审批', danger: true },
+  {
+    key: 'reset',
+    title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.reset-approval', '重置业务审批'),
+    danger: true,
+  },
 ]);
 function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
 }
 function operationTitle(code: string) {
-  return code === 'forceApprove' ? '强制办理' : code === 'reset' ? '重置业务审批' : '终止流程';
+  return code === 'forceApprove'
+    ? workflowLanguage.t('platform.screen.WorkflowAdministrationView.force-process', '强制办理')
+    : code === 'reset'
+      ? workflowLanguage.t('platform.screen.WorkflowAdministrationView.reset-approval', '重置业务审批')
+      : workflowLanguage.t('platform.screen.WorkflowAdministrationView.terminate', '终止流程');
 }
 function operationImpact(code: string) {
   return code === 'forceApprove'
-    ? '将替代原办理人推进当前任务，可能触发后续业务动作。'
+    ? workflowLanguage.t(
+        'platform.screen.WorkflowAdministrationView.force-impact',
+        '将替代原办理人推进当前任务，可能触发后续业务动作。',
+      )
     : code === 'reset'
-      ? '将归档当前流程并清除业务审批状态，允许重新发起。'
-      : '将终止当前流程并取消未完成任务。';
+      ? workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.reset-impact',
+          '将归档当前流程并清除业务审批状态，允许重新发起。',
+        )
+      : workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.terminate-impact',
+          '将终止当前流程并取消未完成任务。',
+        );
 }
 function chooseOperation(code: string, taskId?: string) {
   pending.value = { code, taskId };
@@ -256,7 +462,14 @@ async function mayCloseOperation() {
   const current = revision;
   const accepted =
     !reason.value.trim() ||
-    (await confirmAction({ title: '放弃未执行的运维操作？', danger: true, okText: '放弃填写' }));
+    (await confirmAction({
+      title: workflowLanguage.t(
+        'platform.screen.WorkflowAdministrationView.discard-operation',
+        '放弃未执行的运维操作？',
+      ),
+      danger: true,
+      okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.discard', '放弃填写'),
+    }));
   return accepted && !busy.value && current === revision && operation === pending.value;
 }
 async function mayCloseDetail() {
@@ -270,21 +483,53 @@ function title(record: { id?: string; title?: string }) {
   <section class="workflow-admin">
     <ManagementTabs
       :tabs="[
-        { key: 'current', title: '当前实例' },
-        { key: 'history', title: '历史归档' },
+        {
+          key: 'current',
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.current-instances',
+            '当前实例',
+          ),
+        },
+        {
+          key: 'history',
+          title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.history', '历史归档'),
+        },
       ]"
       :active-key="historyMode ? 'history' : 'current'"
-      label="工作流运维范围"
+      :label="
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.workflow-administration-scope',
+          '工作流运维范围',
+        )
+      "
       :disabled="busy || Boolean(pending)"
       @update:active-key="
         historyMode = $event === 'history';
         page = 1;
       "
     />
-    <UiError v-if="error" title="无法加载流程" :message="error" />
-    <p v-if="historyMode && !moduleAlias">选择业务模块后查看归档流程。</p>
+    <UiError
+      v-if="error"
+      :title="
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.unable-to-load-workflows',
+          '无法加载流程',
+        )
+      "
+      :message="error"
+    />
+    <p v-if="historyMode && !moduleAlias">
+      {{
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.select-a-business-module-to-view-archived',
+          '选择业务模块后查看归档流程。',
+        )
+      }}
+    </p>
     <RecordQueryListSurface
-      title="工作流运维"
+      :title="
+        workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-administration', '工作流运维')
+      "
       subtitle="异常处理需要明确原因，所有操作记录审计"
       :columns="columns"
       :rows="rows"
@@ -301,11 +546,17 @@ function title(record: { id?: string; title?: string }) {
       @row-click="select(String($event.id))"
       @page-change="page = $event"
     >
-      <template #operations><UiButton :loading="busy" @click="load">刷新</UiButton></template>
+      <template #operations
+        ><UiButton :loading="busy" @click="load">{{
+          workflowLanguage.t('platform.screen.WorkflowAdministrationView.refresh', '刷新')
+        }}</UiButton></template
+      >
       <template #conditions
         ><div class="workflow-query-fields">
           <label class="workflow-field" v-if="user?.system"
-            ><RecordFieldLabel>业务租户</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowAdministrationView.business-tenant', '业务租户')
+            }}</RecordFieldLabel
             ><RecordPicker
               v-model:value="tenantId"
               :context="tenantContext"
@@ -313,7 +564,9 @@ function title(record: { id?: string; title?: string }) {
               :title-of="title"
               mode="list" /></label
           ><label class="workflow-field"
-            ><RecordFieldLabel :required="historyMode">业务模块</RecordFieldLabel
+            ><RecordFieldLabel :required="historyMode">{{
+              workflowLanguage.t('platform.screen.WorkflowAdministrationView.business-module', '业务模块')
+            }}</RecordFieldLabel
             ><UiSelect
               v-model:value="moduleAlias"
               :disabled="busy || Boolean(pending)"
@@ -321,7 +574,9 @@ function title(record: { id?: string; title?: string }) {
               :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
               :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
           ><label class="workflow-field" v-if="!historyMode"
-            ><RecordFieldLabel>流程状态</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-status', '流程状态')
+            }}</RecordFieldLabel
             ><UiSelect
               v-model:value="instanceStatus"
               :disabled="busy || Boolean(pending)"
@@ -333,43 +588,87 @@ function title(record: { id?: string; title?: string }) {
                 { value: 'terminated', label: '已终止' },
               ]" /></label
           ><label class="workflow-field"
-            >业务记录标识<UiInput
+            >{{
+              workflowLanguage.t(
+                'platform.screen.WorkflowAdministrationView.business-record-identifier',
+                '业务记录标识',
+              )
+            }}<UiInput
               v-model:value="recordId"
               :disabled="busy || Boolean(pending)"
-              placeholder="精确定位异常业务"
+              :placeholder="
+                workflowLanguage.t(
+                  'platform.screen.WorkflowAdministrationView.locate-a-specific-business-issue',
+                  '精确定位异常业务',
+                )
+              "
           /></label>
           <div class="workflow-query-controls">
-            <UiButton :disabled="busy || (historyMode && !moduleAlias)" @click="query()">查询</UiButton
-            ><UiButton :disabled="busy" @click="query(true)">重置</UiButton>
+            <UiButton :disabled="busy || (historyMode && !moduleAlias)" @click="query()">{{
+              workflowLanguage.t('platform.screen.WorkflowAdministrationView.search', '查询')
+            }}</UiButton
+            ><UiButton :disabled="busy" @click="query(true)">{{
+              workflowLanguage.t('platform.screen.WorkflowAdministrationView.reset', '重置')
+            }}</UiButton>
           </div>
         </div></template
       >
     </RecordQueryListSurface>
     <RecordDetailDrawer
       :open="Boolean(selectedId)"
-      title="流程运维详情"
+      :title="
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.workflow-administration-details',
+          '流程运维详情',
+        )
+      "
       :subtitle="
         bundle
-          ? `${moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias} · ${workflowTitle(bundle.instance.instanceStatus)} · 版本 ${bundle.instance.versionNo}`
+          ? workflowLanguage.t(
+              'platform.screen.WorkflowAdministrationView.instance-title',
+              '{module} · {status} · 版本 {version}',
+              {
+                module: moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias,
+                status: workflowTitle(bundle.instance.instanceStatus),
+                version: bundle.instance.versionNo,
+              },
+            )
           : undefined
       "
       width="extraWide"
       :before-close="mayCloseDetail"
       @close="selectedId = undefined"
     >
-      <UiError v-if="detailError" title="无法加载详情" :message="detailError" /><UiButton
+      <UiError
         v-if="detailError"
-        @click="select(selectedId!)"
-        >重试</UiButton
-      >
-      <p v-if="busy">正在加载…</p>
+        :title="
+          workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.unable-to-load-details',
+            '无法加载详情',
+          )
+        "
+        :message="detailError"
+      /><UiButton v-if="detailError" @click="select(selectedId!)">{{
+        workflowLanguage.t('platform.screen.WorkflowAdministrationView.retry', '重试')
+      }}</UiButton>
+      <p v-if="busy">
+        {{ workflowLanguage.t('platform.screen.WorkflowAdministrationView.loading', '正在加载…') }}
+      </p>
       <template v-if="bundle">
         <RecordQueryListSurface
           v-if="!historyMode && tasks.length"
           embedded
-          title="当前待办"
+          :title="
+            workflowLanguage.t('platform.screen.WorkflowAdministrationView.current-pending-tasks', '当前待办')
+          "
           :columns="taskColumns"
-          :rows="tasks.map((task) => ({ ...task, id: task.taskId }))"
+          :rows="
+            tasks.map((task) => ({
+              ...task,
+              id: task.taskId,
+              nodeTitle: presentationLabel(task.nodeTitle, task.nodeTitleText, workflowLanguage),
+            }))
+          "
           :pageable="false"
           :fill-height="false"
           :show-action-column="true"
@@ -379,13 +678,29 @@ function title(record: { id?: string; title?: string }) {
               danger
               :disabled="busy || Boolean(pending)"
               @click="chooseOperation('forceApprove', String(record.taskId))"
-              >强制办理</UiButton
+              >{{
+                workflowLanguage.t('platform.screen.WorkflowAdministrationView.force-processing', '强制办理')
+              }}</UiButton
             ></template
           ></RecordQueryListSurface
         >
-        <p v-if="!historyMode && !tasks.length" class="workflow-empty-tasks">当前没有待办任务</p>
+        <p v-if="!historyMode && !tasks.length" class="workflow-empty-tasks">
+          {{
+            workflowLanguage.t(
+              'platform.screen.WorkflowAdministrationView.there-are-no-pending-tasks',
+              '当前没有待办任务',
+            )
+          }}
+        </p>
         <details class="workflow-map">
-          <summary>查看流程图</summary>
+          <summary>
+            {{
+              workflowLanguage.t(
+                'platform.screen.WorkflowAdministrationView.view-workflow-diagram',
+                '查看流程图',
+              )
+            }}
+          </summary>
           <WorkflowDiagram
             presentation="detail"
             :nodes="bundle.nodes"
@@ -396,17 +711,42 @@ function title(record: { id?: string; title?: string }) {
         </details>
         <RecordQueryListSurface
           embedded
-          title="运维审计"
+          :title="
+            workflowLanguage.t('platform.screen.WorkflowAdministrationView.administration-audit', '运维审计')
+          "
           :columns="[
-            { key: 'occurred', title: '时间', dataIndex: 'occurred', width: 170 },
-            { key: 'action', title: '操作', dataIndex: 'action', width: 120 },
-            { key: 'operatorTitle', title: '操作人', dataIndex: 'operatorTitle', width: 110 },
-            { key: 'message', title: '原因与审计', dataIndex: 'message' },
+            {
+              key: 'occurred',
+              title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.time', '时间'),
+              dataIndex: 'occurred',
+              width: 170,
+            },
+            {
+              key: 'action',
+              title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.operation', '操作'),
+              dataIndex: 'action',
+              width: 120,
+            },
+            {
+              key: 'operatorTitle',
+              title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.operator', '操作人'),
+              dataIndex: 'operatorTitle',
+              width: 110,
+            },
+            {
+              key: 'message',
+              title: workflowLanguage.t(
+                'platform.screen.WorkflowAdministrationView.audit-reason',
+                '原因与审计',
+              ),
+              dataIndex: 'message',
+            },
           ]"
           :rows="
             events.map((event) => ({
               ...event,
               action: workflowTitle(event.actionCode ?? event.eventType),
+              message: presentationLabel(event.message ?? '', event.messageText, workflowLanguage),
               occurred: formatTime(event.occurredAt),
             }))
           "
@@ -424,9 +764,9 @@ function title(record: { id?: string; title?: string }) {
             @click="chooseOperation(item.key)"
             >{{ item.title }}</UiButton
           ></template
-        ><UiButton :disabled="busy || Boolean(pending)" @click="selectedId = undefined"
-          >关闭详情</UiButton
-        ></template
+        ><UiButton :disabled="busy || Boolean(pending)" @click="selectedId = undefined">{{
+          workflowLanguage.t('platform.screen.WorkflowAdministrationView.close-details', '关闭详情')
+        }}</UiButton></template
       >
     </RecordDetailDrawer>
     <RecordDetailDrawer
@@ -435,21 +775,45 @@ function title(record: { id?: string; title?: string }) {
       :before-close="mayCloseOperation"
       @close="pending = undefined"
       ><p v-if="bundle">
-        业务：{{ moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias }} · 记录
-        {{ bundle.instance.recordId }}
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.operation-record',
+            '业务：{module} · 记录 {record}',
+            {
+              module: moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias,
+              record: bundle.instance.recordId,
+            },
+          )
+        }}
       </p>
       <p>{{ operationImpact(pending?.code ?? '') }}</p>
       <p>
-        当前流程版本：{{
-          bundle?.instance.versionNo ?? '未知'
-        }}。操作成功后不可直接撤销，并记录操作人、时间和原因。
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.operation-version-warning',
+            '当前流程版本：{version}。操作成功后不可直接撤销，并记录操作人、时间和原因。',
+            {
+              version:
+                bundle?.instance.versionNo ??
+                workflowLanguage.t('platform.screen.WorkflowAdministrationView.unknown-version', '未知'),
+            },
+          )
+        }}
       </p>
       <label class="workflow-field"
-        ><RecordFieldLabel required>运维原因</RecordFieldLabel
-        ><UiTextArea v-model:value="reason" :disabled="busy" aria-label="运维原因" /></label
+        ><RecordFieldLabel required>{{
+          workflowLanguage.t('platform.screen.WorkflowAdministrationView.administration-reason', '运维原因')
+        }}</RecordFieldLabel
+        ><UiTextArea
+          v-model:value="reason"
+          :disabled="busy"
+          :aria-label="
+            workflowLanguage.t('platform.screen.WorkflowAdministrationView.administration-reason', '运维原因')
+          " /></label
       ><template #operation
-        ><UiButton type="primary" danger :loading="busy" :disabled="!reason.trim()" @click="execute"
-          >确认操作</UiButton
+        ><UiButton type="primary" danger :loading="busy" :disabled="!reason.trim()" @click="execute">{{
+          workflowLanguage.t('platform.screen.WorkflowAdministrationView.confirm-operation', '确认操作')
+        }}</UiButton
         ><UiButton
           :disabled="busy"
           @click="
@@ -457,7 +821,7 @@ function title(record: { id?: string; title?: string }) {
               if (ok) pending = undefined;
             })
           "
-          >取消</UiButton
+          >{{ workflowLanguage.t('platform.screen.WorkflowAdministrationView.cancel', '取消') }}</UiButton
         ></template
       ></RecordDetailDrawer
     >

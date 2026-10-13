@@ -21,8 +21,22 @@ public record DynamicActionDescriptor(
         String unavailableMessage,
         EntityActionExecutorType executorType,
         String executorKey,
-        ActionPermissionDescriptor permission
+        ActionPermissionDescriptor permission,
+        net.ximatai.muyun.spring.common.i18n.TextReference titleSource
 ) {
+    public DynamicActionDescriptor withTitleSource(net.ximatai.muyun.spring.common.i18n.TextReference source) {
+        return new DynamicActionDescriptor(code, title, enabled, actionLevel, category, accessMode,
+                actionAuth, dataAuth, defaultGrantPolicy, authInheritActionCode, availabilityCondition,
+                unavailableMessage, executorType, executorKey, permission, source);
+    }
+    public DynamicActionDescriptor(String code, String title, boolean enabled, EntityActionLevel actionLevel,
+            EntityActionCategory category, EntityActionAccessMode accessMode, boolean actionAuth, boolean dataAuth,
+            ActionDefaultGrantPolicy defaultGrantPolicy, String authInheritActionCode, boolean availabilityCondition,
+            String unavailableMessage, EntityActionExecutorType executorType, String executorKey,
+            ActionPermissionDescriptor permission) {
+        this(code, title, enabled, actionLevel, category, accessMode, actionAuth, dataAuth, defaultGrantPolicy,
+                authInheritActionCode, availabilityCondition, unavailableMessage, executorType, executorKey, permission, null);
+    }
     public DynamicActionDescriptor(String code,
                                    String title,
                                    boolean enabled,
@@ -63,6 +77,6 @@ public record DynamicActionDescriptor(
     public DynamicActionDescriptor withPermission(String moduleAlias) {
         return new DynamicActionDescriptor(code, title, enabled, actionLevel, category, accessMode,
                 actionAuth, dataAuth, defaultGrantPolicy, authInheritActionCode, availabilityCondition, unavailableMessage,
-                executorType, executorKey, ActionPermissionDescriptor.of(moduleAlias, this));
+                executorType, executorKey, ActionPermissionDescriptor.of(moduleAlias, this), titleSource);
     }
 }

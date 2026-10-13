@@ -37,7 +37,7 @@ class WorkflowAutomaticApprovalServiceTest {
             assertThat(request.getValue().taskId()).isEqualTo(task.getId());
             assertThat(request.getValue().operatorId()).isEqualTo("actor");
             assertThat(request.getValue().operatedAt()).isEqualTo(now);
-            assertThat(request.getValue().reason()).isNotBlank();
+            assertThat(request.getValue().reason()).isNull();
         } else verifyNoInteractions(actions);
     }
 

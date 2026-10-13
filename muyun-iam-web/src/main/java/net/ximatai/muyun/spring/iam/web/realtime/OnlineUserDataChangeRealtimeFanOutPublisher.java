@@ -32,8 +32,9 @@ public final class OnlineUserDataChangeRealtimeFanOutPublisher implements DataCh
         this.canQueryModule = Objects.requireNonNull(canQueryModule);
     }
 
-    private static boolean isPageConfigurationChange(DataChange change) {
-        return DataChangeTypes.MODULE_PAGE_CONFIGURATION_CHANGED.equals(change.type())
+    private static boolean isSharedPresentationChange(DataChange change) {
+        return (DataChangeTypes.MODULE_PAGE_CONFIGURATION_CHANGED.equals(change.type())
+                || DataChangeTypes.CONFIGURATION_TRANSLATIONS_CHANGED.equals(change.type()))
                 && change.recordId() == null && change.resourceKey() == null && change.scope() == null;
     }
 
@@ -60,9 +61,9 @@ public final class OnlineUserDataChangeRealtimeFanOutPublisher implements DataCh
                 try (var userScope = CurrentUserContext.use(recipient);
                      var tenantScope = recipientTenant == null ? TenantContext.system("data change recipient") : TenantContext.use(recipientTenant)) {
                     var hints = changeSet.changes().stream().filter(Objects::nonNull)
-                            .filter(change -> samePartition || isPageConfigurationChange(change))
-                            .map(change -> isPageConfigurationChange(change)
-                                    ? new DataChange(DataChangeTypes.MODULE_PAGE_CONFIGURATION_CHANGED,
+                            .filter(change -> samePartition || isSharedPresentationChange(change))
+                            .map(change -> isSharedPresentationChange(change)
+                                    ? new DataChange(change.type(),
                                             change.moduleAlias(), null, null, null, java.util.Map.of())
                                     : DataChange.collectionChanged(change.moduleAlias()))
                             .distinct().filter(change -> canQueryModule.test(change.moduleAlias())).toList();

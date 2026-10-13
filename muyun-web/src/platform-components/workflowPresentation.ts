@@ -1,4 +1,10 @@
-import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
+import type {
+  WorkflowNode,
+  WorkflowRoute,
+  WorkflowRenderBundle,
+  TextPresentation,
+} from '@muyun/web-contracts';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 const titles: Record<string, string> = {
   normal: '正常',
   route_dropped: '分支待办取消',
@@ -88,20 +94,70 @@ const titles: Record<string, string> = {
   task_created: '任务创建',
   task_completed: '任务完成',
 };
-export function workflowTitle(value?: string): string {
-  return value ? (titles[value] ?? titles[value.toLowerCase()] ?? value) : '—';
+export function workflowTitle(value?: string, language: LanguageContext = platformLanguageContext): string {
+  if (!value) return '—';
+  const key = Object.hasOwn(titles, value) ? value : value.toLowerCase();
+  return Object.hasOwn(titles, key) ? language.t(`platform.workflow.${key}`, titles[key]) : value;
+}
+
+export function workflowNodePresentation<T extends WorkflowNode>(node: T, language: LanguageContext): T {
+  return {
+    ...node,
+    nodeTitle: presentationLabel(node.nodeTitle ?? node.title ?? node.nodeKey, node.nodeTitleText, language),
+  };
+}
+
+export function sameWorkflowTextSource(
+  current: TextPresentation | undefined,
+  next: TextPresentation | undefined,
+) {
+  return Boolean(
+    current &&
+    next &&
+    current.source.sourceKind === next.source.sourceKind &&
+    current.source.sourceId === next.source.sourceId &&
+    current.source.sourceVersion === next.source.sourceVersion &&
+    current.source.originalText === next.source.originalText,
+  );
+}
+
+/** Translation refreshes do not replace instance facts, node status, routes or frozen graph JSON. */
+export function refreshWorkflowTextResources(
+  current: WorkflowRenderBundle,
+  next: WorkflowRenderBundle,
+): WorkflowRenderBundle {
+  if (current.instance.id !== next.instance.id) return current;
+  return {
+    ...current,
+    nodes: current.nodes.map((node) => {
+      const refreshed = next.nodes.find((item) => item.id === node.id && item.nodeKey === node.nodeKey);
+      return sameWorkflowTextSource(node.nodeTitleText, refreshed?.nodeTitleText)
+        ? { ...node, nodeTitleText: refreshed?.nodeTitleText }
+        : node;
+    }),
+  };
 }
 
 /** Recover selection semantics from frozen mode and path status after convergence updates the lifecycle reason. */
-export function workflowRouteSelectionTitle(route: WorkflowRoute, source?: WorkflowNode): string {
+export function workflowRouteSelectionTitle(
+  route: WorkflowRoute,
+  source?: WorkflowNode,
+  language: LanguageContext = platformLanguageContext,
+): string {
   if (
     !source?.routeMode ||
     !['effective', 'closed', 'dropped', 'ineffective'].includes(route.routeStatus ?? '')
   )
-    return workflowTitle(route.routeReason);
+    return workflowTitle(route.routeReason, language);
   const selected = route.routeStatus !== 'ineffective';
-  if (source.routeMode === 'manual') return selected ? '人工选择' : '人工未选择';
-  if (route.defaultRoute) return selected ? '默认出口生效' : '默认出口未启用';
-  if (!selected) return '条件未命中';
-  return route.conditionExpression?.trim() ? '条件命中' : '无条件出口生效';
+  if (source.routeMode === 'manual')
+    return workflowTitle(selected ? 'manual_selected' : 'manual_unselected', language);
+  if (route.defaultRoute)
+    return selected
+      ? workflowTitle('default_selected', language)
+      : language.t('platform.workflow.default_unselected', '默认出口未启用');
+  if (!selected) return workflowTitle('condition_unmatched', language);
+  return route.conditionExpression?.trim()
+    ? workflowTitle('condition_matched', language)
+    : language.t('platform.workflow.unconditional_selected', '无条件出口生效');
 }

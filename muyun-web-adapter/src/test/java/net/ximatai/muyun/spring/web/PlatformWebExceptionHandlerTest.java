@@ -51,6 +51,26 @@ class PlatformWebExceptionHandlerTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    void shouldTranslateBusinessFailureWithoutChangingItsOriginalFacts() {
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var handler = new PlatformWebExceptionHandler();
+        handler.setTextResolver(new net.ximatai.muyun.spring.common.i18n.TextResources(catalog,
+                Map.of("en", Map.of("business.blocked", "Cannot change {recordLabel}"))));
+        var source = net.ximatai.muyun.spring.common.i18n.TextReference.code("business.blocked", "不能修改{recordLabel}");
+        var exception = new net.ximatai.muyun.spring.ability.action.BusinessException("BUSINESS_BLOCKED", source,
+                net.ximatai.muyun.spring.ability.action.ActionMessageType.WARNING, Map.of("recordLabel", "原始记录"));
+        try (var ignored = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("en")) {
+            var error = handler.handleBusinessException(exception).getBody();
+            assertThat(error.message()).isEqualTo("Cannot change 原始记录");
+            assertThat(error.actionMessage().text()).isEqualTo(error.message());
+            assertThat(error.actionMessage().messageArgs()).containsEntry("recordLabel", "原始记录");
+            assertThat(error.textSource()).isEqualTo(source);
+            assertThat(error.code()).isEqualTo("BUSINESS_BLOCKED");
+            assertThat(exception.getMessage()).isEqualTo("不能修改原始记录");
+        }
+    }
+
     @AfterEach
     void tearDown() {
         RequestTraceContext.clear();

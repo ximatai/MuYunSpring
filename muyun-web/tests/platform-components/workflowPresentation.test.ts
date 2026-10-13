@@ -1,5 +1,69 @@
-import { describe, it, expect } from 'vitest';
-import { workflowRouteSelectionTitle, workflowTitle } from '@/platform-components/workflowPresentation';
+import { describe, expect, it } from 'vitest';
+import { createLanguageContext } from '@muyun/web-core';
+import type { TextPresentation, WorkflowRenderBundle } from '@muyun/web-contracts';
+import {
+  refreshWorkflowTextResources,
+  workflowNodePresentation,
+  workflowTitle,
+  workflowRouteSelectionTitle,
+} from '@/platform-components/workflowPresentation';
+
+function text(version: string, english: string): TextPresentation {
+  return {
+    source: {
+      sourceKind: 'CONFIG',
+      sourceId: 'workflow/version-1/node',
+      sourceVersion: version,
+      originalText: '原审批节点',
+    },
+    languages: { en: { text: english, requestedTag: 'en', missing: false, fallback: false } },
+  };
+}
+it('refreshes only matching frozen workflow resources and preserves instance, route and original node facts', () => {
+  const original: WorkflowRenderBundle = {
+    instance: { id: 'instance', moduleAlias: 'demo.order', recordId: 'record', instanceStatus: 'running' },
+    nodes: [
+      {
+        id: 'node',
+        nodeKey: 'approve',
+        nodeType: 'approval',
+        nodeStatus: 'active',
+        nodeTitle: '原审批节点',
+        nodeTitleText: text('v1', 'Previous approval'),
+      },
+    ],
+    routes: [],
+    semanticJson: 'frozen semantic facts',
+    layoutJson: 'frozen layout',
+  };
+  const response = {
+    ...original,
+    instance: { ...original.instance, instanceStatus: 'terminated' },
+    nodes: [
+      {
+        ...original.nodes[0]!,
+        nodeStatus: 'completed',
+        nodeTitle: '服务端展示副本',
+        nodeTitleText: text('v1', 'Corrected approval'),
+      },
+    ],
+  };
+  const refreshed = refreshWorkflowTextResources(original, response);
+  expect(refreshed.instance).toBe(original.instance);
+  expect(refreshed.routes).toBe(original.routes);
+  expect(refreshed.nodes[0]?.nodeStatus).toBe('active');
+  expect(refreshed.nodes[0]?.nodeTitle).toBe('原审批节点');
+  const language = createLanguageContext({ languageTag: 'en' });
+  expect(workflowNodePresentation(refreshed.nodes[0]!, language).nodeTitle).toBe('Corrected approval');
+  expect(workflowTitle('approve', language)).toBe('Approve');
+  const newerOriginal = {
+    ...response,
+    nodes: [{ ...response.nodes[0]!, nodeTitleText: text('v2', 'New version approval') }],
+  };
+  expect(refreshWorkflowTextResources(original, newerOriginal).nodes[0]).toBe(original.nodes[0]);
+  expect(original.nodes[0]?.nodeTitleText?.languages.en?.text).toBe('Previous approval');
+});
+
 describe('frozen branch decision labels', () => {
   const route = {
     routeKey: 'r',

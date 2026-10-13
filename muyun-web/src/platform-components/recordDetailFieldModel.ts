@@ -1,9 +1,11 @@
+import { selectionCodesOf } from './optionFieldOptions';
 import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
 import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
 
@@ -23,6 +25,7 @@ export function resolveRecordDetailDisplayValue(
     optionItems?: OptionItemDescriptor[];
     /** Editable display defaults are not facts about an absent saved value. */
     draft?: boolean;
+    language?: LanguageContext;
   } = {},
 ) {
   if (field.calculationPending) return '保存后计算';
@@ -53,6 +56,19 @@ export function resolveRecordDetailDisplayValue(
   }
   // Saved name projections have no identity binding to a newly computed draft code.
   const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
+  const items = field.optionItems ?? options.optionItems ?? [];
+  const codes = selectionCodesOf(value);
+  if (items.some((item) => item.titleText || item.titleSource)) {
+    if (!codes.length) return emptyText;
+    return codes
+      .map((code) => {
+        const item = items.find((candidate) => candidate.code === code);
+        return item
+          ? presentationLabel(item.title, item.titleText, options.language ?? platformLanguageContext)
+          : code;
+      })
+      .join('、');
+  }
   const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
     return String(optionTitle);
@@ -68,7 +84,7 @@ export function resolveRecordDetailDisplayValue(
       (item) => item.code === String(value),
     );
     if (option) {
-      return option.title;
+      return presentationLabel(option.title, option.titleText, options.language ?? platformLanguageContext);
     }
   }
   // `treeRootTitle` names the virtual root inside an editor picker. In a read-only detail,

@@ -28,9 +28,9 @@ public class TeacherWebController extends WebSupport<TeacherService>
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(TeacherService.MODULE_ALIAS)
                 .page(PageTemplates.flatManagement(page -> page
-                        .explorer(explorer -> explorer.title("教师列表").titleField("title")
+                        .explorer(explorer -> explorer.title("教师列表").recordLabel("教师").emptyDescription("暂无教师").titleField("title")
                                 .secondaryField("teacherNo"))
-                        .detail(detail -> detail.editor(form -> form
+                        .detail(detail -> detail.createTitle("新增教师").editor(form -> form
                                 .title("教师档案")
                                 .field("teacherNo", field -> field.label("教师编号").required())
                                 .field("title", field -> field.label("教师姓名").required())

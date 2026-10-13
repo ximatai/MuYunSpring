@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { FileTransferUploadCancelledError } from './fileTransferUpload';
 import { computed, reactive, ref, watch } from 'vue';
 import { UiButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
@@ -313,7 +314,7 @@ async function upload(item: UploadItem) {
     });
   } catch (error) {
     item.task = undefined;
-    item.state = error instanceof Error && error.message === '上传已取消。' ? 'cancelled' : 'failed';
+    item.state = error instanceof FileTransferUploadCancelledError ? 'cancelled' : 'failed';
     item.error = error instanceof Error ? error.message : '文件上传失败。';
     emit('failed', item.file, error);
     if (item.state === 'failed') {

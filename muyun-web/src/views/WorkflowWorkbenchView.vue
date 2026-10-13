@@ -1,17 +1,20 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
+  presentationLabel,
+  displayModuleRuntime,
   createModuleContext,
   createWorkflowClient,
   useModuleContext,
   withHttpHeaders,
 } from '@muyun/web-core';
-import type { WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
+import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
 import { refreshModulePageList } from '@muyun/dynamic-page-runtime';
 import {
   WorkflowRecordPanel,
-  workflowTitle,
+  workflowTitle as localizedWorkflowTitle,
   presentPlatformError,
   RecordDetailFields,
   RecordPicker,
@@ -24,6 +27,8 @@ import {
   type RecordFormFieldDescriptor,
 } from '@muyun/platform-components';
 import { workflowAccountOptions } from '../platform-components/workflowAccountOptions';
+import { sameWorkflowTextSource } from '../platform-components/workflowPresentation';
+import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
@@ -35,6 +40,11 @@ import {
   confirmAction,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
+
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
 defineOptions({ name: 'WorkflowWorkbenchView' });
 const context = useModuleContext(),
   currentUser = useCurrentUserContext(),
@@ -49,6 +59,7 @@ const accountOptions = computed(() => workflowAccountOptions(scopedHttp.value));
 const client = computed(() => createWorkflowClient(scopedHttp.value));
 const tenantContext = createModuleContext<Record<string, unknown>>({
   http: context.http,
+  language: workflowLanguage,
   moduleAlias: 'iam.tenant',
   runtimeAccess: 'REFERENCE',
 });
@@ -56,6 +67,7 @@ const accountScopeReady = computed(() => !currentUser?.value?.system || Boolean(
 const accountContext = computed(() =>
   createModuleContext<Record<string, unknown>>({
     http: scopedHttp.value,
+    language: workflowLanguage,
     moduleAlias: 'iam.user',
     runtimeAccess: 'VIEW',
   }),
@@ -71,19 +83,44 @@ const loading = ref(false),
   error = ref(''),
   keyword = ref(''),
   filters = ref<WorkflowWorkbenchFilters>({});
-const moduleLabels = ref<Record<string, string>>({}),
-  counts = ref<Record<string, number>>({});
+const moduleTitles = ref<Record<string, ModuleTitleView>>({});
+const legacyModuleLabels = ref<Record<string, string>>({});
+const moduleLabels = computed(() => ({
+  ...legacyModuleLabels.value,
+  ...Object.fromEntries(
+    Object.entries(moduleTitles.value).map(([alias, view]) => [
+      alias,
+      presentationLabel(view.title, view.titleText, workflowLanguage),
+    ]),
+  ),
+}));
+const counts = ref<Record<string, number>>({});
 const receivedFrom = ref(''),
   receivedTo = ref('');
 const editing = ref(false),
   panel = ref<InstanceType<typeof WorkflowRecordPanel>>();
 const boards = computed(() =>
   [
-    { key: 'todo', title: '待我办理' },
-    { key: 'done', title: '我已办理' },
-    { key: 'notice', title: '通知我的' },
-    { key: 'tracking', title: '我发起的' },
-    { key: 'delegation', title: '委托办理' },
+    {
+      key: 'todo',
+      title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.my-pending-tasks', '待我办理'),
+    },
+    {
+      key: 'done',
+      title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.my-completed-tasks', '我已办理'),
+    },
+    {
+      key: 'notice',
+      title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.my-notices', '通知我的'),
+    },
+    {
+      key: 'tracking',
+      title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.my-submissions', '我发起的'),
+    },
+    {
+      key: 'delegation',
+      title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.delegated-tasks', '委托办理'),
+    },
   ].map((item) => ({
     ...item,
     title: item.title + (counts.value[item.key] == null ? '' : ` (${counts.value[item.key]})`),
@@ -96,8 +133,20 @@ const rows = computed(() =>
   cards.value.map((card) => ({
     ...card,
     id: card.taskId ?? card.instanceId,
-    title: card.business?.readable === false ? '受限业务记录' : (card.business?.title ?? '未命名业务'),
-    moduleTitle: card.business?.moduleTitle ?? '业务模块',
+    nodeTitle: presentationLabel(card.nodeTitle ?? '', card.nodeTitleText, workflowLanguage),
+    title:
+      card.business?.readable === false
+        ? workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.restricted-business-record',
+            '受限业务记录',
+          )
+        : (card.business?.title ??
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.untitled-business-record', '未命名业务')),
+    moduleTitle:
+      card.business?.moduleTitle != null
+        ? presentationLabel(card.business.moduleTitle, card.business.moduleTitleText, workflowLanguage)
+        : (moduleLabels.value[card.moduleAlias] ??
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块')),
     status: workflowTitle(card.taskStatus ?? card.instanceStatus),
     received: formatTime(card.receivedAt),
     completed: formatTime(card.completedAt),
@@ -106,30 +155,88 @@ const rows = computed(() =>
   })),
 );
 const columns = computed(() => [
-  { key: 'title', title: '业务事项', dataIndex: 'title', width: 240 },
-  { key: 'moduleTitle', title: '业务模块', dataIndex: 'moduleTitle', width: 140 },
-  { key: 'nodeTitle', title: '办理节点', dataIndex: 'nodeTitle', width: 160 },
-  { key: 'submitterUserTitle', title: '发起人', dataIndex: 'submitterUserTitle', width: 110 },
-  { key: 'status', title: '状态', dataIndex: 'status', width: 100 },
-  { key: 'assignees', title: '办理人', dataIndex: 'assignees', width: 130 },
-  { key: 'received', title: '接收时间', dataIndex: 'received', width: 170 },
+  {
+    key: 'title',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-item', '业务事项'),
+    dataIndex: 'title',
+    width: 240,
+  },
+  {
+    key: 'moduleTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块'),
+    dataIndex: 'moduleTitle',
+    width: 140,
+  },
+  {
+    key: 'nodeTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.task-node', '办理节点'),
+    dataIndex: 'nodeTitle',
+    width: 160,
+  },
+  {
+    key: 'submitterUserTitle',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.submitter', '发起人'),
+    dataIndex: 'submitterUserTitle',
+    width: 110,
+  },
+  {
+    key: 'status',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.status', '状态'),
+    dataIndex: 'status',
+    width: 100,
+  },
+  {
+    key: 'assignees',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.processors', '办理人'),
+    dataIndex: 'assignees',
+    width: 130,
+  },
+  {
+    key: 'received',
+    title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.received-at', '接收时间'),
+    dataIndex: 'received',
+    width: 170,
+  },
   ...(board.value === 'done'
-    ? [{ key: 'completed', title: '办理时间', dataIndex: 'completed', width: 170 }]
-    : [{ key: 'urgency', title: '时效', dataIndex: 'urgency', width: 90 }]),
+    ? [
+        {
+          key: 'completed',
+          title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.processed-at', '办理时间'),
+          dataIndex: 'completed',
+          width: 170,
+        },
+      ]
+    : [
+        {
+          key: 'urgency',
+          title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.timeliness', '时效'),
+          dataIndex: 'urgency',
+          width: 90,
+        },
+      ]),
 ]);
 const recordContext = computed(() =>
   selected.value
     ? createModuleContext<Record<string, unknown>>({
         http: scopedHttp.value,
+        language: workflowLanguage,
         moduleAlias: selected.value.moduleAlias,
         runtimeAccess: 'VIEW',
       })
     : undefined,
 );
 const businessRecord = ref<RecordFormRecord>(),
-  businessFields = ref(new Map<string, RecordFormFieldDescriptor>()),
+  originalBusinessFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   businessLoading = ref(false),
   businessError = ref('');
+const businessFields = computed(() => {
+  const display = recordContext.value
+    ? resolveRecordFormFields(displayModuleRuntime(recordContext.value.runtime)?.uiDescriptor)
+    : undefined;
+  return new Map(
+    [...originalBusinessFields.value].map(([key, original]) => [key, display?.get(key) ?? original]),
+  );
+});
 function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
 }
@@ -138,6 +245,74 @@ function pickerTitle(record: { id?: string; title?: string; username?: string })
 }
 let listRevision = 0,
   businessRevision = 0;
+let textResourceRevision = 0;
+usePageDataChangeHandler(async (changeSet) => {
+  const modules = new Set(
+    changeSet.changes
+      .filter((change) => change.type === 'configuration-translations-changed')
+      .map((change) => change.moduleAlias),
+  );
+  const refreshCards = cards.value.some((card) => modules.has(card.moduleAlias));
+  const refreshDirectory = Object.keys(moduleTitles.value).some((alias) => modules.has(alias));
+  if (!refreshCards && !refreshDirectory) return;
+  const request = ++textResourceRevision;
+  const list = listRevision;
+  const tenant = tenantId.value;
+  const user = currentUser?.value?.userId;
+  const business = recordContext.value;
+  try {
+    const [next, directory] = await Promise.all([
+      refreshCards
+        ? client.value.workbenchPage(board.value, page.value, filters.value, keyword.value, pageSize.value)
+        : undefined,
+      client.value.workbenchModules(),
+      business && modules.has(business.moduleAlias) ? business.runtime.refreshTexts?.() : undefined,
+    ]);
+    if (
+      request !== textResourceRevision ||
+      listRevision !== list ||
+      tenantId.value !== tenant ||
+      currentUser?.value?.userId !== user
+    )
+      return;
+    const resourceFor = (card: WorkflowWorkbenchCard) =>
+      next?.records.find((item) => item.instanceId === card.instanceId && item.taskId === card.taskId)
+        ?.nodeTitleText;
+    const refreshedModules = { ...directory.modules, ...next?.navigation?.moduleTitles?.modules };
+    const retainedModules = { ...moduleTitles.value };
+    for (const [alias, current] of Object.entries(retainedModules)) {
+      const text = refreshedModules[alias]?.titleText;
+      if (sameWorkflowTextSource(current.titleText, text))
+        retainedModules[alias] = { ...current, titleText: text };
+    }
+    moduleTitles.value = retainedModules;
+    const updatedCard = (card: WorkflowWorkbenchCard) => {
+      const nextCard = next?.records.find(
+        (item) => item.instanceId === card.instanceId && item.taskId === card.taskId,
+      );
+      const moduleText = nextCard?.business?.moduleTitleText ?? refreshedModules[card.moduleAlias]?.titleText;
+      return {
+        ...card,
+        ...(sameWorkflowTextSource(card.nodeTitleText, nextCard?.nodeTitleText)
+          ? { nodeTitleText: nextCard?.nodeTitleText }
+          : {}),
+        business:
+          card.business && sameWorkflowTextSource(card.business.moduleTitleText, moduleText)
+            ? { ...card.business, moduleTitleText: moduleText }
+            : card.business,
+      };
+    };
+    cards.value = cards.value.map(updatedCard);
+    if (selected.value) {
+      const text = resourceFor(selected.value);
+      if (sameWorkflowTextSource(selected.value.nodeTitleText, text)) selected.value.nodeTitleText = text;
+      const updated = updatedCard(selected.value);
+      if (updated.business) selected.value.business = updated.business;
+    }
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-text-resources', phase: 'load' });
+  }
+});
 async function load() {
   const revision = ++listRevision;
   loading.value = true;
@@ -154,7 +329,8 @@ async function load() {
     cards.value = result.records;
     total.value = result.total;
     pages.value = result.pages;
-    moduleLabels.value = { ...moduleLabels.value, ...result.navigation?.modules };
+    legacyModuleLabels.value = { ...legacyModuleLabels.value, ...result.navigation?.modules };
+    moduleTitles.value = { ...moduleTitles.value, ...result.navigation?.moduleTitles?.modules };
     counts.value[board.value] = result.total;
   } catch (cause) {
     if (revision === listRevision) {
@@ -162,7 +338,10 @@ async function load() {
       total.value = 0;
       pages.value = 0;
       delete counts.value[board.value];
-      error.value = '任务加载失败，请重试。';
+      error.value = workflowLanguage.t(
+        'platform.screen.WorkflowWorkbenchView.unable-to-load-tasks-retry',
+        '任务加载失败，请重试。',
+      );
       presentPlatformError(cause, { source: 'workflow-workbench', phase: 'load' });
     }
   } finally {
@@ -178,7 +357,10 @@ async function loadBusiness() {
   businessLoading.value = false;
   if (!card || !business) return;
   if (card.business?.readable === false) {
-    businessError.value = '你可以查看任务状态，但尚无该业务记录的读取权限。请联系业务管理员。';
+    businessError.value = workflowLanguage.t(
+      'platform.screen.WorkflowWorkbenchView.you-can-view-the-task-status-but',
+      '你可以查看任务状态，但尚无该业务记录的读取权限。请联系业务管理员。',
+    );
     return;
   }
   businessLoading.value = true;
@@ -186,11 +368,14 @@ async function loadBusiness() {
     const runtime = await business.runtime.ready;
     const stored = await business.crud.view(card.recordId);
     if (revision !== businessRevision) return;
-    businessFields.value = resolveRecordFormFields(runtime.uiDescriptor);
+    originalBusinessFields.value = resolveRecordFormFields(runtime.uiDescriptor);
     businessRecord.value = stored;
   } catch (cause) {
     if (revision === businessRevision) {
-      businessError.value = '业务详情加载失败，请重试或检查业务读取权限。';
+      businessError.value = workflowLanguage.t(
+        'platform.screen.WorkflowWorkbenchView.unable-to-load-business-details-retry-or',
+        '业务详情加载失败，请重试或检查业务读取权限。',
+      );
       presentPlatformError(cause, { source: 'workflow-workbench', phase: 'load' });
     }
   } finally {
@@ -207,7 +392,8 @@ watch(
     keyword.value = '';
     receivedFrom.value = '';
     receivedTo.value = '';
-    moduleLabels.value = {};
+    legacyModuleLabels.value = {};
+    moduleTitles.value = {};
     counts.value = {};
     page.value = 1;
     ++delegationRevision;
@@ -300,7 +486,7 @@ async function openDelegations() {
   try {
     const labels = await workflow.workbenchModules();
     if (!delegationIsCurrent(current, tenant)) return;
-    moduleLabels.value = { ...moduleLabels.value, ...labels };
+    moduleTitles.value = { ...moduleTitles.value, ...labels.modules };
     await loadPolicies();
   } catch (cause) {
     if (delegationIsCurrent(current, tenant))
@@ -350,7 +536,14 @@ async function mayClosePolicy() {
     tenant = tenantId.value;
   const permitted =
     !policyDirty.value ||
-    (await confirmAction({ title: '放弃未保存的委托设置？', okText: '放弃修改', danger: true }));
+    (await confirmAction({
+      title: workflowLanguage.t(
+        'platform.screen.WorkflowWorkbenchView.discard-delegation-changes',
+        '放弃未保存的委托设置？',
+      ),
+      okText: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
+      danger: true,
+    }));
   return permitted && delegationIsCurrent(current, tenant);
 }
 async function savePolicy() {
@@ -364,7 +557,10 @@ async function savePolicy() {
     !draft.delegateUserId ||
     (draft.moduleScopeType === 'include' && !draft.moduleAliases?.length)
   ) {
-    policyError.value = '请填写规则名称、代办人，并选择适用业务模块。';
+    policyError.value = workflowLanguage.t(
+      'platform.screen.WorkflowWorkbenchView.delegation-fields-required',
+      '请填写规则名称、代办人，并选择适用业务模块。',
+    );
     return;
   }
   delegationBusy.value = true;
@@ -383,7 +579,12 @@ async function savePolicy() {
     newPolicy();
     await loadPolicies();
     if (!delegationIsCurrent(current, tenant)) return;
-    showSuccessMessage('委托规则已保存，仅影响后续新任务');
+    showSuccessMessage(
+      workflowLanguage.t(
+        'platform.screen.WorkflowWorkbenchView.delegation-saved',
+        '委托规则已保存，仅影响后续新任务',
+      ),
+    );
   } catch (cause) {
     if (delegationIsCurrent(current, tenant))
       presentPlatformError(cause, { source: 'workflow-delegation', phase: 'action' });
@@ -417,7 +618,12 @@ async function togglePolicy(policy: Delegation) {
     <ManagementTabs
       :tabs="boards"
       :active-key="board"
-      label="审批工作台分组"
+      :label="
+        workflowLanguage.t(
+          'platform.screen.WorkflowWorkbenchView.approval-workbench-groups',
+          '审批工作台分组',
+        )
+      "
       :disabled="editing"
       @update:active-key="
         board = $event;
@@ -425,9 +631,18 @@ async function togglePolicy(policy: Delegation) {
         selected = undefined;
       "
     />
-    <UiError v-if="error" title="无法加载任务" :message="error" />
+    <UiError
+      v-if="error"
+      :title="
+        workflowLanguage.t('platform.screen.WorkflowWorkbenchView.unable-to-load-tasks', '无法加载任务')
+      "
+      :message="error"
+    />
     <RecordQueryListSurface
-      :title="boards.find((item) => item.key === board)?.title ?? '审批任务'"
+      :title="
+        boards.find((item) => item.key === board)?.title ??
+        workflowLanguage.t('platform.screen.WorkflowWorkbenchView.workflow-tasks', '审批任务')
+      "
       :columns="columns"
       :rows="rows"
       row-key="id"
@@ -435,7 +650,9 @@ async function togglePolicy(policy: Delegation) {
       :selected-row-key="selected?.taskId ?? selected?.instanceId"
       :quick-search-visible="true"
       :quick-search-value="keyword"
-      quick-search-placeholder="搜索业务标题"
+      :quick-search-placeholder="
+        workflowLanguage.t('platform.screen.WorkflowWorkbenchView.search-business-title', '搜索业务标题')
+      "
       :quick-search-disabled="editing || loading"
       :pageable="true"
       :total="total"
@@ -456,17 +673,26 @@ async function togglePolicy(policy: Delegation) {
       "
     >
       <template #operations
-        ><UiButton :loading="loading" :disabled="editing" @click="load">刷新任务</UiButton
+        ><UiButton :loading="loading" :disabled="editing" @click="load">{{
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.refresh-tasks', '刷新任务')
+        }}</UiButton
         ><UiButton
           :disabled="editing || delegationOpen || delegationBusy || !accountScopeReady"
           @click="openDelegations"
-          >个人代办设置</UiButton
+          >{{
+            workflowLanguage.t(
+              'platform.screen.WorkflowWorkbenchView.personal-delegation-settings',
+              '个人代办设置',
+            )
+          }}</UiButton
         ></template
       >
       <template #conditions
         ><div class="workflow-query-fields">
           <label class="workflow-field" v-if="currentUser?.system"
-            ><RecordFieldLabel>业务租户</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-tenant', '业务租户')
+            }}</RecordFieldLabel
             ><RecordPicker
               v-model:value="tenantId"
               :disabled="editing || delegationOpen || delegationBusy"
@@ -475,16 +701,25 @@ async function togglePolicy(policy: Delegation) {
               :title-of="pickerTitle"
           /></label>
           <label class="workflow-field"
-            ><RecordFieldLabel>业务模块</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块')
+            }}</RecordFieldLabel
             ><UiSelect
               v-model:value="filters.moduleAlias"
               :options="moduleOptions"
               :disabled="editing"
               show-search
-              placeholder="全部业务模块"
+              :placeholder="
+                workflowLanguage.t(
+                  'platform.screen.WorkflowWorkbenchView.all-business-modules',
+                  '全部业务模块',
+                )
+              "
           /></label>
           <label class="workflow-field" v-if="accountScopeReady"
-            ><RecordFieldLabel>发起人</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.submitter', '发起人')
+            }}</RecordFieldLabel
             ><RecordPicker
               v-model:value="filters.submitterUserId"
               :disabled="editing"
@@ -494,27 +729,35 @@ async function togglePolicy(policy: Delegation) {
               :title-of="pickerTitle"
           /></label>
           <label class="workflow-field"
-            ><RecordFieldLabel>时效</RecordFieldLabel
+            ><RecordFieldLabel>{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.timeliness', '时效')
+            }}</RecordFieldLabel
             ><UiSelect
               v-model:value="filters.overtimeStatus"
               :disabled="editing"
               :options="[
-                { value: 'normal', label: '正常' },
-                { value: 'warned', label: '预警' },
-                { value: 'overdue', label: '超期' },
+                { value: 'normal', label: workflowTitle('normal') },
+                { value: 'warned', label: workflowTitle('warned') },
+                { value: 'overdue', label: workflowTitle('overdue') },
               ]"
-              placeholder="全部"
+              :placeholder="workflowLanguage.t('platform.screen.WorkflowWorkbenchView.all', '全部')"
           /></label>
           <div class="date-filters">
             <label class="workflow-field"
-              >接收开始日期<UiInput v-model:value="receivedFrom" type="date" :disabled="editing" /></label
+              >{{ workflowLanguage.t('platform.screen.WorkflowWorkbenchView.received-from', '接收开始日期')
+              }}<UiInput v-model:value="receivedFrom" type="date" :disabled="editing" /></label
             ><label class="workflow-field"
-              >接收结束日期<UiInput v-model:value="receivedTo" type="date" :disabled="editing"
+              >{{ workflowLanguage.t('platform.screen.WorkflowWorkbenchView.received-until', '接收结束日期')
+              }}<UiInput v-model:value="receivedTo" type="date" :disabled="editing"
             /></label>
           </div>
           <div class="workflow-query-controls">
-            <UiButton :disabled="editing || loading" @click="query">查询</UiButton
-            ><UiButton :disabled="editing || loading" @click="resetQuery">重置</UiButton>
+            <UiButton :disabled="editing || loading" @click="query">{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.search', '查询')
+            }}</UiButton
+            ><UiButton :disabled="editing || loading" @click="resetQuery">{{
+              workflowLanguage.t('platform.screen.WorkflowWorkbenchView.reset', '重置')
+            }}</UiButton>
           </div>
         </div></template
       >
@@ -527,17 +770,38 @@ async function togglePolicy(policy: Delegation) {
     </RecordQueryListSurface>
     <RecordDetailDrawer
       :open="Boolean(selected)"
-      :title="(businessRecord?.title as string) ?? selected?.business?.title ?? '业务办理详情'"
+      :title="
+        (businessRecord?.title as string) ??
+        selected?.business?.title ??
+        workflowLanguage.t(
+          'platform.screen.WorkflowWorkbenchView.business-processing-details',
+          '业务办理详情',
+        )
+      "
       width="wide"
       :before-close="mayClose"
       @close="selected = undefined"
     >
-      <p v-if="businessLoading">加载业务详情…</p>
-      <UiError v-if="businessError" title="无法读取业务详情" :message="businessError" /><UiButton
+      <p v-if="businessLoading">
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.loading-business-details',
+            '加载业务详情…',
+          )
+        }}
+      </p>
+      <UiError
         v-if="businessError"
-        @click="loadBusiness"
-        >重试</UiButton
-      >
+        :title="
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.unable-to-read-business-details',
+            '无法读取业务详情',
+          )
+        "
+        :message="businessError"
+      /><UiButton v-if="businessError" @click="loadBusiness">{{
+        workflowLanguage.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+      }}</UiButton>
       <RecordDetailFields
         v-if="businessRecord"
         :record="businessRecord"
@@ -554,21 +818,45 @@ async function togglePolicy(policy: Delegation) {
         @editing-change="editing = $event"
         @changed="afterChanged"
       />
-      <template #operation><UiButton :disabled="editing" @click="closeDetail">关闭详情</UiButton></template>
+      <template #operation
+        ><UiButton :disabled="editing" @click="closeDetail">{{
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.close-details', '关闭详情')
+        }}</UiButton></template
+      >
     </RecordDetailDrawer>
     <RecordDetailDrawer
       :open="delegationOpen"
-      :title="policyDraft.id ? '编辑个人委托' : '个人代办设置'"
+      :title="
+        policyDraft.id
+          ? workflowLanguage.t(
+              'platform.screen.WorkflowWorkbenchView.edit-personal-delegation',
+              '编辑个人委托',
+            )
+          : '个人代办设置'
+      "
       :before-close="mayClosePolicy"
       @close="delegationOpen = false"
     >
-      <UiError v-if="policyError" title="请完善委托规则" :message="policyError" />
+      <UiError
+        v-if="policyError"
+        :title="
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.complete-the-delegation-rule',
+            '请完善委托规则',
+          )
+        "
+        :message="policyError"
+      />
       <div class="policy-form">
         <label class="workflow-field"
-          ><RecordFieldLabel required>规则名称</RecordFieldLabel
+          ><RecordFieldLabel required>{{
+            workflowLanguage.t('platform.screen.WorkflowWorkbenchView.rule-name', '规则名称')
+          }}</RecordFieldLabel
           ><UiInput v-model:value="policyDraft.title" :disabled="delegationBusy" /></label
         ><label class="workflow-field"
-          ><RecordFieldLabel required>代办人</RecordFieldLabel
+          ><RecordFieldLabel required>{{
+            workflowLanguage.t('platform.screen.WorkflowWorkbenchView.delegate', '代办人')
+          }}</RecordFieldLabel
           ><RecordPicker
             v-model:value="policyDraft.delegateUserId"
             :context="accountContext"
@@ -577,29 +865,66 @@ async function togglePolicy(policy: Delegation) {
             :title-of="pickerTitle"
             :disabled="delegationBusy" /></label
         ><label class="workflow-field"
-          >适用范围<UiSelect
+          >{{ workflowLanguage.t('platform.screen.WorkflowWorkbenchView.applicable-scope', '适用范围')
+          }}<UiSelect
             v-model:value="policyDraft.moduleScopeType"
             :disabled="delegationBusy"
             :allow-clear="false"
             :options="[
-              { value: 'all', label: '全部业务模块' },
-              { value: 'include', label: '指定业务模块' },
+              {
+                value: 'all',
+                label: workflowLanguage.t(
+                  'platform.screen.WorkflowWorkbenchView.all-business-modules',
+                  '全部业务模块',
+                ),
+              },
+              {
+                value: 'include',
+                label: workflowLanguage.t(
+                  'platform.screen.WorkflowWorkbenchView.specified-business-modules',
+                  '指定业务模块',
+                ),
+              },
             ]" /></label
         ><label class="workflow-field" v-if="policyDraft.moduleScopeType === 'include'"
-          >业务模块<UiSelect
+          >{{ workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块')
+          }}<UiSelect
             v-model:value="policyDraft.moduleAliases"
             :disabled="delegationBusy"
             :options="moduleOptions"
             mode="multiple"
             show-search /></label
-        ><UiCheckbox v-model:checked="policyDraft.principalCanProcess" :disabled="delegationBusy"
-          >保留本人办理权限</UiCheckbox
-        >
+        ><UiCheckbox v-model:checked="policyDraft.principalCanProcess" :disabled="delegationBusy">{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.retain-my-processing-permission',
+            '保留本人办理权限',
+          )
+        }}</UiCheckbox>
       </div>
-      <p>规则仅影响后续新任务，已分派任务保留原人员与权限快照。</p>
-      <h3>现有委托规则</h3>
+      <p>
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.rules-affect-new-tasks-assigned-tasks-retain',
+            '规则仅影响后续新任务，已分派任务保留原人员与权限快照。',
+          )
+        }}
+      </p>
+      <h3>
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowWorkbenchView.existing-delegation-rules',
+            '现有委托规则',
+          )
+        }}
+      </h3>
       <div v-for="policy in policies" :key="policy.id" class="policy-row">
-        <strong>{{ policy.title }} · {{ policy.enabled ? '启用' : '停用' }}</strong
+        <strong
+          >{{ policy.title }} ·
+          {{
+            policy.enabled
+              ? workflowLanguage.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+              : workflowLanguage.t('platform.screen.WorkflowWorkbenchView.disabled', '停用')
+          }}</strong
         ><RecordPicker
           :value="policy.delegateUserId"
           :context="accountContext"
@@ -609,19 +934,27 @@ async function togglePolicy(policy: Delegation) {
           disabled
         /><span>{{
           policy.moduleScopeType === 'all'
-            ? '全部业务模块'
+            ? workflowLanguage.t('platform.screen.WorkflowWorkbenchView.all-business-modules', '全部业务模块')
             : policy.moduleAliases?.map((alias) => moduleLabels[alias] ?? alias).join('、')
         }}</span>
         <div>
-          <UiButton :disabled="delegationBusy" @click="editPolicy(policy)">编辑规则</UiButton
+          <UiButton :disabled="delegationBusy" @click="editPolicy(policy)">{{
+            workflowLanguage.t('platform.screen.WorkflowWorkbenchView.edit-rule', '编辑规则')
+          }}</UiButton
           ><UiButton :disabled="delegationBusy" @click="togglePolicy(policy)">{{
-            policy.enabled ? '停用规则' : '启用规则'
+            policy.enabled
+              ? workflowLanguage.t('platform.screen.WorkflowWorkbenchView.disable-rule', '停用规则')
+              : workflowLanguage.t('platform.screen.WorkflowWorkbenchView.enable-rule', '启用规则')
           }}</UiButton>
         </div>
       </div>
       <template #operation
-        ><UiButton type="primary" :loading="delegationBusy" @click="savePolicy">保存委托规则</UiButton
-        ><UiButton :disabled="delegationBusy" @click="startNewPolicy">新建规则</UiButton></template
+        ><UiButton type="primary" :loading="delegationBusy" @click="savePolicy">{{
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.save-delegation-rule', '保存委托规则')
+        }}</UiButton
+        ><UiButton :disabled="delegationBusy" @click="startNewPolicy">{{
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.new-rule', '新建规则')
+        }}</UiButton></template
       >
     </RecordDetailDrawer>
   </section>

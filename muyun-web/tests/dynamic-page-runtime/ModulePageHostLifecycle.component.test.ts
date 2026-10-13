@@ -7,6 +7,9 @@ import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import {
   configureModuleContext,
+  createLanguageContext,
+  provideLanguageContext,
+  displayModuleRuntime,
   createAssistantSurfaceRegistry,
   provideAssistantSurfaceHost,
   type HttpClient,
@@ -811,5 +814,76 @@ it('registers an already mounted business page when its workbench identity becom
   } finally {
     wrapper.unmount();
     expect(registry.snapshot()).toBeUndefined();
+  }
+});
+
+it('binds a normal consumer page and its form descriptor to the provider language rather than the global default', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const moduleAlias = 'demo.language_owner';
+  const path = '/uiDescriptor/page/detail/editor/fields/0/label';
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/context'))
+      return {
+        ...runtime(moduleAlias),
+        uiDescriptor: {
+          ...runtime(moduleAlias).uiDescriptor,
+          page: {
+            ...runtime(moduleAlias).uiDescriptor.page,
+            detail: {
+              editor: {
+                viewCode: 'form',
+                viewKind: 'FORM',
+                fields: [{ fieldRef: { fieldName: 'title' }, label: 'Original field', valueType: 'STRING' }],
+              },
+            },
+          },
+        },
+        textBindings: {
+          [path]: {
+            source: {
+              sourceKind: 'CODE',
+              sourceId: 'owner.title',
+              sourceVersion: 'v1',
+              originalText: '原始字段',
+            },
+            languages: {
+              en: {
+                text: 'English field',
+                requestedTag: 'en',
+                resourceTag: 'en',
+                missing: false,
+                fallback: false,
+              },
+            },
+          },
+        },
+      };
+    return { records: [], total: 0 };
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(ModulePageHost, { descriptor: descriptor(moduleAlias) });
+    },
+  });
+  const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+  try {
+    await flushPromises();
+    const context = runtimeContextOf(wrapper);
+    const field = () => displayModuleRuntime(context.runtime)?.uiDescriptor?.page?.detail?.editor?.fields[0];
+    expect(field()?.label).toBe('English field');
+    const original = context.runtime.snapshot()?.uiDescriptor;
+    expect(original?.page?.detail?.editor?.fields[0]?.label).toBe('原始字段');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(field()?.label).toBe('原始字段');
+    expect(runtimeContextOf(wrapper)).toBe(context);
+    expect(context.runtime.snapshot()?.uiDescriptor).toBe(original);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(field()?.label).toBe('English field');
+  } finally {
+    wrapper.unmount();
   }
 });

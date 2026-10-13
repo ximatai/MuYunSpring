@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -34,9 +35,14 @@ import {
   type ReferencePickerTreeNode,
   type ReferencePickerValidity,
 } from './referencePickerModel';
-import { referencePickerReadErrorOf, type ReferencePickerReadError } from './referencePickerReadError';
+import {
+  referencePickerErrorMessage,
+  referencePickerReadErrorOf,
+  type ReferencePickerReadError,
+} from './referencePickerReadError';
 
 defineOptions({ name: 'ReferencePicker' });
+const language = useLanguageContext();
 
 const props = withDefaults(
   defineProps<{
@@ -64,17 +70,34 @@ const props = withDefaults(
     maxSelection: undefined,
     reloadKey: undefined,
     mode: 'dialog',
-    columns: () => [{ key: 'title', title: '名称' }],
-    placeholder: '搜索并选择',
+    columns: undefined,
+    placeholder: undefined,
     invalid: false,
     disabled: false,
     allowClear: true,
     pageSize: 20,
-    title: '选择引用记录',
-    searchPlaceholder: '搜索',
-    emptyDescription: '没有可选择的记录',
-    selectionNoun: '记录',
+    title: undefined,
+    searchPlaceholder: undefined,
+    emptyDescription: undefined,
+    selectionNoun: undefined,
   },
+);
+
+const columns = computed(
+  () => props.columns ?? [{ key: 'title', title: language.t('platform.reference-picker.name', '名称') }],
+);
+const placeholder = computed(
+  () => props.placeholder ?? language.t('platform.reference-picker.placeholder', '搜索并选择'),
+);
+const title = computed(() => props.title ?? language.t('platform.reference-picker.title', '选择引用记录'));
+const searchPlaceholder = computed(
+  () => props.searchPlaceholder ?? language.t('platform.reference-picker.search', '搜索'),
+);
+const emptyDescription = computed(
+  () => props.emptyDescription ?? language.t('platform.reference-picker.empty', '没有可选择的记录'),
+);
+const selectionNoun = computed(
+  () => props.selectionNoun ?? language.t('platform.reference-picker.noun', '记录'),
 );
 
 const emit = defineEmits<{
@@ -99,7 +122,16 @@ const failedCompletionKeyword = ref<string>();
 const resolveError = ref<ReferencePickerReadError>();
 const draftIds = ref<ReferencePickerId[]>([]);
 const selectionVersion = ref(0);
-const validity = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
+const validityState = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
+const validity = computed(() => ({
+  ...validityState.value,
+  ...(validityState.value.status === 'error' && pageError.value
+    ? { message: referencePickerErrorMessage(pageError.value, language) }
+    : {}),
+  ...(validityState.value.message
+    ? { message: language.t(validityState.value.message, validityState.value.message) }
+    : {}),
+}));
 const candidatesById = ref(new Map<ReferencePickerId, ReferencePickerCandidate>());
 const resolvedById = ref(new Map<ReferencePickerId, ReferencePickerCandidate>());
 let pageRequestVersion = 0;
@@ -112,10 +144,10 @@ let clearEmittedForDraft = false;
 const externalIds = computed(() => normalizeReferencePickerIds(props.value, props.multiple));
 const pageCount = computed(() => Math.max(1, Math.ceil(page.value.total / props.pageSize)));
 const dataColumns = computed<UiDataTableColumn[]>(() => [
-  ...props.columns.map((column) => ({ ...column })),
+  ...columns.value.map((column) => ({ ...column })),
   ...(page.value.records.some((candidate) => candidate.subtitle) &&
-  !props.columns.some((column) => column.key === 'subtitle')
-    ? [{ key: 'subtitle', title: '说明' }]
+  !columns.value.some((column) => column.key === 'subtitle')
+    ? [{ key: 'subtitle', title: language.t('platform.reference-picker.subtitle', '说明') }]
     : []),
 ]);
 const rows = computed<UiDataTableRecord[]>(() =>
@@ -131,16 +163,24 @@ const treeNodes = computed<UiTreeNode[]>(() => tree.value.map(treeNode));
 const summary = computed(() => summariesFor(externalIds.value, resolvedById.value));
 const inputSummary = computed(() => {
   if (!summary.value.length) return '';
-  if (props.multiple) return `已选择 ${summary.value.length} 个${props.selectionNoun}`;
+  if (props.multiple)
+    return language.t('platform.reference-picker.selected', '已选择 {count} 个{noun}', {
+      count: summary.value.length,
+      noun: selectionNoun.value,
+    });
   const selected = summary.value[0]!;
   const title = referencePickerDisplayTitle(selected);
-  return selected.unavailable ? `${title}（不可用）` : title;
+  return selected.unavailable
+    ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', { title: title })
+    : title;
 });
 const tags = computed(() =>
   selectedCandidates(draftIds.value).map((candidate) => ({
     key: candidate.id,
     label: candidate.unavailable
-      ? `${referencePickerDisplayTitle(candidate)}（不可用）`
+      ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
+          title: referencePickerDisplayTitle(candidate),
+        })
       : referencePickerDisplayTitle(candidate),
   })),
 );
@@ -169,7 +209,9 @@ const dropdownOptions = computed(() =>
   ].map((candidate) => ({
     value: candidate.id,
     label: candidate.unavailable
-      ? `${referencePickerDisplayTitle(candidate)}（不可用）`
+      ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
+          title: referencePickerDisplayTitle(candidate),
+        })
       : referencePickerDisplayTitle(candidate),
     disabled:
       candidate.unavailable ||
@@ -263,7 +305,8 @@ function resetProviderState() {
   // The provider has invalidated an in-flight completion, but the compact draft is
   // still visible. Let its next blur start a fresh completion instead of leaving it
   // permanently "resolving" against an abandoned provider.
-  const validityChanged = validity.value.status === 'resolving' && setValidity('editing', '请完成引用选择');
+  const validityChanged =
+    validity.value.status === 'resolving' && setValidity('editing', 'platform.reference-picker.complete');
   if (!validityChanged) emit('validity-change', validity.value);
   void resolveSelection(externalIds.value);
   if (open.value || props.mode === 'dropdown') {
@@ -285,12 +328,12 @@ function setValidity(status: ReferencePickerValidity['status'], message?: string
   const next: ReferencePickerValidity =
     status === 'ready' ? { valid: true, status } : { valid: false, status, ...(message ? { message } : {}) };
   if (
-    validity.value.valid === next.valid &&
-    validity.value.status === next.status &&
-    validity.value.message === next.message
+    validityState.value.valid === next.valid &&
+    validityState.value.status === next.status &&
+    validityState.value.message === next.message
   )
     return false;
-  validity.value = next;
+  validityState.value = next;
   return true;
 }
 
@@ -359,7 +402,10 @@ async function resolveSelection(ids: readonly ReferencePickerId[]) {
     // A transient resolver failure must retain the persisted ID without claiming
     // the value is unavailable. Only a successful resolver response can do that.
     emit('selection-resolved', ids.map(selectionCandidate));
-    resolveError.value = referencePickerReadErrorOf(cause, '引用值回显失败');
+    resolveError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.resolve-failed',
+      original: '引用值回显失败',
+    });
   }
 }
 
@@ -403,7 +449,9 @@ function treeNode(node: ReferencePickerTreeNode): UiTreeNode {
   const record = node.record;
   return {
     key: record.id,
-    title: record.unavailable ? `${record.title}（不可用）` : record.title,
+    title: record.unavailable
+      ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', { title: record.title })
+      : record.title,
     secondary: record.subtitle,
     disabled: record.disabled || record.unavailable,
     isLeaf: !node.children?.length,
@@ -441,7 +489,10 @@ async function loadPage() {
   } catch (cause) {
     if (requestVersion !== pageRequestVersion) return;
     pageReadFailed.value = true;
-    pageError.value = referencePickerReadErrorOf(cause, '引用候选加载失败');
+    pageError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.load-failed',
+      original: '引用候选加载失败',
+    });
   } finally {
     if (requestVersion === pageRequestVersion) loading.value = false;
   }
@@ -465,7 +516,10 @@ async function loadTree() {
   } catch (cause) {
     if (requestVersion !== treeRequestVersion) return;
     pageReadFailed.value = true;
-    pageError.value = referencePickerReadErrorOf(cause, '引用树加载失败');
+    pageError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.tree-failed',
+      original: '引用树加载失败',
+    });
   } finally {
     if (requestVersion === treeRequestVersion) loading.value = false;
   }
@@ -566,7 +620,7 @@ function draftChanged(draft: string) {
   pageReadFailed.value = false;
   if (!draft.trim()) {
     if (props.allowClear) clearSelection();
-    else setValidity('editing', '请完成引用选择');
+    else setValidity('editing', 'platform.reference-picker.complete');
     return;
   }
   if (externalIds.value.length === 1 && draft.trim() === inputSummary.value) {
@@ -574,7 +628,7 @@ function draftChanged(draft: string) {
     return;
   }
   clearEmittedForDraft = false;
-  setValidity('editing', '请完成引用选择');
+  setValidity('editing', 'platform.reference-picker.complete');
 }
 
 async function completeDraft(draft: string) {
@@ -589,7 +643,7 @@ async function completeDraft(draft: string) {
   failedCompletionKeyword.value = undefined;
   pageError.value = undefined;
   pageReadFailed.value = false;
-  setValidity('resolving', '正在确认引用选择');
+  setValidity('resolving', 'platform.reference-picker.resolving');
   try {
     const result = await props.provider.searchPage({
       keyword: keywordForCompletion,
@@ -599,7 +653,7 @@ async function completeDraft(draft: string) {
     });
     if (unmounted || requestVersion !== completionRequestVersion || props.disabled || open.value) return;
     if (result.total === 0) {
-      setValidity('unmatched', '未找到可选择的记录');
+      setValidity('unmatched', 'platform.reference-picker.unmatched');
       return;
     }
     const candidate = result.records[0];
@@ -620,17 +674,20 @@ async function completeDraft(draft: string) {
       return;
     }
     if (result.total > 1 || props.multiple) {
-      setValidity('editing', '请选择引用记录');
+      setValidity('editing', 'platform.reference-picker.choose');
       openPickerWithPage(keywordForCompletion, result);
       return;
     }
-    setValidity('unmatched', '未找到可选择的记录');
+    setValidity('unmatched', 'platform.reference-picker.unmatched');
   } catch (cause) {
     if (unmounted || requestVersion !== completionRequestVersion) return;
     failedCompletionKeyword.value = keywordForCompletion;
-    const error = referencePickerReadErrorOf(cause, '引用候选加载失败');
+    const error = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.load-failed',
+      original: '引用候选加载失败',
+    });
     pageError.value = error;
-    setValidity('error', error?.message ?? '引用候选加载失败');
+    setValidity('error');
   }
 }
 
@@ -753,9 +810,9 @@ function retryCompactError() {
       @blur="completeDraft"
     />
     <div v-if="!open && (resolveError || pageError)" class="reference-picker-error">
-      <UiError :message="(resolveError ?? pageError)?.message ?? ''" />
+      <UiError :message="referencePickerErrorMessage((resolveError ?? pageError)!, language)" />
       <UiButton v-if="(resolveError ?? pageError)?.retryable" size="small" @click="retryCompactError">
-        重试
+        {{ language.t('platform.reference-picker.retry', '重试') }}
       </UiButton>
     </div>
 
@@ -770,28 +827,40 @@ function retryCompactError() {
     >
       <div class="reference-picker-dialog">
         <div v-if="resolveError" class="reference-picker-error">
-          <UiError :message="resolveError.message" />
+          <UiError :message="referencePickerErrorMessage(resolveError, language)" />
           <UiButton v-if="resolveError.retryable" size="small" @click="resolveSelection(externalIds)">
-            重试回显
+            {{ language.t('platform.reference-picker.retry-resolve', '重试回显') }}
           </UiButton>
         </div>
         <UiSearchInput
           :value="keyword"
           :placeholder="searchPlaceholder"
           :loading="loading"
-          search-text="搜索"
+          :search-text="language.t('platform.reference-picker.search', '搜索')"
           @update:value="keyword = $event"
           @search="search"
         />
         <div v-if="multiple" class="reference-picker-selection-summary">
-          <UiTagList :items="tags" empty-text="尚未选择" />
-          <span>已选 {{ draftIds.length }} 个{{ selectionNoun }}</span>
+          <UiTagList
+            :items="tags"
+            :empty-text="language.t('platform.reference-picker.unselected', '尚未选择')"
+          />
+          <span>{{
+            language.t('platform.reference-picker.draft-selected', '已选 {count} 个{noun}', {
+              count: draftIds.length,
+              noun: selectionNoun,
+            })
+          }}</span>
           <UiButton v-if="draftIds.length && allowClear" type="link" size="small" @click="draftIds = []">
-            清空选择
+            {{ language.t('platform.reference-picker.clear', '清空选择') }}
           </UiButton>
         </div>
         <div class="reference-picker-browse">
-          <aside v-if="page.navigation?.length" class="reference-picker-navigation" aria-label="候选范围导航">
+          <aside
+            v-if="page.navigation?.length"
+            class="reference-picker-navigation"
+            :aria-label="language.t('platform.reference-picker.navigation', '候选范围导航')"
+          >
             <RecordExplorerPanel
               v-for="axis in page.navigation"
               :key="axis.id"
@@ -814,8 +883,10 @@ function retryCompactError() {
           </aside>
           <div class="reference-picker-results">
             <div v-if="pageError" class="reference-picker-error">
-              <UiError :message="pageError.message" />
-              <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">重试</UiButton>
+              <UiError :message="referencePickerErrorMessage(pageError, language)" />
+              <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">{{
+                language.t('platform.reference-picker.retry', '重试')
+              }}</UiButton>
             </div>
             <UiTree
               v-if="browsingTree"

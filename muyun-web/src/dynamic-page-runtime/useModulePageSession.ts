@@ -1,3 +1,5 @@
+import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
+import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
 import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
@@ -197,6 +199,8 @@ export function useModulePageSession(
   emit: ModulePageSessionEvents,
   initialized: () => void,
 ) {
+  const language = useLanguageContext();
+  const t = language.t;
   const relationDrafts = createRelationDraftRegistry();
   let disposed = false;
   onUnmounted(() => {
@@ -258,6 +262,7 @@ export function useModulePageSession(
   const rawContext = props.recordOnly
     ? baseContext
     : createModuleContext<QueryListRecord>({
+        language,
         moduleAlias: props.descriptor.target.moduleAlias,
         http: withHttpHeaders(
           props.http ?? baseContext.http,
@@ -269,7 +274,7 @@ export function useModulePageSession(
           (request) => isHostScopedRequest(request.path),
         ),
       });
-  const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http);
+  const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http, language);
   onUnmounted(referenceRecordDetailBrowser.dispose);
 
   const { tenantScopeExplorerCount, tenantScopeFixedByIdentity } = props.tenantController;
@@ -933,7 +938,7 @@ export function useModulePageSession(
     const level = navigatorManagementLevel.value;
     if (!level) return resolveRecordFormFields(undefined);
     return resolveRecordFormFields(
-      level.context.runtime.snapshot()?.uiDescriptor,
+      displayModuleRuntime(level.context.runtime)?.uiDescriptor,
       undefined,
       level.descriptor.management?.editorSurface,
     );
@@ -982,7 +987,11 @@ export function useModulePageSession(
         referencePickerPresentationOf(field),
       );
       configs[pickerFieldName] = {
-        context: createModuleContext({ http: rawContext.http, moduleAlias: reference.targetModuleAlias }),
+        context: createModuleContext({
+          http: rawContext.http,
+          moduleAlias: reference.targetModuleAlias,
+          language,
+        }),
         mode: recordPickerModeOf(reference.pickerMode),
         allowClear: !field.required?.constant,
         ...sourceReferencePickerConfig,
@@ -1145,6 +1154,31 @@ export function useModulePageSession(
     // Its mounted form immediately recomputes the current validity afterwards.
     localEditFormValid.value = true;
   });
+  usePageDataChangeHandler(async (changeSet) => {
+    const aliases = new Set(
+      changeSet.changes
+        .filter((change) => change.type === 'configuration-translations-changed')
+        .map((change) => change.moduleAlias),
+    );
+    if (!aliases.size) return;
+    const contexts = new Set([
+      context,
+      ...navigatorLevels.value.map((level) => level.context),
+      referenceRecordDetailBrowser.activeContext.value,
+    ]);
+    await Promise.all(
+      [...contexts]
+        .filter((target) => target && aliases.has(target.moduleAlias))
+        .map(async (target) => {
+          try {
+            await target?.runtime.refreshTexts?.();
+          } catch (cause) {
+            presentPlatformError(cause, { source: 'module-translation-refresh', phase: 'load' });
+          }
+        }),
+    );
+  });
+
   /** Only server-issued executable contracts may mount a relation-list runner. */
   const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
     [
@@ -1385,15 +1419,17 @@ export function useModulePageSession(
     () =>
       runtimePage.value?.treeResource?.title ??
       (flatManagementPage.value
-        ? (flatManagementContent.value?.recordLabel ?? '记录')
-        : (runtimePage.value?.explorer?.recordLabel ?? '记录')),
+        ? (flatManagementContent.value?.recordLabel ?? t('platform.record.label', '记录'))
+        : (runtimePage.value?.explorer?.recordLabel ?? t('platform.record.label', '记录'))),
   );
   const modulePageTitle = computed(
     () =>
       pageText(runtimePage.value?.list?.title) ??
       runtimePage.value?.treeResource?.title ??
       runtimePage.value?.explorer?.title ??
-      props.descriptor.title ??
+      (props.descriptor.title
+        ? presentationLabel(props.descriptor.title, props.descriptor.titleText, language)
+        : undefined) ??
       recordLabel.value,
   );
   const modulePageSubtitle = computed(() => pageText(runtimePage.value?.list?.subtitle));
@@ -1402,19 +1438,19 @@ export function useModulePageSession(
     () =>
       runtimePage.value?.list?.searchPlaceholder ??
       runtimePage.value?.explorer?.searchPlaceholder ??
-      `搜索${recordLabel.value}`,
+      t('platform.record.search', '搜索{label}', { label: recordLabel.value }),
   );
   const listEmptyDescription = computed(
     () =>
       runtimePage.value?.treeResource?.emptyDescription ??
       runtimePage.value?.explorer?.emptyDescription ??
-      `暂无${recordLabel.value}`,
+      t('platform.record.empty', '暂无{label}', { label: recordLabel.value }),
   );
   const detailEmptyDescription = computed(
     () =>
       runtimePage.value?.treeResource?.emptyDescription ??
       runtimePage.value?.detail?.emptyDescription ??
-      `请选择${recordLabel.value}，或新建${recordLabel.value}`,
+      t('platform.record.choose', '请选择{label}，或新建{label}', { label: recordLabel.value }),
   );
   const mainTreeScopeDescription = computed(() => {
     const resource = treeResource.value;
@@ -1551,7 +1587,7 @@ export function useModulePageSession(
       ? [
           {
             key: '__platform-check-save',
-            title: '核实保存结果',
+            title: t('platform.action.check-save', '核实保存结果'),
             loading: saving.value,
             disabled: saving.value,
           },
@@ -1593,6 +1629,7 @@ export function useModulePageSession(
       editorMode.value,
       managedPageActions.value,
       selectedRecord.value ?? undefined,
+      language,
     );
     if (anchor === 'DETAIL') {
       const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
@@ -1878,7 +1915,7 @@ export function useModulePageSession(
       return [
         {
           key: '__platform-check-save',
-          title: '核实保存结果',
+          title: t('platform.action.check-save', '核实保存结果'),
           loading: saving.value,
           disabled: saving.value,
         },
@@ -1887,14 +1924,17 @@ export function useModulePageSession(
     if (managedPageActions.value)
       return editorMode.value === 'view'
         ? []
-        : [{ key: 'cancel', title: '取消', disabled: detailActionBusy.value }];
+        : [{ key: 'cancel', title: t('platform.action.cancel', '取消'), disabled: detailActionBusy.value }];
     if (editorMode.value !== 'view') {
       return [
-        { key: 'cancel', title: '取消', disabled: detailActionBusy.value },
+        { key: 'cancel', title: t('platform.action.cancel', '取消'), disabled: detailActionBusy.value },
         {
           key: 'save',
           actionCode: editorMode.value === 'create' ? 'create' : 'update',
-          title: saving.value && activeDetailActionKey.value === 'save' ? '保存中' : '保存',
+          title:
+            saving.value && activeDetailActionKey.value === 'save'
+              ? t('platform.action.saving', '保存中')
+              : t('platform.action.save', '保存'),
           loading: saving.value && activeDetailActionKey.value === 'save',
           disabled: detailActionBusy.value,
           primary: true,
@@ -1905,7 +1945,7 @@ export function useModulePageSession(
       {
         key: 'edit',
         actionCode: 'update',
-        title: '编辑',
+        title: t('platform.action.edit', '编辑'),
         disabled:
           !selectedRecord.value ||
           detailActionBusy.value ||
@@ -1915,7 +1955,7 @@ export function useModulePageSession(
       {
         key: 'delete',
         actionCode: 'delete',
-        title: '删除',
+        title: t('platform.action.delete', '删除'),
         disabled:
           !selectedRecord.value ||
           detailActionBusy.value ||
@@ -2931,6 +2971,11 @@ export function useModulePageSession(
           level.context.runtime.snapshot()?.uiDescriptor,
           level.descriptor.management?.editorSurface,
         ),
+        true,
+        formValidationRulesOf(
+          displayModuleRuntime(level.context.runtime)?.uiDescriptor,
+          level.descriptor.management?.editorSurface,
+        ),
       )
     )
       return;
@@ -3168,8 +3213,9 @@ export function useModulePageSession(
     draft: RecordFormRecord,
     rules: readonly ResolvedFormValidationRuleDescriptor[] | undefined,
     presentFailure = true,
+    displayRules: readonly ResolvedFormValidationRuleDescriptor[] | undefined = rules,
   ): boolean {
-    const failure = new FormValidationCoordinator(rules).validate(draft);
+    const failure = new FormValidationCoordinator(rules).validate(draft, displayRules);
     if (!failure) return true;
     if (presentFailure)
       presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
@@ -3649,6 +3695,7 @@ export function useModulePageSession(
         draft,
         formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor),
         presentValidation,
+        formValidationRulesOf(displayModuleRuntime(context.runtime)?.uiDescriptor),
       )
     )
       return;

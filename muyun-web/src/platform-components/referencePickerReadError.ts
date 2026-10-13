@@ -1,4 +1,17 @@
-import { AppError, normalizeError, platformErrorCodes } from '@muyun/web-core';
+import { AppError, normalizeError, platformErrorCodes, type LanguageContext } from '@muyun/web-core';
+
+export interface ReferencePickerErrorText {
+  key: string;
+  original: string;
+  args?: Record<string, string | number>;
+}
+
+export function referencePickerErrorMessage(
+  error: ReferencePickerReadError,
+  language: LanguageContext,
+): string {
+  return error.text ? language.t(error.text.key, error.text.original, error.text.args) : error.message;
+}
 
 export type ReferencePickerReadErrorKind =
   | 'accessDenied'
@@ -14,6 +27,7 @@ export class ReferencePickerReadError extends AppError {
   readonly retryable: boolean;
   readonly missingDependencyFields: readonly string[];
   readonly original: AppError;
+  readonly text?: ReferencePickerErrorText;
 
   constructor(
     readonly kind: ReferencePickerReadErrorKind,
@@ -22,6 +36,7 @@ export class ReferencePickerReadError extends AppError {
       retryable: boolean;
       missingDependencyFields?: readonly string[];
       original?: AppError;
+      text?: ReferencePickerErrorText;
     },
   ) {
     const original = options.original ?? new AppError(message, { code: platformErrorCodes.appError });
@@ -39,6 +54,7 @@ export class ReferencePickerReadError extends AppError {
     this.retryable = options.retryable;
     this.missingDependencyFields = options.missingDependencyFields ?? [];
     this.original = original;
+    this.text = options.text;
     this.globallyHandled = original.globallyHandled;
   }
 }
@@ -49,27 +65,32 @@ export class ReferencePickerReadError extends AppError {
  */
 export function referencePickerReadErrorOf(
   cause: unknown,
-  fallbackMessage: string,
+  fallbackMessage: string | ReferencePickerErrorText,
 ): ReferencePickerReadError | undefined {
   if (cause instanceof ReferencePickerReadError) return cause;
 
   const error = normalizeError(cause);
+  const fallback = typeof fallbackMessage === 'string' ? { original: fallbackMessage } : fallbackMessage;
+  const text = !error.message && 'key' in fallback ? (fallback as ReferencePickerErrorText) : undefined;
   if (error.status === 401) return undefined;
   if (error.status === 403 || error.code === platformErrorCodes.accessDenied) {
-    return new ReferencePickerReadError('accessDenied', error.message || fallbackMessage, {
+    return new ReferencePickerReadError('accessDenied', error.message || fallback.original, {
       retryable: false,
       original: error,
+      text,
     });
   }
   if (error.code === platformErrorCodes.configMissing) {
-    return new ReferencePickerReadError('unsupportedConfiguration', error.message || fallbackMessage, {
+    return new ReferencePickerReadError('unsupportedConfiguration', error.message || fallback.original, {
       retryable: false,
       original: error,
+      text,
     });
   }
-  return new ReferencePickerReadError('temporaryFailure', error.message || fallbackMessage, {
+  return new ReferencePickerReadError('temporaryFailure', error.message || fallback.original, {
     retryable: true,
     original: error,
+    text,
   });
 }
 
@@ -81,6 +102,7 @@ export function missingReferencePickerDependencies(
   return new ReferencePickerReadError('missingDependencies', message, {
     retryable: false,
     missingDependencyFields: fields,
+    text: { key: 'platform.reference-picker.missing-dependencies', original: message },
     original: new AppError(message, {
       code: platformErrorCodes.configMissing,
       details: { missingDependencyFields: fields },
@@ -88,9 +110,13 @@ export function missingReferencePickerDependencies(
   });
 }
 
-export function unsupportedReferencePickerConfiguration(message: string): ReferencePickerReadError {
+export function unsupportedReferencePickerConfiguration(
+  message: string,
+  text?: ReferencePickerErrorText,
+): ReferencePickerReadError {
   return new ReferencePickerReadError('unsupportedConfiguration', message, {
     retryable: false,
+    text,
     original: new AppError(message, { code: platformErrorCodes.configMissing }),
   });
 }

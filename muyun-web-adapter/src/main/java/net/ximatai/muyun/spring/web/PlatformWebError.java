@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 
 import java.util.List;
 import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 public record PlatformWebError(String traceId,
                                String code,
@@ -18,7 +19,21 @@ public record PlatformWebError(String traceId,
                                ErrorScope scope,
                                List<ErrorTarget> targets,
                                Map<String, Object> details,
-                               Map<String, Object> messageArgs) {
+                               Map<String, Object> messageArgs, TextReference textSource) {
+    public PlatformWebError(String traceId, String code, int status, String message, ActionMessage actionMessage,
+                            ErrorScope scope, List<ErrorTarget> targets, Map<String, Object> details,
+                            Map<String, Object> messageArgs) {
+        this(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, null);
+    }
+
+    public PlatformWebError withTextSource(TextReference source) {
+        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, source);
+    }
+
+    public PlatformWebError withDisplayText(String value, ActionMessage action) {
+        return new PlatformWebError(traceId, code, status, value, action, scope, targets, details, messageArgs, textSource);
+    }
+
     public static PlatformWebError of(PlatformException exception) {
         return new PlatformWebError(
                 responseTraceId(),
@@ -48,7 +63,7 @@ public record PlatformWebError(String traceId,
     }
 
     public PlatformWebError withActionMessage(ActionMessage actionMessage) {
-        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs);
+        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, textSource);
     }
 
     private static ErrorScope emptyScopeAsNull(ErrorScope scope) {

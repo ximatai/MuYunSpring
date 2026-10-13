@@ -103,14 +103,15 @@ public class WorkflowTaskActionService {
         WorkflowNodeInstance node = requireNode(task);
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
+        String reason = automatic ? null : request.reason();
         actionPolicyService.requireRuntimeAction(instance, "approve");
         actionPolicyService.requireTaskOperator(task, "approve", operatorId);
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_APPROVE, "approve",
-                operatorId, null, null, request.reason());
+                operatorId, null, null, reason);
         task.setTaskStatus(WorkflowTaskStatus.DONE);
         task.setActualProcessorId(operatorId);
         task.setDecision(automatic ? "auto_approve" : "approve");
-        task.setResultMessage(request.reason());
+        task.setResultMessage(reason);
         task.setCompletedAt(now);
         updateTask(task, now);
 
@@ -127,7 +128,10 @@ public class WorkflowTaskActionService {
                 skipPendingSiblings(instance, task, effectiveTasks, operatorId, now);
             }
         }
-        WorkflowEvent event = eventFactory.taskCompleted(instance, task, automatic ? "auto_approve" : "approve", operatorId, request.reason(), now);
+        WorkflowEvent event = automatic
+                ? eventFactory.taskCompleted(instance, task, "auto_approve", operatorId,
+                        "同一办理人连续审批，按已发布规则自动通过", null, now)
+                : eventFactory.taskCompleted(instance, task, "approve", operatorId, reason, now);
         eventDao.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
@@ -136,7 +140,7 @@ public class WorkflowTaskActionService {
                     request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
         }
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_APPROVE, "approve",
-                operatorId, null, null, request.reason());
+                operatorId, null, null, reason);
         automaticApprovals.getObject().continueFor(instance.getId(), operatorId, now);
         return WorkflowTaskActionResult.of(task, node, instance, event);
     }

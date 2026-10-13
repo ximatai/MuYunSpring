@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 
@@ -66,7 +67,7 @@ public class DynamicModuleRegistry {
 
     public synchronized ModuleDefinition requireModule(String moduleAlias) {
         return findModule(moduleAlias)
-                .orElseThrow(() -> new ModuleDefinitionException("unknown module alias: " + moduleAlias));
+                .orElseThrow(() -> new UnknownDynamicModuleException(moduleAlias));
     }
 
     public synchronized EntityDefinition requireEntity(String moduleAlias, String entityAlias) {

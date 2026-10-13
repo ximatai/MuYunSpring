@@ -147,7 +147,12 @@ export interface MetadataFieldCandidate {
   operation: 'ADD' | 'UPDATE';
   saved: false;
   expectedMetadataVersion: number;
-  changes: Array<{ property: string; before?: string | boolean; after?: string | boolean }>;
+  changes: Array<{
+    propertyKey: string;
+    property: string;
+    before?: string | boolean;
+    after?: string | boolean;
+  }>;
 }
 
 export type MetadataFieldPlanInput = Array<
@@ -217,3 +222,23 @@ export interface MetadataGovernanceEditor {
     target: string;
   };
 }
+
+export const metadataFieldPropertyTitles: Record<string, string> = {
+  title: '显示名称',
+  fieldName: '字段名',
+  columnName: '物理列名',
+  fieldSpecAlias: '字段规格',
+  required: '必填',
+  uniqueField: '唯一',
+  indexed: '索引',
+  sortableField: '允许排序',
+  titleField: '标题字段',
+  enabled: '启用',
+  referenceTarget: '引用目标',
+  affectMappings: '选择回填',
+  dictionaryApplicationAlias: '字典应用',
+  dictionaryCategoryAlias: '字典类别',
+  selectionMode: '字典选择',
+  requireEnabled: '启用限制',
+  fixedDefault: '固定默认值',
+};

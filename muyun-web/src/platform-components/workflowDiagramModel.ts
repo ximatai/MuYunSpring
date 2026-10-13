@@ -1,6 +1,7 @@
 import { graphlib, layout } from '@dagrejs/dagre';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
-import { workflowTitle } from './workflowPresentation';
+import { workflowTitle, workflowNodePresentation } from './workflowPresentation';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export interface WorkflowDiagramPosition {
   x: number;
@@ -76,6 +77,7 @@ export function createWorkflowDiagramModel(
   routes: WorkflowRoute[],
   layoutJson?: string,
   semanticJson?: string,
+  language: LanguageContext = platformLanguageContext,
 ): { nodes: WorkflowDiagramNode[]; routes: WorkflowDiagramRoute[] } {
   const semantic = jsonObject(semanticJson);
   const definitions = new Map(
@@ -95,23 +97,27 @@ export function createWorkflowDiagramModel(
     const compact = ['start', 'end'].includes(node.nodeType);
     const detail = node.nodeStatus
       ? node.nodeStatus === 'waiting' && node.nodeType !== 'converge'
-        ? '未到达'
-        : workflowTitle(node.nodeStatus)
+        ? language.t('platform.screen.WorkflowDiagram.not-reached', '未到达')
+        : workflowTitle(node.nodeStatus, language)
       : node.nodeType === 'branch'
         ? (node.routeMode ?? definition?.routeMode) === 'manual'
-          ? '人工单选'
-          : '条件分流'
+          ? language.t('platform.screen.WorkflowDiagram.manual-single-choice', '人工单选')
+          : language.t('platform.screen.WorkflowDiagram.conditional-branch', '条件分流')
         : node.nodeType === 'converge'
-          ? ({ all: '全部到达', any: '任一到达', ratio: '比例到达' } as Record<string, string>)[
-              String(node.convergeMode ?? definition?.convergeMode ?? 'all')
-            ]
+          ? (
+              {
+                all: language.t('platform.screen.WorkflowDiagram.all-arrived', '全部到达'),
+                any: language.t('platform.screen.WorkflowDiagram.any-arrived', '任一到达'),
+                ratio: language.t('platform.screen.WorkflowDiagram.ratio-arrived', '比例到达'),
+              } as Record<string, string>
+            )[String(node.convergeMode ?? definition?.convergeMode ?? 'all')]
           : node.approvalMode
-            ? workflowTitle(node.approvalMode)
+            ? workflowTitle(node.approvalMode, language)
             : '';
     return {
       key: node.nodeKey,
-      title: node.nodeTitle ?? node.title ?? node.nodeKey,
-      subtitle: [workflowTitle(node.nodeType), detail].filter(Boolean).join(' · '),
+      title: workflowNodePresentation(node, language).nodeTitle ?? node.nodeKey,
+      subtitle: [workflowTitle(node.nodeType, language), detail].filter(Boolean).join(' · '),
       type: node.nodeType,
       status: node.nodeStatus,
       x: 0,
@@ -131,7 +137,12 @@ export function createWorkflowDiagramModel(
         key: route.routeKey,
         source: route.sourceNodeKey,
         target: route.targetNodeKey,
-        title: typeof name === 'string' && name ? name : fallback ? '默认出口' : '',
+        title:
+          typeof name === 'string' && name
+            ? name
+            : fallback
+              ? language.t('platform.screen.WorkflowDiagram.default-route', '默认出口')
+              : '',
         status: route.routeStatus,
       };
     });

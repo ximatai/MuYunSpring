@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import type { Graph, Node } from '@antv/x6';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
 import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
@@ -11,6 +12,7 @@ import {
 import { presentPlatformError } from './platformErrorFeedback';
 
 defineOptions({ name: 'WorkflowDiagram' });
+const workflowLanguage = useLanguageContext();
 const props = defineProps<{
   nodes: WorkflowNode[];
   routes: WorkflowRoute[];
@@ -36,7 +38,13 @@ const ready = ref(false),
   zoom = ref(100),
   fullscreen = ref(false);
 const model = computed(() =>
-  createWorkflowDiagramModel(props.nodes, props.routes, props.layoutJson, props.semanticJson),
+  createWorkflowDiagramModel(
+    props.nodes,
+    props.routes,
+    props.layoutJson,
+    props.semanticJson,
+    workflowLanguage,
+  ),
 );
 const focusNode = computed(
   () =>
@@ -47,10 +55,10 @@ const focusNode = computed(
 );
 const focusTitle = computed(() =>
   focusNode.value?.status === 'active'
-    ? '定位当前节点'
+    ? workflowLanguage.t('platform.screen.WorkflowDiagram.locate-current', '定位当前节点')
     : focusNode.value?.type === 'end'
-      ? '定位结束节点'
-      : '定位开始节点',
+      ? workflowLanguage.t('platform.screen.WorkflowDiagram.locate-end', '定位结束节点')
+      : workflowLanguage.t('platform.screen.WorkflowDiagram.locate-start', '定位开始节点'),
 );
 let graph: Graph | undefined,
   observer: ResizeObserver | undefined,
@@ -173,7 +181,9 @@ function render() {
         root: {
           role: props.interactive ? 'button' : 'img',
           tabindex: props.interactive ? 0 : -1,
-          'aria-label': `路径：${route.title || route.key}`,
+          'aria-label': workflowLanguage.t('platform.screen.WorkflowDiagram.route-label', '路径：{route}', {
+            route: route.title || route.key,
+          }),
           'data-workflow-route': route.key,
           style: { cursor: props.interactive ? 'pointer' : 'default' },
         },
@@ -369,35 +379,64 @@ onBeforeUnmount(() => {
     ref="shell"
     class="workflow-diagram"
     :class="{ 'workflow-diagram--detail': presentation === 'detail' }"
-    aria-label="流程图"
+    :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.diagram', '流程图')"
   >
     <div class="diagram-header">
-      <div class="diagram-tools" role="group" aria-label="流程画布工具">
-        <UiButton size="small" :disabled="!ready" @click="fit">全图</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">缩小</UiButton>
+      <div
+        class="diagram-tools"
+        role="group"
+        :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.tools', '流程画布工具')"
+      >
+        <UiButton size="small" :disabled="!ready" @click="fit">{{
+          workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')
+        }}</UiButton>
+        <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">{{
+          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')
+        }}</UiButton>
         <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">放大</UiButton>
+        <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">{{
+          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')
+        }}</UiButton>
         <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
           focusTitle
         }}</UiButton>
-        <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">自动整理</UiButton>
+        <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">{{
+          workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')
+        }}</UiButton>
         <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
-          fullscreen ? '退出全屏' : '全屏'
+          fullscreen
+            ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
+            : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
         }}</UiButton>
       </div>
       <div class="diagram-navigation">
         <UiSelect
           class="diagram-locator"
           :value="undefined"
-          placeholder="定位节点"
+          :placeholder="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-node', '定位节点')"
           :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
           @update:value="locate(String($event))"
         />
-        <span>拖动空白平移 · Ctrl / ⌘ + 滚轮缩放<span v-if="editable"> · 拖动节点调整布局</span></span>
+        <span
+          >{{
+            workflowLanguage.t(
+              'platform.screen.WorkflowDiagram.pan-help',
+              '拖动空白平移 · Ctrl / ⌘ + 滚轮缩放',
+            )
+          }}<span v-if="editable">{{
+            workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
+          }}</span></span
+        >
       </div>
     </div>
-    <p v-if="failed" role="alert">流程图加载失败，请刷新页面重试。</p>
-    <p v-else-if="!nodes.length" class="diagram-empty">暂无流程节点</p>
+    <p v-if="failed" role="alert">
+      {{
+        workflowLanguage.t('platform.screen.WorkflowDiagram.load-failed', '流程图加载失败，请刷新页面重试。')
+      }}
+    </p>
+    <p v-else-if="!nodes.length" class="diagram-empty">
+      {{ workflowLanguage.t('platform.screen.WorkflowDiagram.empty', '暂无流程节点') }}
+    </p>
     <div ref="viewport" class="diagram-viewport" @keydown="keyboard">
       <div ref="canvas" class="diagram-canvas" />
     </div>

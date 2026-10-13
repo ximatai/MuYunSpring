@@ -13,6 +13,7 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 it('registers every static administration route and keeps role authorization internal', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_platform/workspace',
+    '/platform/translations',
     '/workflow/admin',
     '/workflow/workbench',
     '/platform/logs/runtime',
@@ -22,6 +23,7 @@ it('registers every static administration route and keeps role authorization int
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
+    'platform.localization': '/platform/translations',
     'platform.workflow_admin': '/workflow/admin',
     'iam.workflow_workbench': '/workflow/workbench',
     'platform.runtime_log': '/platform/logs/runtime',

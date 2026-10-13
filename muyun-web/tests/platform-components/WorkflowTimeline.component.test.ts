@@ -44,3 +44,19 @@ it('shows business reasons by default and expands the full audit on request', as
   expect(wrapper.text()).toContain('workflow task completed');
   wrapper.unmount();
 });
+
+it('uses explicit opinions without treating translated system diagnostics as user reasons', () => {
+  const wrapper = mount(WorkflowTimeline, {
+    props: {
+      nodes: [],
+      events: [
+        { id: 'system', eventType: 'task_completed', message: 'Tâche terminée' },
+        { id: 'opinion', eventType: 'task_completed', reason: '保留原文意见', message: '任意技术说明' },
+      ],
+    },
+  });
+  expect(wrapper.text()).toContain('保留原文意见');
+  expect(wrapper.text()).not.toContain('Tâche terminée');
+  expect(wrapper.text()).not.toContain('任意技术说明');
+  wrapper.unmount();
+});

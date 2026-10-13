@@ -20,8 +20,20 @@ public record PlatformModuleRuntimeContext(
         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions,
         ResolvedModuleUiDescriptor uiDescriptor,
-        boolean tenantRequired
+        boolean tenantRequired,
+        net.ximatai.muyun.spring.common.i18n.TextReference titleSource
 ) {
+    public PlatformModuleRuntimeContext withTitleSource(net.ximatai.muyun.spring.common.i18n.TextReference source) {
+        return new PlatformModuleRuntimeContext(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl,
+                mainEntityAlias, capabilities, sortPartitionFields, abilities, actions, uiDescriptor, tenantRequired, source);
+    }
+    public PlatformModuleRuntimeContext(String moduleAlias, String title, ModuleKind moduleKind,
+            ModuleEntryType entryType, String entryRoute, String entryExternalUrl, String mainEntityAlias,
+            Set<EntityCapability> capabilities, List<String> sortPartitionFields, Set<String> abilities,
+            List<PlatformModuleRuntimeAction> actions, ResolvedModuleUiDescriptor uiDescriptor, boolean tenantRequired) {
+        this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
+                capabilities, sortPartitionFields, abilities, actions, uiDescriptor, tenantRequired, null);
+    }
     public PlatformModuleRuntimeContext(String moduleAlias, String title, ModuleKind moduleKind,
             ModuleEntryType entryType, String entryRoute, String entryExternalUrl, String mainEntityAlias,
             Set<EntityCapability> capabilities, List<String> sortPartitionFields, Set<String> abilities,

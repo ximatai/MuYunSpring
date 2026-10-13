@@ -1,3 +1,4 @@
+import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
@@ -196,4 +197,123 @@ it('opens terminal current instances and resets them without querying active-onl
   expect(wrapper.findComponent(surface).props('rows')).toEqual([]);
   expect(wrapper.findComponent(drawer).props('open')).toBe(false);
   wrapper.unmount();
+});
+
+it('localizes directory and node captions while preserving pending administration and instance facts', async () => {
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  let caption = 'Purchases';
+  const directoryText = () => ({
+    source: {
+      sourceKind: 'CONFIG',
+      sourceId: 'config/module/demo.purchase/title',
+      sourceVersion: 'v1',
+      originalText: '采购',
+    },
+    languages: {
+      en: { text: caption, requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+    },
+  });
+  const text = {
+    source: { sourceKind: 'CONFIG', sourceId: 'frozen-node', sourceVersion: 'v1', originalText: '审批' },
+    languages: {
+      en: { text: 'Frozen approval', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+    },
+  };
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/workbench/modules'))
+      return {
+        modules: {
+          'demo.purchase': { moduleAlias: 'demo.purchase', title: '采购', titleText: directoryText() },
+        },
+      };
+    if (options.path.endsWith('/instance/query'))
+      return {
+        records: [
+          {
+            instanceId: 'i',
+            moduleAlias: 'demo.purchase',
+            instanceStatus: caption === 'Purchases' ? 'running' : 'terminated',
+            activeNodeTitles: ['审批'],
+            activeNodeLabels: [{ nodeKey: 'approve', title: '审批', titleText: text }],
+            currentAssigneeTitles: [],
+          },
+        ],
+      };
+    if (options.path.endsWith('/bundle'))
+      return {
+        instance: {
+          id: 'i',
+          moduleAlias: 'demo.purchase',
+          versionNo: caption === 'Purchases' ? 7 : 8,
+          instanceStatus: 'running',
+        },
+        nodes: [],
+        routes: [],
+      };
+    if (options.path.endsWith('/active-tasks'))
+      return { records: [{ taskId: 't', nodeTitle: '审批', nodeTitleText: text }] };
+    return { records: [] };
+  });
+  const context = {
+    moduleAlias: 'platform.workflow_admin',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(ModuleContextProvider, { context }, () => h(WorkflowAdministrationView));
+    },
+  });
+  const wrapper = mount(Host, {
+    global: {
+      stubs: {
+        RecordQueryListSurface: surface,
+        RecordDetailDrawer: drawer,
+        RecordPicker: true,
+        WorkflowDiagram: true,
+        ManagementTabs: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent(surface);
+    expect(list.props('rows')[0].active).toBe('Frozen approval');
+    expect(list.props('rows')[0].moduleTitle).toBe('Purchases');
+    list.vm.$emit('row-click', { id: 'i' });
+    await flushPromises();
+    const pendingTasks = wrapper.findAllComponents(surface)[1];
+    expect(pendingTasks.props('rows')[0].nodeTitle).toBe('Frozen approval');
+    const before = request.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('rows')[0].active).toBe('审批');
+    expect(list.props('rows')[0].moduleTitle).toBe('采购');
+    expect(pendingTasks.props('rows')[0].nodeTitle).toBe('审批');
+    expect(request.mock.calls).toHaveLength(before);
+    language.setLanguage('en');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Terminate workflow')!
+      .trigger('click');
+    await flushPromises();
+    const reason = wrapper.findComponent({ name: 'UiTextArea' });
+    reason.vm.$emit('update:value', '保留运维原因');
+    await flushPromises();
+    caption = 'Procurement';
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'administration-module-title-publication',
+      changes: [{ type: 'configuration-translations-changed', moduleAlias: 'demo.purchase' }],
+    });
+    await flushPromises();
+    expect(list.props('rows')[0].moduleTitle).toBe('Procurement');
+    expect(list.props('rows')[0].instanceStatus).toBe('running');
+    expect(reason.props('value')).toBe('保留运维原因');
+    expect(wrapper.text()).toContain('Current workflow version: 7.');
+    expect(wrapper.text()).not.toContain('Current workflow version: 8.');
+  } finally {
+    wrapper.unmount();
+  }
 });

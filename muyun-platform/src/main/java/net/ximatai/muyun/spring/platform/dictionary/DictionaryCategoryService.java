@@ -22,6 +22,8 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
         TreeAbility<DictionaryCategory>,
         QueryAbility<DictionaryCategory>,
         ApplicationReferenceContributor {
+    public static final String CATEGORY_NOT_FOUND = "platform.dictionary.category-not-found";
+
     public static final String MODULE_ALIAS = "platform.dictionary_category";
 
     public DictionaryCategoryService(BaseDao<DictionaryCategory, String> categoryDao) {
@@ -88,7 +90,7 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
                         .eq("applicationAlias", validApplicationAlias)
                         .eq("alias", validCategoryAlias));
         if (category == null) {
-            throw new PlatformException("Dictionary category requires existing category: "
+            throw new PlatformException(CATEGORY_NOT_FOUND, 404, "Dictionary category requires existing category: "
                     + validApplicationAlias + "." + validCategoryAlias);
         }
         if (category.getCategoryKind() != DictionaryCategoryKind.DICTIONARY) {
@@ -101,7 +103,7 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
         String validCategoryId = requireText(categoryId, "dictionaryCategoryId");
         DictionaryCategory category = select(validCategoryId);
         if (category == null) {
-            throw new PlatformException("Dictionary category requires existing category: " + validCategoryId);
+            throw new PlatformException(CATEGORY_NOT_FOUND, 404, "Dictionary category requires existing category: " + validCategoryId);
         }
         if (category.getCategoryKind() != DictionaryCategoryKind.DICTIONARY) {
             throw new PlatformException("Dictionary items require DICTIONARY category: " + validCategoryId);

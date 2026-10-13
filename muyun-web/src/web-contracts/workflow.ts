@@ -1,3 +1,4 @@
+import type { TextPresentation } from './index';
 /** Published workflow facts shared by static and metadata driven modules. */
 export interface WorkflowDefinition {
   id: string;
@@ -19,6 +20,7 @@ export interface WorkflowVersion {
   publishStatus: string;
 }
 export interface WorkflowNode {
+  nodeTitleText?: TextPresentation;
   id?: string;
   version?: number;
   nodeKey: string;
@@ -107,6 +109,7 @@ export interface WorkflowTask {
   completedAt?: string;
 }
 export interface WorkflowEvent {
+  messageText?: TextPresentation;
   id: string;
   taskId?: string;
   eventType: string;
@@ -170,7 +173,14 @@ export interface WorkflowBranch {
   }>;
 }
 export interface WorkflowWorkbenchCard {
-  business?: { title?: string; moduleTitle?: string; readable: boolean };
+  nodeTitleText?: TextPresentation;
+  business?: {
+    title?: string;
+    moduleTitle?: string;
+    readable: boolean;
+    moduleTitleSource?: import('./index').TextReference;
+    moduleTitleText?: import('./index').TextPresentation;
+  };
   instanceId: string;
   moduleAlias: string;
   recordId: string;
@@ -223,6 +233,8 @@ export interface WorkflowTaskPreparation {
     guides: Array<{
       guideKey: string;
       title?: string;
+      titleText?: TextPresentation;
+      instructionText?: TextPresentation;
       guideKind: string;
       guideConfigText?: string;
       targetModuleAlias?: string;
@@ -258,11 +270,22 @@ export interface WorkflowAdminInstance {
   approvalStatus: string;
   startedByTitle?: string;
   activeNodeTitles: string[];
+  workflowVersionId?: string;
+  activeNodeLabels?: {
+    nodeKey: string;
+    title: string;
+    addedByAddSign: boolean;
+    titleText?: TextPresentation;
+  }[];
   currentAssigneeTitles: string[];
   overtimeStatus?: string;
 }
 export interface WorkflowAdminTask {
   taskId: string;
+  nodeKey?: string;
+  nodeInstanceId?: string;
+  workflowVersionId?: string;
+  nodeTitleText?: TextPresentation;
   nodeTitle: string;
   assigneeTitle?: string;
   taskKind: string;

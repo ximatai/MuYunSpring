@@ -27,10 +27,10 @@ public record FieldWriteRules(boolean requiredOnInsert, boolean requiredOnUpdate
 
     public void validate(String fieldName, Object value, boolean update) {
         if (nonNull && value == null) {
-            throw new IllegalArgumentException(fieldName + " must not be null");
+            throw new FieldInputViolationException(fieldName, FieldInputViolationException.Constraint.NON_NULL);
         }
         if (required(update) && (value == null || value instanceof String text && text.isBlank())) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
+            throw new FieldInputViolationException(fieldName, FieldInputViolationException.Constraint.REQUIRED);
         }
     }
 }

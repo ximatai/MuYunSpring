@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { UiSwitch } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
+import { useLanguageContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 import RecordImageFileReferencePreview from './RecordImageFileReferencePreview.vue';
@@ -21,6 +22,7 @@ import { loadOptionFieldItems } from './optionFieldOptionCache';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
 
 defineOptions({ name: 'RecordDetailFields' });
+const language = useLanguageContext();
 
 const props = withDefaults(
   defineProps<{
@@ -76,7 +78,7 @@ const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 onMounted(() => void loadOptionFields());
 watch(
   () => [props.fields, props.optionContext],
-  () => void loadOptionFields(),
+  () => void loadOptionFields(true),
 );
 
 function fieldState(fieldName: string): RecordFormFieldState {
@@ -97,6 +99,7 @@ function displayValue(field: RecordFormFieldState) {
     displayOf: props.displayOf,
     emptyText: props.emptyText,
     optionItems: optionItems.value[field.fieldName],
+    language,
   });
 }
 
@@ -110,14 +113,27 @@ function hasOptionTitle(field: RecordFormFieldState) {
   return value !== undefined && value !== null && value !== '';
 }
 
-async function loadOptionFields() {
+let optionLoadRevision = 0;
+async function loadOptionFields(forceRefresh = false) {
+  const revision = ++optionLoadRevision;
   if (!props.optionContext || !props.fields) return;
+  const context = props.optionContext;
+  const fields = props.fields;
   for (const field of props.fields.values()) {
     if (!field.option || field.option.inlineItems?.length) continue;
     try {
+      const items = await loadOptionFieldItems(
+        context,
+        field.fieldRef.fieldName,
+        undefined,
+        context.moduleAlias,
+        forceRefresh,
+      );
+      if (revision !== optionLoadRevision || props.optionContext !== context || props.fields !== fields)
+        return;
       optionItems.value = {
         ...optionItems.value,
-        [field.fieldRef.fieldName]: await loadOptionFieldItems(props.optionContext, field.fieldRef.fieldName),
+        [field.fieldRef.fieldName]: items,
       };
     } catch {
       // Keep the raw value as a safe fallback; the editable form exposes a retry affordance.

@@ -222,10 +222,10 @@ public class WorkflowRuntimeSubmitService {
             var expected = task.getVersion();
             EntityLifecycle.prepareUpdate(task, now, EntityLifecycle.nextVersion(expected));
             if (taskDao.updateByIdAndVersion(task, expected) == 0) throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
-            var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", now);
+            var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", null, now);
             prepareInsert(event, now); eventDao.insert(event);
             replacement.setPreviousInstanceId(instance.getId());
-            instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason("重新发起审批");
+            instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason(null);
             instance.setLastOperatorId(replacement.getStartedBy()); instance.setLastOperatedAt(now);
             for (var leftover : taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()).eq("taskStatus", WorkflowTaskStatus.TODO), all)) {
                 leftover.setTaskStatus(WorkflowTaskStatus.CANCELED); leftover.setDecision("resubmit_restart");

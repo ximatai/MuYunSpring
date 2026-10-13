@@ -1,5 +1,6 @@
 import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import { getMenuNavigationTarget } from './menuNavigation';
+import { presentationLabel, type LanguageContext } from '@muyun/web-core';
 
 export interface WorkbenchMenuNode {
   record: MenuRecord;
@@ -16,8 +17,11 @@ export interface WorkbenchMegaMenuModel {
   activeDeepRoot?: WorkbenchMenuNode;
 }
 
-export function createWorkbenchMenuNodes(nodes: MenuTreeNode[]): WorkbenchMenuNode[] {
-  return nodes.map(createWorkbenchMenuNode);
+export function createWorkbenchMenuNodes(
+  nodes: MenuTreeNode[],
+  language?: LanguageContext,
+): WorkbenchMenuNode[] {
+  return nodes.map((node) => createWorkbenchMenuNode(node, language));
 }
 
 export function filterWorkbenchMenuNodes(nodes: WorkbenchMenuNode[], keyword: string): WorkbenchMenuNode[] {
@@ -166,11 +170,13 @@ function titleLengthWeight(title: string): number {
   return Math.max(0, Math.ceil(title.length / 10) - 1) * 0.35;
 }
 
-function createWorkbenchMenuNode(node: MenuTreeNode): WorkbenchMenuNode {
-  const children = createWorkbenchMenuNodes(node.children);
+function createWorkbenchMenuNode(node: MenuTreeNode, language?: LanguageContext): WorkbenchMenuNode {
+  const children = createWorkbenchMenuNodes(node.children, language);
   const target = getMenuNavigationTarget(node.record);
   return {
-    record: node.record,
+    record: language
+      ? { ...node.record, title: presentationLabel(node.record.title, node.record.titleText, language) }
+      : node.record,
     children,
     target,
     navigable: Boolean(target),

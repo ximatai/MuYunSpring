@@ -732,3 +732,148 @@ it('replaces an unactivated add-sign segment by reconnecting to its original exi
       },
     });
 });
+
+it('localizes stable workflow actions and their frozen node labels in an independent consumer scope', async () => {
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async ({ path }: { path: string }) => {
+    if (path.endsWith('/submit/status')) return { displayStatus: 'PROCESSING', instanceId: 'i' };
+    if (path.endsWith('/bundle'))
+      return {
+        instance: { id: 'i', instanceStatus: 'running' },
+        nodes: [
+          {
+            nodeKey: 'approve',
+            nodeTitle: '冻结审批节点',
+            nodeTitleText: {
+              source: {
+                sourceKind: 'CONFIG',
+                sourceId: 'old-node',
+                sourceVersion: 'v1',
+                originalText: '冻结审批节点',
+              },
+              languages: {
+                en: {
+                  text: 'Frozen approval',
+                  requestedTag: 'en',
+                  resourceTag: 'en',
+                  missing: false,
+                  fallback: false,
+                },
+              },
+            },
+          },
+        ],
+        routes: [],
+      };
+    if (path.endsWith('/actions'))
+      return {
+        records: [
+          {
+            actionCode: 'approve',
+            title: '通过',
+            nodeTitle: '冻结审批节点',
+            nodeKey: 'approve',
+            taskId: 't',
+            reasonRequired: false,
+          },
+        ],
+      };
+    return { records: [] };
+  });
+  const context = {
+    moduleAlias: 'demo.purchase',
+    http: { request },
+    runtime: { ready: Promise.resolve({}) },
+  } as unknown as ModuleContext<Record<string, unknown>>;
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkflowRecordPanel, { context, recordId: 'r' });
+    },
+  });
+  const wrapper = mount(Host, {
+    global: {
+      stubs: {
+        RecordDetailDrawer: drawer,
+        WorkflowDiagram: true,
+        RecordPicker: true,
+        AdaptiveHeaderActionBar: true,
+        RecordQueryListSurface: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const bar = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
+    expect(bar.props('actions')[0].title).toBe('Frozen approval · Approve');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(bar.props('actions')[0].title).toBe('冻结审批节点 · 通过');
+    expect(request.mock.calls.filter(([args]) => args.path.endsWith('/actions'))).toHaveLength(1);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('keeps an opened list guide caption reactive instead of freezing its first translated title', async () => {
+  const { platformLanguageContext } = await import('@muyun/web-core');
+  const previous = platformLanguageContext.requestedLanguageTag.value;
+  platformLanguageContext.setLanguage('en');
+  const { wrapper, request } = fixture();
+  const original = request.getMockImplementation()!;
+  request.mockImplementation(async (call) =>
+    call.path.endsWith('/prepare')
+      ? {
+          evaluation: {
+            passed: true,
+            checkResults: [],
+            guides: [
+              {
+                guideKey: 'list',
+                guideKind: 'open_list',
+                title: '相关业务记录',
+                targetModuleAlias: 'demo.purchase',
+                titleText: {
+                  source: {
+                    sourceKind: 'CONFIG',
+                    sourceId: 'frozen-guide',
+                    sourceVersion: 'v1',
+                    originalText: '相关业务记录',
+                  },
+                  languages: {
+                    en: {
+                      text: 'Related business records',
+                      requestedTag: 'en',
+                      resourceTag: 'en',
+                      missing: false,
+                      fallback: false,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        }
+      : original(call),
+  );
+  try {
+    await flushPromises();
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Related business records')!
+      .trigger('click');
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(list.props('title')).toBe('Related business records');
+    platformLanguageContext.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('title')).toBe('相关业务记录');
+    expect(request.mock.calls.filter(([call]) => call.path.endsWith('/prepare'))).toHaveLength(1);
+  } finally {
+    wrapper.unmount();
+    platformLanguageContext.setLanguage(previous);
+  }
+});

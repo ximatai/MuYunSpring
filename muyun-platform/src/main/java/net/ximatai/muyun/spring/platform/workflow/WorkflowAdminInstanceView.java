@@ -22,9 +22,11 @@ public record WorkflowAdminInstanceView(
         List<String> currentAssigneeTitles,
         WorkflowOvertimeStatus overtimeStatus,
         Instant updatedAt,
-        Instant lastOperatedAt
+        Instant lastOperatedAt,
+        List<WorkflowNodeTitleView> activeNodeLabels
 ) {
     public WorkflowAdminInstanceView {
+        activeNodeLabels = activeNodeLabels == null ? List.of() : List.copyOf(activeNodeLabels);
         activeNodeKeys = activeNodeKeys == null ? List.of() : List.copyOf(activeNodeKeys);
         activeNodeTitles = activeNodeTitles == null ? List.of() : List.copyOf(activeNodeTitles);
         currentTaskIds = currentTaskIds == null ? List.of() : List.copyOf(currentTaskIds);

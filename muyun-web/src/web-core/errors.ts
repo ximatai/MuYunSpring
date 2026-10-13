@@ -40,6 +40,7 @@ export const platformErrorCodes = {
   resourceNotFound: 'RESOURCE_NOT_FOUND',
   resourceSoftDeletedConflict: 'RESOURCE_SOFT_DELETED_CONFLICT',
   configMissing: 'CONFIG_MISSING',
+  querySchemaUnsupported: 'QUERY_SCHEMA_UNSUPPORTED',
   internalError: 'INTERNAL_ERROR',
 } as const;
 
@@ -144,6 +145,11 @@ export function modelFailureMessage(error: AppError): string | undefined {
     AI_PROVIDER_RATE_LIMITED: '模型服务限制了本次请求。请稍后重试；持续失败时请管理员检查额度。',
     AI_PROVIDER_UNAVAILABLE: '模型服务暂时不可用，请稍后重试。',
     AI_PROVIDER_REQUEST_REJECTED: '模型服务拒绝了本次请求。请联系管理员检查模型配置与服务状态。',
+    AI_MODEL_OUTPUT_TRUNCATED: '模型本次回复达到长度上限，未能完成。可以分步处理，或联系管理员调整回复上限。',
+    AI_MODEL_OUTPUT_TRUNCATED_EMPTY:
+      '模型服务未返回可用内容。请稍后重试；持续失败时联系管理员检查模型服务状态。',
+    AI_CONTEXT_BUDGET_EXCEEDED: '本次内容超过模型上下文预算，请缩短内容或分步处理。',
+    AI_OUTPUT_BUDGET_EXCEEDED: '本次输出预算超过模型容量，请联系管理员调整回复上限。',
     AI_MODEL_TIMEOUT: '等待模型回复超时，请稍后重试。',
     AI_MODEL_CONNECTION_FAILED: '模型连接失败。请联系管理员检查网络与模型服务状态。',
     AI_MODEL_INCOMPLETE_RESPONSE: '模型回复在完成前断开。',

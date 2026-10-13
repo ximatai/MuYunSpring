@@ -1,4 +1,5 @@
 import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
+import { metadataFieldPropertyTitles } from './metadataGovernanceEditor';
 import { computed, effectScope, ref, watch } from 'vue';
 import type { ModuleActivationFeedback } from './moduleRuntimeActivation';
 import {
@@ -1080,23 +1081,23 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         value: MetadataField,
         binding?: MetadataFieldPropertyDraft,
       ): Record<string, string | boolean | undefined> => ({
-        显示名称: value.title,
-        字段名: value.fieldName,
-        物理列名: value.columnName,
-        字段规格: value.fieldSpecAlias,
-        必填: value.required ?? false,
-        唯一: value.uniqueField ?? false,
-        索引: value.indexed ?? false,
-        允许排序: value.sortableField ?? false,
-        标题字段: value.titleField ?? false,
-        启用: value.enabled !== false,
-        引用目标: binding?.referenceConfig?.targetModuleAlias,
-        选择回填: binding?.referenceConfig?.affectMappings?.join('；'),
-        字典应用: binding?.dictionaryConfig?.dictionaryApplicationAlias,
-        字典类别: binding?.dictionaryConfig?.dictionaryCategoryAlias,
-        字典选择: binding?.dictionaryConfig?.selectionMode,
-        启用限制: binding?.referenceConfig?.requireEnabled,
-        固定默认值: binding?.fixedDefault?.value ?? undefined,
+        title: value.title,
+        fieldName: value.fieldName,
+        columnName: value.columnName,
+        fieldSpecAlias: value.fieldSpecAlias,
+        required: value.required ?? false,
+        uniqueField: value.uniqueField ?? false,
+        indexed: value.indexed ?? false,
+        sortableField: value.sortableField ?? false,
+        titleField: value.titleField ?? false,
+        enabled: value.enabled !== false,
+        referenceTarget: binding?.referenceConfig?.targetModuleAlias,
+        affectMappings: binding?.referenceConfig?.affectMappings?.join('；'),
+        dictionaryApplicationAlias: binding?.dictionaryConfig?.dictionaryApplicationAlias,
+        dictionaryCategoryAlias: binding?.dictionaryConfig?.dictionaryCategoryAlias,
+        selectionMode: binding?.dictionaryConfig?.selectionMode,
+        requireEnabled: binding?.referenceConfig?.requireEnabled,
+        fixedDefault: binding?.fixedDefault?.value ?? undefined,
       });
       const before = baseline ? project(baseline, baselineProperty) : {};
       const after = project(field, property);
@@ -1112,7 +1113,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         expectedMetadataVersion: editSession.relation(relationId)?.expectedMetadataVersion ?? 0,
         changes: Object.entries(after)
           .filter(([key, value]) => value !== before[key])
-          .map(([key, value]) => ({ property: key, before: before[key], after: value })),
+          .map(([key, value]) => ({
+            propertyKey: key,
+            property: metadataFieldPropertyTitles[key] ?? key,
+            before: before[key],
+            after: value,
+          })),
       };
     }
 

@@ -18,6 +18,7 @@ public final class PlatformErrorCodes {
      */
     public static final String RESOURCE_SOFT_DELETED_CONFLICT = "RESOURCE_SOFT_DELETED_CONFLICT";
     public static final String RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND";
+    public static final String QUERY_SCHEMA_UNSUPPORTED = "QUERY_SCHEMA_UNSUPPORTED";
     public static final String CONFIG_MISSING = "CONFIG_MISSING";
     public static final String INTERNAL_ERROR = "INTERNAL_ERROR";
 

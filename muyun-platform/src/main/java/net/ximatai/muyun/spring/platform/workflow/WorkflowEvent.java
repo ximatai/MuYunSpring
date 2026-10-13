@@ -38,6 +38,12 @@ public class WorkflowEvent extends StandardEntity {
     @Column(name = "message", type = ColumnType.TEXT, comment = "Event message")
     private String message;
 
+    @Column(name = "message_source_text", type = ColumnType.TEXT, comment = "Frozen declared system message source")
+    private String messageSourceText;
+
+    @Column(name = "reason", type = ColumnType.TEXT, comment = "Original operator reason")
+    private String reason;
+
     @Column(name = "payload_text", type = ColumnType.TEXT, comment = "Event payload")
     private String payloadText;
 

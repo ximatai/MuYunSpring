@@ -73,7 +73,9 @@
 public record ActionMessage(
         String code,
         String text,
-        ActionMessageType type
+        ActionMessageType type,
+        Map<String, Object> messageArgs,
+        TextReference textSource
 ) {
 }
 ```
@@ -166,7 +168,7 @@ throw BusinessExceptions.warning(
         "登录账号已被占用");
 ```
 
-统一异常处理器负责形成错误响应，并保留正确的 HTTP 状态。
+统一异常处理器负责形成错误响应，并保留正确的 HTTP 状态。需要翻译的业务失败可通过 `BusinessException(code, TextReference, messageType, messageArgs)` 声明原文来源及参数，完整构造也支持指定状态、作用域和目标。HTTP 展示层与成功回执共用文本解析契约，原异常和错误日志保留原文事实；稳定错误码、参数与目标不受语言影响。
 
 成功与失败可以复用 `ActionMessage` 结构，但不能混淆 HTTP 成功和失败语义。
 

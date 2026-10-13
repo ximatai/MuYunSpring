@@ -206,7 +206,7 @@ public class WorkflowRuntimeProgressionService {
                         task.setDecision("route_dropped"); task.setResultMessage("汇聚已通过，当前分支停止办理");
                         Integer version = task.getVersion(); EntityLifecycle.prepareUpdate(task, now);
                         if (taskDao.updateByIdAndVersion(task, version) == 0) throw new OptimisticLockException("workflow task version conflict");
-                        events.add(eventFactory.taskCompleted(instance, task, "route_dropped", operator, task.getResultMessage(), now));
+                        events.add(eventFactory.taskCompleted(instance, task, "route_dropped", operator, null, now));
                     }
                 }
         }

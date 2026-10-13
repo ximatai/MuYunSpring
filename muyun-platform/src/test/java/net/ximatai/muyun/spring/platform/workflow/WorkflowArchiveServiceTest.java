@@ -56,6 +56,7 @@ class WorkflowArchiveServiceTest {
         assertThat(snapshot.routes().getFirst().getSelectedReason()).isEqualTo("choose manual route");
         assertThat(snapshot.tasks()).extracting(WorkflowTask::getId).containsExactly("task-1");
         assertThat(snapshot.events()).extracting(WorkflowEvent::getId).containsExactly("event-1");
+        assertThat(snapshot.events().getFirst().getReason()).isEqualTo("保留原文意见");
     }
 
     private WorkflowInstance instance() {
@@ -119,6 +120,7 @@ class WorkflowArchiveServiceTest {
         event.setInstanceId("instance-1");
         event.setEventType(WorkflowEventType.INSTANCE_REVOKED);
         event.setActionCode("revoke");
+        event.setReason("保留原文意见");
         event.setOccurredAt(Instant.parse("2026-06-05T04:00:00Z"));
         return event;
     }

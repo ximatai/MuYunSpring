@@ -1,0 +1,15 @@
+{
+  "enabledTags": ["zh-CN", "en", "fr"],
+  "defaultTag": "zh-CN",
+  "messages": {
+    "zh-CN": {
+      "business.example.title": "业务项目消费 MuYun 平台包"
+    },
+    "en": {
+      "business.example.title": "Business application using MuYun"
+    },
+    "fr": {
+      "business.example.title": "Application métier utilisant la plateforme MuYun"
+    }
+  }
+}

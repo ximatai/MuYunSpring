@@ -33,4 +33,25 @@ class DynamicStandardActionsTest {
                 .doesNotContain(PlatformAction.RECYCLE_BIN_QUERY.code(), PlatformAction.RECYCLE_BIN_RESTORE.code(),
                         PlatformAction.RECYCLE_BIN_PURGE.code());
     }
+    @Test
+    void distinguishesGeneratedCodeTitlesFromOnlineOverridesEvenWhenTheirTextIsIdentical() {
+        var entity = new EntityDefinition("contract", "contract", "Contract",
+                List.of(FieldDefinition.string("code", "Code"))).withCapabilities(EntityCapability.CRUD);
+        var generated = DynamicStandardActions.from("test.contract", entity, List.of()).stream()
+                .filter(action -> action.code().equals(PlatformAction.UPDATE.code())).findFirst().orElseThrow();
+        var override = net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition.enabled(
+                "contract", PlatformAction.UPDATE.code(), PlatformAction.UPDATE.title());
+        var configured = DynamicStandardActions.from("test.contract", entity, List.of(override)).stream()
+                .filter(action -> action.code().equals(PlatformAction.UPDATE.code())).findFirst().orElseThrow();
+        assertThat(generated.titleSource()).isEqualTo(net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(
+                "test.contract", PlatformAction.UPDATE.code(), PlatformAction.UPDATE.title()));
+        assertThat(configured.titleSource()).isEqualTo(net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.configured(
+                "test.contract", PlatformAction.UPDATE.code(), PlatformAction.UPDATE.title()));
+        assertThat(generated.titleSource().originalText()).isEqualTo(configured.titleSource().originalText());
+        assertThat(generated.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+        assertThat(configured.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+        assertThat(configured.withPermission("test.contract").titleSource()).isEqualTo(configured.titleSource());
+        assertThat(configured.executorType()).isEqualTo(generated.executorType());
+    }
+
 }

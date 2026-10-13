@@ -6,7 +6,14 @@ import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
+import {
+  AppError,
+  createLanguageContext,
+  translatedPresentation,
+  type ModuleRuntimeContext,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 import type { RecordQueryListQueryController } from '@/platform-components/recordQueryListQueryController';
 
@@ -19,6 +26,54 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('switches default table and filter labels without replacing raw records or repeating their query', async () => {
+    const requests: WebQueryRequest[] = [];
+    const raw = { id: 'record', title: '中文业务名称' };
+    const context = createContext(raw, requests);
+    const language = createLanguageContext({ languageTag: 'zh-CN' });
+    const original = {
+      moduleAlias: 'demo.note',
+      textBindings: {
+        '/uiDescriptor/page/list/fields/fields/0/label': {
+          source: {
+            sourceKind: 'CODE' as const,
+            sourceId: 'field/title',
+            sourceVersion: 'v1',
+            originalText: '标题',
+          },
+          languages: { en: { text: 'Title', requestedTag: 'en', missing: false, fallback: false } },
+        },
+      },
+      uiDescriptor: {
+        page: {
+          list: {
+            fields: {
+              viewKind: 'LIST',
+              viewCode: 'list',
+              fields: [{ fieldRef: { fieldName: 'title' }, label: '标题', valueType: 'STRING' }],
+            },
+          },
+        },
+      },
+    };
+    context.runtime.ready = Promise.resolve(original as unknown as ModuleRuntimeContext);
+    context.runtime.snapshot = () => original as unknown as ModuleRuntimeContext;
+    context.runtime.presentationSnapshot = () =>
+      translatedPresentation(original, language) as unknown as ModuleRuntimeContext;
+    const wrapper = shallowMount(RecordQueryListPanel, { props: { context, title: 'Records' } });
+    await flushPromises();
+    const surface = () => wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    expect(surface().props('columns')[0].title).toBe('标题');
+    const count = requests.length;
+    language.setLanguage('en');
+    await flushPromises();
+    expect(surface().props('columns')[0].title).toBe('Title');
+    expect(requests.length).toBe(count);
+    expect(surface().props('rows')[0].record.title).toBe('中文业务名称');
+    expect(raw.title).toBe('中文业务名称');
+    wrapper.unmount();
+  });
+
   it('refreshes the unfiltered recycle count after reloading a filtered recycle page', async () => {
     const context = createContext({ id: 'active' });
     context.abilities.has = () => true;
@@ -1555,3 +1610,20 @@ function createContext(
     },
   } as unknown as ModuleContext<QueryListRecord>;
 }
+
+it('continues basic list loading only for a structured unsupported-schema fact', async () => {
+  for (const [code, message, shouldQuery] of [
+    ['QUERY_SCHEMA_UNSUPPORTED', '此模块不支持高级查询', true],
+    ['APP_ERROR', 'query schema is not supported by misleading text', false],
+  ] as const) {
+    const queries: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note' }, queries);
+    context.crud.querySchema = async () => {
+      throw new AppError(message, { code });
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, { props: { context, title: '记录' } });
+    await flushPromises();
+    expect(queries.length > 0).toBe(shouldQuery);
+    wrapper.unmount();
+  }
+});

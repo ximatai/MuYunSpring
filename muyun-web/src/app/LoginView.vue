@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LanguageSelector } from '@muyun/platform-workbench';
 import { computed, onMounted, ref } from 'vue';
 import { AppError, platformErrorCodes, type AuthClient, type LoginContextClient } from '@muyun/web-core';
 import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
@@ -139,6 +140,7 @@ async function submitPasswordChange() {
 </script>
 
 <template>
+  <div class="login-language"><LanguageSelector /></div>
   <main class="login-page">
     <section class="login-panel">
       <header>
@@ -296,5 +298,14 @@ button:disabled {
   background: var(--muyun-support-disabled);
   color: var(--muyun-support-disabled-text);
   cursor: not-allowed;
+}
+</style>
+
+<style scoped>
+.login-language {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  min-width: 120px;
 }
 </style>

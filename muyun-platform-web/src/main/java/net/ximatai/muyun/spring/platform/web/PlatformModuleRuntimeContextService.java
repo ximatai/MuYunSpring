@@ -42,6 +42,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
@@ -307,7 +308,8 @@ public class PlatformModuleRuntimeContextService {
                 actions,
                 uiDescriptor,
                 moduleKind == ModuleKind.DYNAMIC || staticDefinition.map(StaticModuleDefinition::tenantRequired).orElse(false)
-        );
+        ).withTitleSource(module != null && java.util.Objects.equals(module.getTitle(), title) ? module.titleSource()
+                : staticDefinition.isPresent() ? net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(validModuleAlias, title) : null);
     }
 
     /**
@@ -569,7 +571,7 @@ public class PlatformModuleRuntimeContextService {
             dynamicRecordService.describe(moduleAlias);
             return true;
         } catch (ModuleDefinitionException exception) {
-            if (exception.getMessage() != null && exception.getMessage().startsWith("unknown module alias:")) {
+            if (exception instanceof UnknownDynamicModuleException) {
                 return false;
             }
             throw exception;
@@ -606,10 +608,10 @@ public class PlatformModuleRuntimeContextService {
         ResolvedModuleUiDescriptor descriptor = staticDefinition
                 .map(definition -> ModuleUiDescriptorCompiler.compile(definition, this::referencePickerMode))
                 .orElse(null);
-        return descriptor == null ? null : descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
-                .withFileReferences(descriptor.fileReferences().stream()
-                .map(reference -> withFieldAccess(moduleAlias, reference))
-                .toList());
+        return descriptor == null ? null : ModuleUiTextLocations.withConfiguredSources(
+                descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
+                        .withFileReferences(descriptor.fileReferences().stream()
+                                .map(reference -> withFieldAccess(moduleAlias, reference)).toList()), false);
     }
 
     private ResolvedModuleUiDescriptor dynamicUiDescriptor(String moduleAlias,
@@ -712,7 +714,7 @@ public class PlatformModuleRuntimeContextService {
         }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
-        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+        return ModuleUiTextLocations.withConfiguredSources(descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page())), true);
     }
 
     /**
@@ -1471,7 +1473,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 action.isBindingPending(),
                 Boolean.TRUE.equals(action.getFormSupported())
-        );
+        ).withTitleSource(action.titleSource());
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, StaticModuleActionDefinition action) {
@@ -1498,7 +1500,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 false,
                 action.formSupported()
-        );
+        ).withTitleSource(action.titleSource(moduleAlias));
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, DynamicActionDescriptor action) {
@@ -1518,7 +1520,7 @@ public class PlatformModuleRuntimeContextService {
                 action.executorKey(),
                 authorization.authorized(),
                 authorization.decision()
-        );
+        ).withTitleSource(action.titleSource() != null ? action.titleSource() : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle(moduleAlias, action.code(), action.title()));
     }
 
     private ActionExecutionPolicy policy(PlatformModuleAction action) {

@@ -36,3 +36,8 @@ export {
 
 export { provideWorkspaceUnsavedStateRegistrar, useWorkspaceViewUnsavedState } from './workspaceUnsavedState';
 export type { WorkspaceUnsavedStateRegistrar } from './workspaceUnsavedState';
+
+export * from './language';
+export * from './languagePreference';
+
+export * from './presentationTexts';

@@ -88,8 +88,9 @@ class WorkflowTaskActionServiceTest {
         verifyNoInteractions(provider);
     }
 
-    @Test
-    void shouldApproveApprovalTaskAndCompleteAnyNode() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldApproveApprovalTaskAndKeepAutomaticMessagesSeparateFromOpinions(boolean automatic) {
         WorkflowTask task = task("task-1", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
         WorkflowTask sibling = task("task-2", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO);
         WorkflowNodeInstance node = node(WorkflowApprovalMode.ANY, null);
@@ -101,18 +102,21 @@ class WorkflowTaskActionServiceTest {
         when(taskDao.updateByIdAndVersion(sibling, 3)).thenReturn(1);
         when(nodeDao.updateByIdAndVersion(node, 2)).thenReturn(1);
 
-        WorkflowTaskActionResult result = service.approve(request(
-                "task-1", "user-1", null, null, "agree", Instant.parse("2026-06-05T02:00:00Z")));
+        var request = request("task-1", "user-1", null, null, "agree", Instant.parse("2026-06-05T02:00:00Z"));
+        WorkflowTaskActionResult result = automatic ? service.approveAutomatically(request) : service.approve(request);
 
         verify(automaticApprovals).continueFor("instance-1", "user-1", Instant.parse("2026-06-05T02:00:00Z"));
         assertThat(result.task().getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
-        assertThat(result.task().getDecision()).isEqualTo("approve");
+        assertThat(result.task().getDecision()).isEqualTo(automatic ? "auto_approve" : "approve");
         assertThat(result.node().getNodeStatus()).isEqualTo(WorkflowNodeStatus.COMPLETED);
         assertThat(result.node().getApprovedTaskCount()).isEqualTo(1);
         assertThat(sibling.getTaskStatus()).isEqualTo(WorkflowTaskStatus.SKIPPED);
         assertThat(sibling.getDecision()).isEqualTo("skip");
         assertThat(result.event().getEventType()).isEqualTo(WorkflowEventType.TASK_COMPLETED);
-        assertThat(result.event().getActionCode()).isEqualTo("approve");
+        assertThat(result.event().getActionCode()).isEqualTo(automatic ? "auto_approve" : "approve");
+        assertThat(result.event().getReason()).isEqualTo(automatic ? null : "agree");
+        assertThat(result.task().getResultMessage()).isEqualTo(automatic ? null : "agree");
+        assertThat(result.event().getMessage()).isEqualTo(automatic ? "同一办理人连续审批，按已发布规则自动通过" : "agree");
         verify(nodeDao).updateByIdAndVersion(node, 2);
         verify(eventDao, atLeastOnce()).insert(any());
         verify(progressionService).advanceFromNode("instance-1", "approve", "user-1",

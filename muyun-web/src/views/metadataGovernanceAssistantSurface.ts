@@ -793,14 +793,14 @@ function describeMetadataCandidateCapability(
             : value.slice(0, 200);
       const summary = adapter.summary();
       const name =
-        candidate.changes.find((change) => change.property === '显示名称')?.after ||
+        candidate.changes.find((change) => change.propertyKey === 'title')?.after ||
         summary.selectedRelation?.fields.find((field) => field.fieldName === candidate.fieldName)?.title ||
         candidate.fieldName;
       const changes = candidate.changes.map(
         (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
       );
       const businessChanges = candidate.changes.filter((change) =>
-        ['显示名称', '必填', '唯一', '启用', '固定默认值'].includes(change.property),
+        ['title', 'required', 'uniqueField', 'enabled', 'fixedDefault'].includes(change.propertyKey),
       );
       return {
         title: `「${name}」的修改（尚未保存）`,

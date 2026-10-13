@@ -1,7 +1,8 @@
-import { AppError, platformErrorCodes } from '@/web-core';
+import { AppError, platformErrorCodes, createLanguageContext } from '@/web-core';
 import {
   missingReferencePickerDependencies,
   referencePickerReadErrorOf,
+  referencePickerErrorMessage,
   unsupportedReferencePickerConfiguration,
 } from '@/platform-components/referencePickerReadError';
 import { describe, expect, it } from 'vitest';
@@ -43,4 +44,27 @@ describe('reference picker read errors', () => {
       retryable: false,
     });
   });
+});
+
+it('resolves local error identities live while preserving server and business messages', () => {
+  const language = createLanguageContext();
+  const missing = missingReferencePickerDependencies(['classId']);
+  const fallback = referencePickerReadErrorOf(new Error(''), {
+    key: 'platform.reference-picker.load-failed',
+    original: '引用候选加载失败',
+  })!;
+  const business = referencePickerReadErrorOf(new Error('业务原始错误'), {
+    key: 'platform.reference-picker.load-failed',
+    original: '引用候选加载失败',
+  })!;
+  expect(referencePickerErrorMessage(missing, language)).toBe('请先补齐引用所需的依赖字段');
+  expect(referencePickerErrorMessage(fallback, language)).toBe('引用候选加载失败');
+  language.setLanguage('en');
+  expect(referencePickerErrorMessage(missing, language)).toBe(
+    'Complete the fields required by this reference first',
+  );
+  expect(referencePickerErrorMessage(fallback, language)).toBe('Reference candidates could not be loaded');
+  expect(referencePickerErrorMessage(business, language)).toBe('业务原始错误');
+  expect(missing.missingDependencyFields).toEqual(['classId']);
+  expect(missing.message).toBe('请先补齐引用所需的依赖字段');
 });

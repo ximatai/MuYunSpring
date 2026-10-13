@@ -295,6 +295,8 @@ public class WorkflowRuntimeReadFacade {
                 .toList();
     }
 
+    public net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog workbenchModuleTitles() { return recordSummaryResolver.moduleTitles(); }
+
     public Map<String, String> workbenchModules() { return recordSummaryResolver.modules(); }
 
     /** One filtered snapshot owns rows, exact total and available module labels. */
@@ -309,10 +311,10 @@ public class WorkflowRuntimeReadFacade {
             default -> throw new PlatformException("unsupported workflow workbench board: " + board);
         };
         Map<String, WorkflowRecordSummary> summaries = new LinkedHashMap<>();
-        Map<String, String> moduleTitles = new LinkedHashMap<>(recordSummaryResolver.modules());
+        var moduleTitles = new LinkedHashMap<>(recordSummaryResolver.moduleTitles().modules());
         var enriched = source.stream().map(card -> {
             var summary = summaries.computeIfAbsent(card.moduleAlias() + ":" + card.recordId(), key -> recordSummaryResolver.resolve(requireInstance(card.instanceId())));
-            moduleTitles.putIfAbsent(card.moduleAlias(), summary == null ? card.moduleAlias() : summary.moduleTitle());
+            moduleTitles.putIfAbsent(card.moduleAlias(), new net.ximatai.muyun.spring.platform.module.ModuleTitleView(card.moduleAlias(), summary == null ? card.moduleAlias() : summary.moduleTitle(), summary == null ? null : summary.moduleTitleSource()));
             return card.withBusiness(summary);
         }).toList();
         String search = keyword == null ? "" : keyword.strip().toLowerCase(java.util.Locale.ROOT);
@@ -320,7 +322,8 @@ public class WorkflowRuntimeReadFacade {
                 && card.business().readable() && card.business().title() != null
                 && card.business().title().toLowerCase(java.util.Locale.ROOT).contains(search))).toList();
         var normalizedPage = page(pageRequest);
-        return new WorkflowWorkbenchPage(PageResult.of(pageItems(filtered, normalizedPage), filtered.size(), normalizedPage), moduleTitles);
+        var directory = new net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog(moduleTitles);
+        return new WorkflowWorkbenchPage(PageResult.of(pageItems(filtered, normalizedPage), filtered.size(), normalizedPage), directory.originalTitles(), directory);
     }
 
     public List<WorkflowHistoryTaskView> instanceTaskViews(String instanceId) {

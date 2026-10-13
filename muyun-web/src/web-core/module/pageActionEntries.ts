@@ -1,3 +1,5 @@
+import { platformLanguageContext, type LanguageContext } from '../language';
+
 /** Shared interaction vocabulary for page design and business rendering. */
 export function pageActionIntent(code: string, anchor: string) {
   const intents: Record<string, { operation: string; title: string; mode?: 'create' | 'edit' }> = {
@@ -14,8 +16,15 @@ export function pageActionIntent(code: string, anchor: string) {
   return intents[`${anchor.toUpperCase()}:${code}`];
 }
 
-export function pageActionEntryTitle(entry: { actionCode: string; anchor: string; title?: string }) {
-  return entry.title ?? pageActionIntent(entry.actionCode, entry.anchor)?.title ?? entry.actionCode;
+export function pageActionEntryTitle(
+  entry: { actionCode: string; anchor: string; title?: string },
+  language: LanguageContext = platformLanguageContext,
+) {
+  if (entry.title != null) return entry.title;
+  const intent = pageActionIntent(entry.actionCode, entry.anchor);
+  return intent
+    ? language.t(`platform.page-action.${intent.operation}.title`, intent.title)
+    : entry.actionCode;
 }
 
 export function pageActionEntryVisible(
