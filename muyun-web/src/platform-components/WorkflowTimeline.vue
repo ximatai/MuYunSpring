@@ -18,34 +18,7 @@ function eventReason(event: WorkflowEvent) {
   } catch {
     /* malformed legacy payload */
   }
-  return [
-    'task_completed',
-    'task_rejected',
-    'node_rolled_back',
-    'task_resubmitted',
-    'instance_revoked',
-    'instance_terminated',
-    'instance_reset',
-    'task_transferred',
-    'add_sign',
-  ].includes(event.eventType.toLowerCase()) &&
-    event.message &&
-    event.message !==
-      (
-        {
-          task_completed: 'workflow task completed',
-          task_rejected: 'workflow task rejected',
-          node_rolled_back: 'workflow node rolled back',
-          task_resubmitted: 'workflow task resubmitted',
-          task_transferred: 'workflow task transferred',
-          add_sign: 'workflow runtime add sign',
-          instance_revoked: 'workflow instance revoked',
-          instance_terminated: 'workflow instance terminated',
-          instance_reset: 'workflow instance reset',
-        } as Record<string, string>
-      )[event.eventType.toLowerCase()]
-    ? event.message
-    : '';
+  return '';
 }
 const businessEvents = computed(() =>
   props.events.filter((event) =>

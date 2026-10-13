@@ -39,14 +39,14 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent taskCompleted(WorkflowInstance instance, WorkflowTask task, String actionCode,
                                        String operatorId, String message, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_COMPLETED, actionCode, operatorId,
-                message == null || message.isBlank() ? "workflow task completed" : message, null, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_COMPLETED, actionCode, operatorId,
+                message == null || message.isBlank() ? "workflow task completed" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent taskTransferred(WorkflowInstance instance, WorkflowTask task, String operatorId,
                                          String message, String payloadText, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_TRANSFERRED, "transfer", operatorId,
-                message, payloadText, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_TRANSFERRED, "transfer", operatorId,
+                message, payloadText, occurredAt, payloadText);
     }
 
     public WorkflowEvent delegationCompleted(WorkflowInstance instance, WorkflowTask sourceTask,
@@ -57,27 +57,27 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent addSign(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,
                                  String operatorId, String message, String payloadText, Instant occurredAt) {
-        return event(instance, node, task, WorkflowEventType.ADD_SIGN, "addSign", operatorId,
+        return opinionEvent(instance, node, task, WorkflowEventType.ADD_SIGN, "addSign", operatorId,
                 message == null || message.isBlank() ? "workflow runtime add sign" : message,
-                payloadText, occurredAt);
+                payloadText, occurredAt, message);
     }
 
     public WorkflowEvent taskRejected(WorkflowInstance instance, WorkflowTask task,
                                       String operatorId, String message, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_REJECTED, "reject", operatorId,
-                message == null || message.isBlank() ? "workflow task rejected" : message, null, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_REJECTED, "reject", operatorId,
+                message == null || message.isBlank() ? "workflow task rejected" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent taskResubmitted(WorkflowInstance instance, WorkflowTask task,
                                          String operatorId, String message, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_RESUBMITTED, "resubmit", operatorId,
-                message == null || message.isBlank() ? "workflow task resubmitted" : message, null, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_RESUBMITTED, "resubmit", operatorId,
+                message == null || message.isBlank() ? "workflow task resubmitted" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent nodeRolledBack(WorkflowInstance instance, WorkflowNodeInstance node,
                                         String operatorId, String message, Instant occurredAt) {
-        return event(instance, node, null, WorkflowEventType.NODE_ROLLED_BACK, "rollback", operatorId,
-                message == null || message.isBlank() ? "workflow node rolled back" : message, null, occurredAt);
+        return opinionEvent(instance, node, null, WorkflowEventType.NODE_ROLLED_BACK, "rollback", operatorId,
+                message == null || message.isBlank() ? "workflow node rolled back" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent overtimeWarned(WorkflowInstance instance, WorkflowNodeInstance node,
@@ -134,26 +134,35 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent instanceRevoked(WorkflowInstance instance, String operatorId,
                                          String message, Instant occurredAt) {
-        return event(instance, null, null, WorkflowEventType.INSTANCE_REVOKED, "revoke", operatorId,
-                message == null || message.isBlank() ? "workflow instance revoked" : message, null, occurredAt);
+        return opinionEvent(instance, null, null, WorkflowEventType.INSTANCE_REVOKED, "revoke", operatorId,
+                message == null || message.isBlank() ? "workflow instance revoked" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent instanceReset(WorkflowInstance instance, String operatorId,
                                        String message, Instant occurredAt) {
-        return event(instance, null, null, WorkflowEventType.INSTANCE_RESET, "reset", operatorId,
-                message == null || message.isBlank() ? "workflow instance reset" : message, null, occurredAt);
+        return opinionEvent(instance, null, null, WorkflowEventType.INSTANCE_RESET, "reset", operatorId,
+                message == null || message.isBlank() ? "workflow instance reset" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent instanceTerminated(WorkflowInstance instance, String operatorId,
                                             String message, Instant occurredAt) {
-        return event(instance, null, null, WorkflowEventType.INSTANCE_TERMINATED, "terminate", operatorId,
-                message == null || message.isBlank() ? "workflow instance terminated" : message, null, occurredAt);
+        return opinionEvent(instance, null, null, WorkflowEventType.INSTANCE_TERMINATED, "terminate", operatorId,
+                message == null || message.isBlank() ? "workflow instance terminated" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent instanceForceTerminated(WorkflowInstance instance, String operatorId,
                                                  String message, Instant occurredAt) {
-        return event(instance, null, null, WorkflowEventType.INSTANCE_TERMINATED, "forceTerminate", operatorId,
-                message == null || message.isBlank() ? "workflow instance force terminated" : message, null, occurredAt);
+        return opinionEvent(instance, null, null, WorkflowEventType.INSTANCE_TERMINATED, "forceTerminate", operatorId,
+                message == null || message.isBlank() ? "workflow instance force terminated" : message, null, occurredAt, message);
+    }
+
+    private WorkflowEvent opinionEvent(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,
+                                       WorkflowEventType eventType, String actionCode, String operatorId,
+                                       String message, String payloadText, Instant occurredAt, String reason) {
+        WorkflowEvent event = event(instance, node, task, eventType, actionCode, operatorId,
+                message, payloadText, occurredAt);
+        event.setReason(reason == null || reason.isBlank() ? null : reason);
+        return event;
     }
 
     private WorkflowEvent event(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,

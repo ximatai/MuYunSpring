@@ -442,7 +442,7 @@ simpMessagingTemplate.convertAndSendToUser(userId, "/queue/platform/data-changes
 
 ### 5.6 鉴权与权限
 
-实时连接的鉴权应复用现有登录态和当前用户上下文。
+实时连接的鉴权应复用现有登录态和当前用户上下文。STOMP `ERROR` 帧通过 `code` header 交付稳定平台错误编码；客户端按 `AUTH_REQUIRED`、`AUTH_EXPIRED` 或 `PASSWORD_CHANGE_REQUIRED` 停止自动重连，`message` 与 body 只用于说明，不参与认证状态判断。
 
 推荐规则：
 

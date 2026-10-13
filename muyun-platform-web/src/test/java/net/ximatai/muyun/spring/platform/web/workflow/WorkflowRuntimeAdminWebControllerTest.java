@@ -310,7 +310,7 @@ class WorkflowRuntimeAdminWebControllerTest {
                 WorkflowHistoryEventView.ORIGIN_TYPE_DEFINITION, false, null, null,
                 "event-1", "instance-1", null, null, WorkflowEventType.INSTANCE_TERMINATED, "forceTerminate",
                 "admin-1", "管理员", "admin-1", "管理员", false, WorkflowAssignmentKind.NORMAL, null, null,
-                null, null, null, null, null, null, null, false, false, null, null, null)));
+                null, null, null, null, null, null, null, false, false, "保留原文意见", null, null, null)));
         when(adminFacade.deleteHistory("history-1")).thenReturn(1);
 
         mvc.perform(post("/workflow/runtime/admin/history/query")

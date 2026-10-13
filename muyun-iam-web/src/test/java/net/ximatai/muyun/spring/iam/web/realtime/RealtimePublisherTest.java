@@ -432,8 +432,8 @@ class RealtimePublisherTest {
         assertThatThrownBy(() -> interceptor.preSend(stompMessage(StompCommand.SUBSCRIBE, principal, null,
                 "ws-1"),
                 mock(MessageChannel.class)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("realtime authentication required");
+                .isInstanceOfSatisfying(net.ximatai.muyun.spring.common.exception.PlatformException.class,
+                        error -> assertThat(error.code()).isEqualTo("AUTH_REQUIRED"));
     }
 
     @Test

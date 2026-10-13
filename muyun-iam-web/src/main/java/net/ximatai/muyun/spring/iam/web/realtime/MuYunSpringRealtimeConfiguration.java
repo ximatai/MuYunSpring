@@ -47,6 +47,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.setErrorHandler(new PlatformStompErrorHandler());
         var endpoint = registry.addEndpoint("/ws/platform");
         List<String> allowedOrigins = corsProperties == null ? List.of() : corsProperties.getAllowedOrigins();
         if (allowedOrigins != null && !allowedOrigins.isEmpty()) {

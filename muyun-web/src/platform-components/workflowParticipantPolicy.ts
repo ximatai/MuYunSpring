@@ -8,30 +8,68 @@ export interface WorkflowParticipantRule {
   headOnly?: boolean;
 }
 
+const participantTypes = ['USER', 'ROLE', 'DEPT', 'ORG', 'RELATIVE', 'FIELD', 'INITIATOR_SELF'];
+
 export function workflowParticipantRules(text?: string): WorkflowParticipantRule[] {
   if (!text?.trim()) return [];
-  if (text.startsWith('user:')) return [{ type: 'USER', ids: [text.slice(5)] }];
-  const parsed: unknown = JSON.parse(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-    throw new Error('Invalid participant policy');
-  const value = parsed as Record<string, unknown>;
-  const rules =
-    value.rules ??
-    (value.type || value.ids || value.userIds
-      ? [{ ...value, type: value.type ?? 'USER', ids: value.ids ?? value.userIds ?? [] }]
-      : []);
-  if (
-    !Array.isArray(rules) ||
-    rules.some((rule) => !rule || typeof rule !== 'object' || typeof rule.type !== 'string')
-  ) {
-    throw new Error('Invalid participant rules');
+  if (!text.trimStart().startsWith('{') && !text.trimStart().startsWith('[')) {
+    const raw = text.startsWith('user:') ? text.slice(5) : text;
+    if (raw.includes(':')) throw new Error('Invalid participant policy');
+    return [
+      {
+        type: 'USER',
+        ids: [
+          ...new Set(
+            raw
+              .split(/[,;]/)
+              .map((id) => id.trim())
+              .filter(Boolean),
+          ),
+        ],
+      },
+    ];
   }
-  return rules as WorkflowParticipantRule[];
+  const parsed: unknown = JSON.parse(text);
+  const root = parsed as Record<string, unknown> | null;
+  const entries = Array.isArray(parsed) ? parsed : Array.isArray(root?.rules) ? root.rules : [parsed];
+  return entries.map((entry: unknown) => {
+    if (typeof entry === 'string') return { type: 'USER', ids: entry ? [entry] : [] };
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+      throw new Error('Invalid participant rule');
+    const rule = entry as Record<string, unknown>;
+    const declaredType = typeof rule.type === 'string' ? rule.type.toUpperCase() : 'USER';
+    const type =
+      declaredType === 'DEPARTMENT' ? 'DEPT' : declaredType === 'ORGANIZATION' ? 'ORG' : declaredType;
+    if (!participantTypes.includes(type)) throw new Error('Invalid participant type');
+    const ids = ['ids', 'userIds', 'targetIds'].flatMap((key) =>
+      Array.isArray(rule[key]) ? (rule[key] as unknown[]) : [],
+    );
+    ids.push(
+      ...['userId', 'targetId', 'id', 'value'].map((key) => rule[key]).filter((id) => typeof id === 'string'),
+    );
+    return {
+      type,
+      ids: [...new Set(ids.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())))],
+      ...(typeof rule.fieldName === 'string' ? { fieldName: rule.fieldName } : {}),
+      ...(typeof rule.relation === 'string' ? { relation: rule.relation } : {}),
+      ...(typeof rule.depth === 'number' ? { depth: rule.depth } : {}),
+      ...(typeof rule.headOnly === 'boolean' ? { headOnly: rule.headOnly } : {}),
+    };
+  });
 }
 
 export function hasWorkflowParticipants(text?: string): boolean {
   try {
-    return workflowParticipantRules(text).length > 0;
+    const rules = workflowParticipantRules(text);
+    return (
+      rules.length > 0 &&
+      rules.every((rule) => {
+        if (['USER', 'ROLE', 'DEPT', 'ORG'].includes(rule.type)) return Boolean(rule.ids?.length);
+        if (rule.type === 'FIELD') return Boolean(rule.fieldName?.trim());
+        if (rule.type === 'RELATIVE') return Boolean(rule.relation?.trim());
+        return true;
+      })
+    );
   } catch {
     return false;
   }

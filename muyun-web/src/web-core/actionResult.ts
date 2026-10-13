@@ -106,13 +106,10 @@ function actionResultMessage(result: unknown): WebActionMessage | undefined {
     return undefined;
   }
   const text = (message as { text?: unknown }).text;
-  if (typeof text !== 'string' || !text.trim()) {
-    return undefined;
-  }
   const code = (message as { code?: unknown }).code;
   const type = (message as { type?: unknown }).type;
   return {
-    text: text.trim(),
+    text: typeof text === 'string' && text.trim() ? text.trim() : undefined,
     code: typeof code === 'string' && code.trim() ? code.trim() : undefined,
     type: typeof type === 'string' && type.trim() ? type.trim() : undefined,
     messageArgs:

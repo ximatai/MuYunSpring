@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.iam.web.realtime;
 
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.iam.user.UserSessionLifecycleEvent;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.web.realtime.CurrentUserPrincipal;
@@ -50,12 +52,12 @@ public class RealtimeAuthenticationChannelInterceptor implements ChannelIntercep
         if (StompCommand.CONNECT.equals(command)) {
             String token = bearerToken(accessor);
             CurrentUser currentUser = authenticate(token)
-                    .orElseThrow(() -> new IllegalArgumentException("realtime authentication required"));
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.AUTH_REQUIRED, 401, "realtime authentication required"));
             if (currentUser.passwordChangeRequired()) {
-                throw new IllegalArgumentException("password change required");
+                throw new PlatformException(PlatformErrorCodes.PASSWORD_CHANGE_REQUIRED, 403, "password change required");
             }
             String loginSessionId = userSessionService.currentSessionId(token)
-                    .orElseThrow(() -> new IllegalArgumentException("realtime authentication required"));
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.AUTH_REQUIRED, 401, "realtime authentication required"));
             CurrentUserPrincipal principal = new CurrentUserPrincipal(currentUser, token, loginSessionId);
             accessor.setUser(principal);
             if (connectionRegistry.register(accessor.getSessionId(), principal)) {
@@ -70,11 +72,11 @@ public class RealtimeAuthenticationChannelInterceptor implements ChannelIntercep
         }
         if (StompCommand.SUBSCRIBE.equals(command) || StompCommand.SEND.equals(command)) {
             CurrentUserPrincipal principal = currentUserPrincipal(accessor.getUser())
-                    .orElseThrow(() -> new IllegalArgumentException("realtime authentication required"));
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.AUTH_REQUIRED, 401, "realtime authentication required"));
             CurrentUser currentUser = authenticate(principal.token())
-                    .orElseThrow(() -> new IllegalArgumentException("realtime authentication required"));
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.AUTH_REQUIRED, 401, "realtime authentication required"));
             if (currentUser.passwordChangeRequired()) {
-                throw new IllegalArgumentException("password change required");
+                throw new PlatformException(PlatformErrorCodes.PASSWORD_CHANGE_REQUIRED, 403, "password change required");
             }
             if (StompCommand.SUBSCRIBE.equals(command)) {
                 String destination = accessor.getDestination();

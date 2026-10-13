@@ -35,6 +35,7 @@ public record WorkflowHistoryEventView(
         String delegationSnapshot,
         Boolean taskInvalidated,
         Boolean taskCanceled,
+        String reason,
         String message,
         String payloadText,
         Instant occurredAt
@@ -81,7 +82,7 @@ public record WorkflowHistoryEventView(
                 task == null ? null : task.getAssignmentSnapshotText(),
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.INVALIDATED,
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.CANCELED,
-                event.getMessage(), event.getPayloadText(), event.getOccurredAt());
+                event.getReason(), event.getMessage(), event.getPayloadText(), event.getOccurredAt());
     }
 
     private static AddSignExplanation addSignExplanation(WorkflowEvent event,
@@ -89,7 +90,8 @@ public record WorkflowHistoryEventView(
                                                          Map<String, WorkflowNodeInstance> nodesByKey,
                                                          Map<String, WorkflowRouteInstance> routesByIdOrKey) {
         JsonNode payload = parsePayload(event == null ? null : event.getPayloadText());
-        WorkflowNodeInstance eventNode = event == null ? null : nodesById.get(event.getNodeInstanceId());
+        WorkflowNodeInstance eventNode = event == null || event.getNodeInstanceId() == null
+                ? null : nodesById.get(event.getNodeInstanceId());
         WorkflowRouteInstance route = routeFromPayload(payload, routesByIdOrKey);
 
         boolean addSignRoute = booleanValue(payload, "isAddSignRoute")

@@ -626,16 +626,16 @@ it('keeps successful operation feedback when the model follow-up fails', async (
 });
 
 it.each([
-  ['AI model response body timed out', '等待模型回复超时'],
-  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
-  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
-  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
-  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_OUTPUT_TRUNCATED_EMPTY', '模型服务未返回可用内容'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_MODEL_OUTPUT_TRUNCATED', '模型本次回复达到长度上限'],
 ])('retains a safe model failure reason after an applied draft: %s', async (message, expected) => {
   const requestTurn = vi
     .fn()
     .mockResolvedValueOnce({ toolCalls: [{ id: 'draft', code: 'form.patch-draft', input: {} }] })
-    .mockRejectedValueOnce(new Error(message));
+    .mockRejectedValueOnce(new AppError('任意服务端文案', { code: message, status: 502 }));
   const apply = vi.fn();
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
@@ -1714,18 +1714,18 @@ it('resumes the original request with a fresh budget without inventing a new use
 });
 
 it.each([
-  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
-  ['AI model response body timed out', '等待模型回复超时'],
-  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
-  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
-  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
-  ['本次内容预计超过模型上下文预算，尚未发送给模型', '本次内容预计超过模型上下文预算'],
-  ['本次输出预算超过模型容量，请调整配置', '本次输出预算超过模型容量'],
+  ['AI_MODEL_OUTPUT_TRUNCATED', '模型本次回复达到长度上限'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_OUTPUT_TRUNCATED_EMPTY', '模型服务未返回可用内容'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_CONTEXT_BUDGET_EXCEEDED', '本次内容超过模型上下文预算'],
+  ['AI_OUTPUT_BUDGET_EXCEEDED', '本次输出预算超过模型容量'],
 ])(
   'explains a known model interruption without suggesting that the business was saved: %s',
   async (failure, explanation) => {
     const requestTurn = vi.fn(async () => {
-      throw new Error(failure);
+      throw new AppError('任意服务端文案', { code: failure, status: 502 });
     });
     const wrapper = mount(WorkbenchAssistantPanel, {
       props: { open: true, registry: createRegistry(requestTurn) },
@@ -1734,7 +1734,7 @@ it.each([
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
     expect(wrapper.text()).toContain(explanation);
-    if (failure.startsWith('AI model request was rejected')) {
+    if (failure.startsWith('AI_PROVIDER_')) {
       expect(wrapper.text()).not.toContain('可以调整需求');
       expect(wrapper.text()).not.toContain(failure);
       expect(requestTurn).toHaveBeenCalledOnce();

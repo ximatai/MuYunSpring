@@ -141,3 +141,63 @@ it('retains association choices in the read-only business task publication revie
   expect(taskReview.props('associations')).toEqual([{ value: 'delivery-lines', label: '到货明细' }]);
   wrapper.unmount();
 });
+
+it('publishes a supported participant rule whose type defaults to USER', async () => {
+  const definition = { id: 'definition', title: '审批', version: 1 };
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/context') || options.path.endsWith('/view-context'))
+      return { moduleAlias: 'demo.purchase', capabilities: [], actions: [] };
+    if (options.path.endsWith('/configuration-catalog'))
+      return { tasks: [], queries: [], generations: [], associations: [] };
+    if (options.path.endsWith('/versions/query'))
+      return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
+    if (options.path.endsWith('/design'))
+      return {
+        nodes: [
+          {
+            nodeKey: 'approval',
+            nodeType: 'approval',
+            title: '审批',
+            participantPolicyText: '{"rules":[{"ids":["alice"]}]}',
+          },
+        ],
+        links: [],
+      };
+    if (options.path.endsWith('/publish'))
+      return { id: 'draft', version: 2, versionNo: 1, publishStatus: 'published' };
+    if (options.path.endsWith('/query')) return { records: [definition] };
+    if (options.path.endsWith('/definition')) return definition;
+    throw new Error(`unexpected request: ${options.path}`);
+  });
+  const context = {
+    moduleAlias: 'platform.workflow.definition',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const wrapper = mount(ModuleContextProvider, {
+    props: { context },
+    slots: { default: () => h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase' }) },
+    global: {
+      stubs: {
+        WorkflowDiagram: true,
+        WorkflowParticipantEditor: true,
+        WorkflowBusinessTaskEditor: true,
+        RecordListExplorer: true,
+        RecordDetailDrawer: { template: '<section><slot/><slot name="operation"/></section>' },
+        AdaptiveHeaderActionBar: true,
+        RecordPicker: true,
+      },
+    },
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('select', definition);
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'publish' });
+  await flushPromises();
+  const confirm = wrapper
+    .findAllComponents({ name: 'UiButton' })
+    .find((button) => button.text() === '确认发布')!;
+  await confirm.trigger('click');
+  await flushPromises();
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('/publish'))).toBe(true);
+  wrapper.unmount();
+});

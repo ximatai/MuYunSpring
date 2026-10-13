@@ -56,6 +56,21 @@ class WorkflowRuntimeEventFactoryTest {
         assertThat(payload.path("closedReason").asText()).isEqualTo("workflow route replaced by addSign");
     }
 
+    @Test
+    void storesOriginalOpinionsIndependentlyOfSystemDiagnostics() {
+        Instant now = Instant.parse("2026-06-05T03:00:00Z");
+        String reason = "workflow task completed";
+        assertThat(factory.taskCompleted(instance(), null, "approve", "user-1", reason, now).getReason())
+                .isEqualTo(reason);
+        assertThat(factory.taskCompleted(instance(), null, "approve", "user-1", null, now).getReason()).isNull();
+        assertThat(factory.taskTransferred(instance(), null, "user-1", "transfer to user-2", reason, now).getReason())
+                .isEqualTo(reason);
+        assertThat(factory.addSign(instance(), null, null, "user-1", reason, "{}", now).getReason()).isEqualTo(reason);
+        assertThat(factory.instanceTerminated(instance(), "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(WorkflowHistoryEventView.from(factory.taskCompleted(instance(), null, "approve", "user-1", reason, now), null).reason())
+                .isEqualTo(reason);
+    }
+
     private WorkflowInstance instance() {
         WorkflowInstance instance = new WorkflowInstance();
         instance.setId("instance-1");
