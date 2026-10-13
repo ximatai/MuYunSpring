@@ -44,7 +44,7 @@ const props = withDefaults(
   }>(),
   {
     selectedMenuId: undefined,
-    tenantLabel: '系统工作区',
+    tenantLabel: undefined,
     logoSrc: undefined,
     showTitleArea: true,
     brandTitle: 'MuYun',
@@ -116,7 +116,9 @@ const selectedMenuPath = computed(() =>
 );
 const selectedRootMenuId = computed(() => selectedMenuPath.value[0]?.record.id);
 const selectedMenuPathIds = computed(() => selectedMenuPath.value.map((node) => node.record.id));
-const realtimeStatusPresentation = computed(() => presentWorkbenchRealtimeStatus(props.realtimeStatus));
+const realtimeStatusPresentation = computed(() =>
+  presentWorkbenchRealtimeStatus(props.realtimeStatus, language),
+);
 const activeRootNode = computed(() => {
   const node = activeRootMenuId.value
     ? findWorkbenchMenuNodeById(filteredMenus.value, activeRootMenuId.value)
@@ -815,7 +817,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
           <WorkbenchBrandControl
             v-if="!isCompact"
             presentation="expanded"
-            :tenant-label="tenantLabel"
+            :tenant-label="
+              tenantLabel ?? language.t('platform.screen.Workbench.system-workspace', '系统工作区')
+            "
             :logo-src="logoSrc"
             :show-title-area="showTitleArea"
             :brand-title="brandTitle"
@@ -865,7 +869,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                 <button
                   class="root-menu-item-trigger"
                   type="button"
-                  :aria-label="`${activeRootNode?.record.id === node.record.id ? '收起' : '展开'}${node.record.title}下级菜单`"
+                  :aria-label="
+                    language.t(
+                      activeRootNode?.record.id === node.record.id
+                        ? 'platform.menu.collapse-children'
+                        : 'platform.menu.expand-children',
+                      activeRootNode?.record.id === node.record.id
+                        ? '收起{title}下级菜单'
+                        : '展开{title}下级菜单',
+                      { title: node.record.title },
+                    )
+                  "
                   :aria-expanded="activeRootNode?.record.id === node.record.id"
                   aria-controls="workbench-mega-panel"
                   @click.stop="toggleRootMenu(node, $event)"
@@ -1075,7 +1089,15 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                       :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
                       :aria-label="
                         !entry.navigable && entry.hasChildren
-                          ? `${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`
+                          ? language.t(
+                              activeDeepRootNode?.record.id === entry.record.id
+                                ? 'platform.menu.collapse-children'
+                                : 'platform.menu.expand-children',
+                              activeDeepRootNode?.record.id === entry.record.id
+                                ? '收起{title}下级菜单'
+                                : '展开{title}下级菜单',
+                              { title: entry.record.title },
+                            )
                           : undefined
                       "
                       :aria-expanded="
@@ -1099,7 +1121,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                       v-if="entry.hasChildren && entry.navigable"
                       class="mega-entry-trigger"
                       type="button"
-                      :aria-label="`${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`"
+                      :aria-label="
+                        language.t(
+                          activeDeepRootNode?.record.id === entry.record.id
+                            ? 'platform.menu.collapse-children'
+                            : 'platform.menu.expand-children',
+                          activeDeepRootNode?.record.id === entry.record.id
+                            ? '收起{title}下级菜单'
+                            : '展开{title}下级菜单',
+                          { title: entry.record.title },
+                        )
+                      "
                       :aria-expanded="activeDeepRootNode?.record.id === entry.record.id"
                       aria-controls="workbench-mega-deep-panel"
                       @click.stop="toggleDeepRoot(entry)"
@@ -1126,7 +1158,14 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               @mouseenter="handleMenuEnter"
               @keydown.esc.stop="closeDeepRoot"
             >
-              <ul class="mega-deep-tree" :aria-label="`${activeDeepRootNode.record.title}下级菜单`">
+              <ul
+                class="mega-deep-tree"
+                :aria-label="
+                  language.t('platform.menu.children', '{title}下级菜单', {
+                    title: activeDeepRootNode.record.title,
+                  })
+                "
+              >
                 <WorkbenchMenuTree
                   v-for="child in activeDeepRootNode.children"
                   :key="child.record.id"

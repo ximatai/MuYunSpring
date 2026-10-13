@@ -1,3 +1,5 @@
+import { defineComponent, h } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LoginView from '@/app/LoginView.vue';
@@ -8,6 +10,54 @@ import type { TenantBranding } from '@/web-contracts';
 describe('LoginView', () => {
   afterEach(() => {
     window.history.replaceState({}, '', '/');
+  });
+
+  it('switches labels and an existing failure while preserving credentials and the login contract', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const client = authClient({
+      login: vi
+        .fn()
+        .mockRejectedValue(
+          new AppError('原始错误', { code: platformErrorCodes.loginBadCredentials, status: 401 }),
+        ),
+    });
+    const Host = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(LoginView, { authClient: client });
+      },
+    });
+    const wrapper = mount(Host);
+    try {
+      await flushPromises();
+      language.setLanguage('en');
+      await flushPromises();
+      expect(wrapper.text()).toContain('Platform sign-in');
+      expect(wrapper.text()).toContain('Tenant ID');
+      await wrapper.find('input[autocomplete="username"]').setValue('user-original');
+      await wrapper.find('input[autocomplete="current-password"]').setValue('password-original');
+      await wrapper.find('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('Incorrect username or password');
+      expect(client.login).toHaveBeenCalledExactlyOnceWith({
+        tenantId: '',
+        username: 'user-original',
+        password: 'password-original',
+      });
+      language.setLanguage('zh-CN');
+      await flushPromises();
+      expect(wrapper.text()).toContain('用户名或密码错误');
+      expect(wrapper.text()).toContain('平台登录');
+      expect((wrapper.find('input[autocomplete="username"]').element as HTMLInputElement).value).toBe(
+        'user-original',
+      );
+      expect((wrapper.find('input[autocomplete="current-password"]').element as HTMLInputElement).value).toBe(
+        'password-original',
+      );
+      expect(client.login).toHaveBeenCalledTimes(1);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('uses an initial consumer username without requiring consumer-owned login markup', () => {

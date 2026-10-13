@@ -53,6 +53,8 @@ export interface UiThemeSkin {
   id: UiThemeSkinId;
   title: string;
   description: string;
+  titleKey?: string;
+  descriptionKey?: string;
   theme: UiTheme;
 }
 
@@ -348,21 +350,34 @@ const darkGraphiteTheme: UiTheme = {
 };
 
 export const uiThemeSkins: readonly UiThemeSkin[] = [
-  { id: 'light-blue', title: '工程蓝', description: '清晰、稳定的默认亮色工作台', theme: defaultUiTheme },
+  {
+    id: 'light-blue',
+    titleKey: 'platform.theme-skin.light-blue.title',
+    descriptionKey: 'platform.theme-skin.light-blue.description',
+    title: '工程蓝',
+    description: '清晰、稳定的默认亮色工作台',
+    theme: defaultUiTheme,
+  },
   {
     id: 'light-amber',
+    titleKey: 'platform.theme-skin.light-amber.title',
+    descriptionKey: 'platform.theme-skin.light-amber.description',
     title: '暖琥珀',
     description: '更温暖的亮色表面与琥珀交互焦点',
     theme: lightAmberTheme,
   },
   {
     id: 'dark-navy',
+    titleKey: 'platform.theme-skin.dark-navy.title',
+    descriptionKey: 'platform.theme-skin.dark-navy.description',
     title: '深海军蓝',
     description: '低照度下保持工程蓝识别的深色方案',
     theme: darkNavyTheme,
   },
   {
     id: 'dark-graphite',
+    titleKey: 'platform.theme-skin.dark-graphite.title',
+    descriptionKey: 'platform.theme-skin.dark-graphite.description',
     title: '石墨深灰',
     description: '高对比、克制的制造控制台深色方案',
     theme: darkGraphiteTheme,

@@ -270,9 +270,16 @@ watch(
 );
 onUnmounted(() => unregisterWorkbenchAssistantSurface?.());
 const currentUser = computed(() => props.startup?.session.currentUser);
-const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
+const userDisplayName = computed(
+  () =>
+    currentUser.value?.username ??
+    currentUser.value?.userId ??
+    language.t('platform.screen.Workbench.not-signed-in', '未登录'),
+);
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
-const tenantLabel = computed(() => currentUser.value?.tenantId ?? '系统工作区');
+const tenantLabel = computed(
+  () => currentUser.value?.tenantId ?? language.t('platform.screen.Workbench.system-workspace', '系统工作区'),
+);
 const tenantLogo = computed(() => {
   const branding = props.startup?.session.tenantBranding;
   return props.themeAppearance === 'dark' ? branding?.darkLogo || branding?.lightLogo : branding?.lightLogo;
@@ -284,11 +291,11 @@ const tenantBrandSubtitle = computed(
 );
 const activePageTypeLabel = computed(() => pageTypeLabelOf(activePageDescriptor.value?.pageType));
 const activeTargetLabel = computed(() => targetLabelOf(activePageDescriptor.value));
-const userMenuItems: UiDropdownItem[] = [
-  { key: 'changePassword', title: '修改密码' },
-  { key: 'profile', title: '个人信息' },
-  { key: 'logout', title: '退出登录', danger: true },
-];
+const userMenuItems = computed<UiDropdownItem[]>(() => [
+  { key: 'changePassword', title: language.t('platform.screen.Workbench.change-password', '修改密码') },
+  { key: 'profile', title: language.t('platform.screen.Workbench.my-profile', '个人信息') },
+  { key: 'logout', title: language.t('platform.screen.Workbench.sign-out', '退出登录'), danger: true },
+]);
 const menuPresentation = ref(
   normalizeWorkbenchMenuPresentation(userPreferences.get('workbench.menu-presentation', 'compact')),
 );
@@ -510,26 +517,26 @@ onUnmounted(() => {
 
 function pageTypeLabelOf(pageType: string | undefined) {
   if (pageType === 'dynamic-module') {
-    return '标准模块';
+    return language.t('platform.screen.Workbench.standard-module', '标准模块');
   }
   if (pageType === 'business-route') {
-    return '业务页面';
+    return language.t('platform.screen.Workbench.business-page', '业务页面');
   }
   if (pageType === 'platform-route') {
-    return '平台页面';
+    return language.t('platform.screen.Workbench.platform-page', '平台页面');
   }
   if (pageType === 'remote-url') {
-    return '在线页面';
+    return language.t('platform.screen.Workbench.online-page', '在线页面');
   }
   if (pageType === 'external-link') {
-    return '外部链接';
+    return language.t('platform.screen.Workbench.external-link', '外部链接');
   }
-  return '工作区';
+  return language.t('platform.screen.Workbench.workspace', '工作区');
 }
 
 function targetLabelOf(descriptor: PageDescriptor | undefined) {
   if (!descriptor) {
-    return '未选择入口';
+    return language.t('platform.screen.Workbench.no-entry-selected', '未选择入口');
   }
   if (descriptor.pageType === 'dynamic-module') {
     return descriptor.target.moduleAlias;
@@ -603,13 +610,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             </Transition>
             <div class="topbar-title">
               <div class="topbar-title-heading">
-                <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+                <h1>{{ activeTab?.title ?? language.t('platform.screen.Workbench.console', '控制台') }}</h1>
                 <UiButton
                   class="title-refresh-action"
-                  aria-label="刷新当前页"
+                  :aria-label="language.t('platform.screen.Workbench.refresh-current-page', '刷新当前页')"
                   icon-name="reload"
                   type="text"
-                  title="刷新当前页"
+                  :title="language.t('platform.screen.Workbench.refresh-current-page', '刷新当前页')"
                   :disabled="!activeTab"
                   @click="refreshActivePage"
                 />
@@ -618,7 +625,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             </div>
           </div>
 
-          <div class="topbar-actions" aria-label="全局工具">
+          <div
+            class="topbar-actions"
+            :aria-label="language.t('platform.screen.Workbench.global-tools', '全局工具')"
+          >
             <LanguageSelector
               :identity-scope="
                 startup?.session.currentUser
@@ -632,13 +642,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               :type="assistantOpen ? 'primary' : 'default'"
               @click="assistantOpen = !assistantOpen"
             >
-              AI 助手
+              {{ language.t('platform.screen.Workbench.ai-assistant', 'AI 助手') }}
             </UiButton>
             <button
               class="icon-button skin-button"
               type="button"
-              aria-label="皮肤切换"
-              title="切换皮肤"
+              :aria-label="language.t('platform.screen.Workbench.appearance', '皮肤切换')"
+              :title="language.t('platform.screen.Workbench.change-appearance', '切换皮肤')"
               @click="emit('userCommand', 'themeSkin')"
             >
               <UiIcon name="skin" />
@@ -648,7 +658,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                 <span class="avatar">{{ userInitial }}</span>
                 <span class="user-meta">
                   <strong>{{ userDisplayName }}</strong>
-                  <small>{{ currentUser?.system ? '系统管理员' : '业务用户' }}</small>
+                  <small>{{
+                    currentUser?.system
+                      ? language.t('platform.screen.Workbench.system-administrator', '系统管理员')
+                      : language.t('platform.screen.Workbench.business-user', '业务用户')
+                  }}</small>
                 </span>
                 <UiIcon class="user-caret" name="down" />
               </button>
@@ -668,14 +682,18 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
               @close-tabs="emit('closeTabs', $event)"
               @reorder="emit('reorderTabs', $event)"
             />
-            <div v-else class="empty-tabs">暂无打开页面</div>
+            <div v-else class="empty-tabs">
+              {{ language.t('platform.screen.Workbench.no-pages-open', '暂无打开页面') }}
+            </div>
           </div>
 
           <section class="app-content">
             <UiSpin v-if="loading" />
             <div v-else-if="error" class="workbench-load-error">
               <UiError :message="error" />
-              <UiButton icon="reload" @click="emit('retryLoad')">重试加载</UiButton>
+              <UiButton icon="reload" @click="emit('retryLoad')">{{
+                language.t('platform.screen.Workbench.retry-loading', '重试加载')
+              }}</UiButton>
             </div>
             <UiSidePanelHost v-else-if="activeTab" class="tab-panel-host">
               <div
@@ -689,7 +707,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
                 />
               </div>
             </UiSidePanelHost>
-            <UiEmpty v-else description="暂无页面" />
+            <UiEmpty
+              v-else
+              :description="language.t('platform.screen.Workbench.no-page-available', '暂无页面')"
+            />
           </section>
         </section>
       </section>

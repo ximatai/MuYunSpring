@@ -390,11 +390,11 @@ const loginLoading = ref(false);
 const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
-const changePasswordError = ref<string>();
+const changePasswordError = ref<() => string>();
 const profileOpen = ref(false);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
-const profileError = ref<string>();
+const profileError = ref<() => string>();
 const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
@@ -696,10 +696,11 @@ async function openCurrentUserProfile() {
   try {
     profile.value = await authClient.currentProfile(token);
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'load',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileLoading.value = false;
   }
@@ -720,12 +721,16 @@ async function submitCurrentUserProfile(value: { mobile: string; email: string; 
   try {
     profile.value = await authClient.updateCurrentProfile(value, token);
     profileOpen.value = false;
-    presentPlatformSuccess('个人资料已保存', { source: 'current-user-profile', phase: 'action' });
+    presentPlatformSuccess(
+      platformLanguageContext.t('platform.screen.App.your-profile-has-been-saved', '个人资料已保存'),
+      { source: 'current-user-profile', phase: 'action' },
+    );
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'action',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileSaving.value = false;
   }
@@ -750,7 +755,11 @@ async function submitChangeOwnPassword() {
   }
   const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
   if (!token) {
-    changePasswordError.value = '登录已失效，请重新登录';
+    changePasswordError.value = () =>
+      platformLanguageContext.t(
+        'platform.screen.App.your-session-is-no-longer-valid-please-sign',
+        '登录已失效，请重新登录',
+      );
     return;
   }
   changePasswordSaving.value = true;
@@ -769,12 +778,15 @@ async function submitChangeOwnPassword() {
     confirmPassword.value = '';
     handleSecurityNotification({
       code: 'platform.security.password-changed',
-      message: '你的密码已修改，请重新登录',
+      message: platformLanguageContext.t(
+        'platform.screen.App.your-password-has-changed-please-sign-in-again',
+        '你的密码已修改，请重新登录',
+      ),
       logoutRequired: true,
     });
   } catch (cause) {
     const error = presentPlatformError(cause, { source: 'change-own-password-dialog', phase: 'action' });
-    changePasswordError.value = error.message;
+    changePasswordError.value = () => userFacingErrorMessage(error);
   } finally {
     changePasswordSaving.value = false;
   }
@@ -782,16 +794,25 @@ async function submitChangeOwnPassword() {
 
 function validateChangeOwnPassword() {
   if (!currentPassword.value.trim()) {
-    return '请输入当前密码';
+    return () =>
+      platformLanguageContext.t('platform.screen.App.enter-your-current-password', '请输入当前密码');
   }
   if (!newPassword.value.trim()) {
-    return '请输入新密码';
+    return () => platformLanguageContext.t('platform.screen.App.enter-your-new-password', '请输入新密码');
   }
   if (newPassword.value !== confirmPassword.value) {
-    return '两次输入的新密码不一致';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-passwords-do-not-match',
+        '两次输入的新密码不一致',
+      );
   }
   if (currentPassword.value === newPassword.value) {
-    return '新密码不能与当前密码相同';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-password-must-differ-from-the-current',
+        '新密码不能与当前密码相同',
+      );
   }
   return undefined;
 }
@@ -911,7 +932,10 @@ async function executeBusinessNotificationAction(
         if (!confirmed) return;
       }
       await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
-      presentPlatformSuccess('操作完成', { source: 'business-notification', phase: 'action' });
+      presentPlatformSuccess(
+        platformLanguageContext.t('platform.screen.App.operation-completed', '操作完成'),
+        { source: 'business-notification', phase: 'action' },
+      );
     }
     if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
   } catch (cause) {
@@ -1521,7 +1545,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         v-model:confirm-password="confirmPassword"
         :open="changePasswordOpen"
         :saving="changePasswordSaving"
-        :error="changePasswordError"
+        :error="changePasswordError?.()"
         @close="closeChangeOwnPasswordDialog"
         @submit="submitChangeOwnPassword"
       />
@@ -1530,7 +1554,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :profile="profile"
         :loading="profileLoading"
         :saving="profileSaving"
-        :error="profileError"
+        :error="profileError?.()"
         @close="closeCurrentUserProfile"
         @submit="submitCurrentUserProfile"
       />
@@ -1550,10 +1574,20 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       />
       <div v-if="securityNotification" class="security-notification-mask" role="presentation">
         <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-          <h2>需要重新登录</h2>
-          <p>{{ securityNotification.message }}</p>
-          <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-          <button type="button" @click="forceLocalLogout">立即重新登录</button>
+          <h2>{{ platformLanguageContext.t('platform.screen.App.sign-in-required', '需要重新登录') }}</h2>
+          <p>{{ platformLanguageContext.t(securityNotification.code, securityNotification.message) }}</p>
+          <p class="security-notification-countdown">
+            {{
+              platformLanguageContext.t(
+                'platform.security.logout-countdown',
+                '{seconds} 秒后自动返回登录页',
+                { seconds: securityLogoutCountdown },
+              )
+            }}
+          </p>
+          <button type="button" @click="forceLocalLogout">
+            {{ platformLanguageContext.t('platform.screen.App.sign-in-now', '立即重新登录') }}
+          </button>
         </section>
       </div>
     </UiThemeProvider>

@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@muyun/web-core';
 import { expect, it } from 'vitest';
 import { AppError, userFacingErrorMessage, resolveGlobalErrorPresentation } from '@/web-core/errors';
 
@@ -31,4 +32,28 @@ it('keeps unrecognized server failures masked and describes network failures wit
   const network = userFacingErrorMessage(new AppError('Network request failed', { code: 'NETWORK_ERROR' }));
   expect(network).toContain('暂时无法连接服务');
   expect(network).not.toContain('未启动');
+});
+
+it('resolves English and Chinese safe failures through the caller language while retaining diagnostic facts', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const failure = new AppError('private provider body', {
+    code: 'AI_PROVIDER_AUTHENTICATION_FAILED',
+    status: 502,
+    traceId: 'original-trace',
+  });
+  const english = resolveGlobalErrorPresentation(failure, { phase: 'action', surface: 'dialog' }, language);
+  expect(english.message).toContain('Model authentication failed');
+  expect(english.message).not.toContain('private provider body');
+  expect(english.slot).toBe('global-toast');
+  expect(english.traceId).toBe('original-trace');
+  language.setLanguage('zh-CN');
+  expect(userFacingErrorMessage(failure, language)).toContain('模型连接鉴权失败');
+  expect(failure.message).toBe('private provider body');
+  expect(failure.code).toBe('AI_PROVIDER_AUTHENTICATION_FAILED');
+  expect(
+    userFacingErrorMessage(
+      new AppError('private failure', { status: 503 }),
+      createLanguageContext({ languageTag: 'en' }),
+    ),
+  ).toBe('A system error prevented the operation from completing');
 });

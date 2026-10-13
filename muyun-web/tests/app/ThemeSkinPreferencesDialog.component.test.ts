@@ -1,3 +1,5 @@
+import { defineComponent, h, nextTick } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import ThemeSkinPreferencesDialog from '@/app/ThemeSkinPreferencesDialog.vue';
@@ -33,4 +35,31 @@ describe('ThemeSkinPreferencesDialog', () => {
     expect(document.activeElement).toBe(cards[1].element);
     wrapper.unmount();
   });
+});
+
+it('uses the consumer language for skin labels without changing selection, IDs or theme facts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = JSON.stringify(uiThemeSkins);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(ThemeSkinPreferencesDialog, { open: true, skins: uiThemeSkins, activeSkinId: 'light-blue' });
+    },
+  });
+  const wrapper = mount(Host, { global: { stubs: { UiModal: { template: '<div><slot /></div>' } } } });
+  try {
+    expect(wrapper.text()).toContain('Engineering blue');
+    expect(wrapper.text()).not.toContain('工程蓝');
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.text()).toContain('工程蓝');
+    const cards = wrapper.findAll('[role="radio"]');
+    expect(cards[0].attributes('aria-checked')).toBe('true');
+    await cards[2].trigger('click');
+    expect(wrapper.findComponent(ThemeSkinPreferencesDialog).emitted('select')).toEqual([['dark-navy']]);
+    expect(JSON.stringify(uiThemeSkins)).toBe(original);
+  } finally {
+    wrapper.unmount();
+  }
 });

@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiInput, UiModal } from '@muyun/vue-ui-antdv';
 import { SingleImageFileReferenceField } from '@muyun/platform-components';
 import { createModuleContext } from '@muyun/web-core';
 import type { CurrentUserProfile, ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'CurrentUserProfileDialog' });
 
@@ -55,91 +58,178 @@ const avatarDraft = computed(() => ({ id: employee.value?.id, avatarAssetId: ava
 <template>
   <UiModal
     :open="open"
-    title="个人信息"
+    :title="language.t('platform.screen.CurrentUserProfileDialog.my-profile', '个人信息')"
     :width="640"
     class="current-user-profile-dialog"
-    :confirm-text="employee?.contactEditable ? '保存联系方式' : '关闭'"
+    :confirm-text="
+      employee?.contactEditable
+        ? language.t('platform.screen.CurrentUserProfileDialog.save-contact-details', '保存联系方式')
+        : language.t('platform.screen.CurrentUserProfileDialog.close', '关闭')
+    "
     :confirm-loading="saving"
     :confirm-disabled="loading"
     @confirm="employee?.contactEditable ? emit('submit', { mobile, email, avatarAssetId }) : emit('close')"
     @cancel="emit('close')"
   >
-    <p v-if="loading" class="profile-loading">正在整理你的资料…</p>
+    <p v-if="loading" class="profile-loading">
+      {{ language.t('platform.screen.CurrentUserProfileDialog.loading-your-profile', '正在整理你的资料…') }}
+    </p>
     <template v-else>
       <section v-if="employee" class="profile-hero">
         <div class="profile-avatar">
           <SingleImageFileReferenceField
-            label="头像"
+            :label="language.t('platform.screen.CurrentUserProfileDialog.avatar', '头像')"
             :value="avatarAssetId"
             :record="avatarDraft"
             :context="avatarContext"
             :definition="avatarDefinition"
             :disabled="!employee.contactEditable || saving"
             :form-session-key="employee.id"
-            upload-hint="支持 PNG、JPG、GIF、WebP，文件不超过 1024 KB。"
+            :upload-hint="
+              language.t(
+                'platform.screen.CurrentUserProfileDialog.png-jpg-gif-and-webp-are-supported-up',
+                '支持 PNG、JPG、GIF、WebP，文件不超过 1024 KB。',
+              )
+            "
             @update:value="avatarAssetId = $event"
           />
         </div>
         <div class="profile-identity">
-          <p class="profile-kicker">职员档案</p>
-          <h2>{{ employee.title || '未命名职员' }}</h2>
-          <p class="profile-number">{{ employee.employeeNo || '尚未分配员工号' }}</p>
+          <p class="profile-kicker">
+            {{ language.t('platform.screen.CurrentUserProfileDialog.employee-profile', '职员档案') }}
+          </p>
+          <h2>
+            {{
+              employee.title ||
+              language.t('platform.screen.CurrentUserProfileDialog.unnamed-employee', '未命名职员')
+            }}
+          </h2>
+          <p class="profile-number">
+            {{
+              employee.employeeNo ||
+              language.t(
+                'platform.screen.CurrentUserProfileDialog.no-employee-number-assigned',
+                '尚未分配员工号',
+              )
+            }}
+          </p>
           <div class="profile-tags">
-            <span>{{ employee.organizationTitle || employee.organizationId || '未分配机构' }}</span>
-            <span>{{ employee.departmentTitle || employee.departmentId || '未分配部门' }}</span>
+            <span>{{
+              employee.organizationTitle ||
+              employee.organizationId ||
+              language.t('platform.screen.CurrentUserProfileDialog.no-organization-assigned', '未分配机构')
+            }}</span>
+            <span>{{
+              employee.departmentTitle ||
+              employee.departmentId ||
+              language.t('platform.screen.CurrentUserProfileDialog.no-department-assigned', '未分配部门')
+            }}</span>
           </div>
         </div>
         <aside class="profile-account">
-          <span>登录账号</span>
+          <span>{{
+            language.t('platform.screen.CurrentUserProfileDialog.sign-in-account', '登录账号')
+          }}</span>
           <strong>{{ profile?.username || '—' }}</strong>
-          <small>{{ profile?.timeZone || '系统默认时区' }}</small>
+          <small>{{
+            profile?.timeZone ||
+            language.t('platform.screen.CurrentUserProfileDialog.system-default-time-zone', '系统默认时区')
+          }}</small>
         </aside>
       </section>
 
       <section v-if="employee" class="profile-body">
         <div class="profile-card profile-card--readonly">
-          <div class="profile-card-heading"><span>任职信息</span><small>由组织管理员维护</small></div>
+          <div class="profile-card-heading">
+            <span>{{
+              language.t('platform.screen.CurrentUserProfileDialog.employment-details', '任职信息')
+            }}</span
+            ><small>{{
+              language.t(
+                'platform.screen.CurrentUserProfileDialog.maintained-by-the-organization-administrator',
+                '由组织管理员维护',
+              )
+            }}</small>
+          </div>
           <dl class="profile-details">
-            <dt>机构 / 部门</dt>
+            <dt>
+              {{
+                language.t('platform.screen.CurrentUserProfileDialog.organization-department', '机构 / 部门')
+              }}
+            </dt>
             <dd>
               {{ employee.organizationTitle || employee.organizationId || '—' }} /
               {{ employee.departmentTitle || employee.departmentId || '—' }}
             </dd>
-            <dt>岗位</dt>
+            <dt>{{ language.t('platform.screen.CurrentUserProfileDialog.position', '岗位') }}</dt>
             <dd>
               {{
                 positions
-                  .map((item) => `${item.title || item.id || '—'}${item.primary ? '（主岗）' : ''}`)
+                  .map(
+                    (item) =>
+                      `${item.title || item.id || '—'}${item.primary ? language.t('platform.screen.CurrentUserProfileDialog.primary', '（主岗）') : ''}`,
+                  )
                   .join('、') || '—'
               }}
             </dd>
           </dl>
         </div>
         <div class="profile-card profile-card--editable">
-          <div class="profile-card-heading"><span>联系方式</span><small>仅你本人可修改</small></div>
+          <div class="profile-card-heading">
+            <span>{{
+              language.t('platform.screen.CurrentUserProfileDialog.contact-details', '联系方式')
+            }}</span
+            ><small>{{
+              language.t(
+                'platform.screen.CurrentUserProfileDialog.only-you-can-edit-these-details',
+                '仅你本人可修改',
+              )
+            }}</small>
+          </div>
           <div class="profile-contact-fields">
             <label
-              ><span>手机号</span
+              ><span>{{
+                language.t('platform.screen.CurrentUserProfileDialog.mobile-number', '手机号')
+              }}</span
               ><UiInput
                 :value="mobile"
                 :disabled="!employee.contactEditable || saving"
                 @update:value="mobile = $event"
             /></label>
             <label
-              ><span>邮箱</span
+              ><span>{{ language.t('platform.screen.CurrentUserProfileDialog.email', '邮箱') }}</span
               ><UiInput
                 :value="email"
                 :disabled="!employee.contactEditable || saving"
                 @update:value="email = $event"
             /></label>
           </div>
-          <p v-if="!employee.contactEditable" class="profile-hint">当前职员已停用，联系方式不能自助修改。</p>
+          <p v-if="!employee.contactEditable" class="profile-hint">
+            {{
+              language.t(
+                'platform.screen.CurrentUserProfileDialog.this-employee-is-disabled-contact-details-cannot-be',
+                '当前职员已停用，联系方式不能自助修改。',
+              )
+            }}
+          </p>
         </div>
       </section>
       <section v-else class="profile-empty-state">
         <span class="profile-empty-monogram">{{ (profile?.username || '?').slice(0, 1).toUpperCase() }}</span>
-        <h2>{{ profile?.username || '当前账号' }}</h2>
-        <p>此账号尚未绑定职员档案。请在职员管理中完成绑定后维护个人资料。</p>
+        <h2>
+          {{
+            profile?.username ||
+            language.t('platform.screen.CurrentUserProfileDialog.current-account', '当前账号')
+          }}
+        </h2>
+        <p>
+          {{
+            language.t(
+              'platform.screen.CurrentUserProfileDialog.this-account-is-not-linked-to-an-employee',
+              '此账号尚未绑定职员档案。请在职员管理中完成绑定后维护个人资料。',
+            )
+          }}
+        </p>
       </section>
     </template>
     <p v-if="error" class="profile-error">{{ error }}</p>

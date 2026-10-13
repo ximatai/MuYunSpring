@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { WorkbenchMenuNode } from './menuTreeModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'WorkbenchSidebarMenuEntry' });
 
@@ -73,7 +76,13 @@ function handleMainClick() {
     <button
       class="sidebar-menu-entry-trigger"
       type="button"
-      :aria-label="`${active ? '收起' : '展开'}${node.record.title}下级菜单`"
+      :aria-label="
+        language.t(
+          active ? 'platform.menu.collapse-children' : 'platform.menu.expand-children',
+          active ? '收起{title}下级菜单' : '展开{title}下级菜单',
+          { title: node.record.title },
+        )
+      "
       :aria-expanded="active"
       aria-controls="workbench-sidebar-submenu-panel"
       @click.stop="toggleChildren"

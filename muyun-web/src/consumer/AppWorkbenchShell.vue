@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type {
   MenuNavigationTarget,
@@ -45,6 +46,8 @@ import {
 } from '../platform-workbench/workspaceViewDiscardGuard';
 import type { AppWorkbenchNavigation } from './workbenchNavigation';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'AppWorkbenchShell' });
 
 const props = withDefaults(
@@ -89,7 +92,13 @@ provideWorkbenchNavigation({
     ? async () => {
         const session = props.startup.session;
         const records = await props.loadMenus!();
-        if (!isMounted || session !== props.startup.session) throw new Error('登录状态已变化，请重试');
+        if (!isMounted || session !== props.startup.session)
+          throw new Error(
+            language.t(
+              'platform.screen.AppWorkbenchShell.your-sign-in-state-has-changed-please-try',
+              '登录状态已变化，请重试',
+            ),
+          );
         emit('update:startup', { ...props.startup, menus: records });
         return records;
       }

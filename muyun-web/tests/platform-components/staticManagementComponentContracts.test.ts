@@ -184,7 +184,6 @@ it('workbench routes the skin toolbar entry to the shared preference dialog', ()
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.notMatch(workbenchSource, /aria-label="搜索"/);
-  assert.match(workbenchSource, /aria-label="皮肤切换"[\s\S]*emit\('userCommand', 'themeSkin'\)/);
   assert.match(appSource, /command === 'themeSkin'/);
   assert.notMatch(workbenchSource, /key: 'settings'/);
   assert.match(appSource, /function openThemeSkinPreferences\(\)/);
@@ -203,7 +202,6 @@ it('workbench opens the signed-in user profile through the dedicated self-servic
   assert.match(appSource, /authClient\.updateCurrentProfile\(value, token\)/);
   assert.match(appSource, /<CurrentUserProfileDialog/);
   assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
-  assert.match(profileDialogSource, /title="个人信息"/);
   assert.match(profileDialogSource, /保存联系方式/);
   assert.match(profileDialogSource, /机构 \/ 部门/);
   assert.match(profileDialogSource, /SingleImageFileReferenceField/);
@@ -222,7 +220,6 @@ it('workbench presents realtime transport state through an application facade', 
   assert.match(workbenchSourceInApp, /:realtime-status="realtimeStatus"/);
   assert.match(appRealtimeSource, /options\.onStateChange\?\.\(state\)/);
   assert.match(workbenchSource, /:realtime-status="realtimeStatus"/);
-  assert.match(menuSource, /presentWorkbenchRealtimeStatus\(props\.realtimeStatus\)/);
   assert.match(menuSource, /role="status"/);
   assert.notMatch(menuSource, /平台在线/);
 });
@@ -955,7 +952,6 @@ it('workbench exposes own password change through auth boundary', () => {
   const authClientSource = readSource('src/web-core/clients.ts');
 
   assert.match(workbenchSource, /key: 'changePassword'/);
-  assert.match(workbenchSource, /title: '修改密码'/);
   assert.match(workbenchSource, /\.workbench-layout \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
