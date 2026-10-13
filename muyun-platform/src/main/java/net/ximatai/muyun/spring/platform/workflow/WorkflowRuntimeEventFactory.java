@@ -38,9 +38,15 @@ public class WorkflowRuntimeEventFactory {
     }
 
     public WorkflowEvent taskCompleted(WorkflowInstance instance, WorkflowTask task, String actionCode,
-                                       String operatorId, String message, Instant occurredAt) {
+                                       String operatorId, String reason, Instant occurredAt) {
+        return taskCompleted(instance, task, actionCode, operatorId,
+                reason == null || reason.isBlank() ? "workflow task completed" : reason, reason, occurredAt);
+    }
+
+    public WorkflowEvent taskCompleted(WorkflowInstance instance, WorkflowTask task, String actionCode,
+                                       String operatorId, String message, String reason, Instant occurredAt) {
         return opinionEvent(instance, null, task, WorkflowEventType.TASK_COMPLETED, actionCode, operatorId,
-                message == null || message.isBlank() ? "workflow task completed" : message, null, occurredAt, message);
+                message, null, occurredAt, reason);
     }
 
     public WorkflowEvent taskTransferred(WorkflowInstance instance, WorkflowTask task, String operatorId,
@@ -106,14 +112,14 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent taskInvalidated(WorkflowInstance instance, WorkflowTask task,
                                          String operatorId, String message, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_INVALIDATED, "invalidate", operatorId,
-                message == null || message.isBlank() ? "workflow task invalidated" : message, null, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_INVALIDATED, "invalidate", operatorId,
+                message == null || message.isBlank() ? "workflow task invalidated" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent taskCanceled(WorkflowInstance instance, WorkflowTask task,
                                       String operatorId, String message, Instant occurredAt) {
-        return event(instance, null, task, WorkflowEventType.TASK_CANCELED, "cancel", operatorId,
-                message == null || message.isBlank() ? "workflow task canceled" : message, null, occurredAt);
+        return opinionEvent(instance, null, task, WorkflowEventType.TASK_CANCELED, "cancel", operatorId,
+                message == null || message.isBlank() ? "workflow task canceled" : message, null, occurredAt, message);
     }
 
     public WorkflowEvent routeSelected(WorkflowInstance instance, WorkflowRouteInstance route,

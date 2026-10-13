@@ -36,7 +36,7 @@ public class WorkflowAutomaticApprovalService {
                                 && node.getNodeKey().equals(branch.getSelectorNodeKey()))))
                         .findFirst();
                 if (eligible.isEmpty()) return;
-                actions.getObject().approveAutomatically(WorkflowTaskActionRequest.builder(eligible.get().getId(), actor).reason("同一办理人连续审批，按已发布规则自动通过").operatedAt(at).build());
+                actions.getObject().approveAutomatically(WorkflowTaskActionRequest.builder(eligible.get().getId(), actor).operatedAt(at).build());
             }
         } finally { advancing.remove(); }
     }

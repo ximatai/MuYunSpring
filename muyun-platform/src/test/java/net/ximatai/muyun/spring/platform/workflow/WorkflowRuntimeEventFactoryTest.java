@@ -67,6 +67,8 @@ class WorkflowRuntimeEventFactoryTest {
                 .isEqualTo(reason);
         assertThat(factory.addSign(instance(), null, null, "user-1", reason, "{}", now).getReason()).isEqualTo(reason);
         assertThat(factory.instanceTerminated(instance(), "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(factory.taskCanceled(instance(), null, "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(factory.taskInvalidated(instance(), null, "user-1", reason, now).getReason()).isEqualTo(reason);
         assertThat(WorkflowHistoryEventView.from(factory.taskCompleted(instance(), null, "approve", "user-1", reason, now), null).reason())
                 .isEqualTo(reason);
     }
