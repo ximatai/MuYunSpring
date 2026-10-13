@@ -234,6 +234,40 @@ public class TeachingDemoIT {
     }
 
     @Test
+    void directoryTitlesShareProducerSourcesAndPublishIndependentlyOfPageStructure() throws Exception {
+        var translations = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var mapper = webApplicationContext.getBean(com.fasterxml.jackson.databind.ObjectMapper.class);
+        var contexts = webApplicationContext.getBean(PlatformModuleRuntimeContextService.class);
+        var modules = webApplicationContext.getBean(PlatformModuleService.class);
+        var plans = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog.class);
+        MockMvc mvc = webAppContextSetup(webApplicationContext).addFilters(webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("module-directory-i18n", "Module Directory"));
+             var system = TenantContext.system("shared module title contract")) {
+            var teacher = modules.select("education.teacher");
+            assertThat(teacher.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+            var staticResponse = mvc.perform(get("/platform.module/education.teacher/context").header("Accept-Language", "en")).andReturn();
+            assertThat(staticResponse.getResponse().getStatus()).isEqualTo(200);
+            assertThat(mapper.readTree(staticResponse.getResponse().getContentAsString()).path("title").asText()).isEqualTo("Teacher");
+            var alias = ExamDemoBootstrapTask.MODULE_ALIAS;
+            var dynamic = modules.select(alias);
+            String original = dynamic.getTitle();
+            var source = dynamic.titleSource();
+            var plan = plans.find(alias).orElseThrow();
+            assertThat(translations.currentSources(alias)).contains(source);
+            assertThat(source.sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+            publishTestTranslation(translations, alias, source, "Examinations");
+            var response = mvc.perform(get("/platform.module/" + alias + "/context").header("Accept-Language", "en")).andReturn();
+            assertThat(response.getResponse().getStatus()).as(response.getResponse().getContentAsString()).isEqualTo(200);
+            var projected = mapper.readTree(response.getResponse().getContentAsString());
+            assertThat(projected.path("title").asText()).isEqualTo("Examinations");
+            assertThat(projected.at("/textBindings/~1title/source/sourceId").asText()).isEqualTo(source.sourceId());
+            assertThat(contexts.context(alias).titleSource()).isEqualTo(net.ximatai.muyun.spring.platform.module.ModuleTitleView.of(dynamic).titleSource());
+            assertThat(plans.find(alias).orElseThrow()).isSameAs(plan);
+            assertThat(modules.select(alias).getTitle()).isEqualTo(original);
+        }
+    }
+
+    @Test
     void deployedEnglishResourcesCoverTheActualStaticModuleAndEnumSourceDirectory() {
         var catalog = webApplicationContext.getBean(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.class);
         var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
@@ -254,6 +288,12 @@ public class TeachingDemoIT {
             var english = resources.resolve(source, java.util.Map.of(), "en");
             assertThat(english.missing()).as(source.sourceId()).isFalse();
             assertThat(english.text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
+        }
+        for (var module : declarations.definitions()) {
+            var source = net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(module.moduleAlias(), module.title());
+            if (source == null) continue;
+            assertThat(resources.resolve(source, java.util.Map.of(), "en").missing()).as(source.sourceId()).isFalse();
+            assertThat(resources.resolve(source, java.util.Map.of(), "en").text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
         }
         assertThat(sources).isGreaterThan(500);
     }

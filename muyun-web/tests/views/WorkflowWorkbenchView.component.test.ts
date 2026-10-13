@@ -1,7 +1,14 @@
+import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
-import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  ModuleContextProvider,
+  type ModuleContext,
+  type HttpRequestOptions,
+} from '@muyun/web-core';
 import type { CurrentUser } from '@muyun/web-contracts';
 import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 import WorkflowWorkbenchView from '@/views/WorkflowWorkbenchView.vue';
@@ -38,13 +45,17 @@ function page(id: string) {
     navigation: { modules: { 'demo.old': '旧租户模块' } },
   };
 }
-function mountWorkbench(request: (options: HttpRequestOptions) => Promise<unknown>) {
+function mountWorkbench(
+  request: (options: HttpRequestOptions) => Promise<unknown>,
+  language?: ReturnType<typeof createLanguageContext>,
+) {
   const context = {
     moduleAlias: 'workflow.workbench',
     http: { request },
   } as unknown as ModuleContext<unknown>;
   const harness = defineComponent({
     setup() {
+      if (language) provideLanguageContext(language);
       provideCurrentUserContext(ref({ system: true } as CurrentUser));
       return () => h(ModuleContextProvider, { context }, { default: () => h(WorkflowWorkbenchView) });
     },
@@ -177,4 +188,87 @@ it('binds delegation loading and saving to its tenant and discards a closed tena
   ).toBeDefined();
   resolveSave({});
   await flushPromises();
+});
+
+it('switches and refreshes module labels without replacing workflow facts, selection or filters', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  let translated = 'Examinations';
+  let later = false;
+  const text = () => ({
+    source: {
+      sourceKind: 'CONFIG',
+      sourceId: 'config/module/education.exam/title',
+      sourceVersion: 'v1',
+      originalText: '考试',
+    },
+    languages: {
+      en: { text: translated, requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+    },
+  });
+  const directory = () => ({
+    modules: { 'education.exam': { moduleAlias: 'education.exam', title: '考试', titleText: text() } },
+  });
+  const request = vi.fn(async (options: HttpRequestOptions): Promise<unknown> => {
+    if (options.path.endsWith('/workbench/modules')) return directory();
+    if (options.path.endsWith('/page'))
+      return {
+        records: [
+          {
+            instanceId: 'same-instance',
+            taskId: 'same-task',
+            moduleAlias: 'education.exam',
+            recordId: 'record-id',
+            currentAssigneeTitles: ['业务人员原名'],
+            taskStatus: later ? 'completed' : 'created',
+            business: {
+              title: later ? '服务端新业务数据' : '业务原值',
+              moduleTitle: '考试',
+              moduleTitleText: text(),
+              readable: false,
+            },
+          },
+        ],
+        total: later ? 99 : 1,
+        pages: 1,
+        navigation: { modules: { 'education.exam': '考试' }, moduleTitles: directory() },
+      };
+    return { moduleAlias: 'iam.tenant', actions: [], capabilities: [] };
+  });
+  const wrapper = mountWorkbench(request, language);
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent(surface);
+    const select = wrapper.findAllComponents({ name: 'UiSelect' })[0]!;
+    expect(list.props('rows')[0].moduleTitle).toBe('Examinations');
+    expect(select.props('options')).toContainEqual({ value: 'education.exam', label: 'Examinations' });
+    select.vm.$emit('update:value', 'education.exam');
+    await flushPromises();
+    const fact = list.props('rows')[0];
+    const count = request.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('rows')[0].moduleTitle).toBe('考试');
+    expect(select.props('options')).toContainEqual({ value: 'education.exam', label: '考试' });
+    expect(select.props('value')).toBe('education.exam');
+    expect(request.mock.calls).toHaveLength(count);
+    language.setLanguage('en');
+    await flushPromises();
+    translated = 'Exam administration';
+    later = true;
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'module-directory-title-publication',
+      changes: [{ type: 'configuration-translations-changed', moduleAlias: 'education.exam' }],
+    });
+    await flushPromises();
+    const refreshed = list.props('rows')[0];
+    expect(refreshed.moduleTitle).toBe('Exam administration');
+    expect(select.props('options')).toContainEqual({ value: 'education.exam', label: 'Exam administration' });
+    expect(select.props('value')).toBe('education.exam');
+    expect(refreshed.taskStatus).toBe(fact.taskStatus);
+    expect(refreshed.business.title).toBe('业务原值');
+    expect(refreshed.instanceId).toBe('same-instance');
+    expect(refreshed.currentAssigneeTitles).toEqual(['业务人员原名']);
+  } finally {
+    wrapper.unmount();
+  }
 });

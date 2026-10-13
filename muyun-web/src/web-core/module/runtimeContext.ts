@@ -53,6 +53,7 @@ export interface ModuleRuntimeContext extends TextPresentationDocument {
   moduleAlias: string;
   tenantRequired?: boolean;
   title?: string;
+  titleSource?: import('@muyun/web-contracts').TextReference;
   /** Stable wire code of the registered module kind. */
   moduleKind?: 'static' | 'dynamic';
   entryType?: 'module' | 'route' | 'link';

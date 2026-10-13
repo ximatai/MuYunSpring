@@ -174,7 +174,13 @@ export interface WorkflowBranch {
 }
 export interface WorkflowWorkbenchCard {
   nodeTitleText?: TextPresentation;
-  business?: { title?: string; moduleTitle?: string; readable: boolean };
+  business?: {
+    title?: string;
+    moduleTitle?: string;
+    readable: boolean;
+    moduleTitleSource?: import('./index').TextReference;
+    moduleTitleText?: import('./index').TextPresentation;
+  };
   instanceId: string;
   moduleAlias: string;
   recordId: string;

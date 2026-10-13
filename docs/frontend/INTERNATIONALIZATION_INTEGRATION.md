@@ -53,13 +53,15 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 模块动作同时携带 `titleSource`，其展示绑定位于 `/actions/{index}/title`。静态声明的标准动作复用 `PlatformAction.titleKey()`，自定义动作使用 `action/{moduleAlias}/{actionCode}/title` 部署资源；动态能力自动生成的标准动作同样使用代码来源；持久化目录保留贡献者的归属，平台自动流程动作使用 `platform.workflow.action.{actionCode}.title`；在线元数据动作和在线新增动作使用 `config/action/{moduleAlias}/{actionCode}/title` 配置来源并独立发布。展示投影仅更新标题，动作码、权限、执行入口和原始运行事实保持不变。流程配置的字段与动作候选共同消费展示快照。
 
-前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。
+模块目录提供共享 `ModuleTitleView` / `ModuleTitleCatalog`，以 `module/{moduleAlias}/title` 部署静态注册模块名称，以 `config/module/{moduleAlias}/title` 独立发布在线目录名称。目录名称与页面自身标题分别保留来源；运行上下文的 `/title`、流程工作台的业务模块列和模块筛选复用目录来源。工作台分页保留原始 `navigation.modules` 映射，并通过 `navigation.moduleTitles` 提供同一目录的展示资源。
+
+前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；同模块注入会话中显式传入 `useModuleContext({ language })` 时只改变展示绑定，继续复用原 HTTP 客户端、权限事实和业务会话；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。
 
 公共动作消息可以携带 `textSource` 和具名参数，HTTP 交付只解析展示文字，保留动作码、记录身份、数据变更和原始参数。业务记录名称作为参数原值交付，不能把它当作配置标签翻译。错误日志保留原文事实，返回提示按请求语言解析。
 
 ## 在线配置译文维护与发布
 
-工作台 `/platform/translations` 维护配置生产者提供的原文。目录覆盖全局 Web 页面展示槽位、菜单名称、字典项标题、动态元数据字段名称，以及已发布或退役流程版本的冻结节点名称、办理指引标题和说明。页面自定义标签与元数据原生名称分别归属自己的来源；静态页面的在线视图覆盖保留配置来源。目录读取与维护沿用系统配置作用域和动作授权，普通配置保存继续编辑原文，不通过译文维护修改配置结构或业务值。
+工作台 `/platform/translations` 维护配置生产者提供的原文。目录覆盖全局 Web 页面展示槽位、在线模块目录名称、菜单名称、字典项标题、动态元数据字段名称，以及已发布或退役流程版本的冻结节点名称、办理指引标题和说明。页面自定义标签与元数据原生名称分别归属自己的来源；静态页面的在线视图覆盖保留配置来源。目录读取与维护沿用系统配置作用域和动作授权，普通配置保存继续编辑原文，不通过译文维护修改配置结构或业务值。
 
 维护接口归属 `platform.localization`，沿用平台动作授权和系统配置作用域：
 

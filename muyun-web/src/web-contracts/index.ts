@@ -2090,3 +2090,14 @@ export type {
   WorkflowWorkbenchCard,
   WorkflowWorkbenchFilters,
 } from './workflow';
+
+/** Shared directory labels; titles remain separate from business records and page-specific captions. */
+export interface ModuleTitleView {
+  moduleAlias: string;
+  title: string;
+  titleSource?: TextReference;
+  titleText?: TextPresentation;
+}
+export interface ModuleTitleCatalog {
+  modules: Record<string, ModuleTitleView>;
+}

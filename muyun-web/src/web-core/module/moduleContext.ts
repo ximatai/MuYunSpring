@@ -1,4 +1,4 @@
-import { computed, defineComponent, inject, provide, type InjectionKey, type PropType } from 'vue';
+import { computed, defineComponent, inject, provide, toRaw, type InjectionKey, type PropType } from 'vue';
 import type { HttpClient } from '../http';
 import { createModuleAbilities, type ModuleAbilities } from './abilities';
 import {
@@ -19,7 +19,8 @@ import {
   type ModuleTreeClient,
 } from './staticModuleClient';
 
-import { useLanguageContext, type LanguageContext } from '../language';
+import { translatedPresentation } from '../presentationTexts';
+import { platformLanguageContext, useLanguageContext, type LanguageContext } from '../language';
 
 export interface ModuleContext<TRecord> {
   moduleAlias: string;
@@ -56,6 +57,7 @@ const moduleContextConfigKey: InjectionKey<ModuleContextConfig> = Symbol('muyun.
 const moduleAliasKey: InjectionKey<Readonly<{ value: string | undefined }>> = Symbol('muyun.module-alias');
 const moduleContextKey: InjectionKey<Readonly<{ value: ModuleContext<unknown> | undefined }>> =
   Symbol('muyun.module-context');
+const contextLanguages = new WeakMap<object, LanguageContext>();
 let defaultModuleContextConfig: ModuleContextConfig | undefined;
 
 export function configureModuleContext(config: ModuleContextConfig) {
@@ -105,7 +107,20 @@ export function useModuleContext<TRecord>(
     options.navigatorReference === undefined &&
     injectedContext?.value?.moduleAlias === moduleAlias
   ) {
-    return injectedContext.value as ModuleContext<TRecord>;
+    const context = injectedContext.value as ModuleContext<TRecord>;
+    if (!options.language || options.language === contextLanguages.get(toRaw(context))) return context;
+    // A language override is a display scope: retain the authorized runtime, transport and business session.
+    const language = options.language;
+    const display = computed(() => {
+      const original = context.runtime.snapshot();
+      return original && translatedPresentation(original, language);
+    });
+    const localized = {
+      ...context,
+      runtime: { ...context.runtime, presentationSnapshot: () => display.value },
+    };
+    contextLanguages.set(localized, language);
+    return localized;
   }
   const http = resolveModuleHttpClient(options, config);
   return moduleContextOf<TRecord>(
@@ -208,7 +223,7 @@ function moduleContextOf<TRecord>(
     disable: crud.disable,
   };
   const runtime = createModuleRuntimeContextState(http, moduleAlias, runtimeAccess, language);
-  return {
+  const context: ModuleContext<TRecord> = {
     moduleAlias,
     http,
     crud,
@@ -222,6 +237,8 @@ function moduleContextOf<TRecord>(
     recordActionsSnapshot: runtime.recordActionsSnapshot,
     invalidateRecordActions: runtime.invalidateRecordActions,
   };
+  contextLanguages.set(context, language ?? platformLanguageContext);
+  return context;
 }
 
 function moduleClientsFor<TRecord>(
@@ -250,10 +267,12 @@ function moduleTreeContextOf<TRecord>(
   language?: LanguageContext,
 ): ModuleTreeContext<TRecord> {
   const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference, language);
-  return {
+  const treeContext = {
     ...context,
     tree: runtimeCheckedTreeClient(context),
   };
+  contextLanguages.set(treeContext, language ?? platformLanguageContext);
+  return treeContext;
 }
 
 function runtimeCheckedTreeClient<TRecord>(context: ModuleContext<TRecord>): ModuleTreeClient<TRecord> {

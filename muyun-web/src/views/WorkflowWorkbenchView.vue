@@ -10,7 +10,7 @@ import {
   useModuleContext,
   withHttpHeaders,
 } from '@muyun/web-core';
-import type { WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
+import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
 import { refreshModulePageList } from '@muyun/dynamic-page-runtime';
 import {
   WorkflowRecordPanel,
@@ -59,6 +59,7 @@ const accountOptions = computed(() => workflowAccountOptions(scopedHttp.value));
 const client = computed(() => createWorkflowClient(scopedHttp.value));
 const tenantContext = createModuleContext<Record<string, unknown>>({
   http: context.http,
+  language: workflowLanguage,
   moduleAlias: 'iam.tenant',
   runtimeAccess: 'REFERENCE',
 });
@@ -66,6 +67,7 @@ const accountScopeReady = computed(() => !currentUser?.value?.system || Boolean(
 const accountContext = computed(() =>
   createModuleContext<Record<string, unknown>>({
     http: scopedHttp.value,
+    language: workflowLanguage,
     moduleAlias: 'iam.user',
     runtimeAccess: 'VIEW',
   }),
@@ -81,8 +83,18 @@ const loading = ref(false),
   error = ref(''),
   keyword = ref(''),
   filters = ref<WorkflowWorkbenchFilters>({});
-const moduleLabels = ref<Record<string, string>>({}),
-  counts = ref<Record<string, number>>({});
+const moduleTitles = ref<Record<string, ModuleTitleView>>({});
+const legacyModuleLabels = ref<Record<string, string>>({});
+const moduleLabels = computed(() => ({
+  ...legacyModuleLabels.value,
+  ...Object.fromEntries(
+    Object.entries(moduleTitles.value).map(([alias, view]) => [
+      alias,
+      presentationLabel(view.title, view.titleText, workflowLanguage),
+    ]),
+  ),
+}));
+const counts = ref<Record<string, number>>({});
 const receivedFrom = ref(''),
   receivedTo = ref('');
 const editing = ref(false),
@@ -131,8 +143,10 @@ const rows = computed(() =>
         : (card.business?.title ??
           workflowLanguage.t('platform.screen.WorkflowWorkbenchView.untitled-business-record', '未命名业务')),
     moduleTitle:
-      card.business?.moduleTitle ??
-      workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块'),
+      card.business?.moduleTitle != null
+        ? presentationLabel(card.business.moduleTitle, card.business.moduleTitleText, workflowLanguage)
+        : (moduleLabels.value[card.moduleAlias] ??
+          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.business-module', '业务模块')),
     status: workflowTitle(card.taskStatus ?? card.instanceStatus),
     received: formatTime(card.receivedAt),
     completed: formatTime(card.completedAt),
@@ -205,6 +219,7 @@ const recordContext = computed(() =>
   selected.value
     ? createModuleContext<Record<string, unknown>>({
         http: scopedHttp.value,
+        language: workflowLanguage,
         moduleAlias: selected.value.moduleAlias,
         runtimeAccess: 'VIEW',
       })
@@ -237,15 +252,20 @@ usePageDataChangeHandler(async (changeSet) => {
       .filter((change) => change.type === 'configuration-translations-changed')
       .map((change) => change.moduleAlias),
   );
-  if (!cards.value.some((card) => modules.has(card.moduleAlias))) return;
+  const refreshCards = cards.value.some((card) => modules.has(card.moduleAlias));
+  const refreshDirectory = Object.keys(moduleTitles.value).some((alias) => modules.has(alias));
+  if (!refreshCards && !refreshDirectory) return;
   const request = ++textResourceRevision;
   const list = listRevision;
   const tenant = tenantId.value;
   const user = currentUser?.value?.userId;
   const business = recordContext.value;
   try {
-    const [next] = await Promise.all([
-      client.value.workbenchPage(board.value, page.value, filters.value, keyword.value, pageSize.value),
+    const [next, directory] = await Promise.all([
+      refreshCards
+        ? client.value.workbenchPage(board.value, page.value, filters.value, keyword.value, pageSize.value)
+        : undefined,
+      client.value.workbenchModules(),
       business && modules.has(business.moduleAlias) ? business.runtime.refreshTexts?.() : undefined,
     ]);
     if (
@@ -256,15 +276,38 @@ usePageDataChangeHandler(async (changeSet) => {
     )
       return;
     const resourceFor = (card: WorkflowWorkbenchCard) =>
-      next.records.find((item) => item.instanceId === card.instanceId && item.taskId === card.taskId)
+      next?.records.find((item) => item.instanceId === card.instanceId && item.taskId === card.taskId)
         ?.nodeTitleText;
-    cards.value = cards.value.map((card) => {
-      const text = resourceFor(card);
-      return sameWorkflowTextSource(card.nodeTitleText, text) ? { ...card, nodeTitleText: text } : card;
-    });
+    const refreshedModules = { ...directory.modules, ...next?.navigation?.moduleTitles?.modules };
+    const retainedModules = { ...moduleTitles.value };
+    for (const [alias, current] of Object.entries(retainedModules)) {
+      const text = refreshedModules[alias]?.titleText;
+      if (sameWorkflowTextSource(current.titleText, text))
+        retainedModules[alias] = { ...current, titleText: text };
+    }
+    moduleTitles.value = retainedModules;
+    const updatedCard = (card: WorkflowWorkbenchCard) => {
+      const nextCard = next?.records.find(
+        (item) => item.instanceId === card.instanceId && item.taskId === card.taskId,
+      );
+      const moduleText = nextCard?.business?.moduleTitleText ?? refreshedModules[card.moduleAlias]?.titleText;
+      return {
+        ...card,
+        ...(sameWorkflowTextSource(card.nodeTitleText, nextCard?.nodeTitleText)
+          ? { nodeTitleText: nextCard?.nodeTitleText }
+          : {}),
+        business:
+          card.business && sameWorkflowTextSource(card.business.moduleTitleText, moduleText)
+            ? { ...card.business, moduleTitleText: moduleText }
+            : card.business,
+      };
+    };
+    cards.value = cards.value.map(updatedCard);
     if (selected.value) {
       const text = resourceFor(selected.value);
       if (sameWorkflowTextSource(selected.value.nodeTitleText, text)) selected.value.nodeTitleText = text;
+      const updated = updatedCard(selected.value);
+      if (updated.business) selected.value.business = updated.business;
     }
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-text-resources', phase: 'load' });
@@ -286,7 +329,8 @@ async function load() {
     cards.value = result.records;
     total.value = result.total;
     pages.value = result.pages;
-    moduleLabels.value = { ...moduleLabels.value, ...result.navigation?.modules };
+    legacyModuleLabels.value = { ...legacyModuleLabels.value, ...result.navigation?.modules };
+    moduleTitles.value = { ...moduleTitles.value, ...result.navigation?.moduleTitles?.modules };
     counts.value[board.value] = result.total;
   } catch (cause) {
     if (revision === listRevision) {
@@ -348,7 +392,8 @@ watch(
     keyword.value = '';
     receivedFrom.value = '';
     receivedTo.value = '';
-    moduleLabels.value = {};
+    legacyModuleLabels.value = {};
+    moduleTitles.value = {};
     counts.value = {};
     page.value = 1;
     ++delegationRevision;
@@ -441,7 +486,7 @@ async function openDelegations() {
   try {
     const labels = await workflow.workbenchModules();
     if (!delegationIsCurrent(current, tenant)) return;
-    moduleLabels.value = { ...moduleLabels.value, ...labels };
+    moduleTitles.value = { ...moduleTitles.value, ...labels.modules };
     await loadPolicies();
   } catch (cause) {
     if (delegationIsCurrent(current, tenant))

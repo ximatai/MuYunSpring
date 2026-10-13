@@ -308,7 +308,8 @@ public class PlatformModuleRuntimeContextService {
                 actions,
                 uiDescriptor,
                 moduleKind == ModuleKind.DYNAMIC || staticDefinition.map(StaticModuleDefinition::tenantRequired).orElse(false)
-        );
+        ).withTitleSource(module != null && java.util.Objects.equals(module.getTitle(), title) ? module.titleSource()
+                : staticDefinition.isPresent() ? net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(validModuleAlias, title) : null);
     }
 
     /**

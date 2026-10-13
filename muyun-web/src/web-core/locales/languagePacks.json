@@ -599,7 +599,13 @@
       "platform.workflow-config.configure-exit": "配置出口：{title}",
       "platform.reference-picker.missing-dependencies": "请先补齐引用所需的依赖字段",
       "platform.reference-picker.source-navigation": "当前引用来源不支持范围导航",
-      "platform.reference-picker.target-navigation": "当前引用目标不支持范围导航"
+      "platform.reference-picker.target-navigation": "当前引用目标不支持范围导航",
+      "platform.screen.WorkflowAdministrationView.confirm-action-title": "确认{operation}？",
+      "platform.screen.WorkflowAdministrationView.confirm-action-content": "{impact} 原因：{reason}",
+      "platform.screen.WorkflowAdministrationView.instance-title": "{module} · {status} · 版本 {version}",
+      "platform.screen.WorkflowAdministrationView.operation-record": "业务：{module} · 记录 {record}",
+      "platform.screen.WorkflowAdministrationView.operation-version-warning": "当前流程版本：{version}。操作成功后不可直接撤销，并记录操作人、时间和原因。",
+      "platform.screen.WorkflowAdministrationView.unknown-version": "未知"
     }
   },
   "en": {
@@ -1203,7 +1209,13 @@
       "platform.workflow-config.configure-exit": "Configure exit: {title}",
       "platform.reference-picker.missing-dependencies": "Complete the fields required by this reference first",
       "platform.reference-picker.source-navigation": "This reference source does not support scope navigation",
-      "platform.reference-picker.target-navigation": "This reference target does not support scope navigation"
+      "platform.reference-picker.target-navigation": "This reference target does not support scope navigation",
+      "platform.screen.WorkflowAdministrationView.confirm-action-title": "Confirm {operation}?",
+      "platform.screen.WorkflowAdministrationView.confirm-action-content": "{impact} Reason: {reason}",
+      "platform.screen.WorkflowAdministrationView.instance-title": "{module} · {status} · Version {version}",
+      "platform.screen.WorkflowAdministrationView.operation-record": "Business: {module} · Record {record}",
+      "platform.screen.WorkflowAdministrationView.operation-version-warning": "Current workflow version: {version}. A successful operation cannot be directly undone. The operator, time and reason will be recorded.",
+      "platform.screen.WorkflowAdministrationView.unknown-version": "Unknown"
     }
   },
   "fr": {

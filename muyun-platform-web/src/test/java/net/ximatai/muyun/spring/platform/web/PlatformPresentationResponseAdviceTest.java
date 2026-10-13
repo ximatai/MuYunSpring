@@ -125,4 +125,29 @@ class PlatformPresentationResponseAdviceTest {
         }
         assertThat(original.getNodeTitle()).isEqualTo("旧节点");
     }
+    @Test void sharesDirectoryTitleResourcesAcrossPagedCardsNavigationAndTheModuleCatalog() {
+        var source = net.ximatai.muyun.spring.platform.module.ModuleTitleView.configuredSource("sales.order", "订单业务");
+        var directory = new net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog(Map.of("sales.order",
+                new net.ximatai.muyun.spring.platform.module.ModuleTitleView("sales.order", "订单业务", source)));
+        var business = new WorkflowRecordSummary("用户填写的订单名", "订单业务", false, source);
+        var card = mapper.convertValue(Map.of("instanceId", "instance-1", "moduleAlias", "sales.order", "recordId", "record-1", "addedByAddSign", true, "nodeTitle", "用户加签原名"), WorkflowWorkbenchCard.class).withBusiness(business);
+        var page = new WebPageResponse<>(List.of(card), 12, 2, 5, 3, true, Map.of("modules", directory.originalTitles(), "moduleTitles", directory));
+        var advice = advice(Map.of(source, "Orders"));
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice.project(page));
+            assertThat(output.at("/records/0/business/moduleTitle").asText()).isEqualTo("Orders");
+            assertThat(output.at("/records/0/business/title").asText()).isEqualTo("用户填写的订单名");
+            assertThat(output.at("/records/0/business/readable").asBoolean()).isFalse();
+            assertThat(output.at("/records/0/nodeTitle").asText()).isEqualTo("用户加签原名");
+            assertThat(output.at("/navigation/moduleTitles/modules/sales.order/title").asText()).isEqualTo("Orders");
+            assertThat(output.at("/navigation/moduleTitles/modules/sales.order/titleText/source/sourceId").asText()).isEqualTo(source.sourceId());
+            assertThat(output.at("/total").asInt()).isEqualTo(12);
+            assertThat(output.at("/pageNum").asInt()).isEqualTo(2);
+            assertThat(mapper.valueToTree(advice.project(directory)).at("/modules/sales.order/title").asText()).isEqualTo("Orders");
+        }
+        assertThat(directory.originalTitles()).containsEntry("sales.order", "订单业务");
+        assertThat(card.business()).isSameAs(business);
+        assertThat(card.business().moduleTitle()).isEqualTo("订单业务");
+    }
+
 }

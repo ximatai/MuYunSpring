@@ -72,6 +72,7 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
         locations.stream().map(location -> descriptor.sourceTexts().get(location.bindingKey())).forEach(sources::add);
         context.actions().stream().filter(action -> action.titleSource() != null &&
                 action.titleSource().originalText().equals(action.title())).map(PlatformModuleRuntimeAction::titleSource).forEach(sources::add);
+        if (context.titleSource() != null && context.titleSource().originalText().equals(context.title())) sources.add(context.titleSource());
         if (texts != null) texts = texts.prepare(sources);
         for (var location : locations) {
             var source = descriptor.sourceTexts().get(location.bindingKey());
@@ -98,6 +99,14 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
             String path = "/actions/" + index + "/title";
             bindings.put(path, new TextPresentation(source, languages));
             if (texts != null) replaceText(output, path, texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
+        }
+        if (context.titleSource() != null && context.titleSource().originalText().equals(context.title())) {
+            var source = context.titleSource();
+            var languages = new LinkedHashMap<String, TextResources.Resolution>();
+            if (texts != null && catalog != null) for (var language : catalog.languages()) if (language.enabled())
+                languages.put(language.tag(), texts.resolve(source, Map.of(), language.tag()));
+            bindings.put("/title", new TextPresentation(source, languages));
+            if (texts != null) replaceText(output, "/title", texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
         }
         output.set("textBindings", mapper.valueToTree(bindings));
         // A compiled directory can contain slots removed by request authorization or source resolution.

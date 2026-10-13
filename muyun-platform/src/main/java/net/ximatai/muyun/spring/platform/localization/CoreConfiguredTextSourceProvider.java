@@ -12,6 +12,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 
 /** Privileged maintenance reads original objects, including immutable published workflow versions. */
 @Service
@@ -22,13 +24,25 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
     private final ObjectProvider<WorkflowDefinitionService> definitions;
     private final ObjectProvider<WorkflowVersionDao> versions;
     private final ObjectMapper mapper;
+    private final ObjectProvider<PlatformModuleService> modules;
     public CoreConfiguredTextSourceProvider(ObjectProvider<MenuService> menus, ObjectProvider<DictionaryItemService> dictionaries,
-            ObjectProvider<WorkflowDefinitionService> definitions, ObjectProvider<WorkflowVersionDao> versions, ObjectMapper mapper) {
-        this.menus = menus; this.dictionaries = dictionaries; this.definitions = definitions; this.versions = versions; this.mapper = mapper;
+            ObjectProvider<WorkflowDefinitionService> definitions, ObjectProvider<WorkflowVersionDao> versions, ObjectMapper mapper, ObjectProvider<PlatformModuleService> modules) {
+        this.menus = Objects.requireNonNull(menus);
+        this.dictionaries = Objects.requireNonNull(dictionaries);
+        this.definitions = Objects.requireNonNull(definitions);
+        this.versions = Objects.requireNonNull(versions);
+        this.mapper = Objects.requireNonNull(mapper);
+        this.modules = Objects.requireNonNull(modules);
     }
     @Override public List<TextReference> currentSources(String moduleAlias) {
         if (!TenantContext.isSystem()) throw new IllegalStateException("Configuration source maintenance requires system scope");
         List<TextReference> result = new ArrayList<>();
+        var moduleService = modules.getIfAvailable();
+        if (moduleService != null) {
+            var module = moduleService.select(moduleAlias);
+            if (module != null && module.titleSource() != null && module.titleSource().sourceKind() == TextReference.SourceKind.CONFIG)
+                result.add(module.titleSource());
+        }
         try (var ignored = TenantContext.bypassTenantFilter("configuration original source maintenance")) {
             if (MenuService.MODULE_ALIAS.equals(moduleAlias)) {
                 var service = menus.getIfAvailable();

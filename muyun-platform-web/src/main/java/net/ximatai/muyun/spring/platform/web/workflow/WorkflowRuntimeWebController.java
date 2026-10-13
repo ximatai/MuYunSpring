@@ -206,9 +206,9 @@ public class WorkflowRuntimeWebController {
     }
 
     @GetMapping("/workbench/modules")
-    public java.util.Map<String, String> workbenchModules() {
+    public net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog workbenchModules() {
         currentOperatorId();
-        return runtimeReadFacade.workbenchModules();
+        return runtimeReadFacade.workbenchModuleTitles();
     }
 
     @PostMapping("/workbench/{board}/page")
@@ -217,7 +217,7 @@ public class WorkflowRuntimeWebController {
         var query = normalizeWorkbenchRequest(request == null ? null : request.query());
         var result = runtimeReadFacade.workbenchPage(board, currentOperatorId(), page(query.page()),
                 query.toQueryRequest(), request == null ? null : request.keyword());
-        return net.ximatai.muyun.spring.web.WebPageResponse.from(result.page(), java.util.Map.of("modules", result.modules()));
+        return net.ximatai.muyun.spring.web.WebPageResponse.from(result.page(), java.util.Map.of("modules", result.modules(), "moduleTitles", result.moduleTitles()));
     }
 
     @GetMapping("/instance/{instanceId}/tasks/view")

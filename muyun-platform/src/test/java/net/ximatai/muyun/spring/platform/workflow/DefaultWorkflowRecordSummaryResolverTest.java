@@ -13,21 +13,21 @@ class DefaultWorkflowRecordSummaryResolverTest {
     private final WorkflowActionPolicyService policy = mock(WorkflowActionPolicyService.class);
     private final ModuleRecordFacts facts = mock(ModuleRecordFacts.class);
     private final PlatformModuleService modules = mock(PlatformModuleService.class);
-    private final DefaultWorkflowRecordSummaryResolver resolver = new DefaultWorkflowRecordSummaryResolver(policy, facts, modules);
+    private final DefaultWorkflowRecordSummaryResolver resolver = new DefaultWorkflowRecordSummaryResolver(policy, facts, modules, mock(WorkflowDefinitionService.class));
     private WorkflowInstance record() {
         var instance = new WorkflowInstance(); instance.setModuleAlias("demo.purchase"); instance.setRecordId("r1");
-        var module = new PlatformModule(); module.setTitle("采购申请");
+        var module = new PlatformModule(); module.setAlias("demo.purchase"); module.setTitle("采购申请");
         when(modules.resolveVisibleModule("demo.purchase")).thenReturn(module);
         return instance;
     }
     @Test void deniedBusinessNeverReadsItsTitle() {
         var instance = record(); doThrow(new PlatformAccessDeniedException("denied")).when(policy).requireRecordView(instance);
-        assertThat(resolver.resolve(instance)).isEqualTo(new WorkflowRecordSummary(null, "采购申请", false));
+        assertThat(resolver.resolve(instance)).isEqualTo(new WorkflowRecordSummary(null, "采购申请", false, net.ximatai.muyun.spring.platform.module.ModuleTitleView.configuredSource("demo.purchase", "采购申请")));
         verifyNoInteractions(facts);
     }
     @Test void usesProtectedDisplayTitleRatherThanRawFacts() {
         var instance = record(); when(facts.displayTitle("demo.purchase", "r1")).thenReturn("***");
-        assertThat(resolver.resolve(instance)).isEqualTo(new WorkflowRecordSummary("***", "采购申请", true));
+        assertThat(resolver.resolve(instance)).isEqualTo(new WorkflowRecordSummary("***", "采购申请", true, net.ximatai.muyun.spring.platform.module.ModuleTitleView.configuredSource("demo.purchase", "采购申请")));
         var order = inOrder(policy, facts); order.verify(policy).requireRecordView(instance);order.verify(facts).displayTitle("demo.purchase", "r1");
         verify(facts, never()).read(anyString(), anyString());
     }

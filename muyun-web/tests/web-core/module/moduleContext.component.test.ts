@@ -1,8 +1,10 @@
-import { mount } from '@vue/test-utils';
+import { createLanguageContext } from '@/web-core/language';
+import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref, nextTick } from 'vue';
 import { describe, expect, it } from 'vitest';
 import type { HttpClient, HttpRequestOptions } from '@/web-core/http';
 import {
+  createModuleContext,
   ModuleContextProvider,
   ModuleHttpProvider,
   useModuleContext,
@@ -143,4 +145,98 @@ describe('module context hooks', () => {
     }
     wrapper.unmount();
   });
+});
+
+it('honors an explicit language in an injected VIEW session without replacing its transport or execution facts', async () => {
+  const parentLanguage = createLanguageContext();
+  const childLanguage = createLanguageContext({ languageTag: 'en' });
+  let requests = 0;
+  const http: HttpClient = {
+    async request() {
+      requests++;
+      return {
+        moduleAlias: 'test.language',
+        title: '原始模块名称',
+        actions: [],
+        capabilities: [],
+        uiDescriptor: { moduleAlias: 'test.language', title: '原始标题' },
+        textBindings: {
+          '/title': {
+            source: {
+              sourceKind: 'CODE',
+              sourceId: 'module/test.language/title',
+              sourceVersion: 'v1',
+              originalText: '原始模块名称',
+            },
+            languages: {
+              en: {
+                text: 'English module',
+                requestedTag: 'en',
+                resourceTag: 'en',
+                missing: false,
+                fallback: false,
+              },
+            },
+          },
+          '/uiDescriptor/title': {
+            source: {
+              sourceKind: 'CODE',
+              sourceId: 'test.title',
+              sourceVersion: 'v1',
+              originalText: '原始标题',
+            },
+            languages: {
+              en: {
+                text: 'English title',
+                requestedTag: 'en',
+                resourceTag: 'en',
+                missing: false,
+                fallback: false,
+              },
+            },
+          },
+        },
+      } as never;
+    },
+  };
+  const parent = createModuleContext({
+    moduleAlias: 'test.language',
+    http,
+    language: parentLanguage,
+    runtimeAccess: 'VIEW',
+  });
+  let child!: ModuleContext<unknown>;
+  let inherited!: ModuleContext<unknown>;
+  const Consumer = defineComponent({
+    setup() {
+      inherited = useModuleContext();
+      expect(useModuleContext({ language: parentLanguage })).toBe(inherited);
+      child = useModuleContext({ language: childLanguage });
+      return () => h('p', child.runtime.presentationSnapshot?.()?.uiDescriptor?.title);
+    },
+  });
+  const wrapper = mount(ModuleContextProvider, {
+    props: { context: parent },
+    slots: { default: () => h(Consumer) },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toBe('English title');
+    expect(child.runtime.presentationSnapshot?.()?.title).toBe('English module');
+    expect(child.runtime.snapshot()?.title).toBe('原始模块名称');
+    expect(child.http).toBe(inherited.http);
+    expect(child.crud).toBe(inherited.crud);
+    expect(child.runtime.ready).toBe(parent.runtime.ready);
+    expect(child.runtime.snapshot()).toBe(parent.runtime.snapshot());
+    expect(parent.runtime.presentationSnapshot?.()?.uiDescriptor?.title).toBe('原始标题');
+    childLanguage.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.text()).toBe('原始标题');
+    parentLanguage.setLanguage('en');
+    await nextTick();
+    expect(wrapper.text()).toBe('原始标题');
+    expect(requests).toBe(1);
+  } finally {
+    wrapper.unmount();
+  }
 });

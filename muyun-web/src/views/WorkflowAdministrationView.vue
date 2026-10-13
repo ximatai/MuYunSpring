@@ -10,6 +10,7 @@ import {
   createWorkflowAdminClient,
 } from '@muyun/web-core';
 import type {
+  ModuleTitleView,
   WorkflowRenderBundle,
   WorkflowHistoryInstance,
   WorkflowEvent,
@@ -59,7 +60,15 @@ const tenantId = ref<string>(),
   historyMode = ref(false),
   error = ref(''),
   detailError = ref(''),
-  moduleLabels = ref<Record<string, string>>({});
+  moduleTitles = ref<Record<string, ModuleTitleView>>({});
+const moduleLabels = computed(() =>
+  Object.fromEntries(
+    Object.entries(moduleTitles.value).map(([alias, view]) => [
+      alias,
+      presentationLabel(view.title, view.titleText, workflowLanguage),
+    ]),
+  ),
+);
 const http = computed(() =>
   tenantId.value ? withHttpHeaders(context.http, { 'X-MuYun-Tenant-Id': tenantId.value }) : context.http,
 );
@@ -89,14 +98,15 @@ usePageDataChangeHandler(async (changeSet) => {
   const original = bundle.value;
   const refreshList = !historyMode.value && instances.value.some((item) => modules.has(item.moduleAlias));
   const refreshDetail = original && modules.has(original.instance.moduleAlias);
-  if (!refreshList && !refreshDetail) return;
+  const refreshDirectory = Object.keys(moduleTitles.value).some((alias) => modules.has(alias));
+  if (!refreshList && !refreshDetail && !refreshDirectory) return;
   const request = ++textRevision,
     current = revision,
     history = historyMode.value,
     id = selectedId.value,
     owner = user?.value?.userId;
   try {
-    const [nextInstances, next, nextEvents] = await Promise.all([
+    const [nextInstances, next, nextEvents, directory] = await Promise.all([
       refreshList
         ? client.value.instances({
             moduleAlias: moduleAlias.value || undefined,
@@ -107,6 +117,7 @@ usePageDataChangeHandler(async (changeSet) => {
         : undefined,
       refreshDetail && id ? client.value.bundle(id, history) : undefined,
       refreshDetail && id ? client.value.events(id, history) : undefined,
+      refreshDirectory ? createWorkflowClient(http.value).workbenchModules() : undefined,
     ]);
     if (
       request !== textRevision ||
@@ -116,6 +127,14 @@ usePageDataChangeHandler(async (changeSet) => {
       owner !== user?.value?.userId
     )
       return;
+    if (directory) {
+      moduleTitles.value = Object.fromEntries(
+        Object.entries(moduleTitles.value).map(([alias, view]) => {
+          const text = directory.modules[alias]?.titleText;
+          return [alias, sameWorkflowTextSource(view.titleText, text) ? { ...view, titleText: text } : view];
+        }),
+      );
+    }
     if (nextInstances)
       instances.value = instances.value.map((item) => {
         const updated = nextInstances.find(
@@ -252,8 +271,16 @@ async function execute() {
   try {
     if (
       !(await confirmAction({
-        title: `确认${operationTitle(pending.value.code)}？`,
-        content: operationImpact(pending.value.code) + ` 原因：${reason.value.trim()}`,
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.confirm-action-title',
+          '确认{operation}？',
+          { operation: operationTitle(pending.value.code) },
+        ),
+        content: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.confirm-action-content',
+          '{impact} 原因：{reason}',
+          { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
+        ),
         danger: true,
         okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.confirm-execute', '确认执行'),
       }))
@@ -275,11 +302,21 @@ async function execute() {
 }
 watch(
   tenantId,
-  async () => {
+  async (_, __, onCleanup) => {
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    moduleTitles.value = {};
     moduleAlias.value = '';
     recordId.value = '';
     page.value = 1;
-    moduleLabels.value = await createWorkflowClient(http.value).workbenchModules();
+    try {
+      const catalog = await createWorkflowClient(http.value).workbenchModules();
+      if (active) moduleTitles.value = catalog.modules ?? {};
+    } catch (cause) {
+      if (active) presentPlatformError(cause, { source: 'workflow-module-titles', phase: 'load' });
+    }
   },
   { immediate: true },
 );
@@ -587,7 +624,15 @@ function title(record: { id?: string; title?: string }) {
       "
       :subtitle="
         bundle
-          ? `${moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias} · ${workflowTitle(bundle.instance.instanceStatus)} · 版本 ${bundle.instance.versionNo}`
+          ? workflowLanguage.t(
+              'platform.screen.WorkflowAdministrationView.instance-title',
+              '{module} · {status} · 版本 {version}',
+              {
+                module: moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias,
+                status: workflowTitle(bundle.instance.instanceStatus),
+                version: bundle.instance.versionNo,
+              },
+            )
           : undefined
       "
       width="extraWide"
@@ -730,14 +775,30 @@ function title(record: { id?: string; title?: string }) {
       :before-close="mayCloseOperation"
       @close="pending = undefined"
       ><p v-if="bundle">
-        业务：{{ moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias }} · 记录
-        {{ bundle.instance.recordId }}
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.operation-record',
+            '业务：{module} · 记录 {record}',
+            {
+              module: moduleLabels[bundle.instance.moduleAlias] ?? bundle.instance.moduleAlias,
+              record: bundle.instance.recordId,
+            },
+          )
+        }}
       </p>
       <p>{{ operationImpact(pending?.code ?? '') }}</p>
       <p>
-        当前流程版本：{{
-          bundle?.instance.versionNo ?? '未知'
-        }}。操作成功后不可直接撤销，并记录操作人、时间和原因。
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.operation-version-warning',
+            '当前流程版本：{version}。操作成功后不可直接撤销，并记录操作人、时间和原因。',
+            {
+              version:
+                bundle?.instance.versionNo ??
+                workflowLanguage.t('platform.screen.WorkflowAdministrationView.unknown-version', '未知'),
+            },
+          )
+        }}
       </p>
       <label class="workflow-field"
         ><RecordFieldLabel required>{{

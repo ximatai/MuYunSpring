@@ -40,7 +40,7 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         this.mapper = mapper; this.resolvers = resolvers; this.catalogs = catalogs;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
-        return WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
+        return net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
@@ -76,7 +76,15 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
     }
     private void collect(Object value, String path, List<Slot> slots) {
         if (value instanceof WebListResponse<?> list) collect(list.records(), path + "/records", slots);
-        else if (value instanceof WebPageResponse<?> page) collect(page.records(), path + "/records", slots);
+        else if (value instanceof WebPageResponse<?> page) {
+            collect(page.records(), path + "/records", slots);
+            if (page.navigation() instanceof Map<?, ?> navigation && navigation.get("moduleTitles") instanceof net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog titles)
+                collect(titles, path + "/navigation/moduleTitles", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog titles) {
+            titles.modules().forEach((alias, title) -> collect(title, path + "/modules/" + alias.replace("~", "~0").replace("/", "~1"), slots));
+        } else if (value instanceof net.ximatai.muyun.spring.platform.module.ModuleTitleView title && title.titleSource() != null) {
+            slots.add(new Slot(path, "title", title.titleSource()));
+        }
         else if (value instanceof List<?> list) for (int i = 0; i < list.size(); i++) collect(list.get(i), path + "/" + i, slots);
         else if (value instanceof WebTreeNode<?> node) {
             collect(node.record(), path + "/record", slots); collect(node.children(), path + "/children", slots);
@@ -84,9 +92,11 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             slots.add(new Slot(path, "title", ConfigurationTextSources.menuTitle(menu.id(), menu.title())));
         } else if (value instanceof OptionItem option && option.titleSource() != null) {
             slots.add(new Slot(path, "title", option.titleSource()));
-        } else if (value instanceof WorkflowWorkbenchCard card && !Boolean.TRUE.equals(card.addedByAddSign()) &&
-                card.workflowVersionId() != null && card.nodeKey() != null && card.nodeTitle() != null) {
-            slots.add(new Slot(path, "nodeTitle", ConfigurationTextSources.workflowNodeTitle(card.workflowVersionId(), card.nodeKey(), card.nodeTitle())));
+        } else if (value instanceof WorkflowWorkbenchCard card) {
+            if (!Boolean.TRUE.equals(card.addedByAddSign()) && card.workflowVersionId() != null && card.nodeKey() != null && card.nodeTitle() != null)
+                slots.add(new Slot(path, "nodeTitle", ConfigurationTextSources.workflowNodeTitle(card.workflowVersionId(), card.nodeKey(), card.nodeTitle())));
+            if (card.business() != null && card.business().moduleTitleSource() != null)
+                slots.add(new Slot(path + "/business", "moduleTitle", card.business().moduleTitleSource()));
         } else if (value instanceof WorkflowEvent event) {
             frozenMessage(path, event.getMessage(), event.getMessageSourceText(), slots);
         } else if (value instanceof WorkflowHistoryEventView event) {

@@ -31,7 +31,7 @@ class CoreConfiguredTextSourceProviderTest {
         beans.registerSingleton("definitions", definitions); beans.registerSingleton("versions", versions);
         var provider = new CoreConfiguredTextSourceProvider(beans.getBeanProvider(net.ximatai.muyun.spring.platform.menu.MenuService.class),
                 beans.getBeanProvider(net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService.class),
-                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), new ObjectMapper());
+                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), new ObjectMapper(), beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
         try (var scope = TenantContext.system("translation maintenance")) {
             assertThat(provider.currentSources("sales.order")).containsExactly(
                     ConfigurationTextSources.workflowNodeTitle("published-1", "approval", "旧节点"),
