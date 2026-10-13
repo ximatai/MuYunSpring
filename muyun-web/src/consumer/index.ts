@@ -138,3 +138,6 @@ export type {
   ReferencePickerTreeNode,
   ReferencePickerValidity,
 } from '../platform-components/referencePickerModel';
+
+export { UiLanguageProvider, registerUiLanguageLocales } from '../vue-ui-antdv';
+export { default as LanguageSelector } from '../platform-workbench/LanguageSelector.vue';

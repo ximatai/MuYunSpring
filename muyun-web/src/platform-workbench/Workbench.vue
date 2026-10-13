@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LanguageSelector from './LanguageSelector.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -598,6 +599,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           </div>
 
           <div class="topbar-actions" aria-label="全局工具">
+            <LanguageSelector
+              :identity-scope="
+                startup?.session.currentUser
+                  ? JSON.stringify([startup.session.currentUser.userId, startup.session.currentUser.tenantId])
+                  : undefined
+              "
+            />
             <UiButton
               v-if="assistantRequestTurn"
               class="assistant-toggle"

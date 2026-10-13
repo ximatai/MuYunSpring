@@ -27,6 +27,7 @@ import { type RouteLocationNormalizedLoaded } from 'vue-router';
 import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
   UiThemeProvider,
+  UiLanguageProvider,
   confirmAction,
   defaultUiThemeSkinId,
   uiThemeSkinById,
@@ -51,6 +52,8 @@ import {
   provideModuleContextConfig,
   StaleAssistantInvocationError,
   userPreferences,
+  platformLanguageContext,
+  loadLanguageCatalog,
   normalizeError,
   userFacingErrorMessage,
   type AppError,
@@ -200,6 +203,10 @@ configureUserPreferenceBackend({
       query: { clientType: 'WEB' },
     }),
 });
+
+void loadLanguageCatalog(createBackendHttpClient({ withAuth: false }), platformLanguageContext).catch(
+  () => undefined,
+);
 
 const startup = ref<WorkbenchStartupState>();
 const assistantConversationClient = createAssistantConversationClient(createBackendHttpClient());
@@ -1442,47 +1449,62 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
 </script>
 
 <template>
-  <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
-    <LoginView
-      v-if="loginRequired"
-      :auth-client="authClient"
-      :login-context-client="loginContextClient"
-      :loading="loginLoading"
-      :error="error"
-      @authenticated="handleAuthenticated"
-    />
-    <Workbench
-      v-else
-      v-model:active-tab-key="activeTabKey"
-      :startup="startup"
-      :loading="loading"
-      :error="error"
-      :realtime-status="realtimeStatus"
-      :theme-appearance="activeThemeSkin.theme.appearance"
-      :locked-tab-keys="lockedTabKeys()"
-      :assistant-request-turn="assistantRequestTurn"
-      :construction-plan-client="constructionPlanClient"
-      :assistant-workspace-contribution="configurationWorkspace"
-      :assistant-conversation-client="assistantConversationClient"
-      :assistant-wait-for-page-ready="waitForAssistantPageReady"
-      @select-menu="handleSelectMenu"
-      @change-tab="handleChangeTab"
-      @close-tab="handleCloseTab"
-      @close-tabs="handleCloseTabs"
-      @toggle-tab-lock="handleToggleTabLock"
-      @reorder-tabs="handleReorderTabs"
-      @refresh-page="refreshPage"
-      @retry-load="!loading && loadWorkbench()"
-      @user-command="handleUserCommand"
-    >
-      <template #default>
-        <KeepAlive :max="pageCacheMax">
-          <component
-            :is="CachePageHost"
+  <UiLanguageProvider :context="platformLanguageContext" scope="global">
+    <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
+      <LoginView
+        v-if="loginRequired"
+        :auth-client="authClient"
+        :login-context-client="loginContextClient"
+        :loading="loginLoading"
+        :error="error"
+        @authenticated="handleAuthenticated"
+      />
+      <Workbench
+        v-else
+        v-model:active-tab-key="activeTabKey"
+        :startup="startup"
+        :loading="loading"
+        :error="error"
+        :realtime-status="realtimeStatus"
+        :theme-appearance="activeThemeSkin.theme.appearance"
+        :locked-tab-keys="lockedTabKeys()"
+        :assistant-request-turn="assistantRequestTurn"
+        :construction-plan-client="constructionPlanClient"
+        :assistant-workspace-contribution="configurationWorkspace"
+        :assistant-conversation-client="assistantConversationClient"
+        :assistant-wait-for-page-ready="waitForAssistantPageReady"
+        @select-menu="handleSelectMenu"
+        @change-tab="handleChangeTab"
+        @close-tab="handleCloseTab"
+        @close-tabs="handleCloseTabs"
+        @toggle-tab-lock="handleToggleTabLock"
+        @reorder-tabs="handleReorderTabs"
+        @refresh-page="refreshPage"
+        @retry-load="!loading && loadWorkbench()"
+        @user-command="handleUserCommand"
+      >
+        <template #default>
+          <KeepAlive :max="pageCacheMax">
+            <component
+              :is="CachePageHost"
+              v-if="
+                renderedPageRoute &&
+                renderedPageComponent &&
+                renderedPageRoute.meta.cacheable !== false &&
+                renderedTabMatchesRoute
+              "
+              :key="pageRuntimeCacheKey(renderedTabKey)"
+              :component="renderedPageComponent"
+              :route="renderedPageRoute"
+              :page-descriptor="pageDescriptorForTab(renderedTabKey)"
+              :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
+            />
+          </KeepAlive>
+          <StaticRoutePageHost
             v-if="
               renderedPageRoute &&
               renderedPageComponent &&
-              renderedPageRoute.meta.cacheable !== false &&
+              renderedPageRoute.meta.cacheable === false &&
               renderedTabMatchesRoute
             "
             :key="pageRuntimeCacheKey(renderedTabKey)"
@@ -1491,64 +1513,51 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
             :page-descriptor="pageDescriptorForTab(renderedTabKey)"
             :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
           />
-        </KeepAlive>
-        <StaticRoutePageHost
-          v-if="
-            renderedPageRoute &&
-            renderedPageComponent &&
-            renderedPageRoute.meta.cacheable === false &&
-            renderedTabMatchesRoute
-          "
-          :key="pageRuntimeCacheKey(renderedTabKey)"
-          :component="renderedPageComponent"
-          :route="renderedPageRoute"
-          :page-descriptor="pageDescriptorForTab(renderedTabKey)"
-          :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
-        />
-      </template>
-    </Workbench>
-    <ChangeOwnPasswordDialog
-      v-model:current-password="currentPassword"
-      v-model:new-password="newPassword"
-      v-model:confirm-password="confirmPassword"
-      :open="changePasswordOpen"
-      :saving="changePasswordSaving"
-      :error="changePasswordError"
-      @close="closeChangeOwnPasswordDialog"
-      @submit="submitChangeOwnPassword"
-    />
-    <CurrentUserProfileDialog
-      :open="profileOpen"
-      :profile="profile"
-      :loading="profileLoading"
-      :saving="profileSaving"
-      :error="profileError"
-      @close="closeCurrentUserProfile"
-      @submit="submitCurrentUserProfile"
-    />
-    <ThemeSkinPreferencesDialog
-      :open="themeSkinPreferencesOpen"
-      :skins="uiThemeSkins"
-      :active-skin-id="themeSkinId"
-      :saving="themeSkinSaving"
-      :error="themeSkinError"
-      @close="closeThemeSkinPreferences"
-      @select="selectThemeSkin"
-    />
-    <BusinessNotificationPanel
-      :notifications="businessNotifications"
-      :execute-action="executeBusinessNotificationAction"
-      @dismiss="dismissBusinessNotification"
-    />
-    <div v-if="securityNotification" class="security-notification-mask" role="presentation">
-      <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-        <h2>需要重新登录</h2>
-        <p>{{ securityNotification.message }}</p>
-        <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-        <button type="button" @click="forceLocalLogout">立即重新登录</button>
-      </section>
-    </div>
-  </UiThemeProvider>
+        </template>
+      </Workbench>
+      <ChangeOwnPasswordDialog
+        v-model:current-password="currentPassword"
+        v-model:new-password="newPassword"
+        v-model:confirm-password="confirmPassword"
+        :open="changePasswordOpen"
+        :saving="changePasswordSaving"
+        :error="changePasswordError"
+        @close="closeChangeOwnPasswordDialog"
+        @submit="submitChangeOwnPassword"
+      />
+      <CurrentUserProfileDialog
+        :open="profileOpen"
+        :profile="profile"
+        :loading="profileLoading"
+        :saving="profileSaving"
+        :error="profileError"
+        @close="closeCurrentUserProfile"
+        @submit="submitCurrentUserProfile"
+      />
+      <ThemeSkinPreferencesDialog
+        :open="themeSkinPreferencesOpen"
+        :skins="uiThemeSkins"
+        :active-skin-id="themeSkinId"
+        :saving="themeSkinSaving"
+        :error="themeSkinError"
+        @close="closeThemeSkinPreferences"
+        @select="selectThemeSkin"
+      />
+      <BusinessNotificationPanel
+        :notifications="businessNotifications"
+        :execute-action="executeBusinessNotificationAction"
+        @dismiss="dismissBusinessNotification"
+      />
+      <div v-if="securityNotification" class="security-notification-mask" role="presentation">
+        <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
+          <h2>需要重新登录</h2>
+          <p>{{ securityNotification.message }}</p>
+          <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
+          <button type="button" @click="forceLocalLogout">立即重新登录</button>
+        </section>
+      </div>
+    </UiThemeProvider>
+  </UiLanguageProvider>
 </template>
 
 <style scoped>

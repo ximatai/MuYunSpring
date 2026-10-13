@@ -10,6 +10,9 @@ export function createViteConfig(mode = 'development') {
     // mount the same artifact at a different prefix.
     base: normalizeWorkbenchBase(environment.VITE_MUYUN_WEB_BASE),
     plugins: [vue()],
+    optimizeDeps: {
+      include: ['ant-design-vue/es/locale/en_US', 'ant-design-vue/es/locale/zh_CN'],
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -313,6 +313,19 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void exposesDeploymentLanguagesBeforeLoginAndBindsTheEffectiveRequestLanguage() {
+        var headers = new org.springframework.http.HttpHeaders();
+        headers.set("Accept-Language", "en-US");
+        var response = restTemplate.exchange("/platform.localization/catalog", org.springframework.http.HttpMethod.GET,
+                new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getHeaders().getFirst("Content-Language")).isEqualTo("en");
+        assertThat(response.getHeaders().getVary()).contains("Accept-Language");
+        assertThat(response.getBody().path("defaultTag").asText()).isEqualTo("zh-CN");
+        assertThat(response.getBody().path("languages").toString()).contains("English", "简体中文");
+    }
+
+    @Test
     void shouldLoadApplicationContextWithRealDatabase() {
         assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
                 .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);
