@@ -1,6 +1,6 @@
 # 语言基础接入
 
-当前提供语言目录、语言上下文、代码资源解析、账户语言偏好及控件语言。页面配置译文、业务规则提示和平台各专题的完整覆盖继续按[国际化专项治理](../platform/INTERNATIONALIZATION_GOVERNANCE.md)推进。
+当前提供语言目录、语言上下文、代码资源解析、账户语言偏好、控件语言及已生效模块界面槽位的在线翻译。平台各专题的完整覆盖继续按[国际化专项治理](../platform/INTERNATIONALIZATION_GOVERNANCE.md)推进。
 
 ## 后端
 
@@ -19,7 +19,7 @@ fr.fallback=en
 
 `LanguageContext` 只表达展示语言，与租户、身份、时区和币种独立。请求结束后恢复原作用域；异步 Servlet 再派发保持同一请求语言，Spring MVC 的默认 LocaleResolver 使用同一有效语言。后台执行需要显式创建语言作用域，不依赖线程池继承请求状态。
 
-`TextResources.resolve(key, defaultText, arguments)` 使用当前语言、登记的回退链及原文依次解析。参数使用 `{name}`，保留业务值；返回的 `Resolution` 同时表达有效资源语言、回退及缺失事实。当前解析面面向代码资源，在线配置的来源和版本契约另按专项阶段接入。
+`TextResources.resolve(key, defaultText, arguments)` 使用当前语言、登记的回退链及原文依次解析。参数使用 `{name}`，保留业务值；返回的 `Resolution` 同时表达有效资源语言、回退及缺失事实。平台 `TextResolver` 同时解析代码资源与已发布配置译文；`prepare(sources)` 对一个展示批次读取配置译文，避免逐字段查询。
 
 ## 前端与公共消费者
 
@@ -41,12 +41,27 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 ## 声明文案与展示快照
 
-`TextReference` 保留 `sourceKind`（`CODE` 或 `CONFIG`）、稳定 `sourceId`、原文版本 `sourceVersion` 与 `originalText`；`TextResolver` 是两种来源的统一解析入口。代码声明的译文仍由所属应用部署，在线配置译文按原文版本独立发布。原文内容版本使用 UTF-8 内容摘要，翻译修改不改变原文版本。目前 `CODE` 解析代码资源，`CONFIG` 保留原文回退；在线维护与独立发布按专项下一阶段接入。
+`TextReference` 保留 `sourceKind`（`CODE` 或 `CONFIG`）、稳定 `sourceId`、原文版本 `sourceVersion` 与 `originalText`；`TextResolver` 是两种来源的统一解析入口。代码声明的译文仍由所属应用部署，在线配置译文按原文版本独立发布。原文内容版本使用 UTF-8 内容摘要，翻译修改不改变原文版本。`CODE` 解析部署资源，`CONFIG` 只读取身份、原文版本及原文内容匹配的已发布译文；未发布草稿不参与展示。
 
 静态模块编译时为明确的展示槽位保留 `sourceTexts`。文案键按模块、槽位及稳定字段或分组身份生成，例如 `ui/education.teacher/page/detail/editor/fields/main/title/label`；调整字段顺序不改变文案身份。字段名、动作码、公式、权限和业务记录值不进入这个目录。页面自己的标签与默认编辑器的标签属于不同槽位，可以分别翻译。
 
-模块运行上下文的 HTTP 响应生成展示投影，同时提供 `textBindings`，其中包含对应原文引用及语言资源。输出地址按本次展示结构生成，保留编译原文与共享执行计划；在线配置覆盖接入时须取得自己的原文引用，不借用底层声明的翻译。表单和列表展示消费这一资源，不把译文写入普通保存请求。
+模块运行上下文的 HTTP 响应生成展示投影，同时提供 `textBindings`，其中包含对应原文引用及语言资源。输出地址按本次展示结构生成，保留编译原文与共享执行计划；在线配置覆盖保留自己的原文引用，不借用底层声明的翻译。表单和列表展示消费这一资源，不把译文写入普通保存请求。
 
 前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。
 
 公共动作消息可以携带 `textSource` 和具名参数，HTTP 交付只解析展示文字，保留动作码、记录身份、数据变更和原始参数。业务记录名称作为参数原值交付，不能把它当作配置标签翻译。错误日志保留原文事实，返回提示按请求语言解析。
+
+## 在线配置译文维护与发布
+
+工作台 `/platform/translations` 维护已生效模块的配置文本。当前目录覆盖全局 Web 运行页面的明确展示槽位，包括动态页面及静态页面的在线视图覆盖；菜单、字典、流程与其他专题来源按后续覆盖阶段接入。目录展示的是有效界面槽位原文，普通配置保存仍编辑原文，不通过译文维护接口修改配置结构或业务值。
+
+维护接口归属 `platform.localization`，沿用平台动作授权和系统配置作用域：
+
+- `GET /platform.localization/modules/{moduleAlias}/sources`：读取由生产者提供的配置原文引用；代码文案不进入在线维护目录。
+- `GET /platform.localization/modules/{moduleAlias}/translations`：读取维护草稿、发布译文和原文版本。
+- `POST /platform.localization/drafts`：提交 `moduleAlias/sourceId/sourceVersion/languageTag/text/version`；新增时不提交草稿版本，更新必须提交已读取的版本。
+- `POST /platform.localization/translations/{id}/publish`：提交 `sourceVersion/version`，核验有效原文与乐观锁版本后独立发布。
+
+每个原文版本保留独立译文记录。原文变化后旧译文仍可按其冻结引用读取，但不能通过当前原文维护命令误发布为新原文的翻译；维护界面将旧译文作为复核参考。译文发布产生 `configuration-translations-changed` 事实，不重编译页面执行计划，不发布页面结构，不执行 schema 或业务规则刷新。
+
+模块会话可调用 `runtime.refreshTexts()`；工作台收到发布通知时自动刷新相关上下文。刷新只按稳定来源身份、版本和原文匹配替换语言绑定，不更改执行描述符、记录、权限或草稿；加载顺序变化不改变身份，过期响应不覆盖较新的资源。公开消费者可以接入同一通知并显式调用此方法。

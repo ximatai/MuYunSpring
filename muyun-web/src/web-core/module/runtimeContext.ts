@@ -71,6 +71,8 @@ export interface ModuleRuntimeContextState {
   load(): Promise<ModuleRuntimeContext>;
   snapshot(): ModuleRuntimeContext | undefined;
   presentationSnapshot?(): ModuleRuntimeContext | undefined;
+  /** Refresh only matching source translations; retain execution facts and active drafts. */
+  refreshTexts?(): Promise<void>;
   error(): AppError | undefined;
   hasAbility(ability: ModuleAbilityCode | string): boolean | undefined;
   action(actionCode: string, recordId?: string): ModuleActionState | undefined;
@@ -112,6 +114,36 @@ export function createModuleRuntimeContextState(
         throw cause;
       });
     return loading;
+  };
+  let textRefreshRevision = 0;
+  const refreshTexts = async () => {
+    const revision = ++textRefreshRevision;
+    await load();
+    const installed = current.value;
+    if (!installed) return;
+    const response = await http.request<ModuleRuntimeContext>({
+      path: `/platform.module/${encodeURIComponent(moduleAlias)}/${runtimeContextPath(access)}`,
+    });
+    const active = current.value;
+    if (!active || revision !== textRefreshRevision || active.uiDescriptor !== installed.uiDescriptor) return;
+    const bindings = { ...active.textBindings };
+    const identity = (source: import('@muyun/web-contracts').TextReference) =>
+      JSON.stringify([source.sourceKind, source.sourceId, source.sourceVersion, source.originalText]);
+    const refreshed = new Map(
+      Object.values(response.textBindings ?? {}).map((text) => [identity(text.source), text]),
+    );
+    for (const [path, existing] of Object.entries(installed.textBindings ?? {})) {
+      const next = refreshed.get(identity(existing.source));
+      if (
+        next &&
+        next.source.sourceKind === existing.source.sourceKind &&
+        next.source.sourceId === existing.source.sourceId &&
+        next.source.sourceVersion === existing.source.sourceVersion &&
+        next.source.originalText === existing.source.originalText
+      )
+        bindings[path] = next;
+    }
+    current.value = { ...active, textBindings: bindings };
   };
   const recordActions = (recordId: string) => {
     const normalizedRecordId = requireRecordId(recordId);
@@ -239,6 +271,7 @@ export function createModuleRuntimeContextState(
     load,
     snapshot: () => current.value,
     presentationSnapshot: () => presentation.value,
+    refreshTexts,
     error: () => currentError.value,
     hasAbility: (ability) => {
       const context = current.value;

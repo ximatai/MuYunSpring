@@ -23,6 +23,12 @@ export interface PlatformAdminRoute {
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
   {
+    route: '/platform/translations',
+    moduleAlias: 'platform.localization',
+    component: defineAsyncComponent(() => import('../views/ConfigurationTranslationView.vue')),
+    layout: 'workspace',
+  },
+  {
     route: '/workflow/admin',
     moduleAlias: 'platform.workflow_admin',
     component: defineAsyncComponent(() => import('../views/WorkflowAdministrationView.vue')),

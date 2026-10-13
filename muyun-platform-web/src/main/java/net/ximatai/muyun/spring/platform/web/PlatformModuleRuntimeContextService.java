@@ -607,10 +607,10 @@ public class PlatformModuleRuntimeContextService {
         ResolvedModuleUiDescriptor descriptor = staticDefinition
                 .map(definition -> ModuleUiDescriptorCompiler.compile(definition, this::referencePickerMode))
                 .orElse(null);
-        return descriptor == null ? null : descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
-                .withFileReferences(descriptor.fileReferences().stream()
-                .map(reference -> withFieldAccess(moduleAlias, reference))
-                .toList());
+        return descriptor == null ? null : ModuleUiTextLocations.withConfiguredSources(
+                descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
+                        .withFileReferences(descriptor.fileReferences().stream()
+                                .map(reference -> withFieldAccess(moduleAlias, reference)).toList()), false);
     }
 
     private ResolvedModuleUiDescriptor dynamicUiDescriptor(String moduleAlias,
@@ -713,7 +713,7 @@ public class PlatformModuleRuntimeContextService {
         }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
-        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+        return ModuleUiTextLocations.withConfiguredSources(descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page())), true);
     }
 
     /**

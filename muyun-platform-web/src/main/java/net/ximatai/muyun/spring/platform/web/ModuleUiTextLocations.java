@@ -29,6 +29,21 @@ final class ModuleUiTextLocations {
         return Map.copyOf(sources);
     }
 
+    static ResolvedModuleUiDescriptor withConfiguredSources(ResolvedModuleUiDescriptor descriptor, boolean configurationRoot) {
+        if (descriptor == null) return null;
+        Map<String, TextReference> sources = new LinkedHashMap<>(descriptor.sourceTexts());
+        Map<String, TextReference> configuredSources = new LinkedHashMap<>();
+        for (var location : of(descriptor)) {
+            if (configurationRoot || location.configured()) {
+                var reference = TextReference.configured("config/" + location.bindingKey(), location.originalText());
+                var previous = configuredSources.putIfAbsent(location.bindingKey(), reference);
+                if (previous != null && !previous.equals(reference)) throw new IllegalArgumentException("Conflicting UI text source: " + location.bindingKey());
+            }
+        }
+        sources.putAll(configuredSources);
+        return descriptor.withSourceTexts(sources);
+    }
+
     private void text(String path, String key, String property, String value) {
         if (value != null && !value.isBlank()) locations.add(new Location(path + "/" + property, key + "/" + property, value, configured));
     }

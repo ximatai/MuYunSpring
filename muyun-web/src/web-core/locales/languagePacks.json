@@ -29,7 +29,21 @@
       "platform.record.label": "记录",
       "platform.record.search": "搜索{label}",
       "platform.record.empty": "暂无{label}",
-      "platform.record.choose": "请选择{label}，或新建{label}"
+      "platform.record.choose": "请选择{label}，或新建{label}",
+      "platform.translation.title": "配置翻译",
+      "platform.translation.scope": "维护已生效界面原文的译文；业务记录内容保持原文。",
+      "platform.translation.module": "模块",
+      "platform.translation.load": "加载原文",
+      "platform.translation.target-language": "翻译语言",
+      "platform.translation.source": "选择原文",
+      "platform.translation.location": "来源位置",
+      "platform.translation.original": "原文",
+      "platform.translation.review-required": "原文已变化，旧译文仅供复核参考：",
+      "platform.translation.draft": "译文草稿",
+      "platform.translation.published": "已发布译文",
+      "platform.translation.save-draft": "保存草稿",
+      "platform.translation.publish": "独立发布译文",
+      "platform.translation.empty": "选择模块并加载可翻译的在线配置原文。代码声明文案通过所属应用语言资源维护。"
     }
   },
   "en": {
@@ -63,7 +77,21 @@
       "platform.record.label": "record",
       "platform.record.search": "Search {label}",
       "platform.record.empty": "No records yet",
-      "platform.record.choose": "Select a {label}, or create a new one"
+      "platform.record.choose": "Select a {label}, or create a new one",
+      "platform.translation.title": "Configuration translations",
+      "platform.translation.scope": "Maintain translations of active interface text. Business record values remain unchanged.",
+      "platform.translation.module": "Module",
+      "platform.translation.load": "Load sources",
+      "platform.translation.target-language": "Target language",
+      "platform.translation.source": "Source text",
+      "platform.translation.location": "Source location",
+      "platform.translation.original": "Original text",
+      "platform.translation.review-required": "The original changed. Previous translation for review: ",
+      "platform.translation.draft": "Translation draft",
+      "platform.translation.published": "Published translation",
+      "platform.translation.save-draft": "Save draft",
+      "platform.translation.publish": "Publish translation",
+      "platform.translation.empty": "Choose a module and load its configured text sources. Code text is maintained in the owning application language resources."
     }
   }
 }

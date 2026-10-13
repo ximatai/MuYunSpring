@@ -112,7 +112,7 @@ public final class LanguageCatalog {
         return List.copyOf(chain);
     }
 
-    static String canonicalTag(String tag) {
+    public static String canonicalTag(String tag) {
         String canonical = new Locale.Builder().setLanguageTag(Objects.requireNonNull(tag, "languageTag")).build().toLanguageTag();
         if ("und".equals(canonical)) throw new IllegalArgumentException("Language tag must identify a language");
         return canonical;

@@ -198,6 +198,77 @@ public class TeachingDemoIT {
     private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
 
     @Test
+    void configuredExamTranslationsPublishIndependentlyAndKeepMainChildRecordValues() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var translations = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var plans = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog.class);
+        MockMvc mvc = webAppContextSetup(webApplicationContext)
+                .addFilters(webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("exam-i18n", "Language Test"));
+             var system = TenantContext.system("exam translation contract")) {
+            examPageBootstrap.run();
+            plans.rebuildDynamicPlan("education.exam");
+            var before = plans.find("education.exam").orElseThrow();
+            var originals = translations.currentSources("education.exam");
+            var main = originals.stream().filter(source -> source.sourceId().endsWith("/page/detail/editor/fields/main/title/label")).findFirst().orElseThrow();
+            var child = originals.stream().filter(source -> (source.sourceId().endsWith("/score/label") || source.sourceId().endsWith("/score/title"))).findFirst().orElseThrow();
+            for (var entry : java.util.Map.of(main, "Exam name", child, "Score").entrySet()) {
+                var draft = translations.saveDraft("education.exam", entry.getKey().sourceId(), entry.getKey().sourceVersion(), "en", entry.getValue(), null);
+                var stillOriginal = mapper.readTree(mvc.perform(get("/platform.module/education.exam/context").header("Accept-Language", "en")).andReturn().getResponse().getContentAsString());
+                assertThat(stillOriginal.toString()).doesNotContain("\"text\":\"" + entry.getValue() + "\"");
+                translations.publish(draft.getId(), entry.getKey().sourceVersion(), draft.getVersion());
+            }
+            var english = mapper.readTree(mvc.perform(get("/platform.module/education.exam/context").header("Accept-Language", "en")).andReturn().getResponse().getContentAsString());
+            var chinese = mapper.readTree(mvc.perform(get("/platform.module/education.exam/context").header("Accept-Language", "zh-CN")).andReturn().getResponse().getContentAsString());
+            var bindings = english.path("textBindings").fields();
+            boolean childLabelFound = false;
+            while (bindings.hasNext()) {
+                var entry = bindings.next();
+                if (entry.getValue().at("/source/sourceId").asText().equals(child.sourceId())) {
+                    assertThat(english.at(entry.getKey()).asText()).isEqualTo("Score");
+                    assertThat(chinese.at(entry.getKey()).asText()).isEqualTo(child.originalText());
+                    childLabelFound = true;
+                }
+            }
+            assertThat(childLabelFound).isTrue();
+            assertThat(english.at("/uiDescriptor/page/detail/editor/fields/0/label").asText()).isEqualTo("Exam name");
+            assertThat(plans.find("education.exam").orElseThrow()).isSameAs(before);
+            try (var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+                String title = "中文考试原名-" + serial();
+                var inserted = mvc.perform(post("/education.exam/insert").header("Accept-Language", "en")
+                        .contentType("application/json").content("""
+                        {"values":{"title":"%s","classroomId":"demo_classroom_g1a",
+                        "subjectCategoryId":"demo_subject_mathematics","examDate":"2026-09-07"},
+                        "children":{"participants":[{"values":{"studentId":"demo_student_1001","score":81,"attendanceStatus":"ATTENDED"}}]}}
+                        """.formatted(title))).andReturn().getResponse();
+                assertThat(inserted.getStatus()).as(inserted.getContentAsString()).isEqualTo(201);
+                String id = mapper.readTree(inserted.getContentAsString()).at("/data/id").asText();
+                var reopened = mvc.perform(get("/education.exam/view/{id}", id).header("Accept-Language", "en")).andReturn().getResponse();
+                assertThat(reopened.getStatus()).as(reopened.getContentAsString()).isEqualTo(200);
+                assertThat(reopened.getContentAsString()).contains(title, "ATTENDED");
+                var queried = mvc.perform(post("/education.exam/query").header("Accept-Language", "en")
+                        .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of("quickSearch", title)))).andReturn().getResponse();
+                assertThat(queried.getStatus()).as(queried.getContentAsString()).isEqualTo(200);
+                assertThat(queried.getContentAsString()).contains(title);
+                var saved = dynamicRecords.mainEntity("education.exam").select(id);
+                var updated = mvc.perform(post("/education.exam/update/{id}", id).header("Accept-Language", "en")
+                        .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of("id", id, "version", saved.getVersion(),
+                                "values", java.util.Map.of("title", title, "classroomId", "demo_classroom_g1a",
+                                        "subjectCategoryId", "demo_subject_mathematics", "examDate", "2026-09-07"))))).andReturn().getResponse();
+                assertThat(updated.getStatus()).as(updated.getContentAsString()).isEqualTo(200);
+
+                assertThat(dynamicRecords.mainEntity("education.exam").select(id).getValues()).containsEntry("title", title);
+                assertThat(dynamicRecords.listSystem("education.exam", "exam_participant", Criteria.of().eq("examId", id)))
+                        .singleElement().satisfies(record -> assertThat(record.getValues()).containsEntry("attendanceStatus", "ATTENDED"));
+            }
+        }
+        MockMvc anonymous = webAppContextSetup(webApplicationContext).addFilters(
+                new net.ximatai.muyun.spring.web.CurrentUserWebFilter(() -> java.util.Optional.empty(), requestTenantVerifier)).build();
+        assertThat(anonymous.perform(get("/platform.localization/catalog")).andReturn().getResponse().getStatus()).isEqualTo(200);
+        assertThat(anonymous.perform(get("/platform.localization/modules/education.exam/sources")).andReturn().getResponse().getStatus()).isEqualTo(401);
+    }
+
+    @Test
     void staticTeacherSupportsBilingualPresentationAndRealCrudWithoutTranslatingRecordValues() throws Exception {
         var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         var languageFilter = webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class);

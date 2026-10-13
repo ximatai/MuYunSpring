@@ -64,7 +64,13 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
         Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> visibleSources = new LinkedHashMap<>();
         var descriptor = context.uiDescriptor();
         if (descriptor == null) return context;
-        for (var location : ModuleUiTextLocations.of(descriptor)) {
+        var locations = ModuleUiTextLocations.of(descriptor).stream().filter(location -> {
+            var source = descriptor.sourceTexts().get(location.bindingKey());
+            return source != null && source.originalText().equals(location.originalText()) &&
+                    (!location.configured() || source.sourceKind() == net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+        }).toList();
+        if (texts != null) texts = texts.prepare(locations.stream().map(location -> descriptor.sourceTexts().get(location.bindingKey())).toList());
+        for (var location : locations) {
             var source = descriptor.sourceTexts().get(location.bindingKey());
             // An online override must obtain its own source fact; never borrow the underlying code translation.
             if (source == null || !source.originalText().equals(location.originalText()) ||

@@ -1,3 +1,4 @@
+import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
 import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
@@ -1148,6 +1149,31 @@ export function useModulePageSession(
     // Its mounted form immediately recomputes the current validity afterwards.
     localEditFormValid.value = true;
   });
+  usePageDataChangeHandler(async (changeSet) => {
+    const aliases = new Set(
+      changeSet.changes
+        .filter((change) => change.type === 'configuration-translations-changed')
+        .map((change) => change.moduleAlias),
+    );
+    if (!aliases.size) return;
+    const contexts = new Set([
+      context,
+      ...navigatorLevels.value.map((level) => level.context),
+      referenceRecordDetailBrowser.activeContext.value,
+    ]);
+    await Promise.all(
+      [...contexts]
+        .filter((target) => target && aliases.has(target.moduleAlias))
+        .map(async (target) => {
+          try {
+            await target?.runtime.refreshTexts?.();
+          } catch (cause) {
+            presentPlatformError(cause, { source: 'module-translation-refresh', phase: 'load' });
+          }
+        }),
+    );
+  });
+
   /** Only server-issued executable contracts may mount a relation-list runner. */
   const executableDetailRelations = computed<ResolvedDetailRelationDescriptor[]>(() =>
     [
