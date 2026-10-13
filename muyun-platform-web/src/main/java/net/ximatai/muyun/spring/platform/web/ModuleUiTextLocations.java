@@ -45,6 +45,21 @@ final class ModuleUiTextLocations {
             var contribution = descriptor.editorContributions().get(index);
             view(contribution.editor(), "/editorContributions/" + index + "/editor", key + "/editorContributions/" + segment(contribution.resource()) + "/editor");
         }
+        for (int index = 0; index < descriptor.detailRelations().size(); index++) {
+            var relation = descriptor.detailRelations().get(index);
+            String path = "/detailRelations/" + index, source = key + "/detailRelations/" + segment(relation.code());
+            text(path, source, "title", relation.title());
+            if (relation.listProjection() != null) {
+                boolean previous = configured;
+                configured = relation.listProjection().uiConfigId() != null;
+                try {
+                    for (int fieldIndex = 0; fieldIndex < relation.listProjection().fields().size(); fieldIndex++) {
+                        var field = relation.listProjection().fields().get(fieldIndex);
+                        text(path + "/listProjection/fields/" + fieldIndex, source + "/listProjection/fields/" + segment(field.fieldName()), "title", field.title());
+                    }
+                } finally { configured = previous; }
+            }
+        }
         var page = descriptor.page();
         if (page == null) return;
         String pageKey = key + "/page";
@@ -72,6 +87,17 @@ final class ModuleUiTextLocations {
         if (page.list() != null) {
             var list = page.list();
             text("/page/list", pageKey + "/list", "searchPlaceholder", list.searchPlaceholder());
+            for (int index = 0; index < list.persistentQueryControls().size(); index++) {
+                var control = list.persistentQueryControls().get(index);
+                text("/page/list/persistentQueryControls/" + index, pageKey + "/list/persistentQueryControls/" + segment(control.id()), "title", control.title());
+            }
+            for (int index = 0; index < list.querySummaries().size(); index++) {
+                var summary = list.querySummaries().get(index);
+                String path = "/page/list/querySummaries/" + index, source = pageKey + "/list/querySummaries/" + segment(summary.key());
+                text(path, source, "title", summary.title());
+                text(path, source, "groupByTitle", summary.groupByTitle());
+                text(path, source, "sumFieldTitle", summary.sumFieldTitle());
+            }
             view(list.fields(), "/page/list/fields", pageKey + "/list/fields");
             if (list.title() != null) text("/page/list/title", pageKey + "/list/title", "text", list.title().text());
             if (list.subtitle() != null) text("/page/list/subtitle", pageKey + "/list/subtitle", "text", list.subtitle().text());

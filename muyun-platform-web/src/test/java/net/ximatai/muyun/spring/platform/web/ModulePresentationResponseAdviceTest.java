@@ -14,6 +14,28 @@ import static org.assertj.core.api.Assertions.*;
 
 class ModulePresentationResponseAdviceTest {
     @Test
+    void includesQueryControlsAndSummaryTitlesWithoutTranslatingProtocolFields() {
+        var ui = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("test.order")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("code")))
+                        .detail(detail -> detail.editor(form -> form.field("code")))))
+                .build());
+        var page = ui.page();
+        var list = new ResolvedPageListDescriptor(null, page.list().fields(), null, null, List.of(),
+                List.of(new ResolvedPageListFieldPersistentQueryControlDescriptor("active", "仅启用", "enabled",
+                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, List.of(true))),
+                List.of(new ResolvedPageListQuerySummaryDescriptor("total", "合计", PageListQuerySummaryDefinition.Source.SUM,
+                        "amount", null, "category", "分类", "金额")));
+        ui = ui.withPage(new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(), list,
+                page.treeResource(), page.detail(), page.traits(), page.quickSearchFields(), page.actions()));
+        var sources = ModuleUiTextLocations.codeSources(ui);
+        assertThat(sources).containsKeys("ui/test.order/page/list/persistentQueryControls/active/title",
+                "ui/test.order/page/list/querySummaries/total/title", "ui/test.order/page/list/querySummaries/total/groupByTitle",
+                "ui/test.order/page/list/querySummaries/total/sumFieldTitle");
+        assertThat(sources.keySet()).noneMatch(key -> key.endsWith("/fieldName") || key.endsWith("/groupByField"));
+    }
+
+    @Test
     void projectsOnlyDeclaredTextAndLeavesSharedExecutionFactsIntact() {
         var ui = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("test.order")
                 .page(PageTemplates.flatManagement(page -> page

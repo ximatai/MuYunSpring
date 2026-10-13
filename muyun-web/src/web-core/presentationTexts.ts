@@ -68,6 +68,8 @@ function project<T extends TextPresentationDocument>(
         'fallbackTitle',
         'createTitle',
         'treeRootTitle',
+        'groupByTitle',
+        'sumFieldTitle',
         'trueLabel',
         'falseLabel',
         'message',

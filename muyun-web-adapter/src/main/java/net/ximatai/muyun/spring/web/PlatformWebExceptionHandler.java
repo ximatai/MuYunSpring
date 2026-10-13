@@ -234,11 +234,14 @@ public class PlatformWebExceptionHandler {
     void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
 
     private PlatformWebError presentationError(PlatformWebError original) {
-        if (original == null || original.textSource() == null || textResolver == null) return original;
-        String display = textResolver.resolve(original.textSource(), original.messageArgs()).text();
+        if (original == null || textResolver == null) return original;
         var action = original.actionMessage();
-        return original.withDisplayText(display, action == null ? null : new ActionMessage(action.code(), display,
-                action.type(), original.messageArgs(), original.textSource()));
+        var source = original.textSource() != null ? original.textSource() : action == null ? null : action.textSource();
+        if (source == null) return original;
+        var args = original.textSource() != null || action == null ? original.messageArgs() : action.messageArgs();
+        String display = textResolver.resolve(source, args).text();
+        return original.withTextSource(source).withDisplayText(display, action == null ? null : new ActionMessage(action.code(), display,
+                action.type(), args, source));
     }
 
     private ResponseEntity<PlatformWebError> recorded(ResponseEntity<PlatformWebError> response, Throwable exception) {

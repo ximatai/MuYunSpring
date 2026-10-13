@@ -1,5 +1,13 @@
 import { computed, inject, provide, ref, type InjectionKey } from 'vue';
-import { createModuleContext, type AppError, type HttpClient, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleContext,
+  displayModuleRuntime,
+  platformLanguageContext,
+  type LanguageContext,
+  type AppError,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type { QueryListRecord } from './recordQueryListColumnModel';
 import { resolveRecordDetailFields, type RecordFormFieldDescriptor } from './recordFormFieldModel';
 
@@ -41,7 +49,10 @@ export const referenceRecordDetailBrowserKey: InjectionKey<ReferenceRecordDetail
   'muyun.reference-record-detail-browser',
 );
 
-export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceRecordDetailBrowser {
+export function createReferenceRecordDetailBrowser(
+  http: HttpClient,
+  language: LanguageContext = platformLanguageContext,
+): ReferenceRecordDetailBrowser {
   const contexts = new Map<string, ModuleContext<QueryListRecord>>();
   const accessByModule = new Map<string, AccessState>();
   const deniedRecordKeys = new Set<string>();
@@ -53,7 +64,9 @@ export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceR
     return current ? contexts.get(current.targetModuleAlias) : undefined;
   });
   const fields = computed(() =>
-    resolveRecordDetailFields(activeContext.value?.runtime.snapshot()?.uiDescriptor),
+    resolveRecordDetailFields(
+      activeContext.value ? displayModuleRuntime(activeContext.value.runtime)?.uiDescriptor : undefined,
+    ),
   );
   const title = computed(() => {
     const record = active.value?.record;
@@ -66,6 +79,7 @@ export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceR
       // menu/page headers, but retains session and tenant headers supplied by the app.
       context = createModuleContext<QueryListRecord>({
         http,
+        language,
         moduleAlias: targetModuleAlias,
         runtimeAccess: 'VIEW',
       });

@@ -270,7 +270,9 @@ export function useNavigatorRuntime(
           navigatorContext.abilities.hasTree() === true &&
           navigatorContext.can('sort') === true;
         return {
-          descriptor,
+          descriptor:
+            runtimePage.value?.navigator?.levels.find((current) => current.key === descriptor.key) ??
+            descriptor,
           context: navigatorContext,
           tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
           sort: {

@@ -1,4 +1,4 @@
-import { useLanguageContext } from '@muyun/web-core';
+import { displayModuleRuntime, useLanguageContext } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
 import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
@@ -272,7 +272,7 @@ export function useModulePageSession(
           (request) => isHostScopedRequest(request.path),
         ),
       });
-  const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http);
+  const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http, language);
   onUnmounted(referenceRecordDetailBrowser.dispose);
 
   const { tenantScopeExplorerCount, tenantScopeFixedByIdentity } = props.tenantController;
@@ -936,7 +936,7 @@ export function useModulePageSession(
     const level = navigatorManagementLevel.value;
     if (!level) return resolveRecordFormFields(undefined);
     return resolveRecordFormFields(
-      level.context.runtime.snapshot()?.uiDescriptor,
+      displayModuleRuntime(level.context.runtime)?.uiDescriptor,
       undefined,
       level.descriptor.management?.editorSurface,
     );
@@ -2938,6 +2938,11 @@ export function useModulePageSession(
           level.context.runtime.snapshot()?.uiDescriptor,
           level.descriptor.management?.editorSurface,
         ),
+        true,
+        formValidationRulesOf(
+          displayModuleRuntime(level.context.runtime)?.uiDescriptor,
+          level.descriptor.management?.editorSurface,
+        ),
       )
     )
       return;
@@ -3175,8 +3180,9 @@ export function useModulePageSession(
     draft: RecordFormRecord,
     rules: readonly ResolvedFormValidationRuleDescriptor[] | undefined,
     presentFailure = true,
+    displayRules: readonly ResolvedFormValidationRuleDescriptor[] | undefined = rules,
   ): boolean {
-    const failure = new FormValidationCoordinator(rules).validate(draft);
+    const failure = new FormValidationCoordinator(rules).validate(draft, displayRules);
     if (!failure) return true;
     if (presentFailure)
       presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
@@ -3656,6 +3662,7 @@ export function useModulePageSession(
         draft,
         formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor),
         presentValidation,
+        formValidationRulesOf(displayModuleRuntime(context.runtime)?.uiDescriptor),
       )
     )
       return;
