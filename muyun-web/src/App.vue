@@ -143,6 +143,7 @@ import {
 import {
   restoreThemeSkinPreference,
   saveThemeSkinPreference,
+  type ThemeSkinPreferenceFailure,
   themeSkinPreferenceKey,
 } from './app/themeSkinPreference';
 
@@ -398,7 +399,7 @@ const profileError = ref<() => string>();
 const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
-const themeSkinError = ref<string>();
+const themeSkinFailure = ref<ThemeSkinPreferenceFailure>();
 const themeSkinId = ref<UiThemeSkinId>(
   uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
 );
@@ -623,7 +624,7 @@ async function handleUserCommand(command: string) {
 }
 
 function openThemeSkinPreferences() {
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   themeSkinPreferencesOpen.value = true;
 }
 
@@ -651,7 +652,7 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   const previousSkinId = themeSkinId.value;
   themeSkinId.value = skinId;
   themeSkinSaving.value = true;
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   if (usesMockStartup()) {
     await userPreferences.set(themeSkinPreferenceKey, skinId, { persistence: 'local' });
     themeSkinSaving.value = false;
@@ -659,12 +660,12 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   }
   try {
     const result = await saveThemeSkinPreference(userPreferences, skinId, previousSkinId);
-    if (result.error) {
+    if (result.failure) {
       if (revision !== themeSkinPreferenceRevision) {
         return;
       }
       themeSkinId.value = result.skinId;
-      themeSkinError.value = result.error;
+      themeSkinFailure.value = result.failure;
     }
   } finally {
     themeSkinSaving.value = false;
@@ -1563,7 +1564,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :skins="uiThemeSkins"
         :active-skin-id="themeSkinId"
         :saving="themeSkinSaving"
-        :error="themeSkinError"
+        :failure="themeSkinFailure"
         @close="closeThemeSkinPreferences"
         @select="selectThemeSkin"
       />

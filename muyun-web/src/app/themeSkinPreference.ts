@@ -1,8 +1,8 @@
-import { platformLanguageContext } from '@muyun/web-core';
 import { uiThemeSkinById, type UiThemeSkinId } from '@muyun/vue-ui-antdv';
 import type { UserPreferenceStore } from '@muyun/web-core';
 
 export const themeSkinPreferenceKey = 'workbench.theme-skin';
+export type ThemeSkinPreferenceFailure = 'save-failed';
 
 export async function restoreThemeSkinPreference(store: UserPreferenceStore, fallback: UiThemeSkinId) {
   const restored = await store.restore(themeSkinPreferenceKey, fallback, { persistence: 'backend' });
@@ -22,12 +22,6 @@ export async function saveThemeSkinPreference(
     return { skinId };
   } catch {
     await store.set(themeSkinPreferenceKey, previousSkinId, { persistence: 'local' });
-    return {
-      skinId: previousSkinId,
-      error: platformLanguageContext.t(
-        'platform.screen.themeSkinPreference.could-not-save-the-appearance-preference-the-previous',
-        '皮肤保存失败，已恢复为之前的设置。',
-      ),
-    };
+    return { skinId: previousSkinId, failure: 'save-failed' as const };
   }
 }

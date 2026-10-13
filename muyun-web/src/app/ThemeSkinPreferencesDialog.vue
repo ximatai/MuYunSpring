@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import type { ThemeSkinPreferenceFailure } from './themeSkinPreference';
 import { useLanguageContext } from '@muyun/web-core';
 import { UiModal, type UiThemeSkin, type UiThemeSkinId } from '@muyun/vue-ui-antdv';
 
@@ -6,15 +8,25 @@ const language = useLanguageContext();
 
 defineOptions({ name: 'ThemeSkinPreferencesDialog' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     skins: readonly UiThemeSkin[];
     activeSkinId: UiThemeSkinId;
     saving?: boolean;
     error?: string;
+    failure?: ThemeSkinPreferenceFailure;
   }>(),
-  { saving: false, error: undefined },
+  { saving: false, error: undefined, failure: undefined },
+);
+
+const displayError = computed(() =>
+  props.failure === 'save-failed'
+    ? language.t(
+        'platform.screen.themeSkinPreference.could-not-save-the-appearance-preference-the-previous',
+        '皮肤保存失败，已恢复为之前的设置。',
+      )
+    : props.error,
 );
 
 const emit = defineEmits<{
@@ -71,7 +83,7 @@ function moveSkinFocus(event: KeyboardEvent, currentIndex: number) {
           }}
         </p>
       </header>
-      <p v-if="error" class="theme-skin-error" role="alert">{{ error }}</p>
+      <p v-if="displayError" class="theme-skin-error" role="alert">{{ displayError }}</p>
       <div
         class="theme-skin-grid"
         role="radiogroup"
