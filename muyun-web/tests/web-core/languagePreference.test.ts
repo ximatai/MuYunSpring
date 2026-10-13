@@ -16,8 +16,9 @@ it.each([true, false])(
     const catalog = {
       defaultTag: 'en',
       languages: [
-        ...context.catalog.value.languages,
-        { tag: 'fr', nativeName: 'Français', direction: 'ltr' as const },
+        ...context.catalog.value.languages.map((language) =>
+          language.tag === 'fr' ? { ...language, enabled: true } : language,
+        ),
       ],
     };
     if (catalogFirst) context.setCatalog(catalog);

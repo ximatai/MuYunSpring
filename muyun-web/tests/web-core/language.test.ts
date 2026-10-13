@@ -10,13 +10,13 @@ it('uses deployment defaults until explicitly selected and retains unsupported s
   context.setLanguage('zh-CN');
   context.setCatalog(catalog);
   expect(context.languageTag.value).toBe('zh-CN');
-  context.setLanguage('fr');
+  context.setLanguage('de');
   expect(context.languageTag.value).toBe('en');
   context.setCatalog({
     ...catalog,
-    languages: [...catalog.languages, { tag: 'fr', nativeName: 'Français', direction: 'ltr' }],
+    languages: [...catalog.languages, { tag: 'de', nativeName: 'Deutsch', direction: 'ltr' }],
   });
-  expect(context.languageTag.value).toBe('fr');
+  expect(context.languageTag.value).toBe('de');
   context.setLanguage();
   expect(context.languageTag.value).toBe('en');
 });
@@ -63,14 +63,20 @@ it('extends resource registrations and rejects fallback cycles or public text ov
   context.setCatalog({
     ...context.catalog.value,
     languages: [
-      ...context.catalog.value.languages,
-      { tag: 'fr', nativeName: 'Français', fallbackTag: 'en', direction: 'ltr' },
+      ...context.catalog.value.languages.map((language) =>
+        language.tag === 'fr' ? { ...language, enabled: true } : language,
+      ),
     ],
   });
   context.registerResources('fr', { 'test.greeting': 'Bonjour {name}' });
   context.setLanguage('fr-CA');
   expect(context.t('test.greeting', '', { name: 'Ada' })).toBe('Bonjour Ada');
-  expect(context.t('platform.language.label')).toBe('Interface language');
+  expect(context.t('platform.language.label')).toBe('Langue de l’interface');
+  expect(context.resolve('platform.screen.WorkflowAdministrationView.reset-approval')).toMatchObject({
+    text: 'Reset business approval',
+    resourceTag: 'en',
+    fallback: true,
+  });
   expect(context.fallbackLanguageTags.value).toEqual(['fr', 'en', 'zh-CN']);
   expect(() => context.registerResources('en', { 'platform.language.label': 'Tenant wording' })).toThrow(
     'Conflicting',
@@ -136,4 +142,47 @@ it('does not expand a generic language preference to an arbitrary region', () =>
   expect(context.languageTag.value).toBe('zh-CN');
   context.setLanguage('en-US-x-private');
   expect(context.languageTag.value).toBe('en-US');
+});
+
+it('keeps three concurrent consumer request scopes independent through completion and later selections', async () => {
+  const tags = ['zh-CN', 'en', 'fr'];
+  const pending: { options: HttpRequestOptions; complete: (value: unknown) => void }[] = [];
+  const transport = {
+    request: (options: HttpRequestOptions) => new Promise((complete) => pending.push({ options, complete })),
+  };
+  const contexts = tags.map((tag) => {
+    const context = createLanguageContext();
+    context.setCatalog({
+      ...context.catalog.value,
+      languages: context.catalog.value.languages.map((entry) =>
+        entry.tag === 'fr' ? { ...entry, enabled: true } : entry,
+      ),
+    });
+    context.setLanguage(tag);
+    return context;
+  });
+  const clients = contexts.map((context) =>
+    withLanguageContext(transport as unknown as import('@/web-core/http').HttpClient, context),
+  );
+  const requests = clients.map((client, index) =>
+    client.request({
+      path: '/records',
+      headers: { 'X-MuYun-Tenant-Id': `tenant-${index}`, Authorization: `Bearer fake-${index}` },
+    }),
+  );
+  contexts[2].setLanguage('en');
+  for (let index = pending.length - 1; index >= 0; index--) {
+    expect(pending[index].options.headers).toMatchObject({
+      'Accept-Language': tags[index],
+      'X-MuYun-Tenant-Id': `tenant-${index}`,
+      Authorization: `Bearer fake-${index}`,
+    });
+    pending[index].complete({ original: `用户原文-${index}` });
+  }
+  expect(await Promise.all(requests)).toEqual(tags.map((_, index) => ({ original: `用户原文-${index}` })));
+  expect(contexts.map((context) => context.languageTag.value)).toEqual(['zh-CN', 'en', 'en']);
+  const next = clients[2].request({ path: '/next' });
+  expect(pending[3].options.headers?.['Accept-Language']).toBe('en');
+  pending[3].complete(undefined);
+  await next;
 });

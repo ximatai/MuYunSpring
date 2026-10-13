@@ -1,6 +1,6 @@
 # 语言基础接入
 
-当前提供语言目录、语言上下文、代码资源解析、账户语言偏好、控件语言及已生效模块界面槽位的在线翻译。平台各专题的完整覆盖继续按[国际化专项治理](../platform/INTERNATIONALIZATION_GOVERNANCE.md)推进。
+当前提供统一语言目录、请求与消费者语言上下文、账户偏好、代码资源以及已生效配置文案的独立翻译发布。平台与填报界面范围、业务记录内容的后续边界见[国际化专项治理](../platform/INTERNATIONALIZATION_GOVERNANCE.md)。
 
 ## 后端
 
@@ -11,11 +11,13 @@ Starter 自动装配语言目录、代码资源和请求过滤器。公共接口
 语言登记示例：
 
 ```properties
-fr.name=Français
-fr.direction=ltr
-fr.enabled=true
-fr.fallback=en
+de.name=Deutsch
+de.direction=ltr
+de.enabled=false
+de.fallback=en
 ```
+
+平台已经登记 `zh-CN`、`en` 与默认停用的 `fr`。法语是部分资源的扩展验收包，使用 `muyun.i18n.enabled-languages=zh-CN,en,fr` 启用，缺失资源沿 `fr → en → zh-CN` 回退；应用不要用同名登记覆盖启停或回退关系。正式推广应补全、审校所属应用与在线配置译文。
 
 `LanguageContext` 只表达展示语言，与租户、身份、时区和币种独立。请求结束后恢复原作用域；异步 Servlet 再派发保持同一请求语言，Spring MVC 的默认 LocaleResolver 使用同一有效语言。后台执行需要显式创建语言作用域，不依赖线程池继承请求状态。
 
@@ -38,6 +40,8 @@ language.registerResources("en", { "sales.order.title": "Order" });
 根组件使用 `<UiLanguageProvider :context="language">`，内部通过 `useLanguageContext()` 获取上下文，或用 `language.t(key, defaultText, args)` 显示文字。消费者仍通过 `configureUserPreferencePersistence` 连接自己的认证 HTTP 工厂；`LanguageSelector` 的 `identityScope` 使用当前账户身份，未登录时保留设备偏好。账户切换和用户选择会使过期恢复结果失效；账户持久化失败不会转写设备存储。
 
 框架前端语言资源在 `src/web-core/locales/languagePacks.json` 登记和交付。新增语言增加资源与登记；第三方控件资源通过 `registerUiLanguageLocales` 在应用装配时登记。平台公共键不提供租户覆盖，业务应用以自身命名空间贡献文案。该语言基础只调整展示文本和请求上下文，不修改业务数据、草稿及保存协议。
+
+框架内置中英法控件资源，停用状态仍由语言目录治理。`examples/business-web/src/locales/deployment.json` 演示消费端以资源与部署登记增加语言；`samples/published-consumer` 验证独立 Maven 应用的目录、所属应用语言资源、插值原值及请求响应语言。仓库全量验证覆盖三语作用域、主子表草稿与发布刷新，真实浏览器检查长字段标签的列边界与可点击控件。
 
 ## 声明文案与展示快照
 

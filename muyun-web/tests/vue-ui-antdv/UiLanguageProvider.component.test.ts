@@ -59,3 +59,32 @@ it('applies the selected locale to a real control through the nested theme provi
   expect(document.querySelector('.ant-select-dropdown')?.textContent).toContain('No data');
   wrapper.unmount();
 });
+
+it('activates the deployed third locale for real controls and retains English fallback diagnostics', async () => {
+  const { Select } = await import('ant-design-vue');
+  const context = createLanguageContext();
+  context.setCatalog({
+    ...context.catalog.value,
+    languages: context.catalog.value.languages.map((language) =>
+      language.tag === 'fr' ? { ...language, enabled: true } : language,
+    ),
+  });
+  context.setLanguage('fr-CA');
+  const wrapper = mount(UiLanguageProvider, {
+    props: { context },
+    slots: { default: () => h(Select, { open: true, options: [] }) },
+    attachTo: document.body,
+  });
+  try {
+    await nextTick();
+    expect(wrapper.findComponent(ConfigProvider).props('locale')?.locale).toBe('fr');
+    expect(document.querySelector('.ant-select-dropdown')?.textContent).toContain('Aucune donnée');
+    expect(context.t('platform.language.label')).toBe('Langue de l’interface');
+    expect(context.resolve('platform.screen.WorkflowAdministrationView.reset-approval')).toMatchObject({
+      resourceTag: 'en',
+      fallback: true,
+    });
+  } finally {
+    wrapper.unmount();
+  }
+});

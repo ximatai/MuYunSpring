@@ -90,7 +90,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
  * 自动建表、模块/端点注册和业务 Ability 组合。
  */
 @Testcontainers
-@SpringBootTest(classes = MuYunSpringApplication.class)
+@SpringBootTest(classes = MuYunSpringApplication.class, properties = "muyun.i18n.enabled-languages=zh-CN,en,fr")
 @ContextConfiguration(classes = TeachingDemoConfiguration.class)
 @ActiveProfiles("school-demo")
 public class TeachingDemoIT {
@@ -361,6 +361,72 @@ public class TeachingDemoIT {
                 new net.ximatai.muyun.spring.web.CurrentUserWebFilter(() -> java.util.Optional.empty(), requestTenantVerifier)).build();
         assertThat(anonymous.perform(get("/platform.localization/catalog")).andReturn().getResponse().getStatus()).isEqualTo(200);
         assertThat(anonymous.perform(get("/platform.localization/modules/education.exam/sources")).andReturn().getResponse().getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void thirdLanguageUsesDeployedResourcesForRealTeacherValidationSaveAndReopen() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mvc = webAppContextSetup(webApplicationContext).addFilters(webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("fr-teacher", "用户原名"));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            var response = mvc.perform(get("/platform.module/education.teacher/context").header("Accept-Language", "fr-CA")).andReturn().getResponse();
+            assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+            assertThat(response.getHeader("Content-Language")).isEqualTo("fr");
+            var descriptor = mapper.readTree(response.getContentAsString());
+            assertThat(descriptor.at("/uiDescriptor/page/explorer/title").asText()).isEqualTo("Liste des enseignants");
+            assertThat(descriptor.at("/uiDescriptor/page/detail/editor/fields/1/label").asText()).isEqualTo("Nom de l’enseignant");
+            String suffix = serial();
+            String subjectId = subjects.insert(subject("FR-" + suffix, "中文学科原值", null));
+            var invalid = mvc.perform(post("/education.teacher/insert").header("Accept-Language", "fr")
+                    .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of("title", "不能保存", "subjectCategoryId", subjectId)))).andReturn().getResponse();
+            assertThat(invalid.getStatus()).isEqualTo(400);
+            assertThat(mapper.readTree(invalid.getContentAsString()).path("message").asText()).isEqualTo("Renseignez le champ obligatoire et réessayez");
+            var inserted = mvc.perform(post("/education.teacher/insert").header("Accept-Language", "fr")
+                    .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of("teacherNo", "FR-" + suffix, "title", "用户中文姓名", "subjectCategoryId", subjectId)))).andReturn().getResponse();
+            assertThat(inserted.getStatus()).as(inserted.getContentAsString()).isEqualTo(201);
+            var created = mapper.readTree(inserted.getContentAsString());
+            assertThat(created.at("/message/text").asText()).contains("créé avec succès");
+            var reopened = mvc.perform(get("/education.teacher/view/{id}", created.at("/data/id").asText()).header("Accept-Language", "fr")).andReturn().getResponse();
+            assertThat(mapper.readTree(reopened.getContentAsString()).path("title").asText()).isEqualTo("用户中文姓名");
+            assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isNull();
+        }
+    }
+
+    @Test
+    void concurrentRequestLanguagesDoNotMutateTheSharedStaticPlanOrLeakAcrossWorkerReuse() throws Exception {
+        var mvc = webAppContextSetup(webApplicationContext).addFilters(webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+        var plans = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog.class);
+        var original = plans.find("education.teacher").orElseThrow();
+        var tags = List.of("zh-CN", "en", "fr");
+        var titles = List.of("教师列表", "Teachers", "Liste des enseignants");
+        var barrier = new java.util.concurrent.CyclicBarrier(3);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<Void>>();
+            for (int lane = 0; lane < tags.size(); lane++) {
+                final int index = lane;
+                futures.add(executor.submit(() -> {
+                    try (var user = CurrentUserContext.use(CurrentUser.systemUser("language-user-" + index, "原名" + index));
+                         var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+                        barrier.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                        for (int repeat = 0; repeat < 4; repeat++) {
+                            var response = mvc.perform(get("/platform.module/education.teacher/context").header("Accept-Language", tags.get(index))).andReturn().getResponse();
+                            assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+                            assertThat(response.getHeader("Content-Language")).isEqualTo(tags.get(index));
+                            assertThat(new com.fasterxml.jackson.databind.ObjectMapper().readTree(response.getContentAsString()).at("/uiDescriptor/page/explorer/title").asText()).isEqualTo(titles.get(index));
+                            assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("language-user-" + index);
+                            assertThat(TenantContext.currentTenantId()).contains(DemoBootstrapTask.TENANT_ALIAS);
+                            assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isNull();
+                        }
+                    }
+                    assertThat(CurrentUserContext.currentUser()).isEmpty();
+                    assertThat(TenantContext.currentTenantId()).isEmpty();
+                    return null;
+                }));
+            }
+            for (var future : futures) future.get(60, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(executor.submit(() -> net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).get()).isNull();
+        }
+        assertThat(plans.find("education.teacher").orElseThrow()).isSameAs(original);
     }
 
     @Test

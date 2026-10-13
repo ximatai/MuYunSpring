@@ -44,6 +44,42 @@ class WebRequestContextTest {
         assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isNull();
     }
 
+    @Test
+    void concurrentCapturedLanguagesUsersAndTenantsRemainIndependentAndReleaseReusedWorkers() throws Exception {
+        var contexts = new java.util.ArrayList<WebRequestContext>();
+        var tags = java.util.List.of("zh-CN", "en", "fr");
+        for (int lane = 0; lane < tags.size(); lane++) {
+            try (var user = CurrentUserContext.use(CurrentUser.tenantUser("user-" + lane, "原名", "tenant-" + lane));
+                 var tenant = TenantContext.use("tenant-" + lane);
+                 var language = net.ximatai.muyun.spring.common.i18n.LanguageContext.use(tags.get(lane))) {
+                contexts.add(WebRequestContext.capture().orElseThrow());
+            }
+        }
+        var barrier = new java.util.concurrent.CyclicBarrier(3);
+        try (var executor = Executors.newFixedThreadPool(3)) {
+            var results = new java.util.ArrayList<Future<Void>>();
+            for (int lane = 0; lane < contexts.size(); lane++) {
+                final int index = lane;
+                results.add(executor.submit(() -> {
+                    contexts.get(index).run(() -> {
+                        try { barrier.await(10, java.util.concurrent.TimeUnit.SECONDS); }
+                        catch (Exception failure) { throw new AssertionError(failure); }
+                        assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("user-" + index);
+                        assertThat(TenantContext.currentTenantId()).contains("tenant-" + index);
+                        assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isEqualTo(tags.get(index));
+                        assertThat(ActionExecutionContextHolder.current()).isEmpty();
+                    });
+                    assertThat(CurrentUserContext.currentUser()).isEmpty();
+                    assertThat(TenantContext.currentTenantId()).isEmpty();
+                    assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isNull();
+                    return null;
+                }));
+            }
+            for (var result : results) result.get(20, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(executor.submit(() -> net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).get()).isNull();
+        }
+    }
+
     @AfterEach
     void tearDown() {
         CurrentUserContext.clear();
