@@ -34,7 +34,8 @@ class LanguageWebFilterTest {
         var request = new MockHttpServletRequest(); request.addHeader("Accept-Language", "en");
         assertThatThrownBy(() -> filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {throw new IllegalStateException("failure");})).isInstanceOf(IllegalStateException.class);
         assertThat(LanguageContext.currentTag()).isNull();
-    }    @Test
+    }
+    @Test
     void mvcLocaleResolutionSharesTheEffectiveCatalogSelection() {
         var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
         var resolver = new MuYunSpringLanguageConfiguration().localeResolver(catalog);
@@ -46,6 +47,18 @@ class LanguageWebFilterTest {
         try (var ignored = LanguageContext.use("de-DE")) {
             assertThat(resolver.resolveLocale(request).toLanguageTag()).isEqualTo("zh-CN");
         }
+    }
+
+    @Test
+    void deploymentConfigurationRestrictsBuiltInLanguagesAndValidatesTheDefault() {
+        var configuration = new MuYunSpringLanguageConfiguration();
+        var catalog = configuration.languageCatalog("en", " en ");
+        assertThat(catalog.languages()).filteredOn(LanguageCatalog.Language::enabled)
+                .extracting(LanguageCatalog.Language::tag).containsExactly("en");
+        assertThat(catalog.select("zh-CN")).isEqualTo("en");
+        assertThat(catalog.fallbackTags("en")).containsExactly("en", "zh-CN");
+        assertThatThrownBy(() -> configuration.languageCatalog("zh-CN", "en"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Default language");
     }
 
 }

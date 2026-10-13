@@ -12,13 +12,17 @@ import org.springframework.web.servlet.LocaleResolver;
 import org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Locale;
+import java.util.Arrays;
 
 @Configuration
 public class MuYunSpringLanguageConfiguration {
     @Bean
     @ConditionalOnMissingBean
-    public LanguageCatalog languageCatalog(@Value("${muyun.i18n.default-language:zh-CN}") String defaultTag) {
-        return LanguageCatalog.load(getClass().getClassLoader(), defaultTag);
+    public LanguageCatalog languageCatalog(@Value("${muyun.i18n.default-language:zh-CN}") String defaultTag,
+                                          @Value("${muyun.i18n.enabled-languages:}") String enabledLanguages) {
+        var catalog = LanguageCatalog.load(getClass().getClassLoader(), defaultTag);
+        return enabledLanguages.isBlank() ? catalog : catalog.withEnabledLanguages(
+                Arrays.stream(enabledLanguages.split(",")).map(String::trim).toList());
     }
     @Bean
     @ConditionalOnMissingBean

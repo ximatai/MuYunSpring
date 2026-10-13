@@ -6,7 +6,7 @@
 
 Starter 自动装配语言目录、代码资源和请求过滤器。公共接口 `GET /platform.localization/catalog` 返回 `defaultTag` 与 `languages`；每个语言包含 `tag`、`nativeName`、`fallbackTag` 、`direction` 和 `enabled`。HTTP 通过 `Accept-Language` 选择已登记语言，响应通过 `Content-Language` 标明有效语言，缓存以 `Vary: Accept-Language` 区分请求。
 
-应用在 classpath 的 `META-INF/muyun/i18n/languages.properties` 增加语言登记，在 `META-INF/muyun/i18n/messages_<目录中的规范语言标签>.properties` 增加 UTF-8 文案。平台和业务应用的同名资源文件共同加载；业务键使用所属应用命名空间，冲突译文拒绝装配。语言可以预先登记并配置 `enabled=false`，停用语言不进入用户选择或请求协商，但仍可作为已登记资源的回退来源。默认语言由 `muyun.i18n.default-language` 设置，必须已登记并启用；不读取 JVM 默认语言作为隐式回退。
+应用在 classpath 的 `META-INF/muyun/i18n/languages.properties` 增加语言登记，在 `META-INF/muyun/i18n/messages_<目录中的规范语言标签>.properties` 增加 UTF-8 文案。平台和业务应用的同名资源文件共同加载；业务键使用所属应用命名空间，冲突译文拒绝装配。语言可以预先登记并配置 `enabled=false`，停用语言不进入用户选择或请求协商，但仍可作为已登记资源的回退来源。部署可用 `muyun.i18n.enabled-languages=zh-CN,en` 指定选择列表，覆盖登记的启停默认值；列表必须全部已登记，未选择语言仍保留资源回退能力。同名登记的元信息与译文仍不允许覆盖。默认语言由 `muyun.i18n.default-language` 设置，必须已登记并启用；不读取 JVM 默认语言作为隐式回退。
 
 语言登记示例：
 
@@ -23,7 +23,7 @@ fr.fallback=en
 
 ## 前端与公共消费者
 
-公共 npm 包提供 `createLanguageContext`、`provideLanguageContext`、`loadLanguageCatalog`、`withLanguageContext`、`UiLanguageProvider`、`LanguageSelector` 及 `createLanguagePreferenceController`。一个应用保持稳定语言上下文，切换语言调用 `setLanguage`，不重新创建页面或表单。
+公共 npm 包提供 `createLanguageContext`、`provideLanguageContext`、`loadLanguageCatalog`、`withLanguageContext`、`UiLanguageProvider`、`LanguageSelector` 及 `createLanguagePreferenceController`。一个应用保持稳定语言上下文，切换语言调用 `setLanguage(tag)`，调用 `setLanguage()` 恢复目录默认值；未明确选择时采用部署默认语言，目录加载前的原始偏好保留并在目录到达后重新匹配。`requestedLanguageTag` 表达原始选择（缺省表示跟随目录默认值），`languageTag` 表达有效语言；恢复或保存失败不会覆盖后续手动选择。切换语言不重新创建页面或表单。
 
 ```ts
 const language = createLanguageContext();

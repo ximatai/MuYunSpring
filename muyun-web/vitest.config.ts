@@ -33,12 +33,16 @@ export default mergeConfig(
     },
 
     test: {
+      // Bound Vue compilation and DOM-environment memory during full verification.
+      maxWorkers: 4,
       projects: [
         {
           extends: true,
 
           test: {
             name: 'browser',
+            // Real mouse gestures and animations need predictable frame scheduling.
+            fileParallelism: false,
             include: ['tests/**/*.browser.test.ts'],
             setupFiles: ['./tests/setup.ts'],
             browser: {

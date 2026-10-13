@@ -28,7 +28,8 @@ class LanguageCatalogTest {
                 new LanguageCatalog.Language("en", "English", "fr", "ltr"),
                 new LanguageCatalog.Language("fr", "Français", "en", "ltr"))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cycle");
-    }    @Test
+    }
+    @Test
     void excludesDisabledLanguagesFromSelectionButKeepsTheirFallbackResources() {
         var catalog = new LanguageCatalog("en", List.of(
                 new LanguageCatalog.Language("en", "English", "zh-CN", "ltr", true),
@@ -37,6 +38,28 @@ class LanguageCatalogTest {
         assertThat(catalog.fallbackTags("en")).containsExactly("en", "zh-CN");
         assertThatThrownBy(() -> new LanguageCatalog("zh-CN", catalog.languages()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Default language");
+    }
+
+    @Test
+    void appliesDeploymentPolicyWithoutConflictingWithSharedRegistrations() {
+        var deployed = catalog.withEnabledLanguages(List.of("zh-cn"));
+        assertThat(deployed.languages()).filteredOn(LanguageCatalog.Language::enabled)
+                .extracting(LanguageCatalog.Language::tag).containsExactly("zh-CN");
+        assertThat(deployed.fallbackTags("en")).containsExactly("en", "zh-CN");
+        assertThat(deployed.select("en")).isEqualTo("zh-CN");
+        assertThatThrownBy(() -> catalog.withEnabledLanguages(List.of("en")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Default language");
+        assertThatThrownBy(() -> catalog.withEnabledLanguages(List.of("xx")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unregistered enabled language");
+        assertThat(catalog.select("en")).isEqualTo("en");
+    }
+    @Test
+    void prefersExactLanguageBeforeRegionalMatchesRegardlessOfCatalogOrder() {
+        var catalog = new LanguageCatalog("en", List.of(
+                new LanguageCatalog.Language("en-US", "English (US)", null, "ltr"),
+                new LanguageCatalog.Language("en", "English", null, "ltr")));
+        assertThat(catalog.select("en")).isEqualTo("en");
+        assertThat(catalog.select("en-US")).isEqualTo("en-US");
     }
 
 }

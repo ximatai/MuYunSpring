@@ -52,6 +52,18 @@ public final class LanguageCatalog {
         return new LanguageCatalog(defaultTag, definitions);
     }
 
+    /** Deployment policy changes selection eligibility while preserving registered fallback resources. */
+    public LanguageCatalog withEnabledLanguages(Collection<String> tags) {
+        Set<String> enabledTags = new HashSet<>();
+        for (String tag : tags) {
+            String canonical = canonicalTag(tag);
+            if (!languages.containsKey(canonical)) throw new IllegalArgumentException("Unregistered enabled language: " + canonical);
+            enabledTags.add(canonical);
+        }
+        return new LanguageCatalog(defaultTag, languages.values().stream().map(language ->
+                new Language(language.tag(), language.nativeName(), language.fallbackTag(), language.direction(), enabledTags.contains(language.tag()))).toList());
+    }
+
     private static boolean enabled(Properties properties, String tag) {
         String value = properties.getProperty(tag + ".enabled", "true").trim();
         if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value))

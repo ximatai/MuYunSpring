@@ -19,14 +19,20 @@ export function createLanguagePreferenceController(
     async restore(identity?: string) {
       scope = identity;
       const currentRevision = ++revision;
-      const fallback = store.get(LANGUAGE_PREFERENCE_KEY, context.catalog.value.defaultTag);
-      context.setLanguage(typeof fallback === 'string' ? fallback : context.catalog.value.defaultTag);
+      const fallback = store.get<string | undefined>(LANGUAGE_PREFERENCE_KEY, undefined);
+      context.setLanguage(typeof fallback === 'string' ? fallback : undefined);
       const selectionRevision = context.selectionRevision.value;
-      let value: string;
+      let value: string | undefined;
       try {
         value = await store.restore(LANGUAGE_PREFERENCE_KEY, fallback, options(identity));
       } catch (failure) {
-        if (!disposed && currentRevision === revision && scope === identity) throw failure;
+        if (
+          !disposed &&
+          currentRevision === revision &&
+          scope === identity &&
+          context.selectionRevision.value === selectionRevision
+        )
+          throw failure;
         return;
       }
       if (
@@ -35,14 +41,15 @@ export function createLanguagePreferenceController(
         scope === identity &&
         context.selectionRevision.value === selectionRevision
       )
-        context.setLanguage(typeof value === 'string' ? value : fallback);
+        context.setLanguage(typeof value === 'string' ? value : undefined);
     },
     async save(tag: string) {
       const identity = scope;
       const currentRevision = ++revision;
-      const previous = context.languageTag.value;
+      const previous = context.requestedLanguageTag.value;
       context.setLanguage(tag);
       const selected = context.languageTag.value;
+      const selectedRevision = context.selectionRevision.value;
       writes = writes
         .catch(() => undefined)
         .then(async () => {
@@ -52,8 +59,15 @@ export function createLanguagePreferenceController(
       try {
         await writes;
       } catch (failure) {
-        if (!disposed && currentRevision === revision && scope === identity) context.setLanguage(previous);
-        if (!disposed && currentRevision === revision && scope === identity) throw failure;
+        if (
+          !disposed &&
+          currentRevision === revision &&
+          scope === identity &&
+          context.selectionRevision.value === selectedRevision
+        ) {
+          context.setLanguage(previous);
+          throw failure;
+        }
       }
     },
     dispose() {

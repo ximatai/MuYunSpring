@@ -2,6 +2,41 @@ import { expect, it, vi } from 'vitest';
 import { createLanguageContext, withLanguageContext } from '@/web-core/language';
 import type { StreamingHttpClient, HttpRequestOptions } from '@/web-core/http';
 
+it('uses deployment defaults until explicitly selected and retains unsupported selection intent', () => {
+  const context = createLanguageContext();
+  const catalog = { ...context.catalog.value, defaultTag: 'en' };
+  context.setCatalog(catalog);
+  expect(context.languageTag.value).toBe('en');
+  context.setLanguage('zh-CN');
+  context.setCatalog(catalog);
+  expect(context.languageTag.value).toBe('zh-CN');
+  context.setLanguage('fr');
+  expect(context.languageTag.value).toBe('en');
+  context.setCatalog({
+    ...catalog,
+    languages: [...catalog.languages, { tag: 'fr', nativeName: 'Français', direction: 'ltr' }],
+  });
+  expect(context.languageTag.value).toBe('fr');
+  context.setLanguage();
+  expect(context.languageTag.value).toBe('en');
+});
+
+it('prefers exact tags before regional matches regardless of catalog order', () => {
+  const context = createLanguageContext({
+    catalog: {
+      defaultTag: 'en',
+      languages: [
+        { tag: 'en-US', nativeName: 'English (US)', direction: 'ltr' },
+        { tag: 'en', nativeName: 'English', direction: 'ltr' },
+      ],
+    },
+  });
+  context.setLanguage('en');
+  expect(context.languageTag.value).toBe('en');
+  context.setLanguage('en-US');
+  expect(context.languageTag.value).toBe('en-US');
+});
+
 it('resolves resources and diagnostic fallbacks without changing separate app contexts', () => {
   const english = createLanguageContext({ languageTag: 'en-US' });
   const chinese = createLanguageContext();
@@ -85,4 +120,20 @@ it('excludes disabled locales from selection while retaining their source fallba
   context.setLanguage('zh-CN');
   expect(context.languageTag.value).toBe('en');
   expect(context.fallbackLanguageTags.value).toEqual(['en', 'zh-CN']);
+});
+
+it('does not expand a generic language preference to an arbitrary region', () => {
+  const context = createLanguageContext({
+    catalog: {
+      defaultTag: 'zh-CN',
+      languages: [
+        { tag: 'en-US', nativeName: 'English (US)', direction: 'ltr' },
+        { tag: 'zh-CN', nativeName: '中文', direction: 'ltr' },
+      ],
+    },
+  });
+  context.setLanguage('en');
+  expect(context.languageTag.value).toBe('zh-CN');
+  context.setLanguage('en-US-x-private');
+  expect(context.languageTag.value).toBe('en-US');
 });

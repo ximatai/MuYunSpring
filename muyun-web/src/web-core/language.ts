@@ -23,11 +23,12 @@ export interface TextResolution {
 export interface LanguageContext {
   readonly catalog: ComputedRef<LanguageCatalog>;
   readonly languageTag: ComputedRef<string>;
+  readonly requestedLanguageTag: ComputedRef<string | undefined>;
   readonly revision: ComputedRef<number>;
   readonly selectionRevision: ComputedRef<number>;
   readonly fallbackLanguageTags: ComputedRef<readonly string[]>;
   readonly language: ComputedRef<LanguageDefinition>;
-  setLanguage(tag: string): void;
+  setLanguage(tag?: string): void;
   setCatalog(catalog: LanguageCatalog): void;
   registerResources(tag: string, messages: Record<string, string>): void;
   resolve(key: string, defaultText?: string, args?: Record<string, unknown>): TextResolution;
@@ -53,7 +54,8 @@ export function createLanguageContext(
   } = {},
 ): LanguageContext {
   const catalogState = ref(validateCatalog(options.catalog ?? initialCatalog));
-  const active = ref(selectLanguage(catalogState.value, options.languageTag));
+  const selectionIntent = ref(options.languageTag);
+  const active = ref(selectLanguage(catalogState.value, selectionIntent.value));
   const revisionState = ref(0);
   const selectionRevision = ref(0);
   const resources = new Map<string, Record<string, string>>(
@@ -97,6 +99,7 @@ export function createLanguageContext(
   return {
     catalog,
     languageTag,
+    requestedLanguageTag: computed(() => selectionIntent.value),
     language,
     fallbackLanguageTags: computed(() => fallbackTags(catalog.value, active.value)),
     revision: computed(() => revisionState.value),
@@ -105,6 +108,7 @@ export function createLanguageContext(
     t: (...args) => resolve(...args).text,
     setLanguage(tag) {
       selectionRevision.value++;
+      selectionIntent.value = tag;
       const selected = selectLanguage(catalog.value, tag);
       if (selected !== active.value) {
         active.value = selected;
@@ -113,7 +117,7 @@ export function createLanguageContext(
     },
     setCatalog(value) {
       catalogState.value = validateCatalog(value);
-      active.value = selectLanguage(catalog.value, active.value);
+      active.value = selectLanguage(catalog.value, selectionIntent.value);
       revisionState.value++;
     },
     registerResources(tag, messages) {
@@ -132,10 +136,7 @@ function selectLanguage(catalog: LanguageCatalog, tag?: string) {
     const canonical = canonicalTag(tag);
     let candidate = canonical;
     while (candidate) {
-      const found = catalog.languages.find(
-        (entry) =>
-          entry.enabled !== false && (entry.tag === candidate || entry.tag.startsWith(`${candidate}-`)),
-      );
+      const found = catalog.languages.find((entry) => entry.enabled !== false && entry.tag === candidate);
       if (found) return found.tag;
       candidate = candidate.includes('-') ? candidate.slice(0, candidate.lastIndexOf('-')) : '';
     }
