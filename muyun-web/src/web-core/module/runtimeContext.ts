@@ -14,6 +14,7 @@ export interface ModuleRuntimeAction {
   actionCode: string;
   permissionActionCode?: string;
   title?: string;
+  titleSource?: import('@muyun/web-contracts').TextReference;
   actionLevel?: 'DEFAULT' | 'LIST' | 'RECORD' | 'BATCH' | 'ANY';
   category?: string;
   accessMode?: 'AUTH_REQUIRED' | 'LOGIN_REQUIRED' | 'ANONYMOUS_ALLOWED';

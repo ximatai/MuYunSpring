@@ -1472,7 +1472,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 action.isBindingPending(),
                 Boolean.TRUE.equals(action.getFormSupported())
-        );
+        ).withTitleSource(action.getTitle() == null ? null : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle(action.getModuleAlias(), action.getActionCode(), action.getTitle()));
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, StaticModuleActionDefinition action) {
@@ -1499,7 +1499,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 false,
                 action.formSupported()
-        );
+        ).withTitleSource(action.titleSource(moduleAlias));
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, DynamicActionDescriptor action) {
@@ -1519,7 +1519,7 @@ public class PlatformModuleRuntimeContextService {
                 action.executorKey(),
                 authorization.authorized(),
                 authorization.decision()
-        );
+        ).withTitleSource(action.titleSource() != null ? action.titleSource() : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle(moduleAlias, action.code(), action.title()));
     }
 
     private ActionExecutionPolicy policy(PlatformModuleAction action) {

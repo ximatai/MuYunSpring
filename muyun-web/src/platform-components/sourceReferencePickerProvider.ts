@@ -77,7 +77,10 @@ export function createSourceReferencePickerProvider({
       ? {
           async loadTree({ scope }: { scope: ReferencePickerBrowseScope }) {
             if (scope.selections.length > 0) {
-              throw unsupportedReferencePickerConfiguration('当前引用来源不支持范围导航');
+              throw unsupportedReferencePickerConfiguration('当前引用来源不支持范围导航', {
+                key: 'platform.reference-picker.source-navigation',
+                original: '当前引用来源不支持范围导航',
+              });
             }
             requireDependencies();
             const response = await resolver().resolve(fieldName, {
@@ -99,7 +102,10 @@ export function createSourceReferencePickerProvider({
     },
     async searchPage({ keyword, pageNum, pageSize, scope }) {
       if (scope.selections.length > 0) {
-        throw unsupportedReferencePickerConfiguration('当前引用来源不支持范围导航');
+        throw unsupportedReferencePickerConfiguration('当前引用来源不支持范围导航', {
+          key: 'platform.reference-picker.source-navigation',
+          original: '当前引用来源不支持范围导航',
+        });
       }
       requireDependencies();
       const response = await resolver().resolve(fieldName, {

@@ -1241,6 +1241,8 @@ class PlatformModuleRuntimeContextServiceTest {
                 .satisfies(action -> {
                     assertThat(action.authorized()).isTrue();
                     assertThat(action.title()).isEqualTo(PlatformAction.VIEW.title());
+                    assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+                    assertThat(action.titleSource().sourceId()).isEqualTo(PlatformAction.VIEW.titleKey());
                     assertThat(action.permissionActionCode()).isEqualTo(PlatformAction.VIEW.permissionActionCode());
                     assertThat(action.actionAuth()).isFalse();
                     assertThat(action.authorizationDecision()).isEqualTo(ActionAuthorizationResult.DECISION_ALLOWED);
@@ -1402,6 +1404,11 @@ class PlatformModuleRuntimeContextServiceTest {
 
         PlatformModuleRuntimeContext context = service.context("sales.contract");
 
+        assertThat(context.actions()).allSatisfy(action -> {
+            assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+            assertThat(action.titleSource().originalText()).isEqualTo(action.title());
+            assertThat(action.titleSource().sourceId()).startsWith("config/action/sales.contract/");
+        });
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
                 .containsExactly("update", "view");
         assertThat(context.actions()).filteredOn(action -> "update".equals(action.actionCode()))

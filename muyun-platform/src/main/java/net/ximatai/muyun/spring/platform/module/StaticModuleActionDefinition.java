@@ -25,6 +25,11 @@ public record StaticModuleActionDefinition(
         String executorKey,
         boolean formSupported
 ) {
+    /** Declaration-owned title: standard actions share their platform resource, custom actions belong to the module. */
+    public net.ximatai.muyun.spring.common.i18n.TextReference titleSource(String moduleAlias) {
+        return net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(moduleAlias, actionCode, title);
+    }
+
     public StaticModuleActionDefinition(String actionCode,
                                         String permissionActionCode,
                                         String title,

@@ -51,7 +51,13 @@ function project<T extends TextPresentationDocument>(
       .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
     // A resource payload cannot assign a prototype, alter structure or manufacture new properties.
     if (
-      segments[0] !== 'uiDescriptor' ||
+      (segments[0] !== 'uiDescriptor' &&
+        !(
+          segments.length === 3 &&
+          segments[0] === 'actions' &&
+          /^\d+$/.test(segments[1]!) &&
+          segments[2] === 'title'
+        )) ||
       !path.startsWith('/') ||
       !segments.length ||
       segments.some((segment) => ['__proto__', 'constructor', 'prototype'].includes(segment))

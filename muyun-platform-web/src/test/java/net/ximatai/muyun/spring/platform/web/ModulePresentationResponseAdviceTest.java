@@ -67,4 +67,37 @@ class ModulePresentationResponseAdviceTest {
         assertThat(ui.withPage(ui.page()).sourceTexts()).isEqualTo(ui.sourceTexts());
         assertThat(ui.sourceTexts()).containsKey(hiddenKey);
     }
+    @Test
+    void projectsDeclaredAndConfiguredActionTitlesWithoutChangingExecutionOrAuthorizationFacts() {
+        var code = net.ximatai.muyun.spring.common.i18n.TextReference.code("action/test.order/receive/title", "接收订单");
+        var configured = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle("test.order", "review", "复核订单");
+        var receive = new PlatformModuleRuntimeAction("receive", "receive", "接收订单",
+                net.ximatai.muyun.spring.common.platform.PlatformActionLevel.RECORD, null,
+                net.ximatai.muyun.spring.common.platform.ActionAccessMode.AUTH_REQUIRED, true, true,
+                net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE, null, null, true, "allowed").withTitleSource(code);
+        var review = new PlatformModuleRuntimeAction("review", "review", "复核订单",
+                net.ximatai.muyun.spring.common.platform.PlatformActionLevel.RECORD, null,
+                net.ximatai.muyun.spring.common.platform.ActionAccessMode.AUTH_REQUIRED, true, true,
+                net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE, null, null, false, "denied").withTitleSource(configured);
+        var context = new PlatformModuleRuntimeContext("test.order", "订单", ModuleKind.STATIC,
+                ModuleEntryType.MODULE, null, null, null, Set.of(), List.of(), Set.of(), List.of(receive, review), null, false);
+        var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        net.ximatai.muyun.spring.common.i18n.TextResolver texts = (source, args, tag) ->
+                new TextResources.Resolution(tag.equals("en") ? (source.equals(code) ? "Receive order" : "Review order") : source.originalText(), tag, tag, false, false);
+        var mapper = new ObjectMapper();
+        var advice = new ModulePresentationResponseAdvice(mapper, texts, catalog);
+        try (var ignored = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice.project(context));
+            assertThat(output.at("/actions/0/title").asText()).isEqualTo("Receive order");
+            assertThat(output.at("/actions/1/title").asText()).isEqualTo("Review order");
+            assertThat(output.at("/actions/1/authorized").asBoolean()).isFalse();
+            assertThat(output.at("/actions/0/actionCode").asText()).isEqualTo("receive");
+            assertThat(output.at("/textBindings/~1actions~10~1title/source/sourceKind").asText()).isEqualTo("CODE");
+            assertThat(output.at("/textBindings/~1actions~11~1title/source/sourceKind").asText()).isEqualTo("CONFIG");
+        }
+        assertThat(receive.title()).isEqualTo("接收订单");
+        assertThat(review.titleSource()).isEqualTo(configured);
+        assertThat(receive.withInvocations(java.util.Map.of()).titleSource()).isEqualTo(code);
+    }
+
 }

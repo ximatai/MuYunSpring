@@ -5,6 +5,9 @@ import net.ximatai.muyun.spring.common.i18n.TextReference;
 /** Source identities belong to the configuration producer, shared by every display adapter. */
 public final class ConfigurationTextSources {
     private ConfigurationTextSources() { }
+    public static TextReference moduleActionTitle(String moduleAlias, String actionCode, String original) {
+        return net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.configured(moduleAlias, actionCode, original);
+    }
     public static TextReference menuTitle(String menuId, String original) {
         return TextReference.configured("config/menu/" + segment(menuId) + "/title", original);
     }

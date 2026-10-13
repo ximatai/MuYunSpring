@@ -211,6 +211,14 @@ public class TeachingDemoIT {
                 assertThat(english.text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
                 sources++;
             }
+        var declarations = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog.class);
+        for (var module : declarations.definitions()) for (var action : module.actions()) {
+            var source = action.titleSource(module.moduleAlias());
+            if (source == null) continue;
+            var english = resources.resolve(source, java.util.Map.of(), "en");
+            assertThat(english.missing()).as(source.sourceId()).isFalse();
+            assertThat(english.text()).as(source.sourceId()).doesNotContainPattern("[\\p{IsHan}]");
+        }
         assertThat(sources).isGreaterThan(500);
     }
 

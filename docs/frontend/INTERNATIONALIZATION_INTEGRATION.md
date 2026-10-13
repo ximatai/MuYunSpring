@@ -51,6 +51,8 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 模块运行上下文的 HTTP 响应生成展示投影，同时提供 `textBindings`，其中包含对应原文引用及语言资源。输出地址按本次展示结构生成，保留编译原文与共享执行计划；在线配置覆盖保留自己的原文引用，不借用底层声明的翻译。表单和列表展示消费这一资源，不把译文写入普通保存请求。
 
+模块动作同时携带 `titleSource`，其展示绑定位于 `/actions/{index}/title`。静态声明的标准动作复用 `PlatformAction.titleKey()`，自定义动作使用 `action/{moduleAlias}/{actionCode}/title` 部署资源；动态能力自动生成的标准动作同样使用代码来源；在线元数据动作和在线新增动作使用 `config/action/{moduleAlias}/{actionCode}/title` 配置来源并独立发布。展示投影仅更新标题，动作码、权限、执行入口和原始运行事实保持不变。流程配置的字段与动作候选共同消费展示快照。
+
 前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。
 
 公共动作消息可以携带 `textSource` 和具名参数，HTTP 交付只解析展示文字，保留动作码、记录身份、数据变更和原始参数。业务记录名称作为参数原值交付，不能把它当作配置标签翻译。错误日志保留原文事实，返回提示按请求语言解析。

@@ -20,12 +20,12 @@ final class DynamicStandardActions {
         Map<String, DynamicActionDescriptor> actions = new LinkedHashMap<>();
         for (EntityActionDefinition standard : EntityStandardActionCatalog.from(entity)) {
             if (excludedFromRecordDescriptor(standard.actionCode())) continue;
-            put(actions, action(moduleAlias, entity.alias(), standard, null));
+            put(actions, action(moduleAlias, entity.alias(), standard, null, false));
         }
         for (EntityActionDefinition configured : configuredActions) {
             if (entity.alias().equals(configured.entityAlias()) && !excludedFromRecordDescriptor(configured.actionCode())) {
                 actions.put(configured.actionCode(), action(moduleAlias, entity.alias(), configured,
-                        actions.get(configured.actionCode())));
+                        actions.get(configured.actionCode()), true));
             }
         }
         return List.copyOf(actions.values());
@@ -34,7 +34,7 @@ final class DynamicStandardActions {
     private static DynamicActionDescriptor action(String moduleAlias,
                                                   String entityAlias,
                                                   EntityActionDefinition configured,
-                                                  DynamicActionDescriptor standard) {
+                                                  DynamicActionDescriptor standard, boolean onlineConfiguration) {
         EntityActionDefinition execution = standard == null ? configured : null;
         DynamicActionDescriptor descriptor = new DynamicActionDescriptor(
                 configured.actionCode(),
@@ -55,7 +55,10 @@ final class DynamicStandardActions {
         if (moduleAlias == null) {
             return descriptor;
         }
-        return descriptor.withPermission(moduleAlias);
+        var source = onlineConfiguration
+                ? net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.configured(moduleAlias, configured.actionCode(), configured.title())
+                : net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(moduleAlias, configured.actionCode(), configured.title());
+        return descriptor.withTitleSource(source).withPermission(moduleAlias);
     }
 
     private static void put(Map<String, DynamicActionDescriptor> actions, DynamicActionDescriptor action) {

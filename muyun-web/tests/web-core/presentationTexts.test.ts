@@ -50,3 +50,36 @@ it('rejects addresses of protocol identities, business values, new properties an
   expect(Object.hasOwn(projected.uiDescriptor, 'newTitle')).toBe(false);
   expect(Object.hasOwn(Object.prototype, 'title')).toBe(false);
 });
+
+it('projects only formal action titles while preserving codes, authorization, invocation and source originals', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const binding = {
+    ...label,
+    source: { ...label.source, originalText: '接收订单' },
+    languages: { en: { ...label.languages.en!, text: 'Receive order' } },
+  };
+  const original = originalPresentation({
+    actions: [
+      {
+        actionCode: 'receive',
+        title: 'Receive order',
+        authorized: false,
+        invocations: { FORM: { title: '原始调用' } },
+      },
+    ],
+    textBindings: {
+      '/actions/0/title': binding,
+      '/actions/0/actionCode': binding,
+      '/actions/0/invocations/FORM/title': binding,
+    },
+  });
+  const display = translatedPresentation(original, language);
+  expect(display.actions[0]).toEqual({
+    actionCode: 'receive',
+    title: 'Receive order',
+    authorized: false,
+    invocations: { FORM: { title: '原始调用' } },
+  });
+  expect(original.actions[0]?.title).toBe('接收订单');
+  expect(original.textBindings['/actions/0/title'].source.originalText).toBe('接收订单');
+});

@@ -213,6 +213,7 @@ it('refreshes translated field and action candidates without changing a workflow
   const language = createLanguageContext({ languageTag: 'en' });
   const definition = { id: 'definition', title: '用户流程原名' };
   let label = 'Participant field';
+  let actionLabel = 'Receive';
   const binding = (id: string, originalText: string, text: string) => ({
     source: { sourceKind: 'CONFIG', sourceId: id, sourceVersion: 'v1', originalText },
     languages: { en: { text, requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false } },
@@ -239,6 +240,7 @@ it('refreshes translated field and action candidates without changing a workflow
         },
         textBindings: {
           '/uiDescriptor/defaultEditor/fields/0/label': binding('participant-label', '人员原文', label),
+          '/actions/0/title': binding('action-title', '接收原文', actionLabel),
         },
       };
     if (options.path.endsWith('/configuration-catalog'))
@@ -289,13 +291,15 @@ it('refreshes translated field and action candidates without changing a workflow
         referenceModule: 'iam.user',
       },
     ]);
-    expect(properties.props('actions')).toEqual([{ value: 'receive', label: '接收原文' }]);
+    expect(properties.props('actions')).toEqual([{ value: 'receive', label: 'Receive' }]);
     language.setLanguage('zh-CN');
     await flushPromises();
     expect(properties.props('fields')[0].label).toBe('人员原文');
+    expect(properties.props('actions')).toEqual([{ value: 'receive', label: '接收原文' }]);
     language.setLanguage('en');
     await flushPromises();
     label = 'Responsible account';
+    actionLabel = 'Confirm receipt';
     await appDataChangeDispatcher.dispatch({
       changeSetId: 'workflow-language-candidates',
       changes: [{ type: 'configuration-translations-changed', moduleAlias: 'demo.purchase' }],
@@ -305,6 +309,7 @@ it('refreshes translated field and action candidates without changing a workflow
       name: 'participantId',
       label: 'Responsible account',
     });
+    expect(properties.props('actions')).toEqual([{ value: 'receive', label: 'Confirm receipt' }]);
     expect(properties.props('design')).toBe(originalDesign);
     expect(originalDesign.nodes[0].title).toBe('用户节点原名');
     expect(request.mock.calls.filter(([options]) => options.path.endsWith('/design'))).toHaveLength(1);

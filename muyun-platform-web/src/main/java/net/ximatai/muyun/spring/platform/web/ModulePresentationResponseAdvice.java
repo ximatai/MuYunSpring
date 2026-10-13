@@ -52,7 +52,7 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
     public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType contentType,
                                   Class<? extends HttpMessageConverter<?>> converterType,
                                   ServerHttpRequest request, ServerHttpResponse response) {
-        if (!(body instanceof PlatformModuleRuntimeContext context) || context.uiDescriptor() == null) return body;
+        if (!(body instanceof PlatformModuleRuntimeContext context)) return body;
         return project(context);
     }
 
@@ -63,13 +63,16 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
         Map<String, TextPresentation> bindings = new LinkedHashMap<>();
         Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> visibleSources = new LinkedHashMap<>();
         var descriptor = context.uiDescriptor();
-        if (descriptor == null) return context;
-        var locations = ModuleUiTextLocations.of(descriptor).stream().filter(location -> {
+        var locations = descriptor == null ? java.util.List.<ModuleUiTextLocations.Location>of() : ModuleUiTextLocations.of(descriptor).stream().filter(location -> {
             var source = descriptor.sourceTexts().get(location.bindingKey());
             return source != null && source.originalText().equals(location.originalText()) &&
                     (!location.configured() || source.sourceKind() == net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
         }).toList();
-        if (texts != null) texts = texts.prepare(locations.stream().map(location -> descriptor.sourceTexts().get(location.bindingKey())).toList());
+        var sources = new java.util.ArrayList<net.ximatai.muyun.spring.common.i18n.TextReference>();
+        locations.stream().map(location -> descriptor.sourceTexts().get(location.bindingKey())).forEach(sources::add);
+        context.actions().stream().filter(action -> action.titleSource() != null &&
+                action.titleSource().originalText().equals(action.title())).map(PlatformModuleRuntimeAction::titleSource).forEach(sources::add);
+        if (texts != null) texts = texts.prepare(sources);
         for (var location : locations) {
             var source = descriptor.sourceTexts().get(location.bindingKey());
             // An online override must obtain its own source fact; never borrow the underlying code translation.
@@ -84,9 +87,21 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
             visibleSources.put(location.bindingKey(), source);
             if (texts != null) replaceText(output, path, texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
         }
+        for (int index = 0; index < context.actions().size(); index++) {
+            var action = context.actions().get(index);
+            var source = action.titleSource();
+            if (source == null || !source.originalText().equals(action.title())) continue;
+            Map<String, TextResources.Resolution> languages = new LinkedHashMap<>();
+            if (texts != null && catalog != null) for (var language : catalog.languages()) if (language.enabled()) {
+                languages.put(language.tag(), texts.resolve(source, Map.of(), language.tag()));
+            }
+            String path = "/actions/" + index + "/title";
+            bindings.put(path, new TextPresentation(source, languages));
+            if (texts != null) replaceText(output, path, texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
+        }
         output.set("textBindings", mapper.valueToTree(bindings));
         // A compiled directory can contain slots removed by request authorization or source resolution.
-        ((ObjectNode) output.get("uiDescriptor")).set("sourceTexts", mapper.valueToTree(visibleSources));
+        if (descriptor != null) ((ObjectNode) output.get("uiDescriptor")).set("sourceTexts", mapper.valueToTree(visibleSources));
         return mapper.convertValue(output, new TypeReference<Map<String, Object>>() { });
     }
 

@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 import { createLanguageContext, provideLanguageContext, type HttpClient } from '@muyun/web-core';
 import { UiSearchInput } from '@muyun/vue-ui-antdv';
 import RecordFormFields from '@/platform-components/RecordFormFields.vue';
+import { missingReferencePickerDependencies } from '@/platform-components/referencePickerReadError';
 import ReferencePicker from '@/platform-components/ReferencePicker.vue';
 import WorkflowParticipantEditor from '@/platform-components/WorkflowParticipantEditor.vue';
 import WorkflowBusinessTaskEditor from '@/platform-components/WorkflowBusinessTaskEditor.vue';
@@ -163,6 +164,34 @@ it('translates workflow editor controls and errors while retaining authored conf
     expect(nameInput.get('input').element).toBe(input);
     expect(nameInput.props('value')).toBe('用户编写的指引');
     expect(wrapper.findComponent(WorkflowBusinessTaskEditor).emitted('update:value')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('refreshes an already displayed missing-dependency error without retrying or changing the reference', async () => {
+  const language = createLanguageContext();
+  const resolve = vi.fn(async () => {
+    throw missingReferencePickerDependencies(['classId']);
+  });
+  const provider = {
+    identity: {
+      targetModuleAlias: 'demo.reference',
+      source: { kind: 'sourceField' as const, id: 'studentId' },
+    },
+    resolve,
+    searchPage: vi.fn(async () => ({ records: [], total: 0 })),
+  };
+  const wrapper = mount(host(language, () => h(ReferencePicker, { provider, value: 'student-id' })));
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('请先补齐引用所需的依赖字段');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Complete the fields required by this reference first');
+    expect(wrapper.text()).not.toContain('请先补齐引用所需的依赖字段');
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(wrapper.findComponent(ReferencePicker).emitted('update:value')).toBeUndefined();
   } finally {
     wrapper.unmount();
   }

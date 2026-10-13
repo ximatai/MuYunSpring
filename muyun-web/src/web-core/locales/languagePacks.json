@@ -596,7 +596,10 @@
       "platform.workflow-config.priority": "优先级",
       "platform.workflow-config.referenced-task": "引用任务",
       "platform.workflow-config.selector-summary": "由{title}的实际办理人选路；{reason}。",
-      "platform.workflow-config.configure-exit": "配置出口：{title}"
+      "platform.workflow-config.configure-exit": "配置出口：{title}",
+      "platform.reference-picker.missing-dependencies": "请先补齐引用所需的依赖字段",
+      "platform.reference-picker.source-navigation": "当前引用来源不支持范围导航",
+      "platform.reference-picker.target-navigation": "当前引用目标不支持范围导航"
     }
   },
   "en": {
@@ -1197,7 +1200,10 @@
       "platform.workflow-config.priority": "Priority",
       "platform.workflow-config.referenced-task": "Referenced task",
       "platform.workflow-config.selector-summary": "The actual assignee of {title} chooses the route; {reason}.",
-      "platform.workflow-config.configure-exit": "Configure exit: {title}"
+      "platform.workflow-config.configure-exit": "Configure exit: {title}",
+      "platform.reference-picker.missing-dependencies": "Complete the fields required by this reference first",
+      "platform.reference-picker.source-navigation": "This reference source does not support scope navigation",
+      "platform.reference-picker.target-navigation": "This reference target does not support scope navigation"
     }
   },
   "fr": {

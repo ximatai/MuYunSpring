@@ -17,9 +17,13 @@ public class ModuleConfiguredTextSourceProvider implements ConfiguredTextSourceP
     }
     @Override public List<TextReference> currentSources(String moduleAlias) {
         if (declarations.find(moduleAlias).isEmpty() && !modules.dynamicModuleAliases().contains(moduleAlias)) return List.of();
-        var descriptor = modules.context(moduleAlias).uiDescriptor();
-        if (descriptor == null) return List.of();
-        return ModuleUiTextLocations.of(descriptor).stream().map(location -> descriptor.sourceTexts().get(location.bindingKey()))
-                .filter(source -> source != null && source.sourceKind() == TextReference.SourceKind.CONFIG).distinct().toList();
+        var context = modules.context(moduleAlias);
+        var descriptor = context.uiDescriptor();
+        var sources = new java.util.ArrayList<TextReference>();
+        if (descriptor != null) ModuleUiTextLocations.of(descriptor).stream()
+                .map(location -> descriptor.sourceTexts().get(location.bindingKey())).forEach(sources::add);
+        context.actions().stream().map(PlatformModuleRuntimeAction::titleSource).forEach(sources::add);
+        return sources.stream().filter(source -> source != null && source.sourceKind() == TextReference.SourceKind.CONFIG)
+                .distinct().toList();
     }
 }

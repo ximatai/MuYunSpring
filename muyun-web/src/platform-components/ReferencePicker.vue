@@ -35,7 +35,11 @@ import {
   type ReferencePickerTreeNode,
   type ReferencePickerValidity,
 } from './referencePickerModel';
-import { referencePickerReadErrorOf, type ReferencePickerReadError } from './referencePickerReadError';
+import {
+  referencePickerErrorMessage,
+  referencePickerReadErrorOf,
+  type ReferencePickerReadError,
+} from './referencePickerReadError';
 
 defineOptions({ name: 'ReferencePicker' });
 const language = useLanguageContext();
@@ -121,6 +125,9 @@ const selectionVersion = ref(0);
 const validityState = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
 const validity = computed(() => ({
   ...validityState.value,
+  ...(validityState.value.status === 'error' && pageError.value
+    ? { message: referencePickerErrorMessage(pageError.value, language) }
+    : {}),
   ...(validityState.value.message
     ? { message: language.t(validityState.value.message, validityState.value.message) }
     : {}),
@@ -395,10 +402,10 @@ async function resolveSelection(ids: readonly ReferencePickerId[]) {
     // A transient resolver failure must retain the persisted ID without claiming
     // the value is unavailable. Only a successful resolver response can do that.
     emit('selection-resolved', ids.map(selectionCandidate));
-    resolveError.value = referencePickerReadErrorOf(
-      cause,
-      language.t('platform.reference-picker.resolve-failed', '引用值回显失败'),
-    );
+    resolveError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.resolve-failed',
+      original: '引用值回显失败',
+    });
   }
 }
 
@@ -482,10 +489,10 @@ async function loadPage() {
   } catch (cause) {
     if (requestVersion !== pageRequestVersion) return;
     pageReadFailed.value = true;
-    pageError.value = referencePickerReadErrorOf(
-      cause,
-      language.t('platform.reference-picker.load-failed', '引用候选加载失败'),
-    );
+    pageError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.load-failed',
+      original: '引用候选加载失败',
+    });
   } finally {
     if (requestVersion === pageRequestVersion) loading.value = false;
   }
@@ -509,10 +516,10 @@ async function loadTree() {
   } catch (cause) {
     if (requestVersion !== treeRequestVersion) return;
     pageReadFailed.value = true;
-    pageError.value = referencePickerReadErrorOf(
-      cause,
-      language.t('platform.reference-picker.tree-failed', '引用树加载失败'),
-    );
+    pageError.value = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.tree-failed',
+      original: '引用树加载失败',
+    });
   } finally {
     if (requestVersion === treeRequestVersion) loading.value = false;
   }
@@ -675,15 +682,12 @@ async function completeDraft(draft: string) {
   } catch (cause) {
     if (unmounted || requestVersion !== completionRequestVersion) return;
     failedCompletionKeyword.value = keywordForCompletion;
-    const error = referencePickerReadErrorOf(
-      cause,
-      language.t('platform.reference-picker.load-failed', '引用候选加载失败'),
-    );
+    const error = referencePickerReadErrorOf(cause, {
+      key: 'platform.reference-picker.load-failed',
+      original: '引用候选加载失败',
+    });
     pageError.value = error;
-    setValidity(
-      'error',
-      error?.message ?? language.t('platform.reference-picker.load-failed', '引用候选加载失败'),
-    );
+    setValidity('error');
   }
 }
 
@@ -806,7 +810,7 @@ function retryCompactError() {
       @blur="completeDraft"
     />
     <div v-if="!open && (resolveError || pageError)" class="reference-picker-error">
-      <UiError :message="(resolveError ?? pageError)?.message ?? ''" />
+      <UiError :message="referencePickerErrorMessage((resolveError ?? pageError)!, language)" />
       <UiButton v-if="(resolveError ?? pageError)?.retryable" size="small" @click="retryCompactError">
         {{ language.t('platform.reference-picker.retry', '重试') }}
       </UiButton>
@@ -823,7 +827,7 @@ function retryCompactError() {
     >
       <div class="reference-picker-dialog">
         <div v-if="resolveError" class="reference-picker-error">
-          <UiError :message="resolveError.message" />
+          <UiError :message="referencePickerErrorMessage(resolveError, language)" />
           <UiButton v-if="resolveError.retryable" size="small" @click="resolveSelection(externalIds)">
             {{ language.t('platform.reference-picker.retry-resolve', '重试回显') }}
           </UiButton>
@@ -879,7 +883,7 @@ function retryCompactError() {
           </aside>
           <div class="reference-picker-results">
             <div v-if="pageError" class="reference-picker-error">
-              <UiError :message="pageError.message" />
+              <UiError :message="referencePickerErrorMessage(pageError, language)" />
               <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">{{
                 language.t('platform.reference-picker.retry', '重试')
               }}</UiButton>
