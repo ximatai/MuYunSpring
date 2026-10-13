@@ -69,9 +69,15 @@ public class WorkflowRuntimeEventFactory {
     }
 
     public WorkflowEvent taskResubmitted(WorkflowInstance instance, WorkflowTask task,
-                                         String operatorId, String message, Instant occurredAt) {
+                                         String operatorId, String reason, Instant occurredAt) {
+        return taskResubmitted(instance, task, operatorId,
+                reason == null || reason.isBlank() ? "workflow task resubmitted" : reason, reason, occurredAt);
+    }
+
+    public WorkflowEvent taskResubmitted(WorkflowInstance instance, WorkflowTask task,
+                                         String operatorId, String message, String reason, Instant occurredAt) {
         return opinionEvent(instance, null, task, WorkflowEventType.TASK_RESUBMITTED, "resubmit", operatorId,
-                message == null || message.isBlank() ? "workflow task resubmitted" : message, null, occurredAt, message);
+                message, null, occurredAt, reason);
     }
 
     public WorkflowEvent nodeRolledBack(WorkflowInstance instance, WorkflowNodeInstance node,

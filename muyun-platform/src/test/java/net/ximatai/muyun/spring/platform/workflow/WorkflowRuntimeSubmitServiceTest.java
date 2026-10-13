@@ -67,6 +67,13 @@ class WorkflowRuntimeSubmitServiceTest {
         verify(archives).archiveCurrentInstance(previous, WorkflowArchiveReason.RESTARTED, now);
         assertThat(draft.instance().getPreviousInstanceId()).isEqualTo("previous");
         assertThat(resubmit.getTaskStatus()).isEqualTo(WorkflowTaskStatus.DONE);
+        var captured = org.mockito.ArgumentCaptor.forClass(WorkflowEvent.class);
+        verify(eventDao, org.mockito.Mockito.times(2)).insert(captured.capture());
+        var restartEvent = captured.getAllValues().stream()
+                .filter(event -> event.getEventType() == WorkflowEventType.TASK_RESUBMITTED).findFirst().orElseThrow();
+        assertThat(restartEvent.getMessage()).isEqualTo("重新发起审批");
+        assertThat(restartEvent.getReason()).isNull();
+        assertThat(previous.getLastActionReason()).isNull();
     }
 
     @Test
