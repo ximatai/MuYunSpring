@@ -89,3 +89,39 @@ it('keeps stale translations as review references without automatically publishi
   expect(workspace.previous.value?.publishedText).toBe('Order');
   expect(workspace.text.value).toBe('');
 });
+
+it('reloads saved text from the server while preserving unsaved text with its original optimistic version', async () => {
+  const source = { sourceKind: 'CONFIG', sourceId: 'source', sourceVersion: 'v1', originalText: '订单' };
+  let row = {
+    id: 'one',
+    version: 1,
+    sourceId: 'source',
+    sourceVersion: 'v1',
+    languageTag: 'en',
+    draftText: 'Order',
+  };
+  const request = vi.fn(async ({ path, body }: { path: string; body?: Record<string, unknown> }) => {
+    if (path.endsWith('/sources')) return [source];
+    if (path.endsWith('/translations')) return [{ ...row }];
+    row = { ...row, version: row.version + 1, draftText: String(body?.text) };
+    return { data: { ...row } };
+  });
+  const workspace = createConfigurationTranslationWorkspace({ request } as unknown as HttpClient);
+  workspace.moduleAlias.value = 'test.order';
+  await workspace.load();
+  workspace.text.value = 'Saved local';
+  await workspace.save();
+  expect(workspace.dirty.value).toBe(false);
+  row = { ...row, version: 3, draftText: 'Other reviewer update' };
+  await workspace.load();
+  expect(workspace.text.value).toBe('Other reviewer update');
+  expect(workspace.dirty.value).toBe(false);
+  workspace.text.value = 'Unsaved local';
+  row = { ...row, version: 4, draftText: 'Concurrent change' };
+  await workspace.load();
+  expect(workspace.text.value).toBe('Unsaved local');
+  await workspace.save();
+  expect(request).toHaveBeenLastCalledWith(
+    expect.objectContaining({ body: expect.objectContaining({ version: 3 }) }),
+  );
+});

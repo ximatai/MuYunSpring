@@ -112,7 +112,9 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
         var configured = references.stream().filter(source -> source.sourceKind() == TextReference.SourceKind.CONFIG).toList();
         if (configured.isEmpty()) return List.of();
         var hashes = configured.stream().map(source -> hash(source.sourceId())).distinct().toList();
-        return shared(() -> list(Criteria.of().in("sourceHash", hashes), ALL)).stream()
+        var versions = configured.stream().map(TextReference::sourceVersion).distinct().toList();
+        return shared(() -> list(Criteria.of().in("sourceHash", hashes).in("sourceVersion", versions)
+                .isNotNull("publishedText"), ALL)).stream()
                 .filter(row -> row.getPublishedText() != null && configured.stream().anyMatch(source ->
                         source.sourceId().equals(row.getSourceId()) && source.sourceVersion().equals(row.getSourceVersion())
                                 && source.originalText().equals(row.getOriginalText())))

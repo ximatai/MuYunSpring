@@ -25,6 +25,7 @@ export function createConfigurationTranslationWorkspace(http: HttpClient) {
   const sources = ref<TextReference[]>([]);
   const translations = ref<ConfigurationTranslation[]>([]);
   const drafts = ref<Record<string, string>>({});
+  const draftVersions = new Map<string, number | undefined>();
   const busy = ref(false);
   const source = computed(() => sources.value.find((item) => item.sourceId === sourceId.value));
   const key = computed(() =>
@@ -54,7 +55,15 @@ export function createConfigurationTranslationWorkspace(http: HttpClient) {
   const text = computed({
     get: () => drafts.value[key.value] ?? translation.value?.draftText ?? '',
     set: (value: string) => {
-      drafts.value = { ...drafts.value, [key.value]: value };
+      const next = { ...drafts.value };
+      if (value === (translation.value?.draftText ?? '')) {
+        delete next[key.value];
+        draftVersions.delete(key.value);
+      } else {
+        if (!(key.value in next)) draftVersions.set(key.value, translation.value?.version);
+        next[key.value] = value;
+      }
+      drafts.value = next;
     },
   });
   const dirty = computed(() => text.value !== (translation.value?.draftText ?? ''));
@@ -104,12 +113,18 @@ export function createConfigurationTranslationWorkspace(http: HttpClient) {
             sourceVersion: currentSource.sourceVersion,
             languageTag: targetLanguage.value,
             text: value,
-            version: translation.value?.version,
+            version: currentKey in drafts.value ? draftVersions.get(currentKey) : translation.value?.version,
           },
         }),
       );
       retain(row);
-      drafts.value = { ...drafts.value, [currentKey]: value };
+      const next = { ...drafts.value };
+      // A consumer may continue editing during the request; keep only that newer edit.
+      if (next[currentKey] === value) {
+        delete next[currentKey];
+        draftVersions.delete(currentKey);
+      } else if (currentKey in next) draftVersions.set(currentKey, row.version);
+      drafts.value = next;
     } finally {
       busy.value = false;
     }

@@ -94,6 +94,38 @@ class OnlineUserDataChangeRealtimeFanOutPublisherTest {
         verifyNoInteractions(messages);
     }
 
+    @Test void preservesTranslationInvalidationsForAuthorizedSystemAndOtherTenantRecipients() {
+        var registry = new RealtimeConnectionRegistry();
+        var sessions = mock(UserSessionService.class);
+        var messages = mock(RealtimeMessagePublisher.class);
+        var source = CurrentUser.systemUser("source", "Source");
+        var recipients = List.of(source, CurrentUser.systemUser("admin", "Admin"),
+                CurrentUser.tenantUser("viewer", "Viewer", "tenant-b"),
+                CurrentUser.tenantUser("denied", "Denied", "tenant-c"));
+        for (var recipient : recipients) {
+            registry.register(recipient.userId(), new CurrentUserPrincipal(recipient, recipient.userId(), recipient.userId()));
+            when(sessions.currentUserSnapshot(recipient.userId())).thenReturn(Optional.of(recipient));
+        }
+        var publisher = new OnlineUserDataChangeRealtimeFanOutPublisher(registry, sessions, messages, module -> {
+            var recipient = CurrentUserContext.currentUser().orElseThrow();
+            assertThat(TenantContext.currentTenantId()).isEqualTo(Optional.ofNullable(recipient.tenantId()));
+            return !recipient.userId().equals("denied") && module.equals("sales.order");
+        });
+        try (var user = CurrentUserContext.use(source); var tenant = TenantContext.system("translation publication")) {
+            publisher.publish(new CommittedChangeSet("translations", List.of(
+                    new DataChange("configuration-translations-changed", "sales.order", null, null, null,
+                            Map.of("sourceId", "private-source", "originalText", "private-original")),
+                    new DataChange("configuration-translations-changed", "hidden.module", null, null, null, Map.of()))));
+            assertThat(CurrentUserContext.currentUser()).contains(source);
+            assertThat(TenantContext.isSystem()).isTrue();
+        }
+        for (var recipient : List.of("admin", "viewer"))
+            verify(messages).sendToUser(eq(recipient), eq(RealtimeDestinations.DATA_CHANGES), argThat(value ->
+                    ((CommittedChangeSet) ((RealtimeEnvelope<?>) value).payload()).changes().equals(List.of(
+                            new DataChange("configuration-translations-changed", "sales.order", null, null, null, Map.of())))));
+        verifyNoMoreInteractions(messages);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/topic/platform/modules/sales.order/data-changes", "/topic/platform/modules/sales.order/records/private-id/data-changes", "/queue/platform/data-changes", "/user/other/queue/platform/data-changes"})
     void rejectsSharedOrOtherUsersSubscriptionPaths(String destination) {
