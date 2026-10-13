@@ -34,6 +34,32 @@ afterEach(() => {
 });
 
 describe('managed detail relation surface', () => {
+  it('uses the display list projection for independent child columns without mutating the query contract', async () => {
+    const configured = relation('properties');
+    configured.queryContract!.listProjection = { fields: [{ fieldName: 'attributeAlias', title: '属性' }] };
+    configured.listProjection = { fields: [{ fieldName: 'attributeAlias', title: 'Attribute' }] };
+    const wrapper = shallowMount(ManagedDetailRelationSurface, {
+      props: {
+        sourceContext: context(vi.fn(async () => page([]))),
+        uiDescriptor: descriptor(),
+        relation: configured,
+        parentRecord: { id: 'parent' },
+      },
+    });
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('columns')).toEqual([
+      expect.objectContaining({ key: 'attributeAlias', title: 'Attribute' }),
+    ]);
+    await wrapper.setProps({
+      relation: {
+        ...configured,
+        listProjection: { fields: [{ fieldName: 'attributeAlias', title: '属性' }] },
+      },
+    });
+    expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('columns')[0].title).toBe('属性');
+    expect(configured.queryContract!.listProjection.fields[0].title).toBe('属性');
+    wrapper.unmount();
+  });
+
   it('preserves loaded children when opening an editable aggregate with parent draft feedback', async () => {
     const aggregate = relation('properties');
     aggregate.embeddedField = 'properties';

@@ -251,7 +251,7 @@ export function useNavigatorRuntime(
     navigatorEntrySelectionRevision += 1;
     settledNavigatorEntrySelectionIdentity.value = undefined;
     navigatorEntrySelectionResolutions.clear();
-    navigatorLevels.value = await Promise.all(
+    const loadedLevels = await Promise.all(
       descriptors.map(async (descriptor) => {
         const navigatorContext = createModuleContext<QueryListRecord>({
           http: crossModuleHttp,
@@ -270,9 +270,7 @@ export function useNavigatorRuntime(
           navigatorContext.abilities.hasTree() === true &&
           navigatorContext.can('sort') === true;
         return {
-          descriptor:
-            runtimePage.value?.navigator?.levels.find((current) => current.key === descriptor.key) ??
-            descriptor,
+          descriptor,
           context: navigatorContext,
           tree: descriptor.kind === 'TREE' && navigatorContext.abilities.hasTree() === true,
           sort: {
@@ -282,6 +280,12 @@ export function useNavigatorRuntime(
         };
       }),
     );
+    navigatorLevels.value = loadedLevels.map((level) => ({
+      ...level,
+      descriptor:
+        runtimePage.value?.navigator?.levels.find((current) => current.key === level.descriptor.key) ??
+        level.descriptor,
+    }));
     activeTreeResource.value = runtimePage.value?.treeResource?.resource;
   }
 

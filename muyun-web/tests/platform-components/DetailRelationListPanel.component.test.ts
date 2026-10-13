@@ -5,6 +5,20 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { ResolvedDetailRelationDescriptor } from '@muyun/web-contracts';
 
 describe('DetailRelationListPanel', () => {
+  it('takes translated columns from the display projection and retains the query contract', async () => {
+    const relation = executableRelation();
+    relation.listProjection = { fields: [{ fieldName: 'summary', title: 'Summary' }] };
+    const wrapper = shallowMount(DetailRelationListPanel, {
+      props: { sourceContext: sourceContext(vi.fn()), recordId: 'customer-1', relation },
+    });
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(list.props('columns')[0].title).toBe('Summary');
+    expect(list.props('queryTemplateId')).toBe('contract-default');
+    expect(relation.queryContract!.listProjection!.fields[0].title).toBe('摘要');
+    wrapper.unmount();
+  });
+
   it('uses only the server-issued relation query contract and its list projection', async () => {
     const request = vi.fn();
     const wrapper = shallowMount(DetailRelationListPanel, {

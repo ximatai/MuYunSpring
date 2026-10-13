@@ -275,7 +275,8 @@ it('uses business column titles and loaded scoped option labels for confirmation
   } as unknown as ResolvedModuleUiDescriptor;
   const detail = {
     ...relation,
-    queryContract: { listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] } },
+    queryContract: { listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '原文状态' }] } },
+    listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] },
   } as ResolvedDetailRelationDescriptor;
   const result = recordRelationProjection(
     ui,

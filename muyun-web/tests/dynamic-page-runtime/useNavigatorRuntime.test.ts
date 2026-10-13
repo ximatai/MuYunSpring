@@ -65,21 +65,28 @@ describe('navigator standard sort availability', () => {
   });
 });
 
-it('uses the current language when a navigator target finishes loading after a switch', async () => {
+it.each([
+  ['first', 'second'],
+  ['second', 'first'],
+])('projects every navigator after all targets settle (%s before %s)', async (early, late) => {
   const language = createLanguageContext();
-  let finishTarget!: (value: unknown) => void;
-  let targetStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    targetStarted = resolve;
+  const finish = new Map<string, (value: unknown) => void>();
+  let started!: () => void;
+  const targetsStarted = new Promise<void>((resolve) => {
+    started = resolve;
   });
+  const slots = [
+    { key: 'first', title: '一级', english: 'First' },
+    { key: 'second', title: '二级', english: 'Second' },
+  ];
   const http = {
     request: async ({ path }: { path: string }) => {
-      if (path.includes('demo.source')) {
-        targetStarted();
+      const target = slots.find((slot) => path.includes(`demo.${slot.key}`));
+      if (target)
         return new Promise<unknown>((resolve) => {
-          finishTarget = resolve;
+          finish.set(target.key, resolve);
+          if (finish.size === 2) started();
         });
-      }
       return {
         moduleAlias: 'demo.host',
         capabilities: [],
@@ -89,29 +96,37 @@ it('uses the current language when a navigator target finishes loading after a s
           page: {
             detail: {},
             navigator: {
-              levels: [{ key: 'source', sourceModuleAlias: 'demo.source', kind: 'LIST', title: '分类' }],
+              levels: slots.map((slot) => ({
+                key: slot.key,
+                sourceModuleAlias: `demo.${slot.key}`,
+                kind: 'LIST',
+                title: slot.title,
+              })),
             },
           },
         },
-        textBindings: {
-          '/uiDescriptor/page/navigator/levels/0/title': {
-            source: {
-              sourceKind: 'CODE',
-              sourceId: 'navigator.source.title',
-              sourceVersion: 'v1',
-              originalText: '分类',
-            },
-            languages: {
-              en: {
-                text: 'Categories',
-                requestedTag: 'en',
-                resourceTag: 'en',
-                missing: false,
-                fallback: false,
+        textBindings: Object.fromEntries(
+          slots.map((slot, index) => [
+            `/uiDescriptor/page/navigator/levels/${index}/title`,
+            {
+              source: {
+                sourceKind: 'CODE',
+                sourceId: `navigator.${slot.key}.title`,
+                sourceVersion: 'v1',
+                originalText: slot.title,
+              },
+              languages: {
+                en: {
+                  text: slot.english,
+                  requestedTag: 'en',
+                  resourceTag: 'en',
+                  missing: false,
+                  fallback: false,
+                },
               },
             },
-          },
-        },
+          ]),
+        ),
       };
     },
   } as unknown as HttpClient;
@@ -122,13 +137,15 @@ it('uses the current language when a navigator target finishes loading after a s
     () => false,
     () => {},
   );
-  await started;
+  await targetsStarted;
+  finish.get(early)!({ moduleAlias: `demo.${early}`, capabilities: [], actions: [] });
+  await new Promise<void>((resolve) => setImmediate(resolve));
   language.setLanguage('en');
-  finishTarget({ moduleAlias: 'demo.source', capabilities: [], actions: [] });
+  finish.get(late)!({ moduleAlias: `demo.${late}`, capabilities: [], actions: [] });
   await loading;
-  expect(runtime.navigatorLevels.value[0].descriptor.title).toBe('Categories');
+  expect(runtime.navigatorLevels.value.map((level) => level.descriptor.title)).toEqual(['First', 'Second']);
   const level = runtime.navigatorLevels.value[0];
   language.setLanguage('zh-CN');
   expect(runtime.navigatorLevels.value[0]).toBe(level);
-  expect(level.descriptor.title).toBe('分类');
+  expect(level.descriptor.title).toBe('一级');
 });

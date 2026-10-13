@@ -145,8 +145,9 @@ export function recordRelationProjection(
         return [
           {
             label:
-              relation.queryContract?.listProjection?.fields.find((column) => column.fieldName === name)
-                ?.title ??
+              (relation.listProjection?.fields ?? relation.queryContract?.listProjection?.fields)?.find(
+                (column) => column.fieldName === name,
+              )?.title ??
               field.label ??
               name,
             ...(field.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
