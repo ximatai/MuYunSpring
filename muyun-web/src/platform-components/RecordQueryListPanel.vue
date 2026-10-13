@@ -980,7 +980,7 @@ function emptyQuerySchema(scopeName: string): QuerySchema {
 
 function isUnsupportedQuerySchemaError(cause: unknown) {
   const error = normalizeError(cause);
-  return error.message.includes('query schema is not supported by');
+  return error.code === 'QUERY_SCHEMA_UNSUPPORTED';
 }
 
 function refresh() {

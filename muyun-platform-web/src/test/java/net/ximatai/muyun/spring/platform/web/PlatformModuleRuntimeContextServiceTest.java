@@ -382,7 +382,7 @@ class PlatformModuleRuntimeContextServiceTest {
                 module("iam.organization", "组织管理", ModuleKind.STATIC)
         ));
         when(dynamicRecordService.describe("education.exam"))
-                .thenThrow(new ModuleDefinitionException("unknown module alias: education.exam"));
+                .thenThrow(new net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException("education.exam"));
         when(dynamicRecordService.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor(
                 "sales.contract", "合同", "contract", List.of(), List.of(), List.of(), List.of(), List.of()));
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(

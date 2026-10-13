@@ -42,6 +42,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
@@ -569,7 +570,7 @@ public class PlatformModuleRuntimeContextService {
             dynamicRecordService.describe(moduleAlias);
             return true;
         } catch (ModuleDefinitionException exception) {
-            if (exception.getMessage() != null && exception.getMessage().startsWith("unknown module alias:")) {
+            if (exception instanceof UnknownDynamicModuleException) {
                 return false;
             }
             throw exception;

@@ -38,6 +38,7 @@ class DynamicModuleRegistryTest {
                 .hasMessageContaining("duplicate module alias");
         assertThatThrownBy(() -> registry.requireModule("sales.order"))
                 .isInstanceOf(ModuleDefinitionException.class)
+                .isInstanceOf(net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException.class)
                 .hasMessageContaining("unknown module alias");
         assertThatThrownBy(() -> registry.requireEntity("sales.contract", "missing"))
                 .isInstanceOf(ModuleDefinitionException.class)

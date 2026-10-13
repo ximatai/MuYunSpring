@@ -104,6 +104,7 @@ export {
 } from '../platform-components/platformErrorFeedback';
 export {
   createBrowserFileTransferUpload,
+  FileTransferUploadCancelledError,
   unwrapResponsePayload,
 } from '../platform-components/fileTransferUpload';
 export type {

@@ -79,8 +79,7 @@ public final class DictionaryOptionSource implements OptionSource {
     }
 
     private boolean isMissingCategory(PlatformException ex) {
-        return ex.getMessage() != null
-                && ex.getMessage().startsWith("Dictionary category requires existing category:");
+        return DictionaryCategoryService.CATEGORY_NOT_FOUND.equals(ex.code());
     }
 
     private OptionItem toOption(DictionaryItem item, Map<String, DictionaryItem> itemById) {

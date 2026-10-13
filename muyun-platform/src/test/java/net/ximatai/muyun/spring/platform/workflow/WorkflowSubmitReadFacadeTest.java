@@ -83,12 +83,22 @@ class WorkflowSubmitReadFacadeTest {
         when(instanceDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class), any(Sort.class)))
                 .thenReturn(List.of());
         when(selector.select(any(WorkflowSubmitRequest.class)))
-                .thenThrow(new PlatformException("published workflow definition not found: sales.contract"));
+                .thenThrow(new PlatformException(WorkflowDefinitionSelector.NO_PUBLISHED_DEFINITION, 404, "未找到可用审批流程"));
 
         WorkflowSubmitStatusView status = facade.status(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
 
         assertThat(status.displayStatus()).isEqualTo("NO_WORKFLOW");
-        assertThat(status.errorMessage()).contains("published workflow definition not found");
+        assertThat(status.errorMessage()).isEqualTo("未找到可用审批流程");
+    }
+
+    @Test
+    void missingDefinitionTextDoesNotMisclassifyAnUnrelatedFailure() {
+        when(instanceDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class), any(Sort.class)))
+                .thenReturn(List.of());
+        when(selector.select(any(WorkflowSubmitRequest.class)))
+                .thenThrow(new PlatformException("published workflow definition not found: misleading text"));
+        assertThat(facade.status(WorkflowSubmitRequest.approval("sales.contract", "record-1")).displayStatus())
+                .isEqualTo("MATCH_ERROR");
     }
 
     @Test

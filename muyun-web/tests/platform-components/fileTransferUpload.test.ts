@@ -1,7 +1,9 @@
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import { reactive } from 'vue';
 import {
   performBrowserFileTransferUpload,
+  FileTransferUploadCancelledError,
+  createBrowserFileTransferUpload,
   unwrapResponsePayload,
 } from '@/platform-components/fileTransferUpload.ts';
 
@@ -64,5 +66,29 @@ it('file transfer lifecycle updates the rendered item through completed after st
       configurable: true,
       value: originalXmlHttpRequest,
     });
+  }
+});
+
+it('actual transfer abort reports cancellation independent of the displayed message', async () => {
+  const original = globalThis.XMLHttpRequest;
+  class PendingRequest {
+    upload = {};
+    onabort?: () => void;
+    open() {}
+    send() {}
+    abort() {
+      this.onabort?.();
+    }
+  }
+  Object.defineProperty(globalThis, 'XMLHttpRequest', { configurable: true, value: PendingRequest });
+  try {
+    const file = Object.assign(new Blob(['demo']), { name: 'demo.txt' }) as File;
+    const task = createBrowserFileTransferUpload(file, { uploadUrl: 'https://files.example/upload' });
+    task.cancel();
+    const error = await task.promise.catch((cause) => cause);
+    error.message = 'Upload cancelled';
+    expect(error).toBeInstanceOf(FileTransferUploadCancelledError);
+  } finally {
+    Object.defineProperty(globalThis, 'XMLHttpRequest', { configurable: true, value: original });
   }
 });

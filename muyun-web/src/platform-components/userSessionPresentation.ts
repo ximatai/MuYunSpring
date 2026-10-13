@@ -10,13 +10,13 @@ import type { UserSessionView } from '@muyun/web-contracts';
 export function userSessionPresenceTitle(
   session: Pick<UserSessionView, 'presenceStatus' | 'presenceStatusTitle'>,
 ) {
-  if (session.presenceStatus === 'online' || session.presenceStatusTitle === '在线使用中') {
+  if (session.presenceStatus === 'online') {
     return '使用中';
   }
   if (session.presenceStatus === 'idle') {
     return '闲置';
   }
-  if (session.presenceStatus === 'offline' || session.presenceStatusTitle === '未连接') {
+  if (session.presenceStatus === 'offline') {
     return '离线';
   }
   return session.presenceStatusTitle || '离线';

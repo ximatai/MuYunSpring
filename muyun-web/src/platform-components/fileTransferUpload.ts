@@ -1,3 +1,11 @@
+/** Cancellation is a transfer fact independent of its display text. */
+export class FileTransferUploadCancelledError extends Error {
+  constructor() {
+    super('上传已取消。');
+    this.name = 'FileTransferUploadCancelledError';
+  }
+}
+
 /**
  * The platform owns the browser-to-storage transfer mechanics, while an
  * application owns the authorization request. A caller may additionally run a
@@ -93,7 +101,7 @@ export function createBrowserFileTransferUpload(
       }
     };
     request.onerror = () => reject(new Error('文件服务网络连接失败。'));
-    request.onabort = () => reject(new Error('上传已取消。'));
+    request.onabort = () => reject(new FileTransferUploadCancelledError());
     request.onload = () => {
       const response = parseResponse(request?.responseText);
       if (!request || request.status < 200 || request.status >= 300) {

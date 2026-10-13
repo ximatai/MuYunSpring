@@ -6,14 +6,7 @@ import { workflowAccountOptions } from './workflowAccountOptions';
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
-interface Rule {
-  type: string;
-  ids?: string[];
-  fieldName?: string;
-  relation?: string;
-  depth?: number;
-  headOnly?: boolean;
-}
+import { workflowParticipantRules, type WorkflowParticipantRule as Rule } from './workflowParticipantPolicy';
 const props = defineProps<{
   value?: string;
   http: HttpClient;
@@ -51,18 +44,7 @@ watch(
   (value) => {
     error.value = '';
     try {
-      if (!value) {
-        rules.value = [];
-        return;
-      }
-      if (value.startsWith('user:')) {
-        rules.value = [{ type: 'USER', ids: [value.slice(5)] }];
-        return;
-      }
-      const parsed = JSON.parse(value);
-      rules.value = parsed.rules ?? [
-        { type: parsed.type ?? 'USER', ids: parsed.ids ?? parsed.userIds ?? [] },
-      ];
+      rules.value = workflowParticipantRules(value);
     } catch {
       error.value = '参与人规则格式无法识别，请重新配置';
       rules.value = [];

@@ -11,6 +11,8 @@ import java.util.List;
 
 @Service
 public class WorkflowDefinitionSelector {
+    public static final String NO_PUBLISHED_DEFINITION = "platform.workflow.no-published-definition";
+
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final WorkflowDefinitionService definitionService;
@@ -83,7 +85,7 @@ public class WorkflowDefinitionSelector {
             if (winners.size() != 1) throw new PlatformException("multiple approval workflow definitions matched: " + request.moduleAlias());
             return winners.getFirst();
         }
-        throw new PlatformException("published workflow definition not found: " + request.moduleAlias());
+        throw new PlatformException(NO_PUBLISHED_DEFINITION, 404, "published workflow definition not found: " + request.moduleAlias());
     }
 
     private WorkflowVersion publishedVersion(WorkflowDefinition definition) {

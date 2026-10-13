@@ -66,8 +66,7 @@ public class WorkflowSubmitReadFacade {
             return WorkflowSubmitStatusView.unsubmitted(normalized.moduleAlias(), normalized.recordId(),
                     selector.select(normalized));
         } catch (PlatformException exception) {
-            if (exception.getMessage() != null
-                    && exception.getMessage().startsWith("published workflow definition not found:")) {
+            if (WorkflowDefinitionSelector.NO_PUBLISHED_DEFINITION.equals(exception.code())) {
                 return WorkflowSubmitStatusView.noWorkflow(normalized.moduleAlias(), normalized.recordId(),
                         exception.getMessage());
             }

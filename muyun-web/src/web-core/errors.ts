@@ -40,6 +40,7 @@ export const platformErrorCodes = {
   resourceNotFound: 'RESOURCE_NOT_FOUND',
   resourceSoftDeletedConflict: 'RESOURCE_SOFT_DELETED_CONFLICT',
   configMissing: 'CONFIG_MISSING',
+  querySchemaUnsupported: 'QUERY_SCHEMA_UNSUPPORTED',
   internalError: 'INTERNAL_ERROR',
 } as const;
 

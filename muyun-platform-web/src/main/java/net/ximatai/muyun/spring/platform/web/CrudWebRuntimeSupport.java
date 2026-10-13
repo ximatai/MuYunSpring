@@ -117,7 +117,9 @@ final class CrudWebRuntimeSupport {
         if (controller.service() instanceof QueryAbility<?> queryAbility) {
             return withNavigatorCriteria(controller, queryAbility.querySchema(), uiConfigId);
         }
-        throw new IllegalArgumentException("query schema is not supported by " + controller.webScopeName());
+        throw new net.ximatai.muyun.spring.common.exception.PlatformException(
+                net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.QUERY_SCHEMA_UNSUPPORTED, 400,
+                "query schema is not supported by " + controller.webScopeName());
     }
 
     static FormSchema formSchema(CrudWeb<?, ?> controller, String resource, String editorSurface) {

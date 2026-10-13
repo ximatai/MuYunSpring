@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
@@ -252,7 +253,7 @@ public class DynamicRecordRuntime implements AutoCloseable {
     private DynamicEntityService entityService(Map<String, ModuleDefinition> definitions, String moduleAlias,
                                                 String entityAlias, DynamicRecordLifecycle lifecycle) {
         ModuleDefinition module = definitions.get(moduleAlias);
-        if (module == null) throw new ModuleDefinitionException("unknown module alias: " + moduleAlias);
+        if (module == null) throw new UnknownDynamicModuleException(moduleAlias);
         EntityDefinition entity = module.entities().stream().filter(value -> value.alias().equals(entityAlias))
                 .findFirst().orElseThrow(() -> new ModuleDefinitionException("unknown entity: " + moduleAlias + "." + entityAlias));
         return new DynamicEntityService(

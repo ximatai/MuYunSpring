@@ -6,7 +6,7 @@ import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
+import { AppError, type HttpClient, type ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 import type { RecordQueryListQueryController } from '@/platform-components/recordQueryListQueryController';
 
@@ -1555,3 +1555,20 @@ function createContext(
     },
   } as unknown as ModuleContext<QueryListRecord>;
 }
+
+it('continues basic list loading only for a structured unsupported-schema fact', async () => {
+  for (const [code, message, shouldQuery] of [
+    ['QUERY_SCHEMA_UNSUPPORTED', '此模块不支持高级查询', true],
+    ['APP_ERROR', 'query schema is not supported by misleading text', false],
+  ] as const) {
+    const queries: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note' }, queries);
+    context.crud.querySchema = async () => {
+      throw new AppError(message, { code });
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, { props: { context, title: '记录' } });
+    await flushPromises();
+    expect(queries.length > 0).toBe(shouldQuery);
+    wrapper.unmount();
+  }
+});

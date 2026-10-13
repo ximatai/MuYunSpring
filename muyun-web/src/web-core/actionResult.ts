@@ -9,6 +9,7 @@ import {
 export interface ResolvedWebActionResult {
   message: string;
   messageCode?: string;
+  messageArgs?: Record<string, unknown>;
   messageType?: string;
   resultType?: string;
   changeSetId?: string;
@@ -67,6 +68,7 @@ export function resolveWebActionResult(
   return {
     message: message?.text ?? options.fallbackMessage ?? '操作成功',
     messageCode: message?.code,
+    messageArgs: message?.messageArgs,
     messageType: message?.type,
     resultType: actionResultType(result),
     changeSetId: actionResultChangeSetId(result),
@@ -113,6 +115,13 @@ function actionResultMessage(result: unknown): WebActionMessage | undefined {
     text: text.trim(),
     code: typeof code === 'string' && code.trim() ? code.trim() : undefined,
     type: typeof type === 'string' && type.trim() ? type.trim() : undefined,
+    messageArgs:
+      'messageArgs' in message &&
+      message.messageArgs &&
+      typeof message.messageArgs === 'object' &&
+      !Array.isArray(message.messageArgs)
+        ? (message.messageArgs as Record<string, unknown>)
+        : undefined,
   };
 }
 

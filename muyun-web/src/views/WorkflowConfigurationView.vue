@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {
+  workflowParticipantRules,
+  hasWorkflowParticipants,
+} from '../platform-components/workflowParticipantPolicy';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useModuleContext, createWorkflowDefinitionClient, createModuleContext } from '@muyun/web-core';
 import type {
@@ -132,7 +136,7 @@ function configurationAction(key: string) {
 }
 function participantSummary(text?: string) {
   try {
-    const rules = JSON.parse(text ?? '{}').rules ?? [];
+    const rules = workflowParticipantRules(text);
     return (
       rules
         .map(
@@ -346,8 +350,7 @@ async function publish() {
   if (
     design.value.nodes.some(
       (node) =>
-        ['approval', 'task'].includes(node.nodeType) &&
-        participantSummary(node.participantPolicyText).startsWith('尚未'),
+        ['approval', 'task'].includes(node.nodeType) && !hasWorkflowParticipants(node.participantPolicyText),
     )
   ) {
     presentPlatformError(new Error('请为每个审批或业务任务节点明确配置参与人'), {

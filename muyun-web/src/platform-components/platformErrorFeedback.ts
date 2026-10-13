@@ -70,8 +70,7 @@ export function matchesPlatformActionErrorHandler<TContext>(
   return (
     error.details?.marker === handler.marker ||
     error.details?.reason === handler.marker ||
-    error.details?.errorKey === handler.marker ||
-    error.message.includes(handler.marker)
+    error.details?.errorKey === handler.marker
   );
 }
 
