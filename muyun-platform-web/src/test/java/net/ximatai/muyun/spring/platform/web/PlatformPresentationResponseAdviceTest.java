@@ -80,8 +80,33 @@ class PlatformPresentationResponseAdviceTest {
             assertThat(output.at("/evaluation/guides/0/instruction").asText()).isEqualTo("Check the data");
             assertThat(output.at("/evaluation/guides/0/guideConfigText").asText()).isEqualTo(guide.getGuideConfigText());
             assertThat(output.at("/nextGuide/titleText/source/sourceId").asText()).isEqualTo(title.sourceId());
+            var wrapped = mapper.valueToTree(advice(Map.of(title, "Task instructions", instruction, "Check the data"))
+                    .project(WorkflowModuleTaskContinueResult.blocked(process)));
+            assertThat(wrapped.path("continued").asBoolean()).isFalse();
+            assertThat(wrapped.at("/processBundle/evaluation/guides/0/titleText/source/sourceId").asText()).isEqualTo(title.sourceId());
+            assertThat(wrapped.at("/processBundle/evaluation/guides/0/guideConfigText").asText()).isEqualTo(guide.getGuideConfigText());
+            var method = java.util.Arrays.stream(net.ximatai.muyun.spring.platform.web.workflow.WorkflowRuntimeWebController.class.getDeclaredMethods())
+                    .filter(candidate -> candidate.getName().equals("checkAndContinueModuleTask")).findFirst().orElseThrow();
+            assertThat(advice(Map.of()).supports(new org.springframework.core.MethodParameter(method, -1),
+                    org.springframework.http.converter.StringHttpMessageConverter.class)).isTrue();
         }
         assertThat(guide.getTitle()).isEqualTo("办理说明");
+    }
+    @Test void keepsAdministrativeNodeIdentityWhenOriginalTitlesRepeatAndDoesNotTranslateUserAddedNames() {
+        var instance = mapper.convertValue(Map.of("instanceId", "i", "workflowVersionId", "v1", "activeNodeTitles", List.of("审批"), "activeNodeLabels", List.of(
+                new WorkflowNodeTitleView("first", "审批", false), new WorkflowNodeTitleView("second", "审批", false), new WorkflowNodeTitleView("user", "审批", true))), WorkflowAdminInstanceView.class);
+        var task = mapper.convertValue(Map.of("taskId", "t", "workflowVersionId", "v1", "nodeKey", "first", "nodeTitle", "审批"), WorkflowAdminActiveTaskView.class);
+        var first = ConfigurationTextSources.workflowNodeTitle("v1", "first", "审批");
+        var second = ConfigurationTextSources.workflowNodeTitle("v1", "second", "审批");
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice(Map.of(first, "First approval", second, "Second approval")).project(new WebListResponse<>(List.of(instance, task))));
+            assertThat(output.at("/records/0/activeNodeLabels/0/title").asText()).isEqualTo("First approval");
+            assertThat(output.at("/records/0/activeNodeLabels/1/title").asText()).isEqualTo("Second approval");
+            assertThat(output.at("/records/0/activeNodeLabels/2/title").asText()).isEqualTo("审批");
+            assertThat(output.at("/records/1/nodeTitleText/source/sourceId").asText()).isEqualTo(first.sourceId());
+            assertThat(output.at("/records/1/taskId").asText()).isEqualTo("t");
+        }
+        assertThat(instance.activeNodeTitles()).containsExactly("审批");
     }
     @Test void resolvesFrozenWorkflowVersionRatherThanCurrentNodeNameAndLeavesUserAddedNodesUntouched() {
         var instance = new WorkflowInstance(); instance.setWorkflowVersionId("version-1");

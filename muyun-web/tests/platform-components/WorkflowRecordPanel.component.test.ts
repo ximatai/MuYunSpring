@@ -815,3 +815,65 @@ it('localizes stable workflow actions and their frozen node labels in an indepen
     wrapper.unmount();
   }
 });
+
+it('keeps an opened list guide caption reactive instead of freezing its first translated title', async () => {
+  const { platformLanguageContext } = await import('@muyun/web-core');
+  const previous = platformLanguageContext.requestedLanguageTag.value;
+  platformLanguageContext.setLanguage('en');
+  const { wrapper, request } = fixture();
+  const original = request.getMockImplementation()!;
+  request.mockImplementation(async (call) =>
+    call.path.endsWith('/prepare')
+      ? {
+          evaluation: {
+            passed: true,
+            checkResults: [],
+            guides: [
+              {
+                guideKey: 'list',
+                guideKind: 'open_list',
+                title: '相关业务记录',
+                targetModuleAlias: 'demo.purchase',
+                titleText: {
+                  source: {
+                    sourceKind: 'CONFIG',
+                    sourceId: 'frozen-guide',
+                    sourceVersion: 'v1',
+                    originalText: '相关业务记录',
+                  },
+                  languages: {
+                    en: {
+                      text: 'Related business records',
+                      requestedTag: 'en',
+                      resourceTag: 'en',
+                      missing: false,
+                      fallback: false,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        }
+      : original(call),
+  );
+  try {
+    await flushPromises();
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Related business records')!
+      .trigger('click');
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(list.props('title')).toBe('Related business records');
+    platformLanguageContext.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('title')).toBe('相关业务记录');
+    expect(request.mock.calls.filter(([call]) => call.path.endsWith('/prepare'))).toHaveLength(1);
+  } finally {
+    wrapper.unmount();
+    platformLanguageContext.setLanguage(previous);
+  }
+});

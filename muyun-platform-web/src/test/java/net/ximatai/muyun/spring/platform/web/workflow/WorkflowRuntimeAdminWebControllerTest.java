@@ -93,7 +93,7 @@ class WorkflowRuntimeAdminWebControllerTest {
                 WorkflowOvertimeStatus.WARNED, true, WorkflowAssignmentKind.DELEGATED, "principal-1",
                 "原审批人", "principal-1", "原审批人", "delegate-1", "代理人", true, "delegation-1",
                 "{\"delegationPolicyId\":\"delegation-1\"}", true, "approve_source", "operator-1",
-                Instant.parse("2026-06-05T00:30:00Z"));
+                Instant.parse("2026-06-05T00:30:00Z"), "version-1");
         when(adminFacade.currentTodoTaskViews("inst-1")).thenReturn(List.of(view));
 
         mvc.perform(get("/workflow/runtime/admin/instance/inst-1/active-tasks"))
@@ -132,7 +132,7 @@ class WorkflowRuntimeAdminWebControllerTest {
                 WorkflowApprovalStatus.PROCESSING, "starter-1", "发起人",
                 Instant.parse("2026-06-05T01:00:00Z"), List.of("approve_1"), List.of("审批"),
                 List.of("task-1"), List.of("approver-1"), List.of("审批人"), WorkflowOvertimeStatus.WARNED,
-                Instant.parse("2026-06-05T02:00:00Z"), Instant.parse("2026-06-05T02:30:00Z"));
+                Instant.parse("2026-06-05T02:00:00Z"), Instant.parse("2026-06-05T02:30:00Z"), List.of());
         WorkflowTask task = new WorkflowTask();
         task.setId("task-1");
         task.setTaskKind(WorkflowTaskKind.APPROVAL);

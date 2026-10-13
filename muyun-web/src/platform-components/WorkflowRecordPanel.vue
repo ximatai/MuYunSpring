@@ -238,7 +238,12 @@ const taskFields = computed(() => {
   return new Map([...originalTaskFields.value].map(([key, original]) => [key, display.get(key) ?? original]));
 });
 const guideListContext = ref<ModuleContext<Record<string, unknown>>>(),
-  guideListTitle = ref('');
+  guideListKey = ref<string>();
+const guideListTitle = computed(
+  () =>
+    displayTaskGuides.value.find((guide) => guide.guideKey === guideListKey.value)?.title ??
+    workflowLanguage.t('platform.screen.WorkflowRecordPanel.business-records', '业务记录'),
+);
 const originalGuideReadFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   guideReadRecord = ref<RecordFormRecord>();
 const guideReadFields = computed(() => {
@@ -255,6 +260,7 @@ function guideConfig(guide: { guideConfigText?: string }): Record<string, unknow
   }
 }
 async function openReadGuide(guide: {
+  guideKey: string;
   title?: string;
   guideKind: string;
   targetModuleAlias?: string;
@@ -263,7 +269,7 @@ async function openReadGuide(guide: {
   guideListContext.value = undefined;
   guideReadRecord.value = undefined;
   if (guide.guideKind === 'open_list') {
-    guideListTitle.value = guide.title ?? '业务记录';
+    guideListKey.value = guide.guideKey;
     guideListContext.value = createModuleContext<Record<string, unknown>>({
       http: props.context.http,
       language: workflowLanguage,

@@ -106,7 +106,7 @@ public class WorkflowAdminService {
                 ALL, Sort.asc("createdAt")).stream()
                 .filter(task -> task.getTaskKind() == WorkflowTaskKind.APPROVAL)
                 .filter(task -> task.getTaskStatus() == WorkflowTaskStatus.TODO)
-                .map(task -> toActiveTaskView(task, userTitles(List.of(task))))
+                .map(task -> toActiveTaskView(task, userTitles(List.of(task)), instance.getWorkflowVersionId()))
                 .filter(view -> view != null)
                 .toList();
     }
@@ -193,7 +193,7 @@ public class WorkflowAdminService {
         return historyQueryService.deleteHistory(historyInstanceId);
     }
 
-    private WorkflowAdminActiveTaskView toActiveTaskView(WorkflowTask task, Map<String, String> userTitles) {
+    private WorkflowAdminActiveTaskView toActiveTaskView(WorkflowTask task, Map<String, String> userTitles, String workflowVersionId) {
         if (task == null || task.getNodeInstanceId() == null || task.getNodeInstanceId().isBlank()) {
             return null;
         }
@@ -203,7 +203,7 @@ public class WorkflowAdminService {
                 || node.getNodeType() != WorkflowNodeType.APPROVAL) {
             return null;
         }
-        return WorkflowAdminActiveTaskView.from(task, node, userTitles);
+        return WorkflowAdminActiveTaskView.from(task, node, userTitles, workflowVersionId);
     }
 
     private WorkflowAdminInstanceView toInstanceView(WorkflowInstance instance) {
@@ -254,7 +254,8 @@ public class WorkflowAdminService {
                 titles(currentAssigneeIds, userTitles),
                 aggregateOvertimeStatus(activeNodes),
                 instance.getUpdatedAt(),
-                instance.getLastOperatedAt());
+                instance.getLastOperatedAt(),
+                activeNodes.stream().map(node -> new WorkflowNodeTitleView(node.getNodeKey(), nodeTitle(node), Boolean.TRUE.equals(node.getAddedByAddSign()))).toList());
     }
 
     private WorkflowOvertimeStatus aggregateOvertimeStatus(List<WorkflowNodeInstance> nodes) {

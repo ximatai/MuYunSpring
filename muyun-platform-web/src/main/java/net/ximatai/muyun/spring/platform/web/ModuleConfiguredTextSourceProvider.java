@@ -9,14 +9,14 @@ import java.util.List;
 @Component
 public class ModuleConfiguredTextSourceProvider implements ConfiguredTextSourceProvider {
     private final PlatformModuleRuntimeContextService modules;
-    private StaticModuleDefinitionCatalog declarations;
-    public ModuleConfiguredTextSourceProvider(PlatformModuleRuntimeContextService modules) { this.modules = modules; }
+    private final StaticModuleDefinitionCatalog declarations;
     @org.springframework.beans.factory.annotation.Autowired
     public ModuleConfiguredTextSourceProvider(PlatformModuleRuntimeContextService modules, StaticModuleDefinitionCatalog declarations) {
-        this(modules); this.declarations = declarations;
+        this.modules = java.util.Objects.requireNonNull(modules, "modules");
+        this.declarations = java.util.Objects.requireNonNull(declarations, "declarations");
     }
     @Override public List<TextReference> currentSources(String moduleAlias) {
-        if (declarations != null && declarations.find(moduleAlias).isEmpty() && !modules.dynamicModuleAliases().contains(moduleAlias)) return List.of();
+        if (declarations.find(moduleAlias).isEmpty() && !modules.dynamicModuleAliases().contains(moduleAlias)) return List.of();
         var descriptor = modules.context(moduleAlias).uiDescriptor();
         if (descriptor == null) return List.of();
         return ModuleUiTextLocations.of(descriptor).stream().map(location -> descriptor.sourceTexts().get(location.bindingKey()))

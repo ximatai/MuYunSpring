@@ -197,3 +197,71 @@ it('opens terminal current instances and resets them without querying active-onl
   expect(wrapper.findComponent(drawer).props('open')).toBe(false);
   wrapper.unmount();
 });
+
+it('uses independent consumer language for node captions in both administration tables', async () => {
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const text = {
+    source: { sourceKind: 'CONFIG', sourceId: 'frozen-node', sourceVersion: 'v1', originalText: '审批' },
+    languages: {
+      en: { text: 'Frozen approval', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+    },
+  };
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/instance/query'))
+      return {
+        records: [
+          {
+            instanceId: 'i',
+            moduleAlias: 'demo.purchase',
+            activeNodeTitles: ['审批'],
+            activeNodeLabels: [{ nodeKey: 'approve', title: '审批', titleText: text }],
+            currentAssigneeTitles: [],
+          },
+        ],
+      };
+    if (options.path.endsWith('/bundle'))
+      return { instance: { id: 'i', instanceStatus: 'running' }, nodes: [], routes: [] };
+    if (options.path.endsWith('/active-tasks'))
+      return { records: [{ taskId: 't', nodeTitle: '审批', nodeTitleText: text }] };
+    return { records: [] };
+  });
+  const context = {
+    moduleAlias: 'platform.workflow_admin',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(ModuleContextProvider, { context }, () => h(WorkflowAdministrationView));
+    },
+  });
+  const wrapper = mount(Host, {
+    global: {
+      stubs: {
+        RecordQueryListSurface: surface,
+        RecordDetailDrawer: drawer,
+        RecordPicker: true,
+        WorkflowDiagram: true,
+        ManagementTabs: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent(surface);
+    expect(list.props('rows')[0].active).toBe('Frozen approval');
+    list.vm.$emit('row-click', { id: 'i' });
+    await flushPromises();
+    const pendingTasks = wrapper.findAllComponents(surface)[1];
+    expect(pendingTasks.props('rows')[0].nodeTitle).toBe('Frozen approval');
+    const before = request.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('rows')[0].active).toBe('审批');
+    expect(pendingTasks.props('rows')[0].nodeTitle).toBe('审批');
+    expect(request.mock.calls).toHaveLength(before);
+  } finally {
+    wrapper.unmount();
+  }
+});

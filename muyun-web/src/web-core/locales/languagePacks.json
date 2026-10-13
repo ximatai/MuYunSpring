@@ -437,7 +437,8 @@
       "platform.screen.WorkflowConfigurationView.matching-rules": "匹配规则",
       "platform.screen.WorkflowConfigurationView.disable": "停用",
       "platform.screen.WorkflowConfigurationView.archive": "归档",
-      "platform.screen.WorkflowAdministrationView.reset-approval": "重置业务审批"
+      "platform.screen.WorkflowAdministrationView.reset-approval": "重置业务审批",
+      "platform.screen.WorkflowRecordPanel.business-records": "业务记录"
     }
   },
   "en": {
@@ -879,7 +880,8 @@
       "platform.screen.WorkflowConfigurationView.matching-rules": "Matching rules",
       "platform.screen.WorkflowConfigurationView.disable": "Disable",
       "platform.screen.WorkflowConfigurationView.archive": "Archive",
-      "platform.screen.WorkflowAdministrationView.reset-approval": "Reset business approval"
+      "platform.screen.WorkflowAdministrationView.reset-approval": "Reset business approval",
+      "platform.screen.WorkflowRecordPanel.business-records": "Business records"
     }
   }
 }

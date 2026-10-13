@@ -81,37 +81,70 @@ const client = computed(() => createWorkflowAdminClient(http.value));
 let revision = 0;
 let textRevision = 0;
 usePageDataChangeHandler(async (changeSet) => {
+  const modules = new Set(
+    changeSet.changes
+      .filter((change) => change.type === 'configuration-translations-changed')
+      .map((change) => change.moduleAlias),
+  );
   const original = bundle.value;
-  if (
-    !original ||
-    !changeSet.changes.some(
-      (change) =>
-        change.type === 'configuration-translations-changed' &&
-        change.moduleAlias === original.instance.moduleAlias,
-    )
-  )
-    return;
+  const refreshList = !historyMode.value && instances.value.some((item) => modules.has(item.moduleAlias));
+  const refreshDetail = original && modules.has(original.instance.moduleAlias);
+  if (!refreshList && !refreshDetail) return;
   const request = ++textRevision,
     current = revision,
     history = historyMode.value,
-    id = selectedId.value;
-  if (!id) return;
+    id = selectedId.value,
+    owner = user?.value?.userId;
   try {
-    const [next, nextEvents] = await Promise.all([
-      client.value.bundle(id, history),
-      client.value.events(id, history),
+    const [nextInstances, next, nextEvents] = await Promise.all([
+      refreshList
+        ? client.value.instances({
+            moduleAlias: moduleAlias.value || undefined,
+            recordId: recordId.value || undefined,
+            instanceStatus: instanceStatus.value,
+            page: { pageNum: page.value, pageSize: 30 },
+          })
+        : undefined,
+      refreshDetail && id ? client.value.bundle(id, history) : undefined,
+      refreshDetail && id ? client.value.events(id, history) : undefined,
     ]);
     if (
       request !== textRevision ||
       current !== revision ||
       id !== selectedId.value ||
       history !== historyMode.value ||
-      bundle.value?.instance.id !== original.instance.id
+      owner !== user?.value?.userId
     )
       return;
+    if (nextInstances)
+      instances.value = instances.value.map((item) => {
+        const updated = nextInstances.find(
+          (row) => row.instanceId === item.instanceId && row.workflowVersionId === item.workflowVersionId,
+        );
+        return {
+          ...item,
+          activeNodeLabels: item.activeNodeLabels?.map((label) => {
+            const refreshed = updated?.activeNodeLabels?.find(
+              (candidate) => candidate.nodeKey === label.nodeKey,
+            );
+            return sameWorkflowTextSource(label.titleText, refreshed?.titleText)
+              ? { ...label, titleText: refreshed?.titleText }
+              : label;
+          }),
+        };
+      });
+    if (!original || !next || bundle.value?.instance.id !== original.instance.id) return;
     bundle.value = refreshWorkflowTextResources(bundle.value, next);
+    tasks.value = tasks.value.map((task) => {
+      const node = next.nodes.find(
+        (candidate) => candidate.id === task.nodeInstanceId && candidate.nodeKey === task.nodeKey,
+      );
+      return sameWorkflowTextSource(task.nodeTitleText, node?.nodeTitleText)
+        ? { ...task, nodeTitleText: node?.nodeTitleText }
+        : task;
+    });
     events.value = events.value.map((event) => {
-      const nextEvent = nextEvents.find((item) => item.id === event.id);
+      const nextEvent = nextEvents?.find((item) => item.id === event.id);
       return sameWorkflowTextSource(event.messageText, nextEvent?.messageText)
         ? { ...event, messageText: nextEvent?.messageText }
         : event;
@@ -269,7 +302,11 @@ const rows = computed(() =>
         moduleTitle: moduleLabels.value[item.moduleAlias] ?? item.moduleAlias,
         status: workflowTitle(item.instanceStatus),
         approval: workflowTitle(item.approvalStatus),
-        active: item.activeNodeTitles.join('、'),
+        active: item.activeNodeLabels?.length
+          ? item.activeNodeLabels
+              .map((label) => presentationLabel(label.title, label.titleText, workflowLanguage))
+              .join('、')
+          : item.activeNodeTitles.join('、'),
         assignees: item.currentAssigneeTitles.join('、'),
         starter: item.startedByTitle,
         urgency: workflowTitle(item.overtimeStatus),
@@ -580,7 +617,13 @@ function title(record: { id?: string; title?: string }) {
             workflowLanguage.t('platform.screen.WorkflowAdministrationView.current-pending-tasks', '当前待办')
           "
           :columns="taskColumns"
-          :rows="tasks.map((task) => ({ ...task, id: task.taskId }))"
+          :rows="
+            tasks.map((task) => ({
+              ...task,
+              id: task.taskId,
+              nodeTitle: presentationLabel(task.nodeTitle, task.nodeTitleText, workflowLanguage),
+            }))
+          "
           :pageable="false"
           :fill-height="false"
           :show-action-column="true"

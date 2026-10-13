@@ -264,11 +264,22 @@ export interface WorkflowAdminInstance {
   approvalStatus: string;
   startedByTitle?: string;
   activeNodeTitles: string[];
+  workflowVersionId?: string;
+  activeNodeLabels?: {
+    nodeKey: string;
+    title: string;
+    addedByAddSign: boolean;
+    titleText?: TextPresentation;
+  }[];
   currentAssigneeTitles: string[];
   overtimeStatus?: string;
 }
 export interface WorkflowAdminTask {
   taskId: string;
+  nodeKey?: string;
+  nodeInstanceId?: string;
+  workflowVersionId?: string;
+  nodeTitleText?: TextPresentation;
   nodeTitle: string;
   assigneeTitle?: string;
   taskKind: string;

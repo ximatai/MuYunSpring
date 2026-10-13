@@ -8,6 +8,9 @@ import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRuntimeRenderBundle;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowModuleTaskProcessBundle;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowModuleTaskContinueResult;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowAdminInstanceView;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowAdminActiveTaskView;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowTaskGuide;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowWorkbenchCard;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowEvent;
@@ -41,6 +44,7 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
+                WorkflowModuleTaskContinueResult.class.isAssignableFrom(parameter.getParameterType()) ||
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class;
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
@@ -87,6 +91,16 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             frozenMessage(path, event.getMessage(), event.getMessageSourceText(), slots);
         } else if (value instanceof WorkflowHistoryEventView event) {
             frozenMessage(path, event.message(), event.messageSourceText(), slots);
+        } else if (value instanceof WorkflowModuleTaskContinueResult result) {
+            collect(result.processBundle(), path + "/processBundle", slots);
+        } else if (value instanceof WorkflowAdminInstanceView instance && instance.workflowVersionId() != null) {
+            for (int i = 0; i < instance.activeNodeLabels().size(); i++) {
+                var label = instance.activeNodeLabels().get(i);
+                if (!label.addedByAddSign() && label.title() != null)
+                    slots.add(new Slot(path + "/activeNodeLabels/" + i, "title", ConfigurationTextSources.workflowNodeTitle(instance.workflowVersionId(), label.nodeKey(), label.title())));
+            }
+        } else if (value instanceof WorkflowAdminActiveTaskView task && task.workflowVersionId() != null && !Boolean.TRUE.equals(task.addedByAddSign())) {
+            slots.add(new Slot(path, "nodeTitle", ConfigurationTextSources.workflowNodeTitle(task.workflowVersionId(), task.nodeKey(), task.nodeTitle())));
         } else if (value instanceof WorkflowModuleTaskProcessBundle process && process.workflowVersionId() != null) {
             for (int i = 0; i < process.evaluation().guides().size(); i++)
                 guideSources(process, process.evaluation().guides().get(i), path + "/evaluation/guides/" + i, slots);
