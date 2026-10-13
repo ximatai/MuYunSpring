@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { WorkflowEvent, WorkflowNode, WorkflowTask } from '@muyun/web-contracts';
 import { UiCheckbox } from '@muyun/vue-ui-antdv';
-import { workflowTitle } from './workflowPresentation';
+import { workflowTitle as localizedWorkflowTitle } from './workflowPresentation';
+import { presentationLabel } from '@muyun/web-core';
 
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
 defineOptions({ name: 'WorkflowTimeline' });
 const props = withDefaults(
   defineProps<{ events: WorkflowEvent[]; nodes: WorkflowNode[]; tasks?: WorkflowTask[] }>(),
@@ -57,16 +63,23 @@ const timelineItems = computed(() =>
           : (event.actionCode ?? eventType),
       ),
       nodeTitle: node?.nodeTitle ?? node?.title,
-      detail: showTechnicalHistory.value ? (event.message ?? reason) : reason,
+      detail: showTechnicalHistory.value
+        ? presentationLabel(event.message ?? reason, event.messageText, workflowLanguage)
+        : reason,
     };
   }),
 );
 </script>
 <template>
-  <section class="workflow-timeline" aria-label="办理时间线">
+  <section
+    class="workflow-timeline"
+    :aria-label="workflowLanguage.t('platform.screen.WorkflowTimeline.processing-timeline', '办理时间线')"
+  >
     <header>
-      <h4>办理时间线</h4>
-      <UiCheckbox v-model:checked="showTechnicalHistory">展开完整技术审计</UiCheckbox>
+      <h4>{{ workflowLanguage.t('platform.screen.WorkflowTimeline.processing-timeline', '办理时间线') }}</h4>
+      <UiCheckbox v-model:checked="showTechnicalHistory">{{
+        workflowLanguage.t('platform.screen.WorkflowTimeline.show-full-technical-audit', '展开完整技术审计')
+      }}</UiCheckbox>
     </header>
     <ol>
       <li v-for="event in timelineItems" :key="event.id">

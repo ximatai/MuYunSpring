@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { HttpClient } from '@muyun/web-core';
 import type {
@@ -11,8 +12,12 @@ import { UiButton, UiInput, UiSelect, UiCheckbox } from '@muyun/vue-ui-antdv';
 import WorkflowParticipantEditor from './WorkflowParticipantEditor.vue';
 import WorkflowBusinessTaskEditor from './WorkflowBusinessTaskEditor.vue';
 import FormulaExpressionEditor from './FormulaExpressionEditor.vue';
-import { workflowTitle } from './workflowPresentation';
+import { workflowTitle as localizedWorkflowTitle } from './workflowPresentation';
 
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
 defineOptions({ name: 'WorkflowDesignProperties' });
 const props = defineProps<{
   design: WorkflowDesign;
@@ -64,12 +69,14 @@ const selectorNodeOptions = computed(() =>
 <template>
   <div v-if="node" class="property-form">
     <label class="workflow-field"
-      >节点名称<UiInput
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-name', '节点名称')
+      }}<UiInput
         :value="node.title"
         :disabled="!editable"
         @update:value="updateNode({ title: $event })" /></label
     ><label class="workflow-field" v-if="['approval', 'task', 'milestone'].includes(node.nodeType)"
-      >节点类型<UiSelect
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-type', '节点类型')
+      }}<UiSelect
         :value="node.nodeType"
         :options="typeOptions"
         :disabled="!editable"
@@ -85,7 +92,8 @@ const selectorNodeOptions = computed(() =>
     />
     <template v-if="node.nodeType === 'approval'"
       ><label class="workflow-field"
-        >审批规则<UiSelect
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.approval-rule', '审批规则')
+        }}<UiSelect
           :value="node.approvalMode"
           :options="
             ['all', 'any', 'ratio', 'notice'].map((value) => ({
@@ -96,7 +104,8 @@ const selectorNodeOptions = computed(() =>
           :disabled="!editable"
           @update:value="updateNode({ approvalMode: String($event) })" /></label
       ><label class="workflow-field" v-if="node.approvalMode === 'ratio'"
-        >通过比例 %<UiInput
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.approval-ratio', '通过比例 %')
+        }}<UiInput
           :value="node.approvalRatio ?? 100"
           type="number"
           :disabled="!editable"
@@ -105,34 +114,63 @@ const selectorNodeOptions = computed(() =>
         :checked="node.autoApproveSameUser"
         :disabled="!editable"
         @update:checked="updateNode({ autoApproveSameUser: $event })"
-        >同一办理人连续审批自动通过</UiCheckbox
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.automatically-approve-consecutive-tasks-for-the-same',
+            '同一办理人连续审批自动通过',
+          )
+        }}</UiCheckbox
       ><UiCheckbox
         :checked="node.allowReject"
         :disabled="!editable"
         @update:checked="updateNode({ allowReject: $event })"
-        >允许驳回</UiCheckbox
+        >{{
+          workflowLanguage.t('platform.screen.WorkflowDesignProperties.allow-rejection', '允许驳回')
+        }}</UiCheckbox
       ><UiCheckbox
         :checked="node.requireRejectReason"
         :disabled="!editable"
         @update:checked="updateNode({ requireRejectReason: $event })"
-        >驳回必须填写原因</UiCheckbox
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.require-a-rejection-reason',
+            '驳回必须填写原因',
+          )
+        }}</UiCheckbox
       ><UiCheckbox
         :checked="node.allowRejectReturnToMe"
         :disabled="!editable"
         @update:checked="updateNode({ allowRejectReturnToMe: $event })"
-        >允许重提回到本审批人</UiCheckbox
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.allow-resubmission-to-this-approver',
+            '允许重提回到本审批人',
+          )
+        }}</UiCheckbox
       ><UiCheckbox
         :checked="node.allowRollback"
         :disabled="!editable"
         @update:checked="updateNode({ allowRollback: $event })"
-        >允许回退</UiCheckbox
+        >{{
+          workflowLanguage.t('platform.screen.WorkflowDesignProperties.allow-rollback', '允许回退')
+        }}</UiCheckbox
       ><UiCheckbox
         :checked="node.allowAddSign"
         :disabled="!editable"
         @update:checked="updateNode({ allowAddSign: $event })"
-        >允许加签</UiCheckbox
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.allow-additional-approvers',
+            '允许加签',
+          )
+        }}</UiCheckbox
       ><label class="workflow-field"
-        >预警时长（分钟）<UiInput
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.warning-duration-in-minutes',
+            '预警时长（分钟）',
+          )
+        }}<UiInput
           :value="node.warningDurationMinutes"
           type="number"
           :disabled="!editable"
@@ -140,7 +178,12 @@ const selectorNodeOptions = computed(() =>
             updateNode({ warningDurationMinutes: $event ? Number($event) : undefined })
           " /></label
       ><label class="workflow-field"
-        >超时时长（分钟）<UiInput
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.overdue-duration-in-minutes',
+            '超时时长（分钟）',
+          )
+        }}<UiInput
           :value="node.overtimeDurationMinutes"
           type="number"
           :disabled="!editable"
@@ -150,7 +193,8 @@ const selectorNodeOptions = computed(() =>
     ></template>
     <template v-if="node.nodeType === 'branch'"
       ><label class="workflow-field"
-        >选路模式<UiSelect
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-selection-mode', '选路模式')
+        }}<UiSelect
           :value="node.routeMode ?? 'auto'"
           :options="['auto', 'manual'].map((value) => ({ value, label: workflowTitle(value) }))"
           :disabled="!editable"
@@ -162,7 +206,12 @@ const selectorNodeOptions = computed(() =>
             })
           " /></label
       ><label class="workflow-field"
-        >配对汇聚节点<UiSelect
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.paired-convergence-node',
+            '配对汇聚节点',
+          )
+        }}<UiSelect
           :value="node.convergeNodeKey"
           :options="
             nodeOptions.filter(
@@ -172,7 +221,9 @@ const selectorNodeOptions = computed(() =>
           :disabled="!editable"
           @update:value="updateNode({ convergeNodeKey: String($event) })" /></label
       ><label class="workflow-field" v-if="node.routeMode === 'manual'"
-        >路径选择节点<UiSelect
+        >{{
+          workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-selector-node', '路径选择节点')
+        }}<UiSelect
           :value="node.selectorNodeKey"
           :options="selectorNodeOptions"
           :disabled="!editable"
@@ -182,7 +233,12 @@ const selectorNodeOptions = computed(() =>
         :checked="node.requireManualSelectionReason"
         :disabled="!editable"
         @update:checked="updateNode({ requireManualSelectionReason: $event })"
-        >路径选择必须填写原因</UiCheckbox
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.require-a-route-selection-reason',
+            '路径选择必须填写原因',
+          )
+        }}</UiCheckbox
       >
       <p>
         {{
@@ -197,12 +253,17 @@ const selectorNodeOptions = computed(() =>
         >
         <span>{{ link.defaultRoute ? '默认出口' : link.conditionExpression || '无条件（始终命中）' }}</span>
       </div>
-      <UiButton :disabled="!editable" @click="emit('append-branch-path')">追加分支出口</UiButton>
-      <UiButton danger :disabled="!editable" @click="emit('delete-branch')">删除整个分支</UiButton>
+      <UiButton :disabled="!editable" @click="emit('append-branch-path')">{{
+        workflowLanguage.t('platform.screen.WorkflowDesignProperties.add-branch-route', '追加分支出口')
+      }}</UiButton>
+      <UiButton danger :disabled="!editable" @click="emit('delete-branch')">{{
+        workflowLanguage.t('platform.screen.WorkflowDesignProperties.delete-entire-branch', '删除整个分支')
+      }}</UiButton>
     </template>
     <template v-if="node.nodeType === 'converge'"
       ><label class="workflow-field"
-        >汇聚规则<UiSelect
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.convergence-rule', '汇聚规则')
+        }}<UiSelect
           :value="node.convergeMode ?? 'all'"
           :options="[
             { value: 'all', label: '全部到达' },
@@ -212,17 +273,26 @@ const selectorNodeOptions = computed(() =>
           :disabled="!editable"
           @update:value="updateNode({ convergeMode: String($event) })" /></label
       ><label class="workflow-field" v-if="node.convergeMode === 'ratio'"
-        >汇聚比例 %<UiInput
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.convergence-ratio', '汇聚比例 %')
+        }}<UiInput
           :value="node.convergeRatio ?? 100"
           type="number"
           :disabled="!editable"
           @update:value="updateNode({ convergeRatio: Number($event) })"
       /></label>
-      <p>只统计本次实际生效的出口；任一或比例达成后，剩余未完成路径及其待办自动取消。</p></template
+      <p>
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.only-effective-routes-count-once-the-any',
+            '只统计本次实际生效的出口；任一或比例达成后，剩余未完成路径及其待办自动取消。',
+          )
+        }}
+      </p></template
     >
     <template v-if="node.nodeType === 'milestone'"
       ><label class="workflow-field"
-        >里程碑<UiSelect
+        >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.milestone', '里程碑')
+        }}<UiSelect
           :value="node.milestoneType ?? 'approval_completed'"
           :options="[{ value: 'approval_completed', label: '审批完成' }]"
           :disabled="!editable"
@@ -230,7 +300,12 @@ const selectorNodeOptions = computed(() =>
     ></template>
     <template v-if="node.nodeType === 'task'">
       <label class="workflow-field property-section"
-        >引用已配置任务定义<UiSelect
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.use-a-configured-task-definition',
+            '引用已配置任务定义',
+          )
+        }}<UiSelect
           :options="catalog.tasks.map((item) => ({ value: item.id, label: item.title }))"
           show-search
           :value="node.taskDefinitionId"
@@ -254,29 +329,38 @@ const selectorNodeOptions = computed(() =>
       danger
       :disabled="!editable || ['start', 'end', 'branch', 'converge'].includes(node.nodeType)"
       @click="emit('remove-node')"
-      >删除并连接前后节点</UiButton
+      >{{
+        workflowLanguage.t(
+          'platform.screen.WorkflowDesignProperties.delete-and-reconnect-adjacent-nodes',
+          '删除并连接前后节点',
+        )
+      }}</UiButton
     >
   </div>
   <div v-if="route" class="property-form">
     <label class="workflow-field"
-      >路径名称<UiInput
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-name', '路径名称')
+      }}<UiInput
         :value="route.title"
         :disabled="!editable"
         @update:value="updateRoute({ title: $event })" /></label
     ><label class="workflow-field"
-      >起点<UiSelect
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.source', '起点')
+      }}<UiSelect
         :value="route.sourceNodeKey"
         :options="nodeOptions"
         :disabled="!editable"
         @update:value="updateRoute({ sourceNodeKey: String($event) })" /></label
     ><label class="workflow-field"
-      >终点<UiSelect
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.target', '终点')
+      }}<UiSelect
         :value="route.targetNodeKey"
         :options="nodeOptions"
         :disabled="!editable"
         @update:value="updateRoute({ targetNodeKey: String($event) })" /></label
     ><label class="workflow-field" v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute"
-      >出口条件<FormulaExpressionEditor
+      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-condition', '出口条件')
+      }}<FormulaExpressionEditor
         :fields="fields"
         :value="route.conditionExpression ?? ''"
         :disabled="!editable"
@@ -286,7 +370,9 @@ const selectorNodeOptions = computed(() =>
       :checked="route.defaultRoute"
       :disabled="!editable"
       @update:checked="updateRoute({ defaultRoute: $event })"
-      >默认兜底路径</UiCheckbox
+      >{{
+        workflowLanguage.t('platform.screen.WorkflowDesignProperties.default-fallback-route', '默认兜底路径')
+      }}</UiCheckbox
     >
     <p v-if="routeSource?.nodeType === 'branch'">
       {{
@@ -295,7 +381,9 @@ const selectorNodeOptions = computed(() =>
           : '条件为空表示始终命中，可用于并行审批；互斥分支请使用互斥条件。'
       }}
     </p>
-    <UiButton danger :disabled="!editable" @click="emit('remove-route')">删除连线</UiButton>
+    <UiButton danger :disabled="!editable" @click="emit('remove-route')">{{
+      workflowLanguage.t('platform.screen.WorkflowDesignProperties.delete-link', '删除连线')
+    }}</UiButton>
   </div>
 </template>
 <style scoped>

@@ -18,6 +18,32 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WebRequestContextTest {
+    @Test
+    void carriesLanguageExplicitlyAndRestoresTheWorkerLanguageOnSuccessAndFailure() throws Exception {
+        WebRequestContext english;
+        WebRequestContext chinese;
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("user", "User"))) {
+            try (var language = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("en")) {
+                english = WebRequestContext.capture().orElseThrow();
+            }
+            try (var language = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("zh-CN")) {
+                chinese = WebRequestContext.capture().orElseThrow();
+            }
+        }
+        try (var worker = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("fr")) {
+            english.call(() -> {
+                assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isEqualTo("en");
+                chinese.run(() -> assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isEqualTo("zh-CN"));
+                assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isEqualTo("en");
+                return null;
+            });
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> english.run(() -> { throw new IllegalStateException("worker failure"); }))
+                    .hasMessage("worker failure");
+            assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isEqualTo("fr");
+        }
+        assertThat(net.ximatai.muyun.spring.common.i18n.LanguageContext.currentTag()).isNull();
+    }
+
     @AfterEach
     void tearDown() {
         CurrentUserContext.clear();

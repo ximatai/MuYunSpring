@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation;
+
 import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -39,8 +41,8 @@ public class DynamicExchangeTemplateWebController {
     private final ActiveTenantVerifier activeTenantVerifier;
     private final DynamicExchangeTemplatePlanBuilder templatePlanBuilder;
     private final ExcelWorkbookPlanWriter workbookWriter;
+    private ExcelWorkbookPresentation presentation;
 
-    @Autowired
     public DynamicExchangeTemplateWebController(DynamicRecordService recordService,
                                                 ActiveTenantVerifier activeTenantVerifier,
                                                 OptionSourceRegistry optionSourceRegistry) {
@@ -48,6 +50,13 @@ public class DynamicExchangeTemplateWebController {
                 new DynamicExchangeTemplatePlanBuilder(optionSourceRegistry,
                         new DynamicRecordReferenceDropdownResolver(recordService)),
                 new ExcelWorkbookPlanWriter());
+    }
+
+    @Autowired
+    public DynamicExchangeTemplateWebController(DynamicRecordService records, ActiveTenantVerifier tenants,
+            OptionSourceRegistry options, ExcelWorkbookPresentation presentation) {
+        this(records, tenants, options);
+        this.presentation = presentation;
     }
 
     DynamicExchangeTemplateWebController(DynamicRecordService recordService,
@@ -77,6 +86,7 @@ public class DynamicExchangeTemplateWebController {
         DynamicModuleDescriptor descriptor = recordService.describe(moduleAlias);
         requireExchangeCapability(descriptor);
         ExcelWorkbookPlan plan = templatePlanBuilder.build(descriptor, templateOptions(request));
+        if (presentation != null) plan = presentation.project(plan, descriptor);
         byte[] bytes = workbookWriter.writeToBytes(plan);
         writeXlsx(response, moduleAlias.replace('.', '_') + "-exchange-template.xlsx", bytes);
     }

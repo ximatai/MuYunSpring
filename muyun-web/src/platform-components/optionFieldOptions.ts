@@ -1,4 +1,5 @@
 import type { Option, OptionItemDescriptor } from '@muyun/web-contracts';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export interface UiTreeSelectNode {
   value: string;
@@ -7,21 +8,31 @@ export interface UiTreeSelectNode {
   children?: UiTreeSelectNode[];
 }
 
-export function optionItemsToOptions(items: OptionItemDescriptor[]): Option[] {
-  return items.map((item) => ({ label: item.title, value: item.code, disabled: !item.enabled }));
+export function optionItemsToOptions(
+  items: OptionItemDescriptor[],
+  language: LanguageContext = platformLanguageContext,
+): Option[] {
+  return items.map((item) => ({
+    label: presentationLabel(item.title, item.titleText, language),
+    value: item.code,
+    disabled: !item.enabled,
+  }));
 }
 
 export function hasOptionHierarchy(items: OptionItemDescriptor[]): boolean {
   return items.some((item) => Boolean(item.parentCode));
 }
 
-export function optionItemsToTree(items: OptionItemDescriptor[]): UiTreeSelectNode[] {
+export function optionItemsToTree(
+  items: OptionItemDescriptor[],
+  language: LanguageContext = platformLanguageContext,
+): UiTreeSelectNode[] {
   const nodes = new Map<string, UiTreeSelectNode>();
   const roots: UiTreeSelectNode[] = [];
   items.forEach((item) =>
     nodes.set(item.code, {
       value: item.code,
-      title: item.title,
+      title: presentationLabel(item.title, item.titleText, language),
       disabled: !item.enabled,
       children: [],
     }),

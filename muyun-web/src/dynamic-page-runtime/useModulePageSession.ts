@@ -1,5 +1,5 @@
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
-import { displayModuleRuntime, useLanguageContext } from '@muyun/web-core';
+import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
 import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
@@ -1422,7 +1422,9 @@ export function useModulePageSession(
       pageText(runtimePage.value?.list?.title) ??
       runtimePage.value?.treeResource?.title ??
       runtimePage.value?.explorer?.title ??
-      props.descriptor.title ??
+      (props.descriptor.title
+        ? presentationLabel(props.descriptor.title, props.descriptor.titleText, language)
+        : undefined) ??
       recordLabel.value,
   );
   const modulePageSubtitle = computed(() => pageText(runtimePage.value?.list?.subtitle));

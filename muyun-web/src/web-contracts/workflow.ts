@@ -1,3 +1,4 @@
+import type { TextPresentation } from './index';
 /** Published workflow facts shared by static and metadata driven modules. */
 export interface WorkflowDefinition {
   id: string;
@@ -19,6 +20,7 @@ export interface WorkflowVersion {
   publishStatus: string;
 }
 export interface WorkflowNode {
+  nodeTitleText?: TextPresentation;
   id?: string;
   version?: number;
   nodeKey: string;
@@ -107,6 +109,7 @@ export interface WorkflowTask {
   completedAt?: string;
 }
 export interface WorkflowEvent {
+  messageText?: TextPresentation;
   id: string;
   taskId?: string;
   eventType: string;
@@ -170,6 +173,7 @@ export interface WorkflowBranch {
   }>;
 }
 export interface WorkflowWorkbenchCard {
+  nodeTitleText?: TextPresentation;
   business?: { title?: string; moduleTitle?: string; readable: boolean };
   instanceId: string;
   moduleAlias: string;

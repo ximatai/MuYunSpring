@@ -190,8 +190,8 @@ onMounted(() => {
   void loadOptionFields();
   initializeRequiredColorFields();
 });
-watch([() => props.fields, () => props.optionEntityAlias], () => {
-  void loadOptionFields();
+watch([() => props.fields, () => props.optionEntityAlias, () => props.optionContext], () => {
+  void loadOptionFields(true);
   initializeRequiredColorFields();
 });
 watch([() => props.record.id, () => props.formSessionKey], () => {
@@ -293,7 +293,7 @@ function optionFieldItems(field: RecordFormFieldState) {
 }
 
 function optionFieldOptions(field: RecordFormFieldState) {
-  return field.options ?? optionItemsToOptions(optionFieldItems(field));
+  return field.options ?? optionItemsToOptions(optionFieldItems(field), language);
 }
 
 function isOverrideField(field: RecordFormFieldState) {
@@ -335,7 +335,7 @@ function overrideInheritedLabel(field: RecordFormFieldState, value: unknown): st
 }
 
 function optionFieldTree(field: RecordFormFieldState) {
-  return optionItemsToTree(optionFieldItems(field));
+  return optionItemsToTree(optionFieldItems(field), language);
 }
 
 function optionFieldIsTree(field: RecordFormFieldState) {
@@ -416,7 +416,7 @@ function optionFieldMultiple(field: RecordFormFieldState) {
   return field.optionSelectionMode === 'MULTIPLE';
 }
 
-async function loadOptionFields() {
+async function loadOptionFields(forceRefresh = false) {
   if (!props.optionContext || !props.fields) {
     return;
   }
@@ -424,28 +424,43 @@ async function loadOptionFields() {
     if (!field.option || field.option.inlineItems?.length) {
       continue;
     }
-    await loadOptionField(field);
+    await loadOptionField(field, forceRefresh);
   }
 }
 
-async function loadOptionField(field: RecordFormFieldDescriptor) {
+const optionLoadRevisions = new Map<string, number>();
+async function loadOptionField(field: RecordFormFieldDescriptor, forceRefresh = false) {
   if (!props.optionContext || !field.option) {
     return;
   }
   const fieldName = field.fieldRef.fieldName;
+  const context = props.optionContext;
+  const entity = props.optionEntityAlias;
+  const fields = props.fields;
+  const revision = (optionLoadRevisions.get(fieldName) ?? 0) + 1;
+  optionLoadRevisions.set(fieldName, revision);
+  const current = () =>
+    optionLoadRevisions.get(fieldName) === revision &&
+    props.optionContext === context &&
+    props.optionEntityAlias === entity &&
+    props.fields === fields;
   loadingOptionFields.value = new Set(loadingOptionFields.value).add(fieldName);
   try {
-    const items = await loadOptionFieldItems(props.optionContext, fieldName, props.optionEntityAlias);
+    const items = await loadOptionFieldItems(context, fieldName, entity, context.moduleAlias, forceRefresh);
+    if (!current()) return;
     optionItems.value = { ...optionItems.value, [fieldName]: items };
     const errors = { ...optionFieldErrors.value };
     delete errors[fieldName];
     optionFieldErrors.value = errors;
   } catch {
+    if (!current()) return;
     optionFieldErrors.value = { ...optionFieldErrors.value, [fieldName]: '选项加载失败，请重试' };
   } finally {
-    const next = new Set(loadingOptionFields.value);
-    next.delete(fieldName);
-    loadingOptionFields.value = next;
+    if (current()) {
+      const next = new Set(loadingOptionFields.value);
+      next.delete(fieldName);
+      loadingOptionFields.value = next;
+    }
   }
 }
 

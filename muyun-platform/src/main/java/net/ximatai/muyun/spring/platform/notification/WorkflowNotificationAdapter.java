@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.notification;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -48,19 +51,36 @@ public class WorkflowNotificationAdapter implements WorkflowRuntimePlugin {
                 if(recipients.isEmpty()) continue;
                 String title=task.getTaskKind()==WorkflowTaskKind.NOTICE ? "审批通知" : task.getTaskKind()==WorkflowTaskKind.RESUBMIT ? "申请需重新提交" : "有新的审批或业务待办";
                 delivery.deliver(notification("workflow-task-"+task.getId(),title,
-                        node==null ? instance.getModuleAlias() : node.getNodeTitle(),instance,recipients));
+                        node==null ? instance.getModuleAlias() : node.getNodeTitle(),instance,recipients)
+                        .withTextSources(textSources("platform.workflow.notification." +
+                                (task.getTaskKind()==WorkflowTaskKind.NOTICE ? "notice" : task.getTaskKind()==WorkflowTaskKind.RESUBMIT ? "resubmit" : "task"),
+                                title, instance, node), Map.of()));
             }
             if(instance.getStartedBy()!=null && (instance.getInstanceStatus()!=WorkflowInstanceStatus.RUNNING
                     || instance.getApprovalStatus()==WorkflowApprovalStatus.APPROVED)) {
-                String outcome=instance.getInstanceStatus()!=WorkflowInstanceStatus.RUNNING
-                        ? instance.getInstanceStatus().getTitle() : instance.getApprovalStatus().getTitle();
-                delivery.deliver(notification("workflow-result-"+instance.getId()+"-"+outcome,"流程状态："+outcome,
-                        instance.getModuleAlias(),instance,Set.of(instance.getStartedBy())));
+                net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum outcome=instance.getInstanceStatus()!=WorkflowInstanceStatus.RUNNING
+                        ? instance.getInstanceStatus() : instance.getApprovalStatus();
+                delivery.deliver(notification("workflow-result-"+instance.getId()+"-"+outcome.getCode(),"流程状态："+outcome.getTitle(),
+                        instance.getModuleAlias(),instance,Set.of(instance.getStartedBy()))
+                        .withTextSources(textSources("platform.workflow.notification.result", "流程状态：{status}", instance, null),
+                                Map.of("status", TextReference.code(
+                                        "enum/" + outcome.getClass().getName() + "/" + outcome.getCode() + "/title", outcome.getTitle()))));
             }
         } catch (RuntimeException failure) {
             // The transaction has committed. A transient reminder failure cannot undo the business action.
             LOG.warn("workflow notification delivery failed for instance {}", context.instanceId(), failure);
         }
+    }
+    private Map<String, TextReference> textSources(String titleKey, String title,
+            WorkflowInstance instance, WorkflowNodeInstance node) {
+        var result = new LinkedHashMap<String, TextReference>();
+        result.put("title", TextReference.code(titleKey, title));
+        result.put("content", TextReference.code("platform.workflow.notification.content", "请在审批工作台查看办理详情"));
+        result.put("action/open/label", TextReference.code("platform.workflow.notification.open", "打开审批工作台"));
+        if (node != null && !Boolean.TRUE.equals(node.getAddedByAddSign()) && instance.getWorkflowVersionId() != null && node.getNodeTitle() != null)
+            result.put("subtitle", ConfigurationTextSources.workflowNodeTitle(
+                    instance.getWorkflowVersionId(), node.getNodeKey(), node.getNodeTitle()));
+        return result;
     }
     private BusinessNotification notification(String id,String title,String subtitle,WorkflowInstance instance,Set<String> userIds) {
         var recipients=new BusinessNotificationRecipients(false,List.of(),List.of(),List.of(),List.of(),List.copyOf(userIds));

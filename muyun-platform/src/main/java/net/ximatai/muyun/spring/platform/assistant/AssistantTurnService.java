@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
+import net.ximatai.muyun.spring.common.i18n.LanguageContext;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -266,7 +268,7 @@ public class AssistantTurnService {
         messages.add(new AiChatMessage(AiChatMessage.Role.SYSTEM,
                 (command.summaryOnly() ? budgetGuidance(command)
                         : AssistantPlatformKnowledge.appendTo(SYSTEM_PROMPT, command.context(), command.capabilities()) + budgetGuidance(command))
-                        + OBSERVATION_GUIDANCE));
+                        + OBSERVATION_GUIDANCE + interfaceLanguageGuidance()));
         command.history().stream().map(AssistantTurnService::toChatMessage).forEach(messages::add);
         messages.add(new AiChatMessage(AiChatMessage.Role.USER, command.results().isEmpty() ? payload : command.message()));
         for (AssistantCapabilityResult result : command.summaryOnly() ? List.<AssistantCapabilityResult>of() : command.results()) {
@@ -493,6 +495,12 @@ public class AssistantTurnService {
         if (result.errorCode() != null) observation.put("errorCode", result.errorCode());
         if (result.errorMessage() != null) observation.put("errorMessage", result.errorMessage());
         return observation;
+    }
+
+    private static String interfaceLanguageGuidance() {
+        String tag = LanguageContext.currentTag();
+        return tag == null ? "" : "\nInterface language: " + tag +
+                ". Use this language for presentation; preserve supplied business values, names, opinions, codes and identifiers.";
     }
 
     private String payload(AssistantTurnCommand command) {

@@ -9,6 +9,9 @@ export type {
 </script>
 
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+import { displayModuleRuntime } from '@muyun/web-core';
+import { optionItemsToOptions } from './optionFieldOptions';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { confirmAction, UiButton, UiCheckbox, UiDropdown, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
 import type {
@@ -86,6 +89,7 @@ const navigationDisabled = inject(
 const platformTimeZone = usePlatformTimeZoneContext();
 
 defineOptions({ name: 'RecordQueryListPanel' });
+const language = useLanguageContext();
 
 interface QueryListRow {
   [key: string]: unknown;
@@ -265,7 +269,13 @@ const total = ref(0);
 const totalKnown = ref(true);
 const pageNum = ref(1);
 const pageSize = ref(props.pageSize);
-const runtimeListView = ref<ResolvedViewDescriptor>();
+const loadedRuntimeListView = ref<ResolvedViewDescriptor>();
+const runtimeListView = computed(() =>
+  !props.columns?.length
+    ? (displayModuleRuntime(props.context.runtime)?.uiDescriptor?.page?.list?.fields ??
+      loadedRuntimeListView.value)
+    : loadedRuntimeListView.value,
+);
 const descriptorLoadError = ref(false);
 const recordsLoadError = ref<string>();
 const quickSearchKeyword = ref('');
@@ -308,12 +318,19 @@ watch(loading, (active) => {
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const queryReady = computed(() => props.ready);
-const queryFields = computed(() => schema.value?.fields ?? []);
+const queryFields = computed(() =>
+  (schema.value?.fields ?? []).map((field) => {
+    const display = runtimeListView.value?.fields.find(
+      (item) => !item.fieldRef.relationCode && item.fieldRef.fieldName === field.name,
+    );
+    return display ? { ...field, title: display.label } : field;
+  }),
+);
 const queryOptionOptions = computed<Record<string, Option[]>>(() =>
   Object.fromEntries(
     Object.entries(queryOptionItemsByField.value).map(([fieldName, items]) => [
       fieldName,
-      items.map((item) => ({ label: item.title, value: item.code, disabled: !item.enabled })),
+      optionItemsToOptions(items, language),
     ]),
   ),
 );
@@ -510,13 +527,24 @@ onMounted(() => {
   void loadSchemaAndRecords();
 });
 
-async function loadListOptionItems() {
+let listOptionRevision = 0;
+async function loadListOptionItems(forceRefresh = false) {
+  const context = props.context;
+  const revision = forceRefresh ? ++listOptionRevision : listOptionRevision;
   for (const column of tableColumns.value) {
-    if (!column.optionBinding || optionItemsByField.value[column.key]) continue;
+    if (!column.optionBinding || (!forceRefresh && optionItemsByField.value[column.key])) continue;
     try {
+      const items = await loadOptionFieldItems(
+        context,
+        column.key,
+        column.optionEntityAlias,
+        context.moduleAlias,
+        forceRefresh,
+      );
+      if (revision !== listOptionRevision || props.context !== context) return;
       optionItemsByField.value = {
         ...optionItemsByField.value,
-        [column.key]: await loadOptionFieldItems(props.context, column.key, column.optionEntityAlias),
+        [column.key]: items,
       };
     } catch {
       // Keep the persisted value visible while an optional title source is unavailable.
@@ -524,13 +552,24 @@ async function loadListOptionItems() {
   }
 }
 
-async function loadPersistentQueryOptionItems() {
+let queryOptionRevision = 0;
+async function loadPersistentQueryOptionItems(forceRefresh = false) {
+  const context = props.context;
+  const revision = forceRefresh ? ++queryOptionRevision : queryOptionRevision;
   for (const field of queryFields.value) {
-    if (!field.optionBinding || queryOptionItemsByField.value[field.name]) continue;
+    if (!field.optionBinding || (!forceRefresh && queryOptionItemsByField.value[field.name])) continue;
     try {
+      const items = await loadOptionFieldItems(
+        context,
+        field.name,
+        undefined,
+        context.moduleAlias,
+        forceRefresh,
+      );
+      if (revision !== queryOptionRevision || props.context !== context) return;
       queryOptionItemsByField.value = {
         ...queryOptionItemsByField.value,
-        [field.name]: await loadOptionFieldItems(props.context, field.name),
+        [field.name]: items,
       };
     } catch {
       // A query remains executable when an optional catalog is temporarily unavailable.
@@ -539,6 +578,13 @@ async function loadPersistentQueryOptionItems() {
 }
 
 watch(tableColumns, () => void loadListOptionItems(), { immediate: true });
+watch(
+  () => props.context.runtime.snapshot?.()?.textBindings,
+  () => {
+    void loadListOptionItems(true);
+    void loadPersistentQueryOptionItems(true);
+  },
+);
 
 watch(
   () => props.reloadKey,
@@ -638,7 +684,7 @@ async function loadSchemaAndRecords() {
   descriptorLoadError.value = false;
   recordsLoadError.value = undefined;
   try {
-    runtimeListView.value = await loadRuntimeListView();
+    loadedRuntimeListView.value = await loadRuntimeListView();
     const nextSchema =
       props.querySchema ??
       (await props.context.crud.querySchema({
@@ -1482,6 +1528,7 @@ function assistantListValue(
   try {
     value = resolveRecordQueryListDisplayValue(record, column, props.cellRenderers, {
       timeZone: platformTimeZone?.value,
+      language,
     });
   } catch {
     value = record[column.titleField ?? column.key] ?? record[column.key];

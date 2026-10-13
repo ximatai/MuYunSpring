@@ -10,6 +10,7 @@ import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { formatPlatformDateTime } from './platformDateTime';
 import { formatPlatformFileSize } from './platformFileSize';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
@@ -50,6 +51,7 @@ export interface RecordQueryListCellComponent {
 
 export interface RecordQueryListDisplayContext {
   timeZone?: string;
+  language?: LanguageContext;
 }
 
 /**
@@ -143,6 +145,12 @@ export function resolveRecordQueryListDisplayValue(
     );
     if (display !== undefined) return display;
   }
+  const sourcedOptions = column.optionItems?.filter((item) => item.titleText || item.titleSource);
+  if (sourcedOptions?.length) {
+    const codes = selectionCodesOf(rawValue);
+    if (codes.length && codes.every((code) => sourcedOptions.some((item) => item.code === code)))
+      return optionTitlesOf(rawValue, sourcedOptions, context.language).join('、');
+  }
   const titleFields = [column.titleField, `${column.key}Title`].filter(
     (value, index, fields): value is string => Boolean(value) && fields.indexOf(value) === index,
   );
@@ -151,15 +159,22 @@ export function resolveRecordQueryListDisplayValue(
     if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
   }
   const value = rawValue;
-  const optionTitles = optionTitlesOf(value, column.optionItems);
+  const optionTitles = optionTitlesOf(value, column.optionItems, context.language);
   if (optionTitles.length > 0) return optionTitles.join('、');
   if (typeof value === 'boolean') return value ? '是' : '否';
   return String(value ?? '');
 }
 
-function optionTitlesOf(value: unknown, optionItems: RecordQueryListColumn['optionItems']): string[] {
+function optionTitlesOf(
+  value: unknown,
+  optionItems: RecordQueryListColumn['optionItems'],
+  language: LanguageContext = platformLanguageContext,
+): string[] {
   if (!optionItems?.length) return [];
-  return selectionCodesOf(value).map((code) => optionItems.find((item) => item.code === code)?.title ?? code);
+  return selectionCodesOf(value).map((code) => {
+    const item = optionItems.find((item) => item.code === code);
+    return item ? presentationLabel(item.title, item.titleText, language) : code;
+  });
 }
 
 function selectionCodesOf(value: unknown): string[] {

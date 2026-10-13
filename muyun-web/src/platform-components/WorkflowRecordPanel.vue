@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch, nextTick } from 'vue';
-import { createWorkflowClient, createModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createWorkflowClient,
+  createModuleContext,
+  displayModuleRuntime,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type {
   WorkflowAction,
   WorkflowAddSignExplanation,
@@ -36,7 +42,21 @@ import { resolveRecordFormFields } from './recordFormFieldModel';
 import type { RecordFormRecord, RecordFormFieldDescriptor } from './recordFormFieldModel';
 import WorkflowDiagram from './WorkflowDiagram.vue';
 import WorkflowTimeline from './WorkflowTimeline.vue';
-import { workflowTitle, workflowRouteSelectionTitle } from './workflowPresentation';
+import {
+  workflowNodePresentation,
+  refreshWorkflowTextResources,
+  sameWorkflowTextSource,
+  workflowTitle as localizedWorkflowTitle,
+  workflowRouteSelectionTitle as localizedRouteSelectionTitle,
+} from './workflowPresentation';
+
+const workflowLanguage = useLanguageContext();
+function workflowTitle(value?: string) {
+  return localizedWorkflowTitle(value, workflowLanguage);
+}
+function workflowRouteSelectionTitle(...args: Parameters<typeof localizedRouteSelectionTitle>) {
+  return localizedRouteSelectionTitle(args[0], args[1], workflowLanguage);
+}
 defineOptions({ name: 'WorkflowRecordPanel' });
 const props = defineProps<{
   context: ModuleContext<Record<string, unknown>>;
@@ -51,7 +71,15 @@ const emit = defineEmits<{
 }>();
 const client = computed(() => createWorkflowClient(props.context.http));
 const status = ref<WorkflowStatus>();
-const bundle = ref<WorkflowRenderBundle>();
+const originalBundle = ref<WorkflowRenderBundle>();
+const bundle = computed(() =>
+  originalBundle.value
+    ? {
+        ...originalBundle.value,
+        nodes: originalBundle.value.nodes.map((node) => workflowNodePresentation(node, workflowLanguage)),
+      }
+    : undefined,
+);
 const tasks = ref<WorkflowTask[]>([]),
   events = ref<WorkflowEvent[]>([]),
   actions = ref<WorkflowAction[]>([]),
@@ -105,7 +133,7 @@ watch(
 const operationItems = computed(() =>
   actions.value.map((action, index) => ({
     key: String(index),
-    title: `${action.nodeTitle ? action.nodeTitle + ' · ' : ''}${action.actionCode === 'complete' ? '办理任务' : action.title}`,
+    title: `${action.nodeTitle ? action.nodeTitle + ' · ' : ''}${action.actionCode === 'complete' ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.process-task', '办理任务') : action.title}`,
     level: ['approve', 'complete', 'resubmit', 'read'].includes(action.actionCode)
       ? ('primary' as const)
       : ('secondary' as const),
@@ -118,9 +146,15 @@ async function mayLeave() {
   return (
     !dirty.value ||
     (await confirmAction({
-      title: '放弃未保存的办理内容？',
-      content: '当前填写尚未提交，放弃后可重新进入任务办理。',
-      okText: '放弃填写',
+      title: workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.discard-unsaved-task-input',
+        '放弃未保存的办理内容？',
+      ),
+      content: workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.this-input-has-not-been-submitted-you',
+        '当前填写尚未提交，放弃后可重新进入任务办理。',
+      ),
+      okText: workflowLanguage.t('platform.screen.WorkflowRecordPanel.discard-input', '放弃填写'),
       danger: true,
     }))
   );
@@ -174,12 +208,22 @@ const selectedAddSignRoute = computed(
 );
 const taskProcess = ref<WorkflowTaskPreparation>();
 const taskDraft = ref<RecordFormRecord>(),
-  taskFields = ref(new Map<string, RecordFormFieldDescriptor>()),
+  originalTaskFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   taskGuideKey = ref<string>();
+const taskFields = computed(() => {
+  const display = resolveRecordFormFields(displayModuleRuntime(props.context.runtime)?.uiDescriptor);
+  return new Map([...originalTaskFields.value].map(([key, original]) => [key, display.get(key) ?? original]));
+});
 const guideListContext = ref<ModuleContext<Record<string, unknown>>>(),
   guideListTitle = ref('');
-const guideReadFields = ref(new Map<string, RecordFormFieldDescriptor>()),
+const originalGuideReadFields = ref(new Map<string, RecordFormFieldDescriptor>()),
   guideReadRecord = ref<RecordFormRecord>();
+const guideReadFields = computed(() => {
+  const display = resolveRecordFormFields(displayModuleRuntime(props.context.runtime)?.uiDescriptor);
+  return new Map(
+    [...originalGuideReadFields.value].map(([key, original]) => [key, display.get(key) ?? original]),
+  );
+});
 function guideConfig(guide: { guideConfigText?: string }): Record<string, unknown> {
   try {
     return JSON.parse(guide.guideConfigText ?? '{}');
@@ -205,10 +249,10 @@ async function openReadGuide(guide: {
     try {
       const runtime = await props.context.runtime.ready,
         key = String(guideConfig(guide).field ?? '');
-      guideReadFields.value = new Map(
+      originalGuideReadFields.value = new Map(
         [...resolveRecordFormFields(runtime.uiDescriptor)].filter(([field]) => field === key),
       );
-      if (!guideReadFields.value.size) throw new Error('指引字段不存在');
+      if (!originalGuideReadFields.value.size) throw new Error('指引字段不存在');
       guideReadRecord.value = await props.context.crud.view(props.recordId);
     } catch (cause) {
       presentPlatformError(cause, { source: 'workflow-task', phase: 'load' });
@@ -240,6 +284,41 @@ async function executeBusinessAction(guideKey: string) {
 
 let revision = 0,
   formRequest = 0;
+let textResourceRequest = 0;
+watch(
+  () => props.context.runtime.snapshot?.()?.textBindings,
+  async () => {
+    const current = originalBundle.value;
+    if (!current) return;
+    const request = ++textResourceRequest;
+    const workflowRevision = revision;
+    const history = selectedHistory.value;
+    const context = props.context;
+    try {
+      const [next, nextEvents] = await Promise.all([
+        history ? client.value.historyBundle(history) : client.value.bundle(current.instance.id),
+        history ? client.value.historyEvents(history) : client.value.eventViews(current.instance.id),
+      ]);
+      if (
+        request !== textResourceRequest ||
+        revision !== workflowRevision ||
+        selectedHistory.value !== history ||
+        props.context !== context ||
+        originalBundle.value?.instance.id !== current.instance.id
+      )
+        return;
+      originalBundle.value = refreshWorkflowTextResources(originalBundle.value, next);
+      events.value = events.value.map((event) => {
+        const refreshed = nextEvents.find((item) => item.id === event.id);
+        return sameWorkflowTextSource(event.messageText, refreshed?.messageText)
+          ? { ...event, messageText: refreshed?.messageText }
+          : event;
+      });
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'workflow-text-resources', phase: 'load' });
+    }
+  },
+);
 const actionBranches = computed(() =>
   branches.value.filter(
     (branch) =>
@@ -294,7 +373,7 @@ async function load() {
         client.value.historyEvents(selectedHistory.value),
       ]);
       if (current !== revision) return;
-      bundle.value = graph;
+      originalBundle.value = graph;
       tasks.value = taskList;
       events.value = eventList;
       actions.value = [];
@@ -311,13 +390,13 @@ async function load() {
         client.value.branches(id),
       ]);
       if (current !== revision) return;
-      bundle.value = graph;
+      originalBundle.value = graph;
       tasks.value = taskList;
       events.value = eventList;
       actions.value = available;
       branches.value = choices;
     } else {
-      bundle.value = undefined;
+      originalBundle.value = undefined;
       tasks.value = [];
       events.value = [];
       actions.value = [];
@@ -537,7 +616,7 @@ async function openBusinessForm(guideKey: string) {
     const draft = await context.crud.view(recordId);
     if (!isCurrent()) return;
     taskGuideKey.value = guideKey;
-    taskFields.value = fields;
+    originalTaskFields.value = fields;
     taskDraft.value = draft;
     taskInitial.value = JSON.stringify(draft);
     taskValidity.value = { valid: true, errors: {} };
@@ -675,18 +754,25 @@ async function execute() {
 }
 </script>
 <template>
-  <section class="workflow-record-panel" aria-label="审批与任务">
+  <section
+    class="workflow-record-panel"
+    :aria-label="workflowLanguage.t('platform.screen.WorkflowRecordPanel.approvals-and-tasks', '审批与任务')"
+  >
     <header>
-      <strong>审批与任务</strong><span>{{ workflowTitle(status?.displayStatus) }}</span
+      <strong>{{
+        workflowLanguage.t('platform.screen.WorkflowRecordPanel.approvals-and-tasks', '审批与任务')
+      }}</strong
+      ><span>{{ workflowTitle(status?.displayStatus) }}</span
       ><span v-if="bundle">流程：{{ workflowTitle(bundle.instance.instanceStatus) }}</span
-      ><UiButton :loading="loading" :disabled="busy || preparing || Boolean(activeAction)" @click="load"
-        >刷新流程</UiButton
-      >
+      ><UiButton :loading="loading" :disabled="busy || preparing || Boolean(activeAction)" @click="load">{{
+        workflowLanguage.t('platform.screen.WorkflowRecordPanel.refresh-workflow', '刷新流程')
+      }}</UiButton>
     </header>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="status?.errorMessage">{{ status.errorMessage }}</p>
     <label class="workflow-field" v-if="archives.length"
-      >查看流程轮次<UiSelect
+      >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-workflow-rounds', '查看流程轮次')
+      }}<UiSelect
         :disabled="busy || preparing || Boolean(activeAction)"
         :value="selectedHistory ?? ''"
         :options="[
@@ -701,7 +787,14 @@ async function execute() {
           load();
         "
     /></label>
-    <p v-if="selectedHistory">当前展示已归档的流程快照，可查看办理记录。</p>
+    <p v-if="selectedHistory">
+      {{
+        workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.this-archived-workflow-snapshot-includes-its-processing',
+          '当前展示已归档的流程快照，可查看办理记录。',
+        )
+      }}
+    </p>
     <div class="workflow-operations">
       <UiButton
         v-if="!selectedHistory && (status?.canSubmit || status?.displayStatus === 'UNSUBMITTED')"
@@ -709,7 +802,12 @@ async function execute() {
         :loading="busy"
         :disabled="loading || Boolean(activeAction)"
         @click="preview"
-        >预览并提交审批</UiButton
+        >{{
+          workflowLanguage.t(
+            'platform.screen.WorkflowRecordPanel.preview-and-submit-approval',
+            '预览并提交审批',
+          )
+        }}</UiButton
       >
       <AdaptiveHeaderActionBar
         v-if="operationItems.length"
@@ -723,7 +821,9 @@ async function execute() {
         "
         :disabled="busy || Boolean(activeAction)"
         @click="choose({ actionCode: 'revoke', title: '撤回申请', reasonRequired: true })"
-        >撤回申请</UiButton
+        >{{
+          workflowLanguage.t('platform.screen.WorkflowRecordPanel.withdraw-application', '撤回申请')
+        }}</UiButton
       >
       <UiButton v-if="status?.instanceId" @click="showHistory = !showHistory">{{
         showHistory ? '收起办理记录' : '办理记录'
@@ -737,13 +837,33 @@ async function execute() {
       @close="activeAction = undefined"
     >
       <form v-if="activeAction" class="workflow-action-form" @submit.prevent="execute">
-        <UiError v-if="error" title="请检查办理内容" :message="error" />
-        <p v-if="preparing">正在加载办理要求…</p>
+        <UiError
+          v-if="error"
+          :title="
+            workflowLanguage.t('platform.screen.WorkflowRecordPanel.check-task-input', '请检查办理内容')
+          "
+          :message="error"
+        />
+        <p v-if="preparing">
+          {{
+            workflowLanguage.t(
+              'platform.screen.WorkflowRecordPanel.loading-task-requirements',
+              '正在加载办理要求…',
+            )
+          }}
+        </p>
         <label class="workflow-field"
-          >操作意见<UiTextArea v-model:value="reason" aria-label="操作意见" :rows="2"
+          >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.processing-opinion', '操作意见')
+          }}<UiTextArea
+            v-model:value="reason"
+            :aria-label="
+              workflowLanguage.t('platform.screen.WorkflowRecordPanel.processing-opinion', '操作意见')
+            "
+            :rows="2"
         /></label>
         <label class="workflow-field" v-if="activeAction.targetAssigneeRequired"
-          >接收人<RecordPicker
+          >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.recipient', '接收人')
+          }}<RecordPicker
             :context="accountContext"
             :load-options="accountOptions"
             :value="targetAssigneeId || undefined"
@@ -752,9 +872,16 @@ async function execute() {
             @update:value="targetAssigneeId = $event ?? ''"
         /></label>
         <template v-if="activeAction.actionCode === 'addSign'"
-          ><label class="workflow-field">加签节点名称<UiInput v-model:value="addSignTitle" /></label
           ><label class="workflow-field"
-            >加签人员<RecordPicker
+            >{{
+              workflowLanguage.t(
+                'platform.screen.WorkflowRecordPanel.additional-approval-node-name',
+                '加签节点名称',
+              )
+            }}<UiInput v-model:value="addSignTitle" /></label
+          ><label class="workflow-field"
+            >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.additional-approver', '加签人员')
+            }}<RecordPicker
               v-model:value="addSignUserId"
               :context="accountContext"
               :load-options="accountOptions"
@@ -763,7 +890,8 @@ async function execute() {
         ></template>
         <template v-if="activeAction.actionCode === 'addSign'"
           ><label class="workflow-field" v-if="addSignRoutes.length > 1"
-            >插入路径<UiSelect
+            >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.insertion-route', '插入路径')
+            }}<UiSelect
               v-model:value="addSignRouteKey"
               :options="
                 addSignRoutes.map((route) => ({
@@ -784,7 +912,8 @@ async function execute() {
           </p></template
         >
         <label class="workflow-field" v-if="activeAction.actionCode === 'reject'"
-          >重新提交方式<UiSelect
+          >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.resubmission-mode', '重新提交方式')
+          }}<UiSelect
             v-model:value="rejectMode"
             :options="[
               { value: 'restart', label: '重新开始流程' },
@@ -810,10 +939,22 @@ async function execute() {
                 .map((candidate) => ({ value: candidate.routeKey, label: candidateTitle(candidate) }))
             "
             :disabled="busy || preparing"
-            placeholder="请选择一条出口"
+            :placeholder="
+              workflowLanguage.t(
+                'platform.screen.WorkflowRecordPanel.choose-an-outgoing-route',
+                '请选择一条出口',
+              )
+            "
             @update:value="selectManualRoute(branch.branchNodeKey, $event)"
           />
-          <p>每个分支单选一条路径；系统建议供参考，可以选择其他出口。</p>
+          <p>
+            {{
+              workflowLanguage.t(
+                'platform.screen.WorkflowRecordPanel.choose-one-route-per-branch-system-suggestions',
+                '每个分支单选一条路径；系统建议供参考，可以选择其他出口。',
+              )
+            }}
+          </p>
           <UiInput
             v-model:value="manualReasons[branch.branchNodeKey]"
             :aria-label="`路径选择原因：${branch.branchTitle ?? branch.branchNodeKey}`"
@@ -824,7 +965,12 @@ async function execute() {
           />
         </fieldset>
         <template v-if="activeAction.actionCode === 'submitApproval'">
-          <UiButton :loading="preparing" @click="refreshPreview">预览所选审批路径</UiButton>
+          <UiButton :loading="preparing" @click="refreshPreview">{{
+            workflowLanguage.t(
+              'platform.screen.WorkflowRecordPanel.preview-selected-approval-routes',
+              '预览所选审批路径',
+            )
+          }}</UiButton>
           <p v-if="previewReady">
             流程：{{
               previewBundle?.definition?.definitionTitle ??
@@ -855,7 +1001,12 @@ async function execute() {
           />
         </template>
         <template v-if="activeAction.actionCode === 'complete' && activeAction.taskId">
-          <UiButton @click="inspectTask(activeAction.taskId!)">检查任务完成条件</UiButton>
+          <UiButton @click="inspectTask(activeAction.taskId!)">{{
+            workflowLanguage.t(
+              'platform.screen.WorkflowRecordPanel.check-task-completion-requirements',
+              '检查任务完成条件',
+            )
+          }}</UiButton>
           <template v-if="taskProcess"
             ><p>
               {{
@@ -929,7 +1080,12 @@ async function execute() {
           :loading="busy"
           :disabled="preparing || !manualChoicesReady"
           @click="saveAndComplete"
-          >保存业务并完成任务</UiButton
+          >{{
+            workflowLanguage.t(
+              'platform.screen.WorkflowRecordPanel.save-business-data-and-complete-task',
+              '保存业务并完成任务',
+            )
+          }}</UiButton
         >
         <UiButton
           v-else-if="activeAction"
@@ -943,11 +1099,13 @@ async function execute() {
           @click="execute"
           >确认{{ activeAction.title }}</UiButton
         >
-        <UiButton :disabled="busy || preparing" @click="cancelAction">取消操作</UiButton>
+        <UiButton :disabled="busy || preparing" @click="cancelAction">{{
+          workflowLanguage.t('platform.screen.WorkflowRecordPanel.cancel-operation', '取消操作')
+        }}</UiButton>
       </template>
     </RecordDetailDrawer>
     <div v-if="showHistory" class="workflow-history">
-      <h4>任务记录</h4>
+      <h4>{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.task-history', '任务记录') }}</h4>
       <RecordQueryListSurface
         :header-visible="false"
         :fill-height="false"
@@ -978,7 +1136,14 @@ async function execute() {
       />
     </div>
     <details v-if="bundle" class="workflow-map">
-      <summary>查看流程图与路径判定</summary>
+      <summary>
+        {{
+          workflowLanguage.t(
+            'platform.screen.WorkflowRecordPanel.view-workflow-and-route-decisions',
+            '查看流程图与路径判定',
+          )
+        }}
+      </summary>
       <WorkflowDiagram
         presentation="detail"
         :key="bundle.instance.id"
@@ -988,7 +1153,11 @@ async function execute() {
         :semantic-json="bundle.semanticJson"
       />
       <details v-if="decidedBranchRoutes.length">
-        <summary>路径判定记录</summary>
+        <summary>
+          {{
+            workflowLanguage.t('platform.screen.WorkflowRecordPanel.route-decision-history', '路径判定记录')
+          }}
+        </summary>
         <ul>
           <li v-for="route in decidedBranchRoutes" :key="route.routeKey">
             {{ bundle?.nodes.find((node) => node.nodeKey === route.sourceNodeKey)?.nodeTitle }} →

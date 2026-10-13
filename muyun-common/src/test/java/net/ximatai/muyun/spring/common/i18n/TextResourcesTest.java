@@ -7,6 +7,17 @@ import static org.assertj.core.api.Assertions.*;
 class TextResourcesTest {
     private final LanguageCatalog catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
     @Test
+    void frozenOriginalCannotBorrowANewerPlainKeyResource() {
+        var frozen = TextReference.frozenCode("workflow.message", "Previous system message");
+        var current = new TextResources(catalog, Map.of("en", Map.of("workflow.message", "Current system message")));
+        assertThat(current.resolve(frozen, Map.of(), "en").text()).isEqualTo("Previous system message");
+        assertThat(current.resolve(frozen, Map.of(), "en").missing()).isTrue();
+        var correction = new TextResources(catalog, Map.of("en", Map.of(frozen.sourceId(), "Corrected previous system message")));
+        assertThat(correction.resolve(frozen, Map.of(), "en").text()).isEqualTo("Corrected previous system message");
+        assertThat(correction.resolve(frozen, Map.of(), "en").missing()).isFalse();
+    }
+
+    @Test
     void loadsUtf8DeploymentResourcesAndUsesExplicitContext() {
         var resources = TextResources.load(getClass().getClassLoader(), catalog);
         assertThat(resources.resolve("platform.language.label", null, Map.of()).text()).isEqualTo("界面语言");

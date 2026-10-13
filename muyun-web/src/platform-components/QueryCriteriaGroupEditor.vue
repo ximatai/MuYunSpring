@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+const language = useLanguageContext();
 import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
 import type { Option, OptionValue, OptionValueList, QuerySchemaField } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
@@ -269,7 +271,7 @@ function operatorLabel(operator: string) {
     EMPTY: '为空集合',
     NOT_EMPTY: '非空集合',
   };
-  return labels[operator] ?? operator;
+  return labels[operator] ? language.t(`platform.query.operator.${operator}`, labels[operator]) : operator;
 }
 </script>
 

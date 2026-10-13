@@ -17,6 +17,15 @@ export function resolvePresentationText(text: TextPresentation, context: Languag
   return { text: text.source.originalText, requestedTag, missing: true, fallback: true };
 }
 
+/** Typed labels outside module descriptors use the same immutable presentation resource. */
+export function presentationLabel(
+  original: string,
+  text: TextPresentation | undefined,
+  context: LanguageContext,
+): string {
+  return text ? resolvePresentationText(text, context).text : original;
+}
+
 /** Restore source facts for execution/dirty checks; projections remain separate and disposable. */
 export function originalPresentation<T extends TextPresentationDocument>(document: T): T {
   return project(document, (text) => text.source.originalText);

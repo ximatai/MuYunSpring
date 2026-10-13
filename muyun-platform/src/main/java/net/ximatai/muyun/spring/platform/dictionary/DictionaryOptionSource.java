@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.dictionary;
 
+import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
+
 import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.common.option.OptionQuery;
@@ -57,7 +59,7 @@ public final class DictionaryOptionSource implements OptionSource {
             DictionaryItem parent = itemService.select(item.getParentId());
             String parentCode = parent == null ? null : parent.getCode();
             return new OptionItem(item.getCode(), item.getTitle(), Boolean.TRUE.equals(item.getEnabled()),
-                    item.getSortOrder(), parentCode);
+                    item.getSortOrder(), parentCode, ConfigurationTextSources.dictionaryTitle(item.getId(), item.getTitle()));
         });
     }
 
@@ -87,6 +89,6 @@ public final class DictionaryOptionSource implements OptionSource {
                 ? itemById.get(item.getParentId()).getCode()
                 : null;
         return new OptionItem(item.getCode(), item.getTitle(), Boolean.TRUE.equals(item.getEnabled()),
-                item.getSortOrder(), parentCode);
+                item.getSortOrder(), parentCode, ConfigurationTextSources.dictionaryTitle(item.getId(), item.getTitle()));
     }
 }

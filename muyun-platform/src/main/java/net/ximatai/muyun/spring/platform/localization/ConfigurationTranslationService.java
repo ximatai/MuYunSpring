@@ -37,6 +37,7 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
     }
 
     public List<TextReference> currentSources(String moduleAlias) {
+        requireSystem();
         String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
         Map<String, TextReference> result = new LinkedHashMap<>();
         sources.orderedStream().forEach(provider -> provider.currentSources(alias).forEach(source -> {

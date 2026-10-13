@@ -119,6 +119,7 @@ export interface WebUserNotification {
 
 /** Ephemeral business reminder. It is not a persisted inbox or an acknowledgement record. */
 export interface WebBusinessNotification {
+  textResources?: Record<string, TextPresentation>;
   id: string;
   code: string;
   title: string;
@@ -532,6 +533,8 @@ export function hasExecutableDetailRelationMutationContract(
 export type MenuEntryType = 'module' | 'route' | 'link';
 
 export interface MenuRecord extends StandardEnabledTreeEntity {
+  /** Display-only navigation resource; configuration reads continue to expose the original. */
+  titleText?: TextPresentation;
   /** Read-only hint from the target module; never maintained on menus. */
   moduleDescription?: string;
   id: string;
@@ -644,6 +647,7 @@ export interface PageDescriptorBase<
   openMode: TOpenMode;
   hostType: THostType;
   title?: string;
+  titleText?: TextPresentation;
   /** Defaults to flow when omitted, preserving ordinary route behaviour. */
   layout?: PageLayoutMode;
   menuId?: string;
@@ -1179,6 +1183,8 @@ export interface ResolvedOptionFieldDescriptor {
 }
 
 export interface OptionItemDescriptor {
+  titleSource?: TextReference;
+  titleText?: TextPresentation;
   code: string;
   title: string;
   enabled: boolean;

@@ -38,8 +38,46 @@ public record WorkflowHistoryEventView(
         String reason,
         String message,
         String payloadText,
-        Instant occurredAt
+        Instant occurredAt,
+        String messageSourceText
 ) {
+    /** Existing projections may omit the optional frozen system-message declaration. */
+    public WorkflowHistoryEventView(
+        String originType,
+        Boolean isAddSignRoute,
+        String addSignSourceNodeKey,
+        String addSignSourceNodeName,
+        String id,
+        String instanceId,
+        String nodeInstanceId,
+        String taskId,
+        WorkflowEventType eventType,
+        String actionCode,
+        String operatorId,
+        String operatorTitle,
+        String actualProcessUserId,
+        String actualProcessUserTitle,
+        Boolean processedByDelegation,
+        WorkflowAssignmentKind assignmentKind,
+        String originalAssigneeId,
+        String originalAssigneeTitle,
+        String delegatedFromUserId,
+        String delegatedFromUserTitle,
+        String delegatedToUserId,
+        String delegatedToUserTitle,
+        Boolean principalCanProcess,
+        String delegationPolicyId,
+        String delegationSnapshot,
+        Boolean taskInvalidated,
+        Boolean taskCanceled,
+        String reason,
+        String message,
+        String payloadText,
+        Instant occurredAt
+    ) {
+        this(originType, isAddSignRoute, addSignSourceNodeKey, addSignSourceNodeName, id, instanceId, nodeInstanceId, taskId, eventType, actionCode, operatorId, operatorTitle, actualProcessUserId, actualProcessUserTitle, processedByDelegation, assignmentKind, originalAssigneeId, originalAssigneeTitle, delegatedFromUserId, delegatedFromUserTitle, delegatedToUserId, delegatedToUserTitle, principalCanProcess, delegationPolicyId, delegationSnapshot, taskInvalidated, taskCanceled, reason, message, payloadText, occurredAt, null);
+    }
+
     public static final String ORIGIN_TYPE_DEFINITION = "DEFINITION";
     public static final String ORIGIN_TYPE_ADD_SIGN = "ADD_SIGN";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -82,7 +120,7 @@ public record WorkflowHistoryEventView(
                 task == null ? null : task.getAssignmentSnapshotText(),
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.INVALIDATED,
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.CANCELED,
-                event.getReason(), event.getMessage(), event.getPayloadText(), event.getOccurredAt());
+                event.getReason(), event.getMessage(), event.getPayloadText(), event.getOccurredAt(), event.getMessageSourceText());
     }
 
     private static AddSignExplanation addSignExplanation(WorkflowEvent event,

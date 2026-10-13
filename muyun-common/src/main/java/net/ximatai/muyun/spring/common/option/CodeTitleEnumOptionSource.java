@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.common.option;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+
 import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 
 import java.util.Arrays;
@@ -31,6 +33,8 @@ public final class CodeTitleEnumOptionSource<E extends Enum<E> & CodeTitleEnum> 
     }
 
     private OptionItem toOption(E value) {
-        return new OptionItem(value.getCode(), value.getTitle(), true, value.ordinal() + 1, null);
+        return new OptionItem(value.getCode(), value.getTitle(), true, value.ordinal() + 1, null,
+                TextReference.code(
+                        "enum/" + enumType.getName() + "/" + value.getCode() + "/title", value.getTitle()));
     }
 }

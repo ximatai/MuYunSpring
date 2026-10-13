@@ -16,25 +16,25 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent instanceStarted(WorkflowInstance instance, String operatorId, Instant occurredAt) {
         return event(instance, null, null, WorkflowEventType.INSTANCE_STARTED, "submit", operatorId,
-                "workflow instance started", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.instance-started", "workflow instance started"), null, occurredAt);
     }
 
     public WorkflowEvent nodeActivated(WorkflowInstance instance, WorkflowNodeInstance node,
                                        String operatorId, Instant occurredAt) {
         return event(instance, node, null, WorkflowEventType.NODE_ACTIVATED, null, operatorId,
-                "workflow node activated", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.node-activated", "workflow node activated"), null, occurredAt);
     }
 
     public WorkflowEvent taskCreated(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,
                                      String operatorId, Instant occurredAt) {
         return event(instance, node, task, WorkflowEventType.TASK_CREATED, null, operatorId,
-                "workflow task created", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.task-created", "workflow task created"), null, occurredAt);
     }
 
     public WorkflowEvent taskCreated(WorkflowInstance instance, WorkflowTask task,
                                      String operatorId, Instant occurredAt) {
         return event(instance, null, task, WorkflowEventType.TASK_CREATED, null, operatorId,
-                "workflow task created", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.task-created", "workflow task created"), null, occurredAt);
     }
 
     public WorkflowEvent taskCompleted(WorkflowInstance instance, WorkflowTask task, String actionCode,
@@ -58,7 +58,7 @@ public class WorkflowRuntimeEventFactory {
     public WorkflowEvent delegationCompleted(WorkflowInstance instance, WorkflowTask sourceTask,
                                              String operatorId, String payloadText, Instant occurredAt) {
         return event(instance, null, sourceTask, WorkflowEventType.DELEGATION_COMPLETED, "delegation_completed",
-                operatorId, "workflow delegation completed notice created", payloadText, occurredAt);
+                operatorId, net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.delegation-completed", "workflow delegation completed notice created"), payloadText, occurredAt);
     }
 
     public WorkflowEvent addSign(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,
@@ -95,13 +95,13 @@ public class WorkflowRuntimeEventFactory {
     public WorkflowEvent overtimeWarned(WorkflowInstance instance, WorkflowNodeInstance node,
                                         String operatorId, String payloadText, Instant occurredAt) {
         return event(instance, node, null, WorkflowEventType.OVERTIME_WARNED, "overtime_warn", operatorId,
-                "workflow node overtime warned", payloadText, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.overtime-warned", "workflow node overtime warned"), payloadText, occurredAt);
     }
 
     public WorkflowEvent overtimeOverdue(WorkflowInstance instance, WorkflowNodeInstance node,
                                          String operatorId, String payloadText, Instant occurredAt) {
         return event(instance, node, null, WorkflowEventType.OVERTIME_OVERDUE, "overtime_overdue", operatorId,
-                "workflow node overdue", payloadText, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.overtime-overdue", "workflow node overdue"), payloadText, occurredAt);
     }
 
     public WorkflowEvent taskSkipped(WorkflowInstance instance, WorkflowTask task,
@@ -136,12 +136,12 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent approvalCompleted(WorkflowInstance instance, String operatorId, Instant occurredAt) {
         return event(instance, null, null, WorkflowEventType.APPROVAL_COMPLETED, "approval_completed", operatorId,
-                "workflow approval completed", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.approval-completed", "workflow approval completed"), null, occurredAt);
     }
 
     public WorkflowEvent instanceCompleted(WorkflowInstance instance, String operatorId, Instant occurredAt) {
         return event(instance, null, null, WorkflowEventType.INSTANCE_COMPLETED, "complete", operatorId,
-                "workflow instance completed", null, occurredAt);
+                net.ximatai.muyun.spring.common.i18n.TextReference.frozenCode("platform.workflow.event.instance-completed", "workflow instance completed"), null, occurredAt);
     }
 
     public WorkflowEvent instanceRevoked(WorkflowInstance instance, String operatorId,
@@ -174,6 +174,15 @@ public class WorkflowRuntimeEventFactory {
         WorkflowEvent event = event(instance, node, task, eventType, actionCode, operatorId,
                 message, payloadText, occurredAt);
         event.setReason(reason == null || reason.isBlank() ? null : reason);
+        return event;
+    }
+
+    private WorkflowEvent event(WorkflowInstance instance, WorkflowNodeInstance node, WorkflowTask task,
+                                WorkflowEventType eventType, String actionCode, String operatorId,
+                                net.ximatai.muyun.spring.common.i18n.TextReference source, String payloadText, Instant occurredAt) {
+        var event = event(instance, node, task, eventType, actionCode, operatorId, source.originalText(), payloadText, occurredAt);
+        try { event.setMessageSourceText(OBJECT_MAPPER.writeValueAsString(source)); }
+        catch (JsonProcessingException failure) { throw new PlatformException("cannot freeze workflow system message source", failure); }
         return event;
     }
 

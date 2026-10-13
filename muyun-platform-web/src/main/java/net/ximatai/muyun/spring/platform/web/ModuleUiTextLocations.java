@@ -8,7 +8,9 @@ import java.util.Map;
 
 /** Explicit display slots only. Record values, formulas, field identities and control protocol properties are excluded. */
 final class ModuleUiTextLocations {
-    record Location(String path, String bindingKey, String originalText, boolean configured) { }
+    record Location(String path, String bindingKey, String originalText, boolean configured, TextReference declaredSource) {
+        Location(String path, String bindingKey, String originalText, boolean configured) { this(path, bindingKey, originalText, configured, null); }
+    }
     private final List<Location> locations = new ArrayList<>();
     private boolean configured;
 
@@ -22,7 +24,7 @@ final class ModuleUiTextLocations {
         Map<String, TextReference> sources = new LinkedHashMap<>();
         for (var location : of(descriptor)) {
             if (location.configured()) continue;
-            var reference = TextReference.code(location.bindingKey(), location.originalText());
+            var reference = location.declaredSource() == null ? TextReference.code(location.bindingKey(), location.originalText()) : location.declaredSource();
             var previous = sources.putIfAbsent(location.bindingKey(), reference);
             if (previous != null && !previous.equals(reference)) throw new IllegalArgumentException("Conflicting UI text source: " + location.bindingKey());
         }
@@ -34,6 +36,10 @@ final class ModuleUiTextLocations {
         Map<String, TextReference> sources = new LinkedHashMap<>(descriptor.sourceTexts());
         Map<String, TextReference> configuredSources = new LinkedHashMap<>();
         for (var location : of(descriptor)) {
+            if (location.declaredSource() != null) {
+                sources.put(location.bindingKey(), location.declaredSource());
+                continue;
+            }
             if (configurationRoot || location.configured()) {
                 var reference = TextReference.configured("config/" + location.bindingKey(), location.originalText());
                 var previous = configuredSources.putIfAbsent(location.bindingKey(), reference);
@@ -144,6 +150,12 @@ final class ModuleUiTextLocations {
                 String fieldPath = path + "/fields/" + index;
                 text(fieldPath, source, "label", field.label());
                 text(fieldPath, source, "treeRootTitle", field.treeRootTitle());
+                if (field.option() != null) for (int optionIndex = 0; optionIndex < field.option().inlineItems().size(); optionIndex++) {
+                    var option = field.option().inlineItems().get(optionIndex);
+                    if (option.titleSource() != null)
+                        locations.add(new Location(fieldPath + "/option/inlineItems/" + optionIndex + "/title",
+                                option.titleSource().sourceId(), option.title(), false, option.titleSource()));
+                }
                 if (field.booleanStatus() != null) {
                     text(fieldPath + "/booleanStatus", source + "/booleanStatus", "trueLabel", field.booleanStatus().trueLabel());
                     text(fieldPath + "/booleanStatus", source + "/booleanStatus", "falseLabel", field.booleanStatus().falseLabel());

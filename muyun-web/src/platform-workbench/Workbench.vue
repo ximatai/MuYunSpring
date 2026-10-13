@@ -27,6 +27,8 @@ import {
   type ConstructionPlanClient,
   type AssistantConversationClient,
   userPreferences,
+  useLanguageContext,
+  presentationLabel,
 } from '@muyun/web-core';
 import { createConfigurationCollaboration } from './configurationCollaboration';
 import { createConstructionPlanSession } from './constructionPlanSession';
@@ -39,6 +41,7 @@ import {
   workbenchAssistantMenuCatalog,
 } from './workbenchAssistantCapabilities';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
+import { createWorkbenchMenuNodes, findWorkbenchMenuNodeById } from './menuTreeModel';
 import {
   compactMenuTopOf,
   effectiveWorkbenchMenuPresentation,
@@ -46,6 +49,7 @@ import {
 } from './workbenchLayout';
 
 defineOptions({ name: 'Workbench' });
+const language = useLanguageContext();
 
 const props = withDefaults(
   defineProps<{
@@ -313,15 +317,31 @@ function pageDescriptorOf(tab: MenuTab | undefined): PageDescriptor | undefined 
   if (!tab) {
     return undefined;
   }
-  return (
-    tab?.pageDescriptor ?? (tab?.target ? resolvePageDescriptor(tab.target, { title: tab.title }) : undefined)
-  );
+  const descriptor =
+    tab?.pageDescriptor ??
+    (tab?.target ? resolvePageDescriptor(tab.target, { title: tab.title }) : undefined);
+  const menu = menuRecordOf(tab);
+  return descriptor?.titleText && menu?.titleText ? { ...descriptor, titleText: menu.titleText } : descriptor;
+}
+
+function menuRecordOf(tab: MenuTab) {
+  const id = tab.pageDescriptor?.menuId ?? tab.target?.menuId;
+  const menu = id
+    ? findWorkbenchMenuNodeById(createWorkbenchMenuNodes(props.startup?.menus ?? []), id)?.record
+    : undefined;
+  return menu && (!tab.target || JSON.stringify(getMenuNavigationTarget(menu)) === JSON.stringify(tab.target))
+    ? menu
+    : undefined;
 }
 
 function toTabItem(tab: MenuTab): UiTabItem {
   return {
     key: tab.key,
-    title: tab.title,
+    title: presentationLabel(
+      tab.title,
+      menuRecordOf(tab)?.titleText ?? tab.pageDescriptor?.titleText,
+      language,
+    ),
     closable: tab.closable,
     pinned: props.lockedTabKeys.includes(tab.key),
   };

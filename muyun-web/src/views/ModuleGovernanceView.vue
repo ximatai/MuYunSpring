@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+const language = useLanguageContext();
 import { computed, provide, ref, watch, type Component } from 'vue';
 import { RecordRelationTabs } from '@muyun/platform-components';
 import { useWorkspaceViewNavigation } from '@muyun/platform-workbench';
@@ -41,15 +43,15 @@ usePageDataChangeHandler((changeSet) => {
   }
 });
 watch(activeTab, () => void activation.value?.refresh?.());
-const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
-  { key: 'overview', title: '概览' },
-  { key: 'metadata', title: '元数据' },
-  { key: 'actions', title: '动作' },
-  { key: 'rules', title: '业务规则' },
-  { key: 'ui', title: '页面配置' },
-  { key: 'menu', title: '业务入口' },
-  { key: 'preview', title: '业务预览' },
-];
+const tabs = computed<Array<{ key: ModuleGovernanceTab; title: string }>>(() => [
+  { key: 'overview', title: language.t('platform.governance.tab.overview', '概览') },
+  { key: 'metadata', title: language.t('platform.governance.tab.metadata', '元数据') },
+  { key: 'actions', title: language.t('platform.governance.tab.actions', '动作') },
+  { key: 'rules', title: language.t('platform.governance.tab.rules', '业务规则') },
+  { key: 'ui', title: language.t('platform.governance.tab.ui', '页面配置') },
+  { key: 'menu', title: language.t('platform.governance.tab.menu', '业务入口') },
+  { key: 'preview', title: language.t('platform.governance.tab.preview', '业务预览') },
+]);
 
 watch(
   () => props.governanceTab,

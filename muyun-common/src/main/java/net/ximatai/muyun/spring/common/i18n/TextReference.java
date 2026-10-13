@@ -25,6 +25,11 @@ public record TextReference(SourceKind sourceKind, String sourceId, String sourc
         return new TextReference(SourceKind.CONFIG, identity, versionOf(originalText), originalText);
     }
 
+    /** Frozen history reads only this original's deployed versioned resource, never a newer plain-key template. */
+    public static TextReference frozenCode(String key, String originalText) {
+        return code(key + "@" + versionOf(originalText), originalText);
+    }
+
     /** Content revisions remain stable when only unrelated structure or business rules change. */
     public static String versionOf(String text) {
         try {

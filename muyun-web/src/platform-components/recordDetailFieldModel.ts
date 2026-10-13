@@ -4,6 +4,7 @@ import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
 import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
 
@@ -23,6 +24,7 @@ export function resolveRecordDetailDisplayValue(
     optionItems?: OptionItemDescriptor[];
     /** Editable display defaults are not facts about an absent saved value. */
     draft?: boolean;
+    language?: LanguageContext;
   } = {},
 ) {
   if (field.calculationPending) return '保存后计算';
@@ -53,6 +55,15 @@ export function resolveRecordDetailDisplayValue(
   }
   // Saved name projections have no identity binding to a newly computed draft code.
   const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
+  const sourcedOption = (field.optionItems ?? options.optionItems ?? []).find(
+    (item) => item.code === String(value) && (item.titleText || item.titleSource),
+  );
+  if (sourcedOption)
+    return presentationLabel(
+      sourcedOption.title,
+      sourcedOption.titleText,
+      options.language ?? platformLanguageContext,
+    );
   const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
     return String(optionTitle);
@@ -68,7 +79,7 @@ export function resolveRecordDetailDisplayValue(
       (item) => item.code === String(value),
     );
     if (option) {
-      return option.title;
+      return presentationLabel(option.title, option.titleText, options.language ?? platformLanguageContext);
     }
   }
   // `treeRootTitle` names the virtual root inside an editor picker. In a read-only detail,

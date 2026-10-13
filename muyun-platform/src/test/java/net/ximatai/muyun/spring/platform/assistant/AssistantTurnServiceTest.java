@@ -33,6 +33,21 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @Test
+    void usesTheFormalInterfaceLanguageWhileKeepingBusinessFactsVerbatim() {
+        var gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse("ready", List.of(), "stop", "r"));
+        var command = new AssistantTurnCommand("Review this record", List.of(), Map.of("facts", Map.of("title", "张三的申请", "status", "ATTENDED")), List.of(), List.of(), null);
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("system", "System"));
+             var language = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("en")) {
+            new AssistantTurnService(gateway, new ObjectMapper()).turn(command);
+        }
+        var capture = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(capture.capture());
+        assertThat(capture.getValue().messages().getFirst().content()).contains("Interface language: en", "preserve supplied business values");
+        assertThat(capture.getValue().messages().getLast().content()).contains("张三的申请", "ATTENDED");
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void rejectsUndeclaredNeutralCallsWithOnlyCurrentDiscoveryHints(boolean known) {

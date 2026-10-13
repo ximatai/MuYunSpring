@@ -117,6 +117,13 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
         }
     }
 
+    /** Immutable directory of already installed plans; inspecting presentation dependencies never recompiles them. */
+    public Map<String, ModuleExecutionPlan> installedPlans() {
+        Map<String, ModuleExecutionPlan> installed = new LinkedHashMap<>(plans());
+        installed.putAll(dynamicPlans);
+        return Map.copyOf(installed);
+    }
+
     /** Compile all static plans during application startup so invalid declarations never become runnable. */
     @Override
     public void afterSingletonsInstantiated() {

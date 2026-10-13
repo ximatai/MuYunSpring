@@ -391,5 +391,5 @@ function requireActionCode(actionCode: string) {
 
 /** UI consumers use a disposable display projection; execution and identity consumers keep snapshot(). */
 export function displayModuleRuntime(runtime: ModuleRuntimeContextState): ModuleRuntimeContext | undefined {
-  return runtime.presentationSnapshot?.() ?? runtime.snapshot();
+  return runtime.presentationSnapshot?.() ?? runtime.snapshot?.();
 }

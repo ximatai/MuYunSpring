@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.exporter;
 
+import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation;
+
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
@@ -14,11 +16,18 @@ import java.util.Objects;
 public class DynamicExportFacade {
     private final DynamicExportExecutor executor;
     private final ExcelWorkbookPlanWriter workbookWriter;
+    private ExcelWorkbookPresentation presentation;
 
-    @Autowired
     public DynamicExportFacade(DynamicRecordService recordService, OptionSourceRegistry optionSourceRegistry) {
         this(new DynamicExportExecutor(recordService, new DynamicExchangeTemplatePlanBuilder(optionSourceRegistry)),
                 new ExcelWorkbookPlanWriter());
+    }
+
+    @Autowired
+    public DynamicExportFacade(DynamicRecordService records, OptionSourceRegistry options,
+            ExcelWorkbookPresentation presentation) {
+        this(records, options);
+        this.presentation = presentation;
     }
 
     DynamicExportFacade(DynamicExportExecutor executor, ExcelWorkbookPlanWriter workbookWriter) {
@@ -28,6 +37,7 @@ public class DynamicExportFacade {
 
     public byte[] exportWorkbook(DynamicExportCommand command) {
         ExcelWorkbookPlan plan = executor.export(command);
+        if (presentation != null) plan = presentation.project(plan, command.descriptor());
         return workbookWriter.writeToBytes(plan);
     }
 }
