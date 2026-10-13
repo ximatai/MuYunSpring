@@ -26,11 +26,25 @@ public final class LanguageCatalog {
     }
 
     public LanguageCatalog(String defaultTag, Collection<Language> definitions) {
+        this(defaultTag, definitions, null);
+    }
+
+    private LanguageCatalog(String defaultTag, Collection<Language> definitions, Collection<String> enabledTags) {
         this.defaultTag = canonicalTag(defaultTag);
         Map<String, Language> registered = new LinkedHashMap<>();
         for (Language language : definitions) {
             Language previous = registered.putIfAbsent(language.tag(), language);
             if (previous != null && !previous.equals(language)) throw new IllegalArgumentException("Conflicting language: " + language.tag());
+        }
+        if (enabledTags != null) {
+            Set<String> selected = new HashSet<>();
+            for (String tag : enabledTags) {
+                String canonical = canonicalTag(tag);
+                if (!registered.containsKey(canonical)) throw new IllegalArgumentException("Unregistered enabled language: " + canonical);
+                selected.add(canonical);
+            }
+            registered.replaceAll((tag, language) -> new Language(tag, language.nativeName(), language.fallbackTag(),
+                    language.direction(), selected.contains(tag)));
         }
         if (!registered.containsKey(this.defaultTag) || !registered.get(this.defaultTag).enabled()) throw new IllegalArgumentException("Default language is not registered");
         languages = Collections.unmodifiableMap(registered);
@@ -38,6 +52,11 @@ public final class LanguageCatalog {
     }
 
     public static LanguageCatalog load(ClassLoader loader, String defaultTag) {
+        return load(loader, defaultTag, null);
+    }
+
+    /** Resource defaults and deployment policy are combined before validating the effective default. */
+    public static LanguageCatalog load(ClassLoader loader, String defaultTag, Collection<String> enabledTags) {
         List<Language> definitions = new ArrayList<>();
         try {
             for (var urls = loader.getResources(RESOURCE); urls.hasMoreElements();) {
@@ -49,19 +68,12 @@ public final class LanguageCatalog {
                 });
             }
         } catch (IOException failure) { throw new IllegalStateException("Cannot load language catalog", failure); }
-        return new LanguageCatalog(defaultTag, definitions);
+        return new LanguageCatalog(defaultTag, definitions, enabledTags);
     }
 
     /** Deployment policy changes selection eligibility while preserving registered fallback resources. */
     public LanguageCatalog withEnabledLanguages(Collection<String> tags) {
-        Set<String> enabledTags = new HashSet<>();
-        for (String tag : tags) {
-            String canonical = canonicalTag(tag);
-            if (!languages.containsKey(canonical)) throw new IllegalArgumentException("Unregistered enabled language: " + canonical);
-            enabledTags.add(canonical);
-        }
-        return new LanguageCatalog(defaultTag, languages.values().stream().map(language ->
-                new Language(language.tag(), language.nativeName(), language.fallbackTag(), language.direction(), enabledTags.contains(language.tag()))).toList());
+        return new LanguageCatalog(defaultTag, languages.values(), Objects.requireNonNull(tags, "enabledLanguages"));
     }
 
     private static boolean enabled(Properties properties, String tag) {

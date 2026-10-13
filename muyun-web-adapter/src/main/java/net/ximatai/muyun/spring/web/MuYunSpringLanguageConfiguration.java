@@ -20,8 +20,7 @@ public class MuYunSpringLanguageConfiguration {
     @ConditionalOnMissingBean
     public LanguageCatalog languageCatalog(@Value("${muyun.i18n.default-language:zh-CN}") String defaultTag,
                                           @Value("${muyun.i18n.enabled-languages:}") String enabledLanguages) {
-        var catalog = LanguageCatalog.load(getClass().getClassLoader(), defaultTag);
-        return enabledLanguages.isBlank() ? catalog : catalog.withEnabledLanguages(
+        return LanguageCatalog.load(getClass().getClassLoader(), defaultTag, enabledLanguages.isBlank() ? null :
                 Arrays.stream(enabledLanguages.split(",")).map(String::trim).toList());
     }
     @Bean

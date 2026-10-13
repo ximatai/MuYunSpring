@@ -61,4 +61,17 @@ class LanguageWebFilterTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Default language");
     }
 
+    @Test
+    void deploymentCanEnableAPreRegisteredLanguageAndSelectItAsDefaultInOneAssembly() {
+        var configuration = new MuYunSpringLanguageConfiguration();
+        var catalog = configuration.languageCatalog("fr", "fr");
+        assertThat(catalog.defaultTag()).isEqualTo("fr");
+        assertThat(catalog.languages()).filteredOn(LanguageCatalog.Language::enabled)
+                .extracting(LanguageCatalog.Language::tag).containsExactly("fr");
+        assertThat(catalog.select("en")).isEqualTo("fr");
+        assertThat(catalog.fallbackTags("fr")).containsExactly("fr", "en", "zh-CN");
+        assertThatThrownBy(() -> configuration.languageCatalog("fr", ""))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Default language");
+    }
+
 }
