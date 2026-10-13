@@ -1,3 +1,5 @@
+import { isTextReference } from './presentationTexts';
+import type { TextReference } from '@muyun/web-contracts';
 import {
   webDataChangeTypes,
   type WebActionMessage,
@@ -10,6 +12,7 @@ export interface ResolvedWebActionResult {
   message: string;
   messageCode?: string;
   messageArgs?: Record<string, unknown>;
+  messageSource?: TextReference;
   messageType?: string;
   resultType?: string;
   changeSetId?: string;
@@ -69,6 +72,7 @@ export function resolveWebActionResult(
     message: message?.text ?? options.fallbackMessage ?? '操作成功',
     messageCode: message?.code,
     messageArgs: message?.messageArgs,
+    messageSource: message?.textSource,
     messageType: message?.type,
     resultType: actionResultType(result),
     changeSetId: actionResultChangeSetId(result),
@@ -108,7 +112,9 @@ function actionResultMessage(result: unknown): WebActionMessage | undefined {
   const text = (message as { text?: unknown }).text;
   const code = (message as { code?: unknown }).code;
   const type = (message as { type?: unknown }).type;
+  const source = (message as { textSource?: unknown }).textSource;
   return {
+    ...(isTextReference(source) ? { textSource: source } : {}),
     text: typeof text === 'string' && text.trim() ? text.trim() : undefined,
     code: typeof code === 'string' && code.trim() ? code.trim() : undefined,
     type: typeof type === 'string' && type.trim() ? type.trim() : undefined,

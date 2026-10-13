@@ -1,4 +1,7 @@
-import { shallowRef } from 'vue';
+import { shallowRef, computed } from 'vue';
+import { platformLanguageContext, type LanguageContext } from '../language';
+import { originalPresentation, translatedPresentation } from '../presentationTexts';
+import type { TextPresentationDocument } from '@muyun/web-contracts';
 import type { PageActionInvocation, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { normalizeError, type AppError } from '../errors';
 import type { HttpClient } from '../http';
@@ -45,7 +48,7 @@ export interface ModuleRecordActionDecision {
   reason?: string;
 }
 
-export interface ModuleRuntimeContext {
+export interface ModuleRuntimeContext extends TextPresentationDocument {
   moduleAlias: string;
   tenantRequired?: boolean;
   title?: string;
@@ -67,6 +70,7 @@ export interface ModuleRuntimeContextState {
   ready: Promise<ModuleRuntimeContext>;
   load(): Promise<ModuleRuntimeContext>;
   snapshot(): ModuleRuntimeContext | undefined;
+  presentationSnapshot?(): ModuleRuntimeContext | undefined;
   error(): AppError | undefined;
   hasAbility(ability: ModuleAbilityCode | string): boolean | undefined;
   action(actionCode: string, recordId?: string): ModuleActionState | undefined;
@@ -82,8 +86,10 @@ export function createModuleRuntimeContextState(
   http: HttpClient,
   moduleAlias: string,
   access: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
+  language: LanguageContext = platformLanguageContext,
 ): ModuleRuntimeContextState {
   const current = shallowRef<ModuleRuntimeContext>();
+  const presentation = computed(() => current.value && translatedPresentation(current.value, language));
   const currentError = shallowRef<AppError>();
   const recordActionSnapshots = shallowRef(new Map<string, ModuleRecordActionAvailability>());
   const recordActionLoading = new Map<string, Promise<ModuleRecordActionAvailability>>();
@@ -95,9 +101,10 @@ export function createModuleRuntimeContextState(
         path: `/platform.module/${encodeURIComponent(moduleAlias)}/${runtimeContextPath(access)}`,
       })
       .then((context) => {
-        current.value = context;
+        const original = originalPresentation(context);
+        current.value = original;
         currentError.value = undefined;
-        return context;
+        return original;
       })
       .catch((cause) => {
         currentError.value = normalizeError(cause);
@@ -231,6 +238,7 @@ export function createModuleRuntimeContextState(
     ready,
     load,
     snapshot: () => current.value,
+    presentationSnapshot: () => presentation.value,
     error: () => currentError.value,
     hasAbility: (ability) => {
       const context = current.value;
@@ -346,4 +354,9 @@ function requireActionCode(actionCode: string) {
     throw new Error('actionCode must not be blank');
   }
   return actionCode.trim();
+}
+
+/** UI consumers use a disposable display projection; execution and identity consumers keep snapshot(). */
+export function displayModuleRuntime(runtime: ModuleRuntimeContextState): ModuleRuntimeContext | undefined {
+  return runtime.presentationSnapshot?.() ?? runtime.snapshot();
 }

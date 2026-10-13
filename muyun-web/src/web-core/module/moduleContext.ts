@@ -19,6 +19,8 @@ import {
   type ModuleTreeClient,
 } from './staticModuleClient';
 
+import { useLanguageContext, type LanguageContext } from '../language';
+
 export interface ModuleContext<TRecord> {
   moduleAlias: string;
   http: HttpClient;
@@ -39,6 +41,7 @@ export interface ModuleTreeContext<TRecord> extends ModuleContext<TRecord> {
 }
 
 export interface ModuleContextConfig {
+  language?: LanguageContext;
   http?: HttpClient;
   httpFactory?: () => HttpClient;
 }
@@ -70,6 +73,7 @@ export function createModuleContext<TRecord>(options: ModuleContextOptions): Mod
     options.moduleAlias,
     options.runtimeAccess,
     options.navigatorReference,
+    options.language ?? defaultModuleContextConfig?.language,
   );
 }
 
@@ -80,6 +84,7 @@ export function createModuleTreeContext<TRecord>(options: ModuleContextOptions):
     options.moduleAlias,
     options.runtimeAccess,
     options.navigatorReference,
+    options.language ?? defaultModuleContextConfig?.language,
   );
 }
 
@@ -103,7 +108,13 @@ export function useModuleContext<TRecord>(
     return injectedContext.value as ModuleContext<TRecord>;
   }
   const http = resolveModuleHttpClient(options, config);
-  return moduleContextOf<TRecord>(http, moduleAlias, options.runtimeAccess, options.navigatorReference);
+  return moduleContextOf<TRecord>(
+    http,
+    moduleAlias,
+    options.runtimeAccess,
+    options.navigatorReference,
+    options.language ?? config?.language ?? useLanguageContext(),
+  );
 }
 
 export function useModuleTreeContext<TRecord>(
@@ -116,7 +127,13 @@ export function useModuleTreeContext<TRecord>(
     throw new Error('Module tree context requires a moduleAlias');
   }
   const http = resolveModuleHttpClient(options, config);
-  return moduleTreeContextOf<TRecord>(http, moduleAlias, options.runtimeAccess, options.navigatorReference);
+  return moduleTreeContextOf<TRecord>(
+    http,
+    moduleAlias,
+    options.runtimeAccess,
+    options.navigatorReference,
+    options.language ?? config?.language ?? useLanguageContext(),
+  );
 }
 
 /** New consumers capture the current immutable transport; existing contexts keep their original client. */
@@ -154,13 +171,20 @@ export const ModuleContextProvider = defineComponent({
   },
   setup(props, { slots }) {
     const config = inject(moduleContextConfigKey, undefined);
+    const language = useLanguageContext();
     const moduleContext = computed<ModuleContext<unknown> | undefined>(() => {
       if (props.context) return props.context;
       if (!props.moduleAlias) {
         return undefined;
       }
       const http = resolveModuleHttpClient({}, config);
-      return moduleContextOf<unknown>(http, props.moduleAlias);
+      return moduleContextOf<unknown>(
+        http,
+        props.moduleAlias,
+        undefined,
+        undefined,
+        config?.language ?? language,
+      );
     });
     provide(
       moduleAliasKey,
@@ -176,13 +200,14 @@ function moduleContextOf<TRecord>(
   moduleAlias: string,
   runtimeAccess: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
   navigatorReference?: NavigatorReferenceRequestContext,
+  language?: LanguageContext,
 ): ModuleContext<TRecord> {
   const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);
   const enable: ModuleEnableClient = {
     enable: crud.enable,
     disable: crud.disable,
   };
-  const runtime = createModuleRuntimeContextState(http, moduleAlias, runtimeAccess);
+  const runtime = createModuleRuntimeContextState(http, moduleAlias, runtimeAccess, language);
   return {
     moduleAlias,
     http,
@@ -222,8 +247,9 @@ function moduleTreeContextOf<TRecord>(
   moduleAlias: string,
   runtimeAccess: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
   navigatorReference?: NavigatorReferenceRequestContext,
+  language?: LanguageContext,
 ): ModuleTreeContext<TRecord> {
-  const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);
+  const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference, language);
   return {
     ...context,
     tree: runtimeCheckedTreeClient(context),

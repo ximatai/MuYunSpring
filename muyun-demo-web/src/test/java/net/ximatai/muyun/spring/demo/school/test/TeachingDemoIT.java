@@ -198,6 +198,63 @@ public class TeachingDemoIT {
     private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
 
     @Test
+    void staticTeacherSupportsBilingualPresentationAndRealCrudWithoutTranslatingRecordValues() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var languageFilter = webApplicationContext.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class);
+        MockMvc mvc = webAppContextSetup(webApplicationContext).addFilters(languageFilter).build();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("teacher-i18n", "Language Test"));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            String suffix = serial();
+            String subjectId = subjects.insert(subject("L-" + suffix, "中文学科原值", null));
+            var english = mvc.perform(get("/platform.module/education.teacher/context")
+                    .header("Accept-Language", "en")).andReturn().getResponse();
+            assertThat(english.getStatus()).as(english.getContentAsString()).isEqualTo(200);
+            var descriptor = mapper.readTree(english.getContentAsString());
+            assertThat(descriptor.at("/uiDescriptor/page/explorer/title").asText()).isEqualTo("Teachers");
+            assertThat(descriptor.at("/uiDescriptor/page/detail/editor/fields/1/label").asText()).isEqualTo("Teacher name");
+            var chinese = mvc.perform(get("/platform.module/education.teacher/context")
+                    .header("Accept-Language", "zh-CN")).andReturn().getResponse();
+            assertThat(mapper.readTree(chinese.getContentAsString()).at("/uiDescriptor/page/explorer/title").asText())
+                    .isEqualTo("教师列表");
+            var invalid = mvc.perform(post("/education.teacher/insert").header("Accept-Language", "en")
+                    .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of(
+                            "title", "不可保存", "subjectCategoryId", subjectId))))
+                    .andReturn().getResponse();
+            assertThat(invalid.getStatus()).as(invalid.getContentAsString()).isEqualTo(400);
+            var error = mapper.readTree(invalid.getContentAsString());
+            assertThat(error.path("code").asText()).isEqualTo("VALIDATION_FAILED");
+            assertThat(error.path("message").asText()).isEqualTo("Complete the required field and try again");
+            assertThat(error.at("/targets/0/fieldName").asText()).isEqualTo("teacher_no");
+            var insert = mvc.perform(post("/education.teacher/insert").header("Accept-Language", "en")
+                    .contentType("application/json").content(mapper.writeValueAsString(java.util.Map.of(
+                            "teacherNo", "L-" + suffix, "title", "中文教师原名", "subjectCategoryId", subjectId))))
+                    .andReturn().getResponse();
+            assertThat(insert.getStatus()).as(insert.getContentAsString()).isEqualTo(201);
+            var created = mapper.readTree(insert.getContentAsString());
+            assertThat(created.at("/message/code").asText()).isEqualTo("platform.crud.created");
+            assertThat(created.at("/message/text").asText()).contains("created successfully");
+            String id = created.at("/data/id").asText();
+            assertThat(teachers.select(id).getTitle()).isEqualTo("中文教师原名");
+            var query = mvc.perform(post("/education.teacher/query").header("Accept-Language", "en")
+                    .contentType("application/json").content("{\"quickSearch\":\"中文教师原名\"}"))
+                    .andReturn().getResponse();
+            assertThat(query.getStatus()).as(query.getContentAsString()).isEqualTo(200);
+            assertThat(query.getContentAsString()).contains("中文教师原名");
+            var values = (com.fasterxml.jackson.databind.node.ObjectNode) created.path("data");
+            values.put("title", "修改后的中文原名");
+            var update = mvc.perform(post("/education.teacher/update/{id}", id).header("Accept-Language", "zh-CN")
+                    .contentType("application/json").content(mapper.writeValueAsString(values)))
+                    .andReturn().getResponse();
+            assertThat(update.getStatus()).as(update.getContentAsString()).isEqualTo(200);
+            assertThat(mapper.readTree(update.getContentAsString()).at("/message/text").asText()).contains("修改成功");
+            var reopen = mvc.perform(get("/education.teacher/view/{id}", id).header("Accept-Language", "en"))
+                    .andReturn().getResponse();
+            assertThat(reopen.getStatus()).as(reopen.getContentAsString()).isEqualTo(200);
+            assertThat(mapper.readTree(reopen.getContentAsString()).path("title").asText()).isEqualTo("修改后的中文原名");
+        }
+    }
+
+    @Test
     void shouldCreateApplicationThenModuleThroughStandardFormsWithoutConstructionPlan() throws Exception {
         MockMvc mvc = webAppContextSetup(webApplicationContext).build();
         String app = "guided_application_long_identifier_" + serial();

@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
 import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
@@ -197,6 +198,8 @@ export function useModulePageSession(
   emit: ModulePageSessionEvents,
   initialized: () => void,
 ) {
+  const language = useLanguageContext();
+  const t = language.t;
   const relationDrafts = createRelationDraftRegistry();
   let disposed = false;
   onUnmounted(() => {
@@ -1385,8 +1388,8 @@ export function useModulePageSession(
     () =>
       runtimePage.value?.treeResource?.title ??
       (flatManagementPage.value
-        ? (flatManagementContent.value?.recordLabel ?? '记录')
-        : (runtimePage.value?.explorer?.recordLabel ?? '记录')),
+        ? (flatManagementContent.value?.recordLabel ?? t('platform.record.label', '记录'))
+        : (runtimePage.value?.explorer?.recordLabel ?? t('platform.record.label', '记录'))),
   );
   const modulePageTitle = computed(
     () =>
@@ -1402,19 +1405,19 @@ export function useModulePageSession(
     () =>
       runtimePage.value?.list?.searchPlaceholder ??
       runtimePage.value?.explorer?.searchPlaceholder ??
-      `搜索${recordLabel.value}`,
+      t('platform.record.search', '搜索{label}', { label: recordLabel.value }),
   );
   const listEmptyDescription = computed(
     () =>
       runtimePage.value?.treeResource?.emptyDescription ??
       runtimePage.value?.explorer?.emptyDescription ??
-      `暂无${recordLabel.value}`,
+      t('platform.record.empty', '暂无{label}', { label: recordLabel.value }),
   );
   const detailEmptyDescription = computed(
     () =>
       runtimePage.value?.treeResource?.emptyDescription ??
       runtimePage.value?.detail?.emptyDescription ??
-      `请选择${recordLabel.value}，或新建${recordLabel.value}`,
+      t('platform.record.choose', '请选择{label}，或新建{label}', { label: recordLabel.value }),
   );
   const mainTreeScopeDescription = computed(() => {
     const resource = treeResource.value;
@@ -1551,7 +1554,7 @@ export function useModulePageSession(
       ? [
           {
             key: '__platform-check-save',
-            title: '核实保存结果',
+            title: t('platform.action.check-save', '核实保存结果'),
             loading: saving.value,
             disabled: saving.value,
           },
@@ -1593,6 +1596,7 @@ export function useModulePageSession(
       editorMode.value,
       managedPageActions.value,
       selectedRecord.value ?? undefined,
+      language,
     );
     if (anchor === 'DETAIL') {
       const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
@@ -1878,7 +1882,7 @@ export function useModulePageSession(
       return [
         {
           key: '__platform-check-save',
-          title: '核实保存结果',
+          title: t('platform.action.check-save', '核实保存结果'),
           loading: saving.value,
           disabled: saving.value,
         },
@@ -1887,14 +1891,17 @@ export function useModulePageSession(
     if (managedPageActions.value)
       return editorMode.value === 'view'
         ? []
-        : [{ key: 'cancel', title: '取消', disabled: detailActionBusy.value }];
+        : [{ key: 'cancel', title: t('platform.action.cancel', '取消'), disabled: detailActionBusy.value }];
     if (editorMode.value !== 'view') {
       return [
-        { key: 'cancel', title: '取消', disabled: detailActionBusy.value },
+        { key: 'cancel', title: t('platform.action.cancel', '取消'), disabled: detailActionBusy.value },
         {
           key: 'save',
           actionCode: editorMode.value === 'create' ? 'create' : 'update',
-          title: saving.value && activeDetailActionKey.value === 'save' ? '保存中' : '保存',
+          title:
+            saving.value && activeDetailActionKey.value === 'save'
+              ? t('platform.action.saving', '保存中')
+              : t('platform.action.save', '保存'),
           loading: saving.value && activeDetailActionKey.value === 'save',
           disabled: detailActionBusy.value,
           primary: true,
@@ -1905,7 +1912,7 @@ export function useModulePageSession(
       {
         key: 'edit',
         actionCode: 'update',
-        title: '编辑',
+        title: t('platform.action.edit', '编辑'),
         disabled:
           !selectedRecord.value ||
           detailActionBusy.value ||
@@ -1915,7 +1922,7 @@ export function useModulePageSession(
       {
         key: 'delete',
         actionCode: 'delete',
-        title: '删除',
+        title: t('platform.action.delete', '删除'),
         disabled:
           !selectedRecord.value ||
           detailActionBusy.value ||

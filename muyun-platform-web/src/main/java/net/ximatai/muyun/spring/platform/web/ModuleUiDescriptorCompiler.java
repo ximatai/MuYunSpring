@@ -126,11 +126,11 @@ public final class ModuleUiDescriptorCompiler {
         validateListRelationExpansions(descriptor.page(), detailRelations);
         descriptor = AssistantFieldPolicyProjection.protectStatic(descriptor, definition);
         descriptor = FieldWriteRuleProjection.project(descriptor, FieldWriteRuleProjection.staticFields(definition));
-        return new ModuleUiCompilationResult(
-                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
-                        .withDetailRelations(detailRelations),
-                readModel(definition, uiDefinition)
-        );
+        descriptor = descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
+                .withDetailRelations(detailRelations);
+        // Source ownership belongs to this Java declaration producer, not to the module-kind discriminator.
+        descriptor = descriptor.withSourceTexts(ModuleUiTextLocations.codeSources(descriptor));
+        return new ModuleUiCompilationResult(descriptor, readModel(definition, uiDefinition));
     }
 
     private static ResolvedModuleUiDescriptor withPageContextBindings(ResolvedModuleUiDescriptor descriptor,

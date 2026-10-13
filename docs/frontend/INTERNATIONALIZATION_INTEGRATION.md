@@ -38,3 +38,15 @@ language.registerResources("en", { "sales.order.title": "Order" });
 根组件使用 `<UiLanguageProvider :context="language">`，内部通过 `useLanguageContext()` 获取上下文，或用 `language.t(key, defaultText, args)` 显示文字。消费者仍通过 `configureUserPreferencePersistence` 连接自己的认证 HTTP 工厂；`LanguageSelector` 的 `identityScope` 使用当前账户身份，未登录时保留设备偏好。账户切换和用户选择会使过期恢复结果失效；账户持久化失败不会转写设备存储。
 
 框架前端语言资源在 `src/web-core/locales/languagePacks.json` 登记和交付。新增语言增加资源与登记；第三方控件资源通过 `registerUiLanguageLocales` 在应用装配时登记。平台公共键不提供租户覆盖，业务应用以自身命名空间贡献文案。该语言基础只调整展示文本和请求上下文，不修改业务数据、草稿及保存协议。
+
+## 声明文案与展示快照
+
+`TextReference` 保留 `sourceKind`（`CODE` 或 `CONFIG`）、稳定 `sourceId`、原文版本 `sourceVersion` 与 `originalText`；`TextResolver` 是两种来源的统一解析入口。代码声明的译文仍由所属应用部署，在线配置译文按原文版本独立发布。原文内容版本使用 UTF-8 内容摘要，翻译修改不改变原文版本。目前 `CODE` 解析代码资源，`CONFIG` 保留原文回退；在线维护与独立发布按专项下一阶段接入。
+
+静态模块编译时为明确的展示槽位保留 `sourceTexts`。文案键按模块、槽位及稳定字段或分组身份生成，例如 `ui/education.teacher/page/detail/editor/fields/main/title/label`；调整字段顺序不改变文案身份。字段名、动作码、公式、权限和业务记录值不进入这个目录。页面自己的标签与默认编辑器的标签属于不同槽位，可以分别翻译。
+
+模块运行上下文的 HTTP 响应生成展示投影，同时提供 `textBindings`，其中包含对应原文引用及语言资源。输出地址按本次展示结构生成，保留编译原文与共享执行计划；在线配置覆盖接入时须取得自己的原文引用，不借用底层声明的翻译。表单和列表展示消费这一资源，不把译文写入普通保存请求。
+
+前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。
+
+公共动作消息可以携带 `textSource` 和具名参数，HTTP 交付只解析展示文字，保留动作码、记录身份、数据变更和原始参数。业务记录名称作为参数原值交付，不能把它当作配置标签翻译。错误日志保留原文事实，返回提示按请求语言解析。

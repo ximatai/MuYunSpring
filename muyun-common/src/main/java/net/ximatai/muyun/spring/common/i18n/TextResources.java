@@ -8,7 +8,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Immutable code-owned language resources; supports named parameters and explicit fallback diagnostics. */
-public final class TextResources {
+public final class TextResources implements TextResolver {
     public static final String RESOURCE_PREFIX = "META-INF/muyun/i18n/messages_";
     private static final Pattern PARAMETER = Pattern.compile("\\{([A-Za-z][A-Za-z0-9_.-]*)}");
     private final LanguageCatalog catalog;
@@ -56,12 +56,22 @@ public final class TextResources {
         String selected = catalog.select(requestedTag);
         for (String tag : catalog.fallbackTags(selected)) {
             String message = resources.getOrDefault(tag, Map.of()).get(key);
-            if (message != null) return new Resolution(interpolate(message, arguments), selected, tag, false, !tag.equals(selected));
+            if (message != null) return new Resolution(format(message, arguments), selected, tag, false, !tag.equals(selected));
         }
-        return new Resolution(interpolate(defaultText == null ? key : defaultText, arguments), selected, null, true, true);
+        return new Resolution(format(defaultText == null ? key : defaultText, arguments), selected, null, true, true);
     }
 
-    private String interpolate(String text, Map<String, ?> arguments) {
+    @Override
+    public Resolution resolve(TextReference source, Map<String, ?> arguments, String requestedTag) {
+        Objects.requireNonNull(source, "source");
+        if (source.sourceKind() == TextReference.SourceKind.CODE) {
+            return resolve(source.sourceId(), source.originalText(), arguments, requestedTag);
+        }
+        // Configuration text must not acquire a code translation just because its identity collides.
+        return new Resolution(format(source.originalText(), arguments), catalog.select(requestedTag), null, true, true);
+    }
+
+    public static String format(String text, Map<String, ?> arguments) {
         if (arguments == null || arguments.isEmpty()) return text;
         Matcher matcher = PARAMETER.matcher(text);
         return matcher.replaceAll(match -> arguments.containsKey(match.group(1))

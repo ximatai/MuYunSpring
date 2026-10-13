@@ -11,7 +11,7 @@ import {
   UiTreeSelect,
 } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor, OptionValue, OptionValueList } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import RecordStatusSwitch from './RecordStatusSwitch.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordPicker from './RecordPicker.vue';
@@ -55,6 +55,7 @@ import { loadOptionFieldItems } from './optionFieldOptionCache';
 import { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
 
 defineOptions({ name: 'RecordFormFields' });
+const language = useLanguageContext();
 
 export interface RecordFormValidity {
   valid: boolean;
@@ -155,7 +156,7 @@ const touchedFields = ref<Record<string, boolean>>({});
 const requiredFieldErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {};
   for (const field of fieldStates.value) {
-    const error = recordFormRequiredError(field, props.record[field.fieldName]);
+    const error = recordFormRequiredError(field, props.record[field.fieldName], language);
     if (error) errors[field.fieldName] = error;
   }
   return errors;
@@ -169,7 +170,7 @@ const formValidity = computed<RecordFormValidity>(() => {
   for (const field of fieldStates.value) {
     const constraintError =
       !field.readOnly && field.visible
-        ? recordFormInputConstraintError(field, props.record[field.fieldName])
+        ? recordFormInputConstraintError(field, props.record[field.fieldName], language)
         : undefined;
     if (constraintError) errors[field.fieldName] = constraintError;
     const dictionaryRendererError = dictionaryRendererErrorOf(field);
@@ -615,7 +616,7 @@ function editorFieldError(field: RecordFormFieldState) {
     (touchedFields.value[field.fieldName] || props.validationRequestKey > 0)
       ? requiredFieldError(field)
       : undefined) ??
-    recordFormInputConstraintError(field, props.record[field.fieldName])
+    recordFormInputConstraintError(field, props.record[field.fieldName], language)
   );
 }
 

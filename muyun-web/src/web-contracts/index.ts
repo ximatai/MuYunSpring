@@ -57,7 +57,26 @@ export interface WebDataChange {
 
 export type WebActionMessageType = 'SUCCESS' | 'INFO' | 'WARNING' | 'ERROR' | string;
 
+export interface TextReference {
+  sourceKind: 'CODE' | 'CONFIG';
+  sourceId: string;
+  sourceVersion: string;
+  originalText: string;
+}
+export interface TextPresentation {
+  source: TextReference;
+  languages: Record<
+    string,
+    { text: string; requestedTag: string; resourceTag?: string | null; missing: boolean; fallback: boolean }
+  >;
+}
+/** Server-issued addresses of display slots; never addresses of business record values. */
+export interface TextPresentationDocument {
+  textBindings?: Record<string, TextPresentation>;
+}
+
 export interface WebActionMessage {
+  textSource?: TextReference;
   code?: string;
   text?: string;
   type?: WebActionMessageType;
@@ -1409,6 +1428,7 @@ export interface ResolvedFileReferenceFieldDescriptor {
 }
 
 export interface ResolvedModuleUiDescriptor {
+  sourceTexts?: Record<string, TextReference>;
   schemaVersion: string;
   moduleAlias: string;
   moduleKind?: 'STATIC' | 'DYNAMIC';
