@@ -30,6 +30,9 @@ public class ConfiguredTextSeedService {
         int installed = 0;
         try (var scope = TenantContext.system("deployed configuration text baselines")) {
             for (String alias : entries.stream().map(ConfiguredTextSeedResources.Entry::moduleAlias).distinct().toList()) {
+                var existing = new HashSet<SeedIdentity>();
+                translations.translations(alias).forEach(row -> existing.add(
+                        new SeedIdentity(row.getSourceId(), row.getSourceVersion(), row.getLanguageTag())));
                 var sources = translations.currentSources(alias);
                 Map<String, TextReference> current = new HashMap<>();
                 sources.forEach(source -> current.put(source.sourceId(), source));
@@ -45,11 +48,15 @@ public class ConfiguredTextSeedService {
                             .filter(target -> target.equals(current.get(target.sourceId())))
                             .filter(target -> target.sourceVersion().equals(original.sourceVersion()) && target.originalText().equals(original.originalText()))
                             .forEach(destinations::add);
-                    for (var destination : destinations)
+                    for (var destination : destinations) {
+                        var identity = new SeedIdentity(destination.sourceId(), destination.sourceVersion(), entry.languageTag());
+                        if (!existing.add(identity)) continue;
                         if (translations.seedPublished(alias, destination, entry.languageTag(), entry.text())) installed++;
+                    }
                 }
             }
         }
         return installed;
     }
+    private record SeedIdentity(String sourceId, String sourceVersion, String languageTag) { }
 }

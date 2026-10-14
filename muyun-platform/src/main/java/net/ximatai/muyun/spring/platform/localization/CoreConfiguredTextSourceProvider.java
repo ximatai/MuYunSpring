@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 
 /** Privileged maintenance reads original objects, including immutable published workflow versions. */
@@ -64,6 +65,35 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
         }
         return List.copyOf(result);
     }
+    @Override public Optional<TextReference> findCurrentSource(String moduleAlias, String sourceId) {
+        if (!TenantContext.isSystem()) throw new IllegalStateException("Configuration source maintenance requires system scope");
+        String menuId = sourceObjectId(sourceId, "config/menu/");
+        String itemId = sourceObjectId(sourceId, "config/dictionary/item/");
+        try (var ignored = TenantContext.bypassTenantFilter("configuration original source maintenance")) {
+            if (MenuService.MODULE_ALIAS.equals(moduleAlias) && menuId != null) {
+                var service = menus.getIfAvailable();
+                var row = service == null ? null : service.select(menuId);
+                return row == null ? Optional.empty() : Optional.of(ConfigurationTextSources.menuTitle(row.getId(), row.getTitle()))
+                        .filter(source -> source.sourceId().equals(sourceId));
+            }
+            if (DictionaryItemService.MODULE_ALIAS.equals(moduleAlias) && itemId != null) {
+                var service = dictionaries.getIfAvailable();
+                var row = service == null ? null : service.select(itemId);
+                return row == null ? Optional.empty() : Optional.of(ConfigurationTextSources.dictionaryTitle(row.getId(), row.getTitle()))
+                        .filter(source -> source.sourceId().equals(sourceId));
+            }
+        }
+        return ConfiguredTextSourceProvider.super.findCurrentSource(moduleAlias, sourceId);
+    }
+
+    private static String sourceObjectId(String sourceId, String prefix) {
+        if (sourceId == null || !sourceId.startsWith(prefix) || !sourceId.endsWith("/title")) return null;
+        String encoded = sourceId.substring(prefix.length(), sourceId.length() - "/title".length());
+        if (encoded.isBlank() || encoded.contains("/")) return null;
+        String id = encoded.replace("~1", "/").replace("~0", "~");
+        return id.replace("~", "~0").replace("/", "~1").equals(encoded) ? id : null;
+    }
+
     private List<TextReference> workflowSources(WorkflowVersion version) {
         try {
             var snapshot = mapper.readValue(version.getSnapshotText(), WorkflowDesignDocument.class);

@@ -168,8 +168,20 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
         requireText(row.getDraftText());
     }
     private TextReference currentSource(String moduleAlias, String sourceId, String version) {
-        return currentSources(moduleAlias).stream().filter(source -> source.sourceId().equals(sourceId) && source.sourceVersion().equals(version))
-                .findFirst().orElseThrow(ConfigurationTranslationService::staleSource);
+        requireSystem();
+        String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        TextReference result = null;
+        for (var provider : sources.orderedStream().toList()) {
+            var candidate = provider.findCurrentSource(alias, sourceId).orElse(null);
+            if (candidate == null) continue;
+            if (candidate.sourceKind() != TextReference.SourceKind.CONFIG || !candidate.sourceId().equals(sourceId))
+                throw new IllegalStateException("Invalid configured text source: " + sourceId);
+            if (result != null && !result.equals(candidate))
+                throw new IllegalStateException("Conflicting configured text source: " + sourceId);
+            result = candidate;
+        }
+        if (result == null || !result.sourceVersion().equals(version)) throw staleSource();
+        return result;
     }
     private String requireLanguage(String tag) {
         String canonical;

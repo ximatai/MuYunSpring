@@ -13,15 +13,21 @@ import static org.mockito.Mockito.*;
 class MenuConfiguredTextSeedTargetsTest {
     @Test void recognizesOnlyManagedCopiesWithTheProducerIdentityAndRequestedTenant() {
         var menus = mock(MenuService.class);
+        var schemes = mock(MenuSchemeService.class);
         var baseline = new Menu(); baseline.setId("platform.menu.group.identity"); baseline.setTitle("组织与权限");
         baseline.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
         var copy = copy("tenant-a", baseline); var otherTenant = copy("tenant-b", baseline);
+        otherTenant.setSchemeId("existing-tenant-admin");
+        when(schemes.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(
+                scheme("tenant-a", copy.getSchemeId()), scheme("tenant-b", otherTenant.getSchemeId()),
+                scheme("tenant-c", DefaultTenantMenuProvisioner.tenantAdminSchemeId("tenant-c")),
+                scheme("tenant-d", DefaultTenantMenuProvisioner.tenantAdminSchemeId("tenant-d"))));
         var takenOver = copy("tenant-c", baseline); takenOver.setPlatformManaged(false);
         var manual = copy("tenant-d", baseline); manual.setId("manual-same-title");
         var wrongScheme = copy("tenant-e", baseline); wrongScheme.setSchemeId("manual-scheme");
         when(menus.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(baseline, copy, otherTenant, takenOver, manual, wrongScheme));
         var source = ConfigurationTextSources.menuTitle(baseline.getId(), baseline.getTitle());
-        var provider = new MenuConfiguredTextSeedTargets(menus);
+        var provider = new MenuConfiguredTextSeedTargets(menus, schemes);
         try (var scope = TenantContext.system("test menu baseline targets")) {
             assertThat(provider.derivedTargets("platform.menu", List.of(source), null))
                     .extracting(target -> target.target().sourceId()).containsExactlyInAnyOrder(
@@ -31,6 +37,12 @@ class MenuConfiguredTextSeedTargetsTest {
                     .singleElement().satisfies(target -> assertThat(target.baseline()).isEqualTo(source));
             assertThat(provider.derivedTargets("platform.dictionary_item", List.of(source), null)).isEmpty();
         }
+    }
+
+    private MenuScheme scheme(String tenantId, String id) {
+        var scheme = new MenuScheme(); scheme.setId(id); scheme.setTenantId(tenantId);
+        scheme.setAlias(DefaultTenantMenuProvisioner.TENANT_ADMIN_SCHEME_ALIAS);
+        scheme.setScopeType(MenuScopeType.TENANT); return scheme;
     }
 
     private Menu copy(String tenantId, Menu baseline) {

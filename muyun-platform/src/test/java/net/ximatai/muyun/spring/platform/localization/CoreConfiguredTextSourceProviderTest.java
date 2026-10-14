@@ -45,6 +45,36 @@ class CoreConfiguredTextSourceProviderTest {
             assertThat(TenantContext.tenantFilterBypassed()).isFalse();
         }
     }
+    @Test void readsMenuAndDictionarySourcesByIdIncludingEscapedIdentities() {
+        var menus = mock(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+        var dictionaries = mock(net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService.class);
+        var menu = new net.ximatai.muyun.spring.platform.menu.Menu(); menu.setId("menu/~source"); menu.setTitle("菜单");
+        var item = new net.ximatai.muyun.spring.platform.dictionary.DictionaryItem(); item.setId("item/~source"); item.setTitle("选项");
+        when(menus.select(menu.getId())).thenReturn(menu); when(dictionaries.select(item.getId())).thenReturn(item);
+        var beans = new DefaultListableBeanFactory(); beans.registerSingleton("menus", menus); beans.registerSingleton("dictionaries", dictionaries);
+        var provider = new CoreConfiguredTextSourceProvider(beans.getBeanProvider(net.ximatai.muyun.spring.platform.menu.MenuService.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService.class),
+                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), new ObjectMapper(),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
+        try (var scope = TenantContext.system("indexed source maintenance")) {
+            var menuSource = ConfigurationTextSources.menuTitle(menu.getId(), menu.getTitle());
+            var itemSource = ConfigurationTextSources.dictionaryTitle(item.getId(), item.getTitle());
+            assertThat(provider.findCurrentSource("platform.menu", menuSource.sourceId())).contains(menuSource);
+            assertThat(provider.findCurrentSource("platform.dictionary_item", itemSource.sourceId())).contains(itemSource);
+            assertThat(provider.findCurrentSource("platform.menu", "config/menu/missing/title")).isEmpty();
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+        verify(menus).select(menu.getId()); verify(menus).select("missing"); verifyNoMoreInteractions(menus);
+        verify(dictionaries).select(item.getId()); verifyNoMoreInteractions(dictionaries);
+    }
+
+    @Test void defaultSingleLookupRejectsConflictingOriginalsBeforeChoosingAVersion() {
+        ConfiguredTextSourceProvider provider = alias -> List.of(
+                ConfigurationTextSources.menuTitle("menu", "旧菜单"), ConfigurationTextSources.menuTitle("menu", "新菜单"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> provider.findCurrentSource("platform.menu", "config/menu/menu/title"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Conflicting configured text source");
+    }
+
     private WorkflowVersion version(String id, String title) {
         var version = new WorkflowVersion(); version.setId(id); version.setPublishStatus(WorkflowPublishStatus.PUBLISHED);
         version.setSnapshotText("{\"nodes\":[{\"nodeKey\":\"approval\",\"title\":\"" + title + "\"}],\"links\":[]}");
