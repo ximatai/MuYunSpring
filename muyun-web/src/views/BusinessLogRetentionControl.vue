@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { useLanguageContext, useModuleContext } from '@muyun/web-core';
+import {
+  useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
+  useModuleContext,
+} from '@muyun/web-core';
 
-import { computed, ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { presentPlatformError, RecordDetailDrawer } from '@muyun/platform-components';
 
 import {
@@ -38,7 +46,8 @@ const open = ref(false);
 const policies = ref<BusinessLogRetentionPolicy[]>([]);
 const persistedPolicies = ref<Partial<Record<BusinessLogEventType, BusinessLogRetentionPolicy>>>({});
 const loading = ref(false);
-const loadError = ref<string>();
+const loadFailure = shallowRef<Error>();
+const loadError = computed(() => (loadFailure.value ? displayError(loadFailure.value) : undefined));
 const savingType = ref<BusinessLogEventType>();
 const purgingType = ref<BusinessLogEventType>();
 
@@ -60,7 +69,7 @@ async function openPanel() {
 
 async function loadPolicies() {
   loading.value = true;
-  loadError.value = undefined;
+  loadFailure.value = undefined;
   try {
     const loaded = await client.policies();
     const visibleTypes = new Set(props.eventTypes);
@@ -68,8 +77,8 @@ async function loadPolicies() {
     policies.value = visible.map((policy) => ({ ...policy }));
     persistedPolicies.value = Object.fromEntries(visible.map((policy) => [policy.eventType, { ...policy }]));
   } catch (error) {
-    loadError.value = errorMessage(error);
-    presentPlatformError(error, { source: 'business-log-retention', phase: 'load' });
+    loadFailure.value = errorMessage(error);
+    presentPlatformError(error, { language, source: 'business-log-retention', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -77,14 +86,25 @@ async function loadPolicies() {
 
 async function confirmClose() {
   if (operationPending.value) {
-    showInfoMessage('自动清理操作正在执行，请稍候。');
+    showInfoMessage(
+      language.t(
+        'platform.screen.BusinessLogRetentionControl.a-cleanup-operation-is-in-progress-please-wait',
+        '自动清理操作正在执行，请稍候。',
+      ),
+    );
     return false;
   }
   if (!hasDirtyPolicy.value) return true;
   return confirmAction(
     {
-      title: '放弃未保存的自动清理设置？',
-      content: '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
+      title: language.t(
+        'platform.screen.BusinessLogRetentionControl.discard-unsaved-cleanup-settings',
+        '放弃未保存的自动清理设置？',
+      ),
+      content: language.t(
+        'platform.screen.BusinessLogRetentionControl.unsaved-changes-to-automatic-cleanup-and-retention-days-will-be',
+        '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
+      ),
     },
     language,
   );
@@ -96,9 +116,15 @@ async function save(policy: BusinessLogRetentionPolicy) {
   try {
     const updated = await client.update(policy);
     replacePolicy(updated);
-    showSuccessMessage(`${typeLabel(policy.eventType)}自动清理设置已保存`);
+    showSuccessMessage(
+      language.t(
+        'platform.screen.BusinessLogRetentionControl.cleanup-settings-saved-for-value',
+        '{value1}自动清理设置已保存',
+        { value1: typeLabel(policy.eventType) },
+      ),
+    );
   } catch (error) {
-    presentPlatformError(error, { source: 'business-log-retention', phase: 'action' });
+    presentPlatformError(error, { language, source: 'business-log-retention', phase: 'action' });
   } finally {
     savingType.value = undefined;
   }
@@ -108,9 +134,19 @@ async function purge(policy: BusinessLogRetentionPolicy) {
   if (!validDays(policy.retentionDays) || operationPending.value) return;
   const confirmed = await confirmAction(
     {
-      title: `立即清理${typeLabel(policy.eventType)}`,
-      content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会保存对保留天数的修改，且操作不可恢复。`,
-      requiredText: `清理${typeLabel(policy.eventType)}`,
+      title: language.t(
+        'platform.screen.BusinessLogRetentionControl.clean-up-value-now',
+        '立即清理{value1}',
+        { value1: typeLabel(policy.eventType) },
+      ),
+      content: language.t(
+        'platform.screen.BusinessLogRetentionControl.logs-strictly-older-than-value-days-will-be-deleted-this',
+        '将删除严格早于 {value1} 天的日志。本次清理不会保存对保留天数的修改，且操作不可恢复。',
+        { value1: policy.retentionDays },
+      ),
+      requiredText: language.t('platform.screen.BusinessLogRetentionControl.clean-up-value', '清理{value1}', {
+        value1: typeLabel(policy.eventType),
+      }),
       danger: true,
     },
     language,
@@ -120,16 +156,29 @@ async function purge(policy: BusinessLogRetentionPolicy) {
   try {
     const run = await client.purge(policy.eventType, policy.retentionDays);
     if (run.result.status === 'ALREADY_RUNNING') {
-      showInfoMessage('已有日志清理任务正在运行，本次未执行。');
+      showInfoMessage(
+        language.t(
+          'platform.screen.BusinessLogRetentionControl.a-log-cleanup-task-is-already-running-this-request-was',
+          '已有日志清理任务正在运行，本次未执行。',
+        ),
+      );
       return;
     }
     showSuccessMessage(
       run.result.status === 'BATCH_LIMIT_REACHED'
-        ? `本轮已清理 ${run.result.deletedCount} 条，剩余数据将在后续批次继续处理`
-        : `已清理 ${run.result.deletedCount} 条${typeLabel(policy.eventType)}`,
+        ? language.t(
+            'platform.screen.BusinessLogRetentionControl.deleted-value-records-in-this-run-remaining-records-will-be',
+            '本轮已清理 {value1} 条，剩余数据将在后续批次继续处理',
+            { value1: run.result.deletedCount },
+          )
+        : language.t(
+            'platform.screen.BusinessLogRetentionControl.deleted-value-records-from-value',
+            '已清理 {value1} 条{value2}',
+            { value1: run.result.deletedCount, value2: typeLabel(policy.eventType) },
+          ),
     );
   } catch (error) {
-    presentPlatformError(error, { source: 'business-log-retention', phase: 'action' });
+    presentPlatformError(error, { language, source: 'business-log-retention', phase: 'action' });
   } finally {
     purgingType.value = undefined;
   }
@@ -161,63 +210,118 @@ function validDays(value: number) {
 
 function typeLabel(type: BusinessLogEventType) {
   return {
-    LOGIN: '登录日志',
-    ACTION: '动作日志',
-    REQUEST_ERROR: '异常日志',
-    PAGE_ACCESS: '页面访问日志',
+    LOGIN: language.t('platform.screen.BusinessLogRetentionControl.login-audit-logs', '登录日志'),
+    ACTION: language.t('platform.screen.BusinessLogRetentionControl.action-logs', '动作日志'),
+    REQUEST_ERROR: language.t('platform.screen.BusinessLogRetentionControl.error-logs', '异常日志'),
+    PAGE_ACCESS: language.t('platform.screen.BusinessLogRetentionControl.page-access-logs', '页面访问日志'),
   }[type];
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : '自动清理设置加载失败。';
+  return error instanceof Error
+    ? error
+    : new OperationUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.BusinessLogRetentionControl.failed-to-load-automatic-cleanup-settings',
+          '自动清理设置加载失败。',
+        ),
+      );
+}
+function displayError(error: Error): string {
+  return error instanceof OperationUsageError
+    ? resolveOperationErrorMessage(error, language)
+    : userFacingErrorMessage(normalizeError(error), language);
 }
 </script>
 
 <template>
-  <UiActionButton v-if="canView" @click="openPanel">自动清理</UiActionButton>
+  <UiActionButton v-if="canView" @click="openPanel">{{
+    language.t('platform.screen.BusinessLogRetentionControl.automatic-cleanup', '自动清理')
+  }}</UiActionButton>
 
   <RecordDetailDrawer
     :open="open"
-    title="自动清理"
-    subtitle="配置当前日志类型的自动清理和保留期限。"
+    :title="language.t('platform.screen.BusinessLogRetentionControl.automatic-cleanup', '自动清理')"
+    :subtitle="
+      language.t(
+        'platform.screen.BusinessLogRetentionControl.configure-automatic-cleanup-and-retention-for-the-current-log-type',
+        '配置当前日志类型的自动清理和保留期限。',
+      )
+    "
     width="standard"
     scope="viewport"
     :before-close="confirmClose"
     @close="open = false"
   >
-    <UiSpin v-if="loading" tip="加载自动清理设置" />
-    <UiError v-else-if="loadError" title="自动清理设置不可用" :message="loadError" />
-    <UiEmpty v-else-if="visiblePolicies.length === 0" description="暂无可管理的自动清理设置" />
+    <UiSpin
+      v-if="loading"
+      :tip="
+        language.t(
+          'platform.screen.BusinessLogRetentionControl.loading-automatic-cleanup-settings',
+          '加载自动清理设置',
+        )
+      "
+    />
+    <UiError
+      v-else-if="loadError"
+      :title="
+        language.t(
+          'platform.screen.BusinessLogRetentionControl.automatic-cleanup-settings-unavailable',
+          '自动清理设置不可用',
+        )
+      "
+      :message="loadError"
+    />
+    <UiEmpty
+      v-else-if="visiblePolicies.length === 0"
+      :description="
+        language.t(
+          'platform.screen.BusinessLogRetentionControl.no-automatic-cleanup-settings-available',
+          '暂无可管理的自动清理设置',
+        )
+      "
+    />
     <section v-else class="business-log-retention-control__policies">
       <article v-for="policy in visiblePolicies" :key="policy.eventType">
         <header>
           <div>
             <h3>{{ typeLabel(policy.eventType) }}</h3>
             <small v-if="policy.updatedAt">
-              最近更新：{{ policy.updatedAt
-              }}<template v-if="policy.updatedBy"> · {{ policy.updatedBy }}</template>
+              {{ language.t('platform.screen.BusinessLogRetentionControl.last-updated', '最近更新：')
+              }}{{ policy.updatedAt }}<template v-if="policy.updatedBy"> · {{ policy.updatedBy }}</template>
             </small>
           </div>
           <label class="business-log-retention-control__automatic-cleanup">
-            <span>自动清理</span>
+            <span>{{
+              language.t('platform.screen.BusinessLogRetentionControl.automatic-cleanup', '自动清理')
+            }}</span>
             <UiSwitch
               v-model:checked="policy.automaticCleanupEnabled"
               :disabled="!canConfigure || operationPending"
-              checked-text="启用"
-              unchecked-text="停用"
+              :checked-text="language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')"
+              :unchecked-text="language.t('platform.screen.WorkflowWorkbenchView.disabled', '停用')"
             />
           </label>
         </header>
 
         <div class="business-log-retention-control__content">
           <label class="business-log-retention-control__retention-days">
-            <span>保留天数</span>
+            <span>{{
+              language.t('platform.screen.BusinessLogRetentionControl.retention-days', '保留天数')
+            }}</span>
             <span class="business-log-retention-control__retention-row">
               <UiInput
                 :value="policy.retentionDays"
                 type="number"
                 :disabled="!canConfigure || operationPending"
-                :aria-label="`${typeLabel(policy.eventType)}保留天数`"
+                :aria-label="
+                  language.t(
+                    'platform.screen.BusinessLogRetentionControl.retention-days-for-value',
+                    '{value1}保留天数',
+                    { value1: typeLabel(policy.eventType) },
+                  )
+                "
                 @update:value="updateDays(policy, $event)"
               />
               <UiActionButton
@@ -227,11 +331,16 @@ function errorMessage(error: unknown) {
                 :loading="purgingType === policy.eventType"
                 @click="purge(policy)"
               >
-                立即清理
+                {{ language.t('platform.screen.BusinessLogRetentionControl.clean-up-now', '立即清理') }}
               </UiActionButton>
             </span>
             <small v-if="!validDays(policy.retentionDays)" class="business-log-retention-control__validation">
-              请输入 1 至 36500 之间的整数。
+              {{
+                language.t(
+                  'platform.screen.BusinessLogRetentionControl.enter-an-integer-from-1-to-36500',
+                  '请输入 1 至 36500 之间的整数。',
+                )
+              }}
             </small>
           </label>
         </div>
@@ -244,7 +353,7 @@ function errorMessage(error: unknown) {
             :loading="savingType === policy.eventType"
             @click="save(policy)"
           >
-            保存
+            {{ language.t('platform.action.save', '保存') }}
           </UiActionButton>
         </footer>
       </article>

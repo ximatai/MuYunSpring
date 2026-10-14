@@ -51,7 +51,7 @@ export function createMetadataWorkspace(
         language,
         moduleAlias,
         moduleTitle,
-        refreshActivation: (alias) => readModuleActivationFeedback(http, alias),
+        refreshActivation: (alias) => readModuleActivationFeedback(http, alias, language),
         onCommitted: (alias) => committedRevisions.set(alias, (committedRevisions.get(alias) ?? 0) + 1),
         valid: () => identity() === owner && sessions.get(moduleAlias) === created,
         confirmationScope: () => active.value === created,

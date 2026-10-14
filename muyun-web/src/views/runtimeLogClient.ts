@@ -1,4 +1,11 @@
-import { isHttpStreamClient, type HttpClient } from '@muyun/web-core';
+import {
+  isHttpStreamClient,
+  platformLanguageContext,
+  OperationUsageError,
+  codeOperationErrorMessage,
+  type HttpClient,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 const ENDPOINT = '/platform.runtime_log';
 
@@ -14,9 +21,18 @@ export interface RuntimeLogClient {
   activeStream(tailLines: number, signal?: AbortSignal): Promise<ReadableStream<Uint8Array>>;
 }
 
-export function createRuntimeLogClient(http: HttpClient): RuntimeLogClient {
+export function createRuntimeLogClient(
+  http: HttpClient,
+  language: LanguageContext = platformLanguageContext,
+): RuntimeLogClient {
   if (!isHttpStreamClient(http)) {
-    throw new Error('当前 HTTP 客户端不支持运行日志流。');
+    throw new OperationUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.runtimeLogClient.the-current-http-client-does-not-support-runtime-log-streams',
+        '当前 HTTP 客户端不支持运行日志流。',
+      ),
+    );
   }
   return {
     download(name) {

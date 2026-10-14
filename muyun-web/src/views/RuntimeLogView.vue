@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import {
+  useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
+  type OperationErrorMessage,
+} from '@muyun/web-core';
+import { computed, nextTick, onBeforeUnmount, ref, watch, shallowRef } from 'vue';
 import {
   DateTimeText,
   FileSizeText,
@@ -13,20 +22,23 @@ import { UiButton, UiEmpty, UiError, UiActionButton } from '@muyun/vue-ui-antdv'
 import { createRuntimeLogClient, type RuntimeLogFile } from './runtimeLogClient';
 import { createRuntimeLogSseParser, type RuntimeLogSseEvent } from './runtimeLogSse';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'RuntimeLogView' });
 
 const TAIL_LINES = 500;
 const moduleContext = useModuleContext<RuntimeLogFile & Record<string, unknown>>({
   moduleAlias: 'platform.runtime_log',
 });
-const client = createRuntimeLogClient(moduleContext.http);
-const listError = ref<string>();
+const client = createRuntimeLogClient(moduleContext.http, language);
+const listFailure = shallowRef<Error>();
+const listError = computed(() => (listFailure.value ? displayError(listFailure.value) : undefined));
 const downloadingName = ref<string>();
 const viewerOpen = ref(false);
 const activeFileName = ref<string>();
 const logText = ref('');
 const streamState = ref<'connecting' | 'live' | 'rotated' | 'error' | 'closed'>('closed');
-const streamNotice = ref<string>();
+const streamNotice = shallowRef<string | Error | OperationErrorMessage>();
 const logViewport = ref<HTMLElement>();
 const followsTail = ref(true);
 let streamRevision = 0;
@@ -35,23 +47,47 @@ let activeAbortController: AbortController | undefined;
 let rotationReconnects = 0;
 
 const streamStatus = computed(() => {
-  if (streamNotice.value) return streamNotice.value;
+  const notice = streamNotice.value;
+  if (notice) {
+    if (typeof notice === 'string') return notice;
+    if (notice instanceof Error) return displayError(notice);
+    return language.t(notice.source.sourceId, notice.source.originalText, notice.args);
+  }
   return {
-    connecting: '正在连接实时日志…',
-    live: '正在实时更新',
-    rotated: '日志文件已轮转，请重新连接。',
-    error: '实时日志连接已中断。',
-    closed: '实时日志已关闭。',
+    connecting: language.t('platform.screen.RuntimeLogView.connecting-to-live-logs', '正在连接实时日志…'),
+    live: language.t('platform.screen.RuntimeLogView.updating-live', '正在实时更新'),
+    rotated: language.t(
+      'platform.screen.RuntimeLogView.the-log-file-has-rotated-reconnect',
+      '日志文件已轮转，请重新连接。',
+    ),
+    error: language.t(
+      'platform.screen.RuntimeLogView.the-live-log-connection-was-interrupted',
+      '实时日志连接已中断。',
+    ),
+    closed: language.t('platform.screen.RuntimeLogView.live-logs-closed', '实时日志已关闭。'),
   }[streamState.value];
 });
 const canReconnect = computed(() => ['closed', 'error', 'rotated'].includes(streamState.value));
 
-const fileColumns: RecordQueryListColumn[] = [
-  { key: 'name', title: '文件名称', width: '360px' },
-  { key: 'sizeBytes', title: '文件大小', width: '140px', align: 'right' as const },
-  { key: 'lastModifiedAt', title: '最后修改时间', width: '208px' },
-  { key: 'active', title: '状态', width: '132px' },
-];
+const fileColumns = computed<RecordQueryListColumn[]>(() => [
+  { key: 'name', title: language.t('platform.screen.RuntimeLogView.file-name', '文件名称'), width: '360px' },
+  {
+    key: 'sizeBytes',
+    title: language.t('platform.screen.RuntimeLogView.file-size', '文件大小'),
+    width: '140px',
+    align: 'right' as const,
+  },
+  {
+    key: 'lastModifiedAt',
+    title: language.t('platform.screen.RuntimeLogView.last-modified', '最后修改时间'),
+    width: '208px',
+  },
+  {
+    key: 'active',
+    title: language.t('platform.screen.WorkflowWorkbenchView.status', '状态'),
+    width: '132px',
+  },
+]);
 
 onBeforeUnmount(stopActiveStream);
 
@@ -114,13 +150,24 @@ async function consumeActiveLog(revision: number, controller: AbortController) {
     parser.finish();
     if (!controller.signal.aborted && revision === streamRevision && streamState.value !== 'rotated') {
       streamState.value = 'closed';
-      streamNotice.value = '实时日志连接已结束。';
+      streamNotice.value = codeOperationErrorMessage(
+        language,
+        'platform.screen.RuntimeLogView.the-live-log-connection-has-ended',
+        '实时日志连接已结束。',
+      );
     }
   } catch (error) {
     if (!controller.signal.aborted && revision === streamRevision) {
       streamState.value = 'error';
-      streamNotice.value = errorMessage(error, '实时日志连接失败，请重新连接。');
-      presentPlatformError(error, { source: 'runtime-log-stream', phase: 'load' });
+      streamNotice.value = errorMessage(
+        error,
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.RuntimeLogView.failed-to-connect-to-live-logs-reconnect',
+          '实时日志连接失败，请重新连接。',
+        ),
+      );
+      presentPlatformError(error, { language, source: 'runtime-log-stream', phase: 'load' });
     }
   } finally {
     if (revision === streamRevision) activeReader = undefined;
@@ -136,7 +183,14 @@ function handleStreamEvent(event: RuntimeLogSseEvent, revision: number, controll
       logText.value = textOf(payload.text);
       activeFileName.value = optionalTextOf(payload.fileName) ?? activeFileName.value;
       streamState.value = 'live';
-      streamNotice.value = event.event === 'reset' ? '日志内容已重置，正在继续实时更新。' : undefined;
+      streamNotice.value =
+        event.event === 'reset'
+          ? codeOperationErrorMessage(
+              language,
+              'platform.screen.RuntimeLogView.log-content-was-reset-live-updates-are-continuing',
+              '日志内容已重置，正在继续实时更新。',
+            )
+          : undefined;
       return;
     }
     case 'append': {
@@ -152,11 +206,19 @@ function handleStreamEvent(event: RuntimeLogSseEvent, revision: number, controll
       if (rotationReconnects < 1) {
         rotationReconnects += 1;
         streamState.value = 'connecting';
-        streamNotice.value = '日志文件已轮转，正在重新连接最新文件…';
+        streamNotice.value = codeOperationErrorMessage(
+          language,
+          'platform.screen.RuntimeLogView.the-log-file-has-rotated-reconnecting-to-the-latest-file',
+          '日志文件已轮转，正在重新连接最新文件…',
+        );
         void nextTick(() => connectActiveLog());
       } else {
         streamState.value = 'rotated';
-        streamNotice.value = '日志文件再次轮转，请手动重新连接。';
+        streamNotice.value = codeOperationErrorMessage(
+          language,
+          'platform.screen.RuntimeLogView.the-log-file-has-rotated-again-reconnect-manually',
+          '日志文件再次轮转，请手动重新连接。',
+        );
         stopActiveStream();
       }
       return;
@@ -164,7 +226,13 @@ function handleStreamEvent(event: RuntimeLogSseEvent, revision: number, controll
     case 'error': {
       const payload = eventPayload(event.data);
       streamState.value = 'error';
-      streamNotice.value = optionalTextOf(payload.message) ?? '实时日志连接出现错误，请重新连接。';
+      streamNotice.value =
+        optionalTextOf(payload.message) ??
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.RuntimeLogView.the-live-log-connection-encountered-an-error-reconnect',
+          '实时日志连接出现错误，请重新连接。',
+        );
       stopActiveStream();
     }
   }
@@ -193,8 +261,16 @@ async function download(file: RuntimeLogFile) {
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (error) {
-    listError.value = errorMessage(error, `下载 ${file.name} 失败，请稍后重试。`);
-    presentPlatformError(error, { source: 'runtime-log-download', phase: 'load' });
+    listFailure.value = errorMessage(
+      error,
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.RuntimeLogView.failed-to-download-value-try-again-later',
+        '下载 {value1} 失败，请稍后重试。',
+        { value1: file.name },
+      ),
+    );
+    presentPlatformError(error, { language, source: 'runtime-log-download', phase: 'load' });
   } finally {
     downloadingName.value = undefined;
   }
@@ -256,8 +332,13 @@ function optionalTextOf(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
+function errorMessage(error: unknown, fallback: OperationErrorMessage): Error {
+  return error instanceof Error && error.message ? error : new OperationUsageError(fallback);
+}
+function displayError(error: Error): string {
+  return error instanceof OperationUsageError
+    ? resolveOperationErrorMessage(error, language)
+    : userFacingErrorMessage(normalizeError(error), language);
 }
 </script>
 
@@ -268,21 +349,28 @@ function errorMessage(error: unknown, fallback: string) {
     <RecordQueryListPanel
       class="runtime-log-view__list"
       :context="moduleContext"
-      title="程序日志"
+      :title="language.t('platform.screen.RuntimeLogView.runtime-logs', '程序日志')"
       :columns="fileColumns"
       row-key="name"
       :show-recycle-bin="false"
       :standard-crud-actions="false"
       :page-size="20"
       :page-size-options="[10, 20, 50]"
-      empty-description="当前日志目录中没有可用的日志文件"
+      :empty-description="
+        language.t(
+          'platform.screen.RuntimeLogView.no-log-files-available-in-the-current-log-directory',
+          '当前日志目录中没有可用的日志文件',
+        )
+      "
       :row-actions-of="() => []"
-      row-actions-title="操作"
+      :row-actions-title="language.t('platform.screen.RecordPermissionDialog.operation', '操作')"
       action-column-width="176"
     >
       <template #operations>
         <div class="runtime-log-view__header-actions">
-          <UiButton type="primary" icon-name="eye" @click="openActiveLog"> 实时查看 </UiButton>
+          <UiButton type="primary" icon-name="eye" @click="openActiveLog">
+            {{ language.t('platform.screen.RuntimeLogView.view-live-logs', '实时查看') }}
+          </UiButton>
         </div>
       </template>
       <template #cell="{ column, record }">
@@ -295,7 +383,9 @@ function errorMessage(error: unknown, fallback: string) {
           :value="(record as unknown as RuntimeLogFile).lastModifiedAt"
         />
         <span v-else-if="column.key === 'active'">{{
-          (record as unknown as RuntimeLogFile).active ? '正在写入' : '已归档'
+          (record as unknown as RuntimeLogFile).active
+            ? language.t('platform.screen.RuntimeLogView.active', '正在写入')
+            : language.t('platform.workflow.archived', '已归档')
         }}</span>
         <span v-else>{{ (record as unknown as RuntimeLogFile)[column.key as keyof RuntimeLogFile] }}</span>
       </template>
@@ -308,7 +398,7 @@ function errorMessage(error: unknown, fallback: string) {
             icon-name="eye"
             @click="openActiveLog"
           >
-            实时查看
+            {{ language.t('platform.screen.RuntimeLogView.view-live-logs', '实时查看') }}
           </UiButton>
           <UiButton
             type="link"
@@ -318,7 +408,7 @@ function errorMessage(error: unknown, fallback: string) {
             :disabled="Boolean(downloadingName) && downloadingName !== record.name"
             @click="download(record as unknown as RuntimeLogFile)"
           >
-            下载
+            {{ language.t('platform.screen.SingleImageFileReferenceField.download', '下载') }}
           </UiButton>
         </div>
       </template>
@@ -326,7 +416,13 @@ function errorMessage(error: unknown, fallback: string) {
 
     <RecordDetailDrawer
       :open="viewerOpen"
-      :title="activeFileName ? `实时日志 · ${activeFileName}` : '实时日志'"
+      :title="
+        activeFileName
+          ? language.t('platform.screen.RuntimeLogView.live-logs-value', '实时日志 · {value1}', {
+              value1: activeFileName,
+            })
+          : language.t('platform.screen.RuntimeLogView.live-logs', '实时日志')
+      "
       :subtitle="streamStatus"
       width="standard"
       render-mode="inline"
@@ -338,7 +434,7 @@ function errorMessage(error: unknown, fallback: string) {
           v-if="canReconnect"
           emphasis="quiet"
           icon-name="reload"
-          title="重新连接"
+          :title="language.t('platform.screen.RuntimeLogView.reconnect', '重新连接')"
           @click="reconnectActiveLog"
         />
       </template>
@@ -346,7 +442,14 @@ function errorMessage(error: unknown, fallback: string) {
         <pre v-if="logText" class="runtime-log-view__content">{{ logText }}</pre>
         <UiEmpty
           v-else
-          :description="streamState === 'connecting' ? '正在读取日志末尾内容…' : '暂无日志内容'"
+          :description="
+            streamState === 'connecting'
+              ? language.t(
+                  'platform.screen.RuntimeLogView.reading-the-end-of-the-log',
+                  '正在读取日志末尾内容…',
+                )
+              : language.t('platform.screen.RuntimeLogView.no-log-content', '暂无日志内容')
+          "
         />
       </div>
     </RecordDetailDrawer>
