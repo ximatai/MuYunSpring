@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiSwitch } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordStatusSwitch' });
 
@@ -41,16 +44,18 @@ function handleChange(enabled: boolean) {
 <template>
   <div class="record-status-switch" :title="disabled ? disabledReason : undefined">
     <div v-if="showLabel" class="record-status-switch-label">
-      <span>启用状态</span>
-      <strong>{{ checked ? '启用' : '停用' }}</strong>
+      <span>{{ language.t('platform.screen.RecordStatusSwitch.enabled-status', '启用状态') }}</span>
+      <strong>{{
+        checked ? language.t('platform.value.enabled', '启用') : language.t('platform.value.disabled', '停用')
+      }}</strong>
     </div>
     <UiSwitch
       :checked="checked"
       :disabled="disabled"
       :loading="loading"
       :size="size"
-      checked-text="启"
-      unchecked-text="停"
+      :checked-text="language.t('platform.screen.RecordStatusSwitch.on', '启')"
+      :unchecked-text="language.t('platform.screen.RecordStatusSwitch.off', '停')"
       @change="handleChange"
     />
   </div>

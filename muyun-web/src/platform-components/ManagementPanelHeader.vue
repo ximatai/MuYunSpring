@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { UiButton, type UiIconName } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ManagementPanelHeader' });
 
@@ -22,8 +25,11 @@ const props = withDefaults(
 function titleActionTooltip() {
   const actionTitle = props.titleActionTitle?.trim();
   if (!actionTitle) return props.title;
-  if (!actionTitle.startsWith('刷新')) return `${actionTitle}：${props.title}`;
-  return `刷新：${props.title}`;
+  if (!actionTitle.startsWith(language.t('platform.page-action.REFRESH.title', '刷新')))
+    return `${actionTitle}：${props.title}`;
+  return language.t('platform.screen.ManagementPanelHeader.refresh-value', '刷新：{value1}', {
+    value1: props.title,
+  });
 }
 
 const emit = defineEmits<{

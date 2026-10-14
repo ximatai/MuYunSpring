@@ -9,8 +9,17 @@ export type {
 </script>
 
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { displayModuleRuntime } from '@muyun/web-core';
+import {
+  userFacingErrorMessage,
+  useLanguageContext,
+  displayModuleRuntime,
+  canQueryRecycleBin,
+  createModuleContext,
+  hasRecycleBinAbility,
+  normalizeError,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import { optionItemsToOptions } from './optionFieldOptions';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { confirmAction, UiButton, UiCheckbox, UiDropdown, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
@@ -37,13 +46,7 @@ import type {
   ResolvedPageListQuerySummaryDescriptor,
   WebListQuerySummaryItem,
 } from '@muyun/web-contracts';
-import {
-  canQueryRecycleBin,
-  createModuleContext,
-  hasRecycleBinAbility,
-  normalizeError,
-  type ModuleContext,
-} from '@muyun/web-core';
+
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
 import { useWorkspaceSortActivity, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import RecordActionBar from './RecordActionBar.vue';
@@ -190,7 +193,7 @@ const props = withDefaults(
     rowActionsOf: undefined,
     extraRowActionsOf: undefined,
     rowActionStateOf: undefined,
-    rowActionsTitle: '操作',
+    rowActionsTitle: undefined,
     rowActionsVisible: true,
     actionColumnWidth: 92,
     cellRenderers: () => ({}),
@@ -215,11 +218,27 @@ const props = withDefaults(
     externalQueryValues: undefined,
     querySummaries: () => [],
     requiredExternalCriteriaKeys: () => [],
-    quickSearchPlaceholder: '搜索',
-    emptyDescription: '暂无记录',
-    waitingDescription: '请选择查询范围',
+    quickSearchPlaceholder: undefined,
+    emptyDescription: undefined,
+    waitingDescription: undefined,
     mode: 'normal',
   },
+);
+
+const resolvedRowActionsTitle = computed(
+  () => props.rowActionsTitle ?? language.t('platform.screen.RecordQueryListPanel.operation', '操作'),
+);
+const resolvedQuickSearchPlaceholder = computed(
+  () => props.quickSearchPlaceholder ?? language.t('platform.reference-picker.search', '搜索'),
+);
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ?? language.t('platform.screen.RecordQueryListPanel.emptyDescription', '暂无记录'),
+);
+const resolvedWaitingDescription = computed(
+  () =>
+    props.waitingDescription ??
+    language.t('platform.screen.RecordQueryListPanel.select-a-query-scope', '请选择查询范围'),
 );
 
 const emit = defineEmits<{
@@ -264,7 +283,7 @@ useWorkspaceSortActivity(sortingRequest);
 const schema = ref<QuerySchema>();
 const records = ref<QueryListRecord[]>([]);
 const recycleBinItems = new Map<string, RecycleBinItem<QueryListRecord>>();
-const recycleBinState = useRecycleBinState({ context: () => props.context });
+const recycleBinState = useRecycleBinState({ language, context: () => props.context });
 const total = ref(0);
 const totalKnown = ref(true);
 const pageNum = ref(1);
@@ -277,7 +296,7 @@ const runtimeListView = computed(() =>
     : loadedRuntimeListView.value,
 );
 const descriptorLoadError = ref(false);
-const recordsLoadError = ref<string>();
+const recordsLoadError = ref<() => string>();
 const quickSearchKeyword = ref('');
 const successfulRequest = ref<WebQueryRequest>();
 const appliedQuickSearch = ref('');
@@ -419,7 +438,9 @@ const conditionsDisabled = computed(
     criteriaComposition.value === 'NONE',
 );
 const criteriaControlTitle = computed(() =>
-  criteriaComposition.value === 'FLAT_AND' ? '更多筛选' : '高级筛选',
+  criteriaComposition.value === 'FLAT_AND'
+    ? language.t('platform.screen.RecordQueryListPanel.more-filters', '更多筛选')
+    : language.t('platform.screen.RecordQueryListPanel.advanced-filters', '高级筛选'),
 );
 const effectiveExternalQueryValues = computed(() => ({
   ...persistentExternalQueryValues.value,
@@ -444,9 +465,13 @@ const sortingToggleDisabled = computed(
     (!sorting.value && hasClientOwnedQueryCriteria.value),
 );
 const sortingToggleTitle = computed(() => {
-  if (sorting.value) return '结束排序';
-  if (hasClientOwnedQueryCriteria.value) return '清空搜索和筛选后可调整排序';
-  return '调整排序';
+  if (sorting.value) return language.t('platform.screen.RecordQueryListPanel.finish-reordering', '结束排序');
+  if (hasClientOwnedQueryCriteria.value)
+    return language.t(
+      'platform.screen.RecordQueryListPanel.clear-the-search-and-filters-to-reorder-records',
+      '清空搜索和筛选后可调整排序',
+    );
+  return language.t('platform.screen.RecordQueryListPanel.reorder', '调整排序');
 });
 const sortingRowDragEnabled = computed(
   () => sorting.value && !loading.value && !sortingRequest.value && props.mode === 'normal',
@@ -465,7 +490,7 @@ const panelActions = computed<RecordActionItem[]>(() => {
       {
         key: 'create',
         actionCode: 'create',
-        title: '新建',
+        title: language.t('platform.page-action.OPEN_CREATE.title', '新建'),
         primary: true,
         disabled: !queryReady.value,
       },
@@ -744,8 +769,8 @@ async function loadSchemaAndRecords() {
     totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
-    recordsLoadError.value = normalizeError(cause).message;
-    presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
+    recordsLoadError.value = () => userFacingErrorMessage(normalizeError(cause), language);
+    presentPlatformError(cause, { language, source: 'record-query-list-panel', phase: 'load' });
   } finally {
     if (requestSeq === schemaRequestSeq) {
       loading.value = false;
@@ -792,7 +817,11 @@ async function loadRecords(updateLoading = true) {
         total.value = 0;
         totalKnown.value = true;
         querySummaryValues.value = [];
-        recordsLoadError.value = '回收站加载失败，请稍后重试';
+        recordsLoadError.value = () =>
+          language.t(
+            'platform.screen.RecordQueryListPanel.could-not-load-the-recycle-bin-try-again-later',
+            '回收站加载失败，请稍后重试',
+          );
         emit('loaded', []);
         return false;
       }
@@ -850,8 +879,8 @@ async function loadRecords(updateLoading = true) {
     totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
-    recordsLoadError.value = normalizeError(cause).message;
-    presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
+    recordsLoadError.value = () => userFacingErrorMessage(normalizeError(cause), language);
+    presentPlatformError(cause, { language, source: 'record-query-list-panel', phase: 'load' });
     return false;
   } finally {
     if (updateLoading && requestSeq === recordsRequestSeq) {
@@ -1082,7 +1111,9 @@ function recordActionAvailabilityState(
     return {
       ...action,
       disabled: true,
-      disabledReason: action.disabledReason ?? '正在校验操作可用性',
+      disabledReason:
+        action.disabledReason ??
+        language.t('platform.screen.RecordQueryListPanel.checking-action-availability', '正在校验操作可用性'),
     };
   }
   return action;
@@ -1110,14 +1141,21 @@ function rowActions(record: QueryListRecord): RecordActionItem[] {
             {
               key: 'restore',
               actionCode: 'recycleBinRestore',
-              title: '恢复',
+              title: language.t('platform.screen.RecordQueryListPanel.restore', '恢复'),
               disabled: !item.restorable,
-              disabledReason: recycleBinRestoreUnavailableReason(item),
+              disabledReason: recycleBinRestoreUnavailableReason(item, language),
             },
           ]
         : []),
       ...(item.purgeable && props.context.can('recycleBinPurge') === true
-        ? [{ key: 'purge', actionCode: 'recycleBinPurge', title: '彻底删除', danger: true }]
+        ? [
+            {
+              key: 'purge',
+              actionCode: 'recycleBinPurge',
+              title: language.t('platform.screen.RecordQueryListPanel.permanently-delete', '彻底删除'),
+              danger: true,
+            },
+          ]
         : []),
     ];
   }
@@ -1136,17 +1174,21 @@ function rowActionWithState(record: QueryListRecord, action: RecordActionItem): 
 
 function standardCrudRowActionsOf(): RecordActionItem[] {
   const actions: Array<RecordActionItem & { key: StandardCrudRowActionKey }> = [
-    { key: 'view', actionCode: props.standardCrudRowActionCodes.view ?? 'view', title: '查看' },
+    {
+      key: 'view',
+      actionCode: props.standardCrudRowActionCodes.view ?? 'view',
+      title: language.t('platform.screen.RecordQueryListPanel.view', '查看'),
+    },
     {
       key: 'edit',
       actionCode: props.standardCrudRowActionCodes.edit ?? 'update',
-      title: '修改',
+      title: language.t('platform.screen.RecordQueryListPanel.edit', '修改'),
       iconName: 'edit',
     },
     {
       key: 'delete',
       actionCode: props.standardCrudRowActionCodes.delete ?? 'delete',
-      title: '删除',
+      title: language.t('platform.action.delete', '删除'),
       iconName: 'delete',
       danger: true,
     },
@@ -1199,13 +1241,19 @@ async function retryRecycleBinAction(pending: (typeof recycleBinState.pendingAct
     }
   } else {
     if (!props.context.can('recycleBinPurge')) return;
-    const confirmed = await confirmAction({
-      title: '重试彻底删除',
-      content: '确认继续清理尚未完成的记录？',
-      okText: '继续清理',
-      danger: true,
-      requiredText: recycleBinState.recordTitleOf(item),
-    });
+    const confirmed = await confirmAction(
+      {
+        title: language.t('platform.screen.RecordQueryListPanel.retry-permanent-deletion', '重试彻底删除'),
+        content: language.t(
+          'platform.screen.RecordQueryListPanel.continue-deleting-the-remaining-records',
+          '确认继续清理尚未完成的记录？',
+        ),
+        okText: language.t('platform.screen.RecordQueryListPanel.continue-deletion', '继续清理'),
+        danger: true,
+        requiredText: recycleBinState.recordTitleOf(item),
+      },
+      language,
+    );
     if (confirmed && (await recycleBinState.purge(item, false))) await loadRecords();
   }
 }
@@ -1216,11 +1264,16 @@ async function handleRecycleBinAction(row: QueryListRow, action: ResolvedRecordA
   if (!item) return true;
   const title = recycleBinState.recordTitleOf(item);
   if (action.key === 'restore') {
-    const confirmed = await confirmAction({
-      title: '恢复记录',
-      content: `确认恢复「${title}」？`,
-      okText: '恢复',
-    });
+    const confirmed = await confirmAction(
+      {
+        title: language.t('platform.screen.RecordQueryListPanel.restore-record', '恢复记录'),
+        content: language.t('platform.screen.RecordQueryListPanel.restore-value', '确认恢复「{value1}」？', {
+          value1: title,
+        }),
+        okText: language.t('platform.screen.RecordQueryListPanel.restore', '恢复'),
+      },
+      language,
+    );
     if (confirmed && (await recycleBinState.restore(item, false))) {
       emit('restored');
       await loadRecords();
@@ -1228,13 +1281,20 @@ async function handleRecycleBinAction(row: QueryListRow, action: ResolvedRecordA
     return true;
   }
   if (action.key === 'purge') {
-    const confirmed = await confirmAction({
-      title: '彻底删除',
-      content: `彻底删除后数据不可恢复。确认彻底删除「${title}」？`,
-      okText: '彻底删除',
-      danger: true,
-      requiredText: title,
-    });
+    const confirmed = await confirmAction(
+      {
+        title: language.t('platform.screen.RecordQueryListPanel.permanently-delete', '彻底删除'),
+        content: language.t(
+          'platform.screen.RecordQueryListPanel.this-cannot-be-undone-permanently-delete-value',
+          '彻底删除后数据不可恢复。确认彻底删除「{value1}」？',
+          { value1: title },
+        ),
+        okText: language.t('platform.screen.RecordQueryListPanel.permanently-delete', '彻底删除'),
+        danger: true,
+        requiredText: title,
+      },
+      language,
+    );
     if (confirmed && (await recycleBinState.purge(item, false))) {
       await loadRecords();
     }
@@ -1245,7 +1305,15 @@ async function handleRecycleBinAction(row: QueryListRow, action: ResolvedRecordA
 
 function recycleBinColumns(columns: RecordQueryListColumn[]) {
   if (props.mode !== 'recycleBin' || columns.some((column) => column.key === 'deletedAt')) return columns;
-  return [...columns, { key: 'deletedAt', title: '删除时间', type: 'datetime' as const, width: '170px' }];
+  return [
+    ...columns,
+    {
+      key: 'deletedAt',
+      title: language.t('platform.screen.RecordQueryListPanel.deleted-at', '删除时间'),
+      type: 'datetime' as const,
+      width: '170px',
+    },
+  ];
 }
 
 function mergeColumns(
@@ -1255,7 +1323,13 @@ function mergeColumns(
   const merged = [...baseColumns];
   for (const column of additions) {
     if (merged.some((item) => item.key === column.key)) {
-      throw new Error(`列表列重复：${column.key}`);
+      throw new Error(
+        language.t(
+          'platform.screen.RecordQueryListPanel.duplicate-list-column-value',
+          '列表列重复：{value1}',
+          { value1: column.key },
+        ),
+      );
     }
     const beforeIndex = column.before ? merged.findIndex((item) => item.key === column.before) : -1;
     if (beforeIndex >= 0) {
@@ -1314,7 +1388,13 @@ async function handleRowDrop(event: {
 
   const partition = sortPartitionOf(source);
   if (partition === undefined || partition !== sortPartitionOf(target)) {
-    presentPlatformMessage('只能在同一归属范围内调整排序', { phase: 'validation' });
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.RecordQueryListPanel.records-can-only-be-reordered-within-the-same-scope',
+        '只能在同一归属范围内调整排序',
+      ),
+      { phase: 'validation' },
+    );
     return;
   }
 
@@ -1342,7 +1422,7 @@ async function handleRowDrop(event: {
     if (context !== props.context) return;
     await loadRecords();
   } catch (cause) {
-    presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'record-query-list-panel', phase: 'action' });
   } finally {
     sortingRequest.value = false;
   }
@@ -1705,11 +1785,16 @@ defineExpose({ clearSelection, refresh });
     :title="title"
     :subtitle="subtitle"
     :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
-    :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
+    :title-action-title="
+      showTitle
+        ? (refreshTitle ??
+          language.t('platform.screen.RecordQueryListPanel.refresh-value', '刷新{value1}', { value1: title }))
+        : undefined
+    "
     :title-action-disabled="queryActionsDisabled"
     :quick-search-visible="!sorting && quickSearchEnabled"
     :quick-search-value="quickSearchKeyword"
-    :quick-search-placeholder="quickSearchPlaceholder"
+    :quick-search-placeholder="resolvedQuickSearchPlaceholder"
     :quick-search-disabled="quickSearchDisabled"
     :columns="dataTableColumns"
     :rows="rows"
@@ -1722,10 +1807,12 @@ defineExpose({ clearSelection, refresh });
     horizontal-scroll
     :row-muted="(row) => (row as QueryListRow).record.enabled === false"
     :show-action-column="hasRowActions"
-    :action-column-title="rowActionsTitle"
+    :action-column-title="resolvedRowActionsTitle"
     :action-column-width="actionColumnWidth"
     :row-draggable="sortingRowDragEnabled"
-    row-drag-handle-title="拖拽调整排序"
+    :row-drag-handle-title="
+      language.t('platform.screen.RecordQueryListPanel.drag-to-reorder', '拖拽调整排序')
+    "
     :conditions-visible="!sorting"
     :table-visible="!loading && queryReady && !descriptorLoadError && !recordsLoadError && records.length > 0"
     :pageable="pageable"
@@ -1754,8 +1841,14 @@ defineExpose({ clearSelection, refresh });
         type="text"
         icon-name="reload"
         :disabled="queryActionsDisabled"
-        :aria-label="refreshTitle ?? `刷新${title}`"
-        :title="refreshTitle ?? `刷新${title}`"
+        :aria-label="
+          refreshTitle ??
+          language.t('platform.screen.RecordQueryListPanel.refresh-value', '刷新{value1}', { value1: title })
+        "
+        :title="
+          refreshTitle ??
+          language.t('platform.screen.RecordQueryListPanel.refresh-value', '刷新{value1}', { value1: title })
+        "
         @click="refresh"
       />
       <RecordActionBar
@@ -1817,7 +1910,9 @@ defineExpose({ clearSelection, refresh });
           @update:values="updatePersistentFieldDraftValue(control, $event)"
           @validity-change="updatePersistentFieldReferenceValidity(control, $event)"
         />
-        <span v-else class="record-query-list-persistent-field-error">字段不可用</span>
+        <span v-else class="record-query-list-persistent-field-error">{{
+          language.t('platform.screen.RecordQueryListPanel.field-unavailable', '字段不可用')
+        }}</span>
       </div>
       <div v-if="persistentFieldQueryControls.length > 0" class="record-query-list-persistent-field-actions">
         <UiButton
@@ -1825,10 +1920,10 @@ defineExpose({ clearSelection, refresh });
           :disabled="queryActionsDisabled || !persistentFieldDraftValid"
           @click="applyPersistentFieldQueries"
         >
-          查询
+          {{ language.t('platform.screen.RecordQueryListPanel.search', '查询') }}
         </UiButton>
         <UiButton type="text" :disabled="queryActionsDisabled" @click="resetPersistentFieldQueries">
-          重置
+          {{ language.t('platform.screen.RecordQueryListPanel.reset', '重置') }}
         </UiButton>
       </div>
     </template>
@@ -1845,7 +1940,7 @@ defineExpose({ clearSelection, refresh });
         {{ criteriaControlTitle }}<span v-if="conditionCount"> {{ conditionCount }}</span>
       </UiButton>
       <span v-if="conditionCount" class="record-query-list-query-state" role="status">
-        已应用 {{ conditionCount }} 条筛选
+        {{ language.t('platform.query.applied-filters', '已应用 {count} 条筛选', { count: conditionCount }) }}
       </span>
     </template>
 
@@ -1869,13 +1964,25 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template #beforeTable>
-      <UiSpin v-if="loading" tip="加载列表" />
-      <UiEmpty v-else-if="!queryReady" :description="waitingDescription" />
+      <UiSpin
+        v-if="loading"
+        :tip="language.t('platform.screen.RecordQueryListPanel.loading-list', '加载列表')"
+      />
+      <UiEmpty v-else-if="!queryReady" :description="resolvedWaitingDescription" />
       <div v-else-if="descriptorLoadError || recordsLoadError" role="alert">
-        {{ descriptorLoadError ? '列表声明加载失败，请稍后重试' : recordsLoadError }}
-        <UiButton @click="loadSchemaAndRecords()">重试</UiButton>
+        {{
+          descriptorLoadError
+            ? language.t(
+                'platform.screen.RecordQueryListPanel.could-not-load-the-list-configuration-try-again-later',
+                '列表声明加载失败，请稍后重试',
+              )
+            : recordsLoadError?.()
+        }}
+        <UiButton @click="loadSchemaAndRecords()">{{
+          language.t('platform.screen.RecordQueryListPanel.retry', '重试')
+        }}</UiButton>
       </div>
-      <UiEmpty v-else-if="records.length === 0" :description="emptyDescription" />
+      <UiEmpty v-else-if="records.length === 0" :description="resolvedEmptyDescription" />
     </template>
     <template #cell="{ column, record }">
       <component
@@ -1931,8 +2038,8 @@ defineExpose({ clearSelection, refresh });
             class="record-query-list-more-action"
             type="text"
             icon-name="down"
-            title="更多"
-            aria-label="更多"
+            :title="language.t('platform.screen.RecordQueryListPanel.more', '更多')"
+            :aria-label="language.t('platform.screen.RecordQueryListPanel.more', '更多')"
           />
         </UiDropdown>
       </div>
@@ -1967,15 +2074,23 @@ defineExpose({ clearSelection, refresh });
         >
           <span
             >{{ recycleBinState.recordTitleOf(pending.item) }}：{{
-              pending.action === 'restore' ? '恢复' : '清理'
-            }}尚未全部完成</span
+              pending.action === 'restore'
+                ? language.t('platform.screen.RecordQueryListPanel.restore', '恢复')
+                : language.t('platform.screen.RecordQueryListPanel.deletion', '清理')
+            }}{{
+              language.t('platform.screen.RecordQueryListPanel.partially-completed', '尚未全部完成')
+            }}</span
           >
           <details>
-            <summary>查看处理结果</summary>
+            <summary>
+              {{ language.t('platform.screen.RecordQueryListPanel.view-results', '查看处理结果') }}
+            </summary>
             <p v-for="entry in pending.report.entries" :key="entry.sourceEntryId">
               {{
                 entry.message ||
-                (entry.status === 'RESTORED' || entry.status === 'PURGED' ? '已完成' : '未完成')
+                (entry.status === 'RESTORED' || entry.status === 'PURGED'
+                  ? language.t('platform.workflow.completed', '已完成')
+                  : language.t('platform.screen.RecordQueryListPanel.incomplete', '未完成'))
               }}
             </p>
           </details>
@@ -1985,7 +2100,11 @@ defineExpose({ clearSelection, refresh });
               !context.can(pending.action === 'restore' ? 'recycleBinRestore' : 'recycleBinPurge')
             "
             @click="retryRecycleBinAction(pending)"
-            >{{ pending.action === 'restore' ? '重试恢复' : '重试清理' }}</UiButton
+            >{{
+              pending.action === 'restore'
+                ? language.t('platform.screen.RecordQueryListPanel.retry-restoration', '重试恢复')
+                : language.t('platform.screen.RecordQueryListPanel.retry-deletion', '重试清理')
+            }}</UiButton
           >
         </div>
       </div>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { FileTransferUploadCancelledError } from './fileTransferUpload';
+import { normalizeError, userFacingErrorMessage, useLanguageContext } from '@muyun/web-core';
+
+import { FileTransferUploadError, FileTransferUploadCancelledError } from './fileTransferUpload';
 import { computed, reactive, ref, watch } from 'vue';
 import { UiButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
@@ -11,9 +13,12 @@ import {
 } from './fileTransferUpload';
 import {
   presentPlatformError,
+  presentPlatformMessage,
   presentPlatformSuccess,
   presentPlatformWarning,
 } from './platformErrorFeedback';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'FileTransferUploader' });
 
@@ -24,7 +29,7 @@ interface UploadItem {
   file: File;
   state: UploadState;
   progress: number;
-  error?: string;
+  error?: () => string;
   task?: FileTransferUploadTask;
   completedFileId?: string;
 }
@@ -79,7 +84,7 @@ const props = withDefaults(
     maxFiles: undefined,
     existingFileCount: 0,
     autoUpload: true,
-    uploadText: '选择文件上传',
+    uploadText: undefined,
     presentation: 'dropzone',
     uploadButtonType: 'default',
     uploadButtonSize: 'middle',
@@ -95,6 +100,10 @@ const props = withDefaults(
     releasedCompletedFileIds: () => [],
     completedFileId: undefined,
   },
+);
+
+const resolvedUploadText = computed(
+  () => props.uploadText ?? language.t('platform.screen.FileTransferUploader.uploadText', '选择文件上传'),
 );
 
 const emit = defineEmits<{
@@ -154,7 +163,7 @@ async function addFiles(selected: readonly File[]) {
       selected.map(async (file) => ({ file, error: await validationError(file) })),
     );
     const rejected = candidates
-      .filter((candidate): candidate is { file: File; error: string } => candidate.error != null)
+      .filter((candidate): candidate is { file: File; error: () => string } => candidate.error != null)
       .map((candidate) =>
         reactive<UploadItem>({
           id: nextId++,
@@ -212,17 +221,28 @@ async function presentUploadAdvisories(files: readonly File[]) {
   }
 }
 
-async function validationError(file: File): Promise<string | undefined> {
+async function validationError(file: File): Promise<(() => string) | undefined> {
   if (
     props.allowedMediaTypes?.length &&
     !props.allowedMediaTypes.some((allowed) => matchesMediaType(allowed, file.type))
   ) {
-    return `不支持文件类型：${file.type || file.name}`;
+    return () =>
+      language.t(
+        'platform.screen.FileTransferUploader.unsupported-file-type-value',
+        '不支持文件类型：{value1}',
+        { value1: file.type || file.name },
+      );
   }
   if (props.maxFileSizeBytes != null && file.size > props.maxFileSizeBytes) {
-    return `文件超过单文件大小限制（${props.maxFileSizeBytes} 字节）。`;
+    return () =>
+      language.t(
+        'platform.screen.FileTransferUploader.the-file-exceeds-the-size-limit-value-bytes',
+        '文件超过单文件大小限制（{value1} 字节）。',
+        { value1: props.maxFileSizeBytes },
+      );
   }
-  return props.uploadValidation?.(file);
+  const customError = await props.uploadValidation?.(file);
+  return customError === undefined ? undefined : () => customError;
 }
 
 /** Matches exact MIME types and the standard top-level wildcard form (for example image/*). */
@@ -260,9 +280,23 @@ function handleDropZoneKeydown(event: KeyboardEvent) {
 }
 
 function dropZoneHint() {
-  if (props.disabled) return props.disabledHint ?? '当前不可上传';
-  if (atCapacity.value) return '已达该字段允许的文件数量上限';
-  return props.dropzoneHint ?? '点击选择，或将文件拖拽到此处';
+  if (props.disabled)
+    return (
+      props.disabledHint ??
+      language.t('platform.screen.FileTransferUploader.uploads-are-currently-unavailable', '当前不可上传')
+    );
+  if (atCapacity.value)
+    return language.t(
+      'platform.screen.FileTransferUploader.the-maximum-number-of-files-for-this-field-has-been',
+      '已达该字段允许的文件数量上限',
+    );
+  return (
+    props.dropzoneHint ??
+    language.t(
+      'platform.screen.FileTransferUploader.click-to-select-files-or-drag-them-here',
+      '点击选择，或将文件拖拽到此处',
+    )
+  );
 }
 
 async function upload(item: UploadItem) {
@@ -278,14 +312,21 @@ async function upload(item: UploadItem) {
       item.state = 'completed';
       item.completedFileId = props.completedFileId?.(receipt);
       emit('completed', receipt, receipt.payload);
-      presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
-        source: 'file-transfer',
-        tone: 'success',
-      });
+      presentPlatformSuccess(
+        language.t(
+          'platform.screen.FileTransferUploader.value-uploaded-successfully-value',
+          '“{value1}”上传成功。{value2}',
+          { value1: item.file.name, value2: props.completionHint ?? '' },
+        ),
+        {
+          source: 'file-transfer',
+          tone: 'success',
+        },
+      );
       return;
     }
     if (!props.requestUploadAccess) {
-      throw new Error('当前文件字段未配置上传 transport。');
+      throw new FileTransferUploadError('missing-transport');
     }
     const { receipt, result } = await performBrowserFileTransferUpload(
       item.file,
@@ -308,17 +349,31 @@ async function upload(item: UploadItem) {
     );
     item.completedFileId = props.completedFileId?.(receipt);
     emit('completed', receipt, result);
-    presentPlatformSuccess(`“${item.file.name}”上传成功。${props.completionHint ?? ''}`, {
-      source: 'file-transfer',
-      tone: 'success',
-    });
+    presentPlatformSuccess(
+      language.t(
+        'platform.screen.FileTransferUploader.value-uploaded-successfully-value',
+        '“{value1}”上传成功。{value2}',
+        { value1: item.file.name, value2: props.completionHint ?? '' },
+      ),
+      {
+        source: 'file-transfer',
+        tone: 'success',
+      },
+    );
   } catch (error) {
     item.task = undefined;
     item.state = error instanceof FileTransferUploadCancelledError ? 'cancelled' : 'failed';
-    item.error = error instanceof Error ? error.message : '文件上传失败。';
+    item.error = () => uploadFailureText(error);
     emit('failed', item.file, error);
     if (item.state === 'failed') {
-      presentPlatformError(error, { source: 'file-transfer', phase: 'action' });
+      if (error instanceof FileTransferUploadError)
+        presentPlatformMessage(uploadFailureText(error), {
+          language,
+          source: 'file-transfer',
+          phase: 'action',
+          tone: 'error',
+        });
+      else presentPlatformError(error, { language, source: 'file-transfer', phase: 'action' });
     }
   }
 }
@@ -351,17 +406,39 @@ async function retry(item: UploadItem) {
   }
 }
 
+function uploadFailureText(cause: unknown) {
+  if (cause instanceof FileTransferUploadError) {
+    switch (cause.reason) {
+      case 'missing-address':
+        return language.t('platform.file-upload.missing-address', '上传凭证未提供上传地址。');
+      case 'missing-transport':
+        return language.t('platform.file-upload.missing-transport', '当前文件字段未配置上传 transport。');
+      case 'network':
+        return language.t('platform.file-upload.network', '文件服务网络连接失败。');
+      case 'http':
+        return language.t('platform.file-upload.http', '文件服务上传失败（HTTP {status}）。', {
+          status: cause.httpStatus,
+        });
+    }
+  }
+  return cause instanceof Error
+    ? userFacingErrorMessage(normalizeError(cause), language)
+    : language.t('platform.screen.FileTransferUploader.file-upload-failed', '文件上传失败。');
+}
+
 function stateText(item: UploadItem) {
   const labels: Record<UploadState, string> = {
-    ready: '等待上传',
+    ready: language.t('platform.screen.FileTransferUploader.waiting-to-upload', '等待上传'),
     // The upload ticket is an implementation detail.  Keep the user-facing
     // status focused on the file's progress rather than the authorization step.
-    requesting: '上传准备中…',
-    uploading: `正在上传 ${item.progress}%`,
-    confirming: '校验文件中…',
-    completed: '上传完成',
-    failed: item.error ?? '上传失败',
-    cancelled: '已取消',
+    requesting: language.t('platform.screen.FileTransferUploader.preparing-upload', '上传准备中…'),
+    uploading: language.t('platform.screen.FileTransferUploader.uploading-value', '正在上传 {value1}%', {
+      value1: item.progress,
+    }),
+    confirming: language.t('platform.screen.FileTransferUploader.validating-file', '校验文件中…'),
+    completed: language.t('platform.screen.FileTransferUploader.upload-complete', '上传完成'),
+    failed: item.error?.() ?? language.t('platform.screen.FileTransferUploader.upload-failed', '上传失败'),
+    cancelled: language.t('platform.workflow.canceled', '已取消'),
   };
   return labels[item.state];
 }
@@ -394,7 +471,7 @@ function stateText(item: UploadItem) {
       :disabled="unavailable"
       @click="chooseFiles"
     >
-      <span v-if="!uploadButtonIconName">{{ uploadText }}</span>
+      <span v-if="!uploadButtonIconName">{{ resolvedUploadText }}</span>
     </UiButton>
     <div
       v-else
@@ -411,7 +488,7 @@ function stateText(item: UploadItem) {
       @drop="dropFiles"
     >
       <span class="file-transfer-uploader__drop-zone-icon">+</span>
-      <span class="file-transfer-uploader__drop-zone-title">{{ uploadText }}</span>
+      <span class="file-transfer-uploader__drop-zone-title">{{ resolvedUploadText }}</span>
       <span class="file-transfer-uploader__drop-zone-hint">{{ dropZoneHint() }}</span>
     </div>
     <div v-if="visibleItems.length" class="file-transfer-uploader__list" aria-live="polite">
@@ -421,7 +498,7 @@ function stateText(item: UploadItem) {
             v-if="item.state === 'completed'"
             class="file-transfer-uploader__completed-icon"
             role="img"
-            aria-label="上传完成"
+            :aria-label="language.t('platform.screen.FileTransferUploader.upload-complete', '上传完成')"
           >
             <UiIcon name="check" />
           </span>
@@ -431,13 +508,15 @@ function stateText(item: UploadItem) {
           <template v-if="item.state !== 'completed'">{{ stateText(item) }}</template>
         </div>
         <div class="file-transfer-uploader__actions">
-          <UiButton v-if="item.state === 'ready'" type="link" @click="upload(item)"> 上传 </UiButton>
+          <UiButton v-if="item.state === 'ready'" type="link" @click="upload(item)">
+            {{ language.t('platform.screen.FileTransferUploader.upload', '上传') }}
+          </UiButton>
           <UiButton
             v-else-if="item.state === 'failed' || item.state === 'cancelled'"
             type="link"
             @click="retry(item)"
           >
-            重试
+            {{ language.t('platform.screen.FileTransferUploader.retry', '重试') }}
           </UiButton>
           <UiButton
             v-if="['requesting', 'uploading'].includes(item.state)"
@@ -445,7 +524,7 @@ function stateText(item: UploadItem) {
             danger
             @click="cancel(item)"
           >
-            取消
+            {{ language.t('platform.action.cancel', '取消') }}
           </UiButton>
           <UiButton
             v-else-if="!['confirming', 'completed'].includes(item.state) || allowCompletedRemoval"
@@ -454,8 +533,12 @@ function stateText(item: UploadItem) {
             danger
             icon-name="close"
             icon-only
-            aria-label="从上传列表移除"
-            title="从上传列表移除"
+            :aria-label="
+              language.t('platform.screen.FileTransferUploader.remove-from-upload-list', '从上传列表移除')
+            "
+            :title="
+              language.t('platform.screen.FileTransferUploader.remove-from-upload-list', '从上传列表移除')
+            "
             @click="remove(item)"
           />
         </div>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-const language = useLanguageContext();
+import { computed } from 'vue';
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
 import type { Option, OptionValue, OptionValueList, QuerySchemaField } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+
 import QueryValueEditor from './QueryValueEditor.vue';
 import type {
   QueryCriteriaConditionDraft,
@@ -13,6 +13,8 @@ import type {
 import { QUERY_CRITERIA_MAXIMUM_DEPTH } from './queryCriteriaDraft';
 import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 import type { RecordPickerRecord } from './recordPickerConstraints';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'QueryCriteriaGroupEditor' });
 
@@ -42,10 +44,16 @@ const emit = defineEmits<{
   submit: [];
 }>();
 
-const groupOperatorOptions: Option[] = [
-  { label: '同时满足（AND）', value: 'AND' },
-  { label: '满足任一（OR）', value: 'OR' },
-];
+const groupOperatorOptions = computed<Option[]>(() => [
+  {
+    label: language.t('platform.screen.QueryCriteriaGroupEditor.match-all-and', '同时满足（AND）'),
+    value: 'AND',
+  },
+  {
+    label: language.t('platform.screen.QueryCriteriaGroupEditor.match-any-or', '满足任一（OR）'),
+    value: 'OR',
+  },
+]);
 
 const fieldOptions = () =>
   props.fields.map((field) => ({
@@ -253,23 +261,23 @@ function singleValue(value: OptionValue | OptionValueList | null) {
 
 function operatorLabel(operator: string) {
   const labels: Record<string, string> = {
-    EQ: '等于',
-    NOT_EQUAL: '不等于',
-    LIKE: '包含',
-    IN: '属于',
-    NOT_IN: '不属于',
-    GT: '大于',
-    GTE: '大于等于',
-    LT: '小于',
-    LTE: '小于等于',
-    BETWEEN: '介于',
-    NULL: '为空',
-    NOT_NULL: '不为空',
-    CONTAINS: '包含元素',
-    CONTAINS_ANY: '包含任一元素',
-    CONTAINS_ALL: '包含全部元素',
-    EMPTY: '为空集合',
-    NOT_EMPTY: '非空集合',
+    EQ: language.t('platform.query.operator.EQ', '等于'),
+    NOT_EQUAL: language.t('platform.query.operator.NOT_EQUAL', '不等于'),
+    LIKE: language.t('platform.query.operator.LIKE', '包含'),
+    IN: language.t('platform.query.operator.IN', '属于'),
+    NOT_IN: language.t('platform.query.operator.NOT_IN', '不属于'),
+    GT: language.t('platform.query.operator.GT', '大于'),
+    GTE: language.t('platform.query.operator.GTE', '大于等于'),
+    LT: language.t('platform.query.operator.LT', '小于'),
+    LTE: language.t('platform.query.operator.LTE', '小于等于'),
+    BETWEEN: language.t('platform.query.operator.BETWEEN', '介于'),
+    NULL: language.t('platform.query.operator.NULL', '为空'),
+    NOT_NULL: language.t('platform.query.operator.NOT_NULL', '不为空'),
+    CONTAINS: language.t('platform.query.operator.CONTAINS', '包含元素'),
+    CONTAINS_ANY: language.t('platform.query.operator.CONTAINS_ANY', '包含任一元素'),
+    CONTAINS_ALL: language.t('platform.query.operator.CONTAINS_ALL', '包含全部元素'),
+    EMPTY: language.t('platform.query.operator.EMPTY', '为空集合'),
+    NOT_EMPTY: language.t('platform.query.operator.NOT_EMPTY', '非空集合'),
   };
   return labels[operator] ? language.t(`platform.query.operator.${operator}`, labels[operator]) : operator;
 }
@@ -278,8 +286,12 @@ function operatorLabel(operator: string) {
 <template>
   <section class="query-criteria-group" :class="{ 'is-nested': nested }">
     <header class="query-criteria-group-header">
-      <strong v-if="nested">括号组</strong>
-      <span v-else>组合关系</span>
+      <strong v-if="nested">{{
+        language.t('platform.screen.QueryCriteriaGroupEditor.group', '括号组')
+      }}</strong>
+      <span v-else>{{
+        language.t('platform.screen.QueryCriteriaGroupEditor.group-operator', '组合关系')
+      }}</span>
       <UiSelect
         class="query-criteria-group-operator"
         :value="group.operator"
@@ -307,7 +319,7 @@ function operatorLabel(operator: string) {
             :value="node.fieldName"
             :options="fieldOptions()"
             :disabled="disabled"
-            placeholder="字段"
+            :placeholder="language.t('platform.screen.QueryCriteriaGroupEditor.field', '字段')"
             @update:value="updateField(node, $event)"
           />
           <UiSelect
@@ -315,7 +327,7 @@ function operatorLabel(operator: string) {
             :value="node.operator"
             :options="operatorOptions(node)"
             :disabled="disabled"
-            placeholder="关系"
+            :placeholder="language.t('platform.screen.QueryCriteriaGroupEditor.operator', '关系')"
             @update:value="updateOperator(node, $event)"
           />
           <QueryValueEditor
@@ -337,39 +349,46 @@ function operatorLabel(operator: string) {
               type="text"
               size="small"
               :disabled="disabled || childIndex(node.id) === 0"
-              title="上移"
+              :title="language.t('platform.screen.QueryCriteriaGroupEditor.move-up', '上移')"
               @click="moveChild(node.id, -1)"
             >
-              上移
+              {{ language.t('platform.screen.QueryCriteriaGroupEditor.move-up', '上移') }}
             </UiButton>
             <UiButton
               type="text"
               size="small"
               :disabled="disabled || childIndex(node.id) === group.children.length - 1"
-              title="下移"
+              :title="language.t('platform.screen.QueryCriteriaGroupEditor.move-down', '下移')"
               @click="moveChild(node.id, 1)"
             >
-              下移
+              {{ language.t('platform.screen.QueryCriteriaGroupEditor.move-down', '下移') }}
             </UiButton>
             <UiButton
               v-if="composition === 'TREE'"
               type="text"
               size="small"
               :disabled="disabled || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH"
-              title="放入新的括号组"
+              :title="
+                language.t('platform.screen.QueryCriteriaGroupEditor.move-into-a-new-group', '放入新的括号组')
+              "
               @click="wrapChildInGroup(node.id)"
             >
-              加括号
+              {{ language.t('platform.screen.QueryCriteriaGroupEditor.group-label', '加括号') }}
             </UiButton>
             <UiButton
               v-if="nested"
               type="text"
               size="small"
               :disabled="disabled"
-              title="移出当前括号组；组合关系会随之改变"
+              :title="
+                language.t(
+                  'platform.screen.QueryCriteriaGroupEditor.move-out-of-the-current-group-the-logical-relationship-will',
+                  '移出当前括号组；组合关系会随之改变',
+                )
+              "
               @click="emit('lift-node', group.id, node.id)"
             >
-              移出
+              {{ language.t('platform.screen.QueryCriteriaGroupEditor.move-out', '移出') }}
             </UiButton>
             <UiButton
               type="text"
@@ -406,7 +425,9 @@ function operatorLabel(operator: string) {
       </template>
     </div>
     <footer class="query-criteria-group-actions">
-      <UiButton type="dashed" icon-name="plus" :disabled="disabled" @click="addCondition">添加条件</UiButton>
+      <UiButton type="dashed" icon-name="plus" :disabled="disabled" @click="addCondition">{{
+        language.t('platform.screen.QueryCriteriaGroupEditor.add-condition', '添加条件')
+      }}</UiButton>
       <UiButton
         v-if="composition === 'TREE'"
         type="text"
@@ -414,12 +435,16 @@ function operatorLabel(operator: string) {
         :disabled="disabled || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH"
         :title="
           groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH
-            ? `最多 ${QUERY_CRITERIA_MAXIMUM_DEPTH} 层括号组`
+            ? language.t(
+                'platform.screen.QueryCriteriaGroupEditor.at-most-value-group-levels',
+                '最多 {value1} 层括号组',
+                { value1: QUERY_CRITERIA_MAXIMUM_DEPTH },
+              )
             : undefined
         "
         @click="addGroup"
       >
-        添加括号组
+        {{ language.t('platform.screen.QueryCriteriaGroupEditor.add-group', '添加括号组') }}
       </UiButton>
     </footer>
   </section>

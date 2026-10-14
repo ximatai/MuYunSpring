@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import { UiError, UiSpin } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordExpandedSubtable' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title: string;
     loading?: boolean;
@@ -17,11 +21,23 @@ withDefaults(
   {
     loading: false,
     error: undefined,
-    loadingTip: '加载信息',
-    errorTitle: '信息加载失败',
-    emptyDescription: '暂无信息',
+    loadingTip: undefined,
+    errorTitle: undefined,
+    emptyDescription: undefined,
     embedded: false,
   },
+);
+
+const resolvedLoadingTip = computed(
+  () => props.loadingTip ?? language.t('platform.screen.RecordExpandedSubtable.loadingTip', '加载信息'),
+);
+const resolvedErrorTitle = computed(
+  () => props.errorTitle ?? language.t('platform.screen.RecordExpandedSubtable.errorTitle', '信息加载失败'),
+);
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ??
+    language.t('platform.screen.RecordExpandedSubtable.emptyDescription', '暂无信息'),
 );
 </script>
 
@@ -31,9 +47,9 @@ withDefaults(
       <h3>{{ title }}</h3>
       <div v-if="$slots.actions" class="record-expanded-subtable-actions"><slot name="actions" /></div>
     </header>
-    <UiSpin v-if="loading" class="record-expanded-subtable-state" :tip="loadingTip" />
-    <UiError v-else-if="error" :title="errorTitle" :message="error" />
-    <p v-else-if="!$slots.default" class="record-expanded-subtable-empty">{{ emptyDescription }}</p>
+    <UiSpin v-if="loading" class="record-expanded-subtable-state" :tip="resolvedLoadingTip" />
+    <UiError v-else-if="error" :title="resolvedErrorTitle" :message="error" />
+    <p v-else-if="!$slots.default" class="record-expanded-subtable-empty">{{ resolvedEmptyDescription }}</p>
     <slot v-else />
   </section>
 </template>

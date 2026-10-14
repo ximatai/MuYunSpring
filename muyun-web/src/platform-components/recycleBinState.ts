@@ -7,30 +7,44 @@ import type {
   WebPageResponse,
   WebQueryRequest,
 } from '@muyun/web-contracts';
-import { actionResultData, type ModuleContext } from '@muyun/web-core';
+import {
+  actionResultData,
+  platformLanguageContext,
+  type LanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recordLabelOf } from './actionConfirmation';
 import { handlePlatformActionSuccess } from './platformActionResultFeedback';
 
 export interface RecycleBinStateOptions<TRecord> {
   context: MaybeRefOrGetter<ModuleContext<TRecord>>;
+  language?: LanguageContext;
   recordTitle?: (record: TRecord) => string;
   /** 外部刷新信号，变化时重新加载列表 */
   reloadKey?: Ref<number>;
 }
 
 /** Turns lifecycle facts from the platform into concise operator-facing guidance. */
-export function recycleBinRestoreUnavailableReason(item: RecycleBinItem<unknown>): string | undefined {
+export function recycleBinRestoreUnavailableReason(
+  item: RecycleBinItem<unknown>,
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
   if (item.restorable) return undefined;
   switch (item.unavailableReason) {
     case 'deletion history is unavailable':
-      return '无法恢复：删除历史不可用';
+      return language.t('platform.recycle.restore-unavailable.history', '无法恢复：删除历史不可用');
     case 'resource lifecycle changed after deletion':
-      return '无法恢复：删除后资源生命周期已变化';
+      return language.t(
+        'platform.recycle.restore-unavailable.lifecycle',
+        '无法恢复：删除后资源生命周期已变化',
+      );
     default:
       return item.unavailableReason
-        ? `无法恢复：${item.unavailableReason}`
-        : '无法恢复：当前记录不满足恢复条件';
+        ? language.t('platform.recycle.restore-unavailable.reason', '无法恢复：{reason}', {
+            reason: item.unavailableReason,
+          })
+        : language.t('platform.recycle.restore-unavailable.conditions', '无法恢复：当前记录不满足恢复条件');
   }
 }
 
@@ -38,6 +52,7 @@ type RecycleBinReports = { restore: RestoreReport; purge: PurgeReport };
 type RecycleBinAction = keyof RecycleBinReports;
 
 export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRecord>) {
+  const language = options.language ?? platformLanguageContext;
   const items = ref<RecycleBinItem<TRecord>[]>([]);
   const pendingActions = shallowRef<
     Array<{
@@ -110,7 +125,9 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
     const record = item.record as Record<string, unknown>;
     const label = recordLabelOf(toValue(options.context).runtime.snapshot()?.uiDescriptor, record);
     if (label) return label;
-    return String(record.title ?? record.alias ?? record.id ?? '未命名记录');
+    return String(
+      record.title ?? record.alias ?? record.id ?? language.t('platform.record.unnamed', '未命名记录'),
+    );
   }
 
   async function load(request: WebQueryRequest = lastRequest): Promise<boolean> {
@@ -138,7 +155,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       total.value = 0;
       totalKnown.value = false;
       pages.value = 1;
-      presentPlatformError(cause, { source: 'recycle-bin', phase: 'load' });
+      presentPlatformError(cause, { source: 'recycle-bin', language, phase: 'load' });
       return false;
     } finally {
       if (requestSeq === loadRequestSeq) loading.value = false;
@@ -194,8 +211,9 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       const report = actionResultData(result);
       rememberOutcome(action, item, report);
       await handlePlatformActionSuccess(result, {
-        fallbackMessage: actionFallbackMessage(action, report, recordTitleOf(item)),
+        fallbackMessage: actionFallbackMessage(action, report, recordTitleOf(item), language),
         source: 'recycle-bin',
+        language,
         phase: 'action',
       });
       if (!isCurrent()) return undefined;
@@ -203,7 +221,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       return isCurrent() ? report : undefined;
     } catch (cause) {
       if (!isCurrent()) return undefined;
-      presentPlatformError(cause, { source: 'recycle-bin', phase: 'action' });
+      presentPlatformError(cause, { source: 'recycle-bin', language, phase: 'action' });
       return undefined;
     } finally {
       if (generation === contextGeneration) {
@@ -242,17 +260,33 @@ function defaultQueryRequest(): WebQueryRequest {
   };
 }
 
-function actionFallbackMessage(action: RecycleBinAction, report: RestoreReport | PurgeReport, title: string) {
-  const verb = action === 'restore' ? '恢复' : '彻底删除';
+function actionFallbackMessage(
+  action: RecycleBinAction,
+  report: RestoreReport | PurgeReport,
+  title: string,
+  language: LanguageContext,
+) {
+  const verb =
+    action === 'restore'
+      ? language.t('platform.recycle.restore', '恢复')
+      : language.t('platform.recycle.purge', '彻底删除');
   const successStatus = action === 'restore' ? 'RESTORED' : 'PURGED';
   const completed = report.entries.filter((entry) => entry.status === successStatus).length;
   const skipped = report.entries.filter((entry) => entry.status === 'SKIPPED').length;
   const failed = report.entries.filter((entry) => entry.status === 'FAILED').length;
   if (completed === 0) {
-    return `「${title}」${verb}未完成：成功 0，跳过 ${skipped}，失败 ${failed}`;
+    return language.t(
+      'platform.recycle.result.incomplete',
+      '「{title}」{action}未完成：成功 0，跳过 {skipped}，失败 {failed}',
+      { title, action: verb, skipped, failed },
+    );
   }
   if (failed > 0 || skipped > 0) {
-    return `「${title}」${verb}完成：成功 ${completed}，跳过 ${skipped}，失败 ${failed}`;
+    return language.t(
+      'platform.recycle.result.partial',
+      '「{title}」{action}完成：成功 {completed}，跳过 {skipped}，失败 {failed}',
+      { title, action: verb, completed, skipped, failed },
+    );
   }
-  return `「${title}」${verb}成功`;
+  return language.t('platform.recycle.result.success', '「{title}」{action}成功', { title, action: verb });
 }

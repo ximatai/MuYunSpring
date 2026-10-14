@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch, onBeforeUnmount, getCurrentInstance } from 'vue';
 import { Tree as ATree } from 'ant-design-vue';
 import UiCheckbox from './UiCheckbox.vue';
@@ -25,6 +26,8 @@ import type {
   UiDropOperation,
   UiTreeChangeReason,
 } from '../types';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiTree', inheritAttrs: false });
 const props = withDefaults(
@@ -81,8 +84,12 @@ const props = withDefaults(
     motion: true,
     motionDurationMs: 200,
     changeReason: 'interaction',
-    emptyDescription: '暂无节点',
+    emptyDescription: undefined,
   },
+);
+
+const resolvedEmptyDescription = computed(
+  () => props.emptyDescription ?? language.t('platform.screen.UiTree.emptyDescription', '暂无节点'),
 );
 const emit = defineEmits<{
   select: [node: UiTreeNode];
@@ -422,7 +429,12 @@ defineExpose({
     @dragstart.prevent
   >
     <p v-if="draggable" class="ui-tree__instructions">
-      空格开始拖动，↑↓选择目标，←→选择前后或内部，回车放置，Esc 取消。
+      {{
+        language.t(
+          'platform.screen.UiTree.press-space-to-start-dragging-to-select-a-target-to',
+          '空格开始拖动，↑↓选择目标，←→选择前后或内部，回车放置，Esc 取消。',
+        )
+      }}
     </p>
     <ul v-if="displayMode === 'flat'" class="ui-tree__flat-list" role="list">
       <li
@@ -442,7 +454,9 @@ defineExpose({
           <UiCheckbox
             :checked="checked.includes(node.key)"
             :disabled="!isCheckable(node)"
-            :aria-label="`选择${node.title}`"
+            :aria-label="
+              language.t('platform.screen.UiTree.select-value', '选择{value1}', { value1: node.title })
+            "
             @update:checked="handleFlatCheck(node, $event)"
           />
         </span>
@@ -507,14 +521,18 @@ defineExpose({
             @click.stop
             @keydown.stop
           >
-            <span v-if="stateOf(key).status === 'loading'" role="status">加载中…</span>
+            <span v-if="stateOf(key).status === 'loading'" role="status">{{
+              language.t('platform.screen.UiTree.loading', '加载中…')
+            }}</span>
             <template v-else-if="stateOf(key).status === 'error'">
               <span role="alert">{{ stateOf(key).error }}</span>
-              <button type="button" @click="loading.retry(key)">重试</button>
+              <button type="button" @click="loading.retry(key)">
+                {{ language.t('platform.screen.UiTree.retry', '重试') }}
+              </button>
             </template>
-            <span v-else-if="entries.get(key)?.node.children?.length === 0 && !stateOf(key).hasMore"
-              >暂无子节点</span
-            >
+            <span v-else-if="entries.get(key)?.node.children?.length === 0 && !stateOf(key).hasMore">{{
+              language.t('platform.screen.UiTree.no-child-nodes', '暂无子节点')
+            }}</span>
             <button
               v-if="
                 stateOf(key).hasMore && stateOf(key).status !== 'loading' && stateOf(key).status !== 'error'
@@ -522,7 +540,7 @@ defineExpose({
               type="button"
               @click="loading.request(key, 'load-more')"
             >
-              加载更多
+              {{ language.t('platform.screen.UiTree.load-more', '加载更多') }}
             </button>
           </div>
           <span
@@ -538,7 +556,11 @@ defineExpose({
       class="ui-tree__root-target"
       data-ui-drop-root
       :tabindex="treeNodes.length === 0 ? 0 : -1"
-      :aria-label="treeNodes.length === 0 ? undefined : '根层末尾'"
+      :aria-label="
+        treeNodes.length === 0
+          ? undefined
+          : language.t('platform.screen.UiTree.end-of-root-level', '根层末尾')
+      "
       :class="{
         'ui-tree__root-target--active': Boolean(draggingKey || hovered?.kind === 'root'),
         'ui-tree__root-target--empty': treeNodes.length === 0,
@@ -546,14 +568,21 @@ defineExpose({
         'ui-tree-node--drop-rejected': hovered?.kind === 'root' && rejected,
       }"
     >
-      <template v-if="treeNodes.length === 0">{{ emptyDescription }}</template>
+      <template v-if="treeNodes.length === 0">{{ resolvedEmptyDescription }}</template>
       <span v-else aria-hidden="true" />
     </div>
     <span class="ui-tree__instructions" aria-live="polite">{{
       hovered
         ? rejected
-          ? '不可放置'
-          : `可以放置：${hovered.position === 'inside' ? '内部' : hovered.position === 'before' ? '之前' : '之后'}`
+          ? language.t('platform.screen.UiTree.cannot-drop-here', '不可放置')
+          : language.t('platform.screen.UiTree.drop-position-value', '可以放置：{value1}', {
+              value1:
+                hovered.position === 'inside'
+                  ? language.t('platform.screen.UiTree.inside', '内部')
+                  : hovered.position === 'before'
+                    ? language.t('platform.screen.UiTree.before', '之前')
+                    : language.t('platform.screen.UiTree.after', '之后'),
+            })
         : ''
     }}</span>
   </div>

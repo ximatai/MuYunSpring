@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiButton, UiSelect, UiTreeSelect } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
@@ -13,6 +14,8 @@ import {
   type DictionaryOptionValue,
   type DictionarySelectionMode,
 } from './dictionaryOptionDialogModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'DictionaryPicker' });
 
@@ -43,13 +46,25 @@ const props = withDefaults(
     value: undefined,
     selectionMode: 'SINGLE',
     mode: 'dialog',
-    title: '选择字典项',
-    placeholder: '搜索并选择',
-    searchPlaceholder: '按名称或编码搜索',
+    title: undefined,
+    placeholder: undefined,
+    searchPlaceholder: undefined,
     invalid: false,
     disabled: false,
     allowClear: true,
   },
+);
+
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.DictionaryPicker.title', '选择字典项'),
+);
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.form.search-select', '搜索并选择'),
+);
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.DictionaryPicker.searchPlaceholder', '按名称或编码搜索'),
 );
 
 const emit = defineEmits<{
@@ -70,7 +85,28 @@ const dropdownDraft = ref('');
 const dropdownTextEdited = ref(false);
 const dropdownLastInputValue = ref<string>();
 const dropdownClearRequested = ref(false);
-const validity = ref<DictionaryPickerValidity>({ valid: true, status: 'ready' });
+const validityStatus = ref<DictionaryPickerValidity['status']>('ready');
+const validity = computed<DictionaryPickerValidity>(() => {
+  const status = validityStatus.value;
+  if (status === 'ready') return { valid: true, status };
+  const messages = {
+    editing: () =>
+      language.t('platform.screen.DictionaryPicker.complete-the-dictionary-selection', '请完成字典选择'),
+    disabled: () =>
+      language.t(
+        'platform.screen.DictionaryPicker.the-matching-dictionary-item-is-disabled-and-cannot-be-selected',
+        '匹配到的字典项已停用，不能选择',
+      ),
+    ambiguous: () =>
+      language.t(
+        'platform.screen.DictionaryPicker.multiple-dictionary-items-match-use-the-dropdown-or-search-to',
+        '匹配到多个字典项，请通过下拉或搜索选择',
+      ),
+    unmatched: () =>
+      language.t('platform.screen.DictionaryPicker.no-matching-dictionary-item-found', '未找到匹配的字典项'),
+  };
+  return { valid: false, status, message: messages[status]() };
+});
 
 const externalCodes = computed(() => dictionaryOptionCodes(props.value, props.selectionMode));
 const hasHierarchy = computed(() => props.items.some((item) => Boolean(item.parentCode)));
@@ -147,7 +183,7 @@ function updateDropdownDraft(value: string) {
     setValidity('ready');
     return;
   }
-  setValidity('editing', '请完成字典选择');
+  setValidity('editing');
 }
 
 // Ant Design Select clears its transient search text as it blurs. That is presentation cleanup,
@@ -193,14 +229,14 @@ function completeDropdownDraft() {
       updateDropdown(item.code);
       return;
     }
-    setValidity('disabled', '匹配到的字典项已停用，不能选择');
+    setValidity('disabled');
     return;
   }
   if (matches.length > 1) {
-    setValidity('ambiguous', '匹配到多个字典项，请通过下拉或搜索选择');
+    setValidity('ambiguous');
     return;
   }
-  setValidity('unmatched', '未找到匹配的字典项');
+  setValidity('unmatched');
 }
 
 function completeDropdownFocusout(event: FocusEvent) {
@@ -224,16 +260,8 @@ function closeDialogFromChild(nextOpen: boolean) {
   if (!nextOpen) closeDialog();
 }
 
-function setValidity(status: DictionaryPickerValidity['status'], message?: string) {
-  const next: DictionaryPickerValidity =
-    status === 'ready' ? { valid: true, status } : { valid: false, status, ...(message ? { message } : {}) };
-  if (
-    validity.value.valid === next.valid &&
-    validity.value.status === next.status &&
-    validity.value.message === next.message
-  )
-    return;
-  validity.value = next;
+function setValidity(status: DictionaryPickerValidity['status']) {
+  validityStatus.value = status;
 }
 
 function sameCodes(left: readonly string[], right: readonly string[]) {
@@ -261,7 +289,7 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
         :value="dropdownPickerValue"
         :tree-data="dropdownTreeData"
         :mode="selectionMode === 'MULTIPLE' ? 'multiple' : undefined"
-        :placeholder="placeholder"
+        :placeholder="resolvedPlaceholder"
         :disabled="disabled"
         :allow-clear="allowClear"
         :show-search="true"
@@ -281,8 +309,8 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
             type="default"
             icon-name="search"
             icon-only
-            :aria-label="title"
-            :title="title"
+            :aria-label="resolvedTitle"
+            :title="resolvedTitle"
             :disabled="disabled"
             @click="openDialog(dropdownDraft)"
           />
@@ -294,7 +322,7 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
         :value="dropdownPickerValue"
         :options="dropdownOptions"
         :mode="selectionMode === 'MULTIPLE' ? 'multiple' : undefined"
-        :placeholder="placeholder"
+        :placeholder="resolvedPlaceholder"
         :disabled="disabled"
         :allow-clear="allowClear"
         :show-search="true"
@@ -314,8 +342,8 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
             type="default"
             icon-name="search"
             icon-only
-            :aria-label="title"
-            :title="title"
+            :aria-label="resolvedTitle"
+            :title="resolvedTitle"
             :disabled="disabled"
             @click="openDialog(dropdownDraft)"
           />
@@ -328,9 +356,9 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
       :value="selectionSummary"
       :selection-version="compactInputVersion"
       :linked="externalCodes.length > 0"
-      :placeholder="placeholder"
+      :placeholder="resolvedPlaceholder"
       :disabled="disabled"
-      :browse-label="title"
+      :browse-label="resolvedTitle"
       @browse="openDialog"
       @clear="openDialog('')"
       @blur="openDialog"
@@ -348,9 +376,9 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
       :value="pickerValue"
       :items="items"
       :selection-mode="selectionMode"
-      :title="title"
+      :title="resolvedTitle"
       :initial-keyword="dialogKeyword"
-      :search-placeholder="searchPlaceholder"
+      :search-placeholder="resolvedSearchPlaceholder"
       :disabled="disabled"
       @update:open="closeDialogFromChild"
       @update:value="updateDialogValue"

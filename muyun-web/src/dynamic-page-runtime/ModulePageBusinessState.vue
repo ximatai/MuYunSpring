@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { RecordPanelButton, RecordPanelState } from '@muyun/platform-components';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageBusinessState' });
 const props = defineProps<{
@@ -13,10 +16,16 @@ const emit = defineEmits<{ retry: [] }>();
   <section class="module-business-session-state" :role="props.error ? 'alert' : 'status'">
     <RecordPanelState
       :loading="props.pending"
-      :loading-tip="props.pending ? '加载租户数据' : undefined"
+      :loading-tip="
+        props.pending
+          ? language.t('platform.screen.ModulePageBusinessState.loading-tenant-data', '加载租户数据')
+          : undefined
+      "
       :description="props.error ?? ''"
     />
-    <RecordPanelButton v-if="props.error" type="link" @click="emit('retry')">重试</RecordPanelButton>
+    <RecordPanelButton v-if="props.error" type="link" @click="emit('retry')">{{
+      language.t('platform.screen.ModulePageBusinessState.retry', '重试')
+    }}</RecordPanelButton>
   </section>
 </template>
 

@@ -124,7 +124,6 @@ it('content sections share one semantic heading language so dark skins preserve 
   const headingSource = readSource('src/platform-components/RecordContentSectionHeading.vue');
   const layoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
 
-  assert.match(metaSource, /<RecordContentSectionHeading title="系统信息"/);
   assert.match(extensionSource, /<RecordContentSectionHeading :title="title"/);
   assert.match(formSource, /<RecordContentSectionHeading[\s\S]*class="record-form-group-heading"/);
   assert.match(headingSource, /color: var\(--muyun-content-section-heading-color, var\(--muyun-text\)\)/);
@@ -1103,7 +1102,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     hostSource,
     /saveDetailSurfacePreference\(userPreferences, context\.moduleAlias, preference\)/,
   );
-  assert.match(hostSource, /title="改为抽屉展示"/);
   assert.match(hostSource, /icon-name="pin-off"/);
   assert.match(hostSource, /icon-name="pin"/);
   assert.match(hostSource, /:workspace-available="detailWorkspaceAvailable"/);
@@ -1112,7 +1110,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     hostSource,
     /<RecordModeDrawer[\s\S]*<template v-if="!props\.recordOnly && listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
   );
-  assert.match(hostSource, /title="固定到右侧展示"/);
   assert.match(
     hostSource,
     /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
@@ -1454,7 +1451,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(panelSource, /emit\('modeChange', mode === 'normal' \? 'recycleBin' : 'normal'\)/);
   assert.match(panelSource, /key: 'restore',[\s\S]*actionCode: 'recycleBinRestore'/);
   assert.match(panelSource, /item\.purgeable/);
-  assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
+  assert.match(panelSource, /key: 'purge',[\s\S]*actionCode: 'recycleBinPurge'/);
   assert.match(panelSource, /function handleTableRowClick[\s\S]*emit\('select', row\.record\)/);
   assert.match(hostSource, /useModulePageListSession\(/);
   assert.match(listSessionSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
@@ -1469,7 +1466,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(explorerSource, /requestSeq !== recordsRequestSeq/);
   assert.match(explorerSource, /key: 'restore'/);
   assert.match(explorerSource, /showLabel: true/);
-  assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item\)/);
+  assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item, language\)/);
   assert.match(explorerSource, /recycleBinState\.restore\(item, false\)/);
   assert.match(hostSource, /openRecycleBinRecord/);
   assert.match(editingSessionSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);

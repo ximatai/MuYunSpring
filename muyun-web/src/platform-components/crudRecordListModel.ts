@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 export interface CrudRecordListBase {
   id?: string;
   title?: string;
@@ -8,9 +9,17 @@ export interface CrudRecordListBase {
 
 export function defaultCrudRecordListTitle<TRecord extends CrudRecordListBase>(
   record: TRecord,
-  fallback = '未命名记录',
+  fallback?: string,
+  language: LanguageContext = platformLanguageContext,
 ) {
-  return record.title ?? record.alias ?? record.code ?? record.id ?? fallback;
+  return (
+    record.title ??
+    record.alias ??
+    record.code ??
+    record.id ??
+    fallback ??
+    language.t('platform.record.unnamed', '未命名记录')
+  );
 }
 
 export function defaultCrudRecordListSubtitle<TRecord extends CrudRecordListBase>(record: TRecord) {

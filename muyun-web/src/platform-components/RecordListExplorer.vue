@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import {
   UiEmpty,
@@ -9,6 +10,8 @@ import {
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordListExplorer' });
 
@@ -47,7 +50,7 @@ const props = withDefaults(
     keyOf: undefined,
     keyword: '',
     changeReason: 'interaction',
-    emptyDescription: '暂无记录',
+    emptyDescription: undefined,
     titleOf: undefined,
     codeOf: undefined,
     itemOf: undefined,
@@ -58,6 +61,11 @@ const props = withDefaults(
     sorting: false,
     sortPartitionOf: undefined,
   },
+);
+
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ?? language.t('platform.screen.RecordListExplorer.emptyDescription', '暂无记录'),
 );
 
 const emit = defineEmits<{
@@ -105,7 +113,7 @@ function recordTitle(record: RecordListExplorerRecord) {
     record.name ??
     record.code ??
     record.id ??
-    '未命名记录'
+    language.t('platform.screen.RecordListExplorer.untitled-record', '未命名记录')
   );
 }
 
@@ -126,7 +134,11 @@ function recordMuted(record: RecordListExplorerRecord) {
 
 function recordTag(record: RecordListExplorerRecord) {
   const item = props.itemOf?.(record);
-  return item?.tag ?? props.tagOf?.(record) ?? (record.enabled === false ? '停用' : undefined);
+  return (
+    item?.tag ??
+    props.tagOf?.(record) ??
+    (record.enabled === false ? language.t('platform.value.disabled', '停用') : undefined)
+  );
 }
 
 function recordActions(record: RecordListExplorerRecord) {
@@ -234,7 +246,7 @@ function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
 </script>
 
 <template>
-  <UiEmpty v-if="filteredRecords.length === 0" :description="emptyDescription" />
+  <UiEmpty v-if="filteredRecords.length === 0" :description="resolvedEmptyDescription" />
   <UiTree
     v-else
     class="record-list-explorer"

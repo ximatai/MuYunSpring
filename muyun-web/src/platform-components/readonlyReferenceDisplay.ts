@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 type ReferenceSummary = Record<string, unknown>;
@@ -18,8 +19,9 @@ export function readonlyReferenceDisplay(
   reference: Pick<ResolvedReferenceFieldDescriptor, 'cardinality'>,
   value: unknown,
   summary: unknown,
+  language: LanguageContext = platformLanguageContext,
 ): string | undefined {
-  return readonlyReferenceDisplayItems(reference, value, summary)
+  return readonlyReferenceDisplayItems(reference, value, summary, language)
     .map((item) => item.label)
     .join('、');
 }
@@ -33,19 +35,24 @@ export function readonlyReferenceDisplayItems(
   reference: Pick<ResolvedReferenceFieldDescriptor, 'cardinality'>,
   value: unknown,
   summary: unknown,
+  language: LanguageContext = platformLanguageContext,
 ): ReadonlyReferenceDisplayItem[] {
   const ids = referenceIds(value);
-  if (reference.cardinality === 'ONE') return ids.length ? [singleItem(ids[0]!, summary)] : [];
-  return multipleItems(ids, summary);
+  if (reference.cardinality === 'ONE') return ids.length ? [singleItem(ids[0]!, summary, language)] : [];
+  return multipleItems(ids, summary, language);
 }
 
-function singleItem(id: string, summary: unknown): ReadonlyReferenceDisplayItem {
+function singleItem(id: string, summary: unknown, language: LanguageContext): ReadonlyReferenceDisplayItem {
   if (isText(summary)) return { id, label: summary, browseable: true };
   if (!isSummary(summary) || String(summary.id ?? '') !== id) return rawItem(id);
-  return summaryItem(id, summary);
+  return summaryItem(id, summary, language);
 }
 
-function multipleItems(ids: readonly string[], summary: unknown): ReadonlyReferenceDisplayItem[] {
+function multipleItems(
+  ids: readonly string[],
+  summary: unknown,
+  language: LanguageContext,
+): ReadonlyReferenceDisplayItem[] {
   if (!Array.isArray(summary)) return ids.map(rawItem);
   if (summary.length === ids.length && summary.every(isText)) {
     return ids.map((id, index) => ({ id, label: summary[index] as string, browseable: true }));
@@ -56,7 +63,7 @@ function multipleItems(ids: readonly string[], summary: unknown): ReadonlyRefere
   }
   return ids.map((id) => {
     const item = summariesById.get(id);
-    return item ? summaryItem(id, item) : rawItem(id);
+    return item ? summaryItem(id, item, language) : rawItem(id);
   });
 }
 
@@ -83,15 +90,21 @@ function referenceId(value: unknown): string[] {
   return [];
 }
 
-function summaryDisplay(summary: ReferenceSummary, fallbackId: string) {
+function summaryDisplay(summary: ReferenceSummary, fallbackId: string, language: LanguageContext) {
   const title = isText(summary.title) ? summary.title : undefined;
   const alias = isText(summary.alias) ? summary.alias : undefined;
   const label = title && alias && title !== alias ? `${title} (${alias})` : (title ?? alias ?? fallbackId);
-  return summary.unavailable === true ? `${label}（不可用）` : label;
+  return summary.unavailable === true
+    ? language.t('platform.reference.unavailable', '{label}（不可用）', { label })
+    : label;
 }
 
-function summaryItem(id: string, summary: ReferenceSummary): ReadonlyReferenceDisplayItem {
-  const label = summaryDisplay(summary, id);
+function summaryItem(
+  id: string,
+  summary: ReferenceSummary,
+  language: LanguageContext,
+): ReadonlyReferenceDisplayItem {
+  const label = summaryDisplay(summary, id, language);
   return {
     id,
     label,

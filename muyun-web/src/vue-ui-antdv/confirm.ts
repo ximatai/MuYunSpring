@@ -1,18 +1,23 @@
 import { Input, Modal } from 'ant-design-vue';
-import { h } from 'vue';
+import { h, watch } from 'vue';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { UiConfirmOptions } from './types';
 import { registerUiBlockingOverlay } from './blockingOverlays';
 
 export const confirmAction = createConfirmAction(Modal.confirm);
 
 export function createConfirmAction(confirm: typeof Modal.confirm) {
-  return function confirmAction(options: UiConfirmOptions): Promise<boolean> {
+  return function confirmAction(
+    options: UiConfirmOptions,
+    language: LanguageContext = platformLanguageContext,
+  ): Promise<boolean> {
     return new Promise((resolve, reject) => {
       const overlay = registerUiBlockingOverlay();
       overlay.setVisible(true);
       const requiredText = options.requiredText;
       let typedText = '';
       let modal: ReturnType<typeof confirm>;
+      let stopLanguageWatch: (() => void) | undefined;
       try {
         modal = confirm({
           title: options.title,
@@ -23,7 +28,14 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
                     options.content
                       ? h('p', { style: { whiteSpace: 'pre-line' } }, options.content)
                       : undefined,
-                    requiredText ? h('p', `请输入「${requiredText}」以确认此操作。`) : undefined,
+                    requiredText
+                      ? h(
+                          'p',
+                          language.t('platform.confirm.required-text', '请输入「{text}」以确认此操作。', {
+                            text: requiredText,
+                          }),
+                        )
+                      : undefined,
                     requiredText
                       ? h(Input, {
                           value: typedText,
@@ -52,8 +64,8 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
                       : undefined,
                   ])
               : options.content,
-          okText: options.okText ?? '确认',
-          cancelText: options.cancelText ?? '取消',
+          okText: options.okText ?? language.t('platform.confirm.confirm', '确认'),
+          cancelText: options.cancelText ?? language.t('platform.confirm.cancel', '取消'),
           okButtonProps: {
             danger: options.danger,
             disabled: Boolean(requiredText),
@@ -65,9 +77,19 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
             resolve(true);
           },
           onCancel: () => resolve(false),
-          afterClose: () => overlay.release(),
+          afterClose: () => {
+            stopLanguageWatch?.();
+            overlay.release();
+          },
         });
+        stopLanguageWatch = watch(language.revision, () =>
+          modal.update({
+            okText: options.okText ?? language.t('platform.confirm.confirm', '确认'),
+            cancelText: options.cancelText ?? language.t('platform.confirm.cancel', '取消'),
+          }),
+        );
       } catch (cause) {
+        stopLanguageWatch?.();
         overlay.release();
         reject(cause);
       }

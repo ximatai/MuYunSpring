@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import type { StandardSortableEntity } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
 import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordMetaSection' });
 
@@ -13,26 +16,30 @@ defineProps<{
 
 <template>
   <details class="record-meta">
-    <summary><RecordContentSectionHeading title="系统信息" /></summary>
+    <summary>
+      <RecordContentSectionHeading
+        :title="language.t('platform.screen.RecordMetaSection.system-information', '系统信息')"
+      />
+    </summary>
     <dl>
       <div>
         <dt>ID</dt>
         <dd>{{ record.id ?? '-' }}</dd>
       </div>
       <div>
-        <dt>版本</dt>
+        <dt>{{ language.t('platform.screen.RecordMetaSection.version', '版本') }}</dt>
         <dd>{{ record.version ?? '-' }}</dd>
       </div>
       <div v-if="showSortOrder">
-        <dt>排序号</dt>
+        <dt>{{ language.t('platform.screen.RecordMetaSection.sort-order', '排序号') }}</dt>
         <dd>{{ record.sortOrder ?? '-' }}</dd>
       </div>
       <div>
-        <dt>创建时间</dt>
+        <dt>{{ language.t('platform.screen.RecordMetaSection.created-at', '创建时间') }}</dt>
         <dd><DateTimeText :value="record.createdAt" /></dd>
       </div>
       <div>
-        <dt>更新时间</dt>
+        <dt>{{ language.t('platform.screen.RecordMetaSection.updated-at', '更新时间') }}</dt>
         <dd><DateTimeText :value="record.updatedAt" /></dd>
       </div>
     </dl>

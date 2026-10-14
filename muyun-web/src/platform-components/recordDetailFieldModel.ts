@@ -28,7 +28,8 @@ export function resolveRecordDetailDisplayValue(
     language?: LanguageContext;
   } = {},
 ) {
-  if (field.calculationPending) return '保存后计算';
+  const language = options.language ?? platformLanguageContext;
+  if (field.calculationPending) return language.t('platform.form.calculation-pending', '保存后计算');
   const emptyText = options.emptyText ?? '-';
   const value = record[field.fieldName];
   const customValue = options.displayOf?.(field.fieldName, value, record, field);
@@ -52,7 +53,9 @@ export function resolveRecordDetailDisplayValue(
     }).format(value);
   }
   if (options.draft && field.controlType === 'enabledStatus') {
-    return resolveRecordEnabledStatusValue(value) ? '启用' : '停用';
+    return resolveRecordEnabledStatusValue(value)
+      ? language.t('platform.value.enabled', '启用')
+      : language.t('platform.value.disabled', '停用');
   }
   // Saved name projections have no identity binding to a newly computed draft code.
   const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
@@ -93,11 +96,13 @@ export function resolveRecordDetailDisplayValue(
     return emptyText;
   }
   if (computedDraft && field.reference) {
-    return isPresent(value) ? '已选择（名称暂不可用）' : emptyText;
+    return isPresent(value)
+      ? language.t('platform.reference.selected-name-unavailable', '已选择（名称暂不可用）')
+      : emptyText;
   }
   const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
   if (field.reference) {
-    const display = readonlyReferenceDisplay(field.reference, value, referenceTitle);
+    const display = readonlyReferenceDisplay(field.reference, value, referenceTitle, language);
     if (display !== undefined) return display || emptyText;
   }
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {
@@ -129,7 +134,7 @@ export function resolveRecordDetailDisplayValue(
     return emptyText;
   }
   if (field.controlType === 'dateTimeInput' && (typeof value === 'string' || typeof value === 'number')) {
-    return formatPlatformDateTime(value).text;
+    return formatPlatformDateTime(value, { language }).text;
   }
   return String(value);
 }

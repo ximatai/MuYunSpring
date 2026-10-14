@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  createManagedDetailRelationClient,
+  createModuleContext,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { computed, ref, toRaw, watch } from 'vue';
 import {
   ModuleActionButton,
@@ -17,13 +24,10 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
-import {
-  createManagedDetailRelationClient,
-  createModuleContext,
-  type HttpClient,
-  type ModuleContext,
-} from '@muyun/web-core';
+
 import { useManagedDetailRelationRuntime } from './composables/useManagedDetailRelationRuntime';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ManagedDetailRelationSurface' });
 
@@ -133,8 +137,16 @@ const formSessionKey = ref(0);
 const editorOpen = computed(() => draft.value != null);
 const editorTitle = computed(() =>
   draft.value?.id == null
-    ? `新增${props.relation.title ?? '子记录'}`
-    : `编辑${props.relation.title ?? '子记录'}`,
+    ? language.t('platform.screen.ManagedDetailRelationSurface.add-value', '新增{value1}', {
+        value1:
+          props.relation.title ??
+          language.t('platform.screen.ManagedDetailRelationSurface.child-record', '子记录'),
+      })
+    : language.t('platform.screen.ManagedDetailRelationSurface.edit-value', '编辑{value1}', {
+        value1:
+          props.relation.title ??
+          language.t('platform.screen.ManagedDetailRelationSurface.child-record', '子记录'),
+      }),
 );
 
 function startCreate() {
@@ -170,22 +182,32 @@ async function save() {
       record.id == null ? await runtime.create(record) : await runtime.update(String(record.id), record);
     if (completed) draft.value = undefined;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'managed-detail-relation-dialog', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'managed-detail-relation-dialog', phase: 'action' });
   }
 }
 
 async function remove(record: QueryListRecord) {
   if (!deleteAllowed.value || runtime.busy.value || record.id == null || record.version == null) return;
-  const confirmed = await confirmAction({
-    title: `删除${props.relation.title ?? '子记录'}`,
-    content: '确认删除当前记录？',
-    danger: true,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: language.t('platform.screen.ManagedDetailRelationSurface.delete-value', '删除{value1}', {
+        value1:
+          props.relation.title ??
+          language.t('platform.screen.ManagedDetailRelationSurface.child-record', '子记录'),
+      }),
+      content: language.t(
+        'platform.screen.ManagedDetailRelationSurface.delete-the-current-record',
+        '确认删除当前记录？',
+      ),
+      danger: true,
+    },
+    language,
+  );
   if (!confirmed) return;
   try {
     await runtime.remove(String(record.id), Number(record.version));
   } catch (cause) {
-    presentPlatformError(cause, { source: 'managed-detail-relation', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'managed-detail-relation', phase: 'action' });
   }
 }
 
@@ -217,7 +239,9 @@ watch(
     :page-size="relation.queryContract?.pageSize ?? 20"
     :page-size-options="relation.queryContract?.pageSizeOptions ?? [10, 20, 50]"
     :ready="runtime.executable.value != null"
-    empty-description="暂无关联记录"
+    :empty-description="
+      language.t('platform.screen.ManagedDetailRelationSurface.no-related-records', '暂无关联记录')
+    "
   >
     <template #toolbarActions>
       <ModuleActionButton
@@ -225,10 +249,10 @@ watch(
         :context="sourceContext"
         :action-code="mutation.createActionCode"
         :disabled="!createAllowed || runtime.busy.value"
-        title="新增"
+        :title="language.t('platform.screen.ManagedDetailRelationSurface.add', '新增')"
         @click="startCreate"
       >
-        新增
+        {{ language.t('platform.screen.ManagedDetailRelationSurface.add', '新增') }}
       </ModuleActionButton>
     </template>
     <template #rowActions="{ record }">
@@ -237,10 +261,10 @@ watch(
         :context="sourceContext"
         :action-code="mutation.updateActionCode"
         :disabled="!updateAllowed || runtime.busy.value"
-        title="编辑"
+        :title="language.t('platform.action.edit', '编辑')"
         @click="startEdit(record)"
       >
-        编辑
+        {{ language.t('platform.action.edit', '编辑') }}
       </ModuleActionButton>
       <ModuleActionButton
         v-if="mutation?.deleteAllowed && mutation.deleteActionCode"
@@ -248,10 +272,10 @@ watch(
         :action-code="mutation.deleteActionCode"
         :disabled="!deleteAllowed || runtime.busy.value || record.version == null"
         danger
-        title="删除"
+        :title="language.t('platform.action.delete', '删除')"
         @click="remove(record)"
       >
-        删除
+        {{ language.t('platform.action.delete', '删除') }}
       </ModuleActionButton>
     </template>
   </RecordQueryListPanel>
@@ -259,7 +283,7 @@ watch(
   <UiModal
     :open="editorOpen"
     :title="editorTitle"
-    confirm-text="保存"
+    :confirm-text="language.t('platform.action.save', '保存')"
     :confirm-loading="runtime.saving.value"
     :confirm-disabled="!formValid || runtime.saving.value"
     :closable="!runtime.saving.value"

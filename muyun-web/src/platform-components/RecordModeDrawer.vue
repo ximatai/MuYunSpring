@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import {
   UiActionButton,
@@ -10,6 +11,8 @@ import {
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordExternalChangeNotice from './RecordExternalChangeNotice.vue';
 import type { DrawerPromotion } from './drawerPromotion';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordModeDrawer' });
 
@@ -61,23 +64,40 @@ const props = withDefaults(
     dismissal: undefined,
     closeOnOutside: undefined,
     beforeClose: undefined,
-    closeTitle: '关闭',
+    closeTitle: undefined,
     promotion: undefined,
-    errorTitle: '详情加载失败',
-    errorMessage: '无法加载详情，请重试',
-    retryTitle: '重试',
+    errorTitle: undefined,
+    errorMessage: undefined,
+    retryTitle: undefined,
     externallyChanged: false,
     editAvailable: false,
     saveAvailable: false,
     saving: false,
-    editTitle: '编辑',
-    saveTitle: '保存',
+    editTitle: undefined,
+    saveTitle: undefined,
     externalChangeTitle: undefined,
     externalChangeMessage: undefined,
     externalChangeReloadTitle: undefined,
     externalChangeDismissTitle: undefined,
   },
 );
+
+const resolvedCloseTitle = computed(
+  () => props.closeTitle ?? language.t('platform.screen.RecordModeDrawer.close', '关闭'),
+);
+const resolvedErrorTitle = computed(
+  () =>
+    props.errorTitle ?? language.t('platform.screen.RecordModeDrawer.could-not-load-details', '详情加载失败'),
+);
+const resolvedErrorMessage = computed(
+  () =>
+    props.errorMessage ?? language.t('platform.screen.RecordModeDrawer.errorMessage', '无法加载详情，请重试'),
+);
+const resolvedRetryTitle = computed(
+  () => props.retryTitle ?? language.t('platform.screen.RecordModeDrawer.retry', '重试'),
+);
+const resolvedEditTitle = computed(() => props.editTitle ?? language.t('platform.action.edit', '编辑'));
+const resolvedSaveTitle = computed(() => props.saveTitle ?? language.t('platform.action.save', '保存'));
 
 defineSlots<{
   status(): unknown;
@@ -120,7 +140,7 @@ const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     :dismissal="dismissal"
     :close-on-outside="legacyCloseOnOutside"
     :before-close="beforeClose"
-    :close-title="closeTitle"
+    :close-title="resolvedCloseTitle"
     :promotion="promotion"
     @close="emit('close')"
     @after-close="emit('afterClose')"
@@ -140,10 +160,10 @@ const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
       <template v-else>
         <slot v-if="viewModeActive" name="viewOperation" />
         <UiActionButton v-if="editAvailable" icon-name="edit" @click="emit('edit')">
-          {{ editTitle }}
+          {{ resolvedEditTitle }}
         </UiActionButton>
         <UiActionButton v-if="saveAvailable" emphasis="primary" :loading="saving" @click="emit('save')">
-          {{ saveTitle }}
+          {{ resolvedSaveTitle }}
         </UiActionButton>
       </template>
     </template>
@@ -152,10 +172,10 @@ const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     <template v-else-if="loadFailed">
       <slot name="error">
         <div class="record-mode-drawer-state">
-          <strong>{{ errorTitle }}</strong
-          ><span>{{ errorMessage }}</span>
+          <strong>{{ resolvedErrorTitle }}</strong
+          ><span>{{ resolvedErrorMessage }}</span>
           <UiActionButton emphasis="primary" icon-name="reload" @click="emit('retry')">
-            {{ retryTitle }}
+            {{ resolvedRetryTitle }}
           </UiActionButton>
         </div>
       </slot>

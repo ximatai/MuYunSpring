@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  createModuleContext,
+  createReferenceResolveClient,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { computed, onMounted, ref, toRaw, watch, watchEffect } from 'vue';
 import { useRelationDraftRegistry, type RelationDraftController } from './relationDraftController';
 import {
@@ -35,14 +42,11 @@ import type {
   ResolvedModuleUiDescriptor,
   WebPageResponse,
 } from '@muyun/web-contracts';
-import {
-  createModuleContext,
-  createReferenceResolveClient,
-  type HttpClient,
-  type ModuleContext,
-} from '@muyun/web-core';
+
 import { RelationFormComputeCoordinator } from './relationFormComputeCoordinator';
 import { FormComputeCoordinator, formComputeChangedFields } from './formComputeCoordinator';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
 
@@ -277,9 +281,14 @@ function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
     record: displayRecord(row),
   });
   const value = resolveRecordDetailDisplayValue(field, displayRecord(row), {
+    language,
     optionItems: optionItems.value[fieldName],
   });
-  return value === 'true' ? '是' : value === 'false' ? '否' : value;
+  return value === 'true'
+    ? language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')
+    : value === 'false'
+      ? language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否')
+      : value;
 }
 
 function relationDisplayText(row: DraftRow | QueryListRecord, fieldName: string) {
@@ -715,12 +724,24 @@ function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
     contextRevision: () => String(revision.value),
     updateDraftFields(changes, source) {
       const row = current();
-      if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
+      if (!row || !editingEnabled.value)
+        throw new Error(
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.the-detail-draft-can-no-longer-be-edited',
+            '子表草稿已不可编辑',
+          ),
+        );
       updateFields(row, changes, source);
     },
     updateDraftReference(fieldName, candidate, source, explicitChanges, validate) {
       const row = current();
-      if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
+      if (!row || !editingEnabled.value)
+        throw new Error(
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.the-detail-draft-can-no-longer-be-edited',
+            '子表草稿已不可编辑',
+          ),
+        );
       const changes = referenceDraftChanges(fieldName, candidate, explicitChanges);
       updateFields(
         row,
@@ -761,12 +782,23 @@ watchEffect((cleanup) => {
     form: rowForm,
     add: () => {
       const key = addRow('assistant');
-      if (!key) throw new Error('子表草稿已不可编辑');
+      if (!key)
+        throw new Error(
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.the-detail-draft-can-no-longer-be-edited',
+            '子表草稿已不可编辑',
+          ),
+        );
       return key;
     },
     remove: (key) => {
       if (!editingEnabled.value || !rows.value.some((row) => row.__draftKey === key))
-        throw new Error('子表草稿行已不可用');
+        throw new Error(
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.the-detail-draft-row-is-no-longer-available',
+            '子表草稿行已不可用',
+          ),
+        );
       const previous = selectedKeys.value;
       selectedKeys.value = new Set([key]);
       removeSelectedRows('assistant');
@@ -801,7 +833,12 @@ onMounted(() => void load());
         :checked="allSelected"
         :indeterminate="someSelected"
         :disabled="selectableRows.length === 0"
-        aria-label="选择全部子表记录"
+        :aria-label="
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.select-all-detail-records',
+            '选择全部子表记录',
+          )
+        "
         @update:checked="setAllSelected"
       />
     </template>
@@ -809,7 +846,13 @@ onMounted(() => void load());
       <RecordSelectionCheckbox
         :checked="selectedKeys.has(row.__draftKey)"
         :disabled="row.id != null && !deleteAllowed"
-        :aria-label="`选择子表记录 ${row.id ?? row.__draftKey}`"
+        :aria-label="
+          language.t(
+            'platform.screen.ManagedDetailRelationInlineSurface.select-detail-record-value',
+            '选择子表记录 {value1}',
+            { value1: row.id ?? row.__draftKey },
+          )
+        "
         @update:checked="setRowSelected(row, $event)"
       />
     </template>
@@ -853,15 +896,26 @@ onMounted(() => void load());
   </RecordRelationTable>
   <UiModal
     :open="recycleBinOpen"
-    :title="`${relation.title ?? relation.code}回收站`"
-    confirm-text="恢复到当前编辑"
+    :title="
+      language.t('platform.screen.ManagedDetailRelationInlineSurface.value-recycle-bin', '{value1}回收站', {
+        value1: relation.title ?? relation.code,
+      })
+    "
+    :confirm-text="
+      language.t(
+        'platform.screen.ManagedDetailRelationInlineSurface.restore-to-current-draft',
+        '恢复到当前编辑',
+      )
+    "
     :confirm-loading="recycleBinLoading"
     :confirm-disabled="recycleBinLoading || recycleBinSelectedIds.size === 0"
     width="720px"
     @confirm="recoverSelected"
     @cancel="recycleBinOpen = false"
   >
-    <div v-if="recycleBinLoading" class="managed-relation-inline__recycle-empty">正在加载…</div>
+    <div v-if="recycleBinLoading" class="managed-relation-inline__recycle-empty">
+      {{ language.t('platform.screen.ManagedDetailRelationInlineSurface.loading', '正在加载…') }}
+    </div>
     <table v-else class="managed-relation-inline__table managed-relation-inline__recycle-table">
       <thead>
         <tr>
@@ -874,7 +928,13 @@ onMounted(() => void load());
           <td class="managed-relation-inline__selection">
             <RecordSelectionCheckbox
               :checked="recycleBinSelectedIds.has(String(record.id))"
-              :aria-label="`选择恢复记录 ${record.id}`"
+              :aria-label="
+                language.t(
+                  'platform.screen.ManagedDetailRelationInlineSurface.select-record-value-to-restore',
+                  '选择恢复记录 {value1}',
+                  { value1: record.id },
+                )
+              "
               @update:checked="setRecycleBinSelected(record, $event)"
             />
           </td>
@@ -887,7 +947,14 @@ onMounted(() => void load());
           </td>
         </tr>
         <tr v-if="recycleBinRecords.length === 0">
-          <td :colspan="columns.length + 1" class="managed-relation-inline__empty">暂无可恢复记录</td>
+          <td :colspan="columns.length + 1" class="managed-relation-inline__empty">
+            {{
+              language.t(
+                'platform.screen.ManagedDetailRelationInlineSurface.no-records-to-restore',
+                '暂无可恢复记录',
+              )
+            }}
+          </td>
         </tr>
       </tbody>
     </table>

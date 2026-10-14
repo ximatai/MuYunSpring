@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { Option, OptionValue } from '@muyun/web-contracts';
 import { UiDropdown, UiIcon, type UiDropdownItem } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ApplicationScopeSwitcher' });
 
@@ -15,8 +18,12 @@ const props = withDefaults(
   {
     value: undefined,
     disabled: false,
-    placeholder: '选择应用',
+    placeholder: undefined,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.screen.ApplicationScopeSwitcher.placeholder', '选择应用'),
 );
 
 const emit = defineEmits<{
@@ -33,7 +40,7 @@ const dropdownItems = computed<UiDropdownItem[]>(() =>
     disabled: option.disabled,
   })),
 );
-const displayTitle = computed(() => selectedOption.value?.label ?? props.placeholder);
+const displayTitle = computed(() => selectedOption.value?.label ?? resolvedPlaceholder.value);
 const switcherDisabled = computed(() => props.disabled || props.options.length === 0);
 
 function selectApplication(key: string) {

@@ -102,6 +102,7 @@ export function resolveRecordQueryListDisplayValue(
   cellRenderers: Record<string, (record: QueryListRecord) => string> = {},
   context: RecordQueryListDisplayContext = {},
 ) {
+  const language = context.language ?? platformLanguageContext;
   const rendered = column.render?.(record) ?? cellRenderers[column.key]?.(record);
   const rawValue = record[column.key];
   const presentationValue = rendered ?? rawValue;
@@ -110,8 +111,10 @@ export function resolveRecordQueryListDisplayValue(
       column.type === 'booleanStatus'
         ? resolveRecordBooleanStatusValue(record[column.key])
         : record[column.key] !== false;
-    if (enabled === true) return column.booleanStatus?.trueLabel ?? '启用';
-    if (enabled === false) return column.booleanStatus?.falseLabel ?? '停用';
+    if (enabled === true)
+      return column.booleanStatus?.trueLabel ?? language.t('platform.value.enabled', '启用');
+    if (enabled === false)
+      return column.booleanStatus?.falseLabel ?? language.t('platform.value.disabled', '停用');
     return '-';
   }
   if (column.type === 'tagList') {
@@ -127,7 +130,7 @@ export function resolveRecordQueryListDisplayValue(
       typeof presentationValue === 'number' ||
       rawValue instanceof Date)
   ) {
-    return formatPlatformDateTime(presentationValue, { timeZone: context.timeZone }).text;
+    return formatPlatformDateTime(presentationValue, { language, timeZone: context.timeZone }).text;
   }
   if (
     column.type === 'fileSize' &&
@@ -143,6 +146,7 @@ export function resolveRecordQueryListDisplayValue(
       column.reference,
       record[column.key],
       column.titleField ? record[column.titleField] : record[`${column.key}Title`],
+      language,
     );
     if (display !== undefined) return display;
   }
@@ -162,7 +166,8 @@ export function resolveRecordQueryListDisplayValue(
   const value = rawValue;
   const optionTitles = optionTitlesOf(value, column.optionItems, context.language);
   if (optionTitles.length > 0) return optionTitles.join('、');
-  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'boolean')
+    return value ? language.t('platform.value.yes', '是') : language.t('platform.value.no', '否');
   return String(value ?? '');
 }
 

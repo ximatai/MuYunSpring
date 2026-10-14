@@ -1,18 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
+
+const language = useLanguageContext();
 defineOptions({ name: 'DrawerOperationBar' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     label?: string;
   }>(),
   {
-    label: '操作区域',
+    label: undefined,
   },
+);
+
+const resolvedLabel = computed(
+  () => props.label ?? language.t('platform.screen.DrawerOperationBar.label', '操作区域'),
 );
 </script>
 
 <template>
-  <section class="drawer-operation-bar" :aria-label="label">
+  <section class="drawer-operation-bar" :aria-label="resolvedLabel">
     <div v-if="$slots.summary" class="drawer-operation-bar-summary"><slot name="summary" /></div>
     <div class="drawer-operation-bar-actions"><slot /></div>
   </section>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiButton, UiModal, UiSearchInput } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
@@ -11,6 +12,8 @@ import {
   type DictionaryOptionValue,
   type DictionarySelectionMode,
 } from './dictionaryOptionDialogModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'DictionaryOptionDialog' });
 
@@ -31,11 +34,20 @@ const props = withDefaults(
   {
     value: undefined,
     selectionMode: 'SINGLE',
-    title: '选择字典项',
+    title: undefined,
     initialKeyword: '',
-    searchPlaceholder: '按名称或编码搜索',
+    searchPlaceholder: undefined,
     disabled: false,
   },
+);
+
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.DictionaryOptionDialog.title', '选择字典项'),
+);
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.DictionaryOptionDialog.searchPlaceholder', '按名称或编码搜索'),
 );
 
 const emit = defineEmits<{
@@ -53,7 +65,7 @@ const draftCodes = ref<string[]>([]);
 const externalCodes = computed(() => dictionaryOptionCodes(props.value, props.selectionMode));
 const treeData = computed(() => dictionaryOptionItemsToTree(props.items, keyword.value));
 const selectedText = computed(() => {
-  if (!draftCodes.value.length) return '尚未选择';
+  if (!draftCodes.value.length) return language.t('platform.reference-picker.unselected', '尚未选择');
   const titles = new Map(props.items.map((item) => [item.code, item.title]));
   return draftCodes.value.map((code) => titles.get(code) ?? code).join('、');
 });
@@ -113,7 +125,7 @@ function close() {
 <template>
   <UiModal
     :open="open"
-    :title="title"
+    :title="resolvedTitle"
     :width="560"
     :confirm-disabled="disabled"
     :closable="!disabled"
@@ -123,9 +135,9 @@ function close() {
     <div class="dictionary-option-dialog">
       <UiSearchInput
         :value="keyword"
-        :placeholder="searchPlaceholder"
+        :placeholder="resolvedSearchPlaceholder"
         :disabled="disabled"
-        search-text="搜索"
+        :search-text="language.t('platform.reference-picker.search', '搜索')"
         @update:value="keyword = $event"
         @search="keyword = $event"
       />
@@ -139,10 +151,10 @@ function close() {
         @double-click="confirmSingleOption"
       />
       <div class="dictionary-option-dialog-selection">
-        <span>当前选择</span>
+        <span>{{ language.t('platform.screen.DictionaryOptionDialog.current-selection', '当前选择') }}</span>
         <strong>{{ selectedText }}</strong>
         <UiButton type="link" size="small" :disabled="disabled || !draftCodes.length" @click="clearDraft">
-          清除
+          {{ language.t('platform.screen.DictionaryOptionDialog.clear', '清除') }}
         </UiButton>
       </div>
     </div>

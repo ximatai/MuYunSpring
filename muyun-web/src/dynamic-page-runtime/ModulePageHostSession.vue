@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import {
+  useLanguageContext,
+  createAssistantTurnRequester,
+  ModuleHttpProvider,
+  useAssistantSurfaceHost,
+  useModuleContext,
+  withHttpHeaders,
+  type AssistantInvocationToken,
+} from '@muyun/web-core';
+import {
   computed,
   inject,
   provide,
@@ -11,14 +20,7 @@ import {
   shallowRef,
   watch,
 } from 'vue';
-import {
-  createAssistantTurnRequester,
-  ModuleHttpProvider,
-  useAssistantSurfaceHost,
-  useModuleContext,
-  withHttpHeaders,
-  type AssistantInvocationToken,
-} from '@muyun/web-core';
+
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
@@ -32,6 +34,8 @@ import {
   modulePageAssistantContextRevision,
   modulePageAssistantInteractionRevision,
 } from './modulePageAssistantSurface';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageHostSession' });
 const props = defineProps<{
@@ -303,7 +307,12 @@ defineExpose({ refreshList, retry: startBusinessSession });
 
 <template>
   <p v-if="configurationChanged" role="status" class="module-page-configuration-status">
-    页面配置已更新，当前填写内容已保留。结束本次编辑后将加载新配置；保存时仍会校验配置版本。
+    {{
+      language.t(
+        'platform.screen.ModulePageHostSession.the-page-configuration-has-changed-your-input-has-been-preserved',
+        '页面配置已更新，当前填写内容已保留。结束本次编辑后将加载新配置；保存时仍会校验配置版本。',
+      )
+    }}
   </p>
   <ModulePageBusinessSession
     :key="generation"
@@ -330,8 +339,15 @@ defineExpose({ refreshList, retry: startBusinessSession });
     />
     <section v-else-if="failure" class="module-page-host-session-error" role="alert">
       <RecordPanelState :description="failure" />
-      <RecordPanelButton type="link" @click="startBusinessSession">重试</RecordPanelButton>
+      <RecordPanelButton type="link" @click="startBusinessSession">{{
+        language.t('platform.screen.ModulePageHostSession.retry', '重试')
+      }}</RecordPanelButton>
     </section>
-    <RecordPanelState v-else loading loading-tip="加载页面入口" description="" />
+    <RecordPanelState
+      v-else
+      loading
+      :loading-tip="language.t('platform.screen.ModulePageHostSession.loading-page', '加载页面入口')"
+      description=""
+    />
   </ModuleHttpProvider>
 </template>

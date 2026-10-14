@@ -16,7 +16,12 @@ export { default as DateTimeText } from './DateTimeText.vue';
 export { default as FileSizeText } from './FileSizeText.vue';
 export { default as FileTransferUploader } from './FileTransferUploader.vue';
 export { default as SingleImageFileReferenceField } from './SingleImageFileReferenceField.vue';
-export { createBrowserFileTransferUpload, unwrapResponsePayload } from './fileTransferUpload';
+export {
+  createBrowserFileTransferUpload,
+  unwrapResponsePayload,
+  FileTransferUploadError,
+  FileTransferUploadCancelledError,
+} from './fileTransferUpload';
 export type {
   FileTransferUploadAccess,
   FileTransferUploadReceipt,
