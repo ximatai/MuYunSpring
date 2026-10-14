@@ -1,3 +1,4 @@
+import { createLanguageContext, platformLanguageContext } from '@/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import { assistantQueryResult } from '@/dynamic-page-runtime/assistantQueryCapabilities';
 import { nextTick, ref, watch } from 'vue';
@@ -3130,3 +3131,105 @@ it('marks partial draft change receipts while retaining the complete editor valu
   });
   expect(view.editingRecord!.summary).toBe(value);
 });
+
+it.each(['main', 'row', 'navigator'] as const)(
+  'keeps %s assistant field reads in the owning language and preserves draft identities',
+  async (owner) => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const globalTag = platformLanguageContext.languageTag.value;
+    const view = viewFixture();
+    view.language = language;
+    const field = {
+      fieldRef: { fieldName: 'ownerId' },
+      label: '原始业务字段',
+      visible: { constant: true },
+      reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' as const },
+    };
+    view.formFields = new Map([['ownerId', field]]);
+    view.referencePickerConfigs = {};
+    const rowForm = {
+      editorMode: 'edit' as const,
+      editingRecord: {},
+      formFields: new Map([['ownerId', field]]),
+      referencePickerConfigs: {},
+      contextRevision: () => 'one',
+      updateDraftFields: vi.fn(),
+      updateDraftReference: vi.fn(),
+    };
+    view.executableDetailRelations = [
+      {
+        code: 'lines',
+        title: '原始明细名称',
+        embeddedField: 'lines',
+        targetEntityAlias: 'line',
+        readOnly: false,
+        sourceModuleAlias: 'work.daily_report',
+        sourceEntityAlias: 'main',
+        targetModuleAlias: 'work.daily_report',
+        parentBinding: 'parentId',
+        refreshOnDetailReload: false,
+      },
+    ];
+    view.runtimeUiDescriptor = {
+      schemaVersion: '1',
+      moduleAlias: 'work.daily_report',
+      editorContributions: [
+        { resource: 'line', editor: { viewCode: 'line-form', viewKind: 'FORM', fields: [field] } },
+      ],
+    };
+    view.editingRecord!.lines = [{ ownerId: 'private-owner' }];
+    if (owner === 'row') {
+      view.relationDrafts = createRelationDraftRegistry();
+      view.relationDrafts.register({
+        code: 'lines',
+        title: '原始明细名称',
+        revision: () => 'one',
+        settle: async () => {},
+        rowKeys: () => ['row-one'],
+        form: () => rowForm,
+        add: vi.fn(),
+        remove: vi.fn(),
+      });
+    }
+    if (owner === 'navigator')
+      Object.assign(view, {
+        assistantNavigatorEditor: {
+          key: 'catalog',
+          moduleAlias: 'work.catalog',
+          title: '原始目录名称',
+          dirty: false,
+          form: rowForm,
+        },
+      });
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    if (owner === 'row') {
+      const select = surface
+        .capabilities()
+        .find(({ descriptor }) => descriptor.code === 'relation.select-row')!;
+      await select.execute(
+        select.parseInput({ relationCode: 'lines', rowKey: 'row-one' }),
+        executionContext(),
+      );
+    }
+    const current = () => {
+      const facts = surface.describe().facts;
+      return (owner === 'row' ? (facts.activeRelationRow as { form: unknown }).form : facts.currentForm) as {
+        fields: Array<{ fieldName: string; currentValue: string }>;
+      };
+    };
+    expect(current().fields.find((item) => item.fieldName === 'ownerId')?.currentValue).toBe('Not selected');
+    if (owner !== 'navigator')
+      expect(JSON.stringify(surface.describe().facts.relations)).toContain('Selected (name unavailable)');
+    const code = owner === 'row' ? 'relation.form.describe' : 'form.describe';
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === code)!;
+    const read = (await describe.execute({}, executionContext())) as ReturnType<typeof current>;
+    expect(read.fields.find((item) => item.fieldName === 'ownerId')?.currentValue).toBe('Not selected');
+    language.setLanguage('zh-CN');
+    expect(current().fields.find((item) => item.fieldName === 'ownerId')?.currentValue).toBe('未选择');
+    expect(view.editingRecord?.lines).toEqual([{ ownerId: 'private-owner' }]);
+    expect(rowForm.editingRecord).toEqual({});
+    expect(rowForm.updateDraftFields).not.toHaveBeenCalled();
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+    expect(platformLanguageContext.languageTag.value).toBe(globalTag);
+  },
+);

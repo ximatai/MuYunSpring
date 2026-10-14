@@ -687,6 +687,7 @@ function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
   const current = () => rows.value.find((row) => row.__draftKey === rowKey);
   if (!current()) return undefined;
   return {
+    language,
     get editorMode() {
       return editingEnabled.value && current() ? rowMode(current()!) : 'view';
     },

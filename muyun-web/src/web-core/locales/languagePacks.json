@@ -1322,7 +1322,9 @@
       "platform.list.clause-separator": "；",
       "platform.picker-constraint.current-record": "不能选择当前记录",
       "platform.picker-constraint.descendant": "不能选择当前记录的下级",
-      "platform.picker-constraint.disabled": "停用记录不可选"
+      "platform.picker-constraint.disabled": "停用记录不可选",
+      "platform.reference.name-needs-verification": "已选择（名称按需核实）",
+      "platform.reference.names-truncated": "已选择（名称读取已截断，请在页面核实）"
     }
   },
   "en": {
@@ -2649,7 +2651,9 @@
       "platform.list.clause-separator": "; ",
       "platform.picker-constraint.current-record": "The current record cannot be selected",
       "platform.picker-constraint.descendant": "Descendants of the current record cannot be selected",
-      "platform.picker-constraint.disabled": "Disabled records cannot be selected"
+      "platform.picker-constraint.disabled": "Disabled records cannot be selected",
+      "platform.reference.name-needs-verification": "Selected (verify name when needed)",
+      "platform.reference.names-truncated": "Selected (name lookup truncated; verify on the page)"
     }
   },
   "fr": {

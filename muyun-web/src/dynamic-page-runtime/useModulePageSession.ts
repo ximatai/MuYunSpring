@@ -3583,6 +3583,7 @@ export function useModulePageSession(
     const level = navigatorManagementLevel.value;
     if (!level || !navigatorManagementDetail.open.value) return undefined;
     const form: RecordFormDraftAccess = {
+      language,
       get editorMode() {
         return navigatorManagementDetail.mode.value;
       },
@@ -5253,6 +5254,7 @@ export function useModulePageSession(
   }
 
   return {
+    language,
     props,
     runtimePageResolved,
     runtimePage,

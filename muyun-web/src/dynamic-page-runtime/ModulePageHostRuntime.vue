@@ -131,7 +131,6 @@ export default defineComponent({
     });
     const businessVisible = computed(() => !props.pending && !props.businessError);
     return {
-      language,
       businessVisible,
       bindWorkflowPanel(panel: unknown) {
         const workflow = panel as { mayLeave?: () => Promise<boolean> } | null;
@@ -139,6 +138,7 @@ export default defineComponent({
       },
       retryBusinessSession: () => emit('retry'),
       ...sessionViewBindings(() => props.session),
+      language,
       handleFlatManagementLoaded: (records: CrudRecordListBase[]) =>
         props.session.handleFlatManagementLoaded(records as QueryListRecord[]),
       openFlatManagementRecord: (record: CrudRecordListBase) =>

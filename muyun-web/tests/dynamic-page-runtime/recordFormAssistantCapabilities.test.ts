@@ -1,3 +1,5 @@
+import { createLanguageContext } from '@/web-core';
+import { recordFormAssistantFacts } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import { expect, it, vi } from 'vitest';
 import { createRecordFormAssistantCapabilities } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import {
@@ -209,4 +211,35 @@ it('reports a staged reference rejection as not-applied through the real registr
   });
   expect(result.results[0]!.error!.message).toContain('not editable');
   expect(view.editingRecord).toEqual({ quantity: '1', unitPrice: '8.80' });
+});
+
+it('uses the owning form language for live and explicit reads without changing fields or resolving on a language switch', async () => {
+  const original = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const view = { ...original.view, language };
+  const current = () =>
+    recordFormAssistantFacts(view).fields.find((field) => field.fieldName === 'productId')!;
+  expect(current().currentValue).toBe('Not selected');
+  view.editingRecord!.productId = 'product-id';
+  expect(current().currentValue).toBe('Selected (verify name when needed)');
+  const resolve = vi.mocked(view.referencePickerConfigs.productId!.provider!.resolve);
+  resolve.mockRejectedValue(new Error('private diagnostic'));
+  const describe = createRecordFormAssistantCapabilities(view)().find(
+    ({ descriptor }) => descriptor.code === 'form.describe',
+  )!;
+  const context = {
+    signal: new AbortController().signal,
+    isCurrent: () => true,
+    commitInternalState: <T>(commit: () => T) => commit(),
+    applyEffect: <T>(commit: () => T) => commit(),
+  };
+  const read = (await describe.execute({}, context)) as ReturnType<typeof recordFormAssistantFacts>;
+  expect(read.fields.find((field) => field.fieldName === 'productId')?.currentValue).toBe(
+    'Selected (name unavailable)',
+  );
+  language.setLanguage('zh-CN');
+  expect(current().currentValue).toBe('已选择（名称按需核实）');
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(view.editingRecord?.productId).toBe('product-id');
+  expect(view.updateDraftFields).not.toHaveBeenCalled();
 });

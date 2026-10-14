@@ -1,7 +1,9 @@
+import { createLanguageContext } from '@/web-core';
 import { describe, expect, it } from 'vitest';
 import {
   readonlyReferenceDisplay,
   readonlyReferenceDisplayItems,
+  readonlyReferenceNameProjection,
 } from '@/platform-components/readonlyReferenceDisplay';
 
 describe('readonly reference display', () => {
@@ -62,4 +64,26 @@ it('allows a delivered title identical to the ID while keeping an ID-only summar
   expect(readonlyReferenceDisplayItems({ cardinality: 'ONE' }, 'A001', { id: 'A001' })).toEqual([
     { id: 'A001', label: 'A001', browseable: false },
   ]);
+});
+
+it('uses one identity-aware reference projection for localized display and name-only assistant reads', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const reference = { cardinality: 'MANY' as const };
+  expect(readonlyReferenceDisplay(reference, ['a', 'b'], ['Alice', 'Bob'], language)).toBe('Alice, Bob');
+  expect(readonlyReferenceNameProjection(reference, ['a', 'b'], [], language)).toEqual({ selected: true });
+  expect(readonlyReferenceNameProjection(reference, '[]', undefined, language)).toEqual({ selected: false });
+  expect(
+    readonlyReferenceNameProjection(reference, ['a', 'private'], [{ id: 'a', title: 'Alice' }], language),
+  ).toEqual({ selected: true, display: 'Alice, Selected (name unavailable)' });
+  expect(
+    readonlyReferenceNameProjection({ cardinality: 'ONE' }, 'A001', { id: 'A001', title: 'A001' }, language),
+  ).toEqual({ selected: true, display: 'A001' });
+  expect(
+    readonlyReferenceNameProjection(
+      { cardinality: 'ONE' },
+      'A001',
+      { id: 'another', title: 'wrong' },
+      language,
+    ),
+  ).toEqual({ selected: true });
 });

@@ -7,6 +7,7 @@ import type {
 import {
   evaluateUiFormula,
   referencePickerDisplayTitle,
+  readonlyReferenceNameProjection,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
   resolveRecordDetailDisplayValue,
@@ -30,11 +31,18 @@ export function recordFieldDisplay(
       language,
     });
   if (field.reference) {
-    const value = record[field.fieldName];
-    if (value == null || value === '' || (Array.isArray(value) && !value.length))
+    if (field.treeRootTitle && record[field.fieldName] === 'root')
+      return language.t('platform.screen.recordDisplayProjection.not-selected', '未选择');
+    const projection = readonlyReferenceNameProjection(
+      field.reference,
+      record[field.fieldName],
+      field.referenceTitleField ? record[field.referenceTitleField] : undefined,
+      language,
+    );
+    if (!projection.selected)
       return language.t('platform.screen.recordDisplayProjection.not-selected', '未选择');
     return (
-      recordReferenceDisplay(field, record, draft, language) ??
+      projection.display ??
       language.t(
         'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
         '已选择（名称暂不可用）',
@@ -56,19 +64,15 @@ export function recordReferenceDisplay(
   draft = false,
   language: LanguageContext = platformLanguageContext,
 ): string | undefined {
-  const value = record[field.fieldName];
-  if (
-    !field.reference ||
-    field.calculationPending ||
-    (draft && field.calculationTiming === 'IMMEDIATE') ||
-    value == null ||
-    value === '' ||
-    (Array.isArray(value) && !value.length)
-  )
+  if (!field.reference || field.calculationPending || (draft && field.calculationTiming === 'IMMEDIATE'))
     return undefined;
-  if (!field.referenceTitleField || record[field.referenceTitleField] == null) return undefined;
-  const display = resolveRecordDetailDisplayValue(field, record, { language });
-  return display === String(value) ? undefined : display;
+  if (field.treeRootTitle && record[field.fieldName] === 'root') return undefined;
+  return readonlyReferenceNameProjection(
+    field.reference,
+    record[field.fieldName],
+    field.referenceTitleField ? record[field.referenceTitleField] : undefined,
+    language,
+  ).display;
 }
 
 /** Resolve display labels through the same authorized provider used by the picker. */
@@ -88,7 +92,7 @@ export async function resolvedRecordFieldDisplay(
   return ids
     .map((id) => {
       const candidate = candidates.find((item) => item.id === id);
-      if (!candidate || candidate.identifierFallback || !candidate.title || candidate.title === id)
+      if (!candidate || candidate.identifierFallback || !candidate.title)
         return language.t(
           'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
           '已选择（名称暂不可用）',
