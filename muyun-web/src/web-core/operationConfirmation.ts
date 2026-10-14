@@ -1,4 +1,5 @@
 import { platformLanguageContext, type LanguageContext } from './language';
+import { resolveOperationErrorMessage, type OperationErrorMessage } from './operationErrors';
 import type { OperationPresentation, OperationReceiptReference } from '@muyun/web-contracts';
 
 /** Captured platform command. The caller owns the candidate and execution scope. */
@@ -25,7 +26,20 @@ export type OperationConfirmationState =
   | 'rejected';
 
 /** Adapter proof that no persistent operation was accepted (validation or authorization rejection). */
-export class OperationRejectedError extends Error {}
+export class OperationRejectedError extends Error {
+  readonly textMessage?: OperationErrorMessage;
+  constructor(message: string | OperationErrorMessage = '', options?: ErrorOptions) {
+    super(typeof message === 'string' ? message : message.message, options);
+    this.textMessage =
+      typeof message === 'string'
+        ? undefined
+        : Object.freeze({
+            ...message,
+            source: Object.freeze({ ...message.source }),
+            args: Object.freeze({ ...message.args }),
+          });
+  }
+}
 
 export interface OperationConfirmation {
   readonly confirmLabel: string;
@@ -46,7 +60,7 @@ export function createOperationConfirmation(
 ): OperationConfirmation {
   let state: OperationConfirmationState = 'pending';
   let result: OperationPresentation | undefined;
-  let rejected = false;
+  let rejectedFailure: OperationRejectedError | undefined;
   const confirmLabel = proposal.confirmLabel;
   let pending: Promise<void> | undefined;
   const presentation = structuredClone(proposal.presentation);
@@ -66,7 +80,7 @@ export function createOperationConfirmation(
     } else if (state !== 'unknown' || !scopeIsCurrent()) return Promise.resolve();
     state = kind === 'execute' ? 'executing' : 'checking';
     result = undefined;
-    rejected = false;
+    rejectedFailure = undefined;
     // Capture state before scheduling; two clicks must share one request.
     pending = Promise.resolve().then(async () => {
       try {
@@ -85,10 +99,10 @@ export function createOperationConfirmation(
         } else state = 'unknown';
       } catch (error) {
         if (kind === 'execute' && error instanceof OperationRejectedError) {
-          rejected = true;
+          rejectedFailure = new OperationRejectedError(error.textMessage ?? error.message);
           result = {
             title: language.t('platform.operation.not-submitted', '操作未提交'),
-            lines: [error.message],
+            lines: [resolveOperationErrorMessage(error, language)],
           };
           state = 'rejected';
           return;
@@ -117,7 +131,12 @@ export function createOperationConfirmation(
       return (
         result && {
           ...structuredClone(result),
-          ...(rejected ? { title: language.t('platform.operation.not-submitted', '操作未提交') } : {}),
+          ...(rejectedFailure
+            ? {
+                title: language.t('platform.operation.not-submitted', '操作未提交'),
+                lines: [resolveOperationErrorMessage(rejectedFailure, language)],
+              }
+            : {}),
         }
       );
     },

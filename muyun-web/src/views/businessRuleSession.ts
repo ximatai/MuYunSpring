@@ -279,7 +279,8 @@ export function createBusinessRuleSession(
       try {
         if (reviewed && reviewed.revision !== revision.value)
           throw new OperationRejectedError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.businessRuleSession.the-reviewed-candidate-has-changed-and-was-not-submitted-check',
               '已审阅候选已变化，尚未提交；请重新检查',
             ),
@@ -294,7 +295,8 @@ export function createBusinessRuleSession(
             })
             .catch(() => {
               throw new OperationRejectedError(
-                language.t(
+                codeOperationErrorMessage(
+                  language,
                   'platform.screen.businessRuleSession.rule-prechecks-failed-and-nothing-was-submitted-check-the-rules',
                   '规则预检失败，尚未提交；请重新检查后再应用',
                 ),
@@ -302,7 +304,8 @@ export function createBusinessRuleSession(
             }));
         if (!current())
           throw new OperationRejectedError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.businessRuleSession.the-rule-candidate-has-changed-and-was-not-submitted-check',
               '规则候选已变化，尚未提交；请重新检查',
             ),
@@ -310,7 +313,8 @@ export function createBusinessRuleSession(
         if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors, language);
         if (!checked.proposalFingerprint)
           throw new OperationRejectedError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.businessRuleSession.the-check-result-is-invalid-and-nothing-was-submitted-reload',
               '检查结果无效，尚未提交；请重新加载后再应用',
             ),
@@ -591,7 +595,8 @@ export function createBusinessRuleSession(
           async execute() {
             if (!current() || editing.value)
               throw new OperationRejectedError(
-                language.t(
+                codeOperationErrorMessage(
+                  language,
                   'platform.screen.businessRuleSession.the-rule-candidate-has-changed-and-was-not-submitted',
                   '规则候选已变化，尚未提交',
                 ),

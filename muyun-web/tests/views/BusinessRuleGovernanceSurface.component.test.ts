@@ -1818,3 +1818,58 @@ it('changes local incomplete-rule feedback without rerunning checks or modifying
   await flushPromises();
   expect(wrapper.text()).toContain('Enter an expression.');
 });
+
+it('refreshes a rejected precheck failure without submitting or replaying the failed precheck', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  const http = fakeHttp();
+  const base = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/preview')) throw new Error('transport failed');
+    return base(options);
+  });
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    language,
+  );
+  const session = workspace.session('education.exam');
+  await session.load();
+  session.adapter.revise({
+    code: 'validateCandidate',
+    kind: 'VALIDATION',
+    expression: 'true',
+    enabled: true,
+    messageTemplate: '业务填写的提示',
+  });
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace);
+  try {
+    await flushPromises();
+    await action(wrapper, '应用更改').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('规则预检失败，尚未提交；请重新检查后再应用');
+    const calls = vi.mocked(http.request).mock.calls.length;
+    const revision = session.revision.value;
+    const candidate = JSON.stringify(session.rules.value);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain(
+      'Rule prechecks failed and nothing was submitted. Check the rules again before applying.',
+    );
+    expect(wrapper.text()).not.toContain('规则预检失败，尚未提交；请重新检查后再应用');
+    expect(session.submissionStatus.value).toBe('idle');
+    expect(session.revision.value).toBe(revision);
+    expect(JSON.stringify(session.rules.value)).toBe(candidate);
+    expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+    expect(vi.mocked(http.request).mock.calls.some(([options]) => options.path.endsWith('/apply'))).toBe(
+      false,
+    );
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('规则预检失败，尚未提交；请重新检查后再应用');
+  } finally {
+    workspace.dispose();
+  }
+});

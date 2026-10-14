@@ -280,7 +280,7 @@ const trialTenantError = computed(() =>
   trialTenantFailure.value ? ruleFailureMessage(trialTenantFailure.value) : '',
 );
 function ruleFailureMessage(cause: Error) {
-  return cause instanceof OperationUsageError
+  return cause instanceof OperationUsageError || cause instanceof OperationRejectedError
     ? resolveOperationErrorMessage(cause, language)
     : cause instanceof AppError
       ? userFacingErrorMessage(cause, language)

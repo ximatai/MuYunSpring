@@ -61,7 +61,7 @@ export class OperationUsageError extends Error {
 
 /** Resolves owned presentation facts without replaying validation or changing the error code. */
 export function resolveOperationErrorMessage(
-  error: OperationUsageError,
+  error: Error & { readonly textMessage?: OperationErrorMessage },
   language: LanguageContext = platformLanguageContext,
 ): string {
   const text = error.textMessage;

@@ -1,4 +1,4 @@
-import { createLanguageContext } from '@muyun/web-core';
+import { createLanguageContext, codeOperationErrorMessage, OperationUsageError } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   restoreAssistantOperationReceipt,
@@ -213,4 +213,37 @@ it('refreshes recovered receipt instructions in the owner scope without restorin
   await receipt.check();
   expect(lookup).toHaveBeenCalledOnce();
   expect(receipt.state).toBe('unknown');
+});
+
+it('refreshes a declared rejection without replaying its command or changing the reviewed proposal', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  const failure = new AssistantOperationRejectedError(
+    codeOperationErrorMessage(
+      language,
+      'platform.screen.businessRuleSession.rule-prechecks-failed-and-nothing-was-submitted-check-the-rules',
+      '规则预检失败，尚未提交；请重新检查后再应用',
+    ),
+  );
+  expect(failure).not.toBeInstanceOf(OperationUsageError);
+  const { proposal, scope } = fixture();
+  proposal.execute = vi.fn(async () => {
+    throw failure;
+  });
+  const reviewed = structuredClone(proposal.presentation);
+  const confirmation = createAssistantOperationConfirmation(proposal, scope, () => 10, language);
+  await confirmation.confirm();
+  expect(confirmation.state).toBe('rejected');
+  expect(confirmation.result?.lines).toEqual(['规则预检失败，尚未提交；请重新检查后再应用']);
+  language.setLanguage('en');
+  expect(confirmation.result).toEqual({
+    title: 'Operation not submitted',
+    lines: ['Rule prechecks failed and nothing was submitted. Check the rules again before applying.'],
+  });
+  expect(confirmation.state).toBe('rejected');
+  expect(confirmation.presentation).toEqual(reviewed);
+  await confirmation.check();
+  expect(proposal.execute).toHaveBeenCalledOnce();
+  expect(proposal.lookup).not.toHaveBeenCalled();
+  language.setLanguage('zh-CN');
+  expect(confirmation.result?.lines).toEqual(['规则预检失败，尚未提交；请重新检查后再应用']);
 });
