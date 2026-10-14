@@ -152,13 +152,13 @@ function changeTab(key: string) {
 }
 
 async function refreshPage(key: string) {
-  if (!(await confirmDiscardWorkspaceViewState([key], 'refresh')) || !isMounted) return;
+  if (!(await confirmDiscardWorkspaceViewState([key], 'refresh', language)) || !isMounted) return;
   if (!(props.startup.tabs ?? []).some((tab) => tab.key === key)) return;
   emit('refreshPage', key);
 }
 
 async function closeTab(key: string) {
-  if (!(await confirmDiscardWorkspaceViewState([key])) || !isMounted) return;
+  if (!(await confirmDiscardWorkspaceViewState([key], 'close', language)) || !isMounted) return;
   const result = closeMenuTab(props.startup.tabs ?? [], props.startup.activeTabKey, key);
   if (lockedTabs.value.some((tab) => tab.key === key)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
@@ -168,7 +168,7 @@ async function closeTab(key: string) {
 }
 
 async function closeTabs(keys: string[]) {
-  if (!(await confirmDiscardWorkspaceViewState(keys)) || !isMounted) return;
+  if (!(await confirmDiscardWorkspaceViewState(keys, 'close', language)) || !isMounted) return;
   const result = closeMenuTabs(props.startup.tabs ?? [], props.startup.activeTabKey, keys);
   const lockedKeys = keys.filter((key) => lockedTabs.value.some((tab) => tab.key === key));
   if (lockedKeys.length > 0) persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, lockedKeys));
@@ -293,7 +293,7 @@ function closeCurrentTab(fallbackPath: string) {
 }
 
 async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([currentTabKey])) || !isMounted) return;
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey], 'close', language)) || !isMounted) return;
   if (!(props.startup.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
   return closeCurrentTabNow(fallbackPath, currentTabKey);
 }

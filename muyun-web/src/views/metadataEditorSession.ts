@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
 import { metadataFieldPropertyTitles } from './metadataGovernanceEditor';
 import { computed, effectScope, ref, watch } from 'vue';
@@ -92,6 +93,7 @@ import {
 } from './metadataModelTree';
 
 export interface MetadataEditorSessionOptions {
+  language?: LanguageContext;
   moduleAlias: string;
   moduleTitle?: string;
   valid?: () => boolean;
@@ -102,6 +104,7 @@ export interface MetadataEditorSessionOptions {
 
 /** Shared editor state and commands; creating a session never mounts a governance page. */
 export function createMetadataEditorSession(source: HttpClient, options: MetadataEditorSessionOptions) {
+  const language = options.language ?? platformLanguageContext;
   const scope = effectScope(true);
   let disposed = false;
   const valid = () => !disposed && (options.valid?.() ?? true);
@@ -1782,12 +1785,15 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         );
         if (
           mode === 'confirm' &&
-          !(await confirmAction({
-            title: `确认${operationName}`,
-            content: submission.lines.join('\n') || '将保存当前配置。',
-            details: { title: '查看详细配置和影响', lines: submission.details },
-            okText: '保存',
-          }))
+          !(await confirmAction(
+            {
+              title: `确认${operationName}`,
+              content: submission.lines.join('\n') || '将保存当前配置。',
+              details: { title: '查看详细配置和影响', lines: submission.details },
+              okText: '保存',
+            },
+            language,
+          ))
         )
           return;
         await applyMetadataSubmission(submission, proposal);
@@ -2310,14 +2316,17 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         return;
       }
       if (
-        !(await confirmAction({
-          title: deletingField ? '删除字段' : '删除元数据',
-          content: deletingField
-            ? `将删除字段“${field!.title}”及其物理列。仅在未被配置引用且没有业务数据时可以继续。`
-            : `将删除元数据及其物理表。仅在没有业务字段、子元数据和业务数据时可以继续。`,
-          okText: '确认删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            title: deletingField ? '删除字段' : '删除元数据',
+            content: deletingField
+              ? `将删除字段“${field!.title}”及其物理列。仅在未被配置引用且没有业务数据时可以继续。`
+              : `将删除元数据及其物理表。仅在没有业务字段、子元数据和业务数据时可以继续。`,
+            okText: '确认删除',
+            danger: true,
+          },
+          language,
+        ))
       )
         return;
       saving.value = true;

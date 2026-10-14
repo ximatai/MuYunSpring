@@ -1,3 +1,4 @@
+import { platformLanguageContext } from '@muyun/web-core';
 import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
 import {
   createPageCompositionWorkspace,
@@ -845,7 +846,10 @@ describe('PageCompositionWorkspace publication flow', () => {
     vi.mocked(confirmAction).mockResolvedValueOnce(false);
     wrapper.findComponent(PageCompositionTree).vm.$emit('node-action', 'split-layout', 'ui:slot:form');
     await flushPromises();
-    expect(confirmAction).toHaveBeenCalledWith(expect.objectContaining({ title: '分别编排详情和表单' }));
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '分别编排详情和表单' }),
+      platformLanguageContext,
+    );
     expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
     expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toHaveLength(1);
     const confirmation = deferred<boolean>();

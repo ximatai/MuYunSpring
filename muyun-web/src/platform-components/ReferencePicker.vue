@@ -84,7 +84,11 @@ const props = withDefaults(
 );
 
 const columns = computed(
-  () => props.columns ?? [{ key: 'title', title: language.t('platform.reference-picker.name', '名称') }],
+  () =>
+    props.columns?.map((column) => ({
+      ...column,
+      title: column.titleKey ? language.t(column.titleKey, column.title) : column.title,
+    })) ?? [{ key: 'title', title: language.t('platform.reference-picker.name', '名称') }],
 );
 const placeholder = computed(
   () => props.placeholder ?? language.t('platform.reference-picker.placeholder', '搜索并选择'),
@@ -865,7 +869,7 @@ function retryCompactError() {
               v-for="axis in page.navigation"
               :key="axis.id"
               class="reference-picker-navigation-column"
-              :title="axis.title"
+              :title="axis.titleKey ? language.t(axis.titleKey, axis.title) : axis.title"
               embedded
               :refreshable="false"
               :searchable="false"

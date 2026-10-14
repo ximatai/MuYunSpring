@@ -53,6 +53,8 @@ export interface ReferencePickerNavigationItem {
 export interface ReferencePickerNavigationAxis {
   id: string;
   title: string;
+  /** Deployed CODE resource for the axis heading; candidate titles remain business facts. */
+  titleKey?: string;
   dependsOn?: readonly string[];
   items: readonly ReferencePickerNavigationItem[];
 }
@@ -97,6 +99,8 @@ export interface ReferencePickerProvider<
 export interface ReferencePickerColumn {
   key: string;
   title: string;
+  /** Deployed CODE resource for the column heading, resolved in the consumer scope. */
+  titleKey?: string;
   width?: number;
 }
 

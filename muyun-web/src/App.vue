@@ -263,6 +263,7 @@ const metadataWorkspace = createMetadataWorkspace(
     moduleMenuWorkspace.clearFocus();
   },
   (alias, title) => openConfigurationEditor(alias, 'ui', title),
+  platformLanguageContext,
 );
 const pageCompositionWorkspace = createPageCompositionWorkspace(
   createBackendHttpClient(),
@@ -274,6 +275,7 @@ const pageCompositionWorkspace = createPageCompositionWorkspace(
     businessRuleWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const moduleMenuWorkspace = createModuleMenuWorkspace(
   createBackendHttpClient(),
@@ -925,11 +927,14 @@ async function executeBusinessNotificationAction(
       );
     } else {
       if (action.confirmation) {
-        const confirmed = await confirmAction({
-          title: action.label,
-          content: action.confirmation,
-          danger: action.danger,
-        });
+        const confirmed = await confirmAction(
+          {
+            title: action.label,
+            content: action.confirmation,
+            danger: action.danger,
+          },
+          platformLanguageContext,
+        );
         if (!confirmed) return;
       }
       await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
@@ -1073,7 +1078,7 @@ function handleCloseCurrentTab(fallbackPath: string) {
 }
 
 async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([currentTabKey]))) return;
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey], 'close', platformLanguageContext))) return;
   return closeCurrentTabNow(fallbackPath, currentTabKey);
 }
 
@@ -1249,7 +1254,8 @@ function handleToggleTabLock(key: string) {
 }
 
 async function handleCloseTab(key: string) {
-  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key]))) return;
+  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key], 'close', platformLanguageContext)))
+    return;
   const current = startup.value;
   if (!current) return;
 
@@ -1268,7 +1274,12 @@ async function handleCloseTab(key: string) {
 }
 
 async function handleCloseTabs(keys: string[]) {
-  if (!startup.value || keys.length === 0 || !(await confirmDiscardWorkspaceViewState(keys))) return;
+  if (
+    !startup.value ||
+    keys.length === 0 ||
+    !(await confirmDiscardWorkspaceViewState(keys, 'close', platformLanguageContext))
+  )
+    return;
   const current = startup.value;
   if (!current) return;
   const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
@@ -1406,7 +1417,7 @@ function pageRefreshRevisionFor(tabKey: string | undefined) {
 
 /** Rebuilds exactly the requested page instance without touching other cached tabs. */
 async function refreshPage(tabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh'))) return;
+  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh', platformLanguageContext))) return;
   if (!(startup.value?.tabs ?? []).some((tab) => tab.key === tabKey)) return;
   pageRefreshRevisions.value = {
     ...pageRefreshRevisions.value,

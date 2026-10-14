@@ -1,3 +1,4 @@
+import { platformLanguageContext } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -408,6 +409,7 @@ it('emits a page refresh only after its workspace state permits reconstruction',
   await flushPromises();
   expect(discardFeedback.confirm).toHaveBeenCalledWith(
     expect.objectContaining({ title: '刷新页面', okText: '刷新' }),
+    platformLanguageContext,
   );
   expect(wrapper.emitted('refreshPage')).toBeUndefined();
   discardFeedback.confirm.mockResolvedValue(true);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, createStaticResourceTreeClient, useModuleContext } from '@muyun/web-core';
 import { computed, onMounted, ref } from 'vue';
 import {
   CrudRecordListExplorer,
@@ -19,7 +20,7 @@ import {
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import type { PlatformModuleAction } from '@muyun/web-contracts';
-import { createStaticResourceTreeClient, useModuleContext } from '@muyun/web-core';
+
 import {
   confirmAction,
   UiButton,
@@ -32,6 +33,8 @@ import {
   UiTextArea,
   UiTooltip,
 } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModuleActionManagementView' });
 
@@ -59,7 +62,7 @@ const sorting = ref(false);
 const executorDefinitions = ref<ExecutorDefinition[]>([]);
 const management = useFlatCrudManagementState({
   context: actionContext,
-  confirmAction,
+  confirmAction: (options) => confirmAction(options, language),
   emptyDraft: () => emptyActionDraft(props.moduleAlias),
   normalizeDraft: (record) => normalizeActionDraft(record, props.moduleAlias),
   copyRecord: (record) => ({ ...record }),

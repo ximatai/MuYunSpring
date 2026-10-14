@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useLanguageContext, useModuleContext, type ModuleContext } from '@muyun/web-core';
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   RecordDetailPanel,
@@ -28,7 +30,7 @@ import type {
   RoleDataScopePolicyCatalog,
   RolePermissionAction,
 } from '@muyun/web-contracts';
-import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import WorkspaceViewDrawer from '../platform-admin-runtime/WorkspaceViewDrawer.vue';
@@ -41,6 +43,8 @@ import {
   registerRoleAuthorizationWorkspaceHandoffRecipient,
   takeRoleAuthorizationWorkspaceSession,
 } from './roleAuthorizationWorkspaceSession';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleAuthorizationView' });
 
@@ -507,12 +511,15 @@ async function confirmAuthorization() {
 
 async function confirmWorkspaceDismissal() {
   if (!authorizationDirty.value) return true;
-  return confirmAction({
-    title: '放弃未确认的授权配置',
-    content: '当前修改尚未确认，关闭后将丢失这些修改。',
-    okText: '放弃修改',
-    danger: true,
-  });
+  return confirmAction(
+    {
+      title: '放弃未确认的授权配置',
+      content: '当前修改尚未确认，关闭后将丢失这些修改。',
+      okText: '放弃修改',
+      danger: true,
+    },
+    language,
+  );
 }
 
 function dismissWorkspaceView() {

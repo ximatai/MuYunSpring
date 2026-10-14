@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, watch, nextTick } from 'vue';
 import {
+  useLanguageContext,
   createWorkflowClient,
   createModuleContext,
   displayModuleRuntime,
   presentationLabel,
   type ModuleContext,
+  useWorkspaceViewUnsavedState,
 } from '@muyun/web-core';
+import { computed, ref, watch, nextTick } from 'vue';
+
 import type {
   WorkflowAction,
   WorkflowAddSignExplanation,
@@ -38,7 +40,7 @@ import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
 import RecordDetailFields from './RecordDetailFields.vue';
 import AdaptiveHeaderActionBar from './AdaptiveHeaderActionBar.vue';
-import { useWorkspaceViewUnsavedState } from '@muyun/web-core';
+
 import { resolveRecordFormFields } from './recordFormFieldModel';
 import type { RecordFormRecord, RecordFormFieldDescriptor } from './recordFormFieldModel';
 import WorkflowDiagram from './WorkflowDiagram.vue';
@@ -153,18 +155,21 @@ async function mayLeave() {
   if (busy.value || preparing.value) return false;
   return (
     !dirty.value ||
-    (await confirmAction({
-      title: workflowLanguage.t(
-        'platform.screen.WorkflowRecordPanel.discard-unsaved-task-input',
-        '放弃未保存的办理内容？',
-      ),
-      content: workflowLanguage.t(
-        'platform.screen.WorkflowRecordPanel.this-input-has-not-been-submitted-you',
-        '当前填写尚未提交，放弃后可重新进入任务办理。',
-      ),
-      okText: workflowLanguage.t('platform.screen.WorkflowRecordPanel.discard-input', '放弃填写'),
-      danger: true,
-    }))
+    (await confirmAction(
+      {
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.discard-unsaved-task-input',
+          '放弃未保存的办理内容？',
+        ),
+        content: workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.this-input-has-not-been-submitted-you',
+          '当前填写尚未提交，放弃后可重新进入任务办理。',
+        ),
+        okText: workflowLanguage.t('platform.screen.WorkflowRecordPanel.discard-input', '放弃填写'),
+        danger: true,
+      },
+      workflowLanguage,
+    ))
   );
 }
 async function cancelAction() {

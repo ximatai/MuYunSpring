@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { presentPlatformError, presentPlatformSuccess } from '@muyun/platform-components';
 import { loadOptionFieldItems } from '@/platform-components/optionFieldOptionCache';
@@ -104,8 +105,12 @@ import type { HttpClient } from '@muyun/web-core';
 export function createPageCompositionSession(
   http: HttpClient,
   props: { moduleAlias: string; moduleTitle?: string },
-  options: { valid(): boolean; active(): boolean } = { valid: () => true, active: () => true },
+  options: { language?: LanguageContext; valid(): boolean; active(): boolean } = {
+    valid: () => true,
+    active: () => true,
+  },
 ) {
+  const language = options.language ?? platformLanguageContext;
   const scope = effectScope(true);
   let disposed = false;
   const valid = () => !disposed && options.valid();
@@ -849,11 +854,14 @@ export function createPageCompositionSession(
 
     async function applyConfiguredMode() {
       if (!configuredMode.value || isMutating.value) return;
-      const accepted = await confirmAction({
-        title: '切换页面骨架',
-        content:
-          '详情、表单和子表配置会保留。导航区域将按新模式重建，原列表列不会用于树或微列表。保存并发布后才会替换线上页面。是否继续？',
-      });
+      const accepted = await confirmAction(
+        {
+          title: '切换页面骨架',
+          content:
+            '详情、表单和子表配置会保留。导航区域将按新模式重建，原列表列不会用于树或微列表。保存并发布后才会替换线上页面。是否继续？',
+        },
+        language,
+      );
       if (!accepted) return;
       compositionMode.value = configuredMode.value;
       explorerTitleField.value = metadataFields.value.some((field) => field.fieldName === 'title')
@@ -1434,11 +1442,14 @@ export function createPageCompositionSession(
       if (isMutating.value) return;
       const sequence = workspaceLoadSequence;
       if (hasUnsavedChanges.value) {
-        const confirmed = await confirmAction({
-          title: '加载最新配置',
-          content: '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
-          okText: '加载最新配置',
-        });
+        const confirmed = await confirmAction(
+          {
+            title: '加载最新配置',
+            content: '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
+            okText: '加载最新配置',
+          },
+          language,
+        );
         if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
       }
       await loadComposition();
@@ -1993,11 +2004,14 @@ export function createPageCompositionSession(
     async function discardUnsavedChanges() {
       if (!revision.value || !hasUnsavedChanges.value || isMutating.value) return;
       const sequence = workspaceLoadSequence;
-      const confirmed = await confirmAction({
-        title: '放弃本次更改',
-        content: '将放弃本次尚未保存的修改，恢复到打开编辑时的内容。是否继续？',
-        okText: '放弃更改',
-      });
+      const confirmed = await confirmAction(
+        {
+          title: '放弃本次更改',
+          content: '将放弃本次尚未保存的修改，恢复到打开编辑时的内容。是否继续？',
+          okText: '放弃更改',
+        },
+        language,
+      );
       if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
       await hydrateDraft(revision.value);
       componentSession.reset();
@@ -2904,10 +2918,13 @@ export function createPageCompositionSession(
     async function confirmSplitLayout() {
       if (isMutating.value || state.separateDetail.value) return;
       const sequence = workspaceLoadSequence;
-      const confirmed = await confirmAction({
-        title: '分别编排详情和表单',
-        content: '将复制当前布局，详情和表单此后独立维护。保存并生效后应用，是否继续？',
-      });
+      const confirmed = await confirmAction(
+        {
+          title: '分别编排详情和表单',
+          content: '将复制当前布局，详情和表单此后独立维护。保存并生效后应用，是否继续？',
+        },
+        language,
+      );
       if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value || state.separateDetail.value)
         return;
       propertyDrawerOpen.value = false;

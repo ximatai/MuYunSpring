@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { confirmAction, showErrorMessage } from '@muyun/vue-ui-antdv';
 import { workspaceViewBusyStateSources, workspaceViewUnsavedStateSources } from './workspaceViewUnsavedState';
 
@@ -13,16 +14,20 @@ export function hasWorkspaceViewDiscardProtection(keys: readonly string[]): bool
 export async function confirmDiscardWorkspaceViewState(
   keys: readonly string[],
   operation: 'close' | 'refresh' = 'close',
+  language: LanguageContext = platformLanguageContext,
 ): Promise<boolean> {
   const verb = operation === 'refresh' ? '刷新' : '关闭';
   if (hasBusyState(keys, verb)) return false;
   const dirtySources = [...new Set(keys.flatMap(workspaceViewUnsavedStateSources))];
   if (dirtySources.length === 0) return true;
-  const confirmed = await confirmAction({
-    title: operation === 'refresh' ? '刷新页面' : '关闭标签',
-    content: `“${dirtySources.join('、')}”存在未保存的更改，${verb}后将丢失。是否继续？`,
-    okText: verb,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: operation === 'refresh' ? '刷新页面' : '关闭标签',
+      content: `“${dirtySources.join('、')}”存在未保存的更改，${verb}后将丢失。是否继续？`,
+      okText: verb,
+    },
+    language,
+  );
   // A mutation may begin while the user is considering the discard confirmation.
   return confirmed && !hasBusyState(keys, verb);
 }

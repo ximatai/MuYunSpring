@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowReactive, shallowRef, type InjectionKey } from 'vue';
 import {
@@ -21,6 +22,7 @@ export function createMetadataWorkspace(
   openEditor?: (moduleAlias: string, moduleTitle?: string) => void,
   onFocus?: () => void,
   openPageEditor?: (moduleAlias: string, moduleTitle?: string) => void,
+  language: LanguageContext = platformLanguageContext,
 ) {
   let scope = identity();
   const sessions = new Map<string, MetadataEditorSession>();
@@ -45,6 +47,7 @@ export function createMetadataWorkspace(
     if (!sessions.has(moduleAlias)) {
       const owner = scope;
       const created = createMetadataEditorSession(http, {
+        language,
         moduleAlias,
         moduleTitle,
         refreshActivation: (alias) => readModuleActivationFeedback(http, alias),

@@ -1,11 +1,19 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  useModuleContext,
+  useAssistantSurfaceHost,
+  createAssistantTurnRequester,
+} from '@muyun/web-core';
 import { shallowRef, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
-import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
+
 import { createPageCompositionSession } from './pageCompositionSession';
 import { usePageCompositionWorkspace } from './pageCompositionWorkspace';
 import { createPageCompositionAssistantSurface } from './pageCompositionAssistantSurface';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import PageCompositionEditor from './PageCompositionEditor.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
@@ -27,7 +35,7 @@ watch(
       session.value = fallback = createPageCompositionSession(
         context.http,
         { moduleAlias: props.moduleAlias, moduleTitle: props.moduleTitle },
-        { valid: () => true, active: () => active },
+        { language, valid: () => true, active: () => active },
       );
     }
   },

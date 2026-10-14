@@ -7,7 +7,13 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   confirmAction: vi.fn(async () => false),
 }));
 import WorkflowRecordPanel from '@/platform-components/WorkflowRecordPanel.vue';
-import type { ModuleContext } from '@muyun/web-core';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  platformLanguageContext,
+  type LanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 const drawer = defineComponent({
   name: 'RecordDetailDrawer',
   props: ['open'],
@@ -23,7 +29,7 @@ const fields = defineComponent({
     return () => h('div', '业务编辑');
   },
 });
-function fixture(onChanged?: () => void) {
+function fixture(onChanged?: () => void, language?: LanguageContext) {
   const request = vi.fn(
     async ({ path }: { path: string; method?: string; body?: unknown }): Promise<unknown> => {
       if (path.endsWith('/submit/status')) return { displayStatus: 'PROCESSING', instanceId: 'i' };
@@ -80,7 +86,14 @@ function fixture(onChanged?: () => void) {
     },
     crud: { view: vi.fn(async () => ({ id: 'r', version: 1, remark: '原内容' })) },
   } as unknown as ModuleContext<Record<string, unknown>>;
-  const wrapper = mount(WorkflowRecordPanel, {
+  const Host = defineComponent({
+    inheritAttrs: false,
+    setup() {
+      provideLanguageContext(language!);
+      return () => h(WorkflowRecordPanel, { context, recordId: 'r', onChanged });
+    },
+  });
+  const wrapper = mount(language ? Host : WorkflowRecordPanel, {
     props: { context, recordId: 'r', onChanged },
     global: {
       stubs: {
@@ -876,4 +889,31 @@ it('keeps an opened list guide caption reactive instead of freezing its first tr
     wrapper.unmount();
     platformLanguageContext.setLanguage(previous);
   }
+});
+
+it('passes the independent consumer language to task-draft discard confirmation', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  expect(platformLanguageContext.languageTag.value).toBe('zh-CN');
+  const { wrapper, context } = fixture(undefined, language);
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '登记到货')!
+    .trigger('click');
+  await flushPromises();
+  wrapper.findComponent(fields).vm.$emit('update:field', 'remark', '尚未保存');
+  await flushPromises();
+  vi.mocked(confirmAction).mockClear();
+  vi.mocked(confirmAction).mockResolvedValueOnce(false);
+  const panel = wrapper.findComponent(WorkflowRecordPanel);
+  expect(await (panel.vm as unknown as { mayLeave(): Promise<boolean> }).mayLeave()).toBe(false);
+  expect(confirmAction).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'Discard unsaved task input?' }),
+    language,
+  );
+  expect(wrapper.findComponent(fields).props('record').remark).toBe('尚未保存');
+  expect(vi.mocked(context.crud.view)).toHaveBeenCalledOnce();
+  wrapper.unmount();
 });

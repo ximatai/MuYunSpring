@@ -1125,7 +1125,14 @@
       "platform.file-upload.missing-transport": "当前文件字段未配置上传 transport。",
       "platform.file-upload.network": "文件服务网络连接失败。",
       "platform.file-upload.http": "文件服务上传失败（HTTP {status}）。",
-      "platform.datetime.tooltip": "UTC: {datetime}\n时区: {timeZone}"
+      "platform.datetime.tooltip": "UTC: {datetime}\n时区: {timeZone}",
+      "platform.user-picker.column.account": "用户账号",
+      "platform.user-picker.column.employee-name": "职员姓名",
+      "platform.user-picker.column.organization-name": "所属机构",
+      "platform.user-picker.column.department-name": "所属部门",
+      "platform.user-picker.axis.tenant": "租户",
+      "platform.user-picker.axis.organization": "机构",
+      "platform.user-picker.axis.department": "部门"
     }
   },
   "en": {
@@ -2255,7 +2262,14 @@
       "platform.file-upload.missing-transport": "No upload transport is configured for this file field.",
       "platform.file-upload.network": "Could not connect to the file service.",
       "platform.file-upload.http": "File service upload failed (HTTP {status}).",
-      "platform.datetime.tooltip": "UTC: {datetime}\nTime zone: {timeZone}"
+      "platform.datetime.tooltip": "UTC: {datetime}\nTime zone: {timeZone}",
+      "platform.user-picker.column.account": "User account",
+      "platform.user-picker.column.employee-name": "Employee name",
+      "platform.user-picker.column.organization-name": "Organization",
+      "platform.user-picker.column.department-name": "Department",
+      "platform.user-picker.axis.tenant": "Tenant",
+      "platform.user-picker.axis.organization": "Organization",
+      "platform.user-picker.axis.department": "Department"
     }
   },
   "fr": {

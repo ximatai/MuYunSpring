@@ -3032,12 +3032,15 @@ export function useModulePageSession(
       return;
     try {
       if (
-        !(await confirmAction({
-          title: `删除${level.descriptor.title}`,
-          content: `确认删除该${level.descriptor.title}？`,
-          okText: '删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            title: `删除${level.descriptor.title}`,
+            content: `确认删除该${level.descriptor.title}？`,
+            okText: '删除',
+            danger: true,
+          },
+          language,
+        ))
       )
         return;
       markAssistantUserInteraction();
@@ -4210,12 +4213,15 @@ export function useModulePageSession(
     deleting.value = true;
     try {
       if (
-        !(await confirmAction({
-          title: `删除${recordLabel.value}`,
-          content: `确认删除「${recordTitle(record) ?? id}」？`,
-          okText: '删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            title: `删除${recordLabel.value}`,
+            content: `确认删除「${recordTitle(record) ?? id}」？`,
+            okText: '删除',
+            danger: true,
+          },
+          language,
+        ))
       ) {
         return;
       }
@@ -4677,12 +4683,15 @@ export function useModulePageSession(
     if (workflowLeaveGuard && !(await workflowLeaveGuard())) return false;
     if (detailActionBusy.value) return false;
     if (!detailDirty.value) return true;
-    return confirmAction({
-      title: '放弃未保存更改',
-      content: '当前记录存在未保存的更改，关闭后将丢失。是否继续？',
-      okText: '放弃更改',
-      danger: true,
-    });
+    return confirmAction(
+      {
+        title: '放弃未保存更改',
+        content: '当前记录存在未保存的更改，关闭后将丢失。是否继续？',
+        okText: '放弃更改',
+        danger: true,
+      },
+      language,
+    );
   }
 
   function confirmDetailDrawerClose() {

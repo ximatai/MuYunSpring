@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
 import {
+  useLanguageContext,
   presentationLabel,
   displayModuleRuntime,
   createModuleContext,
@@ -10,6 +8,9 @@ import {
   useModuleContext,
   withHttpHeaders,
 } from '@muyun/web-core';
+import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+
 import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
 import { refreshModulePageList } from '@muyun/dynamic-page-runtime';
 import {
@@ -536,14 +537,17 @@ async function mayClosePolicy() {
     tenant = tenantId.value;
   const permitted =
     !policyDirty.value ||
-    (await confirmAction({
-      title: workflowLanguage.t(
-        'platform.screen.WorkflowWorkbenchView.discard-delegation-changes',
-        '放弃未保存的委托设置？',
-      ),
-      okText: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
-      danger: true,
-    }));
+    (await confirmAction(
+      {
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowWorkbenchView.discard-delegation-changes',
+          '放弃未保存的委托设置？',
+        ),
+        okText: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
+        danger: true,
+      },
+      workflowLanguage,
+    ));
   return permitted && delegationIsCurrent(current, tenant);
 }
 async function savePolicy() {

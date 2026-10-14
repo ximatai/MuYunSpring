@@ -87,7 +87,7 @@ async function loadPreview(
     <span v-else>{{
       loading
         ? language.t('platform.screen.RecordImageFileReferencePreview.loading-preview', '正在加载预览')
-        : (error ??
+        : (error?.() ??
           language.t(
             'platform.screen.RecordImageFileReferencePreview.image-preview-unavailable',
             '图片预览不可用',

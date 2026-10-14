@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
 import {
@@ -17,6 +18,7 @@ export function createPageCompositionWorkspace(
   enabled: () => boolean,
   openEditor?: (alias: string) => void,
   onFocus?: () => void,
+  language: LanguageContext = platformLanguageContext,
 ) {
   let owner = identity();
   const sessions = new Map<string, PageCompositionSession>();
@@ -43,6 +45,7 @@ export function createPageCompositionWorkspace(
         http,
         { moduleAlias, moduleTitle },
         {
+          language,
           valid: () => identity() === scope,
           active: () => active.value === value,
         },

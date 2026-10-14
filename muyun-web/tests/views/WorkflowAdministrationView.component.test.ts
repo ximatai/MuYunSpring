@@ -1,3 +1,4 @@
+import { platformLanguageContext } from '@muyun/web-core';
 import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
@@ -96,7 +97,10 @@ it.each(['refresh', 'query', 'select'])(
     await perform();
     expect(request.mock.calls).toHaveLength(before);
     expect(wrapper.findComponent({ name: 'UiTextArea' }).props('value')).toBe('需要保留的运维原因');
-    expect(confirmAction).toHaveBeenCalledWith(expect.objectContaining({ title: '放弃未执行的运维操作？' }));
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '放弃未执行的运维操作？' }),
+      platformLanguageContext,
+    );
     vi.mocked(confirmAction).mockResolvedValue(true);
     await perform();
     expect(request.mock.calls.length).toBeGreaterThan(before);

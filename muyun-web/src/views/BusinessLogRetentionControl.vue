@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext, useModuleContext } from '@muyun/web-core';
+
 import { computed, ref } from 'vue';
 import { presentPlatformError, RecordDetailDrawer } from '@muyun/platform-components';
-import { useModuleContext } from '@muyun/web-core';
+
 import {
   UiActionButton,
   UiEmpty,
@@ -18,6 +20,8 @@ import {
   type BusinessLogEventType,
   type BusinessLogRetentionPolicy,
 } from './businessLogRetentionClient';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'BusinessLogRetentionControl' });
 
@@ -77,10 +81,13 @@ async function confirmClose() {
     return false;
   }
   if (!hasDirtyPolicy.value) return true;
-  return confirmAction({
-    title: '放弃未保存的自动清理设置？',
-    content: '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
-  });
+  return confirmAction(
+    {
+      title: '放弃未保存的自动清理设置？',
+      content: '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
+    },
+    language,
+  );
 }
 
 async function save(policy: BusinessLogRetentionPolicy) {
@@ -99,12 +106,15 @@ async function save(policy: BusinessLogRetentionPolicy) {
 
 async function purge(policy: BusinessLogRetentionPolicy) {
   if (!validDays(policy.retentionDays) || operationPending.value) return;
-  const confirmed = await confirmAction({
-    title: `立即清理${typeLabel(policy.eventType)}`,
-    content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会保存对保留天数的修改，且操作不可恢复。`,
-    requiredText: `清理${typeLabel(policy.eventType)}`,
-    danger: true,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: `立即清理${typeLabel(policy.eventType)}`,
+      content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会保存对保留天数的修改，且操作不可恢复。`,
+      requiredText: `清理${typeLabel(policy.eventType)}`,
+      danger: true,
+    },
+    language,
+  );
   if (!confirmed) return;
   purgingType.value = policy.eventType;
   try {

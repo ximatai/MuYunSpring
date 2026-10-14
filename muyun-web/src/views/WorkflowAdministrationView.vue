@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
 import {
+  useLanguageContext,
   useModuleContext,
   presentationLabel,
   createModuleContext,
@@ -9,6 +8,8 @@ import {
   createWorkflowClient,
   createWorkflowAdminClient,
 } from '@muyun/web-core';
+import { computed, ref, watch } from 'vue';
+
 import type {
   ModuleTitleView,
   WorkflowRenderBundle,
@@ -270,20 +271,26 @@ async function execute() {
   busy.value = true;
   try {
     if (
-      !(await confirmAction({
-        title: workflowLanguage.t(
-          'platform.screen.WorkflowAdministrationView.confirm-action-title',
-          '确认{operation}？',
-          { operation: operationTitle(pending.value.code) },
-        ),
-        content: workflowLanguage.t(
-          'platform.screen.WorkflowAdministrationView.confirm-action-content',
-          '{impact} 原因：{reason}',
-          { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
-        ),
-        danger: true,
-        okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.confirm-execute', '确认执行'),
-      }))
+      !(await confirmAction(
+        {
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-action-title',
+            '确认{operation}？',
+            { operation: operationTitle(pending.value.code) },
+          ),
+          content: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-action-content',
+            '{impact} 原因：{reason}',
+            { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
+          ),
+          danger: true,
+          okText: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-execute',
+            '确认执行',
+          ),
+        },
+        workflowLanguage,
+      ))
     )
       return;
     await client.value.execute(selectedId.value, pending.value.code, reason.value, pending.value.taskId);
@@ -462,14 +469,17 @@ async function mayCloseOperation() {
   const current = revision;
   const accepted =
     !reason.value.trim() ||
-    (await confirmAction({
-      title: workflowLanguage.t(
-        'platform.screen.WorkflowAdministrationView.discard-operation',
-        '放弃未执行的运维操作？',
-      ),
-      danger: true,
-      okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.discard', '放弃填写'),
-    }));
+    (await confirmAction(
+      {
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.discard-operation',
+          '放弃未执行的运维操作？',
+        ),
+        danger: true,
+        okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.discard', '放弃填写'),
+      },
+      workflowLanguage,
+    ));
   return accepted && !busy.value && current === revision && operation === pending.value;
 }
 async function mayCloseDetail() {

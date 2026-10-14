@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { useLanguageContext, actionResultData } from '@muyun/web-core';
+
 import { onMounted, ref } from 'vue';
-import { actionResultData } from '@muyun/web-core';
+
 import {
   UserPicker,
   presentPlatformError,
@@ -16,6 +18,8 @@ import type {
   WebActionResultEnvelope,
   WebPageResponse,
 } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'EmployeeAccountDrawer' });
 
@@ -141,12 +145,15 @@ function userPickerCandidate(user: UserSelectorItem): UserPickerCandidate {
 async function remove() {
   const employeeId = employeeIdOf();
   if (!employeeId || !account.value || saving.value) return;
-  const confirmed = await confirmAction({
-    title: '移除账户',
-    content: '确认移除该职员的账户？该用户账号会同步删除。',
-    okText: '移除',
-    danger: true,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: '移除账户',
+      content: '确认移除该职员的账户？该用户账号会同步删除。',
+      okText: '移除',
+      danger: true,
+    },
+    language,
+  );
   if (!confirmed) return;
   saving.value = true;
   try {

@@ -41,6 +41,10 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 框架前端语言资源在 `src/web-core/locales/languagePacks.json` 登记和交付。新增语言增加资源与登记；第三方控件资源通过 `registerUiLanguageLocales` 在应用装配时登记。平台公共键不提供租户覆盖，业务应用以自身命名空间贡献文案。该语言基础只调整展示文本和请求上下文，不修改业务数据、草稿及保存协议。
 
+通用组件的默认文案按消费者注入的语言上下文解析。命令式确认弹窗使用 `confirmAction(options, language)`；在 Vue 外创建的编辑会话与工作台保护入口也应显式传递所属应用的语言上下文，避免退回全局默认语言。调用方提供的动作标题、确认内容和业务名称仍由调用方负责其来源与翻译。
+
+引用选择器的固定列标题与导航轴标题可以声明 `titleKey`，通过所属应用部署的代码资源解析，`title` 保留原文回退。切换语言只更新这些展示标题，不重新查询候选，不修改候选业务名称、导航轴 ID、引用 ID 或已有选择。
+
 框架内置中英法控件资源，停用状态仍由语言目录治理。`examples/business-web/src/locales/deployment.json` 演示消费端以资源与部署登记增加语言；`samples/published-consumer` 验证独立 Maven 应用的目录、所属应用语言资源、插值原值及请求响应语言。仓库全量验证覆盖三语作用域、主子表草稿与发布刷新，真实浏览器检查长字段标签的列边界与可点击控件。
 
 ## 声明文案与展示快照

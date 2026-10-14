@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import {
+  useLanguageContext,
+  useModuleContext,
+  useAssistantSurfaceHost,
+  createAssistantTurnRequester,
+} from '@muyun/web-core';
+import {
   computed,
   inject,
   isRef,
@@ -11,7 +17,7 @@ import {
   watch,
 } from 'vue';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
+
 import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
 import { createMetadataEditorSession, type MetadataEditorSession } from './metadataEditorSession';
 import { useMetadataWorkspace } from './metadataWorkspace';
@@ -42,6 +48,8 @@ import {
   UiTree,
 } from '@muyun/vue-ui-antdv';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'MetadataGovernanceSurface' });
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string; title?: string }>();
 const context = useModuleContext({ moduleAlias: 'platform.module' });
@@ -53,6 +61,7 @@ const session = computed(() => {
   let current = local.get(props.moduleAlias);
   if (!current) {
     current = createMetadataEditorSession(context.http, {
+      language,
       moduleAlias: props.moduleAlias,
       moduleTitle: props.moduleTitle || props.title,
       valid: () => props.moduleAlias === current?.moduleAlias,

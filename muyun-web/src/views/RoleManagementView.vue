@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  createModuleCrudClient,
+  useModuleContext,
+  withHttpHeaders,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   RecordActionBar,
@@ -48,12 +56,7 @@ import type {
   WebTreeNode,
   WebQueryRequest,
 } from '@muyun/web-contracts';
-import {
-  createModuleCrudClient,
-  useModuleContext,
-  withHttpHeaders,
-  type ModuleContext,
-} from '@muyun/web-core';
+
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
@@ -69,6 +72,8 @@ import {
 import RoleEmploymentGrantDrawer from './RoleEmploymentGrantDrawer.vue';
 import RoleGroupMemberSelector from './RoleGroupMemberSelector.vue';
 import RoleAuthorizationView from './RoleAuthorizationView.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleManagementView' });
 
@@ -1039,12 +1044,15 @@ async function removeRole(record: Partial<Role> | QueryListRecord | undefined) {
     canExecute: (target) => roleContext.can('delete') === true && (target as Role).systemManaged !== true,
     deniedMessage: '当前用户无权删除角色',
     confirm: (target) =>
-      confirmAction({
-        title: '删除角色',
-        content: `确认删除角色「${roleTitle(target)}」？`,
-        okText: '删除',
-        danger: true,
-      }),
+      confirmAction(
+        {
+          title: '删除角色',
+          content: `确认删除角色「${roleTitle(target)}」？`,
+          okText: '删除',
+          danger: true,
+        },
+        language,
+      ),
     execute: (target) =>
       roleRequestContext.value.crud.delete(String(target.id), {
         version: (target as { version: number }).version,
@@ -1104,12 +1112,15 @@ async function mayLeaveRoleDetail() {
 
 async function confirmRoleDetailDismissal() {
   if (!roleDetailDirty.value) return true;
-  return confirmAction({
-    title: '放弃未保存的角色修改',
-    content: '当前角色存在未保存的修改，离开后将丢失。是否继续？',
-    okText: '放弃修改',
-    danger: true,
-  });
+  return confirmAction(
+    {
+      title: '放弃未保存的角色修改',
+      content: '当前角色存在未保存的修改，离开后将丢失。是否继续？',
+      okText: '放弃修改',
+      danger: true,
+    },
+    language,
+  );
 }
 
 function canCommitRoleDetailRequest(recordId: string, requestSeq: number) {

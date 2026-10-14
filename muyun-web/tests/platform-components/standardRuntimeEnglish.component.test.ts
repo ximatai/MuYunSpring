@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, nextTick, type Component } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
-import { createLanguageContext, provideLanguageContext } from '@/web-core';
+import { AppError, platformErrorCodes, createLanguageContext, provideLanguageContext } from '@/web-core';
 import EnabledSelect from '@/platform-components/EnabledSelect.vue';
 import QueryValueEditor from '@/platform-components/QueryValueEditor.vue';
 import QueryCriteriaComposer from '@/platform-components/QueryCriteriaComposer.vue';
@@ -11,6 +11,8 @@ import RecordMetaSection from '@/platform-components/RecordMetaSection.vue';
 import FileTransferUploader from '@/platform-components/FileTransferUploader.vue';
 import { FileTransferUploadError } from '@/platform-components/fileTransferUpload';
 import DateTimeText from '@/platform-components/DateTimeText.vue';
+import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
+import UserPicker from '@/platform-components/UserPicker.vue';
 import UiModal from '@/vue-ui-antdv/components/UiModal.vue';
 
 function scoped(component: Component, props: Record<string, unknown>) {
@@ -188,6 +190,82 @@ describe('standard record UI language scope', () => {
     await nextTick();
     expect(wrapper.get('time').attributes('title')).toContain('时区: Asia/Shanghai');
     expect(wrapper.get('time').text()).toBe(value);
+    wrapper.unmount();
+  });
+
+  it('renders a preview failure as translated text without exposing function source or requesting again', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new AppError('private transport details', { code: platformErrorCodes.networkError }),
+      );
+    const { wrapper, language } = scoped(RecordImageFileReferencePreview, {
+      value: 'file-1',
+      record: { id: 'record-1' },
+      context: { http: { request }, moduleAlias: 'demo.record' },
+      definition: { fieldRef: { fieldName: 'image' }, readAvailable: true },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toBe(language.t('platform.error.NETWORK_ERROR'));
+    expect(wrapper.text()).not.toContain('=>');
+    expect(wrapper.text()).not.toContain('private transport');
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.text()).toBe(language.t('platform.error.NETWORK_ERROR'));
+    expect(request).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('relabels cached user-picker columns and browse axes without changing source-owned candidates or selections', async () => {
+    const navigation = {
+      showTenantNavigation: true,
+      tenants: [{ id: 'tenant-a', title: '租户甲' }],
+      organizations: [{ id: 'org-a', title: '机构甲', tenantId: 'tenant-a' }],
+      departments: [{ id: 'department-a', title: '部门甲', tenantId: 'tenant-a', organizationId: 'org-a' }],
+    };
+    const records = [
+      {
+        id: 'user-a',
+        title: '职员甲',
+        account: 'login-a',
+        employeeName: '职员甲',
+        organizationName: '机构甲',
+        departmentName: '部门甲',
+      },
+    ];
+    const searchPage = vi.fn().mockResolvedValue({ records, total: 1, navigation });
+    const { wrapper, language } = scoped(UserPicker, {
+      value: 'user-a',
+      searchPage,
+      resolveUsers: vi.fn().mockResolvedValue(records),
+    });
+    const user = wrapper.findComponent(UserPicker);
+    await wrapper.get('[aria-label="Search and select"]').trigger('click');
+    await flushPromises();
+    const reference = user.findComponent({ name: 'ReferencePicker' });
+    const table = reference.findComponent({ name: 'UiDataTable' });
+    expect(table.props('columns').map((column: { title: string }) => column.title)).toEqual([
+      'User account',
+      'Employee name',
+      'Organization',
+      'Department',
+    ]);
+    const axes = reference.findAllComponents({ name: 'RecordExplorerPanel' });
+    expect(axes.map((axis) => axis.props('title'))).toEqual(['Tenant', 'Organization', 'Department']);
+    expect(axes[0]!.findComponent({ name: 'UiTree' }).props('nodes')[0].title).toBe('租户甲');
+    const count = searchPage.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(table.props('columns').map((column: { title: string }) => column.title)).toEqual([
+      '用户账号',
+      '职员姓名',
+      '所属机构',
+      '所属部门',
+    ]);
+    expect(axes.map((axis) => axis.props('title'))).toEqual(['租户', '机构', '部门']);
+    expect(searchPage).toHaveBeenCalledTimes(count);
+    expect(user.emitted('update:value')).toBeUndefined();
+    expect(navigation.tenants[0]).toEqual({ id: 'tenant-a', title: '租户甲' });
     wrapper.unmount();
   });
 

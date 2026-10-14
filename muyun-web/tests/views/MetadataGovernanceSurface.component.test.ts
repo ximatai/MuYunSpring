@@ -1,3 +1,4 @@
+import { platformLanguageContext } from '@muyun/web-core';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -885,6 +886,7 @@ it.each([
           lines: expect.arrayContaining([expect.stringContaining(targetValue)]),
         }),
       }),
+      platformLanguageContext,
     );
     if (input.kind === 'DICTIONARY')
       expect(confirmAction).toHaveBeenCalledWith(
@@ -893,6 +895,7 @@ it.each([
             lines: expect.arrayContaining([expect.stringContaining('MULTIPLE')]),
           }),
         }),
+        platformLanguageContext,
       );
     expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
   },
@@ -1258,6 +1261,7 @@ it('keeps the field editor open while save confirmation is pending', async () =>
         lines: expect.arrayContaining([expect.stringContaining('字段将增加普通索引。')]),
       }),
     }),
+    platformLanguageContext,
   );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);
@@ -1844,6 +1848,7 @@ it('keeps committed facts when activation refresh fails and includes warnings in
   await flushPromises();
   expect(confirmAction).toHaveBeenCalledWith(
     expect.objectContaining({ content: expect.stringContaining('注意：已有数据需要注意') }),
+    platformLanguageContext,
   );
   expect(request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'))).toHaveLength(1);
   expect(wrapper.findAll('[data-testid="action-button"]').some((button) => button.text() === '保存')).toBe(
@@ -2519,6 +2524,7 @@ it('shows metadata unknown recovery, retains a manual candidate and requires fre
   await flushPromises();
   expect(confirmAction).toHaveBeenLastCalledWith(
     expect.objectContaining({ content: expect.stringContaining('人工审阅后的名称') }),
+    platformLanguageContext,
   );
   expect(applies()).toHaveLength(2);
   expect(applies()[1]![0].body).toMatchObject({

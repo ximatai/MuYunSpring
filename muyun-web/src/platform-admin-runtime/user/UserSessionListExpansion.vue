@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+
 import { computed, onUnmounted, watch } from 'vue';
 import { UserSessionExpandedSubtable } from '@muyun/platform-components';
 import { confirmAction } from '@muyun/vue-ui-antdv';
@@ -6,6 +8,8 @@ import type { ModulePageListRowExpansionContext } from '@muyun/dynamic-page-runt
 import type { UserSessionView } from '@muyun/web-contracts';
 import { subscribeAppBusinessEvents } from '../realtime';
 import { useUserSessionRows } from './useUserSessionRows';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UserSessionListExpansion' });
 
@@ -48,12 +52,15 @@ onUnmounted(() => {
 async function revoke(session: UserSessionView) {
   const id = userId.value;
   if (!id || session.current || props.context.module.can('revokeSession', id) !== true) return;
-  const confirmed = await confirmAction({
-    title: '下线登录会话',
-    content: '确认下线该登录会话？',
-    okText: '下线',
-    danger: true,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: '下线登录会话',
+      content: '确认下线该登录会话？',
+      okText: '下线',
+      danger: true,
+    },
+    language,
+  );
   if (!confirmed) return;
   await props.context.module.http.request({
     method: 'POST',
@@ -66,12 +73,15 @@ async function revokeAll() {
   const id = userId.value;
   const sessionIds = revokableSessions.value.map((session) => session.id);
   if (!id || sessionIds.length === 0 || props.context.module.can('revokeSessions', id) !== true) return;
-  const confirmed = await confirmAction({
-    title: '全部下线',
-    content: `确认下线该用户的 ${sessionIds.length} 个登录会话？`,
-    okText: '全部下线',
-    danger: true,
-  });
+  const confirmed = await confirmAction(
+    {
+      title: '全部下线',
+      content: `确认下线该用户的 ${sessionIds.length} 个登录会话？`,
+      okText: '全部下线',
+      danger: true,
+    },
+    language,
+  );
   if (!confirmed) return;
   await props.context.module.http.request({
     method: 'POST',

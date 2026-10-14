@@ -1,8 +1,9 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { normalizeError, platformErrorCodes, type AppError } from '@muyun/web-core';
 import { confirmAction as defaultConfirmAction, type UiConfirmOptions } from '@muyun/vue-ui-antdv';
 import type { PlatformActionErrorHandler } from './platformErrorFeedback';
 
-type ConfirmAction = (options: UiConfirmOptions) => Promise<boolean>;
+type ConfirmAction = (options: UiConfirmOptions, language?: LanguageContext) => Promise<boolean>;
 
 /**
  * 软删除冲突定位信息，从后端 RESOURCE_SOFT_DELETED_CONFLICT 错误详情中提取。
@@ -37,6 +38,7 @@ export function extractSoftDeletedConflict(cause: unknown): SoftDeletedConflictI
 }
 
 export interface SoftDeletedConflictHandlerOptions {
+  language?: LanguageContext;
   /** 资源展示名称，用于提示文案，如“租户”、“组织” */
   resourceLabel?: string;
   /** 用户点击“去回收站恢复”时的回调 */
@@ -105,6 +107,7 @@ export function createSoftDeletedConflictErrorHandler<TContext>(
 export function useSoftDeletedConflictHandler(
   options: SoftDeletedConflictHandlerOptions = {},
 ): SoftDeletedConflictHandler {
+  const language = options.language ?? platformLanguageContext;
   const { resourceLabel = '记录', onNavigateToRecycleBin, confirmAction = defaultConfirmAction } = options;
 
   return {
@@ -114,12 +117,15 @@ export function useSoftDeletedConflictHandler(
         return false;
       }
 
-      const confirmed = await confirmAction({
-        title: `该${resourceLabel}已存在于回收站`,
-        content: `${resourceLabel}「${info.recordId}」已被软删除，位于回收站中。您可以前往回收站恢复原${resourceLabel}，或使用其他标识创建新${resourceLabel}。`,
-        okText: '去回收站恢复',
-        cancelText: '知道了',
-      });
+      const confirmed = await confirmAction(
+        {
+          title: `该${resourceLabel}已存在于回收站`,
+          content: `${resourceLabel}「${info.recordId}」已被软删除，位于回收站中。您可以前往回收站恢复原${resourceLabel}，或使用其他标识创建新${resourceLabel}。`,
+          okText: '去回收站恢复',
+          cancelText: '知道了',
+        },
+        language,
+      );
 
       if (confirmed && onNavigateToRecycleBin) {
         onNavigateToRecycleBin(info);
