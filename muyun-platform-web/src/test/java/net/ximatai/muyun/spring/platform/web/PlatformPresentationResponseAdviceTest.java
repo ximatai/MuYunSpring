@@ -27,6 +27,49 @@ class PlatformPresentationResponseAdviceTest {
                 translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @org.springframework.web.bind.annotation.RestController
+    static class CatalogFixture {
+        @org.springframework.web.bind.annotation.GetMapping("/catalog-fixture")
+        public List<OpenApiModuleCatalogItem> catalog() {
+            return List.of(new OpenApiModuleCatalogItem("test.module", "模块", "static", "/test.module/openapi",
+                    TextReference.code("test.title", "模块")));
+        }
+    }
+
+    @Test void serializesCatalogProjectionUsingTheTypedControllerReturnSignature() throws Exception {
+        var source = TextReference.code("test.title", "模块");
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new CatalogFixture())
+                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(mapper))
+                .setControllerAdvice(advice(Map.of(source, "Module"))).build();
+        try (var language = LanguageContext.use("en")) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/catalog-fixture"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].title").value("Module"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].titleText.source.originalText").value("模块"));
+        }
+    }
+
+    @Test void projectsDeclaredAvailabilityReasonsWithoutChangingDecisionsOrLiteralBusinessReasons() {
+        var code = TextReference.code("platform.managed-application.edit-unavailable", "平台托管应用不可编辑");
+        var config = TextReference.configured("config/action/reason", "配置的限制");
+        var input = new PlatformRecordActionAvailability("record", List.of(
+                new PlatformRecordActionAvailability.Action("update", false, code.originalText(), code),
+                new PlatformRecordActionAvailability.Action("submit", false, config.originalText(), config),
+                new PlatformRecordActionAvailability.Action("delete", false, code.originalText()),
+                new PlatformRecordActionAvailability.Action("other", false, "自定义提示", code)));
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice(Map.of(code, "Platform-managed applications cannot be edited", config, "Configured restriction")).project(input));
+            assertThat(output.at("/recordId").asText()).isEqualTo("record");
+            assertThat(output.at("/actions/0/available").asBoolean()).isFalse();
+            assertThat(output.at("/actions/0/reason").asText()).isEqualTo(code.originalText());
+            assertThat(output.at("/actions/0/reasonText/languages/en/text").asText()).isEqualTo("Platform-managed applications cannot be edited");
+            assertThat(output.at("/actions/1/reasonText/languages/en/text").asText()).isEqualTo("Configured restriction");
+            assertThat(output.at("/actions/2/reasonText").isMissingNode()).isTrue();
+            assertThat(output.at("/actions/3/reasonText").isMissingNode()).isTrue();
+        }
+        assertThat(input.actions().getFirst().reason()).isEqualTo(code.originalText());
+    }
+
     @Test void projectsDeclaredQueryLabelsAndApiTitlesWithoutChangingQueriesOrUnsourcedBusinessTitles() throws Exception {
         var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
         var beans = new DefaultListableBeanFactory();

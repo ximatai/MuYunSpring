@@ -1,6 +1,6 @@
 import { shallowRef, computed } from 'vue';
 import { platformLanguageContext, type LanguageContext } from '../language';
-import { originalPresentation, translatedPresentation } from '../presentationTexts';
+import { originalPresentation, translatedPresentation, presentationLabel } from '../presentationTexts';
 import type { TextPresentationDocument } from '@muyun/web-contracts';
 import type { PageActionInvocation, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { normalizeError, type AppError } from '../errors';
@@ -47,6 +47,7 @@ export interface ModuleRecordActionDecision {
   actionCode: string;
   available: boolean;
   reason?: string;
+  reasonText?: import('@muyun/web-contracts').TextPresentation;
 }
 
 export interface ModuleRuntimeContext extends TextPresentationDocument {
@@ -283,10 +284,11 @@ export function createModuleRuntimeContextState(
       return runtimeAbilityCodes(context).includes(ability);
     },
     action: (actionCode, recordId) =>
-      actionState(current.value, recordActionSnapshots.value, actionCode, recordId),
+      actionState(current.value, recordActionSnapshots.value, actionCode, recordId, language),
     runtimeAction: (actionCode) => runtimeAction(current.value, actionCode),
     can: (actionCode, recordId) => {
-      return actionState(current.value, recordActionSnapshots.value, actionCode, recordId)?.available;
+      return actionState(current.value, recordActionSnapshots.value, actionCode, recordId, language)
+        ?.available;
     },
     recordActions,
     recordActionsBatch,
@@ -329,6 +331,7 @@ function actionState(
   records: Map<string, ModuleRecordActionAvailability>,
   actionCode: string,
   recordId?: string,
+  language: LanguageContext = platformLanguageContext,
 ): ModuleActionState | undefined {
   const normalizedActionCode = requireActionCode(actionCode);
   const definition = runtimeAction(context, normalizedActionCode);
@@ -346,7 +349,10 @@ function actionState(
     return {
       actionCode: normalizedActionCode,
       available: recordDecision.available,
-      reason: recordDecision.reason,
+      reason:
+        recordDecision.reason == null
+          ? undefined
+          : presentationLabel(recordDecision.reason, recordDecision.reasonText, language),
       authorized: definition?.authorized,
       recordId: normalizedRecordId,
       definition,

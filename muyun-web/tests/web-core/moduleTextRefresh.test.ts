@@ -68,3 +68,59 @@ it('refreshes translations without replacing execution facts and rejects obsolet
   );
   expect(context.runtime.snapshot()?.uiDescriptor?.defaultEditor?.fields[0].label).toBe('名称');
 });
+
+it('switches retained availability reason resources without refetching or changing action facts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const decision = {
+    actionCode: 'update',
+    available: false,
+    reason: '平台托管应用不可编辑',
+    reasonText: {
+      source: {
+        sourceKind: 'CODE',
+        sourceId: 'platform.managed-application.edit-unavailable',
+        sourceVersion: 'v1',
+        originalText: '平台托管应用不可编辑',
+      },
+      languages: {
+        en: {
+          text: 'Platform-managed applications cannot be edited',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+        'zh-CN': {
+          text: '平台托管应用不可编辑',
+          requestedTag: 'zh-CN',
+          resourceTag: 'zh-CN',
+          missing: false,
+          fallback: false,
+        },
+      },
+    },
+  };
+  const request = vi.fn(async (options: { path: string }) =>
+    options.path === '/test.order/actions/record'
+      ? { recordId: 'record', actions: [decision] }
+      : {
+          moduleAlias: 'test.order',
+          capabilities: [],
+          actions: [{ actionCode: 'update', authorized: true }],
+        },
+  );
+  const context = createModuleContext({
+    moduleAlias: 'test.order',
+    language,
+    http: { request } as unknown as HttpClient,
+  });
+  await context.runtime.ready;
+  await context.recordActions('record');
+  expect(context.action('update', 'record')?.reason).toBe('Platform-managed applications cannot be edited');
+  language.setLanguage('zh-CN');
+  expect(context.action('update', 'record')?.reason).toBe('平台托管应用不可编辑');
+  language.setLanguage('en');
+  expect(context.can('update', 'record')).toBe(false);
+  expect(context.recordActionsSnapshot('record')?.actions[0]).toEqual(decision);
+  expect(request).toHaveBeenCalledTimes(2);
+});

@@ -1738,7 +1738,10 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(single.actions()).filteredOn(action -> "update".equals(action.actionCode()))
                     .singleElement().satisfies(action -> {
                         assertThat(action.available()).isEqualTo("rejected".equals(id));
-                        if (!action.available()) assertThat(action.reason()).contains("不可直接修改");
+                        if (!action.available()) {
+                            assertThat(action.reason()).contains("不可直接修改");
+                            assertThat(action.reasonSource().sourceId()).isEqualTo("platform.approval.update-unavailable");
+                        }
                     });
             assertThat(single.actions()).filteredOn(action -> !"update".equals(action.actionCode()))
                     .allSatisfy(action -> assertThat(action.available()).isTrue());

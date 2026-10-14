@@ -177,7 +177,7 @@ public class ApplicationService extends StandardBusinessService<Application> imp
         if (application == null || !Boolean.TRUE.equals(application.getSystemManaged())) {
             return Optional.empty();
         }
-        return Optional.of(RecordActionAvailabilityDecision.unavailable(managedActionReason(actionCode)));
+        return Optional.of(RecordActionAvailabilityDecision.unavailableText(managedActionReason(actionCode)));
     }
 
     @Override
@@ -197,7 +197,7 @@ public class ApplicationService extends StandardBusinessService<Application> imp
         for (String recordId : recordIds) {
             Application application = applications.get(recordId);
             result.put(recordId, application != null && Boolean.TRUE.equals(application.getSystemManaged())
-                    ? Optional.of(RecordActionAvailabilityDecision.unavailable(managedActionReason(actionCode)))
+                    ? Optional.of(RecordActionAvailabilityDecision.unavailableText(managedActionReason(actionCode)))
                     : Optional.empty());
         }
         return Map.copyOf(result);
@@ -217,13 +217,13 @@ public class ApplicationService extends StandardBusinessService<Application> imp
                         "referencedResource", contributor.resourceKey()));
     }
 
-    private String managedActionReason(String actionCode) {
+    private net.ximatai.muyun.spring.common.i18n.TextReference managedActionReason(String actionCode) {
         if (PlatformAction.DELETE.code().equals(actionCode)) {
-            return "平台托管应用不可删除";
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-application.delete-unavailable", "平台托管应用不可删除");
         }
         if (PlatformAction.ENABLE.code().equals(actionCode) || PlatformAction.DISABLE.code().equals(actionCode)) {
-            return "平台托管应用不可变更启用状态";
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-application.toggle-unavailable", "平台托管应用不可变更启用状态");
         }
-        return "平台托管应用不可编辑";
+        return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-application.edit-unavailable", "平台托管应用不可编辑");
     }
 }

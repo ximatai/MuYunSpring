@@ -135,7 +135,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         }
         return CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(recordId))
-                .map(currentUser -> RecordActionAvailabilityDecision.unavailable(selfAdministrationReason(actionCode)));
+                .map(currentUser -> RecordActionAvailabilityDecision.unavailableText(selfAdministrationReason(actionCode)));
     }
 
     @Override
@@ -526,11 +526,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 });
     }
 
-    private String selfAdministrationReason(String actionCode) {
+    private net.ximatai.muyun.spring.common.i18n.TextReference selfAdministrationReason(String actionCode) {
         if ("forceLogout".equals(actionCode)) {
-            return "不能强制当前登录用户下线";
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("iam.user.self-logout-unavailable", "不能强制当前登录用户下线");
         }
-        return "不能由管理员重置当前登录用户的密码，请使用修改本人密码";
+        return net.ximatai.muyun.spring.common.i18n.TextReference.code("iam.user.self-reset-unavailable", "不能由管理员重置当前登录用户的密码，请使用修改本人密码");
     }
 
     private String requireUsername(String username) {

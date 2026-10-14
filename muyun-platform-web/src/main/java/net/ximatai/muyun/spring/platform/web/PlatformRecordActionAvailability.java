@@ -13,7 +13,9 @@ public record PlatformRecordActionAvailability(
     public record Action(
             String actionCode,
             boolean available,
-            String reason
+            String reason,
+            net.ximatai.muyun.spring.common.i18n.TextReference reasonSource
     ) {
+        public Action(String actionCode, boolean available, String reason) { this(actionCode, available, reason, null); }
     }
 }

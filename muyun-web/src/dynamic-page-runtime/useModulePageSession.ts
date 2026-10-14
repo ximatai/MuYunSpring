@@ -2884,7 +2884,10 @@ export function useModulePageSession(
       iconName,
       danger: key === 'delete',
       disabled: !decision.available,
-      disabledReason: decision.reason,
+      disabledReason:
+        decision.reason == null
+          ? undefined
+          : presentationLabel(decision.reason, decision.reasonText, language),
     };
   }
 

@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.ximatai.muyun.spring.common.i18n.*;
@@ -44,7 +43,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         this.mapper = mapper; this.resolvers = resolvers; this.catalogs = catalogs;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
-        return org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == OpenApiModuleCatalogItem.class ||
+        return parameter.getContainingClass() == PlatformModuleRuntimeActionWebController.class ||
+                org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == OpenApiModuleCatalogItem.class ||
                 net.ximatai.muyun.spring.ability.query.QuerySchema.class.isAssignableFrom(parameter.getParameterType()) ||
                 net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
@@ -87,18 +87,24 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             if (!(output.at(slot.parentPath()) instanceof ObjectNode parent)) continue;
             if (slot.retainOriginal() && (!parent.path(slot.property()).isTextual() ||
                     !parent.path(slot.property()).asText().equals(slot.source().originalText()) ||
-                    slot.source().sourceKind() != TextReference.SourceKind.CODE ||
-                    !slot.source().sourceVersion().equals(TextReference.versionOf(slot.source().originalText())))) continue;
+                    (slot.source().sourceKind() == TextReference.SourceKind.CODE &&
+                    !slot.source().sourceVersion().equals(TextReference.versionOf(slot.source().originalText()))))) continue;
             parent.set(slot.property() + "Text", mapper.valueToTree(TextPresentations.of(slot.source(), Map.of(), prepared, catalog)));
             if (!slot.retainOriginal())
                 parent.put(slot.property(), prepared.resolve(slot.source(), Map.of(), LanguageContext.currentTag()).text());
         }
         if (!constructionBindings.isEmpty() && output instanceof ObjectNode object)
             object.set("textBindings", mapper.valueToTree(constructionBindings));
-        return mapper.convertValue(output, new TypeReference<Object>() { });
+        // Preserve the JSON projection type: List<Map> would still be serialized with the controller's DTO element type.
+        return output;
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema schema) {
+        if (value instanceof PlatformRecordActionAvailability availability) {
+            collect(availability.actions(), path + "/actions", slots);
+        } else if (value instanceof PlatformRecordActionAvailability.Action action) {
+            if (action.reasonSource() != null)
+                slots.add(new Slot(path, "reason", action.reasonSource(), Map.of(), false, true));
+        } else if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema schema) {
             collect(schema.fields(), path + "/fields", slots);
             collect(schema.quickSearch().fieldSchemas(), path + "/quickSearch/fieldSchemas", slots);
         } else if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema.Field field) {
