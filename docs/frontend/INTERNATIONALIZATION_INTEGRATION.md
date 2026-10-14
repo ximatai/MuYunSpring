@@ -59,6 +59,8 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 模块动作同时携带 `titleSource`，其展示绑定位于 `/actions/{index}/title`。静态声明的标准动作复用 `PlatformAction.titleKey()`，自定义动作使用 `action/{moduleAlias}/{actionCode}/title` 部署资源；动态能力自动生成的标准动作同样使用代码来源；持久化目录保留贡献者的归属，平台自动流程动作使用 `platform.workflow.action.{actionCode}.title`；在线元数据动作和在线新增动作使用 `config/action/{moduleAlias}/{actionCode}/title` 配置来源并独立发布。展示投影仅更新标题，动作码、权限、执行入口和原始运行事实保持不变。流程配置的字段与动作候选共同消费展示快照。
 
+查询字段可通过 `QueryField.withTitle(TextReference)` 声明标签来源；标准字段标题及日志查询标签随语言资源部署。字段生成默认常驻条件时继承同一来源，显式字符串标题覆盖不借用旧来源。查询 schema 的字段、快捷搜索字段与常驻条件提供 `titleText`；标准列表随所属语言投影标签，保留未提交的查询草稿、字段身份、操作符和请求值。API 文档目录复用模块标题来源，仅投影目录标签。
+
 模块目录提供共享 `ModuleTitleView` / `ModuleTitleCatalog`，以 `module/{moduleAlias}/title` 部署静态注册模块名称，以 `config/module/{moduleAlias}/title` 独立发布在线目录名称。目录名称与页面自身标题分别保留来源；运行上下文的 `/title`、流程工作台的业务模块列和模块筛选复用目录来源。工作台分页保留原始 `navigation.modules` 映射，并通过 `navigation.moduleTitles` 提供同一目录的展示资源。
 
 前端 `runtime.snapshot()` 保留原文执行事实，`runtime.presentationSnapshot()` 提供随语言更新的展示。声明式表单复用原有字段身份和草稿，语言切换不重新创建业务会话。公共消费者在 `UiLanguageProvider` 内使用模块上下文；同模块注入会话中显式传入 `useModuleContext({ language })` 时只改变展示绑定，继续复用原 HTTP 客户端、权限事实和业务会话；在 Vue 之外创建上下文时，通过 `createModuleContext({ moduleAlias, http, language })` 显式传递所属应用语言上下文。

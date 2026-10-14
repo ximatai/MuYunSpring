@@ -36,3 +36,58 @@ it('uses scoped API directory labels and safe retained errors without requesting
     wrapper.unmount();
   }
 });
+
+it('projects module catalog title resources without translating literals or refetching on a language switch', async () => {
+  vi.mocked(loadOpenApiCatalog).mockClear();
+  const titleText = {
+    source: {
+      sourceKind: 'CONFIG' as const,
+      sourceId: 'config/module/orders/title',
+      sourceVersion: 'v1',
+      originalText: '订单模块',
+    },
+    languages: {
+      en: { text: 'Orders', requestedTag: 'en', missing: false, fallback: false },
+      'zh-CN': { text: '订单模块', requestedTag: 'zh-CN', missing: false, fallback: false },
+    },
+  };
+  const modules = [
+    {
+      moduleAlias: 'orders',
+      title: 'Orders',
+      titleText,
+      moduleKind: 'dynamic' as const,
+      documentPath: '/orders/openapi',
+    },
+    {
+      moduleAlias: 'literal',
+      title: '订单模块',
+      moduleKind: 'static' as const,
+      documentPath: '/literal/openapi',
+    },
+  ];
+  vi.mocked(loadOpenApiCatalog).mockResolvedValueOnce(modules);
+  const language = createLanguageContext({ languageTag: 'en' });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(OpenApiCatalogView);
+      },
+    }),
+  );
+  try {
+    await flushPromises();
+    expect(wrapper.findAll('strong').map((item) => item.text())).toEqual(['Orders', '订单模块']);
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.findAll('strong').map((item) => item.text())).toEqual(['订单模块', '订单模块']);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.findAll('strong')[0]!.text()).toBe('Orders');
+    expect(loadOpenApiCatalog).toHaveBeenCalledOnce();
+    expect(modules[0]!.title).toBe('Orders');
+  } finally {
+    wrapper.unmount();
+  }
+});

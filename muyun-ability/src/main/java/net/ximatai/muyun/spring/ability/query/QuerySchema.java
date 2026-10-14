@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 import java.util.Arrays;
 import java.util.List;
@@ -149,10 +150,19 @@ public record QuerySchema(String scopeName,
                         OptionSelectionMode selectionMode,
                         String optionTitleField,
                         Reference reference,
-                        PersistentControl persistentControl) {
+                        PersistentControl persistentControl,
+                        TextReference titleSource) {
         public Field {
             operators = operators == null ? List.of() : List.copyOf(operators);
             optionTitleField = optionTitleField == null || optionTitleField.isBlank() ? null : optionTitleField.trim();
+        }
+
+        public Field(String name, String title, QueryValueType valueType, List<QueryOperator> operators,
+                     QueryOperator defaultOperator, boolean quickSearch, boolean sortable,
+                     OptionBinding optionBinding, OptionSelectionMode selectionMode, String optionTitleField,
+                     Reference reference, PersistentControl persistentControl) {
+            this(name, title, valueType, operators, defaultOperator, quickSearch, sortable, optionBinding,
+                    selectionMode, optionTitleField, reference, persistentControl, null);
         }
 
         /** Compatibility constructor for callers that do not declare a reference selection contract. */
@@ -189,20 +199,25 @@ public record QuerySchema(String scopeName,
                     field.selectionMode(),
                     field.optionTitleField(),
                     Reference.from(referencePlan, field.reference()),
-                    PersistentControl.from(field.persistentControl())
+                    PersistentControl.from(field.persistentControl()),
+                    field.titleSource()
             );
         }
     }
 
     /** Wire form of a field-owned persistent condition. */
-    public record PersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues) {
+    public record PersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues, TextReference titleSource) {
         public PersistentControl {
             defaultValues = defaultValues == null ? List.of() : List.copyOf(defaultValues);
         }
 
+        public PersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues) {
+            this(id, title, operator, defaultValues, null);
+        }
+
         static PersistentControl from(QueryPersistentControl control) {
             return control == null ? null : new PersistentControl(control.id(), control.title(), control.operator(),
-                    control.defaultValues());
+                    control.defaultValues(), control.titleSource());
         }
     }
 

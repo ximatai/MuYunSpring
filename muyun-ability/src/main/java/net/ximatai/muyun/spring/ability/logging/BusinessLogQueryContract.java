@@ -272,7 +272,7 @@ public final class BusinessLogQueryContract {
     private static QueryField occurredAtField() {
         return new QueryField(OCCURRED_AT, "发生时间", QueryValueType.INSTANT,
                 EnumSet.of(QueryOperator.BETWEEN, QueryOperator.GTE, QueryOperator.LTE), QueryOperator.BETWEEN,
-                true, false, null, null, null).withPersistentControl(QueryOperator.BETWEEN);
+                true, false, null, null, null).withTitle(titleSource(OCCURRED_AT, "发生时间")).withPersistentControl(QueryOperator.BETWEEN);
     }
 
     private static QueryField operatorField() {
@@ -283,7 +283,7 @@ public final class BusinessLogQueryContract {
 
     private static QueryField textField(String name, String title) {
         return new QueryField(name, title, QueryValueType.STRING, EnumSet.of(QueryOperator.EQ), QueryOperator.EQ,
-                false, false, null, null, null);
+                false, false, null, null, null).withTitle(titleSource(name, title));
     }
 
     private static QueryField enumField(String name, String title) {
@@ -292,7 +292,11 @@ public final class BusinessLogQueryContract {
 
     private static QueryField integerField(String name, String title) {
         return new QueryField(name, title, QueryValueType.INTEGER, EnumSet.of(QueryOperator.EQ), QueryOperator.EQ,
-                false, false, null, null, null);
+                false, false, null, null, null).withTitle(titleSource(name, title));
+    }
+
+    private static net.ximatai.muyun.spring.common.i18n.TextReference titleSource(String name, String title) {
+        return net.ximatai.muyun.spring.common.i18n.TextReference.code("query/business-log/" + name + "/title", title);
     }
 
     private static String scopeName(BusinessLogQueryProfile profile) {

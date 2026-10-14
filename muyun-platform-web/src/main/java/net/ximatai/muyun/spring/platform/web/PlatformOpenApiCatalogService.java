@@ -77,6 +77,6 @@ public class PlatformOpenApiCatalogService {
 
     private OpenApiModuleCatalogItem toCatalogItem(PlatformModule module) {
         return new OpenApiModuleCatalogItem(module.getAlias(), module.getTitle(),
-                module.getModuleKind().getCode(), "/" + module.getAlias() + "/openapi");
+                module.getModuleKind().getCode(), "/" + module.getAlias() + "/openapi", module.titleSource());
     }
 }

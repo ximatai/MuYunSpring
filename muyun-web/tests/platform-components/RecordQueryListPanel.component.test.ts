@@ -15,7 +15,7 @@ import {
   type HttpClient,
   type ModuleContext,
 } from '@muyun/web-core';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import type { WebQueryRequest, ResolvedPageListPersistentQueryControlDescriptor } from '@muyun/web-contracts';
 import type { RecordQueryListQueryController } from '@/platform-components/recordQueryListQueryController';
 
 const originalStubs = config.global.stubs;
@@ -1666,4 +1666,108 @@ it('translates declared contributed column headings while retaining rows and the
   expect(raw.title).toBe('业务原名');
   expect(columns[0].title).toBe('在线状态');
   wrapper.unmount();
+});
+
+it('switches sourced query and persistent labels while retaining an unapplied condition draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requests: WebQueryRequest[] = [];
+  const context = createContext({ id: 'note', status: 'OPEN' }, requests);
+  const titleText = {
+    source: {
+      sourceKind: 'CODE' as const,
+      sourceId: 'query/test/status/title',
+      sourceVersion: 'v1',
+      originalText: '状态',
+    },
+    languages: {
+      en: { text: 'Status', requestedTag: 'en', missing: false, fallback: false },
+      'zh-CN': { text: '状态', requestedTag: 'zh-CN', missing: false, fallback: false },
+    },
+  };
+  const querySchema = {
+    scopeName: 'demo.note',
+    quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+    fields: [
+      {
+        name: 'status',
+        title: '状态',
+        titleText,
+        valueType: 'STRING' as const,
+        operators: ['EQ' as const],
+        defaultOperator: 'EQ' as const,
+        persistentControl: {
+          id: 'status',
+          title: '状态',
+          titleText,
+          operator: 'EQ' as const,
+          defaultValues: [],
+        },
+      },
+    ],
+    externalCriteria: [],
+    defaultSorts: [],
+  };
+  const original = JSON.stringify(querySchema);
+  const overrides = ref<ResolvedPageListPersistentQueryControlDescriptor[]>();
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(RecordQueryListPanel, {
+            context,
+            title: 'Records',
+            querySchema,
+            persistentQueryControls: overrides.value,
+          });
+      },
+    }),
+    {
+      global: {
+        stubs: { RecordQueryListPanel: false, ManagementPanelHeader: false, QueryValueEditor: false },
+      },
+    },
+  );
+  try {
+    await flushPromises();
+    const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    const instance = editor.vm.$;
+    expect(editor.props('field').title).toBe('Status');
+    editor.vm.$emit('update:values', ['OPEN']);
+    await flushPromises();
+    const count = requests.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'QueryValueEditor' }).props('field').title).toBe('状态');
+    expect(wrapper.findComponent({ name: 'QueryValueEditor' }).vm.$).toBe(instance);
+    expect(editor.props('values')).toEqual(['OPEN']);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(editor.props('field').title).toBe('Status');
+    expect(editor.props('values')).toEqual(['OPEN']);
+    expect(requests.length).toBe(count);
+    wrapper
+      .find('.record-query-list-persistent-field-actions')
+      .findComponent({ name: 'UiButton' })
+      .vm.$emit('click');
+    await vi.waitFor(() => expect(requests.length).toBe(count + 1));
+    expect(requests.at(-1)?.criteria).toMatchObject({
+      children: [{ fieldName: 'status', values: ['OPEN'] }],
+    });
+    expect(JSON.stringify(querySchema)).toBe(original);
+    overrides.value = [
+      {
+        source: 'FIELD',
+        id: 'status',
+        title: '状态',
+        fieldName: 'status',
+        operator: 'EQ',
+        defaultValues: [],
+      },
+    ];
+    await flushPromises();
+    expect(wrapper.find('.record-query-list-persistent-field-label').text()).toBe('状态');
+  } finally {
+    wrapper.unmount();
+  }
 });

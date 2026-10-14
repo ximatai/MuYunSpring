@@ -27,6 +27,39 @@ class PlatformPresentationResponseAdviceTest {
                 translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @Test void projectsDeclaredQueryLabelsAndApiTitlesWithoutChangingQueriesOrUnsourcedBusinessTitles() throws Exception {
+        var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("languages", catalog);
+        beans.registerSingleton("texts", TextResources.load(getClass().getClassLoader(), catalog));
+        var advice = new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
+        var schema = net.ximatai.muyun.spring.ability.logging.BusinessLogQueryContract.forProfile(
+                net.ximatai.muyun.spring.ability.logging.BusinessLogQueryProfile.LOGIN_AUDIT).schema();
+        var before = mapper.valueToTree(schema);
+        var source = TextReference.configured("config/module/customer/title", "客户名称");
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice.project(schema));
+            assertThat(output.at("/fields/0/title").asText()).isEqualTo("Occurred at");
+            assertThat(output.at("/fields/0/persistentControl/title").asText()).isEqualTo("Occurred at");
+            assertThat(output.at("/fields/0/titleText/source/originalText").asText()).isEqualTo("发生时间");
+            assertThat(output.at("/fields/0/name")).isEqualTo(before.at("/fields/0/name"));
+            assertThat(output.at("/fields/0/operators")).isEqualTo(before.at("/fields/0/operators"));
+            assertThat(output.at("/fields/0/persistentControl/defaultValues")).isEqualTo(before.at("/fields/0/persistentControl/defaultValues"));
+            assertThat(output.get("defaultSorts")).isEqualTo(before.get("defaultSorts"));
+            assertThat(output.get("criteriaComposition")).isEqualTo(before.get("criteriaComposition"));
+            var declared = new OpenApiModuleCatalogItem("customer", "客户名称", "dynamic", "/customer/openapi", source);
+            var literal = new OpenApiModuleCatalogItem("other", "客户名称", "static", "/other/openapi");
+            var projected = mapper.valueToTree(advice(Map.of(source, "Customer name")).project(List.of(declared, literal)));
+            assertThat(projected.at("/0/title").asText()).isEqualTo("Customer name");
+            assertThat(projected.at("/0/documentPath").asText()).isEqualTo("/customer/openapi");
+            assertThat(projected.at("/1/title").asText()).isEqualTo("客户名称");
+            assertThat(projected.at("/1/titleText").isMissingNode()).isTrue();
+        }
+        assertThat(mapper.<com.fasterxml.jackson.databind.JsonNode>valueToTree(schema)).isEqualTo(before);
+        var method = PlatformModuleWebController.class.getMethod("openApiCatalog");
+        assertThat(advice.supports(new org.springframework.core.MethodParameter(method, -1), org.springframework.http.converter.json.MappingJackson2HttpMessageConverter.class)).isTrue();
+    }
+
     @Test void addsFormulaDirectoryResourcesWithoutReplacingOriginalsOrBusinessRules() {
         var function = net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction.declared(
                 "platform.formula.function.TODAY", "TODAY", "日期时间", "获取今天",

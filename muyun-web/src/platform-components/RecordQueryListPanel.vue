@@ -10,6 +10,7 @@ export type {
 
 <script setup lang="ts">
 import {
+  presentationLabel,
   userFacingErrorMessage,
   useLanguageContext,
   displayModuleRuntime,
@@ -342,7 +343,10 @@ const queryFields = computed(() =>
     const display = runtimeListView.value?.fields.find(
       (item) => !item.fieldRef.relationCode && item.fieldRef.fieldName === field.name,
     );
-    return display ? { ...field, title: display.label } : field;
+    return {
+      ...field,
+      title: display?.label ?? presentationLabel(field.title ?? field.name, field.titleText, language),
+    };
   }),
 );
 const queryOptionOptions = computed<Record<string, Option[]>>(() =>
@@ -354,7 +358,7 @@ const queryOptionOptions = computed<Record<string, Option[]>>(() =>
   ),
 );
 const schemaPersistentQueryControls = computed<ResolvedPageListPersistentQueryControlDescriptor[]>(() =>
-  queryFields.value.flatMap((field) => {
+  (schema.value?.fields ?? []).flatMap((field) => {
     const control = field.persistentControl;
     return control
       ? [
@@ -379,7 +383,18 @@ const persistentExternalQueryControls = computed(() =>
   persistentQueryControls.value.filter(isExternalPersistentQueryControl),
 );
 const persistentFieldQueryControls = computed(() =>
-  persistentQueryControls.value.filter(isFieldPersistentQueryControl),
+  persistentQueryControls.value.filter(isFieldPersistentQueryControl).map((control) => {
+    if (props.persistentQueryControls !== undefined) return control;
+    const fieldControl = schema.value?.fields.find(
+      (field) => field.name === control.fieldName,
+    )?.persistentControl;
+    return fieldControl?.id === control.id
+      ? {
+          ...control,
+          title: presentationLabel(control.title, fieldControl.titleText, language),
+        }
+      : control;
+  }),
 );
 const queryReferenceContexts = computed(() =>
   Object.fromEntries(
@@ -1517,7 +1532,7 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
       queryReady.value && !descriptorLoadError.value && props.mode === 'normal' && quickSearchEnabled.value,
     quickSearchFields: quickSearchFields.map((field) => ({
       name: field.name,
-      title: field.title ?? field.name,
+      title: presentationLabel(field.title ?? field.name, field.titleText, language),
       valueType: field.valueType,
     })),
     ...(appliedQuickSearch.value.trim() ? { appliedQuickSearch: appliedQuickSearch.value.trim() } : {}),

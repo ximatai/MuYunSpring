@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { useLanguageContext, normalizeError, userFacingErrorMessage, type AppError } from '@muyun/web-core';
+import {
+  presentationLabel,
+  useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  type AppError,
+} from '@muyun/web-core';
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import { presentPlatformError } from '@muyun/platform-components';
 import { createBackendHttpClient } from '../platform-admin-runtime/backendHttp';
@@ -67,7 +73,7 @@ async function load() {
             ? language.t('platform.screen.OpenApiCatalogView.dynamic', '动态')
             : language.t('platform.screen.OpenApiCatalogView.static', '静态')
         }}</span>
-        <strong>{{ module.title }}</strong>
+        <strong>{{ presentationLabel(module.title, module.titleText, language) }}</strong>
         <code>{{ module.moduleAlias }}</code>
       </button>
       <p v-if="modules.length === 0">

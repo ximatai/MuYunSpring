@@ -5,7 +5,7 @@ import {
   platformCodeTextReference,
   type HttpClient,
 } from '@muyun/web-core';
-import type { PageDescriptor } from '@muyun/web-contracts';
+import type { PageDescriptor, TextPresentation } from '@muyun/web-contracts';
 import { effectiveAuthToken } from './authSession';
 
 export interface ModuleOpenApiDocument {
@@ -72,6 +72,7 @@ export function isOpenApiCatalogPath(pathname: string): boolean {
 export interface OpenApiModuleCatalogItem {
   moduleAlias: string;
   title: string;
+  titleText?: TextPresentation;
   moduleKind: 'static' | 'dynamic';
   documentPath: string;
 }

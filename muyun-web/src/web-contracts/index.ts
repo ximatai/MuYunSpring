@@ -912,6 +912,7 @@ export type QueryOperator =
 export interface QuerySchemaField {
   name: string;
   title?: string;
+  titleText?: TextPresentation;
   valueType: QueryValueType;
   operators: QueryOperator[];
   defaultOperator?: QueryOperator;
@@ -930,6 +931,7 @@ export interface QuerySchemaField {
 export interface QuerySchemaPersistentControl {
   id: string;
   title: string;
+  titleText?: TextPresentation;
   operator: QueryOperator;
   defaultValues?: unknown[];
 }

@@ -44,7 +44,9 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         this.mapper = mapper; this.resolvers = resolvers; this.catalogs = catalogs;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
-        return net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
+        return org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == OpenApiModuleCatalogItem.class ||
+                net.ximatai.muyun.spring.ability.query.QuerySchema.class.isAssignableFrom(parameter.getParameterType()) ||
+                net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
@@ -96,7 +98,20 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         return mapper.convertValue(output, new TypeReference<Object>() { });
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof BusinessRuleGovernanceSnapshot snapshot) {
+        if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema schema) {
+            collect(schema.fields(), path + "/fields", slots);
+            collect(schema.quickSearch().fieldSchemas(), path + "/quickSearch/fieldSchemas", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema.Field field) {
+            if (field.titleSource() != null && field.title().equals(field.titleSource().originalText()))
+                slots.add(new Slot(path, "title", field.titleSource()));
+            collect(field.persistentControl(), path + "/persistentControl", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema.PersistentControl control) {
+            if (control.titleSource() != null && control.title().equals(control.titleSource().originalText()))
+                slots.add(new Slot(path, "title", control.titleSource()));
+        } else if (value instanceof OpenApiModuleCatalogItem item) {
+            if (item.titleSource() != null && item.title().equals(item.titleSource().originalText()))
+                slots.add(new Slot(path, "title", item.titleSource()));
+        } else if (value instanceof BusinessRuleGovernanceSnapshot snapshot) {
             collect(snapshot.functions(), path + "/functions", slots);
         } else if (value instanceof BusinessRulePreview preview) {
             collect(preview.snapshot(), path + "/snapshot", slots);
