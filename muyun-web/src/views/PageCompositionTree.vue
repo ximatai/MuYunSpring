@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { pageActionEntryTitle, pageActionIntent } from '@muyun/web-core';
 import {
   canPlaceActionInAnchor,
@@ -34,6 +35,8 @@ import {
   type CompositionPlacementSource,
   type CompositionPlacementTarget,
 } from './pageCompositionPlacement';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PageCompositionTree' });
 
@@ -146,7 +149,11 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   const groupNodes = props.formGroups.map((group) => ({
     key: `ui:group:form:${group.id}`,
     title: group.title,
-    secondary: group.fields.length ? `${group.fields.length} 个字段` : '空分组 · 可拖入字段',
+    secondary: group.fields.length
+      ? language.t('platform.screen.PageCompositionTree.value-fields', '{value1} 个字段', {
+          value1: group.fields.length,
+        })
+      : language.t('platform.screen.PageCompositionTree.empty-group-drop-fields-here', '空分组 · 可拖入字段'),
     isLeaf: group.fields.length === 0,
     actions: nodeActions('configure', 'remove'),
     children: group.fields.map((field) => groupFieldNode(group.id, field)),
@@ -154,8 +161,14 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   const relationNodes = props.formRelations.map((relation) => ({
     key: `ui:relation:form:${relation.id}`,
     title: relation.title,
-    secondary: relation.fields.length ? `${relation.fields.length} 个展示字段` : '尚未选择字段',
-    tag: relation.unavailable ? '来源失效' : undefined,
+    secondary: relation.fields.length
+      ? language.t('platform.screen.PageCompositionTree.value-display-fields', '{value1} 个展示字段', {
+          value1: relation.fields.length,
+        })
+      : language.t('platform.screen.PageCompositionTree.no-fields-selected', '尚未选择字段'),
+    tag: relation.unavailable
+      ? language.t('platform.screen.PageCompositionTree.source-unavailable', '来源失效')
+      : undefined,
     muted: relation.unavailable,
     isLeaf: relation.fields.length === 0,
     actions: nodeActions('configure', 'remove'),
@@ -165,13 +178,16 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   const nodes: UiTreeNode[] = [
     {
       key: 'ui:slot:list',
-      title: props.skeleton?.navigationTitle ?? '列表',
+      title: props.skeleton?.navigationTitle ?? language.t('platform.page.composition.list', '列表'),
       isLeaf: false,
       children: [
         {
           key: 'ui:template:list:quick-search',
-          title: '快速查询',
-          secondary: '拖入文本字段 · 双击编辑占位提示',
+          title: language.t('platform.screen.PageCompositionTree.quick-search', '快速查询'),
+          secondary: language.t(
+            'platform.screen.PageCompositionTree.drop-text-fields-here-double-click-to-edit-the-placeholder',
+            '拖入文本字段 · 双击编辑占位提示',
+          ),
           actions: nodeActions('configure'),
           isLeaf: !props.quickSearchFields?.length,
           children: (props.quickSearchFields ?? []).map((field) => ({
@@ -186,10 +202,17 @@ const treeNodes = computed<UiTreeNode[]>(() => {
           ? [
               {
                 key: 'ui:template:list:query-summaries',
-                title: '汇总统计',
+                title: language.t('platform.screen.PageCompositionEditor.query-summaries', '汇总统计'),
                 secondary: props.querySummaries?.length
-                  ? `${props.querySummaries.length} 项 · 完整筛选结果`
-                  : '配置记录数、数值合计或按字段分组统计',
+                  ? language.t(
+                      'platform.screen.PageCompositionTree.value-summaries-complete-filtered-results',
+                      '{value1} 项 · 完整筛选结果',
+                      { value1: props.querySummaries.length },
+                    )
+                  : language.t(
+                      'platform.screen.PageCompositionTree.configure-record-counts-numeric-totals-or-grouped-summaries',
+                      '配置记录数、数值合计或按字段分组统计',
+                    ),
                 actions: nodeActions('configure'),
                 isLeaf: !props.querySummaries?.length,
                 children: (props.querySummaries ?? []).map((summary) => ({
@@ -198,13 +221,54 @@ const treeNodes = computed<UiTreeNode[]>(() => {
                   secondary:
                     props.summaryDescriptions?.[summary.key] ??
                     (summary.source === 'MATCHED_COUNT'
-                      ? '记录数'
+                      ? language.t('platform.screen.QueryGroupedSummary.record-count', '记录数')
                       : summary.source === 'SUM'
-                        ? `合计 · ${summary.fieldName ?? '未选择数值字段'}`
+                        ? language.t('platform.screen.PageCompositionTree.total-value', '合计 · {value1}', {
+                            value1:
+                              summary.fieldName ??
+                              language.t(
+                                'platform.screen.PageCompositionTree.no-numeric-field-selected',
+                                '未选择数值字段',
+                              ),
+                          })
                         : summary.source === 'GROUPED'
-                          ? `按${summary.groupByField ?? '未选择分组字段'}分组${summary.fieldName ? ` · ${summary.fieldName}合计` : ' · 记录数'}`
-                          : `业务指标 · ${summary.contributorKey ?? '未选择'}`),
-                  tag: props.summaryIssues?.[summary.key] ? '需修正' : undefined,
+                          ? language.t(
+                              'platform.screen.PageCompositionTree.group-by-valuevalue',
+                              '按{value1}分组{value2}',
+                              {
+                                value1:
+                                  summary.groupByField ??
+                                  language.t(
+                                    'platform.screen.PageCompositionTree.no-grouping-field-selected',
+                                    '未选择分组字段',
+                                  ),
+                                value2: summary.fieldName
+                                  ? language.t(
+                                      'platform.screen.PageCompositionTree.value-total',
+                                      ' · {value1}合计',
+                                      { value1: summary.fieldName },
+                                    )
+                                  : language.t(
+                                      'platform.screen.PageCompositionTree.record-count',
+                                      ' · 记录数',
+                                    ),
+                              },
+                            )
+                          : language.t(
+                              'platform.screen.PageCompositionTree.business-metric-value',
+                              '业务指标 · {value1}',
+                              {
+                                value1:
+                                  summary.contributorKey ??
+                                  language.t(
+                                    'platform.screen.recordDisplayProjection.not-selected',
+                                    '未选择',
+                                  ),
+                              },
+                            )),
+                  tag: props.summaryIssues?.[summary.key]
+                    ? language.t('platform.screen.PageCompositionTree.needs-correction', '需修正')
+                    : undefined,
                   actions: nodeActions('configure'),
                   isLeaf: true,
                 })),
@@ -213,21 +277,31 @@ const treeNodes = computed<UiTreeNode[]>(() => {
           : []),
         {
           key: 'ui:slot:list:fields',
-          title: props.skeleton?.fieldGroupTitle ?? '列表展示字段',
+          title:
+            props.skeleton?.fieldGroupTitle ??
+            language.t('platform.screen.PageCompositionTree.list-display-fields', '列表展示字段'),
           secondary:
             props.skeleton?.columns === false
               ? undefined
               : props.listFields.length
-                ? '拖拽调整顺序'
-                : '拖动字段到此处',
+                ? language.t('platform.screen.PageCompositionTree.drag-to-reorder', '拖拽调整顺序')
+                : language.t('platform.screen.PageCompositionTree.drop-fields-here', '拖动字段到此处'),
           isLeaf: props.skeleton?.columns === false ? false : listFieldNodes.length === 0,
           children:
             props.skeleton?.columns === false
               ? [
                   {
                     key: 'ui:explorer-title',
-                    title: '标题',
-                    secondary: props.explorerTitle ? '必填 · 拖入替换' : '必填 · 拖入字段',
+                    title: language.t('platform.screen.CrudRecordListExplorer.title', '标题'),
+                    secondary: props.explorerTitle
+                      ? language.t(
+                          'platform.screen.PageCompositionTree.required-drop-to-replace',
+                          '必填 · 拖入替换',
+                        )
+                      : language.t(
+                          'platform.screen.PageCompositionTree.required-drop-fields-here',
+                          '必填 · 拖入字段',
+                        ),
                     isLeaf: !props.explorerTitle,
                     children: props.explorerTitle
                       ? [{ key: 'ui:binding:explorer-title:field', title: props.explorerTitle, isLeaf: true }]
@@ -235,8 +309,14 @@ const treeNodes = computed<UiTreeNode[]>(() => {
                   },
                   {
                     key: 'ui:explorer-secondary',
-                    title: '辅助信息',
-                    secondary: '可选 · 拖入替换',
+                    title: language.t(
+                      'platform.screen.PageCompositionTree.secondary-information',
+                      '辅助信息',
+                    ),
+                    secondary: language.t(
+                      'platform.screen.PageCompositionTree.optional-drop-to-replace',
+                      '可选 · 拖入替换',
+                    ),
                     isLeaf: !props.explorerSecondary,
                     children: props.explorerSecondary
                       ? [
@@ -256,7 +336,8 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     },
     {
       key: 'ui:slot:form',
-      title: props.layoutTitle ?? '详情 / 表单',
+      title:
+        props.layoutTitle ?? language.t('platform.screen.PageCompositionTree.details-form', '详情 / 表单'),
       actions: nodeActions('add-group', props.separateDetail ? 'merge-layout' : 'split-layout'),
       isLeaf: false,
       children: [
@@ -269,19 +350,38 @@ const treeNodes = computed<UiTreeNode[]>(() => {
       ],
     },
     ...(props.separateDetail && relationNodes.length
-      ? [{ key: 'ui:relations', title: '关联明细（共用）', children: relationNodes }]
+      ? [
+          {
+            key: 'ui:relations',
+            title: language.t(
+              'platform.screen.PageCompositionTree.related-details-shared',
+              '关联明细（共用）',
+            ),
+            children: relationNodes,
+          },
+        ]
       : []),
     ...(['page', 'detail', 'form'] as const).map((anchor) => ({
       key: `ui:action-anchor:${anchor}`,
       title: actionAnchorTitle(anchor),
       secondary: props.actionPlacements?.some((placement) => placement.anchor === anchor)
-        ? '拖拽调整顺序'
-        : '拖入模块动作',
+        ? language.t('platform.screen.PageCompositionTree.drag-to-reorder', '拖拽调整顺序')
+        : language.t('platform.screen.PageCompositionTree.drop-module-actions-here', '拖入模块动作'),
       isLeaf:
         anchor !== 'form' && !(props.actionPlacements ?? []).some((placement) => placement.anchor === anchor),
       children: [
         ...(anchor === 'form'
-          ? [{ key: 'ui:fixed:cancel', title: '取消', secondary: '模板固定 · 放弃编辑', isLeaf: true }]
+          ? [
+              {
+                key: 'ui:fixed:cancel',
+                title: language.t('platform.action.cancel', '取消'),
+                secondary: language.t(
+                  'platform.screen.PageCompositionTree.template-entry-discard-editing',
+                  '模板固定 · 放弃编辑',
+                ),
+                isLeaf: true,
+              },
+            ]
           : []),
         ...actionButtons(props.actionPlacements ?? [])
           .filter((placement) => placement.anchor === anchor)
@@ -298,7 +398,11 @@ const treeNodes = computed<UiTreeNode[]>(() => {
 });
 
 function actionAnchorTitle(anchor: PageCompositionActionPlacement['anchor']) {
-  return anchor === 'page' ? '页面动作' : anchor === 'detail' ? '详情动作' : '表单动作';
+  return anchor === 'page'
+    ? language.t('platform.screen.PageCompositionTree.page-actions', '页面动作')
+    : anchor === 'detail'
+      ? language.t('platform.screen.PageCompositionTree.details-actions', '详情动作')
+      : language.t('platform.screen.PageCompositionTree.form-actions', '表单动作');
 }
 
 function actionNode(anchor: PageCompositionActionPlacement['anchor'], actionCode: string): UiTreeNode {
@@ -315,25 +419,34 @@ function actionNode(anchor: PageCompositionActionPlacement['anchor'], actionCode
     title:
       entry.title ??
       (button === 'status'
-        ? '状态切换'
+        ? language.t('platform.screen.PageCompositionTree.state-toggle', '状态切换')
         : !standard && action?.title
           ? action.title
-          : pageActionEntryTitle(entry)),
+          : pageActionEntryTitle(entry, language)),
     secondary: hidden
-      ? '已隐藏'
+      ? language.t('platform.screen.PageCompositionTree.hidden', '已隐藏')
       : button === 'save'
-        ? '新建 / 编辑'
+        ? language.t('platform.screen.PageCompositionTree.create-edit', '新建 / 编辑')
         : button === 'status'
-          ? '随记录状态显示启用或停用'
+          ? language.t(
+              'platform.screen.PageCompositionTree.show-enable-or-disable-according-to-the-record-state',
+              '随记录状态显示启用或停用',
+            )
           : undefined,
     muted: hidden,
-    tag: !action ? '来源失效' : action.bindingPending ? '待绑定' : undefined,
+    tag: !action
+      ? language.t('platform.screen.PageCompositionTree.source-unavailable', '来源失效')
+      : action.bindingPending
+        ? language.t('platform.screen.PageCompositionTree.binding-pending', '待绑定')
+        : undefined,
     actions: standard
       ? [
           ...(hidden ? [] : nodeActions('configure')),
           {
             key: 'toggle-visibility',
-            title: hidden ? '显示' : '隐藏',
+            title: hidden
+              ? language.t('platform.screen.PageCompositionTree.show', '显示')
+              : language.t('platform.screen.PageCompositionTree.hide', '隐藏'),
             iconName: hidden ? 'eye-off' : 'eye',
             disabled: props.disabled,
           },
@@ -375,8 +488,12 @@ function fieldNode(slot: 'list' | 'form', field: PageComposerField): UiTreeNode 
   return {
     key: `ui:field:${slot}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.pending ? '新增' : field.fieldName,
-    tag: field.unavailable ? '来源失效' : undefined,
+    secondary: field.pending
+      ? language.t('platform.screen.ManagedDetailRelationSurface.add', '新增')
+      : field.fieldName,
+    tag: field.unavailable
+      ? language.t('platform.screen.PageCompositionTree.source-unavailable', '来源失效')
+      : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
     isLeaf: true,
@@ -387,8 +504,12 @@ function groupFieldNode(groupId: string, field: PageComposerField): UiTreeNode {
   return {
     key: `ui:group-field:form:${groupId}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.pending ? '新增' : field.fieldName,
-    tag: field.unavailable ? '来源失效' : undefined,
+    secondary: field.pending
+      ? language.t('platform.screen.ManagedDetailRelationSurface.add', '新增')
+      : field.fieldName,
+    tag: field.unavailable
+      ? language.t('platform.screen.PageCompositionTree.source-unavailable', '来源失效')
+      : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
     isLeaf: true,
@@ -399,8 +520,12 @@ function relationFieldNode(relationId: string, field: PageComposerField): UiTree
   return {
     key: `ui:relation-field:form:${relationId}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.pending ? '新增' : field.fieldName,
-    tag: field.unavailable ? '来源失效' : undefined,
+    secondary: field.pending
+      ? language.t('platform.screen.ManagedDetailRelationSurface.add', '新增')
+      : field.fieldName,
+    tag: field.unavailable
+      ? language.t('platform.screen.PageCompositionTree.source-unavailable', '来源失效')
+      : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
     isLeaf: true,
@@ -413,12 +538,37 @@ function flattenNodes(nodes: UiTreeNode[]): UiTreeNode[] {
 
 function nodeActions(...keys: ComposerNodeAction[]): UiRecordInlineAction[] {
   const definitions: Record<ComposerNodeAction, UiRecordInlineAction> = {
-    'split-layout': { key: 'split-layout', title: '分别编排', iconName: 'edit' },
-    'merge-layout': { key: 'merge-layout', title: '恢复共用', iconName: 'edit' },
-    configure: { key: 'configure', title: '配置', iconName: 'edit' },
-    remove: { key: 'remove', title: '移除', iconName: 'delete', danger: true },
-    'toggle-visibility': { key: 'toggle-visibility', title: '隐藏', iconName: 'eye' },
-    'add-group': { key: 'add-group', title: '添加分组', iconName: 'plus' },
+    'split-layout': {
+      key: 'split-layout',
+      title: language.t('platform.screen.PageCompositionTree.separate-layouts', '分别编排'),
+      iconName: 'edit',
+    },
+    'merge-layout': {
+      key: 'merge-layout',
+      title: language.t('platform.screen.PageCompositionEditor.restore-sharing', '恢复共用'),
+      iconName: 'edit',
+    },
+    configure: {
+      key: 'configure',
+      title: language.t('platform.screen.PageCompositionTree.configure', '配置'),
+      iconName: 'edit',
+    },
+    remove: {
+      key: 'remove',
+      title: language.t('platform.screen.RecordPermissionDialog.remove', '移除'),
+      iconName: 'delete',
+      danger: true,
+    },
+    'toggle-visibility': {
+      key: 'toggle-visibility',
+      title: language.t('platform.screen.PageCompositionTree.hide', '隐藏'),
+      iconName: 'eye',
+    },
+    'add-group': {
+      key: 'add-group',
+      title: language.t('platform.screen.PageCompositionTree.add-group', '添加分组'),
+      iconName: 'plus',
+    },
   };
   return keys.map((key) => ({ ...definitions[key], disabled: props.disabled }));
 }

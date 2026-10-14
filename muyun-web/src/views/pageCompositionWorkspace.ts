@@ -1,3 +1,4 @@
+import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
@@ -146,14 +147,26 @@ export function createPageCompositionWorkspace(
               Array.isArray(input) ||
               Object.keys(input).some((key) => key !== 'moduleAlias')
             )
-              throw new OperationUsageError('请提供真实模块标识');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             const alias = (input as { moduleAlias?: unknown }).moduleAlias;
             if (
               typeof alias !== 'string' ||
               alias.length > 128 ||
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
             )
-              throw new OperationUsageError('请提供真实模块标识');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             return alias;
           },
           async execute(alias: string, context) {

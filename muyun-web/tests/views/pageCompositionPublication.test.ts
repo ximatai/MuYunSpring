@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import { createPageCompositionPublicationCommand } from '@/views/pageCompositionPublication';
 
@@ -42,4 +43,30 @@ describe('page composition publication recovery', () => {
       expect(readRevisions).not.toHaveBeenCalled();
     },
   );
+});
+
+it('renders publication receipts in the owning language without changing the reviewed body or content digest', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn().mockResolvedValue(1);
+  const revision = { id: 'revision-1', version: 2, uiTreeJson: '{"nodes":[{"title":"业务原文"}]}' };
+  const original = structuredClone(revision);
+  const command = createPageCompositionPublicationCommand({
+    http: { request },
+    language,
+    variantId: 'variant-1',
+    revision,
+    previewBody: { revision: original },
+    requireCurrent: vi.fn(),
+    readRevisions: vi.fn(async () => [{ ...original, status: 'published' as const }]),
+  });
+  const reference = await command.receiptReference();
+  const receipt = await command.execute();
+  expect(receipt.receipt.title).toBe('Page saved and activated');
+  expect(receipt.receipt.lines).toEqual(['The business page will use this confirmed configuration.']);
+  language.setLanguage('zh-CN');
+  expect(await command.receiptReference()).toEqual(reference);
+  expect(await command.lookup()).toMatchObject({ title: '页面已保存并生效' });
+  expect(revision).toEqual(original);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1]).toMatchObject([{ body: original }]);
 });

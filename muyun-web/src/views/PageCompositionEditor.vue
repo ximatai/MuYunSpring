@@ -11,7 +11,7 @@ import {
 } from '@muyun/platform-components';
 
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { pageActionEntryDescription, pageActionEntryTitle, useLanguageContext } from '@muyun/web-core';
+import { pageActionEntryDescription, pageActionEntryTitle, provideLanguageContext } from '@muyun/web-core';
 import {
   UiButton,
   UiTree,
@@ -35,11 +35,11 @@ import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from './pageCompositionDragPayload
 
 import type { PageCompositionSession } from './pageCompositionSession';
 
-const language = useLanguageContext();
-
 const props = withDefaults(defineProps<{ session: PageCompositionSession; retained?: boolean }>(), {
   retained: false,
 });
+const language = props.session.language;
+provideLanguageContext(language);
 const {
   state,
   paletteMode,
@@ -204,7 +204,9 @@ onDeactivated(props.session.deactivate);
       </template>
       <template #actions>
         <div class="page-composition-actions">
-          <UiButton v-if="removedDraft" :disabled="isMutating" @click="undoRemoval">撤销移除</UiButton>
+          <UiButton v-if="removedDraft" :disabled="isMutating" @click="undoRemoval">{{
+            language.t('platform.screen.PageCompositionEditor.undo-removal', '撤销移除')
+          }}</UiButton>
           <UiButton
             v-if="!revision"
             :loading="saving"
@@ -212,11 +214,15 @@ onDeactivated(props.session.deactivate);
             type="primary"
             @click="initializeComposition"
           >
-            {{ publishedRevision ? '继续编辑' : '配置页面' }}
+            {{
+              publishedRevision
+                ? language.t('platform.screen.RecordExternalChangeNotice.dismissTitle', '继续编辑')
+                : language.t('platform.screen.PageCompositionEditor.configure-page', '配置页面')
+            }}
           </UiButton>
           <template v-else>
             <UiButton v-if="hasUnsavedChanges" :disabled="isMutating" @click="discardUnsavedChanges">
-              放弃本次更改
+              {{ language.t('platform.screen.PageCompositionEditor.discard-these-changes', '放弃本次更改') }}
             </UiButton>
             <UiButton
               type="primary"
@@ -240,7 +246,7 @@ onDeactivated(props.session.deactivate);
               "
               @click="saveAndApply"
             >
-              保存并生效
+              {{ language.t('platform.screen.PageCompositionEditor.save-and-activate', '保存并生效') }}
             </UiButton>
           </template>
         </div>
@@ -252,21 +258,47 @@ onDeactivated(props.session.deactivate);
       class="page-composition-candidate"
       data-testid="page-composition-candidate"
     >
-      <summary>配置变更（尚未保存）</summary>
+      <summary>
+        {{
+          language.t(
+            'platform.screen.PageCompositionEditor.configuration-changes-unsaved',
+            '配置变更（尚未保存）',
+          )
+        }}
+      </summary>
       <ul>
         <li v-for="(change, index) in candidateChanges" :key="index">{{ change }}</li>
       </ul>
-      <p>预览使用当前草稿。点击“保存并生效”后才会发布；可继续手工修改或放弃本次更改。</p>
+      <p>
+        {{
+          language.t(
+            'platform.screen.PageCompositionEditor.the-preview-uses-the-current-draft-publish-with-save-and',
+            '预览使用当前草稿。点击“保存并生效”后才会发布；可继续手工修改或放弃本次更改。',
+          )
+        }}
+      </p>
     </details>
     <div v-if="configuredMode !== compositionMode" class="page-composition-mode">
-      <UiButton :disabled="isMutating" @click="applyConfiguredMode">采用概览中的呈现方式</UiButton>
+      <UiButton :disabled="isMutating" @click="applyConfiguredMode">{{
+        language.t(
+          'platform.screen.PageCompositionEditor.use-the-presentation-mode-from-the-overview',
+          '采用概览中的呈现方式',
+        )
+      }}</UiButton>
     </div>
     <ManagementWorkspace class="page-composition-workspace__body" layout="composer" :explorer-count="2">
-      <ManagementExplorerColumn collapsible :title="editorMode === 'fields' ? '字段来源' : paletteTitle">
+      <ManagementExplorerColumn
+        collapsible
+        :title="
+          editorMode === 'fields'
+            ? language.t('platform.screen.PageCompositionEditor.field-sources', '字段来源')
+            : paletteTitle
+        "
+      >
         <div class="page-composition-palette">
           <RecordExplorerPanel
             v-if="editorMode === 'fields' && paletteMode === 'components'"
-            title="组件库"
+            :title="language.t('platform.screen.PageCompositionEditor.component-library', '组件库')"
             :searchable="false"
             :refresh-disabled="isMutating || componentCatalogLoading"
             @refresh="loadComponentCatalog"
@@ -275,18 +307,26 @@ onDeactivated(props.session.deactivate);
               <ManagementTabs
                 v-model:active-key="paletteMode"
                 :tabs="[
-                  { key: 'fields', title: '元数据' },
-                  { key: 'components', title: '组件库' },
+                  { key: 'fields', title: language.t('platform.governance.tab.metadata', '元数据') },
+                  {
+                    key: 'components',
+                    title: language.t('platform.screen.PageCompositionEditor.component-library', '组件库'),
+                  },
                 ]"
                 :disabled="isMutating"
-                label="字段来源"
+                :label="language.t('platform.screen.PageCompositionEditor.field-sources', '字段来源')"
                 appearance="header"
               />
             </template>
 
             <div class="page-composition-component-list">
               <p class="page-composition-component-help">
-                拖入组件新建数据项；同一数据在多处展示，请复用已有字段。
+                {{
+                  language.t(
+                    'platform.screen.PageCompositionEditor.drag-a-component-to-create-a-data-item-reuse-an',
+                    '拖入组件新建数据项；同一数据在多处展示，请复用已有字段。',
+                  )
+                }}
               </p>
               <UiTree
                 v-if="componentCatalog"
@@ -301,7 +341,20 @@ onDeactivated(props.session.deactivate);
                 :allow-drop="() => false"
                 data-testid="page-composer-component-library"
               />
-              <UiEmpty v-else :description="componentCatalogLoading ? '加载组件库' : '当前无法新增数据项'" />
+              <UiEmpty
+                v-else
+                :description="
+                  componentCatalogLoading
+                    ? language.t(
+                        'platform.screen.PageCompositionEditor.loading-component-library',
+                        '加载组件库',
+                      )
+                    : language.t(
+                        'platform.screen.PageCompositionEditor.new-data-items-cannot-be-added-right-now',
+                        '当前无法新增数据项',
+                      )
+                "
+              />
             </div>
           </RecordExplorerPanel>
           <MetadataSourceTree
@@ -309,13 +362,22 @@ onDeactivated(props.session.deactivate);
             v-model:search-keyword="fieldKeyword"
             v-model:show-system-fields="showSystemFields"
             v-model:expanded-keys="metadataExpandedKeys"
-            :title="editorMode === 'fields' ? '已有字段' : paletteTitle"
+            :title="
+              editorMode === 'fields'
+                ? language.t('platform.screen.PageCompositionEditor.existing-fields', '已有字段')
+                : paletteTitle
+            "
             :utility-placement="editorMode === 'fields' ? 'toolbar' : 'header'"
             :searchable="editorMode === 'fields'"
             :refresh-disabled="isMutating"
             :loading="loading && !relation"
             :unavailable="!relation"
-            unavailable-description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
+            :unavailable-description="
+              language.t(
+                'platform.screen.PageCompositionEditor.page-composition-requires-published-main-metadata-this-module-has-no',
+                '页面编排仅面向已发布主元数据；当前模块暂无可编排主实体',
+              )
+            "
             :nodes="metadataTreeNodes"
             :load-children="loadReferenceChildren"
             :reload-key="metadataTreeReloadKey"
@@ -333,16 +395,29 @@ onDeactivated(props.session.deactivate);
               <ManagementTabs
                 v-model:active-key="paletteMode"
                 :tabs="[
-                  { key: 'fields', title: '元数据' },
-                  { key: 'components', title: '组件库' },
+                  { key: 'fields', title: language.t('platform.governance.tab.metadata', '元数据') },
+                  {
+                    key: 'components',
+                    title: language.t('platform.screen.PageCompositionEditor.component-library', '组件库'),
+                  },
                 ]"
                 :disabled="isMutating"
-                label="字段来源"
+                :label="language.t('platform.screen.PageCompositionEditor.field-sources', '字段来源')"
                 appearance="header"
               />
             </template>
-            <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
-            <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
+            <UiEmpty
+              v-if="editorMode === 'actions' && !moduleActions.length"
+              :description="
+                language.t('platform.screen.PageCompositionEditor.no-module-actions', '暂无模块动作')
+              "
+            />
+            <UiEmpty
+              v-if="editorMode === 'fields' && !visibleFields.length"
+              :description="
+                language.t('platform.screen.PageCompositionEditor.no-available-fields', '暂无可编排字段')
+              "
+            />
           </MetadataSourceTree>
         </div>
       </ManagementExplorerColumn>
@@ -358,7 +433,13 @@ onDeactivated(props.session.deactivate);
             <PageCompositionTree
               v-for="layout in treeLayouts"
               :key="layout"
-              :layout-title="state.separateDetail.value ? (layout === 'detail' ? '详情' : '表单') : undefined"
+              :layout-title="
+                state.separateDetail.value
+                  ? layout === 'detail'
+                    ? language.t('platform.screen.PageCompositionEditor.details', '详情')
+                    : language.t('platform.screen.PageCompositionEditor.form', '表单')
+                  : undefined
+              "
               :hide-list="state.separateDetail.value && layout === 'form'"
               :separate-detail="state.separateDetail.value"
               :skeleton="skeleton"
@@ -407,7 +488,7 @@ onDeactivated(props.session.deactivate);
         </RecordExplorerPanel>
       </ManagementExplorerColumn>
 
-      <RecordDetailPanel title="预览">
+      <RecordDetailPanel :title="language.t('platform.screen.PageCompositionEditor.preview', '预览')">
         <template #actions>
           <UiRadioGroup
             :value="effectivePreviewMode"
@@ -417,24 +498,51 @@ onDeactivated(props.session.deactivate);
           />
         </template>
         <div v-if="actionIssues.length" role="alert" class="page-composition-source-error">
-          {{ actionIssues.join('；') }}。请修正入口后发布。
+          {{ actionIssues.join('；')
+          }}{{
+            language.t(
+              'platform.screen.PageCompositionEditor.correct-the-entry-before-publishing',
+              '。请修正入口后发布。',
+            )
+          }}
         </div>
         <div v-if="editorMode === 'actions'" class="page-composition-action-help">
-          标准按钮可隐藏或排序，自定义动作可拖入对应区域。
+          {{
+            language.t(
+              'platform.screen.PageCompositionEditor.standard-buttons-can-be-hidden-or-reordered-drag-custom-actions',
+              '标准按钮可隐藏或排序，自定义动作可拖入对应区域。',
+            )
+          }}
         </div>
         <UiRadioGroup
           v-if="editorMode === 'actions' && state.previewMode.value === 'edit'"
           v-model:value="actionFormMode"
           :options="[
-            { value: 'create', label: '新建状态' },
-            { value: 'edit', label: '编辑状态' },
+            {
+              value: 'create',
+              label: language.t('platform.screen.PageCompositionEditor.create-state', '新建状态'),
+            },
+            {
+              value: 'edit',
+              label: language.t('platform.screen.PageCompositionEditor.edit-state', '编辑状态'),
+            },
           ]"
         />
         <div v-if="componentNameInvalid || childInvalid" role="alert" class="page-composition-source-error">
-          请填写数据项和明细表名称（最多 128 字），明细表至少添加一个字段。
+          {{
+            language.t(
+              'platform.screen.PageCompositionEditor.enter-data-item-and-detail-table-names-at-most-128',
+              '请填写数据项和明细表名称（最多 128 字），明细表至少添加一个字段。',
+            )
+          }}
         </div>
         <div v-if="propertyIssues.length" role="alert" class="page-composition-source-error">
-          列宽格式有误，请修正后保存：
+          {{
+            language.t(
+              'platform.screen.PageCompositionEditor.invalid-column-width-correct-it-before-saving',
+              '列宽格式有误，请修正后保存：',
+            )
+          }}
           <UiButton
             v-for="field in propertyIssues"
             :key="field.id"
@@ -445,24 +553,43 @@ onDeactivated(props.session.deactivate);
           </UiButton>
         </div>
         <div v-if="draftConflict" class="page-composition-conflict" role="alert">
-          <span>页面配置已被其他会话更新，本地修改已保留。请加载最新配置后继续编辑。</span>
-          <UiButton :disabled="isMutating" @click="reloadComposition">加载最新配置</UiButton>
+          <span>{{
+            language.t(
+              'platform.screen.PageCompositionEditor.another-session-updated-this-page-configuration-local-changes-were-retained',
+              '页面配置已被其他会话更新，本地修改已保留。请加载最新配置后继续编辑。',
+            )
+          }}</span>
+          <UiButton :disabled="isMutating" @click="reloadComposition">{{
+            language.t('platform.screen.PageCompositionEditor.load-latest-configuration', '加载最新配置')
+          }}</UiButton>
         </div>
         <div
           v-if="summarySources.length && !supportsQuerySummaries"
           class="page-composition-source-error"
           role="alert"
         >
-          汇总统计仅支持列表卡片布局；当前配置已保留，切回列表卡片后可继续编辑。
+          {{
+            language.t(
+              'platform.screen.PageCompositionEditor.query-summaries-require-the-list-card-layout-the-current-configuration',
+              '汇总统计仅支持列表卡片布局；当前配置已保留，切回列表卡片后可继续编辑。',
+            )
+          }}
           <UiButton size="small" :disabled="isMutating" @click="compositionMode = 'LIST_CARD'">
-            切回列表卡片
+            {{
+              language.t('platform.screen.PageCompositionEditor.switch-back-to-list-cards', '切回列表卡片')
+            }}
           </UiButton>
           <UiButton size="small" :disabled="isMutating" @click="state.replaceQuerySummaries([])">
-            清空汇总
+            {{ language.t('platform.screen.PageCompositionEditor.clear-summaries', '清空汇总') }}
           </UiButton>
         </div>
         <div v-if="hasSummaryIssues" class="page-composition-source-error" role="alert">
-          <span>汇总配置需修正：</span>
+          <span>{{
+            language.t(
+              'platform.screen.PageCompositionEditor.correct-the-query-summary-configuration',
+              '汇总配置需修正：',
+            )
+          }}</span>
           <UiButton
             v-for="entry in summaryIssueEntries"
             :key="entry.key"
@@ -486,10 +613,18 @@ onDeactivated(props.session.deactivate);
           {{
             draftParseError ??
             (dictionaryRadioIssues.length
-              ? `字典 radio 配置需修正：${dictionaryRadioIssues.join('；')}。`
+              ? language.t(
+                  'platform.screen.PageCompositionEditor.correct-the-dictionary-radio-configuration-value',
+                  '字典 radio 配置需修正：{value1}。',
+                  { value1: dictionaryRadioIssues.join('；') },
+                )
               : undefined) ??
             (hasCatalogDependentSummary ? summaryCatalogError : undefined) ??
-            `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
+            language.t(
+              'platform.screen.PageCompositionEditor.unavailable-sources-value-configuration-was-retained-remove-the-marked-nodes',
+              '来源失效：{value1}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。',
+              { value1: [...new Set(unavailableSources)].join('、') },
+            )
           }}
         </p>
         <div
@@ -497,10 +632,18 @@ onDeactivated(props.session.deactivate);
           class="page-composition-preview-status page-composition-preview-status--error"
           aria-live="polite"
         >
-          <span>草稿解析失败：{{ previewError }}</span>
-          <span v-if="previewDescriptor">当前展示的是上一次成功解析结果，不代表当前草稿。</span>
+          <span
+            >{{ language.t('platform.screen.PageCompositionEditor.draft-parsing-failed', '草稿解析失败：')
+            }}{{ previewError }}</span
+          >
+          <span v-if="previewDescriptor">{{
+            language.t(
+              'platform.screen.PageCompositionEditor.the-last-successfully-parsed-result-is-shown-it-does-not',
+              '当前展示的是上一次成功解析结果，不代表当前草稿。',
+            )
+          }}</span>
           <UiButton size="small" :disabled="previewLoading" @click="retryPreviewDescriptor">
-            重新解析
+            {{ language.t('platform.screen.PageCompositionEditor.parse-again', '重新解析') }}
           </UiButton>
         </div>
         <PageCompositionDescriptorPreview
@@ -530,47 +673,81 @@ onDeactivated(props.session.deactivate);
           class="page-composition-preview-empty"
           :description="
             previewError
-              ? '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。'
-              : '正在等待草稿解析结果。'
+              ? language.t(
+                  'platform.screen.PageCompositionEditor.the-current-draft-could-not-be-parsed-retry-parsing-or',
+                  '当前草稿未能解析；可重新解析，或修正页面结构后自动重试。',
+                )
+              : language.t(
+                  'platform.screen.PageCompositionEditor.waiting-for-the-draft-parsing-result',
+                  '正在等待草稿解析结果。',
+                )
           "
         />
         <UiEmpty
           v-else-if="!revision"
           class="page-composition-preview-empty"
-          description="初始化页面草稿后，即可查看页面预览。"
+          :description="
+            language.t(
+              'platform.screen.PageCompositionEditor.initialize-a-page-draft-to-view-the-page-preview',
+              '初始化页面草稿后，即可查看页面预览。',
+            )
+          "
         />
       </RecordDetailPanel>
 
       <RecordDetailDrawer
         :open="mergeLayoutOpen"
-        title="恢复共用布局"
+        :title="language.t('platform.screen.PageCompositionEditor.restore-shared-layout', '恢复共用布局')"
         render-mode="inline"
         width="compact"
         @close="mergeLayoutOpen = false"
       >
         <div class="component-property-drawer">
           <fieldset class="page-composition-layout-choice">
-            <legend>共用哪套布局</legend>
+            <legend>
+              {{
+                language.t(
+                  'platform.screen.PageCompositionEditor.which-layout-should-be-shared',
+                  '共用哪套布局',
+                )
+              }}
+            </legend>
             <UiRadioGroup
               v-model:value="mergeKeep"
               :disabled="isMutating"
               :options="[
-                { value: 'form', label: '表单布局' },
-                { value: 'detail', label: '详情布局' },
+                {
+                  value: 'form',
+                  label: language.t('platform.screen.PageCompositionEditor.form-layout', '表单布局'),
+                },
+                {
+                  value: 'detail',
+                  label: language.t('platform.screen.PageCompositionEditor.details-layout', '详情布局'),
+                },
               ]"
             />
           </fieldset>
           <p>
             {{
               mergeKeep === 'form'
-                ? '详情将采用当前表单的字段、分组和顺序，原详情编排将被覆盖。'
-                : '表单将采用当前详情的字段、分组和顺序，原表单编排将被覆盖。'
+                ? language.t(
+                    'platform.screen.PageCompositionEditor.details-will-use-the-current-form-fields-groups-and-order',
+                    '详情将采用当前表单的字段、分组和顺序，原详情编排将被覆盖。',
+                  )
+                : language.t(
+                    'platform.screen.PageCompositionEditor.the-form-will-use-the-current-details-fields-groups-and',
+                    '表单将采用当前详情的字段、分组和顺序，原表单编排将被覆盖。',
+                  )
             }}
           </p>
         </div>
         <template #operation>
-          <UiButton :disabled="isMutating" @click="mergeLayoutOpen = false">取消</UiButton>
-          <UiButton type="primary" :disabled="isMutating" @click="confirmMergeLayout">恢复共用</UiButton>
+          <UiButton :disabled="isMutating" @click="mergeLayoutOpen = false">{{
+            language.t('platform.action.cancel', '取消')
+          }}</UiButton>
+          <UiButton type="primary" :disabled="isMutating" @click="confirmMergeLayout">{{
+            language.t('platform.screen.PageCompositionEditor.restore-sharing', '恢复共用')
+          }}</UiButton>
         </template>
       </RecordDetailDrawer>
       <RecordDetailDrawer
@@ -582,21 +759,28 @@ onDeactivated(props.session.deactivate);
       >
         <div v-if="selectedQuickSearch" class="component-property-drawer">
           <label>
-            <span>搜索占位提示</span>
+            <span>{{
+              language.t('platform.screen.PageCompositionEditor.search-placeholder', '搜索占位提示')
+            }}</span>
             <UiInput
               :value="quickSearchPlaceholderDraft"
               :disabled="isMutating"
-              placeholder="例如：搜索名称、编码或 ID"
+              :placeholder="
+                language.t(
+                  'platform.screen.PageCompositionEditor.for-example-search-by-name-code-or-id',
+                  '例如：搜索名称、编码或 ID',
+                )
+              "
               @update:value="updateQuickSearch"
             />
           </label>
         </div>
         <div v-if="selectedActionEntry" class="component-property-drawer">
           <label
-            ><span>按钮标题</span
+            ><span>{{ language.t('platform.screen.PageCompositionEditor.button-title', '按钮标题') }}</span
             ><UiInput
               :value="selectedActionEntry.title ?? ''"
-              :placeholder="pageActionEntryTitle({ ...selectedActionEntry, title: undefined })"
+              :placeholder="pageActionEntryTitle({ ...selectedActionEntry, title: undefined }, language)"
               @update:value="
                 (value) => {
                   if (selectedActionEntry)
@@ -606,39 +790,74 @@ onDeactivated(props.session.deactivate);
                 }
               "
           /></label>
-          <p>业务动作：{{ selectedActionEntry.actionCode }}</p>
-          <p>交互：{{ pageActionEntryDescription(selectedActionEntry) }}</p>
+          <p>
+            {{ language.t('platform.screen.PageCompositionEditor.business-action', '业务动作：')
+            }}{{ selectedActionEntry.actionCode }}
+          </p>
+          <p>
+            {{ language.t('platform.screen.PageCompositionEditor.interaction', '交互：')
+            }}{{ pageActionEntryDescription(selectedActionEntry, language) }}
+          </p>
         </div>
         <div v-else-if="selectedField" class="component-property-drawer">
-          <h3>数据项</h3>
+          <h3>{{ language.t('platform.screen.PageCompositionEditor.data-item', '数据项') }}</h3>
           <p v-if="!selectedPendingComponent">
-            {{ selectedField.title }} · {{ selectedField.required ? '必填' : '选填' }}
+            {{ selectedField.title }} ·
+            {{
+              selectedField.required
+                ? language.t('platform.form.required-marker', '必填')
+                : language.t('platform.screen.PageCompositionEditor.optional', '选填')
+            }}
           </p>
-          <p v-if="selectedFieldUsage.length">已用于：{{ selectedFieldUsage.join('、') }}</p>
+          <p v-if="selectedFieldUsage.length">
+            {{ language.t('platform.screen.PageCompositionEditor.used-in', '已用于：')
+            }}{{ selectedFieldUsage.join('、') }}
+          </p>
           <label v-if="selectedPendingComponent">
-            <span>数据项名称</span>
+            <span>{{
+              language.t('platform.screen.PageCompositionEditor.data-item-name', '数据项名称')
+            }}</span>
             <UiInput
               :value="selectedPendingComponent.title"
               :disabled="isMutating"
               :maxlength="128"
-              placeholder="例如：供应商名称"
+              :placeholder="
+                language.t(
+                  'platform.screen.PageCompositionEditor.for-example-supplier-name',
+                  '例如：供应商名称',
+                )
+              "
               @update:value="updateComponentTitle"
             />
           </label>
           <label v-if="selectedPendingComponent" class="component-property-drawer__switch">
-            <span>必填</span>
+            <span>{{ language.t('platform.form.required-marker', '必填') }}</span>
             <UiSwitch
               :checked="selectedPendingComponent.required ?? false"
               :disabled="isMutating"
               @update:checked="updateComponentRequired"
             />
           </label>
-          <small v-if="selectedPendingComponent">名称和必填规则适用于所有使用位置。</small>
+          <small v-if="selectedPendingComponent">{{
+            language.t(
+              'platform.screen.PageCompositionEditor.the-name-and-required-rule-apply-to-every-placement',
+              '名称和必填规则适用于所有使用位置。',
+            )
+          }}</small>
           <div v-if="duplicateComponentFields.length" role="status">
             <p>
-              已有同名数据项“{{
-                selectedPendingComponent?.title.trim()
-              }}”。若要展示同一份数据，请移除此新增组件并复用已有字段。
+              {{
+                language.t(
+                  'platform.screen.PageCompositionEditor.an-existing-data-item-is-named',
+                  '已有同名数据项“',
+                )
+              }}{{ selectedPendingComponent?.title.trim()
+              }}{{
+                language.t(
+                  'platform.screen.PageCompositionEditor.to-display-the-same-data-remove-this-new-component-and',
+                  '”。若要展示同一份数据，请移除此新增组件并复用已有字段。',
+                )
+              }}
             </p>
             <UiButton
               :disabled="isMutating"
@@ -648,13 +867,23 @@ onDeactivated(props.session.deactivate);
                 propertyDrawerOpen = false;
               "
             >
-              查找同名字段
+              {{
+                language.t(
+                  'platform.screen.PageCompositionEditor.find-fields-with-the-same-name',
+                  '查找同名字段',
+                )
+              }}
             </UiButton>
           </div>
-          <h3>当前展示位置</h3>
-          <small>以下设置仅影响当前区域，不修改数据项。</small>
+          <h3>{{ language.t('platform.screen.PageCompositionEditor.current-placement', '当前展示位置') }}</h3>
+          <small>{{
+            language.t(
+              'platform.screen.PageCompositionEditor.these-settings-affect-only-this-area-without-changing-the-data',
+              '以下设置仅影响当前区域，不修改数据项。',
+            )
+          }}</small>
           <label>
-            <span>展示标题</span>
+            <span>{{ language.t('platform.screen.PageCompositionEditor.display-title', '展示标题') }}</span>
             <UiInput
               :value="propertyDraft.label"
               :disabled="isMutating"
@@ -664,14 +893,14 @@ onDeactivated(props.session.deactivate);
           </label>
           <template v-if="state.selectedNode.value?.slot === 'list' || selectedRelationField">
             <label>
-              <span>列宽</span>
+              <span>{{ language.t('platform.screen.PageCompositionEditor.column-width', '列宽') }}</span>
               <span v-if="selectedRelationField" class="component-property-drawer__width-input">
                 <UiInput
                   :value="propertyDraft.width?.replace(/px$/, '')"
                   type="number"
                   :step="1"
                   :disabled="isMutating"
-                  placeholder="默认 160"
+                  :placeholder="language.t('platform.screen.PageCompositionEditor.default-160', '默认 160')"
                   @update:value="
                     updateFieldProperty('width', $event.trim() ? `${$event.trim()}px` : undefined)
                   "
@@ -682,7 +911,12 @@ onDeactivated(props.session.deactivate);
                 v-else
                 :value="propertyDraft.width"
                 :disabled="isMutating"
-                placeholder="例如 160px 或 25%"
+                :placeholder="
+                  language.t(
+                    'platform.screen.PageCompositionEditor.for-example-160px-or-25',
+                    '例如 160px 或 25%',
+                  )
+                "
                 @update:value="updateFieldProperty('width', $event)"
               />
               <small v-if="propertyValidationMessage" class="component-property-drawer__error">
@@ -690,16 +924,27 @@ onDeactivated(props.session.deactivate);
               </small>
             </label>
             <label>
-              <span>对齐</span>
+              <span>{{ language.t('platform.screen.PageCompositionEditor.alignment', '对齐') }}</span>
               <UiSelect
                 :value="propertyDraft.align"
                 :disabled="isMutating"
                 :options="[
-                  { label: '左对齐', value: 'left' },
-                  { label: '居中', value: 'center' },
-                  { label: '右对齐', value: 'right' },
+                  {
+                    label: language.t('platform.screen.PageCompositionEditor.left', '左对齐'),
+                    value: 'left',
+                  },
+                  {
+                    label: language.t('platform.screen.PageCompositionEditor.center', '居中'),
+                    value: 'center',
+                  },
+                  {
+                    label: language.t('platform.screen.PageCompositionEditor.right', '右对齐'),
+                    value: 'right',
+                  },
                 ]"
-                placeholder="遵循平台默认"
+                :placeholder="
+                  language.t('platform.screen.PageCompositionEditor.use-platform-defaults', '遵循平台默认')
+                "
                 @update:value="
                   updateFieldProperty(
                     'align',
@@ -711,7 +956,12 @@ onDeactivated(props.session.deactivate);
           </template>
           <template v-else>
             <label v-if="selectedDirectReferenceFormField">
-              <span>引用选择形式</span>
+              <span>{{
+                language.t(
+                  'platform.screen.PageCompositionEditor.reference-selection-presentation',
+                  '引用选择形式',
+                )
+              }}</span>
               <UiSelect
                 :value="referencePickerPresentationValue"
                 :options="referencePickerPresentationOptions"
@@ -721,7 +971,9 @@ onDeactivated(props.session.deactivate);
               />
             </label>
             <label v-if="selectedDirectDictionaryFormField">
-              <span>字典展示形式</span>
+              <span>{{
+                language.t('platform.screen.PageCompositionEditor.dictionary-presentation', '字典展示形式')
+              }}</span>
               <UiSelect
                 :value="dictionaryPresentationValue"
                 :options="dictionaryPresentationOptions"
@@ -732,27 +984,49 @@ onDeactivated(props.session.deactivate);
               <small v-if="selectedDirectDictionaryFormField.optionSelectionMode === 'SINGLE'">
                 {{
                   selectedDictionaryRadioIssue ??
-                  `radio 可用：不超过 ${dictionaryRadioMaxOptions} 个启用候选且没有层级。`
+                  language.t(
+                    'platform.screen.PageCompositionEditor.radio-is-available-with-at-most-value-enabled-options-and',
+                    'radio 可用：不超过 {value1} 个启用候选且没有层级。',
+                    { value1: dictionaryRadioMaxOptions },
+                  )
                 }}
               </small>
             </label>
             <label>
-              <span>表单列宽度</span>
+              <span>{{
+                language.t('platform.screen.PageCompositionEditor.form-column-span', '表单列宽度')
+              }}</span>
               <UiSelect
                 :value="propertyDraft.columnSpan"
                 :disabled="isMutating"
                 :options="[
-                  { label: '半行（1 列）', value: 1 },
-                  { label: '整行（2 列）', value: 2 },
+                  {
+                    label: language.t(
+                      'platform.screen.PageCompositionEditor.half-row-1-column',
+                      '半行（1 列）',
+                    ),
+                    value: 1,
+                  },
+                  {
+                    label: language.t(
+                      'platform.screen.PageCompositionEditor.full-row-2-columns',
+                      '整行（2 列）',
+                    ),
+                    value: 2,
+                  },
                 ]"
-                placeholder="遵循平台默认"
+                :placeholder="
+                  language.t('platform.screen.PageCompositionEditor.use-platform-defaults', '遵循平台默认')
+                "
                 @update:value="
                   updateFieldProperty('columnSpan', $event === 1 || $event === 2 ? $event : undefined)
                 "
               />
             </label>
             <label class="component-property-drawer__switch">
-              <span>只读展示</span>
+              <span>{{
+                language.t('platform.screen.PageCompositionEditor.read-only-display', '只读展示')
+              }}</span>
               <UiSwitch
                 :checked="selectedField.platformReadOnly || propertyDraft.readOnly"
                 :disabled="isMutating || selectedField.platformReadOnly"
@@ -763,7 +1037,9 @@ onDeactivated(props.session.deactivate);
         </div>
         <div v-else-if="selectedRelation" class="component-property-drawer">
           <label
-            ><span>明细表名称</span
+            ><span>{{
+              language.t('platform.screen.PageCompositionEditor.detail-table-name', '明细表名称')
+            }}</span
             ><UiInput
               :value="selectedRelation.title"
               :maxlength="128"
@@ -771,29 +1047,56 @@ onDeactivated(props.session.deactivate);
               @update:value="selectedRelation.title = $event"
           /></label>
           <p v-if="pendingChildren.some((child) => child.key === selectedRelation?.id)">
-            将基础组件拖入明细表，添加明细字段。
+            {{
+              language.t(
+                'platform.screen.PageCompositionEditor.drag-basic-components-into-the-detail-table-to-add-fields',
+                '将基础组件拖入明细表，添加明细字段。',
+              )
+            }}
           </p>
-          <p>明细随主表一起编辑和保存。</p>
+          <p>
+            {{
+              language.t(
+                'platform.screen.PageCompositionEditor.details-are-edited-and-saved-with-the-main-record',
+                '明细随主表一起编辑和保存。',
+              )
+            }}
+          </p>
         </div>
         <div v-else-if="selectedGroup" class="component-property-drawer">
           <label>
-            <span>分组标题</span>
+            <span>{{ language.t('platform.screen.PageCompositionEditor.group-title', '分组标题') }}</span>
             <UiInput
               :value="groupTitleDraft"
               :disabled="isMutating"
-              placeholder="例如：基本信息"
+              :placeholder="
+                language.t(
+                  'platform.screen.PageCompositionEditor.for-example-basic-information',
+                  '例如：基本信息',
+                )
+              "
               @update:value="updateGroup($event, groupSubtitleDraft)"
             />
-            <small v-if="!groupTitleDraft.trim()" class="component-property-drawer__error"
-              >标题不能为空，当前保留原名称。</small
-            >
+            <small v-if="!groupTitleDraft.trim()" class="component-property-drawer__error">{{
+              language.t(
+                'platform.screen.PageCompositionEditor.the-title-cannot-be-empty-the-original-name-was-retained',
+                '标题不能为空，当前保留原名称。',
+              )
+            }}</small>
           </label>
           <label>
-            <span>辅助说明</span>
+            <span>{{
+              language.t('platform.screen.PageCompositionEditor.supporting-description', '辅助说明')
+            }}</span>
             <UiInput
               :value="groupSubtitleDraft"
               :disabled="isMutating"
-              placeholder="可选，例如：填写考试基础资料"
+              :placeholder="
+                language.t(
+                  'platform.screen.PageCompositionEditor.optional-for-example-enter-basic-exam-information',
+                  '可选，例如：填写考试基础资料',
+                )
+              "
               @update:value="updateGroup(groupTitleDraft, $event)"
             />
           </label>
@@ -802,7 +1105,7 @@ onDeactivated(props.session.deactivate);
       <RecordDetailDrawer
         :open="summaryDrawerOpen"
         render-mode="inline"
-        title="汇总统计"
+        :title="language.t('platform.screen.PageCompositionEditor.query-summaries', '汇总统计')"
         width="narrow"
         @close="closeSummaryEditor"
       >

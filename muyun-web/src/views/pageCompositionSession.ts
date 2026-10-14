@@ -1,5 +1,7 @@
+import { AppError, resolveOperationErrorMessage, userFacingErrorMessage } from '@muyun/web-core';
+import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { presentPlatformError, presentPlatformSuccess } from '@muyun/platform-components';
 import { loadOptionFieldItems } from '@/platform-components/optionFieldOptionCache';
 import { hasOptionHierarchy } from '@/platform-components/optionFieldOptions';
@@ -114,21 +116,36 @@ export function createPageCompositionSession(
   const scope = effectScope(true);
   let disposed = false;
   const valid = () => !disposed && options.valid();
+  function pageFailureMessage(cause: Error): string {
+    if (cause instanceof OperationUsageError) return resolveOperationErrorMessage(cause, language);
+    if (cause instanceof AppError) return userFacingErrorMessage(cause, language);
+    return cause.message;
+  }
+  function capturePageFailure(cause: unknown, fallback: () => OperationUsageError): Error {
+    return cause instanceof Error ? cause : fallback();
+  }
   const moduleContext = {
     moduleAlias: props.moduleAlias,
     http: {
       async request<T>(request: Parameters<HttpClient['request']>[0]): Promise<T> {
-        if (!valid()) throw new OperationUsageError('页面编辑身份已变化');
+        if (!valid())
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.pageCompositionSession.the-page-editing-identity-changed',
+              '页面编辑身份已变化',
+            ),
+          );
         const result = await http.request<T>(request);
         return result;
       },
     },
   };
   return scope.run(() => {
-    const state = createPageCompositionDraftState();
+    const state = createPageCompositionDraftState(language);
 
     const paletteMode = ref('fields');
-    const componentSession = usePageCompositionComponents(state, () => currentUiTreeJson.value);
+    const componentSession = usePageCompositionComponents(state, () => currentUiTreeJson.value, language);
     const {
       fieldUsageIndex,
       pendingComponents,
@@ -150,7 +167,15 @@ export function createPageCompositionSession(
         title: item.title,
         isLeaf: true,
       })),
-      ...(componentCatalog.value?.canCreateChild ? [{ key: 'child', title: '明细表', isLeaf: true }] : []),
+      ...(componentCatalog.value?.canCreateChild
+        ? [
+            {
+              key: 'child',
+              title: language.t('platform.screen.pageCompositionSession.detail-table', '明细表'),
+              isLeaf: true,
+            },
+          ]
+        : []),
     ]);
     const selectedPendingComponent = computed(() =>
       [...pendingComponents.value, ...pendingChildren.value.flatMap((child) => child.fields)].find(
@@ -200,7 +225,7 @@ export function createPageCompositionSession(
       } catch (cause) {
         if (current()) {
           componentCatalog.value = undefined;
-          presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+          presentPlatformError(cause, { language, source: 'page-composition', phase: 'load' });
         }
       } finally {
         if (request === componentCatalogSequence) componentCatalogLoading.value = false;
@@ -238,7 +263,7 @@ export function createPageCompositionSession(
     const metadataRelations = ref<ModuleMetadataRelation[]>([]);
     const metadataFields = ref<PageComposerField[]>([]);
     const dictionaryRadioFacts = ref<Record<string, DictionaryRadioCandidateFacts | undefined>>({});
-    const dictionaryRadioFactErrors = ref<Record<string, string | undefined>>({});
+    const dictionaryRadioFactFailures = shallowRef<Record<string, Error | undefined>>({});
     const dictionaryRadioFactLoading = ref(new Set<string>());
     const dictionaryRadioMaxOptions = ref(12);
     const dictionaryRadioFactRequestEpoch = createDictionaryRadioFactRequestEpoch();
@@ -281,14 +306,23 @@ export function createPageCompositionSession(
                 action.actionCode === entry.actionCode && canPlaceActionInAnchor(action, entry.anchor),
             ),
         )
-        .map((entry) => `${entry.title ?? entry.actionCode}：来源失效或此区域尚无执行契约`),
+        .map((entry) =>
+          language.t(
+            'platform.screen.pageCompositionSession.value-the-source-is-unavailable-or-this-area-has-no',
+            '{value1}：来源失效或此区域尚无执行契约',
+            { value1: entry.title ?? entry.actionCode },
+          ),
+        ),
     );
 
     const editorMode = ref<'fields' | 'actions'>('fields');
-    const editorModeOptions: UiRadioOption[] = [
-      { value: 'fields', label: '字段模式' },
-      { value: 'actions', label: '动作模式' },
-    ];
+    const editorModeOptions = computed<UiRadioOption[]>(() => [
+      { value: 'fields', label: language.t('platform.screen.pageCompositionSession.field-mode', '字段模式') },
+      {
+        value: 'actions',
+        label: language.t('platform.screen.pageCompositionSession.action-mode', '动作模式'),
+      },
+    ]);
     const skeleton = computed(() => skeletons.value.find((item) => item.mode === compositionMode.value));
     const fieldKeyword = ref('');
     const showSystemFields = ref(false);
@@ -311,7 +345,10 @@ export function createPageCompositionSession(
     );
 
     const previewLoading = ref(false);
-    const previewError = ref<string>();
+    const previewFailure = shallowRef<Error>();
+    const previewError = computed(() =>
+      previewFailure.value ? pageFailureMessage(previewFailure.value) : undefined,
+    );
 
     const platformDefaultReferencePickerAlias = '__platform_default_reference_picker__';
     const standardReferencePickerAliases = new Set(['record_picker_dropdown', 'record_picker_dialog']);
@@ -327,7 +364,10 @@ export function createPageCompositionSession(
     const platformFieldPolicies = ref(new Map<string, PlatformFieldPolicy>());
     const summaryCatalog = ref<PageQuerySummaryCatalog>();
     const summaryCatalogLoading = ref(false);
-    const summaryCatalogError = ref<string>();
+    const summaryCatalogFailure = shallowRef<Error>();
+    const summaryCatalogError = computed(() =>
+      summaryCatalogFailure.value ? pageFailureMessage(summaryCatalogFailure.value) : undefined,
+    );
     const summaryDrawerOpen = ref(false);
     const selectedSummaryKey = ref<string>();
     const summaryFocusRequest = ref(0);
@@ -337,7 +377,10 @@ export function createPageCompositionSession(
     let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
     let workspaceLoadSequence = 0;
     let metadataLoadSequence = 0;
-    const draftParseError = ref<string>();
+    const draftParseFailure = shallowRef<Error>();
+    const draftParseError = computed(() =>
+      draftParseFailure.value ? pageFailureMessage(draftParseFailure.value) : undefined,
+    );
     const draftConflict = ref(false);
     const compositionLoading = ref(false);
     const workspaceLoading = ref(false);
@@ -359,13 +402,31 @@ export function createPageCompositionSession(
       for (const summary of summarySources.value) {
         const item: PageQuerySummaryEditorIssues = {};
         if (!['MATCHED_COUNT', 'SUM', 'CONTRIBUTOR', 'GROUPED'].includes(summary.source))
-          item.source = '请选择有效的统计方式。';
-        if (!summary.label.trim()) item.label = '请填写展示名称。';
-        if (summary.source === 'SUM' && !summary.fieldName) item.fieldName = '请选择数值字段。';
+          item.source = language.t(
+            'platform.screen.pageCompositionSession.select-a-valid-summary-source',
+            '请选择有效的统计方式。',
+          );
+        if (!summary.label.trim())
+          item.label = language.t(
+            'platform.screen.pageCompositionSession.enter-a-display-name',
+            '请填写展示名称。',
+          );
+        if (summary.source === 'SUM' && !summary.fieldName)
+          item.fieldName = language.t(
+            'platform.screen.pageCompositionSession.select-a-numeric-field',
+            '请选择数值字段。',
+          );
         if (summary.source === 'CONTRIBUTOR' && !summary.contributorKey)
-          item.contributorKey = '请选择业务指标。';
+          item.contributorKey = language.t(
+            'platform.screen.pageCompositionSession.select-a-business-metric',
+            '请选择业务指标。',
+          );
         // GROUPED always includes each group's record count; its numeric sum remains optional.
-        if (summary.source === 'GROUPED' && !summary.groupByField) item.groupByField = '请选择分组字段。';
+        if (summary.source === 'GROUPED' && !summary.groupByField)
+          item.groupByField = language.t(
+            'platform.screen.pageCompositionSession.select-a-grouping-field',
+            '请选择分组字段。',
+          );
         if (Object.keys(item).length) issues[summary.key] = item;
       }
       return issues;
@@ -385,15 +446,24 @@ export function createPageCompositionSession(
           summary.fieldName &&
           !fields.has(summary.fieldName)
         )
-          item.fieldName = '该数值字段已不可用，请重新选择。';
+          item.fieldName = language.t(
+            'platform.screen.pageCompositionSession.this-numeric-field-is-unavailable-select-again',
+            '该数值字段已不可用，请重新选择。',
+          );
         if (
           summary.source === 'CONTRIBUTOR' &&
           summary.contributorKey &&
           !contributors.has(summary.contributorKey)
         )
-          item.contributorKey = '该业务指标已不可用，请重新选择。';
+          item.contributorKey = language.t(
+            'platform.screen.pageCompositionSession.this-business-metric-is-unavailable-select-again',
+            '该业务指标已不可用，请重新选择。',
+          );
         if (summary.source === 'GROUPED' && summary.groupByField && !groupFields.has(summary.groupByField))
-          item.groupByField = '该分组字段已不可用，请重新选择。';
+          item.groupByField = language.t(
+            'platform.screen.pageCompositionSession.this-grouping-field-is-unavailable-select-again',
+            '该分组字段已不可用，请重新选择。',
+          );
         if (Object.keys(item).length) issues[summary.key] = item;
       }
       return issues;
@@ -409,7 +479,7 @@ export function createPageCompositionSession(
       Object.fromEntries(
         summarySources.value.map((summary) => [
           summary.key,
-          pageQuerySummaryDescription(summary, summaryCatalog.value),
+          pageQuerySummaryDescription(summary, summaryCatalog.value, language),
         ]),
       ),
     );
@@ -417,7 +487,13 @@ export function createPageCompositionSession(
       Object.fromEntries(
         summarySources.value
           .filter((summary) => Object.keys(summaryEditorIssues.value[summary.key] ?? {}).length)
-          .map((summary) => [summary.key, '配置未完成或来源失效']),
+          .map((summary) => [
+            summary.key,
+            language.t(
+              'platform.screen.pageCompositionSession.configuration-is-incomplete-or-its-source-is-unavailable',
+              '配置未完成或来源失效',
+            ),
+          ]),
       ),
     );
     const effectivePreviewMode = computed(() => {
@@ -426,9 +502,11 @@ export function createPageCompositionSession(
       return hasListPreview.value ? 'list' : 'detail';
     });
     const previewModes = computed<UiRadioOption[]>(() => [
-      ...(hasListPreview.value ? [{ value: 'list', label: '列表' }] : []),
-      { value: 'detail', label: '详情' },
-      { value: 'edit', label: '表单' },
+      ...(hasListPreview.value
+        ? [{ value: 'list', label: language.t('platform.page.composition.list', '列表') }]
+        : []),
+      { value: 'detail', label: language.t('platform.screen.PageCompositionEditor.details', '详情') },
+      { value: 'edit', label: language.t('platform.screen.PageCompositionEditor.form', '表单') },
     ]);
     const removedDraft = ref<{ before: string; after: string }>();
     function validRelationColumnWidth(width: string) {
@@ -513,11 +591,33 @@ export function createPageCompositionSession(
     const referencePickerPresentationOptions = computed(() => {
       const currentAlias = propertyDraft.value.fieldUiControlAlias;
       return [
-        { label: '平台默认（清除配置）', value: platformDefaultReferencePickerAlias },
-        { label: '下拉选择', value: 'record_picker_dropdown' },
-        { label: '弹窗选择', value: 'record_picker_dialog' },
+        {
+          label: language.t(
+            'platform.screen.pageCompositionSession.platform-default-clear-configuration',
+            '平台默认（清除配置）',
+          ),
+          value: platformDefaultReferencePickerAlias,
+        },
+        {
+          label: language.t('platform.screen.pageCompositionSession.dropdown', '下拉选择'),
+          value: 'record_picker_dropdown',
+        },
+        {
+          label: language.t('platform.screen.pageCompositionSession.dialog', '弹窗选择'),
+          value: 'record_picker_dialog',
+        },
         ...(currentAlias && !standardReferencePickerAliases.has(currentAlias)
-          ? [{ label: `当前自定义控件（${currentAlias}）`, value: currentAlias, disabled: true }]
+          ? [
+              {
+                label: language.t(
+                  'platform.screen.pageCompositionSession.current-custom-control-value',
+                  '当前自定义控件（{value1}）',
+                  { value1: currentAlias },
+                ),
+                value: currentAlias,
+                disabled: true,
+              },
+            ]
           : []),
       ];
     });
@@ -536,21 +636,51 @@ export function createPageCompositionSession(
     const dictionaryPresentationOptions = computed(() => {
       const field = selectedDirectDictionaryFormField.value;
       const currentAlias = propertyDraft.value.fieldUiControlAlias;
-      const radioIssue = field ? dictionaryRadioIssueOf(field) : 'radio 仅支持单值数据字典';
+      const radioIssue = field
+        ? dictionaryRadioIssueOf(field)
+        : language.t(
+            'platform.screen.pageCompositionSession.radio-supports-only-single-value-dictionaries',
+            'radio 仅支持单值数据字典',
+          );
       return [
-        { label: '平台默认（下拉）', value: platformDefaultDictionaryPresentationAlias },
-        { label: '下拉选择', value: 'DROPDOWN' },
+        {
+          label: language.t(
+            'platform.screen.pageCompositionSession.platform-default-dropdown',
+            '平台默认（下拉）',
+          ),
+          value: platformDefaultDictionaryPresentationAlias,
+        },
+        {
+          label: language.t('platform.screen.pageCompositionSession.dropdown', '下拉选择'),
+          value: 'DROPDOWN',
+        },
         ...(field?.optionSelectionMode === 'SINGLE'
           ? [
               {
-                label: radioIssue ? `radio 单选组（不可用：${radioIssue}）` : 'radio 单选组',
+                label: radioIssue
+                  ? language.t(
+                      'platform.screen.pageCompositionSession.radio-group-unavailable-value',
+                      'radio 单选组（不可用：{value1}）',
+                      { value1: radioIssue },
+                    )
+                  : language.t('platform.screen.pageCompositionSession.radio-group', 'radio 单选组'),
                 value: 'RADIO',
                 disabled: Boolean(radioIssue),
               },
             ]
           : []),
         ...(currentAlias && !standardDictionaryPresentationAliases.has(currentAlias)
-          ? [{ label: `当前自定义控件（${currentAlias}）`, value: currentAlias, disabled: true }]
+          ? [
+              {
+                label: language.t(
+                  'platform.screen.pageCompositionSession.current-custom-control-value',
+                  '当前自定义控件（{value1}）',
+                  { value1: currentAlias },
+                ),
+                value: currentAlias,
+                disabled: true,
+              },
+            ]
           : []),
       ];
     });
@@ -558,21 +688,29 @@ export function createPageCompositionSession(
     const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
     const selectedFieldLabel = computed(() =>
       selectedQuickSearch.value
-        ? '快速查询'
+        ? language.t('platform.screen.PageCompositionTree.quick-search', '快速查询')
         : selectedField.value
           ? fieldDisplayTitle(selectedField.value)
           : selectedRelationField.value
             ? fieldDisplayTitle(selectedRelationField.value)
             : selectedGroup.value
               ? selectedGroup.value.title
-              : (selectedRelation.value?.title ?? '组件'),
+              : (selectedRelation.value?.title ??
+                language.t('platform.screen.pageCompositionSession.component', '组件')),
     );
     const propertyDrawerTitle = computed(() =>
       selectedActionEntry.value
-        ? `配置：${pageActionEntryTitle(selectedActionEntry.value)}`
+        ? language.t('platform.screen.pageCompositionSession.configure-value', '配置：{value1}', {
+            value1: pageActionEntryTitle(selectedActionEntry.value, language),
+          })
         : selectedQuickSearch.value
-          ? '配置：快速查询占位提示'
-          : `配置：${selectedFieldLabel.value}`,
+          ? language.t(
+              'platform.screen.pageCompositionSession.configure-quick-search-placeholder',
+              '配置：快速查询占位提示',
+            )
+          : language.t('platform.screen.pageCompositionSession.configure-value', '配置：{value1}', {
+              value1: selectedFieldLabel.value,
+            }),
     );
     const selectedPreviewFieldName = computed(() => {
       const node = state.selectedNode.value;
@@ -611,18 +749,29 @@ export function createPageCompositionSession(
       catalogueRefreshPending.value = false;
       void loadMetadataTree();
     });
-    const metadataLoadProblem = computed(() =>
+    const metadataLoadProblemMessage = computed(() =>
       metadataLoadFailed.value
-        ? '字段目录刷新失败，请刷新字段来源后再预检或保存；本地编排已保留。'
+        ? codeOperationErrorMessage(
+            language,
+            'platform.screen.pageCompositionSession.the-field-directory-refresh-failed-refresh-field-sources-before-prechecking',
+            '字段目录刷新失败，请刷新字段来源后再预检或保存；本地编排已保留。',
+          )
         : undefined,
     );
+    const metadataLoadProblem = computed(() => metadataLoadProblemMessage.value?.message);
     const unavailableNavigationSources = computed(() => {
       const known = new Set(
         [...metadataFields.value, ...pendingFieldSources.value].map((field) => field.fieldName),
       );
       const fields = [...quickSearchFields.value];
       if (skeleton.value?.columns === false) {
-        fields.push(explorerTitleField.value || '导航标题（未配置）');
+        fields.push(
+          explorerTitleField.value ||
+            language.t(
+              'platform.screen.pageCompositionSession.navigation-title-not-configured',
+              '导航标题（未配置）',
+            ),
+        );
         if (explorerSecondaryField.value) fields.push(explorerSecondaryField.value);
       }
       return [...new Set(fields.filter((field) => !known.has(field)))];
@@ -663,8 +812,15 @@ export function createPageCompositionSession(
         (selectedRelationField.value ? validRelationColumnWidth(width) : /^\d+(px|%)$/.test(width))
       )
         return undefined;
-      if (selectedRelationField.value) return '子表列宽请输入正整数，例如 160。';
-      return '列宽需使用数字加 px 或 %，例如 160px、25%。';
+      if (selectedRelationField.value)
+        return language.t(
+          'platform.screen.pageCompositionSession.enter-a-positive-integer-for-a-child-table-column-width',
+          '子表列宽请输入正整数，例如 160。',
+        );
+      return language.t(
+        'platform.screen.pageCompositionSession.use-a-number-followed-by-px-or-for-column-width',
+        '列宽需使用数字加 px 或 %，例如 160px、25%。',
+      );
     });
     const selectedUiTreeKey = computed(() => {
       if (selectedSummaryKey.value) return `ui:summary:${selectedSummaryKey.value}`;
@@ -683,25 +839,44 @@ export function createPageCompositionSession(
           : `ui:slot:${node.slot}`
         : `ui:field:${node.slot}:${node.field?.id}`;
     });
-    const composerTitle = computed(() => page.value?.title ?? props.moduleTitle ?? '页面编排');
-    const paletteTitle = computed(() => (editorMode.value === 'fields' ? '可用字段' : '模块动作'));
-    const structureTitle = computed(() => (editorMode.value === 'fields' ? '页面结构' : '动作结构'));
+    const composerTitle = computed(
+      () =>
+        page.value?.title ??
+        props.moduleTitle ??
+        language.t('platform.screen.pageCompositionSession.page-composition', '页面编排'),
+    );
+    const paletteTitle = computed(() =>
+      editorMode.value === 'fields'
+        ? language.t('platform.screen.MetadataSourceTree.available-fields', '可用字段')
+        : language.t('platform.unsaved-source.ModuleActionManagementView', '模块动作'),
+    );
+    const structureTitle = computed(() =>
+      editorMode.value === 'fields'
+        ? language.t('platform.screen.pageCompositionSession.page-structure', '页面结构')
+        : language.t('platform.screen.pageCompositionSession.action-structure', '动作结构'),
+    );
     const mainEntityTitle = computed(
-      () => relation.value?.title ?? props.moduleTitle ?? relation.value?.relationAlias ?? '主实体',
+      () =>
+        relation.value?.title ??
+        props.moduleTitle ??
+        relation.value?.relationAlias ??
+        language.t('platform.screen.pageCompositionSession.main-entity', '主实体'),
     );
     const compositionSubtitle = computed(() => {
       const status = publishing.value
-        ? '正在生效'
+        ? language.t('platform.screen.pageCompositionSession.active', '正在生效')
         : draftConflict.value
-          ? '修改冲突'
+          ? language.t('platform.screen.pageCompositionSession.edit-conflict', '修改冲突')
           : hasUnsavedChanges.value
-            ? '有未保存修改'
+            ? language.t('platform.screen.pageCompositionSession.unsaved-changes', '有未保存修改')
             : hasPendingChanges.value
-              ? '待生效'
+              ? language.t('platform.screen.pageCompositionSession.pending-activation', '待生效')
               : publishedRevision.value
-                ? '已生效'
-                : '尚未配置';
-      return `Web · 全局 · ${status}`;
+                ? language.t('platform.screen.pageCompositionSession.activated', '已生效')
+                : language.t('platform.screen.pageCompositionSession.not-configured', '尚未配置');
+      return language.t('platform.screen.pageCompositionSession.web-global-value', 'Web · 全局 · {value1}', {
+        value1: status,
+      });
     });
 
     function sameComposition(left?: PresentationRevision, right?: PresentationRevision) {
@@ -748,7 +923,10 @@ export function createPageCompositionSession(
         ? moduleActions.value.map((action) => ({
             key: `module-action:${action.actionCode}`,
             title: action.title ?? action.actionCode,
-            tag: action.category === 'STANDARD' ? '平台托管' : undefined,
+            tag:
+              action.category === 'STANDARD'
+                ? language.t('platform.screen.pageCompositionSession.platform-managed', '平台托管')
+                : undefined,
             muted: !canDragPaletteAction(action),
             isLeaf: true,
           }))
@@ -792,7 +970,7 @@ export function createPageCompositionSession(
         referenceDirectoryRequests.clear();
         summaryCatalogSequence += 1;
         summaryCatalog.value = undefined;
-        summaryCatalogError.value = undefined;
+        summaryCatalogFailure.value = undefined;
         summaryCatalogLoading.value = false;
         summaryDrawerOpen.value = false;
         selectedSummaryKey.value = undefined;
@@ -802,7 +980,7 @@ export function createPageCompositionSession(
         childMetadataFields.value = new Map();
         revision.value = undefined;
         variant.value = undefined;
-        draftParseError.value = undefined;
+        draftParseFailure.value = undefined;
         draftConflict.value = false;
         removedDraft.value = undefined;
         saving.value = false;
@@ -860,9 +1038,11 @@ export function createPageCompositionSession(
       if (!configuredMode.value || isMutating.value) return;
       const accepted = await confirmAction(
         {
-          title: '切换页面骨架',
-          content:
+          title: language.t('platform.screen.pageCompositionSession.switch-page-skeleton', '切换页面骨架'),
+          content: language.t(
+            'platform.screen.pageCompositionSession.details-form-and-child-table-configuration-will-be-retained-navigation',
             '详情、表单和子表配置会保留。导航区域将按新模式重建，原列表列不会用于树或微列表。保存并发布后才会替换线上页面。是否继续？',
+          ),
         },
         language,
       );
@@ -911,7 +1091,13 @@ export function createPageCompositionSession(
         }),
       ]);
       if (!profile.compositionSkeletons?.length || !profile.platformFieldPolicies)
-        throw new Error('服务端尚未提供页面骨架或字段策略，请重新加载');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.pageCompositionSession.the-server-has-not-provided-a-page-skeleton-or-field',
+            '服务端尚未提供页面骨架或字段策略，请重新加载',
+          ),
+        );
       const main = relations.find((item) => item.relationRole?.toUpperCase() === 'MAIN');
       const children = relations.filter(
         (item) => main?.metadataId && item.parentMetadataId === main.metadataId && Boolean(item.metadataId),
@@ -960,7 +1146,14 @@ export function createPageCompositionSession(
             })
           : undefined;
       return () => {
-        if (!valid()) throw new OperationUsageError('页面编辑身份已变化');
+        if (!valid())
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.pageCompositionSession.the-page-editing-identity-changed',
+              '页面编辑身份已变化',
+            ),
+          );
         referenceDirectoryEpoch += 1;
         invalidateDictionaryRadioFacts();
         referenceDirectoryRequests.clear();
@@ -1040,7 +1233,7 @@ export function createPageCompositionSession(
       } catch (cause) {
         if (current()) {
           metadataLoadFailed.value = true;
-          presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+          presentPlatformError(cause, { language, source: 'page-composition', phase: 'load' });
         }
       } finally {
         if (current()) loading.value = false;
@@ -1057,7 +1250,7 @@ export function createPageCompositionSession(
       const sequence = ++summaryCatalogSequence;
       const moduleAlias = props.moduleAlias;
       summaryCatalogLoading.value = true;
-      summaryCatalogError.value = undefined;
+      summaryCatalogFailure.value = undefined;
       try {
         const catalog = await moduleContext.http.request<PageQuerySummaryCatalog>({
           method: 'GET',
@@ -1072,7 +1265,17 @@ export function createPageCompositionSession(
         };
       } catch (cause) {
         if (sequence !== summaryCatalogSequence || moduleAlias !== props.moduleAlias) return;
-        summaryCatalogError.value = cause instanceof Error ? cause.message : '汇总目录加载失败。';
+        summaryCatalogFailure.value = capturePageFailure(
+          cause,
+          () =>
+            new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.pageCompositionSession.failed-to-load-the-summary-catalog',
+                '汇总目录加载失败。',
+              ),
+            ),
+        );
       } finally {
         if (sequence === summaryCatalogSequence) summaryCatalogLoading.value = false;
       }
@@ -1294,7 +1497,9 @@ export function createPageCompositionSession(
           secondary:
             [
               ...(fieldUsageIndex.value.get(field.fieldName) ?? []),
-              field.pending ? '新增' : metadataSourceFieldNode(field, { key: field.id }, language).secondary,
+              field.pending
+                ? language.t('platform.screen.ManagedDetailRelationSurface.add', '新增')
+                : metadataSourceFieldNode(field, { key: field.id }, language).secondary,
             ]
               .filter(Boolean)
               .join(' · ') || undefined,
@@ -1302,18 +1507,55 @@ export function createPageCompositionSession(
           actions: [
             {
               key: 'add',
-              title: `添加 ${field.title} 到…`,
+              title: language.t('platform.screen.pageCompositionSession.add-value-to', '添加 {value1} 到…', {
+                value1: field.title,
+              }),
               iconName: 'plus',
               disabled: isMutating.value,
               items: [
                 ...(skeleton.value?.columns === false && !field.fieldName.includes('.')
                   ? [
-                      { key: 'explorer-title', title: '用作导航标题' },
-                      { key: 'explorer-secondary', title: '用作辅助信息' },
+                      {
+                        key: 'explorer-title',
+                        title: language.t(
+                          'platform.screen.pageCompositionSession.use-as-navigation-title',
+                          '用作导航标题',
+                        ),
+                      },
+                      {
+                        key: 'explorer-secondary',
+                        title: language.t(
+                          'platform.screen.pageCompositionSession.use-as-secondary-information',
+                          '用作辅助信息',
+                        ),
+                      },
                     ]
-                  : [{ key: 'add-list', title: '添加到列表' }]),
-                ...(state.separateDetail.value ? [{ key: 'add-detail', title: '添加到详情' }] : []),
-                { key: 'add-form', title: state.separateDetail.value ? '添加到表单' : '添加到详情 / 表单' },
+                  : [
+                      {
+                        key: 'add-list',
+                        title: language.t('platform.screen.pageCompositionSession.add-to-list', '添加到列表'),
+                      },
+                    ]),
+                ...(state.separateDetail.value
+                  ? [
+                      {
+                        key: 'add-detail',
+                        title: language.t(
+                          'platform.screen.pageCompositionSession.add-to-details',
+                          '添加到详情',
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'add-form',
+                  title: state.separateDetail.value
+                    ? language.t('platform.screen.pageCompositionSession.add-to-form', '添加到表单')
+                    : language.t(
+                        'platform.screen.pageCompositionSession.add-to-details-form',
+                        '添加到详情 / 表单',
+                      ),
+                },
               ],
             },
           ],
@@ -1358,10 +1600,18 @@ export function createPageCompositionSession(
           );
           return {
             key: `metadata:relation:${relationId}`,
-            title: candidate.title ?? candidate.relationAlias ?? '子实体',
-            secondary: '子表',
+            title:
+              candidate.title ??
+              candidate.relationAlias ??
+              language.t('platform.screen.pageCompositionSession.child-entity', '子实体'),
+            secondary: language.t('platform.screen.ModuleDataExchangeSurface.child-sheet', '子表'),
             actions: [
-              { key: 'add-form', title: '添加子表', iconName: 'plus' as const, disabled: isMutating.value },
+              {
+                key: 'add-form',
+                title: language.t('platform.screen.pageCompositionSession.add-child-table', '添加子表'),
+                iconName: 'plus' as const,
+                disabled: isMutating.value,
+              },
             ],
             isLeaf: fields.length === 0,
             children: fields.map((field) => ({
@@ -1369,15 +1619,22 @@ export function createPageCompositionSession(
               title: field.title,
               secondary: [
                 field.fieldName,
-                field.platformReadOnly ? '只读' : '',
-                field.referenceModuleAlias ? '模块引用' : '',
+                field.platformReadOnly
+                  ? language.t('platform.screen.metadataSourceTree.read-only', '只读')
+                  : '',
+                field.referenceModuleAlias
+                  ? language.t('platform.screen.metadataEditorSession.module-reference', '模块引用')
+                  : '',
               ]
                 .filter(Boolean)
                 .join(' · '),
               actions: [
                 {
                   key: 'add-form',
-                  title: '添加到子表',
+                  title: language.t(
+                    'platform.screen.pageCompositionSession.add-to-child-table',
+                    '添加到子表',
+                  ),
                   iconName: 'plus' as const,
                   disabled: isMutating.value,
                 },
@@ -1431,7 +1688,7 @@ export function createPageCompositionSession(
         savedDraftApplied.value = sameComposition(revision.value, publishedRevision.value);
         draftConflict.value = false;
         removedDraft.value = undefined;
-        draftParseError.value = undefined;
+        draftParseFailure.value = undefined;
         state.mergeLayout('form');
         state.replaceFields({ list: [], form: [] });
         state.updateQuickSearchPlaceholder(undefined);
@@ -1440,7 +1697,7 @@ export function createPageCompositionSession(
         propertyDrawerOpen.value = false;
         if (paletteMode.value === 'components') await loadComponentCatalog();
       } catch (cause) {
-        if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+        if (current()) presentPlatformError(cause, { language, source: 'page-composition', phase: 'load' });
       } finally {
         if (current()) compositionLoading.value = false;
       }
@@ -1452,9 +1709,18 @@ export function createPageCompositionSession(
       if (hasUnsavedChanges.value) {
         const confirmed = await confirmAction(
           {
-            title: '加载最新配置',
-            content: '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
-            okText: '加载最新配置',
+            title: language.t(
+              'platform.screen.PageCompositionEditor.load-latest-configuration',
+              '加载最新配置',
+            ),
+            content: language.t(
+              'platform.screen.pageCompositionSession.loading-successfully-will-replace-the-current-layout-and-discard-unsaved',
+              '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
+            ),
+            okText: language.t(
+              'platform.screen.PageCompositionEditor.load-latest-configuration',
+              '加载最新配置',
+            ),
           },
           language,
         );
@@ -1467,7 +1733,7 @@ export function createPageCompositionSession(
     function invalidateDictionaryRadioFacts() {
       dictionaryRadioFactRequestEpoch.invalidate();
       dictionaryRadioFacts.value = {};
-      dictionaryRadioFactErrors.value = {};
+      dictionaryRadioFactFailures.value = {};
       dictionaryRadioFactLoading.value = new Set();
     }
 
@@ -1480,7 +1746,7 @@ export function createPageCompositionSession(
       previewDescriptor.value = undefined;
       previewLayouts.value = undefined;
       previewLoading.value = false;
-      previewError.value = undefined;
+      previewFailure.value = undefined;
     }
 
     function schedulePreviewDescriptor() {
@@ -1503,18 +1769,30 @@ export function createPageCompositionSession(
         // Keeping the preview error empty avoids reporting the same actionable
         // issue twice while save and publish remain blocked below.
         if (dictionaryRadioIssues.value.length) {
-          previewError.value = undefined;
+          previewFailure.value = undefined;
           return;
         }
-        previewError.value =
-          draftParseError.value ??
+        previewFailure.value =
+          draftParseFailure.value ??
           (propertyIssues.value.length
-            ? '请修正列宽格式后继续预览。'
-            : '页面包含失效来源，请移除标记节点并重新选择可用字段。');
+            ? new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.pageCompositionSession.correct-column-widths-before-continuing-the-preview',
+                  '请修正列宽格式后继续预览。',
+                ),
+              )
+            : new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.pageCompositionSession.the-page-contains-unavailable-sources-remove-the-marked-nodes-and',
+                  '页面包含失效来源，请移除标记节点并重新选择可用字段。',
+                ),
+              ));
         return;
       }
       previewLoading.value = true;
-      previewError.value = undefined;
+      previewFailure.value = undefined;
       const uiTreeJson = currentUiTreeJson.value;
       previewDebounceTimer = setTimeout(() => {
         previewDebounceTimer = undefined;
@@ -1570,10 +1848,20 @@ export function createPageCompositionSession(
         };
         previewLayouts.value = { form: structureFor('form'), detail: structureFor('detail') };
         previewDescriptor.value = preview.uiDescriptor;
-        previewError.value = undefined;
+        previewFailure.value = undefined;
       } catch (cause) {
         if (requestSequence !== previewRequestSequence) return;
-        previewError.value = cause instanceof Error ? cause.message : '服务端未能解析当前草稿。';
+        previewFailure.value = capturePageFailure(
+          cause,
+          () =>
+            new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.pageCompositionSession.the-server-could-not-parse-the-current-draft',
+                '服务端未能解析当前草稿。',
+              ),
+            ),
+        );
       } finally {
         if (requestSequence === previewRequestSequence) previewLoading.value = false;
       }
@@ -1792,9 +2080,15 @@ export function createPageCompositionSession(
             : undefined,
         );
         if (markSaved) savedUiTreeJson.value = currentUiTreeJson.value;
-        draftParseError.value = undefined;
+        draftParseFailure.value = undefined;
       } catch {
-        draftParseError.value = '草稿结构无法解析，当前内容不会覆盖已保存配置。请修复该修订后重新加载。';
+        draftParseFailure.value = new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.pageCompositionSession.the-draft-structure-could-not-be-parsed-it-will-not',
+            '草稿结构无法解析，当前内容不会覆盖已保存配置。请修复该修订后重新加载。',
+          ),
+        );
       }
     }
 
@@ -1868,7 +2162,7 @@ export function createPageCompositionSession(
         await hydrateDraft(revision.value);
       } catch (cause) {
         if (!current()) return;
-        presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+        presentPlatformError(cause, { language, source: 'page-composition', phase: 'action' });
       } finally {
         if (current()) saving.value = false;
       }
@@ -1885,8 +2179,16 @@ export function createPageCompositionSession(
       const variantId = variant.value!.id!;
       const tree = currentUiTreeJson.value;
       const hasComposition = activeComponents.value.length || activeChildren.value.length;
-      if (hasComposition && !componentCatalog.value) throw new Error('请重新打开组件库后保存');
+      if (hasComposition && !componentCatalog.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.pageCompositionSession.reopen-the-component-library-before-saving',
+            '请重新打开组件库后保存',
+          ),
+        );
       return createPageCompositionPublicationCommand({
+        language,
         http: moduleContext.http,
         variantId,
         revision: { ...revision.value, templateVersion: JSON.parse(tree).templateVersion, uiTreeJson: tree },
@@ -1943,7 +2245,12 @@ export function createPageCompositionSession(
       const reviewedState = reviewState();
       const requireReviewedCandidate = () => {
         if (!valid() || reviewState() !== reviewedState)
-          throw new OperationRejectedError('页面候选或基线已变化，请重新预检后保存。');
+          throw new OperationRejectedError(
+            language.t(
+              'platform.screen.pageCompositionSession.the-page-candidate-or-baseline-changed-precheck-again-before-saving',
+              '页面候选或基线已变化，请重新预检后保存。',
+            ),
+          );
       };
       publishing.value = true;
       try {
@@ -1960,7 +2267,10 @@ export function createPageCompositionSession(
         revision.value = undefined;
         savedDraftApplied.value = true;
         savedUiTreeJson.value = treeJsonToPublish;
-        presentPlatformSuccess('页面已保存并生效', { source: 'page-composition', phase: 'action' });
+        presentPlatformSuccess(
+          language.t('platform.screen.pageCompositionSession.page-saved-and-activated', '页面已保存并生效'),
+          { language, source: 'page-composition', phase: 'action' },
+        );
         removedDraft.value = undefined;
         propertyDrawerOpen.value = false;
         try {
@@ -1984,10 +2294,16 @@ export function createPageCompositionSession(
             /* The committed receipt remains authoritative. */
           }
           if (!current()) return receipt;
-          presentPlatformError(new Error('页面已生效，但编辑准备失败；请点击“继续编辑”重试。'), {
-            source: 'page-composition',
-            phase: 'action',
-          });
+          presentPlatformError(
+            new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.pageCompositionSession.the-page-is-active-but-preparing-editing-failed-click-continue',
+                '页面已生效，但编辑准备失败；请点击“继续编辑”重试。',
+              ),
+            ),
+            { language, source: 'page-composition', phase: 'action' },
+          );
           return receipt;
         }
         if (current()) {
@@ -2001,7 +2317,7 @@ export function createPageCompositionSession(
       } catch (cause) {
         if (current()) {
           if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
-          presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+          presentPlatformError(cause, { language, source: 'page-composition', phase: 'action' });
         }
         throw cause;
       } finally {
@@ -2014,9 +2330,12 @@ export function createPageCompositionSession(
       const sequence = workspaceLoadSequence;
       const confirmed = await confirmAction(
         {
-          title: '放弃本次更改',
-          content: '将放弃本次尚未保存的修改，恢复到打开编辑时的内容。是否继续？',
-          okText: '放弃更改',
+          title: language.t('platform.screen.PageCompositionEditor.discard-these-changes', '放弃本次更改'),
+          content: language.t(
+            'platform.screen.pageCompositionSession.discard-these-unsaved-changes-and-restore-the-content-from-the',
+            '将放弃本次尚未保存的修改，恢复到打开编辑时的内容。是否继续？',
+          ),
+          okText: language.t('platform.screen.useModulePageSession.discard-changes', '放弃更改'),
         },
         language,
       );
@@ -2084,12 +2403,12 @@ export function createPageCompositionSession(
 
     function slotTitle(slot: PageComposerSlot) {
       return slot === 'list'
-        ? '列表'
+        ? language.t('platform.page.composition.list', '列表')
         : state.separateDetail.value
           ? state.activeLayout.value === 'detail'
-            ? '详情'
-            : '表单'
-          : '详情 / 表单';
+            ? language.t('platform.screen.PageCompositionEditor.details', '详情')
+            : language.t('platform.screen.PageCompositionEditor.form', '表单')
+          : language.t('platform.screen.PageCompositionTree.details-form', '详情 / 表单');
     }
     function fieldsInSlot(slot: PageComposerSlot) {
       return slot === 'list' ? state.listFields.value : state.formFields.value;
@@ -2150,7 +2469,12 @@ export function createPageCompositionSession(
         return;
       }
       if (parsed.kind === 'template') {
-        selectNode({ id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' });
+        selectNode({
+          id: 'template:list:quick-search',
+          kind: 'template',
+          title: language.t('platform.screen.PageCompositionTree.quick-search', '快速查询'),
+          slot: 'list',
+        });
         return;
       }
       if (parsed.kind === 'relation') {
@@ -2800,13 +3124,18 @@ export function createPageCompositionSession(
     }
 
     function dictionaryRadioIssueOf(field: PageComposerField): string | undefined {
-      return dictionaryRadioEligibilityIssue({
-        optionSourceType: field.optionSourceType,
-        optionSelectionMode: field.optionSelectionMode,
-        facts: dictionaryRadioFacts.value[field.fieldName],
-        loadError: dictionaryRadioFactErrors.value[field.fieldName],
-        maxOptions: dictionaryRadioMaxOptions.value,
-      });
+      return dictionaryRadioEligibilityIssue(
+        {
+          optionSourceType: field.optionSourceType,
+          optionSelectionMode: field.optionSelectionMode,
+          facts: dictionaryRadioFacts.value[field.fieldName],
+          loadError: dictionaryRadioFactFailures.value[field.fieldName]
+            ? pageFailureMessage(dictionaryRadioFactFailures.value[field.fieldName]!)
+            : undefined,
+          maxOptions: dictionaryRadioMaxOptions.value,
+        },
+        language,
+      );
     }
 
     async function loadDictionaryRadioFacts(field: PageComposerField) {
@@ -2829,16 +3158,26 @@ export function createPageCompositionSession(
           hasHierarchy: hasOptionHierarchy(items),
         };
         dictionaryRadioFacts.value = { ...dictionaryRadioFacts.value, [fieldName]: facts };
-        if (dictionaryRadioFactErrors.value[fieldName]) {
-          const nextErrors = { ...dictionaryRadioFactErrors.value };
+        if (dictionaryRadioFactFailures.value[fieldName]) {
+          const nextErrors = { ...dictionaryRadioFactFailures.value };
           delete nextErrors[fieldName];
-          dictionaryRadioFactErrors.value = nextErrors;
+          dictionaryRadioFactFailures.value = nextErrors;
         }
       } catch (cause) {
         if (!dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) return;
-        dictionaryRadioFactErrors.value = {
-          ...dictionaryRadioFactErrors.value,
-          [fieldName]: cause instanceof Error ? cause.message : '请求失败',
+        dictionaryRadioFactFailures.value = {
+          ...dictionaryRadioFactFailures.value,
+          [fieldName]: capturePageFailure(
+            cause,
+            () =>
+              new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.pageCompositionSession.request-failed',
+                  '请求失败',
+                ),
+              ),
+          ),
         };
       } finally {
         if (dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) {
@@ -2928,8 +3267,14 @@ export function createPageCompositionSession(
       const sequence = workspaceLoadSequence;
       const confirmed = await confirmAction(
         {
-          title: '分别编排详情和表单',
-          content: '将复制当前布局，详情和表单此后独立维护。保存并生效后应用，是否继续？',
+          title: language.t(
+            'platform.screen.pageCompositionSession.separate-details-and-form-layouts',
+            '分别编排详情和表单',
+          ),
+          content: language.t(
+            'platform.screen.pageCompositionSession.copy-the-current-layout-so-details-and-forms-can-be',
+            '将复制当前布局，详情和表单此后独立维护。保存并生效后应用，是否继续？',
+          ),
         },
         language,
       );
@@ -2997,6 +3342,7 @@ export function createPageCompositionSession(
             )
             .find((field) => field.path === name)?.title ??
           name,
+        language,
       ),
     );
     const fieldDirectory = computed(() => {
@@ -3034,7 +3380,14 @@ export function createPageCompositionSession(
     function relationCatalog({ relationCode, offset = 0 }: { relationCode?: string; offset?: number }) {
       if (relationCode !== undefined) {
         const relation = relationDirectory.value.find((relation) => relation.relationCode === relationCode);
-        if (!relation) throw new OperationUsageError('明细不在当前页面的实际目录中');
+        if (!relation)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.pageCompositionSession.the-detail-is-outside-the-current-page-directory',
+              '明细不在当前页面的实际目录中',
+            ),
+          );
         return {
           relationCode,
           ...pageAssistantCatalog(
@@ -3056,18 +3409,54 @@ export function createPageCompositionSession(
         offset,
       );
     }
-    function editingProblem() {
-      if (!valid()) return '页面编辑身份已变化，请重新选择模块。';
-      if (isMutating.value || catalogueRefreshPending.value) return '页面正在加载或保存。';
-      if (metadataLoadProblem.value) return metadataLoadProblem.value;
+    function editingProblemMessage() {
+      if (!valid())
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.the-page-editing-identity-changed-select-the-module-again',
+          '页面编辑身份已变化，请重新选择模块。',
+        );
+      if (isMutating.value || catalogueRefreshPending.value)
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.the-page-is-loading-or-saving',
+          '页面正在加载或保存。',
+        );
+      if (metadataLoadProblemMessage.value) return metadataLoadProblemMessage.value;
       if (!revision.value?.id || revision.value.status !== 'draft')
-        return '请先在页面中初始化或继续编辑草稿。';
-      if (draftParseError.value || draftConflict.value) return '请先修正解析错误或重新加载冲突草稿。';
-      if (propertyDrawerOpen.value || summaryDrawerOpen.value) return '请先完成当前属性编辑。';
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.initialize-or-resume-editing-the-draft-on-the-page-first',
+          '请先在页面中初始化或继续编辑草稿。',
+        );
+      if (draftParseError.value || draftConflict.value)
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.correct-parsing-errors-or-reload-the-conflicting-draft-first',
+          '请先修正解析错误或重新加载冲突草稿。',
+        );
+      if (propertyDrawerOpen.value || summaryDrawerOpen.value)
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.finish-the-current-property-edit-first',
+          '请先完成当前属性编辑。',
+        );
       if (activeComponents.value.length || activeChildren.value.length)
-        return '请先处理当前新增数据项或明细表；助手只支持编排已有字段。';
-      if (!skeleton.value) return '页面模板尚未就绪。';
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.handle-new-data-items-or-detail-tables-first-the-assistant',
+          '请先处理当前新增数据项或明细表；助手只支持编排已有字段。',
+        );
+      if (!skeleton.value)
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.pageCompositionSession.the-page-template-is-not-ready',
+          '页面模板尚未就绪。',
+        );
       return undefined;
+    }
+    function editingProblem() {
+      return editingProblemMessage()?.message;
     }
     function describePage() {
       const placement = (field: PageComposerField) => ({
@@ -3077,7 +3466,11 @@ export function createPageCompositionSession(
       });
       return {
         moduleAlias: props.moduleAlias,
-        title: `${props.moduleTitle ?? props.moduleAlias} · 页面配置`,
+        title: language.t(
+          'platform.screen.pageCompositionSession.value-page-configuration',
+          '{value1} · 页面配置',
+          { value1: props.moduleTitle ?? props.moduleAlias },
+        ),
         editable: !editingProblem(),
         canStartEditing:
           !isMutating.value && !!relation.value?.id && !revision.value && !metadataLoadProblem.value,
@@ -3124,7 +3517,7 @@ export function createPageCompositionSession(
       };
     }
     function prepareCandidate(input: PageCompositionCandidateInput) {
-      const problem = editingProblem();
+      const problem = editingProblemMessage();
       if (problem) throw new OperationUsageError(problem);
       const candidate = preparePageCompositionCandidate(
         {
@@ -3162,18 +3555,50 @@ export function createPageCompositionSession(
     }
     async function previewCandidate(signal: AbortSignal) {
       if (!variant.value?.id || !revision.value?.id || isMutating.value)
-        throw new OperationUsageError('当前页面草稿不可预检。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.pageCompositionSession.the-current-page-draft-cannot-be-prechecked',
+            '当前页面草稿不可预检。',
+          ),
+        );
       const errors = [
-        ...(propertyDrawerOpen.value || summaryDrawerOpen.value ? ['请先完成当前属性编辑。'] : []),
-        ...(draftConflict.value ? ['页面草稿版本已冲突，请重新加载。'] : []),
+        ...(propertyDrawerOpen.value || summaryDrawerOpen.value
+          ? [
+              language.t(
+                'platform.screen.pageCompositionSession.finish-the-current-property-edit-first',
+                '请先完成当前属性编辑。',
+              ),
+            ]
+          : []),
+        ...(draftConflict.value
+          ? [
+              language.t(
+                'platform.screen.pageCompositionSession.the-page-draft-version-conflicts-with-the-server-load-again',
+                '页面草稿版本已冲突，请重新加载。',
+              ),
+            ]
+          : []),
         metadataLoadProblem.value,
         draftParseError.value,
         ...propertyIssues.value,
         ...dictionaryRadioIssues.value,
         ...actionIssues.value,
-        ...(unavailableSources.value.length ? ['页面包含失效字段来源。'] : []),
+        ...(unavailableSources.value.length
+          ? [
+              language.t(
+                'platform.screen.pageCompositionSession.the-page-contains-unavailable-field-sources',
+                '页面包含失效字段来源。',
+              ),
+            ]
+          : []),
         ...(hasSummaryIssues.value || summaryCatalogBlocksMutation.value
-          ? ['查询统计配置尚未通过校验。']
+          ? [
+              language.t(
+                'platform.screen.pageCompositionSession.query-summary-configuration-has-not-passed-validation',
+                '查询统计配置尚未通过校验。',
+              ),
+            ]
           : []),
       ].filter((message): message is string => Boolean(message));
       if (errors.length) return { valid: false, errors };
@@ -3187,7 +3612,24 @@ export function createPageCompositionSession(
         return { valid: true, errors: [] };
       } catch (cause) {
         if (signal.aborted) throw cause;
-        return { valid: false, errors: [normalizeError(cause).message] };
+        return {
+          valid: false,
+          errors: [
+            pageFailureMessage(
+              capturePageFailure(
+                cause,
+                () =>
+                  new OperationUsageError(
+                    codeOperationErrorMessage(
+                      language,
+                      'platform.screen.pageCompositionSession.the-server-could-not-parse-the-current-draft',
+                      '服务端未能解析当前草稿。',
+                    ),
+                  ),
+              ),
+            ),
+          ],
+        };
       }
     }
     function pageCandidateFingerprint() {
@@ -3207,51 +3649,130 @@ export function createPageCompositionSession(
       const current = () =>
         valid() && options.active() && fingerprint === pageCandidateFingerprint() && !isMutating.value;
       return {
-        presentation: { title: '准备页面编辑', lines: ['创建或恢复页面草稿，已有业务页面不会因此改变。'] },
-        confirmLabel: '开始编辑',
+        presentation: {
+          title: language.t('platform.screen.pageCompositionSession.prepare-page-editing', '准备页面编辑'),
+          lines: [
+            language.t(
+              'platform.screen.pageCompositionSession.create-or-restore-a-page-draft-the-existing-business-page',
+              '创建或恢复页面草稿，已有业务页面不会因此改变。',
+            ),
+          ],
+        },
+        confirmLabel: language.t('platform.screen.pageCompositionSession.start-editing', '开始编辑'),
         expiresAt: Date.now() + 300_000,
         isCurrent: current,
         async execute() {
-          if (!current()) throw new OperationRejectedError('页面状态已变化，请重新准备。');
+          if (!current())
+            throw new OperationRejectedError(
+              language.t(
+                'platform.screen.pageCompositionSession.the-page-state-changed-prepare-again',
+                '页面状态已变化，请重新准备。',
+              ),
+            );
           await initializeComposition();
           if (sequence !== workspaceLoadSequence || !revision.value?.id)
-            throw new Error('编辑准备结果需要重新核实。');
-          return { title: '页面编辑已准备', lines: ['尚未发布业务配置。'] };
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.pageCompositionSession.verify-the-editing-preparation-result-again',
+                '编辑准备结果需要重新核实。',
+              ),
+            );
+          return {
+            title: language.t(
+              'platform.screen.pageCompositionSession.page-editing-prepared',
+              '页面编辑已准备',
+            ),
+            lines: [
+              language.t(
+                'platform.screen.pageCompositionSession.business-configuration-has-not-been-published',
+                '尚未发布业务配置。',
+              ),
+            ],
+          };
         },
         async lookup() {
           const moduleAlias = props.moduleAlias;
           await loadWorkspace();
           if (moduleAlias !== props.moduleAlias || !revision.value?.id) return;
-          return { title: '页面编辑已准备', lines: ['已重新读取服务端草稿，尚未发布业务配置。'] };
+          return {
+            title: language.t(
+              'platform.screen.pageCompositionSession.page-editing-prepared',
+              '页面编辑已准备',
+            ),
+            lines: [
+              language.t(
+                'platform.screen.pageCompositionSession.the-server-draft-was-read-again-business-configuration-has-not',
+                '已重新读取服务端草稿，尚未发布业务配置。',
+              ),
+            ],
+          };
         },
       };
     }
     async function preparePagePublication(signal: AbortSignal): Promise<OperationProposal> {
-      const problem = editingProblem();
-      if (problem || !hasPendingChanges.value) throw new OperationUsageError(problem ?? '没有待生效的更改。');
+      const problem = editingProblemMessage();
+      if (problem || !hasPendingChanges.value)
+        throw new OperationUsageError(
+          problem ??
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.pageCompositionSession.no-changes-are-pending-activation',
+              '没有待生效的更改。',
+            ),
+        );
       const fingerprint = pageCandidateFingerprint();
       const command = pagePublicationCommand(() => {});
       const receiptReference = await command.receiptReference();
       const preview = await previewCandidate(signal);
       if (!preview.valid || fingerprint !== pageCandidateFingerprint())
-        throw new OperationUsageError(preview.errors.join('；') || '候选已变化，请重新预检。');
+        throw new OperationUsageError(
+          preview.errors.join('；') ||
+            language.t(
+              'platform.screen.pageCompositionSession.the-candidate-changed-precheck-again',
+              '候选已变化，请重新预检。',
+            ),
+        );
       const current = () =>
         valid() && options.active() && fingerprint === pageCandidateFingerprint() && !editingProblem();
       return {
         receiptReference,
         presentation: {
-          title: '确认页面配置',
+          title: language.t(
+            'platform.screen.pageCompositionSession.confirm-page-configuration',
+            '确认页面配置',
+          ),
           lines: candidateChanges.value.length
             ? [...candidateChanges.value]
-            : ['将当前已保存草稿发布到业务页面。'],
+            : [
+                language.t(
+                  'platform.screen.pageCompositionSession.publish-the-current-saved-draft-to-the-business-page',
+                  '将当前已保存草稿发布到业务页面。',
+                ),
+              ],
         },
-        confirmLabel: '确认保存并生效',
+        confirmLabel: language.t(
+          'platform.screen.pageCompositionSession.confirm-save-and-activation',
+          '确认保存并生效',
+        ),
         expiresAt: Date.now() + 300_000,
         isCurrent: current,
         async execute() {
-          if (!current()) throw new OperationRejectedError('页面候选已变化，请重新预检。');
+          if (!current())
+            throw new OperationRejectedError(
+              language.t(
+                'platform.screen.pageCompositionSession.the-page-candidate-changed-precheck-again',
+                '页面候选已变化，请重新预检。',
+              ),
+            );
           const result = await publishComposition();
-          if (!result) throw new OperationRejectedError('页面当前不能发布，请核实校验结果。');
+          if (!result)
+            throw new OperationRejectedError(
+              language.t(
+                'platform.screen.pageCompositionSession.the-page-cannot-currently-be-published-verify-its-validation-results',
+                '页面当前不能发布，请核实校验结果。',
+              ),
+            );
           return result;
         },
         lookup: command.lookup,
@@ -3272,7 +3793,7 @@ export function createPageCompositionSession(
           propertyDrawerOpen.value,
           summaryDrawerOpen.value,
           draftConflict.value,
-          draftParseError.value,
+          Boolean(draftParseFailure.value),
           pagePreviewBody(currentUiTreeJson.value),
           isMutating.value,
           catalogueRefreshPending.value,
@@ -3285,6 +3806,7 @@ export function createPageCompositionSession(
     );
 
     return {
+      language,
       state,
       paletteMode,
       pendingChildren,
@@ -3434,6 +3956,7 @@ export function createPageCompositionSession(
       describePage,
       moduleAlias: props.moduleAlias,
       adapter: {
+        language,
         describe: describePage,
         candidate: describeCandidate,
         relations: relationCatalog,

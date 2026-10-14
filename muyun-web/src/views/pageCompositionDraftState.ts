@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 
 export type PageComposerSlot = 'list' | 'form';
@@ -69,19 +70,49 @@ function summaryCatalogTitle(
 export function pageQuerySummaryDescription(
   summary: PageQuerySummary,
   catalog: PageQuerySummaryCatalogTitles = {},
+  language: LanguageContext = platformLanguageContext,
 ) {
-  if (summary.source === 'MATCHED_COUNT') return '记录数';
+  if (summary.source === 'MATCHED_COUNT')
+    return language.t('platform.screen.QueryGroupedSummary.record-count', '记录数');
   if (summary.source === 'SUM')
-    return `合计 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '未选择数值字段')}`;
+    return language.t('platform.screen.PageCompositionTree.total-value', '合计 · {value1}', {
+      value1: summaryCatalogTitle(
+        catalog.fields,
+        summary.fieldName,
+        language.t('platform.screen.PageCompositionTree.no-numeric-field-selected', '未选择数值字段'),
+      ),
+    });
   if (summary.source === 'GROUPED') {
-    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '未选择分组字段');
+    const groupTitle = summaryCatalogTitle(
+      catalog.groupFields,
+      summary.groupByField,
+      language.t('platform.screen.PageCompositionTree.no-grouping-field-selected', '未选择分组字段'),
+    );
     const sumTitle = summary.fieldName
-      ? ` · 记录数 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`
-      : ' · 记录数';
-    return `按${groupTitle}分组${sumTitle}`;
+      ? language.t(
+          'platform.screen.pageCompositionDraftState.record-count-value-total',
+          ' · 记录数 · {value1}合计',
+          {
+            value1: summaryCatalogTitle(
+              catalog.fields,
+              summary.fieldName,
+              language.t('platform.screen.pageCompositionDraftState.numeric-field', '数值字段'),
+            ),
+          },
+        )
+      : language.t('platform.screen.PageCompositionTree.record-count', ' · 记录数');
+    return language.t('platform.screen.PageCompositionTree.group-by-valuevalue', '按{value1}分组{value2}', {
+      value1: groupTitle,
+      value2: sumTitle,
+    });
   }
   const title = catalog.contributors?.find((entry) => entry.contributorKey === summary.contributorKey)?.title;
-  return `业务指标 · ${title ?? summary.contributorKey ?? '未选择'}`;
+  return language.t('platform.screen.PageCompositionTree.business-metric-value', '业务指标 · {value1}', {
+    value1:
+      title ??
+      summary.contributorKey ??
+      language.t('platform.screen.recordDisplayProjection.not-selected', '未选择'),
+  });
 }
 
 /** Default titles follow a user-selected source while a custom title remains the user's intent. */
@@ -215,7 +246,7 @@ export interface ManagementUiTree {
  * PageDefinition / PresentationRevision editing model rather than a
  * projection of another configuration aggregate.
  */
-export function createPageCompositionDraftState() {
+export function createPageCompositionDraftState(language: LanguageContext = platformLanguageContext) {
   const listFields = ref<PageComposerField[]>([]);
   const separateDetail = ref(false);
   const activeLayout = ref<'form' | 'detail'>('form');
@@ -269,8 +300,18 @@ export function createPageCompositionDraftState() {
   }
 
   const nodes = computed<PageComposerNode[]>(() => [
-    { id: 'slot:list', kind: 'slot', title: '列表', slot: 'list' },
-    { id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' },
+    {
+      id: 'slot:list',
+      kind: 'slot',
+      title: language.t('platform.page.composition.list', '列表'),
+      slot: 'list',
+    },
+    {
+      id: 'template:list:quick-search',
+      kind: 'template',
+      title: language.t('platform.screen.PageCompositionTree.quick-search', '快速查询'),
+      slot: 'list',
+    },
     ...listFields.value.map((field) => ({
       id: `list:${field.id}`,
       kind: 'field' as const,
@@ -278,7 +319,12 @@ export function createPageCompositionDraftState() {
       slot: 'list' as const,
       field,
     })),
-    { id: 'slot:form', kind: 'slot', title: '详情 / 表单', slot: 'form' },
+    {
+      id: 'slot:form',
+      kind: 'slot',
+      title: language.t('platform.screen.PageCompositionTree.details-form', '详情 / 表单'),
+      slot: 'form',
+    },
     ...orderedForm.value.flatMap<PageComposerNode>((item) => {
       if (item.kind === 'field') {
         const field = formFields.value.find((field) => field.id === item.id)!;

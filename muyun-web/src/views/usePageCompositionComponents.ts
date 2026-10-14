@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { createPageCompositionDraftState } from './pageCompositionDraftState';
 import {
@@ -10,11 +11,12 @@ import {
 export function usePageCompositionComponents(
   state: ReturnType<typeof createPageCompositionDraftState>,
   treeJson: () => string,
+  language: LanguageContext = platformLanguageContext,
 ) {
   const pendingComponents = ref<PendingComponentField[]>([]);
   const pendingChildren = ref<Array<{ key: string; title: string; fields: PendingComponentField[] }>>([]);
   const pendingFieldSources = computed(() => pendingComponents.value.map(componentField));
-  const fieldUsageIndex = computed(() => componentFieldUsageIndex(treeJson()));
+  const fieldUsageIndex = computed(() => componentFieldUsageIndex(treeJson(), language));
   const activeComponents = computed(() =>
     pendingComponents.value.filter((field) => fieldUsageIndex.value.has(`field${field.key}`)),
   );

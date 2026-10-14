@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@muyun/web-core';
 import { describe, expect, it } from 'vitest';
 import {
   createPageCompositionDraftState,
@@ -453,4 +454,21 @@ it('ignores a stale merge request after restoring the shared layout', () => {
   state.mergeLayout('detail');
   expect(state.formFields.value).toEqual([title]);
   expect(state.layouts.value.detail).toEqual({ fields: [], groups: [], order: [] });
+});
+
+it('localizes only draft navigation while keeping serialized source values and generated configuration defaults unchanged', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const state = createPageCompositionDraftState(language);
+  state.listFields.value = [{ id: 'name-id', fieldName: 'title', title: '业务名称' }];
+  state.addFormGroup();
+  const original = JSON.stringify(state.toManagementUiTree());
+  expect(state.nodes.value[0]!.title).toBe('List');
+  expect(state.formGroups.value[0]!.title).toBe('分组 1');
+  language.setLanguage('zh-CN');
+  expect(state.nodes.value[0]!.title).toBe('列表');
+  expect(JSON.stringify(state.toManagementUiTree())).toBe(original);
+  expect(state.listFields.value[0]!.title).toBe('业务名称');
+  language.setLanguage('en');
+  expect(state.nodes.value[0]!.title).toBe('List');
+  expect(JSON.stringify(state.toManagementUiTree())).toBe(original);
 });
