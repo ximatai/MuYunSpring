@@ -1047,107 +1047,122 @@ it('re-resolves an opened submit preview title from its stable action code on la
   wrapper.unmount();
 });
 
-it('projects frozen check text in both languages and refreshes only matching resources while retaining evidence and input', async () => {
-  const language = createLanguageContext({ languageTag: 'en' });
-  const bindings = ref<unknown>({ publication: 0 });
-  const { wrapper, request, context } = fixture(undefined, language, bindings);
-  const original = request.getMockImplementation()!;
-  let publication = 0;
-  const text = (property: string, originalText: string, chinese: string) => ({
-    source: {
-      sourceKind: 'CONFIG',
-      sourceId: `config/workflow/version/${publication === 2 ? 'v2' : 'v1'}/node/business/check/ready/${property}`,
-      sourceVersion: 'frozen-original-v1',
-      originalText,
-    },
-    languages: {
-      en: { text: originalText, requestedTag: 'en', missing: false, fallback: false },
-      'zh-CN': { text: chinese, requestedTag: 'zh-CN', missing: false, fallback: false },
-    },
-  });
-  request.mockImplementation(async (call) => {
-    const result = await original(call);
-    if (!call.path.endsWith('/prepare')) return result;
-    const title = 'Business completion condition';
-    const failure = 'Business data does not yet meet the completion condition';
-    const failureMessageText = text(
-      'failureMessage',
-      failure,
-      publication === 0
-        ? '业务完成条件尚未满足'
-        : publication === 1
-          ? '修正后的完成提示'
-          : '另一版本的错误提示',
-    );
-    return {
-      ...(result as object),
-      evaluation: {
-        ...(result as { evaluation: object }).evaluation,
-        passed: publication > 0,
-        failureCheckKey: 'ready',
-        failureMessage: failure,
-        failureMessageText,
-        checkResults: [
-          {
-            checkKey: 'ready',
-            checkTitle: title,
-            checkTitleText: text(
-              'title',
-              title,
-              publication === 0
-                ? '业务完成条件'
-                : publication === 1
-                  ? '修正后的检查名称'
-                  : '另一版本的错误名称',
-            ),
-            failureMessage: failure,
-            failureMessageText,
-            passed: publication > 0,
-            checkRunId: publication === 0 ? 'original-check-run' : 'new-check-run',
-            resultPayloadText: JSON.stringify({ evidence: publication }),
-          },
-        ],
+it.each([true, false])(
+  'refreshes frozen check text after live evidence changes (all checks pass: %s) while retaining captured evidence and input',
+  async (allPass) => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const bindings = ref<unknown>({ publication: 0 });
+    const { wrapper, request, context } = fixture(undefined, language, bindings);
+    const original = request.getMockImplementation()!;
+    let publication = 0;
+    const text = (property: string, originalText: string, chinese: string, checkKey = 'ready') => ({
+      source: {
+        sourceKind: 'CONFIG',
+        sourceId: `config/workflow/version/${publication === 2 ? 'v2' : 'v1'}/node/business/check/${checkKey}/${property}`,
+        sourceVersion: 'frozen-original-v1',
+        originalText,
       },
-    };
-  });
-  await flushPromises();
-  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
-  await flushPromises();
-  expect(wrapper.text()).toContain('Business completion condition');
-  expect(wrapper.text()).toContain('Business data does not yet meet the completion condition');
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text() === '登记到货')!
-    .trigger('click');
-  await flushPromises();
-  const form = wrapper.findComponent(fields);
-  form.vm.$emit('update:field', 'remark', '保留用户原文');
-  await flushPromises();
-  const reads = request.mock.calls.length;
-  language.setLanguage('zh-CN');
-  await flushPromises();
-  expect(wrapper.text()).toContain('业务完成条件尚未满足');
-  expect(wrapper.text()).toContain('业务完成条件');
-  expect(request.mock.calls).toHaveLength(reads);
-  expect(form.props('record').remark).toBe('保留用户原文');
-  publication = 1;
-  bindings.value = { publication };
-  await flushPromises();
-  expect(wrapper.text()).toContain('修正后的检查名称');
-  expect(wrapper.text()).toContain('修正后的完成提示');
-  // Re-evaluation during resource refresh cannot replace the displayed check verdict.
-  expect(wrapper.text()).not.toContain('当前业务条件已满足');
-  expect(wrapper.findAll('li').some((item) => item.text() === '修正后的检查名称 · 修正后的完成提示')).toBe(
-    true,
-  );
-  expect(form.props('record').remark).toBe('保留用户原文');
-  publication = 2;
-  bindings.value = { publication };
-  await flushPromises();
-  expect(wrapper.text()).toContain('修正后的检查名称');
-  expect(wrapper.text()).not.toContain('另一版本的错误');
-  expect(wrapper.text()).not.toContain('当前业务条件已满足');
-  expect(vi.mocked(context.crud.view)).toHaveBeenCalledOnce();
-  expect(request.mock.calls.some(([call]) => /\/(execute|actions\/complete)$/.test(call.path))).toBe(false);
-  wrapper.unmount();
-});
+      languages: {
+        en: { text: originalText, requestedTag: 'en', missing: false, fallback: false },
+        'zh-CN': { text: chinese, requestedTag: 'zh-CN', missing: false, fallback: false },
+      },
+    });
+    request.mockImplementation(async (call) => {
+      const result = await original(call);
+      if (!call.path.endsWith('/prepare')) return result;
+      const title = 'Business completion condition';
+      const failure = 'Business data does not yet meet the completion condition';
+      const failureMessageText = text(
+        'failureMessage',
+        failure,
+        publication === 0
+          ? '业务完成条件尚未满足'
+          : publication === 1
+            ? '修正后的完成提示'
+            : '另一版本的错误提示',
+      );
+      const titleText = text(
+        'title',
+        title,
+        publication === 0 ? '业务完成条件' : publication === 1 ? '修正后的检查名称' : '另一版本的错误名称',
+      );
+      const changed = publication > 0;
+      const otherFailure = text('failureMessage', failure, '其他检查仍未满足', 'other');
+      return {
+        ...(result as object),
+        evaluation: {
+          ...(result as { evaluation: object }).evaluation,
+          passed: changed && allPass,
+          failureCheckKey: changed ? (allPass ? null : 'other') : 'ready',
+          failureMessage: changed && allPass ? null : failure,
+          failureMessageText: changed ? (allPass ? undefined : otherFailure) : failureMessageText,
+          checkTexts: [{ checkKey: 'ready', title, titleText, failureMessage: failure, failureMessageText }],
+          checkResults: [
+            {
+              checkKey: 'ready',
+              checkTitle: title,
+              checkTitleText: titleText,
+              failureMessage: changed ? null : failure,
+              failureMessageText: changed ? undefined : failureMessageText,
+              passed: changed,
+              checkRunId: changed ? 'new-check-run' : 'original-check-run',
+              resultPayloadText: JSON.stringify({ evidence: publication }),
+            },
+            ...(changed && !allPass
+              ? [
+                  {
+                    checkKey: 'other',
+                    checkTitle: '其他检查',
+                    passed: false,
+                    failureMessage: failure,
+                    failureMessageText: otherFailure,
+                  },
+                ]
+              : []),
+          ],
+        },
+      };
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Business completion condition');
+    expect(wrapper.text()).toContain('Business data does not yet meet the completion condition');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '登记到货')!
+      .trigger('click');
+    await flushPromises();
+    const form = wrapper.findComponent(fields);
+    form.vm.$emit('update:field', 'remark', '保留用户原文');
+    await flushPromises();
+    const reads = request.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('业务完成条件尚未满足');
+    expect(wrapper.text()).toContain('业务完成条件');
+    expect(request.mock.calls).toHaveLength(reads);
+    expect(form.props('record').remark).toBe('保留用户原文');
+    publication = 1;
+    bindings.value = { publication };
+    await flushPromises();
+    expect(wrapper.text()).toContain('修正后的检查名称');
+    expect(wrapper.text()).toContain('修正后的完成提示');
+    // Re-evaluation during resource refresh cannot replace the displayed check verdict.
+    expect(wrapper.text()).not.toContain('当前业务条件已满足');
+    expect(wrapper.findAll('li').some((item) => item.text().includes('其他检查'))).toBe(false);
+    expect(wrapper.findAll('li').some((item) => item.text() === '修正后的检查名称 · 修正后的完成提示')).toBe(
+      true,
+    );
+    expect(form.props('record').remark).toBe('保留用户原文');
+    publication = 2;
+    bindings.value = { publication };
+    await flushPromises();
+    expect(wrapper.text()).toContain('修正后的检查名称');
+    expect(wrapper.text()).not.toContain('另一版本的错误');
+    expect(wrapper.text()).not.toContain('当前业务条件已满足');
+    expect(vi.mocked(context.crud.view)).toHaveBeenCalledOnce();
+    expect(request.mock.calls.some(([call]) => /\/(execute|actions\/complete)$/.test(call.path))).toBe(false);
+    wrapper.unmount();
+  },
+);

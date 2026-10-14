@@ -37,6 +37,11 @@ class DefaultWorkflowModuleTaskEvaluatorTest {
         assertThat(failed.checkResults().getFirst().getCheckTitle()).isEqualTo("合同条件原名");
         assertThat(failed.checkResults().getFirst().getCheckStatus()).isEqualTo(WorkflowTaskCheckStatus.FAILED);
         assertThat(passed.passed()).isTrue();
+        assertThat(passed.failureCheckKey()).isNull();
+        assertThat(passed.failureMessage()).isNull();
+        assertThat(passed.checkResults().getFirst().getFailureMessage()).isNull();
+        assertThat(passed.checkTexts()).containsExactly(WorkflowTaskCheckText.from(check));
+        assertThat(passed.checkTexts().getFirst().failureMessage()).isEqualTo("missing contract");
         var evidence = passed.checkResults().getFirst();
         assertThat(evidence.getCheckStatus()).isEqualTo(WorkflowTaskCheckStatus.PASSED);
         assertThat(evidence.getTaskId()).isEqualTo("task-1");

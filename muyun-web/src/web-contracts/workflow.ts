@@ -231,6 +231,14 @@ export interface WorkflowTaskPreparation {
     failureMessage?: string;
     failureCheckKey?: string;
     failureMessageText?: TextPresentation;
+    /** Frozen configuration declarations remain available even when a check currently passes. */
+    checkTexts?: Array<{
+      checkKey: string;
+      title?: string;
+      titleText?: TextPresentation;
+      failureMessage?: string;
+      failureMessageText?: TextPresentation;
+    }>;
     checkResults: Array<{
       checkKey: string;
       checkTitle?: string;

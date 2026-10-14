@@ -50,6 +50,7 @@ import WorkflowTimeline from './WorkflowTimeline.vue';
 import {
   workflowNodePresentation,
   refreshWorkflowTextResources,
+  refreshWorkflowTaskTextResources,
   sameWorkflowTextSource,
   workflowTitle as localizedWorkflowTitle,
   workflowRouteSelectionTitle as localizedRouteSelectionTitle,
@@ -386,49 +387,7 @@ watch(
         return;
       originalBundle.value = refreshWorkflowTextResources(originalBundle.value, next);
       if (process && nextProcess && taskProcess.value === process && activeAction.value?.taskId === taskId) {
-        taskProcess.value = {
-          ...process,
-          evaluation: {
-            ...process.evaluation,
-            failureMessageText: sameWorkflowTextSource(
-              process.evaluation.failureMessageText,
-              nextProcess.evaluation.failureMessageText,
-            )
-              ? nextProcess.evaluation.failureMessageText
-              : process.evaluation.failureMessageText,
-            checkResults: process.evaluation.checkResults.map((check) => {
-              const refreshed = nextProcess.evaluation.checkResults.find(
-                (item) => item.checkKey === check.checkKey,
-              );
-              return {
-                ...check,
-                checkTitleText: sameWorkflowTextSource(check.checkTitleText, refreshed?.checkTitleText)
-                  ? refreshed?.checkTitleText
-                  : check.checkTitleText,
-                failureMessageText: sameWorkflowTextSource(
-                  check.failureMessageText,
-                  refreshed?.failureMessageText,
-                )
-                  ? refreshed?.failureMessageText
-                  : check.failureMessageText,
-              };
-            }),
-            guides: process.evaluation.guides.map((guide) => {
-              const refreshed = nextProcess.evaluation.guides.find(
-                (item) => item.guideKey === guide.guideKey,
-              );
-              return {
-                ...guide,
-                titleText: sameWorkflowTextSource(guide.titleText, refreshed?.titleText)
-                  ? refreshed?.titleText
-                  : guide.titleText,
-                instructionText: sameWorkflowTextSource(guide.instructionText, refreshed?.instructionText)
-                  ? refreshed?.instructionText
-                  : guide.instructionText,
-              };
-            }),
-          },
-        };
+        taskProcess.value = refreshWorkflowTaskTextResources(process, nextProcess);
       }
 
       events.value = events.value.map((event) => {

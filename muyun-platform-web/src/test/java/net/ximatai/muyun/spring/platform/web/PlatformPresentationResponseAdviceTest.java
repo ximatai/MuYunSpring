@@ -191,4 +191,24 @@ class PlatformPresentationResponseAdviceTest {
         assertThat(first.getFailureMessage()).isEqualTo("Completion condition not met");
     }
 
+    @Test void deliversFrozenFailureResourcesEvenWhenLiveChecksPassAndActualFailuresAreEmpty() {
+        var check = new WorkflowTaskCheckResult(); check.setCheckKey("ready"); check.setPassed(true);
+        var declaration = new WorkflowTaskCheckText("ready", "业务完成条件", "条件尚未满足");
+        var source = ConfigurationTextSources.workflowCheckText("v1", "task", "ready", "failureMessage", declaration.failureMessage());
+        var evaluation = WorkflowModuleTaskEvaluation.passed(List.of(check), List.of()).withCheckTexts(List.of(declaration));
+        var process = new WorkflowModuleTaskProcessBundle("t", "i", "v1", "task", "sales.order", "r", null, null, null, evaluation, null);
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(advice(Map.of(source, "Condition not yet met")).project(process));
+            assertThat(output.at("/evaluation/passed").asBoolean()).isTrue();
+            assertThat(output.at("/evaluation/failureMessage").isNull()).isTrue();
+            assertThat(output.at("/evaluation/failureMessageText").isMissingNode()).isTrue();
+            assertThat(output.at("/evaluation/checkResults/0/failureMessage").isNull()).isTrue();
+            assertThat(output.at("/evaluation/checkResults/0/failureMessageText").isMissingNode()).isTrue();
+            assertThat(output.at("/evaluation/checkTexts/0/failureMessageText/source/sourceId").asText()).isEqualTo(source.sourceId());
+            assertThat(output.at("/evaluation/checkTexts/0/failureMessageText/languages/en/text").asText()).isEqualTo("Condition not yet met");
+        }
+        assertThat(declaration.failureMessage()).isEqualTo("条件尚未满足");
+        assertThat(check.getFailureMessage()).isNull();
+    }
+
 }

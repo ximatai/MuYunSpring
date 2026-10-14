@@ -2,6 +2,7 @@ import type {
   WorkflowNode,
   WorkflowRoute,
   WorkflowRenderBundle,
+  WorkflowTaskPreparation,
   TextPresentation,
 } from '@muyun/web-contracts';
 import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
@@ -120,6 +121,54 @@ export function sameWorkflowTextSource(
     current.source.sourceVersion === next.source.sourceVersion &&
     current.source.originalText === next.source.originalText,
   );
+}
+
+/** Frozen declarations refresh text independently of the latest check verdict; captured evidence stays intact. */
+export function refreshWorkflowTaskTextResources(
+  current: WorkflowTaskPreparation,
+  next: WorkflowTaskPreparation,
+): WorkflowTaskPreparation {
+  const declarations = next.evaluation.checkTexts ?? [];
+  const updated = (original: TextPresentation | undefined, refreshed: TextPresentation | undefined) =>
+    sameWorkflowTextSource(original, refreshed) ? refreshed : original;
+  const failure =
+    declarations.find((text) => text.checkKey === current.evaluation.failureCheckKey)?.failureMessageText ??
+    next.evaluation.failureMessageText;
+  return {
+    ...current,
+    evaluation: {
+      ...current.evaluation,
+      failureMessageText: updated(current.evaluation.failureMessageText, failure),
+      checkTexts: current.evaluation.checkTexts?.map((text) => {
+        const refreshed = declarations.find((item) => item.checkKey === text.checkKey);
+        return {
+          ...text,
+          titleText: updated(text.titleText, refreshed?.titleText),
+          failureMessageText: updated(text.failureMessageText, refreshed?.failureMessageText),
+        };
+      }),
+      checkResults: current.evaluation.checkResults.map((check) => {
+        const refreshed = next.evaluation.checkResults.find((item) => item.checkKey === check.checkKey);
+        const declaration = declarations.find((text) => text.checkKey === check.checkKey);
+        return {
+          ...check,
+          checkTitleText: updated(check.checkTitleText, declaration?.titleText ?? refreshed?.checkTitleText),
+          failureMessageText: updated(
+            check.failureMessageText,
+            declaration?.failureMessageText ?? refreshed?.failureMessageText,
+          ),
+        };
+      }),
+      guides: current.evaluation.guides.map((guide) => {
+        const refreshed = next.evaluation.guides.find((item) => item.guideKey === guide.guideKey);
+        return {
+          ...guide,
+          titleText: updated(guide.titleText, refreshed?.titleText),
+          instructionText: updated(guide.instructionText, refreshed?.instructionText),
+        };
+      }),
+    },
+  };
 }
 
 /** Translation refreshes do not replace instance facts, node status, routes or frozen graph JSON. */

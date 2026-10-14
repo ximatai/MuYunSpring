@@ -116,6 +116,17 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             if (hasText(evaluation.failureCheckKey()) && hasText(evaluation.failureMessage()))
                 slots.add(new Slot(path + "/evaluation", "failureMessage", ConfigurationTextSources.workflowCheckText(
                         process.workflowVersionId(), process.nodeKey(), evaluation.failureCheckKey(), "failureMessage", evaluation.failureMessage())));
+            for (int i = 0; i < evaluation.checkTexts().size(); i++) {
+                var text = evaluation.checkTexts().get(i);
+                if (!hasText(text.checkKey())) continue;
+                var textPath = path + "/evaluation/checkTexts/" + i;
+                if (hasText(text.title()))
+                    slots.add(new Slot(textPath, "title", ConfigurationTextSources.workflowCheckText(
+                            process.workflowVersionId(), process.nodeKey(), text.checkKey(), "title", text.title())));
+                if (hasText(text.failureMessage()))
+                    slots.add(new Slot(textPath, "failureMessage", ConfigurationTextSources.workflowCheckText(
+                            process.workflowVersionId(), process.nodeKey(), text.checkKey(), "failureMessage", text.failureMessage())));
+            }
             for (int i = 0; i < evaluation.checkResults().size(); i++) {
                 var check = evaluation.checkResults().get(i);
                 if (!hasText(check.getCheckKey())) continue;
