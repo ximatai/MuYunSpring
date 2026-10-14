@@ -110,10 +110,11 @@ const constructionPlan = props.constructionPlanClient
       props.constructionPlanClient,
       assistantIdentity,
       () => props.startup?.session.currentUser?.system === true,
+      language,
     )
   : undefined;
 watch(assistantIdentity, () => constructionPlan?.current(), { flush: 'sync' });
-const configurationCollaboration = createConfigurationCollaboration();
+const configurationCollaboration = createConfigurationCollaboration(language);
 const configurationEditor = computed(() => props.assistantWorkspaceContribution?.editor?.());
 const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
   assistantIdentity,

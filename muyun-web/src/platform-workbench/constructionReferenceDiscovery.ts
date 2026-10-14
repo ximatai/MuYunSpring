@@ -1,4 +1,6 @@
 import {
+  platformLanguageContext,
+  type LanguageContext,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   pageAssistantCatalog,
@@ -10,6 +12,7 @@ import {
 /** Reads the public configuration catalog; does not create or adopt existing modules. */
 export function createConstructionReferenceDiscoveryCapabilities(
   client: ConstructionPlanClient,
+  language: LanguageContext = platformLanguageContext,
 ): AssistantCapability[] {
   return [
     {
@@ -53,7 +56,12 @@ export function createConstructionReferenceDiscoveryCapabilities(
       parseInput(input) {
         const value = input as { applicationAlias?: unknown; search?: unknown; offset?: unknown } | null;
         if (!value || typeof value !== 'object' || Array.isArray(value))
-          throw new AssistantCapabilityUsageError('目录查询参数无效');
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionReferenceDiscovery.invalid-catalog-query-parameters',
+              '目录查询参数无效',
+            ),
+          );
         const applicationAlias = value.applicationAlias;
         if (
           applicationAlias !== undefined &&
@@ -61,7 +69,12 @@ export function createConstructionReferenceDiscoveryCapabilities(
             applicationAlias.length > 64 ||
             !/^[a-z][a-z0-9_]*$/.test(applicationAlias))
         )
-          throw new AssistantCapabilityUsageError('应用标识无效');
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionReferenceDiscovery.invalid-application-identifier',
+              '应用标识无效',
+            ),
+          );
         const search = value.search ?? '',
           offset = value.offset ?? 0;
         if (
@@ -70,7 +83,12 @@ export function createConstructionReferenceDiscoveryCapabilities(
           !Number.isSafeInteger(offset) ||
           Number(offset) < 0
         )
-          throw new AssistantCapabilityUsageError('目录查询参数无效');
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionReferenceDiscovery.invalid-catalog-query-parameters',
+              '目录查询参数无效',
+            ),
+          );
         return { applicationAlias, search: search.trim().toLowerCase(), offset: Number(offset) };
       },
       async execute(input) {
@@ -118,10 +136,20 @@ export function createConstructionReferenceDiscoveryCapabilities(
           alias.length > 128 ||
           !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
         )
-          throw new AssistantCapabilityUsageError('引用模块标识无效');
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionPlanSession.invalid-reference-module-identifier',
+              '引用模块标识无效',
+            ),
+          );
         const { keyOffset = 0, labelOffset = 0 } = input as { keyOffset?: unknown; labelOffset?: unknown };
         if (![keyOffset, labelOffset].every((offset) => Number.isSafeInteger(offset) && Number(offset) >= 0))
-          throw new AssistantCapabilityUsageError('目录分页位置无效');
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionFields.invalid-catalog-pagination-offset',
+              '目录分页位置无效',
+            ),
+          );
         return { moduleAlias: alias, keyOffset: Number(keyOffset), labelOffset: Number(labelOffset) };
       },
       async execute(input) {

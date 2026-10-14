@@ -4,6 +4,8 @@ import {
   type ConstructionPlanState,
 } from './constructionPlanGuard';
 import {
+  platformLanguageContext,
+  type LanguageContext,
   createUuid,
   AppError,
   AssistantCapabilityUsageError,
@@ -17,6 +19,7 @@ export function createConstructionDeliveryCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
   onAccepted: () => Promise<void> = async () => {},
+  language: LanguageContext = platformLanguageContext,
 ): AssistantCapability[] {
   const objectSchema = (properties: Record<string, unknown>) => ({
     type: 'object',
@@ -31,12 +34,19 @@ export function createConstructionDeliveryCapabilities(
       Array.isArray(input) ||
       Object.keys(input).some((key) => !allowed.includes(key))
     )
-      throw new AssistantCapabilityUsageError('建设参数无效');
+      throw new AssistantCapabilityUsageError(
+        language.t('platform.screen.constructionDelivery.invalid-construction-parameters', '建设参数无效'),
+      );
     return input as Record<string, unknown>;
   };
   const text = (value: unknown) => {
     if (typeof value !== 'string' || !value.trim() || value.length > 120)
-      throw new AssistantCapabilityUsageError('建设参数为空或过长');
+      throw new AssistantCapabilityUsageError(
+        language.t(
+          'platform.screen.constructionDelivery.construction-parameters-are-empty-or-too-long',
+          '建设参数为空或过长',
+        ),
+      );
     return value.trim();
   };
   let acceptance: AssistantOperationProposal | undefined;
@@ -50,7 +60,7 @@ export function createConstructionDeliveryCapabilities(
     },
     parseInput: (input) => ({ objectKey: text(parseObject(input).objectKey) }),
     async execute(input, context) {
-      const before = requireConfirmedConstructionPlan(current);
+      const before = requireConfirmedConstructionPlan(current, language);
       const planId = before.saved.planId;
       const preview = await client.previewAcceptance(planId, (input as { objectKey: string }).objectKey);
       const command = {
@@ -60,8 +70,16 @@ export function createConstructionDeliveryCapabilities(
       };
       const { isCurrent } = before;
       const result = {
-        title: '已记录人工验收通过',
-        lines: ['本次建设验收已记录；后续改进读取当前治理配置，历史验收不证明修改后的配置正确。'],
+        title: language.t(
+          'platform.screen.constructionDelivery.human-acceptance-recorded',
+          '已记录人工验收通过',
+        ),
+        lines: [
+          language.t(
+            'platform.screen.constructionDelivery.construction-acceptance-has-been-recorded-read-current-governance-configuration-for',
+            '本次建设验收已记录；后续改进读取当前治理配置，历史验收不证明修改后的配置正确。',
+          ),
+        ],
       };
       async function accepted() {
         if (isCurrent()) {
@@ -70,7 +88,13 @@ export function createConstructionDeliveryCapabilities(
           } catch {
             return {
               ...result,
-              lines: [...result.lines, '验收已记录，建设状态刷新失败；请重新读取，勿重复验收。'],
+              lines: [
+                ...result.lines,
+                language.t(
+                  'platform.screen.constructionDelivery.acceptance-recorded-but-construction-status-could-not-be-refreshed-read',
+                  '验收已记录，建设状态刷新失败；请重新读取，勿重复验收。',
+                ),
+              ],
             };
           }
         }
@@ -78,21 +102,48 @@ export function createConstructionDeliveryCapabilities(
       }
       context.commitInternalState(() => {
         acceptance = {
-          modelSummary:
+          modelSummary: language.t(
+            'platform.screen.constructionDelivery.record-the-user-s-human-acceptance-of-the-current-requirements',
             '记录用户对当前需求及配置基线的人工验收。必须先实际核对，不自动证明业务要求已经实现。',
-          confirmLabel: '我已核对并确认验收通过',
+          ),
+          confirmLabel: language.t(
+            'platform.screen.constructionDelivery.i-have-verified-and-accept-the-result',
+            '我已核对并确认验收通过',
+          ),
           expiresAt: Date.now() + 5 * 60_000,
           isCurrent,
           presentation: {
-            title: '业务验收确认',
+            title: language.t(
+              'platform.screen.constructionDelivery.business-acceptance-confirmation',
+              '业务验收确认',
+            ),
             lines: [
-              `需求第 ${preview.planRevision} 版`,
-              '请先实际录入、查询并检查业务结果，逐项核对下方完整清单。确认表示你已核对通过，不是让系统自动证明所有需求。',
+              language.t(
+                'platform.screen.constructionDelivery.requirements-revision-value',
+                '需求第 {value1} 版',
+                { value1: preview.planRevision },
+              ),
+              language.t(
+                'platform.screen.constructionDelivery.enter-records-query-and-inspect-business-results-first-then-verify',
+                '请先实际录入、查询并检查业务结果，逐项核对下方完整清单。确认表示你已核对通过，不是让系统自动证明所有需求。',
+              ),
             ],
-            details: { title: '查看完整验收清单', lines: preview.checks },
+            details: {
+              title: language.t(
+                'platform.screen.constructionDelivery.view-the-full-acceptance-checklist',
+                '查看完整验收清单',
+              ),
+              lines: preview.checks,
+            },
           },
           async execute() {
-            if (!isCurrent()) throw new AssistantOperationRejectedError('验收上下文已变化');
+            if (!isCurrent())
+              throw new AssistantOperationRejectedError(
+                language.t(
+                  'platform.screen.constructionDelivery.the-acceptance-context-changed',
+                  '验收上下文已变化',
+                ),
+              );
             try {
               await client.confirmAcceptance(planId, command);
               return accepted();
@@ -110,7 +161,13 @@ export function createConstructionDeliveryCapabilities(
       return { awaitingHumanConfirmation: true };
     },
     propose() {
-      if (!acceptance) throw new AssistantCapabilityUsageError('请先核对验收范围');
+      if (!acceptance)
+        throw new AssistantCapabilityUsageError(
+          language.t(
+            'platform.screen.constructionDelivery.review-the-acceptance-scope-first',
+            '请先核对验收范围',
+          ),
+        );
       return acceptance;
     },
   };
@@ -127,7 +184,13 @@ export function createConstructionDeliveryCapabilities(
       parseInput: (input) => ({ objectKey: text(parseObject(input).objectKey) }),
       async execute(input) {
         const plan = current().saved;
-        if (!plan) throw new AssistantCapabilityUsageError('请先恢复已确认方案');
+        if (!plan)
+          throw new AssistantCapabilityUsageError(
+            language.t(
+              'platform.screen.constructionPlanSession.restore-a-confirmed-plan-first',
+              '请先恢复已确认方案',
+            ),
+          );
         return client.progress(plan.planId, (input as { objectKey: string }).objectKey);
       },
       present: (value) => {
@@ -135,23 +198,62 @@ export function createConstructionDeliveryCapabilities(
         return {
           title:
             current().saved?.content.objects.find((item) => item.key === progress.objectKey)?.name ??
-            '业务配置进度',
+            language.t(
+              'platform.screen.constructionDelivery.business-configuration-progress',
+              '业务配置进度',
+            ),
           lines: [
             progress.pagePublished &&
             progress.entryVisible &&
             progress.runtimeStatus === 'ACTIVE' &&
             !progress.needsReview
-              ? '页面和入口已可用。'
-              : '配置尚需完善，请按当前进度继续。',
-            progress.acceptanceConfirmed ? '本版业务效果已确认。' : '业务效果尚待验收，不代表没有录入数据。',
+              ? language.t(
+                  'platform.screen.constructionDelivery.page-and-entry-are-available',
+                  '页面和入口已可用。',
+                )
+              : language.t(
+                  'platform.screen.constructionDelivery.configuration-needs-more-work-continue-from-current-progress',
+                  '配置尚需完善，请按当前进度继续。',
+                ),
+            progress.acceptanceConfirmed
+              ? language.t(
+                  'platform.screen.constructionDelivery.business-behavior-for-this-revision-has-been-accepted',
+                  '本版业务效果已确认。',
+                )
+              : language.t(
+                  'platform.screen.constructionDelivery.business-acceptance-is-pending-this-does-not-indicate-whether-records',
+                  '业务效果尚待验收，不代表没有录入数据。',
+                ),
           ],
           details: {
-            title: '查看配置证据与待办',
+            title: language.t(
+              'platform.screen.constructionDelivery.view-configuration-evidence-and-remaining-work',
+              '查看配置证据与待办',
+            ),
             lines: [
               progress.moduleAlias,
-              `运行态：${progress.runtimeStatus}`,
-              `页面：${progress.pagePublished ? '已发布' : '未完成'}；入口：${progress.entryVisible ? '当前用户可见' : '不可见'}`,
-              '此进度未查询业务记录；是否已有数据须在当前业务范围内查询。',
+              language.t('platform.screen.constructionDelivery.runtime-value', '运行态：{value1}', {
+                value1: progress.runtimeStatus,
+              }),
+              language.t(
+                'platform.screen.constructionDelivery.page-value-entry-value',
+                '页面：{value1}；入口：{value2}',
+                {
+                  value1: progress.pagePublished
+                    ? language.t('platform.workflow.published', '已发布')
+                    : language.t('platform.screen.RecordQueryListPanel.incomplete', '未完成'),
+                  value2: progress.entryVisible
+                    ? language.t(
+                        'platform.screen.constructionDelivery.visible-to-the-current-user',
+                        '当前用户可见',
+                      )
+                    : language.t('platform.screen.ConstructionPlanCard.not-visible', '不可见'),
+                },
+              ),
+              language.t(
+                'platform.screen.constructionDelivery.this-progress-query-does-not-read-business-records-query-the',
+                '此进度未查询业务记录；是否已有数据须在当前业务范围内查询。',
+              ),
               ...progress.remainingWork,
             ],
           },

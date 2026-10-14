@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
-import { createAssistantSurfaceRegistry, type AssistantCapability } from '@/web-core';
+import { createAssistantSurfaceRegistry, createLanguageContext, type AssistantCapability } from '@/web-core';
 
 function fixture() {
   const collaboration = createConfigurationCollaboration();
@@ -221,4 +221,16 @@ it('retains an explicit read-only continuation rather than widening an adapter p
     openingCapability: 'configuration.open-metadata-editor',
     draftEditingAvailable: false,
   });
+});
+
+it('localizes collaboration validation in its owner scope without altering the task or granting saves', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const collaboration = createConfigurationCollaboration(language);
+  expect(() => collaboration.capabilities()[0]!.parseInput(null)).toThrow('Select a collaboration mode');
+  collaboration.restore({ goal: '用户业务目标', mode: 'conversation' });
+  const revision = collaboration.revision.value;
+  language.setLanguage('zh-CN');
+  expect(() => collaboration.capabilities()[0]!.parseInput(null)).toThrow('请选择本次配置的协作方式');
+  expect(collaboration.task.value).toEqual({ goal: '用户业务目标', mode: 'conversation' });
+  expect(collaboration.revision.value).toBe(revision);
 });
