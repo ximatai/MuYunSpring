@@ -363,22 +363,17 @@ export function parseConstructionPlan(
         fail(
           codeOperationErrorMessage(
             language,
-            'platform.screen.constructionPlanSession.requirements-value-index-value-does-not-refer-to-a-requirement',
-            'requirements[{value1}].index={value2} 未引用本版要求（{value3}）；{value4}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。',
+            source.length
+              ? 'platform.screen.constructionPlanSession.requirement-index-out-of-range'
+              : 'platform.screen.constructionPlanSession.requirement-section-empty',
+            source.length
+              ? 'requirements[{value1}].index={value2} 未引用本版要求（{value3}）；有效索引为 0 至 {maximum}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。'
+              : 'requirements[{value1}].index={value2} 未引用本版要求（{value3}）；本版该部分为空，不能引用。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。',
             {
               value1: requirementIndex,
               value2: String(item.index),
               value3: section === 'SCOPE' ? 'inScope' : section === 'RULE' ? 'rules' : 'relationships',
-              value4: source.length
-                ? language.t(
-                    'platform.screen.constructionPlanSession.valid-indices-are-0-through-value',
-                    '有效索引为 0 至 {value1}',
-                    { value1: source.length - 1 },
-                  )
-                : language.t(
-                    'platform.screen.constructionPlanSession.this-section-is-empty-in-the-current-revision-and-cannot',
-                    '本版该部分为空，不能引用',
-                  ),
+              maximum: source.length - 1,
             },
           ),
         );
@@ -403,26 +398,17 @@ export function parseConstructionPlan(
         fail(
           codeOperationErrorMessage(
             language,
-            'platform.screen.constructionPlanSession.requirements-value-fieldname-does-not-match-value-value',
-            'requirements[{value1}].fieldName 与 {value2} 不匹配：{value3}。',
-            {
-              value1: requirementIndex,
-              value2: mode,
-              value3: field
-                ? language.t(
-                    'platform.screen.constructionPlanSession.enter-a-field-name-use-relation-field-for-a-direct',
-                    '请填字段名，直接子表使用 relation.field（只支持一层），每段以小写字母开头',
-                  )
-                : mode === 'CHILD'
-                  ? language.t(
-                      'platform.screen.constructionPlanSession.enter-only-a-direct-child-relation-identifier-a-lowercase-initial',
-                      '只填直接子关系标识，以小写字母开头，仅小写字母、数字、下划线，最多63字符',
-                    )
-                  : language.t(
-                      'platform.screen.constructionPlanSession.this-mode-does-not-check-a-field-enter-an-empty',
-                      '此方式不检查字段，必须填空字符串',
-                    ),
-            },
+            field
+              ? 'platform.screen.constructionPlanSession.requirement-field-format'
+              : mode === 'CHILD'
+                ? 'platform.screen.constructionPlanSession.requirement-child-format'
+                : 'platform.screen.constructionPlanSession.requirement-field-must-be-empty',
+            field
+              ? 'requirements[{value1}].fieldName 与 {value2} 不匹配：请填字段名，直接子表使用 relation.field（只支持一层），每段以小写字母开头。'
+              : mode === 'CHILD'
+                ? 'requirements[{value1}].fieldName 与 {value2} 不匹配：只填直接子关系标识，以小写字母开头，仅小写字母、数字、下划线，最多63字符。'
+                : 'requirements[{value1}].fieldName 与 {value2} 不匹配：此方式不检查字段，必须填空字符串。',
+            { value1: requirementIndex, value2: mode },
           ),
         );
       const reference = item.reference == null ? null : record(item.reference);

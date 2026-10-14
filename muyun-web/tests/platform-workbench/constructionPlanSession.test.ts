@@ -8,6 +8,9 @@ import {
 } from '@/platform-workbench/constructionPlanSession';
 import {
   createLanguageContext,
+  OperationUsageError,
+  DraftUpdateRejectedError,
+  resolveOperationErrorMessage,
   type LanguageContext,
   createAssistantOperationConfirmation,
   createAssistantSurfaceRegistry,
@@ -742,3 +745,83 @@ it('uses the current owner language for schema guidance, validation and display 
   expect(vi.mocked(client.confirm).mock.calls[0]![1].content).toEqual(content);
   expect(session.current().saved?.revision).toBe(1);
 });
+
+it.each([
+  { inScope: [], index: 0, mode: 'MANUAL', fieldName: '', zh: '本版该部分为空', en: 'this section is empty' },
+  {
+    inScope: ['业务范围原文'],
+    index: 1,
+    mode: 'MANUAL',
+    fieldName: '',
+    zh: '有效索引为 0 至 0',
+    en: 'valid indices are 0 through 0',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'FIELD',
+    fieldName: 'Invalid',
+    zh: '请填字段名',
+    en: 'enter a field name',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'CHILD',
+    fieldName: 'lines.amount',
+    zh: '只填直接子关系标识',
+    en: 'enter only a direct child relation identifier',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'MANUAL',
+    fieldName: 'title',
+    zh: '必须填空字符串',
+    en: 'enter an empty string',
+  },
+])(
+  'relocalizes the complete requirement validation without replaying a rejected edit: $mode/$index/$fieldName',
+  (scenario) => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const { session, client } = fixture(false, language);
+    session.edit(content);
+    const before = structuredClone(session.current());
+    const rejected = {
+      ...content,
+      inScope: scenario.inScope,
+      requirements: [
+        {
+          section: 'SCOPE',
+          index: scenario.index,
+          objectKey: 'order',
+          mode: scenario.mode,
+          fieldName: scenario.fieldName,
+          explanation: '业务说明原文',
+        },
+      ],
+    };
+    let failure: unknown;
+    try {
+      session.edit(rejected);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(OperationUsageError);
+    const wrapped = new DraftUpdateRejectedError(failure as OperationUsageError);
+    const snapshotMessage = wrapped.message;
+    expect(snapshotMessage).toContain(scenario.en);
+    expect(snapshotMessage).not.toMatch(/[\u3400-\u9fff]/u);
+    language.setLanguage('zh-CN');
+    const chinese = resolveOperationErrorMessage(wrapped, language);
+    expect(chinese).toContain(scenario.zh);
+    expect(chinese).not.toContain(scenario.en);
+    expect(chinese).toContain('requirements[0].');
+    language.setLanguage('en');
+    expect(resolveOperationErrorMessage(wrapped, language)).toBe(snapshotMessage);
+    expect(wrapped.message).toBe(snapshotMessage);
+    expect(session.current()).toEqual(before);
+    expect(rejected.requirements[0]!.explanation).toBe('业务说明原文');
+    expect(client.confirm).not.toHaveBeenCalled();
+  },
+);

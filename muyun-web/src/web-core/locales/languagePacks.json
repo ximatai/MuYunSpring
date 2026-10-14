@@ -1575,14 +1575,7 @@
       "platform.screen.constructionPlanSession.invalid-requirement-source": "需求来源无效",
       "platform.screen.constructionPlanSession.at-most-64-requirement-mappings-are-allowed": "需求兑现项最多 64 项",
       "platform.screen.constructionPlanSession.invalid-requirement-fulfillment-mode": "需求兑现方式无效",
-      "platform.screen.constructionPlanSession.valid-indices-are-0-through-value": "有效索引为 0 至 {value1}",
-      "platform.screen.constructionPlanSession.this-section-is-empty-in-the-current-revision-and-cannot": "本版该部分为空，不能引用",
-      "platform.screen.constructionPlanSession.requirements-value-index-value-does-not-refer-to-a-requirement": "requirements[{value1}].index={value2} 未引用本版要求（{value3}）；{value4}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。",
       "platform.screen.constructionPlanSession.the-mapped-business-object-does-not-exist": "兑现项业务对象不存在",
-      "platform.screen.constructionPlanSession.enter-a-field-name-use-relation-field-for-a-direct": "请填字段名，直接子表使用 relation.field（只支持一层），每段以小写字母开头",
-      "platform.screen.constructionPlanSession.enter-only-a-direct-child-relation-identifier-a-lowercase-initial": "只填直接子关系标识，以小写字母开头，仅小写字母、数字、下划线，最多63字符",
-      "platform.screen.constructionPlanSession.this-mode-does-not-check-a-field-enter-an-empty": "此方式不检查字段，必须填空字符串",
-      "platform.screen.constructionPlanSession.requirements-value-fieldname-does-not-match-value-value": "requirements[{value1}].fieldName 与 {value2} 不匹配：{value3}。",
       "platform.screen.constructionPlanSession.a-reference-requirement-must-declare-its-target": "引用兑现项必须声明目标",
       "platform.screen.constructionPlanSession.choose-either-a-plan-object-or-an-existing-module": "请选择方案对象或已有模块之一",
       "platform.screen.constructionPlanSession.the-reference-target-must-be-another-object-in-this-plan": "引用目标必须是方案中的另一个对象",
@@ -1711,7 +1704,12 @@
       "platform.construction.section.rules": "业务规则",
       "platform.construction.section.questions": "未决问题",
       "platform.construction.section.assumptions": "待验证假设",
-      "platform.construction.section.acceptanceExamples": "验收例子"
+      "platform.construction.section.acceptanceExamples": "验收例子",
+      "platform.screen.constructionPlanSession.requirement-index-out-of-range": "requirements[{value1}].index={value2} 未引用本版要求（{value3}）；有效索引为 0 至 {maximum}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。",
+      "platform.screen.constructionPlanSession.requirement-section-empty": "requirements[{value1}].index={value2} 未引用本版要求（{value3}）；本版该部分为空，不能引用。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。",
+      "platform.screen.constructionPlanSession.requirement-field-format": "requirements[{value1}].fieldName 与 {value2} 不匹配：请填字段名，直接子表使用 relation.field（只支持一层），每段以小写字母开头。",
+      "platform.screen.constructionPlanSession.requirement-child-format": "requirements[{value1}].fieldName 与 {value2} 不匹配：只填直接子关系标识，以小写字母开头，仅小写字母、数字、下划线，最多63字符。",
+      "platform.screen.constructionPlanSession.requirement-field-must-be-empty": "requirements[{value1}].fieldName 与 {value2} 不匹配：此方式不检查字段，必须填空字符串。"
     }
   },
   "en": {
@@ -3291,14 +3289,7 @@
       "platform.screen.constructionPlanSession.invalid-requirement-source": "Invalid requirement source",
       "platform.screen.constructionPlanSession.at-most-64-requirement-mappings-are-allowed": "At most 64 requirement mappings are allowed",
       "platform.screen.constructionPlanSession.invalid-requirement-fulfillment-mode": "Invalid requirement fulfillment mode",
-      "platform.screen.constructionPlanSession.valid-indices-are-0-through-value": "Valid indices are 0 through {value1}",
-      "platform.screen.constructionPlanSession.this-section-is-empty-in-the-current-revision-and-cannot": "This section is empty in the current revision and cannot be referenced",
-      "platform.screen.constructionPlanSession.requirements-value-index-value-does-not-refer-to-a-requirement": "requirements[{value1}].index={value2} does not refer to a requirement in this revision ({value3}); {value4}. Correct the reference and retain the complete plan, including confirmed requirements and all other required sections.",
       "platform.screen.constructionPlanSession.the-mapped-business-object-does-not-exist": "The mapped business object does not exist",
-      "platform.screen.constructionPlanSession.enter-a-field-name-use-relation-field-for-a-direct": "Enter a field name; use relation.field for a direct child table (one level only). Each segment must start with a lowercase letter",
-      "platform.screen.constructionPlanSession.enter-only-a-direct-child-relation-identifier-a-lowercase-initial": "Enter only a direct child relation identifier: a lowercase initial letter, lowercase letters, digits and underscores, at most 63 characters",
-      "platform.screen.constructionPlanSession.this-mode-does-not-check-a-field-enter-an-empty": "This mode does not check a field; enter an empty string",
-      "platform.screen.constructionPlanSession.requirements-value-fieldname-does-not-match-value-value": "requirements[{value1}].fieldName does not match {value2}: {value3}.",
       "platform.screen.constructionPlanSession.a-reference-requirement-must-declare-its-target": "A reference requirement must declare its target",
       "platform.screen.constructionPlanSession.choose-either-a-plan-object-or-an-existing-module": "Choose either a plan object or an existing module",
       "platform.screen.constructionPlanSession.the-reference-target-must-be-another-object-in-this-plan": "The reference target must be another object in this plan",
@@ -3427,7 +3418,12 @@
       "platform.construction.section.rules": "Business rules",
       "platform.construction.section.questions": "Open questions",
       "platform.construction.section.assumptions": "Assumptions to verify",
-      "platform.construction.section.acceptanceExamples": "Acceptance examples"
+      "platform.construction.section.acceptanceExamples": "Acceptance examples",
+      "platform.screen.constructionPlanSession.requirement-index-out-of-range": "requirements[{value1}].index={value2} does not refer to a requirement in this revision ({value3}); valid indices are 0 through {maximum}. Correct the reference and retain the complete plan, including confirmed requirements and all other required sections.",
+      "platform.screen.constructionPlanSession.requirement-section-empty": "requirements[{value1}].index={value2} does not refer to a requirement in this revision ({value3}); this section is empty and cannot be referenced. Correct the reference and retain the complete plan, including confirmed requirements and all other required sections.",
+      "platform.screen.constructionPlanSession.requirement-field-format": "requirements[{value1}].fieldName does not match {value2}: enter a field name; use relation.field for a direct child table (one level only). Each segment must start with a lowercase letter.",
+      "platform.screen.constructionPlanSession.requirement-child-format": "requirements[{value1}].fieldName does not match {value2}: enter only a direct child relation identifier starting with a lowercase letter, using lowercase letters, digits and underscores, at most 63 characters.",
+      "platform.screen.constructionPlanSession.requirement-field-must-be-empty": "requirements[{value1}].fieldName does not match {value2}: this mode does not check a field; enter an empty string."
     }
   },
   "fr": {
