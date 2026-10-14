@@ -117,6 +117,26 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldDeclareDeployedEnglishForTheActualFormulaDirectoryWithoutChangingRules() {
+        var snapshot = governance.snapshot(moduleAlias);
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        assertThat(snapshot.functions()).hasSize(21);
+        for (var function : snapshot.functions()) {
+            assertThat(function.textSources()).containsOnlyKeys("category", "title", "description");
+            var sources = new java.util.ArrayList<>(function.textSources().values());
+            function.parameters().forEach(parameter -> sources.add(parameter.descriptionSource()));
+            for (var source : sources) {
+                assertThat(source.sourceId()).startsWith("platform.formula.function." + function.name() + ".");
+                var english = resources.resolve(source, Map.of(), "en");
+                assertThat(english.missing()).as(source.sourceId()).isFalse();
+                assertThat(english.text()).doesNotContainPattern("\\p{IsHan}");
+            }
+        }
+        assertThat(governance.snapshot(moduleAlias)).isEqualTo(snapshot);
+    }
+
+    @Test
     void shouldPersistReferenceEnabledRequirement() {
         MetadataField title = field(mainMetadataId(), "title", "title", "string");
         title.setTitleField(true);

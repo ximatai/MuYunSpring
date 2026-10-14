@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.platform.application.ApplicationConstructionDeliveryService;
+import net.ximatai.muyun.spring.platform.metadata.*;
 import net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirements;
 import net.ximatai.muyun.spring.platform.application.ApplicationConstructionText;
 import net.ximatai.muyun.spring.common.option.OptionItem;
@@ -49,7 +50,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskContinueResult.class.isAssignableFrom(parameter.getParameterType()) ||
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class ||
-                parameter.getContainingClass() == ApplicationConstructionPlanWebController.class;
+                parameter.getContainingClass() == ApplicationConstructionPlanWebController.class ||
+                parameter.getContainingClass() == PlatformBusinessRuleGovernanceWebController.class;
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
             Class<? extends HttpMessageConverter<?>> converter, ServerHttpRequest request, ServerHttpResponse response) { return project(body); }
@@ -81,15 +83,37 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 continue;
             }
             if (!(output.at(slot.parentPath()) instanceof ObjectNode parent)) continue;
+            if (slot.retainOriginal() && (!parent.path(slot.property()).isTextual() ||
+                    !parent.path(slot.property()).asText().equals(slot.source().originalText()) ||
+                    slot.source().sourceKind() != TextReference.SourceKind.CODE ||
+                    !slot.source().sourceVersion().equals(TextReference.versionOf(slot.source().originalText())))) continue;
             parent.set(slot.property() + "Text", mapper.valueToTree(TextPresentations.of(slot.source(), Map.of(), prepared, catalog)));
-            parent.put(slot.property(), prepared.resolve(slot.source(), Map.of(), LanguageContext.currentTag()).text());
+            if (!slot.retainOriginal())
+                parent.put(slot.property(), prepared.resolve(slot.source(), Map.of(), LanguageContext.currentTag()).text());
         }
         if (!constructionBindings.isEmpty() && output instanceof ObjectNode object)
             object.set("textBindings", mapper.valueToTree(constructionBindings));
         return mapper.convertValue(output, new TypeReference<Object>() { });
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof ApplicationConstructionDeliveryService.Task task) {
+        if (value instanceof BusinessRuleGovernanceSnapshot snapshot) {
+            collect(snapshot.functions(), path + "/functions", slots);
+        } else if (value instanceof BusinessRulePreview preview) {
+            collect(preview.snapshot(), path + "/snapshot", slots);
+        } else if (value instanceof BusinessRuleTrialResult trial) {
+            collect(trial.preview(), path + "/preview", slots);
+        } else if (value instanceof BusinessRuleApplyResult applied) {
+            collect(applied.snapshot(), path + "/snapshot", slots);
+            collect(applied.preview(), path + "/preview", slots);
+        } else if (value instanceof BusinessRuleFunction function) {
+            function.textSources().forEach((property, source) ->
+                    slots.add(new Slot(path, property, source, Map.of(), false, true)));
+            for (int i = 0; i < function.parameters().size(); i++) {
+                var parameter = function.parameters().get(i);
+                if (parameter.descriptionSource() != null)
+                    slots.add(new Slot(path + "/parameters/" + i, "description", parameter.descriptionSource(), Map.of(), false, true));
+            }
+        } else if (value instanceof ApplicationConstructionDeliveryService.Task task) {
             for (int i = 0; i < task.objects().size(); i++) {
                 var object = task.objects().get(i); String objectPath = path + "/objects/" + i;
                 for (int j = 0; j < object.options().size(); j++)
@@ -212,7 +236,10 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 text.source().sourceVersion().equals(TextReference.versionOf(text.source().originalText())))
             slots.add(new Slot(path, property, text.source(), text.arguments(), true));
     }
-    private record Slot(String parentPath, String property, TextReference source, Map<String, ?> arguments, boolean resourceOnly) {
+    private record Slot(String parentPath, String property, TextReference source, Map<String, ?> arguments, boolean resourceOnly, boolean retainOriginal) {
+        Slot(String parentPath, String property, TextReference source, Map<String, ?> arguments, boolean resourceOnly) {
+            this(parentPath, property, source, arguments, resourceOnly, false);
+        }
         Slot(String parentPath, String property, TextReference source) { this(parentPath, property, source, Map.of(), false); }
     }
 }

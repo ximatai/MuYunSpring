@@ -1,4 +1,4 @@
-import type { OperationProposal } from '@muyun/web-core';
+import type { LanguageContext, OperationProposal } from '@muyun/web-core';
 import type {
   BusinessRuleProposal,
   BusinessRulePreview,
@@ -9,6 +9,7 @@ export interface BusinessRuleTrialInput {
   sampleChildren: Record<string, Record<string, unknown>[]>;
 }
 export interface BusinessRuleEditor {
+  readonly language?: LanguageContext;
   summary(): {
     moduleAlias: string;
     title?: string;

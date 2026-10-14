@@ -251,6 +251,7 @@ const businessRuleWorkspace = createBusinessRuleWorkspace(
     pageCompositionWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const metadataWorkspace = createMetadataWorkspace(
   createBackendHttpClient(),

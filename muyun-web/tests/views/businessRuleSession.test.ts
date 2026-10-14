@@ -1,13 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { effectScope } from 'vue';
 import { createBusinessRuleWorkspace } from '@/views/businessRuleWorkspace';
-import { createAssistantSurfaceRegistry, type HttpClient } from '@/web-core';
+import {
+  createAssistantSurfaceRegistry,
+  createLanguageContext,
+  resolveOperationErrorMessage,
+  OperationUsageError,
+  type LanguageContext,
+  type HttpClient,
+} from '@/web-core';
 import type { BusinessRuleProposal } from '@/views/businessRuleGovernance';
 
 const workspaces: ReturnType<typeof createBusinessRuleWorkspace>[] = [];
 afterEach(() => workspaces.splice(0).forEach((workspace) => workspace.dispose()));
 
-function fixture() {
+function fixture(language?: LanguageContext) {
   let identity = 'user-a';
   const rule: BusinessRuleProposal = {
     code: 'positive',
@@ -49,6 +56,8 @@ function fixture() {
     () => identity,
     () => true,
     openRules,
+    undefined,
+    language,
   );
   workspaces.push(workspace);
   const registry = createAssistantSurfaceRegistry(() => identity, workspace.current);
@@ -559,4 +568,39 @@ it('reselects an unknown rule session and hands off to its recovery page without
   expect(settleNavigation).toHaveBeenCalledOnce();
   expect(session.ready.value).toBe(false);
   expect(session.submissionStatus.value).toBe('unknown');
+});
+
+it('keeps the scoped rule candidate and prepared confirmation current across language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { workspace, http, rule, invoke } = fixture(language);
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const session = workspace.session('demo.order');
+  session.adapter.revise({ ...rule, messageTemplate: '用户填写的校验提示' });
+  const prepared = await session.adapter.prepareConfirmation(new AbortController().signal);
+  const revision = session.revision.value;
+  const candidate = JSON.stringify(session.rules.value);
+  const presentation = structuredClone(prepared.presentation);
+  const calls = vi.mocked(http.request).mock.calls.length;
+  expect(prepared.presentation.title).toBe('Confirm business rule changes');
+  expect(session.language).toBe(language);
+  expect(session.adapter.language).toBe(language);
+  language.setLanguage('zh-CN');
+  expect(prepared.isCurrent()).toBe(true);
+  expect(session.revision.value).toBe(revision);
+  expect(JSON.stringify(session.rules.value)).toBe(candidate);
+  expect(prepared.presentation).toEqual(presentation);
+  expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+  session.setEditing(Symbol('active-rule'), true);
+  let failure: unknown;
+  try {
+    session.adapter.revise(rule);
+  } catch (cause) {
+    failure = cause;
+  }
+  expect(failure).toBeInstanceOf(OperationUsageError);
+  language.setLanguage('en');
+  expect(resolveOperationErrorMessage(failure as OperationUsageError, language)).toBe(
+    'Finish editing the rule on the page first.',
+  );
+  expect(session.revision.value).toBe(revision);
 });

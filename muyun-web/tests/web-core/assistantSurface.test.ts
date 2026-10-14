@@ -7,6 +7,8 @@ import {
   parseEmptyAssistantCapabilityInput,
   StaleAssistantInvocationError,
   OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
   DraftUpdateRejectedError,
   type AssistantCapability,
   type AssistantSurface,
@@ -932,4 +934,41 @@ it('passes the registry owner language to prepared confirmations without changin
   expect(result.confirmation?.presentation.title).toBe('业务原始确认');
   expect(registry.snapshot()!.token).toEqual(token);
   expect(execute).not.toHaveBeenCalled();
+});
+
+it('preserves declared local error facts when adapting a rejected invocation', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const registry = createAssistantSurfaceRegistry();
+  const failure = new OperationUsageError(
+    codeOperationErrorMessage(
+      language,
+      'platform.screen.businessRuleSession.read-only-rules-cannot-be-overwritten',
+      '不能覆盖只读规则',
+    ),
+  );
+  const execute = vi.fn(async () => {
+    throw failure;
+  });
+  registry.register(fixture({ pageInstanceKey: 'order', revision: () => '1', execute }));
+  registry.activate('order');
+  let adapted: unknown;
+  try {
+    await registry.invoke(
+      { id: 'read', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+    );
+  } catch (cause) {
+    adapted = cause;
+  }
+  expect(adapted).toMatchObject({
+    name: 'AssistantCapabilityUsageError',
+    code: 'CAPABILITY_USAGE_INVALID',
+    textMessage: failure.textMessage,
+  });
+  expect(resolveOperationErrorMessage(adapted as OperationUsageError, language)).toBe(
+    'Read-only rules cannot be overwritten.',
+  );
+  language.setLanguage('zh-CN');
+  expect(resolveOperationErrorMessage(adapted as OperationUsageError, language)).toBe('不能覆盖只读规则');
+  expect(execute).toHaveBeenCalledOnce();
 });

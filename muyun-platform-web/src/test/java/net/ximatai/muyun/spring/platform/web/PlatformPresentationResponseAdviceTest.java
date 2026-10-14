@@ -27,6 +27,40 @@ class PlatformPresentationResponseAdviceTest {
                 translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @Test void addsFormulaDirectoryResourcesWithoutReplacingOriginalsOrBusinessRules() {
+        var function = net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction.declared(
+                "platform.formula.function.TODAY", "TODAY", "日期时间", "获取今天",
+                "取得当前日期，适合计算当天生效、截止日期等规则", List.of(), "DATE", "TODAY()");
+        var unknown = new net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction(
+                "TODAY", "自定义分类", "客户自定义名称", "客户填写的说明", List.of(), "DATE", "TODAY()");
+        var mismatched = new net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction(
+                function.name(), function.category(), "已修改的标题", function.description(), function.parameters(),
+                function.returnType(), function.example(), function.textSources());
+        var snapshot = new net.ximatai.muyun.spring.platform.metadata.BusinessRuleGovernanceSnapshot(
+                "demo.order", "same-baseline", List.of(), List.of(), List.of(), List.of(), List.of(function, unknown, mismatched));
+        var beans = new DefaultListableBeanFactory();
+        var languages = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        beans.registerSingleton("catalog", languages);
+        beans.registerSingleton("resources", TextResources.load(getClass().getClassLoader(), languages));
+        var projection = new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
+        var preview = new net.ximatai.muyun.spring.platform.metadata.BusinessRulePreview(snapshot, "candidate", List.of("rule"), List.of());
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(projection.project(preview));
+            assertThat(output.at("/snapshot/functions/0/title").asText()).isEqualTo("获取今天");
+            assertThat(output.at("/snapshot/functions/0/titleText/languages/en/text").asText()).isEqualTo("Get current date");
+            assertThat(output.at("/snapshot/functions/0/titleText/source/sourceVersion").asText()).isEqualTo(TextReference.versionOf("获取今天"));
+            assertThat(output.at("/snapshot/functions/1/title").asText()).isEqualTo("客户自定义名称");
+            assertThat(output.at("/snapshot/functions/1/titleText").isMissingNode()).isTrue();
+            assertThat(output.at("/snapshot/functions/0/textSources").isMissingNode()).isTrue();
+            assertThat(output.at("/snapshot/functions/2/title").asText()).isEqualTo("已修改的标题");
+            assertThat(output.at("/snapshot/functions/2/titleText").isMissingNode()).isTrue();
+            assertThat(output.at("/snapshot/baselineFingerprint").asText()).isEqualTo("same-baseline");
+            assertThat(output.at("/proposalFingerprint").asText()).isEqualTo("candidate");
+            assertThat(output.at("/executionOrder/0").asText()).isEqualTo("rule");
+        }
+        assertThat(snapshot.functions().getFirst()).isEqualTo(function);
+    }
+
     @Test void localizesOnlyTypedNavigationAndOptionLabelsAndPreservesOriginalsAndCodes() {
         var menu = new Menu(); menu.setId("menu"); menu.setTitle("业务菜单"); menu.setModuleAlias("sales.order");
         var source = ConfigurationTextSources.menuTitle("menu", "业务菜单");

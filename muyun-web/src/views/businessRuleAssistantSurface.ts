@@ -1,4 +1,8 @@
 import {
+  codeOperationErrorMessage,
+  type OperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   AssistantCapabilityUsageError,
   pageAssistantCatalog,
   emptyAssistantCapabilityInputSchema,
@@ -13,7 +17,7 @@ import type {
   BusinessRuleTrialResult,
   BusinessRuleSnapshotRule,
 } from './businessRuleGovernance';
-import { toProposal, businessRuleTrialValue, businessRuleValidationHelp } from './businessRuleGovernance';
+import { toProposal, businessRuleTrialValue, businessRuleValidationHelpText } from './businessRuleGovernance';
 
 import type {
   BusinessRuleTrialInput,
@@ -26,14 +30,24 @@ export type {
 const sections = ['fields', 'childFields', 'aggregateFields', 'functions', 'rules', 'forms'] as const;
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-function fail(message: string): never {
+function fail(message: string | OperationErrorMessage): never {
   throw new AssistantCapabilityUsageError(message);
 }
-function text(value: unknown, max: number): string {
-  if (typeof value !== 'string' || !value.trim() || value.length > max) return fail('规则参数为空或过长');
+function text(value: unknown, max: number, language: LanguageContext = platformLanguageContext): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > max)
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.a-rule-parameter-is-empty-or-too-long',
+        '规则参数为空或过长',
+      ),
+    );
   return value.trim();
 }
-export function parseBusinessRuleProposal(input: unknown): BusinessRuleProposal {
+export function parseBusinessRuleProposal(
+  input: unknown,
+  language: LanguageContext = platformLanguageContext,
+): BusinessRuleProposal {
   if (
     !object(input) ||
     Object.keys(input).some(
@@ -50,32 +64,67 @@ export function parseBusinessRuleProposal(input: unknown): BusinessRuleProposal 
         ].includes(key),
     )
   )
-    return fail('规则参数无效');
-  const code = text(input.code, 64);
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.invalid-rule-parameters',
+        '规则参数无效',
+      ),
+    );
+  const code = text(input.code, 64, language);
   if (!/^[a-z][A-Za-z0-9]{0,63}$/.test(code))
     return fail(
-      '规则编码必须以小写字母开头，只含字母和数字，例如 amountNonNegative；修改已有规则请沿用原编码',
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.a-rule-code-must-start-with-a-lowercase-letter-and',
+        '规则编码必须以小写字母开头，只含字母和数字，例如 amountNonNegative；修改已有规则请沿用原编码',
+      ),
     );
   if (
     !['CALCULATION', 'VALIDATION', 'UI_CONTROL'].includes(String(input.kind)) ||
     typeof input.enabled !== 'boolean'
   )
-    return fail('规则类型或启用状态无效');
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.invalid-rule-type-or-enabled-state',
+        '规则类型或启用状态无效',
+      ),
+    );
   const rule: BusinessRuleProposal = {
     code,
     kind: input.kind as BusinessRuleProposal['kind'],
-    expression: text(input.expression, 4000),
+    expression: text(input.expression, 4000, language),
     enabled: input.enabled,
   };
-  if (input.targetField !== undefined) rule.targetField = text(input.targetField, 255);
-  if (input.messageTemplate !== undefined) rule.messageTemplate = text(input.messageTemplate, 500);
-  if (rule.kind === 'CALCULATION' && !rule.targetField) return fail('请选择计算目标字段');
+  if (input.targetField !== undefined) rule.targetField = text(input.targetField, 255, language);
+  if (input.messageTemplate !== undefined) rule.messageTemplate = text(input.messageTemplate, 500, language);
+  if (rule.kind === 'CALCULATION' && !rule.targetField)
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.select-a-calculation-target-field',
+        '请选择计算目标字段',
+      ),
+    );
   if (rule.kind === 'VALIDATION' && rule.targetField?.includes('.'))
-    return fail('保存校验只能定位主记录字段；检查明细请使用汇总函数，不要将明细字段作为定位目标');
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.save-validation-can-only-point-to-main-record-fields-use',
+        '保存校验只能定位主记录字段；检查明细请使用汇总函数，不要将明细字段作为定位目标',
+      ),
+    );
   if (rule.kind === 'UI_CONTROL') {
-    rule.formKey = text(input.formKey, 255);
+    rule.formKey = text(input.formKey, 255, language);
     if (!Array.isArray(input.targets) || !input.targets.length || input.targets.length > 40)
-      return fail('请选择界面控制元素');
+      return fail(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.businessRuleAssistantSurface.select-ui-control-elements',
+          '请选择界面控制元素',
+        ),
+      );
     rule.targets = input.targets.map((value) => {
       if (
         !object(value) ||
@@ -83,14 +132,30 @@ export function parseBusinessRuleProposal(input: unknown): BusinessRuleProposal 
         typeof value.hide !== 'boolean' ||
         typeof value.readOnly !== 'boolean'
       )
-        return fail('界面控制目标无效');
-      return { elementKey: text(value.elementKey, 255), hide: value.hide, readOnly: value.readOnly };
+        return fail(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleAssistantSurface.invalid-ui-control-targets',
+            '界面控制目标无效',
+          ),
+        );
+      return {
+        elementKey: text(value.elementKey, 255, language),
+        hide: value.hide,
+        readOnly: value.readOnly,
+      };
     });
   } else if (input.formKey !== undefined || input.targets !== undefined)
-    return fail('只有界面规则可以指定表单元素');
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.only-ui-rules-can-specify-form-elements',
+        '只有界面规则可以指定表单元素',
+      ),
+    );
   return rule;
 }
-function businessRuleProposalInputSchema() {
+function businessRuleProposalInputSchema(language: LanguageContext = platformLanguageContext) {
   const boundedText = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength });
   const common = {
     code: { ...boundedText(64), pattern: '^[a-z][A-Za-z0-9]{0,63}$' },
@@ -112,7 +177,7 @@ function businessRuleProposalInputSchema() {
           targetField: { ...boundedText(255), pattern: '^[^.]+$' },
           messageTemplate: boundedText(500),
         }),
-        description: businessRuleValidationHelp,
+        description: businessRuleValidationHelpText(language),
       },
       branch(
         'UI_CONTROL',
@@ -140,19 +205,40 @@ function businessRuleProposalInputSchema() {
   };
 }
 
-export function parseBusinessRuleTrial(input: unknown): BusinessRuleTrialInput {
+export function parseBusinessRuleTrial(
+  input: unknown,
+  language: LanguageContext = platformLanguageContext,
+): BusinessRuleTrialInput {
   if (
     !object(input) ||
     Object.keys(input).some((key) => !['sampleValues', 'sampleChildren'].includes(key)) ||
     !object(input.sampleValues)
   )
-    return fail('试算输入无效');
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.invalid-trial-inputs',
+        '试算输入无效',
+      ),
+    );
   const children = input.sampleChildren ?? {};
   if (!object(children) || Object.keys(children).length > 20 || JSON.stringify(input).length > 24000)
-    return fail('试算样例过大');
+    return fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.businessRuleAssistantSurface.the-trial-sample-is-too-large',
+        '试算样例过大',
+      ),
+    );
   for (const rows of Object.values(children)) {
     if (!Array.isArray(rows) || rows.length > 100 || rows.some((row) => !object(row)))
-      return fail('明细样例必须是最多100行的列表');
+      return fail(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.businessRuleAssistantSurface.detail-samples-must-be-a-list-of-at-most-100',
+          '明细样例必须是最多100行的列表',
+        ),
+      );
   }
   return {
     sampleValues: structuredClone(input.sampleValues),
@@ -178,6 +264,7 @@ export function createBusinessRuleAssistantSurface(
   requestTurn: AssistantTurnRequester,
   contributed: () => AssistantCapability[] = () => [],
 ): AssistantSurface {
+  const language = adapter.language ?? platformLanguageContext;
   let prepared: AssistantOperationProposal | undefined;
   const empty = (code: string, description: string) => ({
     code,
@@ -195,7 +282,7 @@ export function createBusinessRuleAssistantSurface(
           ...(summary.factsAvailable === false
             ? {}
             : {
-                validationBehavior: businessRuleValidationHelp,
+                validationBehavior: businessRuleValidationHelpText(language),
                 fields: catalogPage(adapter.catalog('fields'), 0, 3000),
                 childFields: catalogPage(adapter.catalog('childFields'), 0, 3000),
                 aggregateFields: catalogPage(adapter.catalog('aggregateFields'), 0, 3000),
@@ -233,8 +320,16 @@ export function createBusinessRuleAssistantSurface(
                       };
                     },
                     present: () => ({
-                      title: '已读取当前规则',
-                      lines: ['原提交结果仍未知；候选已保留，后续应用须重新审阅。'],
+                      title: language.t(
+                        'platform.screen.businessRuleAssistantSurface.current-rules-read',
+                        '已读取当前规则',
+                      ),
+                      lines: [
+                        language.t(
+                          'platform.screen.businessRuleAssistantSurface.the-previous-submission-outcome-is-still-unknown-the-candidate-is',
+                          '原提交结果仍未知；候选已保留，后续应用须重新审阅。',
+                        ),
+                      ],
                     }),
                   },
                 ]
@@ -267,10 +362,22 @@ export function createBusinessRuleAssistantSurface(
                   !Number.isSafeInteger(input.offset ?? 0) ||
                   Number(input.offset ?? 0) < 0
                 )
-                  return fail('目录分页无效');
-                const keyword = input.keyword === undefined ? undefined : text(input.keyword, 100);
+                  return fail(
+                    codeOperationErrorMessage(
+                      language,
+                      'platform.screen.businessRuleAssistantSurface.invalid-directory-pagination',
+                      '目录分页无效',
+                    ),
+                  );
+                const keyword = input.keyword === undefined ? undefined : text(input.keyword, 100, language);
                 if (keyword && !['fields', 'childFields', 'aggregateFields'].includes(String(input.section)))
-                  return fail('按名称查找仅用于主表、直接子表或汇总字段目录');
+                  return fail(
+                    codeOperationErrorMessage(
+                      language,
+                      'platform.screen.businessRuleAssistantSurface.searching-by-name-is-only-available-for-main-direct-child',
+                      '按名称查找仅用于主表、直接子表或汇总字段目录',
+                    ),
+                  );
                 return { section: String(input.section), offset: Number(input.offset ?? 0), keyword };
               },
               async execute(input) {
@@ -306,17 +413,31 @@ export function createBusinessRuleAssistantSurface(
                       code: 'rules.revise',
                       description:
                         'Add or replace ONE editable rule in the visible unsaved governance candidate; keep the same code when correcting it. Other rules are preserved. enabled describes behavior AFTER application, not whether saved: for a trial-only request use an enabled unsaved candidate, never add a second disabled copy. Use discovered fields/functions/forms. Field references MUST use braces, e.g. {amount} >= 0; quote text literals. expression is RHS for calculation; targetField is separate. VALIDATION blocks saving on false; nonblocking reminders are not supported by this editor. Never substitute blocking validation for a reminder without user agreement. VALIDATION runs on the main record: optional targetField is a main-field error location; child fields require aggregate functions, never scalar child references or child targets. Omit formKey and targets; messageTemplate is the failure message. Omit unused optional properties instead of empty strings. No persistence. Trial already performs server precheck; when samples are requested, trial directly after revision. Otherwise preview. Ask for application confirmation only when requested.',
-                      inputSchema: businessRuleProposalInputSchema(),
+                      inputSchema: businessRuleProposalInputSchema(language),
                     },
-                    parseInput: parseBusinessRuleProposal,
+                    parseInput: (input) => parseBusinessRuleProposal(input, language),
                     present(output) {
                       const result = output as { unchanged?: boolean };
                       return {
-                        title: result.unchanged ? '业务规则未变更' : '业务规则草稿已更新',
+                        title: result.unchanged
+                          ? language.t(
+                              'platform.screen.businessRuleAssistantSurface.business-rules-unchanged',
+                              '业务规则未变更',
+                            )
+                          : language.t(
+                              'platform.screen.businessRuleAssistantSurface.business-rule-draft-updated',
+                              '业务规则草稿已更新',
+                            ),
                         lines: [
                           result.unchanged
-                            ? '本次没有新增修改；规则的正式状态见当前治理目录。'
-                            : '仅更新当前工作区草稿，尚未检查或应用。',
+                            ? language.t(
+                                'platform.screen.businessRuleAssistantSurface.no-new-changes-were-made-see-the-current-governance-directory',
+                                '本次没有新增修改；规则的正式状态见当前治理目录。',
+                              )
+                            : language.t(
+                                'platform.screen.businessRuleAssistantSurface.only-the-current-workspace-draft-was-updated-it-has-not',
+                                '仅更新当前工作区草稿，尚未检查或应用。',
+                              ),
                         ],
                       };
                     },
@@ -351,10 +472,21 @@ export function createBusinessRuleAssistantSurface(
               present(output) {
                 const result = output as { valid: boolean; errors: { message: string }[] };
                 return {
-                  title: result.valid ? '计算与保存校验检查通过' : '计算与保存校验检查未通过',
+                  title: result.valid
+                    ? language.t(
+                        'platform.screen.businessRuleAssistantSurface.calculation-and-save-validation-checks-passed',
+                        '计算与保存校验检查通过',
+                      )
+                    : language.t(
+                        'platform.screen.businessRuleAssistantSurface.calculation-and-save-validation-checks-failed',
+                        '计算与保存校验检查未通过',
+                      ),
                   lines: [
                     ...result.errors.map((error) => error.message),
-                    '本次检查没有应用任何更改；界面控制仍需在应用时校验。',
+                    language.t(
+                      'platform.screen.businessRuleAssistantSurface.these-checks-did-not-apply-any-changes-ui-controls-still',
+                      '本次检查没有应用任何更改；界面控制仍需在应用时校验。',
+                    ),
                   ],
                 };
               },
@@ -386,36 +518,71 @@ export function createBusinessRuleAssistantSurface(
                   },
                 },
               },
-              parseInput: parseBusinessRuleTrial,
+              parseInput: (input) => parseBusinessRuleTrial(input, language),
               present(output) {
                 const result = output as TrialObservation;
                 const label = (field: string) => result.labels[field] || field;
                 const value = (input: unknown) =>
-                  input == null ? '空' : typeof input === 'object' ? JSON.stringify(input) : String(input);
+                  input == null
+                    ? language.t('platform.screen.recordDisplayProjection.empty', '空')
+                    : typeof input === 'object'
+                      ? JSON.stringify(input)
+                      : String(input);
                 return {
-                  title: '规则试算（未保存）',
+                  title: language.t(
+                    'platform.screen.businessRuleAssistantSurface.rule-trial-not-saved',
+                    '规则试算（未保存）',
+                  ),
                   lines: [
-                    ...Object.entries(result.sample.sampleValues).map(
-                      ([field, input]) => `输入 · ${label(field)}：${value(input)}`,
+                    ...Object.entries(result.sample.sampleValues).map(([field, input]) =>
+                      language.t(
+                        'platform.screen.businessRuleAssistantSurface.input-value-value',
+                        '输入 · {value1}：{value2}',
+                        { value1: label(field), value2: value(input) },
+                      ),
                     ),
                     ...Object.entries(result.sample.sampleChildren).flatMap(([relation, rows]) => [
-                      `明细 ${relation}：${rows.length} 行`,
-                      ...rows.map(
-                        (row, index) =>
-                          `第 ${index + 1} 行：${Object.entries(row)
-                            .map(([field, input]) => `${label(relation + '.' + field)}：${value(input)}`)
-                            .join('；')}`,
+                      language.t(
+                        'platform.screen.businessRuleAssistantSurface.details-value-value-rows',
+                        '明细 {value1}：{value2} 行',
+                        { value1: relation, value2: rows.length },
+                      ),
+                      ...rows.map((row, index) =>
+                        language.t(
+                          'platform.screen.useModulePageSession.row-value-value',
+                          '第 {value1} 行：{value2}',
+                          {
+                            value1: index + 1,
+                            value2: Object.entries(row)
+                              .map(([field, input]) => `${label(relation + '.' + field)}：${value(input)}`)
+                              .join('；'),
+                          },
+                        ),
                       ),
                     ]),
                     ...(result.enabledRuleCount
                       ? []
-                      : ['当前没有启用的计算或保存校验；本次不能证明预期规则有效。']),
-                    ...result.changedFields.map(
-                      (field) => `结果 · ${label(field)}：${value(businessRuleTrialValue(result, field))}`,
+                      : [
+                          language.t(
+                            'platform.screen.businessRuleAssistantSurface.no-calculations-or-save-validations-are-enabled-this-trial-cannot',
+                            '当前没有启用的计算或保存校验；本次不能证明预期规则有效。',
+                          ),
+                        ]),
+                    ...result.changedFields.map((field) =>
+                      language.t(
+                        'platform.screen.businessRuleAssistantSurface.result-value-value',
+                        '结果 · {value1}：{value2}',
+                        { value1: label(field), value2: value(businessRuleTrialValue(result, field)) },
+                      ),
                     ),
                     ...(result.errors.length
                       ? result.errors.map((error) => error.message)
-                      : ['本次样例未发现校验错误；不代表配置已应用或完整业务验收通过。']),
+                      : [
+                          language.t(
+                            'platform.screen.businessRuleAssistantSurface.this-sample-produced-no-validation-errors-it-does-not-mean',
+                            '本次样例未发现校验错误；不代表配置已应用或完整业务验收通过。',
+                          ),
+                        ]),
                   ],
                 };
               },
@@ -460,7 +627,14 @@ export function createBusinessRuleAssistantSurface(
                 return { pendingConfirmation: true, saved: false };
               },
               propose() {
-                if (!prepared) return fail('请重新准备确认');
+                if (!prepared)
+                  return fail(
+                    codeOperationErrorMessage(
+                      language,
+                      'platform.screen.businessRuleAssistantSurface.prepare-the-confirmation-again',
+                      '请重新准备确认',
+                    ),
+                  );
                 return prepared;
               },
             },

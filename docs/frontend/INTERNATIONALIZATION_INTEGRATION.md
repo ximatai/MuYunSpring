@@ -99,3 +99,6 @@ Excel 模板及导出仅投影明确声明的列标签。工作表名称、实�
 ## 本地操作校验提示
 
 固定校验可用 `codeOperationErrorMessage(language, key, original, args)` 声明原文模板和参数，再交给 `OperationUsageError` 或助手适配异常。错误码和发生时的 `message` 保留为事实，`resolveOperationErrorMessage(error, language)` 按消费者当前语言解析展示；参数保留快照，展示更新不重复验证、编辑或提交。`DraftUpdateRejectedError` 保留原错误的文本来源。原有字符串错误继续按原文展示，在线配置与无法核实版本的来源不借用代码资源。
+
+
+业务规则工作区、编辑会话与助手使用同一所属语言上下文。规则编码、公式表达式、用户失败提示及预检和应用指纹保持原值，已准备的应用确认保留审阅快照。平台函数目录由生产者声明 CODE 来源，服务端交付 `categoryText`、`titleText`、`descriptionText` 与参数 `descriptionText`，同时保留原文字段；前端按当前语言生成展示副本，不重读目录或重新试算。没有来源声明的扩展说明保留原文。本地完整性问题保留文本来源与参数，语言切换只更新反馈。

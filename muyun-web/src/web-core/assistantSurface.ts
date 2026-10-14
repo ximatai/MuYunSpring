@@ -739,7 +739,7 @@ export function createAssistantSurfaceRegistry(
           if (effectState !== 'not-applied')
             throw new AssistantEffectInterruptedError(token, effectState, error);
           if (error instanceof OperationUsageError && !(error instanceof AssistantCapabilityUsageError))
-            throw new AssistantCapabilityUsageError(error.message, error.code);
+            throw new AssistantCapabilityUsageError(error.textMessage ?? error.message, error.code);
           throw error;
         })
         .finally(() => {

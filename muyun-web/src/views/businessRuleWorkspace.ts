@@ -1,6 +1,9 @@
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
 import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   AssistantCapabilityUsageError,
   createAssistantTurnRequester,
   parseEmptyAssistantCapabilityInput,
@@ -18,6 +21,7 @@ export function createBusinessRuleWorkspace(
   enabled: () => boolean,
   openRules?: (moduleAlias: string) => void,
   onFocus?: () => void,
+  language: LanguageContext = platformLanguageContext,
 ) {
   let scope = identity();
   const sessions = new Map<string, BusinessRuleSession>();
@@ -42,6 +46,7 @@ export function createBusinessRuleWorkspace(
         moduleAlias,
         () => identity() === owner && sessions.get(moduleAlias) === created,
         () => active.value === created,
+        language,
       );
       sessions.set(moduleAlias, created);
     }
@@ -63,6 +68,7 @@ export function createBusinessRuleWorkspace(
     );
   }
   return {
+    language,
     session,
     focus,
     dispose() {
@@ -113,7 +119,10 @@ export function createBusinessRuleWorkspace(
         ]),
         facts: {
           ruleConfiguration: surface()?.describe(),
-          draftLifetime: '规则草稿仅保留在当前工作区；打开治理页面可继续编辑，刷新或身份变化后不恢复。',
+          draftLifetime: language.t(
+            'platform.screen.businessRuleWorkspace.rule-drafts-are-retained-only-in-the-current-workspace-open',
+            '规则草稿仅保留在当前工作区；打开治理页面可继续编辑，刷新或身份变化后不恢复。',
+          ),
         },
       };
     },
@@ -142,7 +151,13 @@ export function createBusinessRuleWorkspace(
                     selected.loading.value ||
                     selected.loadFailed.value
                   )
-                    throw new AssistantCapabilityUsageError('请先选择配置目标并等待规则加载完成');
+                    throw new AssistantCapabilityUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.businessRuleWorkspace.select-a-configuration-target-and-wait-for-its-rules-to',
+                        '请先选择配置目标并等待规则加载完成',
+                      ),
+                    );
                   context.applyEffect(
                     () => openRules(selected.moduleAlias),
                     async () => {
@@ -185,10 +200,22 @@ export function createBusinessRuleWorkspace(
               alias.length > 128 ||
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
             )
-              throw new AssistantCapabilityUsageError('请提供真实模块标识');
+              throw new AssistantCapabilityUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             const refresh = (input as { refresh?: unknown }).refresh;
             if (refresh !== undefined && typeof refresh !== 'boolean')
-              throw new AssistantCapabilityUsageError('刷新选项必须为布尔值');
+              throw new AssistantCapabilityUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.the-refresh-option-must-be-a-boolean',
+                  '刷新选项必须为布尔值',
+                ),
+              );
             return { moduleAlias: alias, refresh: refresh === true };
           },
           async execute(input, context) {
