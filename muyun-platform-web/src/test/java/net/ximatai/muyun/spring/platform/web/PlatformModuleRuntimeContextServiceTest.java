@@ -1664,7 +1664,8 @@ class PlatformModuleRuntimeContextServiceTest {
         when(dynamicRecordService.actionAuthorizationAvailability("sales.contract", "contract", "preview",
                 Set.of("contract-1"))).thenReturn(DynamicActionAvailability.available("preview"));
         when(dynamicRecordService.actionAvailability("sales.contract", "submit", record))
-                .thenReturn(DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交"));
+                .thenReturn(DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交",
+                        net.ximatai.muyun.spring.common.i18n.TextReference.configured("config/action/submit/reason", "只有草稿合同可以提交")));
         when(dynamicRecordService.actionAvailability("sales.contract", "preview", record))
                 .thenReturn(DynamicActionAvailability.available("preview"));
         ActiveTenantVerifier activeTenantVerifier = mock(ActiveTenantVerifier.class);
@@ -1685,9 +1686,15 @@ class PlatformModuleRuntimeContextServiceTest {
                 List.of()
         );
 
+        when(dynamicRecordService.recordActionAvailability("sales.contract", "contract", Set.of("submit", "preview"), List.of("contract-1")))
+                .thenReturn(List.of(new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordActionAvailability("contract-1", Map.of(
+                        "submit", DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交",
+                                net.ximatai.muyun.spring.common.i18n.TextReference.configured("config/action/submit/reason", "只有草稿合同可以提交")),
+                        "preview", DynamicActionAvailability.available("preview")))));
         PlatformRecordActionAvailability availability;
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             availability = service.recordActions("sales.contract", "contract-1");
+            assertThat(service.recordActions("sales.contract", List.of("contract-1"))).containsExactly(availability);
         }
 
         assertThat(availability.recordId()).isEqualTo("contract-1");
@@ -1698,11 +1705,12 @@ class PlatformModuleRuntimeContextServiceTest {
                 .satisfies(action -> {
                     assertThat(action.available()).isFalse();
                     assertThat(action.reason()).isEqualTo("只有草稿合同可以提交");
+                    assertThat(action.reasonSource().sourceId()).isEqualTo("config/action/submit/reason");
                 });
         assertThat(availability.actions()).filteredOn(action -> "preview".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> assertThat(action.available()).isTrue());
-        verify(activeTenantVerifier).verifyActiveTenant("tenant-a");
+        verify(activeTenantVerifier, org.mockito.Mockito.times(2)).verifyActiveTenant("tenant-a");
     }
 
     @Test

@@ -235,7 +235,7 @@ public class PlatformRecordActionAvailabilityService {
                 }
                 return decision.available()
                         ? new PlatformRecordActionAvailability.Action(action.actionCode(), true, null)
-                        : unavailable(action.actionCode(), normalizeReason(decision.message(), "record action is unavailable"));
+                        : unavailable(action.actionCode(), decision, "record action is unavailable");
             }).toList();
             return new PlatformRecordActionAvailability(recordId, resolved);
         }).toList();
@@ -253,7 +253,7 @@ public class PlatformRecordActionAvailabilityService {
         DynamicActionAvailability authorization = dynamicRecordService.actionAuthorizationAvailability(
                 moduleAlias, entityAlias, action.actionCode(), Set.of(recordId));
         if (!authorization.available()) {
-            return unavailable(action.actionCode(), normalizeReason(authorization.message(), "no data auth"));
+            return unavailable(action.actionCode(), authorization, "no data auth");
         }
         DynamicRecord record = recordHolder.record();
         if (record == null) {
@@ -266,7 +266,7 @@ public class PlatformRecordActionAvailabilityService {
         DynamicActionAvailability availability = dynamicRecordService.actionAvailability(moduleAlias,
                 action.actionCode(), record);
         if (!availability.available()) {
-            return unavailable(action.actionCode(), availability.message());
+            return unavailable(action.actionCode(), availability, "record action is unavailable");
         }
         return new PlatformRecordActionAvailability.Action(action.actionCode(), true, null);
     }
@@ -435,6 +435,10 @@ public class PlatformRecordActionAvailabilityService {
                 PlatformModuleRuntimeContextService.inheritActionCode(action.actionCode(),
                         action.permissionActionCode(), action.actionAuth())
         );
+    }
+
+    private PlatformRecordActionAvailability.Action unavailable(String actionCode, DynamicActionAvailability decision, String fallback) {
+        return new PlatformRecordActionAvailability.Action(actionCode, false, normalizeReason(decision.message(), fallback), decision.messageSource());
     }
 
     private PlatformRecordActionAvailability.Action unavailable(String actionCode, RecordActionAvailabilityDecision decision) {

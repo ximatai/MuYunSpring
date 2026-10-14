@@ -1994,9 +1994,7 @@ export function useModulePageSession(
     if (statusSwitchAction.value?.disabled) return statusSwitchAction.value.disabledReason;
     const actionCode = record.enabled === false ? 'enable' : 'disable';
     return (
-      context
-        .recordActionsSnapshot(String(record.id))
-        ?.actions.find((action) => action.actionCode === actionCode)?.reason ??
+      context.action(actionCode, String(record.id))?.reason ??
       language.t(
         'platform.screen.useModulePageSession.this-action-is-unavailable-for-the-current-record',
         '当前记录不允许执行此操作',
@@ -2989,9 +2987,7 @@ export function useModulePageSession(
     const record = navigatorManagementDetail.draft.value;
     if (!record?.id || !navigatorManagementEnabledDisabled.value) return undefined;
     const actionCode = record.enabled === false ? 'enable' : 'disable';
-    return navigatorManagementLevel.value?.context
-      .recordActionsSnapshot(String(record.id))
-      ?.actions.find((action) => action.actionCode === actionCode)?.reason;
+    return navigatorManagementLevel.value?.context.action(actionCode, String(record.id))?.reason;
   });
 
   async function toggleNavigatorManagementEnabled(enabled: boolean) {

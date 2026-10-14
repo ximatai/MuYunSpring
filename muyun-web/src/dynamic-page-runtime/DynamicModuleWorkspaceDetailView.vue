@@ -159,9 +159,7 @@ const toggleEnabledDisabledReason = computed(() => {
   const value = record.value;
   if (!value?.id || canToggleEnabled.value) return undefined;
   const actionCode = value.enabled === false ? 'enable' : 'disable';
-  return context
-    .recordActionsSnapshot(String(value.id))
-    ?.actions.find((item) => item.actionCode === actionCode)?.reason;
+  return context.action(actionCode, String(value.id))?.reason;
 });
 
 watch(

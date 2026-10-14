@@ -253,7 +253,7 @@ public class DynamicEntityService implements
                 ? activeRaw(record.getId()) : null;
         var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), existing);
         if (approval.isPresent() && !approval.get().available())
-            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason());
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason(), approval.get().reasonSource());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }
@@ -271,7 +271,7 @@ public class DynamicEntityService implements
         }
         var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), record);
         if (approval.isPresent() && !approval.get().available())
-            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason());
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason(), approval.get().reasonSource());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }
