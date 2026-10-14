@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, defineComponent, h } from 'vue';
 import { WORKSPACE_NAVIGATION_DISABLED } from '@/platform-components/managementWorkspaceContext';
 import { config, flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,7 @@ import RecordQueryListPanel, {
 import {
   AppError,
   createLanguageContext,
+  provideLanguageContext,
   translatedPresentation,
   type ModuleRuntimeContext,
   type HttpClient,
@@ -1626,4 +1627,43 @@ it('continues basic list loading only for a structured unsupported-schema fact',
     expect(queries.length > 0).toBe(shouldQuery);
     wrapper.unmount();
   }
+});
+
+it('translates declared contributed column headings while retaining rows and the loaded query', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requests: WebQueryRequest[] = [];
+  const raw = { id: 'record-original', title: '业务原名' };
+  const context = createContext(raw, requests);
+  const columns = [
+    { key: 'title', title: '在线状态', titleKey: 'platform.entry.online-status' },
+    { key: 'business', title: '在线状态' },
+  ];
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(RecordQueryListPanel, { context, columns, title: 'Records' });
+      },
+    }),
+    { global: { stubs: { RecordQueryListPanel: false } } },
+  );
+  await flushPromises();
+  const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+  const rows = surface.props('rows');
+  const count = requests.length;
+  expect(surface.props('columns').map((column: { title: string }) => column.title)).toEqual([
+    'Online status',
+    '在线状态',
+  ]);
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(surface.props('columns')[0].title).toBe('在线状态');
+  language.setLanguage('en');
+  await flushPromises();
+  expect(surface.props('columns')[0].title).toBe('Online status');
+  expect(surface.props('rows')).toBe(rows);
+  expect(requests.length).toBe(count);
+  expect(raw.title).toBe('业务原名');
+  expect(columns[0].title).toBe('在线状态');
+  wrapper.unmount();
 });

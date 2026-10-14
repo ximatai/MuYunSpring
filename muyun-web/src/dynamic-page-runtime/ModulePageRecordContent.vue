@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import {
   RecordDetailExtensionSection,
@@ -22,6 +23,8 @@ import type {
 } from './modulePageEnhancements';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import RecordFormSurface from './RecordFormSurface.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageRecordContent' });
 
@@ -104,7 +107,7 @@ function updateChildren(
     <RecordDetailExtensionSection
       v-for="section in extensionSections"
       :key="section.key"
-      :title="section.title"
+      :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
       :subtitle="section.subtitle"
     >
       <template v-if="section.subtitleComponent" #subtitle>

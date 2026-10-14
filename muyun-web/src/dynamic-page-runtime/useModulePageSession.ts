@@ -1433,6 +1433,7 @@ export function useModulePageSession(
       constraints.push({
         code: 'tree-parent-policy',
         message: policy.rejectionMessage,
+        messageKey: policy.rejectionMessageKey,
         test: (record) => policy.canUseAsParent(record as Readonly<Record<string, unknown>>),
       });
     }
@@ -1443,7 +1444,12 @@ export function useModulePageSession(
   }
   const navigatorScopeUnavailableDescription = computed(
     () =>
-      navigatorEntryPolicy.value.lockedEntry?.unavailableDescription ??
+      (navigatorEntryPolicy.value.lockedEntry?.unavailableDescriptionKey
+        ? language.t(
+            navigatorEntryPolicy.value.lockedEntry.unavailableDescriptionKey,
+            navigatorEntryPolicy.value.lockedEntry.unavailableDescription,
+          )
+        : navigatorEntryPolicy.value.lockedEntry?.unavailableDescription) ??
       language.t('platform.screen.useModulePageSession.select-a-module', '请选择模块'),
   );
   // A hidden locked navigator has no visual explorer to emit `loaded`. Resolve

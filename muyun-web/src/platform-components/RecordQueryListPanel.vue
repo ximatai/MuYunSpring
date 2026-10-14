@@ -543,7 +543,7 @@ const tableColumns = computed<RecordQueryListColumn[]>(() => {
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
   tableColumns.value.map((column) => ({
     key: column.key,
-    title: column.title,
+    title: column.titleKey ? language.t(column.titleKey, column.title) : column.title,
     width: column.width,
     align: column.align,
   })),
@@ -1582,7 +1582,7 @@ function assistantResultRows() {
       ...(record.id == null ? {} : { id: String(record.id) }),
       cells: columns.map((column) => ({
         fieldName: column.key,
-        title: column.title,
+        title: column.titleKey ? language.t(column.titleKey, column.title) : column.title,
         value: assistantListValue(column, record, () => {
           truncated = true;
         }),

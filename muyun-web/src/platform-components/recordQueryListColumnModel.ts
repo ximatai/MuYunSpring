@@ -24,6 +24,8 @@ export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
 export interface RecordQueryListColumn {
   key: string;
   title: string;
+  /** Declared CODE resource for a contributed column heading. */
+  titleKey?: string;
   type?: 'text' | 'enabledStatus' | 'booleanStatus' | 'tagList' | 'datetime' | 'fileSize' | 'colorPicker';
   booleanStatus?: ResolvedViewFieldDescriptor['booleanStatus'];
   width?: string;

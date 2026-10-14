@@ -27,11 +27,19 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   // it has no menu identity and is not the general action-management entry.
   workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView, workflowWorkspaceView],
   detail: {
-    sections: [{ key: 'module-menu-entries', title: '菜单入口', component: ModuleMenuEntriesSection }],
+    sections: [
+      {
+        key: 'module-menu-entries',
+        title: '菜单入口',
+        titleKey: 'platform.screen.moduleMenuWorkspace.menu-entry',
+        component: ModuleMenuEntriesSection,
+      },
+    ],
     actions: [
       {
         key: 'module-workflow-workspace',
         title: '审批流程',
+        titleKey: 'platform.screen.WorkflowConfigurationView.approval-workflow',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
         run({ record, openWorkspaceTab }) {
           const moduleAlias = moduleAliasOf(record);
@@ -42,14 +50,21 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       {
         key: 'module-add-to-menu',
         title: '添加到菜单',
+        titleKey: 'platform.entry.add-to-menu',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
         run({ openDrawer }) {
-          openDrawer({ title: '添加到菜单', width: 'narrow', component: ModuleMenuDrawer });
+          openDrawer({
+            title: '添加到菜单',
+            titleKey: 'platform.entry.add-to-menu',
+            width: 'narrow',
+            component: ModuleMenuDrawer,
+          });
         },
       },
       {
         key: 'module-actions-workspace',
         title: '动作',
+        titleKey: 'platform.governance.tab.actions',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
         run({ record, openWorkspaceTab }) {
           const moduleAlias = moduleAliasOf(record);
@@ -64,6 +79,7 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       {
         key: 'module-ui-orchestration-workspace',
         title: '低代码',
+        titleKey: 'platform.entry.low-code',
         state: (record) => ({
           visible: moduleAliasOf(record) !== undefined && moduleKindOf(record) === 'dynamic',
         }),
@@ -89,6 +105,7 @@ export const dictionaryCategoryPageEnhancement: ModulePageEnhancement = {
     treeParentPolicy: {
       canUseAsParent: (record) => record.categoryKind === 'folder',
       rejectionMessage: '字典类目只能挂在目录下',
+      rejectionMessageKey: 'platform.entry.dictionary-categories-must-belong-to-a-folder',
     },
   },
 };
@@ -106,6 +123,7 @@ export const platformModuleActionPageEnhancement: ModulePageEnhancement = {
     lockedEntry: {
       navigatorKey: 'module',
       unavailableDescription: '模块上下文不可用',
+      unavailableDescriptionKey: 'platform.entry.module-context-unavailable',
     },
   },
   // Manual action binding requires an executor registry and executor-specific level validation.

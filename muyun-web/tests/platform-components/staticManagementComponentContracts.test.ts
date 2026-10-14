@@ -588,7 +588,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
-  assert.match(roleEnhancementSource, /title: '角色授权', width: 'wide'/);
+  assert.match(
+    roleEnhancementSource,
+    /title: '角色授权',\s+titleKey: 'platform\.unsaved-source\.RoleAuthorizationView',\s+width: 'wide'/,
+  );
   assert.match(
     roleEnhancementSource,
     /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,

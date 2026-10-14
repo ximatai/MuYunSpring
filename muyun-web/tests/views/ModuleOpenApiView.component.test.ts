@@ -1,3 +1,5 @@
+import { defineComponent, h } from 'vue';
+import { createLanguageContext, provideLanguageContext, AppError } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { presentPlatformError } from '@muyun/platform-components';
@@ -91,4 +93,31 @@ describe('ModuleOpenApiView', () => {
 
     expect(loadModuleOpenApi).not.toHaveBeenCalled();
   });
+});
+
+it('projects safe API-load failure feedback without reloading the document on language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  vi.mocked(loadModuleOpenApi).mockClear();
+  vi.mocked(loadModuleOpenApi).mockRejectedValueOnce(
+    new AppError('private API diagnostics', { status: 500 }),
+  );
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ModuleOpenApiView, { moduleAlias: 'platform.application' });
+      },
+    }),
+  );
+  await flushPromises();
+  expect(wrapper.text()).toContain('A system error prevented the operation from completing');
+  expect(wrapper.text()).not.toContain('private API diagnostics');
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain('系统异常，操作未完成');
+  language.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Retry');
+  expect(loadModuleOpenApi).toHaveBeenCalledTimes(1);
+  wrapper.unmount();
 });

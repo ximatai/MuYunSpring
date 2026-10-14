@@ -28,6 +28,7 @@ export const userModulePageEnhancement: ModulePageEnhancement = {
       {
         key: 'onlineStatus',
         title: '在线状态',
+        titleKey: 'platform.entry.online-status',
         width: '112px',
         align: 'center',
         before: 'enabled',
@@ -41,10 +42,16 @@ export const userModulePageEnhancement: ModulePageEnhancement = {
         key: 'iam-user-password',
         actionCode: 'changePassword',
         title: '密码管理',
+        titleKey: 'platform.entry.password-management',
         iconName: 'lock',
         state: (record) => ({ visible: record.id != null }),
         run({ openDrawer }) {
-          openDrawer({ title: '密码管理', width: 'narrow', component: UserPasswordDrawer });
+          openDrawer({
+            title: '密码管理',
+            titleKey: 'platform.entry.password-management',
+            width: 'narrow',
+            component: UserPasswordDrawer,
+          });
         },
       },
     ],

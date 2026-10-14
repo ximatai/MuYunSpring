@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
+import { useLanguageContext, normalizeError, userFacingErrorMessage, type AppError } from '@muyun/web-core';
+import { computed, defineAsyncComponent, onMounted, ref, shallowRef, watch } from 'vue';
 import { presentPlatformError } from '@muyun/platform-components';
 import { createBackendHttpClient } from '../platform-admin-runtime/backendHttp';
 import {
@@ -8,6 +9,8 @@ import {
   openApiBackendBaseUrl,
   type ModuleOpenApiDocument,
 } from '../platform-admin-runtime/moduleOpenApi';
+
+const language = useLanguageContext();
 
 const props = defineProps<{ moduleAlias: string }>();
 const emit = defineEmits<{ titleResolved: [title: string] }>();
@@ -21,7 +24,8 @@ const ApiReference = defineAsyncComponent(async () => {
 
 const document = ref<ModuleOpenApiDocument>();
 const loading = ref(false);
-const error = ref<string>();
+const failure = shallowRef<AppError>();
+const error = computed(() => (failure.value ? userFacingErrorMessage(failure.value, language) : undefined));
 let loadRevision = 0;
 const scalarConfiguration = computed(() => {
   const backendBaseUrl = openApiBackendBaseUrl();
@@ -47,14 +51,14 @@ async function load() {
   const moduleAlias = props.moduleAlias.trim();
   if (!moduleAlias) {
     document.value = undefined;
-    error.value = undefined;
+    failure.value = undefined;
     loading.value = false;
     return;
   }
   loading.value = true;
-  error.value = undefined;
+  failure.value = undefined;
   try {
-    const loaded = await loadModuleOpenApi(createBackendHttpClient(), moduleAlias);
+    const loaded = await loadModuleOpenApi(createBackendHttpClient({ language }), moduleAlias);
     if (revision !== loadRevision) return;
     document.value = loaded;
     if (document.value.info.title) {
@@ -62,7 +66,8 @@ async function load() {
     }
   } catch (cause) {
     if (revision !== loadRevision) return;
-    error.value = presentPlatformError(cause, { source: 'module-openapi-view', phase: 'load' }).message;
+    failure.value = normalizeError(cause);
+    presentPlatformError(failure.value, { language, source: 'module-openapi-view', phase: 'load' });
   } finally {
     if (revision === loadRevision) loading.value = false;
   }
@@ -71,10 +76,19 @@ async function load() {
 
 <template>
   <main class="module-openapi-view">
-    <p v-if="loading" class="module-openapi-view__message">正在读取模块 API 文档…</p>
+    <p v-if="loading" class="module-openapi-view__message">
+      {{
+        language.t(
+          'platform.screen.ModuleOpenApiView.loading-module-api-documentation',
+          '正在读取模块 API 文档…',
+        )
+      }}
+    </p>
     <section v-else-if="error" class="module-openapi-view__error" role="alert">
       <p>{{ error }}</p>
-      <button type="button" @click="load">重试</button>
+      <button type="button" @click="load">
+        {{ language.t('platform.screen.WorkflowWorkbenchView.retry', '重试') }}
+      </button>
     </section>
     <ApiReference
       v-else-if="document"

@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { ModulePageHost } from '@muyun/dynamic-page-runtime';
-import { useModuleContext, type ModuleRuntimeContext, useLanguageContext } from '@muyun/web-core';
+import {
+  useModuleContext,
+  type ModuleRuntimeContext,
+  useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  type AppError,
+} from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { UiButton, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
@@ -14,7 +21,8 @@ const props = defineProps<{
 }>();
 const { http } = useModuleContext({ moduleAlias: 'platform.module' });
 const loading = ref(false);
-const error = ref('');
+const failure = shallowRef<AppError>();
+const error = computed(() => (failure.value ? userFacingErrorMessage(failure.value, language) : ''));
 const published = ref(false);
 const changed = ref(false);
 const generation = ref(0);
@@ -43,7 +51,7 @@ async function load(reload = false) {
   if (reload && reloadBlocked.value) return;
   const id = ++requestId;
   loading.value = true;
-  error.value = '';
+  failure.value = undefined;
   try {
     const context = await http.request<ModuleRuntimeContext>({
       method: 'GET',
@@ -61,7 +69,7 @@ async function load(reload = false) {
     changed.value = false;
     generation.value++;
   } catch (cause) {
-    if (id === requestId) error.value = cause instanceof Error ? cause.message : '业务页面加载失败';
+    if (id === requestId) failure.value = normalizeError(cause);
   } finally {
     if (id === requestId) loading.value = false;
   }
@@ -89,16 +97,37 @@ onBeforeUnmount(() => {
 <template>
   <section class="business-preview">
     <header class="business-preview__toolbar">
-      <span>已发布页面 · 操作将保存到真实业务数据</span>
+      <span>{{
+        language.t(
+          'platform.screen.ModuleBusinessPreview.published-page-changes-are-saved-to-actual-business-data',
+          '已发布页面 · 操作将保存到真实业务数据',
+        )
+      }}</span>
       <UiButton
         :loading="loading"
         :disabled="reloadBlocked"
-        :title="reloadBlocked ? '请先保存或取消当前编辑，再重新加载' : undefined"
+        :title="
+          reloadBlocked
+            ? language.t(
+                'platform.screen.ModuleBusinessPreview.save-or-cancel-the-current-edit-before-reloading',
+                '请先保存或取消当前编辑，再重新加载',
+              )
+            : undefined
+        "
         @click="load(true)"
-        >重新加载已发布页面</UiButton
+        >{{
+          language.t('platform.screen.ModuleBusinessPreview.reload-published-page', '重新加载已发布页面')
+        }}</UiButton
       >
     </header>
-    <p v-if="changed" role="status">已发布配置已更新，请完成当前操作后重新加载页面。</p>
+    <p v-if="changed" role="status">
+      {{
+        language.t(
+          'platform.screen.ModuleBusinessPreview.published-configuration-has-changed-finish-the-current-operation-before-reloading',
+          '已发布配置已更新，请完成当前操作后重新加载页面。',
+        )
+      }}
+    </p>
     <p v-if="error" role="alert">{{ error }}</p>
     <div v-if="published" class="business-preview__runtime">
       <ModulePageHost
@@ -108,10 +137,18 @@ onBeforeUnmount(() => {
         @interaction-state-change="interaction = { ...$event, dirty: $event.dirty ?? false }"
       />
     </div>
-    <UiSpin v-else-if="loading" tip="加载已发布页面" />
+    <UiSpin
+      v-else-if="loading"
+      :tip="language.t('platform.screen.ModuleBusinessPreview.loading-published-page', '加载已发布页面')"
+    />
     <UiEmpty
       v-else-if="!error && !published"
-      description="当前模块尚未发布页面，请先在页面配置中发布草稿。"
+      :description="
+        language.t(
+          'platform.screen.ModuleBusinessPreview.this-module-has-no-published-page-publish-a-draft-in',
+          '当前模块尚未发布页面，请先在页面配置中发布草稿。',
+        )
+      "
     />
   </section>
 </template>

@@ -6,6 +6,8 @@ export interface RecordActionItem {
   key?: string;
   actionCode?: string;
   title: string;
+  /** Declared CODE resource; plain business titles remain literal. */
+  titleKey?: string;
   before?: string;
   after?: string;
   visible?: boolean;
@@ -74,6 +76,7 @@ export function resolveRecordActions(
     return [
       {
         ...action,
+        title: action.titleKey ? language.t(action.titleKey, action.title) : action.title,
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
         authorized,

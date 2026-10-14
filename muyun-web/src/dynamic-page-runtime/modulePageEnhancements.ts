@@ -9,7 +9,7 @@ import type {
   WebQueryCondition,
   WebQueryRequest,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import type { LanguageContext, ModuleContext } from '@muyun/web-core';
 import type {
   DrawerWidth,
   RecordActionItem,
@@ -100,6 +100,7 @@ export interface ModulePageNavigatorEnhancement {
 export interface ModulePageNavigatorTreeParentPolicy {
   canUseAsParent(record: Readonly<Record<string, unknown>>): boolean;
   rejectionMessage: string;
+  rejectionMessageKey?: string;
 }
 
 export interface ModulePageNavigatorExtension {
@@ -153,6 +154,7 @@ export interface ModulePageLockedNavigatorEntry {
   navigatorKey: string;
   /** Text shown if the addressed record cannot be resolved or authorized. */
   unavailableDescription: string;
+  unavailableDescriptionKey?: string;
 }
 
 export interface ModulePageEmptyNavigatorScopeContext {
@@ -280,9 +282,10 @@ export interface ModulePageFormContributionState {
 export interface ModulePageFormFieldPolicy {
   fieldName: string;
   visible?(state: ModulePageFormContributionState): boolean;
-  imageUploadHint?(state: ModulePageFormContributionState): string | undefined;
+  imageUploadHint?(state: ModulePageFormContributionState, language?: LanguageContext): string | undefined;
   imageUploadAdvisory?(
     state: ModulePageFormContributionState,
+    language?: LanguageContext,
   ): ((file: File) => string | undefined | Promise<string | undefined>) | undefined;
 }
 
@@ -364,6 +367,8 @@ export interface ModulePageBatchActionContribution extends RecordActionItem {
 }
 
 export interface ModulePageDetailSection {
+  /** Optional CODE heading resource, resolved only at the display boundary. */
+  titleKey?: string;
   key: string;
   title: string;
   /** Optional heading copy owned by the business section but rendered by the platform shell. */
@@ -401,6 +406,8 @@ export interface ModulePageCellComponentContribution {
 }
 
 export interface ModulePageDrawer {
+  /** Optional CODE heading resource, resolved only at the display boundary. */
+  titleKey?: string;
   title: string;
   width?: DrawerWidth;
   /** The component receives only the documented ModulePageDrawerContext prop. */

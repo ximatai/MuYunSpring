@@ -550,7 +550,7 @@ async function toggleEnabled() {
           <RecordDetailExtensionSection
             v-for="section in detailSections"
             :key="section.key"
-            :title="section.title"
+            :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
             :subtitle="section.subtitle"
           >
             <template v-if="section.subtitleComponent" #subtitle>
@@ -565,7 +565,11 @@ async function toggleEnabled() {
     <RecordModeDrawer
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
-      :title="enhancementDrawer.definition.title"
+      :title="
+        enhancementDrawer.definition.titleKey
+          ? language.t(enhancementDrawer.definition.titleKey, enhancementDrawer.definition.title)
+          : enhancementDrawer.definition.title
+      "
       :width="enhancementDrawer.definition.width"
       :container="workspaceElement ?? null"
       mode="view"

@@ -1233,7 +1233,7 @@ export default defineComponent({
               <RecordDetailExtensionSection
                 v-for="section in enhancementDetailSections"
                 :key="section.key"
-                :title="section.title"
+                :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
                 :subtitle="section.subtitle"
               >
                 <template v-if="section.subtitleComponent" #subtitle>
@@ -1557,7 +1557,11 @@ export default defineComponent({
     <RecordDetailDrawer
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
-      :title="enhancementDrawer.definition.title"
+      :title="
+        enhancementDrawer.definition.titleKey
+          ? language.t(enhancementDrawer.definition.titleKey, enhancementDrawer.definition.title)
+          : enhancementDrawer.definition.title
+      "
       :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       :width="enhancementDrawer.definition.width"
