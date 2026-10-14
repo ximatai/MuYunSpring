@@ -917,3 +917,95 @@ it('passes the independent consumer language to task-draft discard confirmation'
   expect(vi.mocked(context.crud.view)).toHaveBeenCalledOnce();
   wrapper.unmount();
 });
+
+it('updates an existing validation prompt when language changes while preserving the task draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { wrapper, request, context } = fixture(undefined, language);
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '登记到货')!
+    .trigger('click');
+  await flushPromises();
+  const form = wrapper.findComponent(fields);
+  form.vm.$emit('update:field', 'remark', '业务原文草稿');
+  form.vm.$emit('validity-change', { valid: false, errors: { remark: 'required' } });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Save business data and complete task')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Correct the marked business fields before submitting');
+  const reads = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain('请修正标记的业务字段后再提交');
+  expect(form.props('record').remark).toBe('业务原文草稿');
+  expect(request.mock.calls).toHaveLength(reads);
+  expect(vi.mocked(context.crud.view)).toHaveBeenCalledOnce();
+  expect(request.mock.calls.some(([call]) => call.path.endsWith('/execute'))).toBe(false);
+  wrapper.unmount();
+});
+
+it('uses a safe reactive load failure instead of exposing upstream server diagnostics', async () => {
+  const { AppError } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { wrapper, request } = fixture(undefined, language);
+  await flushPromises();
+  request.mockImplementationOnce(async () => {
+    throw new AppError('private upstream database details', { code: 'HTTP_ERROR', status: 503 });
+  });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Refresh workflow')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toBe('A system error prevented the operation from completing');
+  expect(wrapper.text()).not.toContain('private upstream');
+  const calls = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toBe('系统异常，操作未完成');
+  expect(request.mock.calls).toHaveLength(calls);
+  wrapper.unmount();
+});
+
+it('preserves a newly authored additional-approval title across language switching and protects it from discard', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { wrapper, request } = fixture(undefined, language);
+  const original = request.getMockImplementation()!;
+  request.mockImplementation(async (call) =>
+    call.path.endsWith('/actions')
+      ? {
+          records: [
+            { actionCode: 'addSign', title: '加签', taskId: 't', nodeKey: 'approve', reasonRequired: true },
+          ],
+        }
+      : original(call),
+  );
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+  await flushPromises();
+  const title = wrapper.findComponent({ name: 'UiInput' });
+  expect(title.props('value')).toBe('Additional approval');
+  title.vm.$emit('update:value', '我填写的审批标题');
+  await flushPromises();
+  const calls = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(title.props('value')).toBe('我填写的审批标题');
+  expect(request.mock.calls).toHaveLength(calls);
+  vi.mocked(confirmAction).mockClear();
+  vi.mocked(confirmAction).mockResolvedValueOnce(false);
+  const panel = wrapper.findComponent(WorkflowRecordPanel);
+  expect(await (panel.vm as unknown as { mayLeave(): Promise<boolean> }).mayLeave()).toBe(false);
+  expect(confirmAction).toHaveBeenCalledWith(
+    expect.objectContaining({ title: '放弃未保存的办理内容？' }),
+    language,
+  );
+  expect(title.props('value')).toBe('我填写的审批标题');
+  wrapper.unmount();
+});

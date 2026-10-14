@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
   createWorkflowClient,
   createModuleContext,
   displayModuleRuntime,
@@ -89,7 +91,7 @@ const tasks = ref<WorkflowTask[]>([]),
   branches = ref<WorkflowBranch[]>([]);
 const loading = ref(false),
   busy = ref(false),
-  error = ref('');
+  error = ref<() => string>();
 const activeAction = ref<WorkflowAction>();
 const reason = ref(''),
   targetAssigneeId = ref(''),
@@ -113,6 +115,7 @@ const dirty = computed(() =>
     (reason.value ||
       targetAssigneeId.value ||
       addSignUserId.value ||
+      (activeAction.value.actionCode === 'addSign' && addSignTitle.value !== initialAddSignTitle.value) ||
       Object.values(manualRoutes.value).some((keys) => keys.length) ||
       (taskDraft.value && JSON.stringify(taskDraft.value) !== taskInitial.value)),
   ),
@@ -183,7 +186,8 @@ const accountContext = computed(() =>
   createModuleContext<Record<string, unknown>>({ http: props.context.http, moduleAlias: 'iam.user' }),
 );
 const addSignUserId = ref<string>(),
-  addSignTitle = ref('追加审批'),
+  addSignTitle = ref(''),
+  initialAddSignTitle = ref(''),
   addSignRouteKey = ref('');
 const addSignExplanations = ref<WorkflowAddSignExplanation[]>([]),
   addSignReady = ref(false);
@@ -287,10 +291,16 @@ async function openReadGuide(guide: {
       originalGuideReadFields.value = new Map(
         [...resolveRecordFormFields(runtime.uiDescriptor)].filter(([field]) => field === key),
       );
-      if (!originalGuideReadFields.value.size) throw new Error('指引字段不存在');
+      if (!originalGuideReadFields.value.size)
+        throw new Error(
+          workflowLanguage.t(
+            'platform.screen.WorkflowRecordPanel.the-guide-field-does-not-exist',
+            '指引字段不存在',
+          ),
+        );
       guideReadRecord.value = await props.context.crud.view(props.recordId);
     } catch (cause) {
-      presentPlatformError(cause, { source: 'workflow-task', phase: 'load' });
+      presentPlatformError(cause, { source: 'workflow-task', phase: 'load', language: workflowLanguage });
     }
   }
 }
@@ -308,9 +318,14 @@ async function executeBusinessAction(guideKey: string) {
     activeAction.value = undefined;
     await load();
     completed = true;
-    showSuccessMessage('业务动作和任务已完成');
+    showSuccessMessage(
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.business-action-and-task-completed',
+        '业务动作和任务已完成',
+      ),
+    );
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow-task', phase: 'action' });
+    presentPlatformError(cause, { source: 'workflow-task', phase: 'action', language: workflowLanguage });
   } finally {
     busy.value = false;
     if (completed) emit('changed');
@@ -376,7 +391,11 @@ watch(
           : event;
       });
     } catch (cause) {
-      presentPlatformError(cause, { source: 'workflow-text-resources', phase: 'load' });
+      presentPlatformError(cause, {
+        source: 'workflow-text-resources',
+        phase: 'load',
+        language: workflowLanguage,
+      });
     }
   },
 );
@@ -417,7 +436,7 @@ async function load() {
   ++formRequest;
   preparing.value = false;
   loading.value = true;
-  error.value = '';
+  error.value = undefined;
   try {
     const [next, history] = await Promise.all([
       client.value.status(props.context.moduleAlias, props.recordId),
@@ -465,7 +484,8 @@ async function load() {
     }
   } catch (cause) {
     if (current === revision) {
-      error.value = cause instanceof Error ? cause.message : '流程加载失败';
+      const failure = normalizeError(cause);
+      error.value = () => userFacingErrorMessage(failure, workflowLanguage);
     }
   } finally {
     if (current === revision) loading.value = false;
@@ -473,7 +493,7 @@ async function load() {
 }
 async function choose(action: WorkflowAction) {
   if (activeAction.value && !(await mayLeave())) return;
-  error.value = '';
+  error.value = undefined;
   validationRequestKey.value = 0;
   previewReady.value = false;
   activeAction.value = action;
@@ -494,7 +514,11 @@ async function choose(action: WorkflowAction) {
   manualChoicesReady.value = true;
   if (['approve', 'complete'].includes(action.actionCode) && action.taskId) await refreshManualChoices();
   if (action.actionCode === 'complete' && action.taskId) await inspectTask(action.taskId);
-  if (action.actionCode === 'addSign') await prepareAddSign(action);
+  if (action.actionCode === 'addSign') {
+    addSignTitle.value = workflowLanguage.t('platform.workflow-record.additional-approval', '追加审批');
+    initialAddSignTitle.value = addSignTitle.value;
+    await prepareAddSign(action);
+  }
 }
 async function prepareAddSign(action: WorkflowAction) {
   const id = props.instanceId ?? status.value?.instanceId,
@@ -508,7 +532,7 @@ async function prepareAddSign(action: WorkflowAction) {
     addSignReady.value = true;
   } catch (cause) {
     if (current === revision && action === activeAction.value)
-      presentPlatformError(cause, { source: 'workflow-add-sign', phase: 'load' });
+      presentPlatformError(cause, { source: 'workflow-add-sign', phase: 'load', language: workflowLanguage });
   } finally {
     if (current === revision && action === activeAction.value) preparing.value = false;
   }
@@ -517,10 +541,14 @@ async function preview() {
   busy.value = true;
   try {
     branches.value = await client.value.submitBranches(props.context.moduleAlias, props.recordId);
-    await choose({ actionCode: 'submitApproval', title: '提交审批', reasonRequired: false });
+    await choose({
+      actionCode: 'submitApproval',
+      title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.submit-for-approval', '提交审批'),
+      reasonRequired: false,
+    });
     if (!branches.value.length) await refreshPreview();
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow', phase: 'load' });
+    presentPlatformError(cause, { source: 'workflow', phase: 'load', language: workflowLanguage });
   } finally {
     busy.value = false;
   }
@@ -541,7 +569,8 @@ async function inspectTask(taskId: string) {
     const process = await client.value.prepareTask(taskId);
     if (isCurrent()) taskProcess.value = process;
   } catch (cause) {
-    if (isCurrent()) presentPlatformError(cause, { source: 'workflow', phase: 'validation' });
+    if (isCurrent())
+      presentPlatformError(cause, { source: 'workflow', phase: 'validation', language: workflowLanguage });
   } finally {
     if (isCurrent()) preparing.value = false;
   }
@@ -581,8 +610,12 @@ async function refreshManualChoices() {
     manualChoicesReady.value = true;
   } catch (cause) {
     if (requestId === branchRequest && action === activeAction.value) {
-      error.value = '路径候选加载失败，请重新进入操作后重试';
-      presentPlatformError(cause, { source: 'workflow', phase: 'load' });
+      error.value = () =>
+        workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.unable-to-load-available-routes-reopen-this-action-and-try',
+          '路径候选加载失败，请重新进入操作后重试',
+        );
+      presentPlatformError(cause, { source: 'workflow', phase: 'load', language: workflowLanguage });
     }
   } finally {
     if (requestId === branchRequest) preparing.value = false;
@@ -591,21 +624,43 @@ async function refreshManualChoices() {
 async function selectManualRoute(branchNodeKey: string, routeKey: unknown) {
   manualRoutes.value[branchNodeKey] = routeKey ? [String(routeKey)] : [];
   previewReady.value = false;
-  error.value = '';
+  error.value = undefined;
   await refreshManualChoices();
 }
 function manualSelectionValid() {
   if (preparing.value || !manualChoicesReady.value) {
-    error.value = '请等待路径候选加载完成，失败时重新进入操作后重试';
+    error.value = () =>
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.wait-for-available-routes-to-load-if-loading-fails-reopen',
+        '请等待路径候选加载完成，失败时重新进入操作后重试',
+      );
     return false;
   }
   for (const branch of actionBranches.value) {
     if (manualRoutes.value[branch.branchNodeKey]?.length !== 1) {
-      error.value = `请为「${branch.branchTitle ?? '手工分支'}」选择一条路径`;
+      error.value = () =>
+        workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.select-a-route-for-value',
+          '请为「{value1}」选择一条路径',
+          {
+            value1:
+              branch.branchTitle ??
+              workflowLanguage.t('platform.screen.WorkflowRecordPanel.manual-branch', '手工分支'),
+          },
+        );
       return false;
     }
     if (branch.requireManualSelectionReason && !manualReasons.value[branch.branchNodeKey]?.trim()) {
-      error.value = `请填写「${branch.branchTitle ?? '手工分支'}」的路径选择原因`;
+      error.value = () =>
+        workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.enter-a-reason-for-the-route-selected-for-value',
+          '请填写「{value1}」的路径选择原因',
+          {
+            value1:
+              branch.branchTitle ??
+              workflowLanguage.t('platform.screen.WorkflowRecordPanel.manual-branch', '手工分支'),
+          },
+        );
       return false;
     }
   }
@@ -618,9 +673,11 @@ function candidateTitle(candidate: WorkflowBranch['candidates'][number]) {
     bundle.value?.nodes.find((item) => item.nodeKey === candidate.targetNodeKey)?.nodeTitle ??
     candidate.targetNodeKey;
   const labels = [
-    candidate.conditionMatched ? '条件命中' : '',
-    candidate.defaultRoute ? '默认出口' : '',
-    candidate.recommended ? '系统建议' : '',
+    candidate.conditionMatched ? workflowLanguage.t('platform.workflow.condition_matched', '条件命中') : '',
+    candidate.defaultRoute ? workflowLanguage.t('platform.workflow-config.default-exit', '默认出口') : '',
+    candidate.recommended
+      ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.suggested', '系统建议')
+      : '',
   ].filter(Boolean);
   return name + (labels.length ? `（${labels.join(' · ')}）` : '');
 }
@@ -636,7 +693,7 @@ async function refreshPreview() {
     previewTasks.value = result.taskViews ?? result.tasks;
     previewReady.value = true;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow', phase: 'validation' });
+    presentPlatformError(cause, { source: 'workflow', phase: 'validation', language: workflowLanguage });
   } finally {
     preparing.value = false;
   }
@@ -673,7 +730,13 @@ async function openBusinessForm(guideKey: string) {
     const fields = new Map(
       [...resolveRecordFormFields(runtime.uiDescriptor)].filter(([key]) => allowed.has(key)),
     );
-    if (fields.size === 0) throw new Error('当前任务未配置可编辑字段');
+    if (fields.size === 0)
+      throw new Error(
+        workflowLanguage.t(
+          'platform.screen.WorkflowRecordPanel.no-editable-fields-are-configured-for-this-task',
+          '当前任务未配置可编辑字段',
+        ),
+      );
     const draft = await context.crud.view(recordId);
     if (!isCurrent()) return;
     taskGuideKey.value = guideKey;
@@ -683,7 +746,8 @@ async function openBusinessForm(guideKey: string) {
     taskValidity.value = { valid: true, errors: {} };
     validationRequestKey.value = 0;
   } catch (cause) {
-    if (isCurrent()) presentPlatformError(cause, { source: 'workflow-task', phase: 'load' });
+    if (isCurrent())
+      presentPlatformError(cause, { source: 'workflow-task', phase: 'load', language: workflowLanguage });
   } finally {
     if (isCurrent()) preparing.value = false;
   }
@@ -696,7 +760,11 @@ async function saveAndComplete() {
   validationRequestKey.value++;
   await nextTick();
   if (!taskValidity.value.valid) {
-    error.value = '请修正标记的业务字段后再提交';
+    error.value = () =>
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.correct-the-marked-business-fields-before-submitting',
+        '请修正标记的业务字段后再提交',
+      );
     return;
   }
   busy.value = true;
@@ -716,9 +784,14 @@ async function saveAndComplete() {
     taskDraft.value = undefined;
     await load();
     completed = true;
-    showSuccessMessage('业务数据已保存，任务已完成');
+    showSuccessMessage(
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.business-data-saved-and-task-completed',
+        '业务数据已保存，任务已完成',
+      ),
+    );
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow-task', phase: 'action' });
+    presentPlatformError(cause, { source: 'workflow-task', phase: 'action', language: workflowLanguage });
   } finally {
     busy.value = false;
     if (completed) emit('changed');
@@ -729,15 +802,24 @@ async function execute() {
   if (!action || busy.value || preparing.value) return;
   if (!manualSelectionValid()) return;
   if (action.actionCode === 'submitApproval' && !previewReady.value) {
-    error.value = '请先预览所选审批路径';
+    error.value = () =>
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.preview-the-selected-approval-routes-first',
+        '请先预览所选审批路径',
+      );
     return;
   }
   if (action.reasonRequired && !reason.value.trim()) {
-    error.value = '请填写操作原因';
+    error.value = () =>
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.enter-a-reason-for-this-action',
+        '请填写操作原因',
+      );
     return;
   }
   if (action.targetAssigneeRequired && !targetAssigneeId.value.trim()) {
-    error.value = '请选择接收人';
+    error.value = () =>
+      workflowLanguage.t('platform.screen.WorkflowRecordPanel.select-a-recipient', '请选择接收人');
     return;
   }
   const selections = Object.entries(manualRoutes.value)
@@ -752,7 +834,11 @@ async function execute() {
   const nextRoute = selectedAddSignRoute.value;
   const addedKey = `add_${Date.now().toString(36)}`;
   if (action.actionCode === 'addSign' && (!addSignUserId.value || !nextRoute)) {
-    error.value = '请选择加签人员并确认下游路径可用';
+    error.value = () =>
+      workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.select-an-additional-approver-and-confirm-an-available-downstream-route',
+        '请选择加签人员并确认下游路径可用',
+      );
     return;
   }
   const addSignSegment =
@@ -776,13 +862,13 @@ async function execute() {
               routeKey: `${addedKey}_in`,
               sourceNodeKey: action.nodeKey,
               targetNodeKey: addedKey,
-              title: '加签',
+              title: workflowLanguage.t('platform.workflow.add_sign', '加签'),
             },
             {
               routeKey: `${addedKey}_out`,
               sourceNodeKey: addedKey,
               targetNodeKey: nextRoute!.targetNodeKey,
-              title: '继续',
+              title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.continue', '继续'),
             },
           ],
         }
@@ -803,11 +889,13 @@ async function execute() {
     else if (status.value?.instanceId)
       await client.value.instanceAction(status.value.instanceId, action.actionCode, payload);
     activeAction.value = undefined;
-    showSuccessMessage('流程操作已完成');
+    showSuccessMessage(
+      workflowLanguage.t('platform.screen.WorkflowRecordPanel.workflow-action-completed', '流程操作已完成'),
+    );
     await load();
     completed = true;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'workflow', phase: 'action' });
+    presentPlatformError(cause, { source: 'workflow', phase: 'action', language: workflowLanguage });
   } finally {
     busy.value = false;
     if (completed) emit('changed');
@@ -824,12 +912,16 @@ async function execute() {
         workflowLanguage.t('platform.screen.WorkflowRecordPanel.approvals-and-tasks', '审批与任务')
       }}</strong
       ><span>{{ workflowTitle(status?.displayStatus) }}</span
-      ><span v-if="bundle">流程：{{ workflowTitle(bundle.instance.instanceStatus) }}</span
+      ><span v-if="bundle">{{
+        workflowLanguage.t('platform.workflow-record.status', '流程：{status}', {
+          status: workflowTitle(bundle.instance.instanceStatus),
+        })
+      }}</span
       ><UiButton :loading="loading" :disabled="busy || preparing || Boolean(activeAction)" @click="load">{{
         workflowLanguage.t('platform.screen.WorkflowRecordPanel.refresh-workflow', '刷新流程')
       }}</UiButton>
     </header>
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="error" role="alert">{{ error?.() }}</p>
     <p v-if="status?.errorMessage">{{ status.errorMessage }}</p>
     <label class="workflow-field" v-if="archives.length"
       >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-workflow-rounds', '查看流程轮次')
@@ -837,10 +929,21 @@ async function execute() {
         :disabled="busy || preparing || Boolean(activeAction)"
         :value="selectedHistory ?? ''"
         :options="[
-          { value: '', label: '当前流程' },
+          {
+            value: '',
+            label: workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
+          },
           ...archives.map((item) => ({
             value: item.id,
-            label: `历史 v${item.versionNo} · ${workflowTitle(item.instanceStatus)} · ${item.startedAt ?? ''}`,
+            label: workflowLanguage.t(
+              'platform.screen.WorkflowRecordPanel.history-vvalue-value-value',
+              '历史 v{value1} · {value2} · {value3}',
+              {
+                value1: item.versionNo,
+                value2: workflowTitle(item.instanceStatus),
+                value3: item.startedAt ?? '',
+              },
+            ),
           })),
         ]"
         @update:value="
@@ -881,13 +984,21 @@ async function execute() {
           !selectedHistory && status?.instanceId && ['PROCESSING', 'REJECTED'].includes(status.displayStatus)
         "
         :disabled="busy || Boolean(activeAction)"
-        @click="choose({ actionCode: 'revoke', title: '撤回申请', reasonRequired: true })"
+        @click="
+          choose({
+            actionCode: 'revoke',
+            title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.withdraw-application', '撤回申请'),
+            reasonRequired: true,
+          })
+        "
         >{{
           workflowLanguage.t('platform.screen.WorkflowRecordPanel.withdraw-application', '撤回申请')
         }}</UiButton
       >
       <UiButton v-if="status?.instanceId" @click="showHistory = !showHistory">{{
-        showHistory ? '收起办理记录' : '办理记录'
+        showHistory
+          ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.hide-processing-history', '收起办理记录')
+          : workflowLanguage.t('platform.screen.WorkflowRecordPanel.processing-history', '办理记录')
       }}</UiButton>
     </div>
     <RecordDetailDrawer
@@ -907,7 +1018,7 @@ async function execute() {
           :title="
             workflowLanguage.t('platform.screen.WorkflowRecordPanel.check-task-input', '请检查办理内容')
           "
-          :message="error"
+          :message="error?.()"
         />
         <p v-if="preparing">
           {{
@@ -969,11 +1080,23 @@ async function execute() {
               "
           /></label>
           <p>
-            插入影响：{{ actionNodeTitle(activeAction) }} → {{ addSignTitle }} →
             {{
-              bundle?.nodes.find((node) => node.nodeKey === selectedAddSignRoute?.targetNodeKey)?.nodeTitle ??
-              '请选择下游路径'
-            }}。仅改变本次实例。
+              workflowLanguage.t(
+                'platform.workflow-record.insertion-impact',
+                '插入影响：{source} → {inserted} → {target}。仅改变本次实例。',
+                {
+                  source: actionNodeTitle(activeAction),
+                  inserted: addSignTitle,
+                  target:
+                    bundle?.nodes.find((node) => node.nodeKey === selectedAddSignRoute?.targetNodeKey)
+                      ?.nodeTitle ??
+                    workflowLanguage.t(
+                      'platform.screen.WorkflowRecordPanel.select-a-downstream-route',
+                      '请选择下游路径',
+                    ),
+                },
+              )
+            }}
           </p></template
         >
         <label class="workflow-field" v-if="activeAction.actionCode === 'reject'"
@@ -981,23 +1104,46 @@ async function execute() {
           }}<UiSelect
             v-model:value="rejectMode"
             :options="[
-              { value: 'restart', label: '重新开始流程' },
+              {
+                value: 'restart',
+                label: workflowLanguage.t(
+                  'platform.screen.WorkflowRecordPanel.restart-the-workflow',
+                  '重新开始流程',
+                ),
+              },
               ...(activeAction.rejectReturnToMeSupported
-                ? [{ value: 'return_to_me', label: '回到当前审批人' }]
+                ? [
+                    {
+                      value: 'return_to_me',
+                      label: workflowLanguage.t(
+                        'platform.screen.WorkflowRecordPanel.return-to-the-current-approver',
+                        '回到当前审批人',
+                      ),
+                    },
+                  ]
                 : []),
             ]"
         /></label>
         <fieldset v-for="branch in actionBranches" :key="branch.branchNodeKey">
           <legend>
-            选择路径：{{
-              branch.branchTitle ??
-              bundle?.nodes.find((node) => node.nodeKey === branch.branchNodeKey)?.nodeTitle ??
-              branch.branchNodeKey
+            {{
+              workflowLanguage.t('platform.workflow-record.select-route', '选择路径：{branch}', {
+                branch:
+                  branch.branchTitle ??
+                  bundle?.nodes.find((node) => node.nodeKey === branch.branchNodeKey)?.nodeTitle ??
+                  branch.branchNodeKey,
+              })
             }}
           </legend>
           <UiSelect
             :value="manualRoutes[branch.branchNodeKey]?.[0]"
-            :aria-label="`选择路径：${branch.branchTitle ?? branch.branchNodeKey}`"
+            :aria-label="
+              workflowLanguage.t(
+                'platform.screen.WorkflowRecordPanel.select-a-route-value',
+                '选择路径：{value1}',
+                { value1: branch.branchTitle ?? branch.branchNodeKey },
+              )
+            "
             :options="
               branch.candidates
                 .filter((item) => item.routeStatus === 'candidate')
@@ -1022,9 +1168,23 @@ async function execute() {
           </p>
           <UiInput
             v-model:value="manualReasons[branch.branchNodeKey]"
-            :aria-label="`路径选择原因：${branch.branchTitle ?? branch.branchNodeKey}`"
+            :aria-label="
+              workflowLanguage.t(
+                'platform.screen.WorkflowRecordPanel.route-selection-reason-value',
+                '路径选择原因：{value1}',
+                { value1: branch.branchTitle ?? branch.branchNodeKey },
+              )
+            "
             :placeholder="
-              branch.requireManualSelectionReason ? '路径选择原因（必填）' : '路径选择原因（选填）'
+              branch.requireManualSelectionReason
+                ? workflowLanguage.t(
+                    'platform.screen.WorkflowRecordPanel.route-selection-reason-required',
+                    '路径选择原因（必填）',
+                  )
+                : workflowLanguage.t(
+                    'platform.screen.WorkflowRecordPanel.route-selection-reason-optional',
+                    '路径选择原因（选填）',
+                  )
             "
             :disabled="busy || preparing"
           />
@@ -1037,11 +1197,18 @@ async function execute() {
             )
           }}</UiButton>
           <p v-if="previewReady">
-            流程：{{
-              previewBundle?.definition?.definitionTitle ??
-              previewBundle?.instance.definitionTitle ??
-              status?.definition?.definitionTitle
-            }}。以下为提交后首批办理人，后续节点到达时解析人员。
+            {{
+              workflowLanguage.t(
+                'platform.workflow-record.preview-processors',
+                '流程：{title}。以下为提交后首批办理人，后续节点到达时解析人员。',
+                {
+                  title:
+                    previewBundle?.definition?.definitionTitle ??
+                    previewBundle?.instance.definitionTitle ??
+                    status?.definition?.definitionTitle,
+                },
+              )
+            }}
           </p>
           <ul v-if="previewReady">
             <li v-for="task in previewTasks" :key="task.id">
@@ -1050,9 +1217,19 @@ async function execute() {
                   (node) => node.id === task.nodeInstanceId || node.nodeKey === task.nodeKey,
                 )?.nodeTitle ?? task.nodeKey
               }}
-              · {{ task.assigneeTitle ?? '待任务创建时确定'
+              ·
+              {{
+                task.assigneeTitle ??
+                workflowLanguage.t(
+                  'platform.screen.WorkflowRecordPanel.determined-when-the-task-is-created',
+                  '待任务创建时确定',
+                )
               }}<span v-if="task.originalAssigneeTitle && task.originalAssigneeTitle !== task.assigneeTitle">
-                · 受 {{ task.originalAssigneeTitle }} 委托</span
+                {{
+                  workflowLanguage.t('platform.workflow-record.delegated-by', '· 受 {person} 委托', {
+                    person: task.originalAssigneeTitle,
+                  })
+                }}</span
               >
             </li>
           </ul>
@@ -1076,13 +1253,26 @@ async function execute() {
             ><p>
               {{
                 taskProcess.evaluation.passed
-                  ? '当前业务条件已满足'
-                  : (taskProcess.evaluation.failureMessage ?? '业务完成条件尚未满足')
+                  ? workflowLanguage.t(
+                      'platform.screen.WorkflowRecordPanel.business-conditions-are-met',
+                      '当前业务条件已满足',
+                    )
+                  : (taskProcess.evaluation.failureMessage ??
+                    workflowLanguage.t(
+                      'platform.screen.WorkflowRecordPanel.business-completion-conditions-are-not-yet-met',
+                      '业务完成条件尚未满足',
+                    ))
               }}
             </p>
             <ul>
               <li v-for="check in taskProcess.evaluation.checkResults" :key="check.checkKey">
-                {{ check.checkKey }} · {{ check.passed ? '通过' : (check.failureMessage ?? '尚未完成') }}
+                {{ check.checkKey }} ·
+                {{
+                  check.passed
+                    ? workflowLanguage.t('platform.workflow-record.check-passed', '通过')
+                    : (check.failureMessage ??
+                      workflowLanguage.t('platform.screen.WorkflowRecordPanel.not-completed', '尚未完成'))
+                }}
               </li>
             </ul>
             <template v-for="guide in displayTaskGuides" :key="guide.guideKey"
@@ -1092,18 +1282,30 @@ async function execute() {
                   (guide.guideKind === 'execute_action' && guide.targetActionCode === 'update')
                 "
                 @click="openBusinessForm(guide.guideKey)"
-                >{{ guide.title ?? '填写业务数据并完成任务' }}</UiButton
+                >{{
+                  guide.title ??
+                  workflowLanguage.t('platform.workflow-record.fill-complete', '填写业务数据并完成任务')
+                }}</UiButton
               ><UiButton
                 v-else-if="guide.guideKind === 'execute_action'"
                 :disabled="busy || preparing || !manualChoicesReady"
                 @click="executeBusinessAction(guide.guideKey)"
-                >{{ guide.title ?? '执行业务动作并完成任务' }}</UiButton
+                >{{
+                  guide.title ??
+                  workflowLanguage.t(
+                    'platform.workflow-task-editor.execute-complete',
+                    '执行业务动作并完成任务',
+                  )
+                }}</UiButton
               >
               <UiButton
                 v-else-if="guide.guideKind === 'open_list' || guide.guideKind === 'focus_field'"
                 :disabled="busy"
                 @click="openReadGuide(guide)"
-                >{{ guide.title ?? '查看办理指引' }}</UiButton
+                >{{
+                  guide.title ??
+                  workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-task-guidance', '查看办理指引')
+                }}</UiButton
               >
               <p v-else>{{ guideInstruction(guide) }}</p></template
             ></template
@@ -1180,10 +1382,26 @@ async function execute() {
         :fill-height="false"
         :pageable="false"
         :columns="[
-          { key: 'nodeTitle', title: '节点', dataIndex: 'nodeTitle' },
-          { key: 'kind', title: '类型', dataIndex: 'kind' },
-          { key: 'processor', title: '处理人', dataIndex: 'processor' },
-          { key: 'status', title: '状态', dataIndex: 'status' },
+          {
+            key: 'nodeTitle',
+            title: workflowLanguage.t('platform.screen.WorkflowAdministrationView.node', '节点'),
+            dataIndex: 'nodeTitle',
+          },
+          {
+            key: 'kind',
+            title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.type', '类型'),
+            dataIndex: 'kind',
+          },
+          {
+            key: 'processor',
+            title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.processor', '处理人'),
+            dataIndex: 'processor',
+          },
+          {
+            key: 'status',
+            title: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.status', '状态'),
+            dataIndex: 'status',
+          },
         ]"
         :rows="
           tasks.map((task) => ({
@@ -1192,7 +1410,12 @@ async function execute() {
             kind: workflowTitle(task.taskKind),
             processor:
               (task.actualProcessUserTitle ?? task.assigneeTitle ?? '—') +
-              (task.processedByDelegation ? ' · 委托办理' : ''),
+              (task.processedByDelegation
+                ? workflowLanguage.t(
+                    'platform.screen.WorkflowRecordPanel.processed-by-delegation',
+                    ' · 委托办理',
+                  )
+                : ''),
             status: workflowTitle(task.taskStatus),
           }))
         "

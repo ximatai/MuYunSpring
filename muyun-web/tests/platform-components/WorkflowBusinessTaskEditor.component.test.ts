@@ -49,3 +49,37 @@ it('keeps a published task editor read-only even if an input emits an update', a
   expect(wrapper.emitted('update:value')).toBeUndefined();
   wrapper.unmount();
 });
+
+it('initializes new authored defaults in English once and preserves them on a later language switch', async () => {
+  const { defineComponent, h, nextTick } = await import('vue');
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(WorkflowBusinessTaskEditor, { moduleAlias: 'demo.purchase' });
+      },
+    }),
+  );
+  const editor = wrapper.findComponent(WorkflowBusinessTaskEditor);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Add completion check')!
+    .trigger('click');
+  const authored = String(editor.emitted('update:value')!.at(-1)![0]);
+  expect(JSON.parse(authored).task.checks[0]).toMatchObject({
+    title: 'Business completion condition',
+    failureMessage: 'Business data does not yet meet the completion condition',
+    checkKind: 'FORMULA',
+    expression: '',
+  });
+  const updates = editor.emitted('update:value')!.length;
+  language.setLanguage('zh-CN');
+  await nextTick();
+  expect(editor.emitted('update:value')).toHaveLength(updates);
+  expect(wrapper.findAllComponents({ name: 'UiInput' })[0]!.props('value')).toBe(
+    'Business completion condition',
+  );
+  wrapper.unmount();
+});

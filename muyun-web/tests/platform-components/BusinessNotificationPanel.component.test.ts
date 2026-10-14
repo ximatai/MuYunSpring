@@ -57,14 +57,22 @@ describe('BusinessNotificationPanel', () => {
     const host = defineComponent({
       setup() {
         provideLanguageContext(language);
-        return () => h(BusinessNotificationPanel, { notifications: [notice], executeAction });
+        return () =>
+          h(BusinessNotificationPanel, {
+            notifications: [notice, notification('second', true)],
+            executeAction,
+          });
       },
     });
     const wrapper = mount(host);
     expect(wrapper.text()).toContain('Pending task');
+    expect(wrapper.text()).toContain('Business reminders (2)');
+    expect(wrapper.get('.business-notification-more').text()).toBe('View all (1 more)');
     language.setLanguage('zh-CN');
     await nextTick();
     expect(wrapper.text()).toContain('待办原文');
+    expect(wrapper.text()).toContain('业务提醒（2 条）');
+    expect(wrapper.get('.business-notification-more').text()).toContain('还有 1 条');
     language.setLanguage('en');
     await nextTick();
     const button = wrapper.findAll('button').find((item) => item.text() === 'Process');

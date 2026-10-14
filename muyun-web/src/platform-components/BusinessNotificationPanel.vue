@@ -103,10 +103,18 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
       aria-expanded="false"
       @click="presentation = 'expanded'"
     >
-      业务提醒（{{ orderedNotifications.length }} 条）
+      {{
+        language.t('platform.notifications.count', '业务提醒（{count} 条）', {
+          count: orderedNotifications.length,
+        })
+      }}
     </button>
     <div v-else class="business-notification-controls">
-      <span>业务提醒（{{ orderedNotifications.length }} 条）</span>
+      <span>{{
+        language.t('platform.notifications.count', '业务提醒（{count} 条）', {
+          count: orderedNotifications.length,
+        })
+      }}</span>
       <div>
         <button
           v-if="hiddenCount && !expanded"
@@ -115,7 +123,11 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
           aria-expanded="false"
           @click="presentation = 'expanded'"
         >
-          查看全部（还有 {{ hiddenCount }} 条）
+          {{
+            language.t('platform.notifications.view-all', '查看全部（还有 {count} 条）', {
+              count: hiddenCount,
+            })
+          }}
         </button>
         <button class="business-notification-collapse" type="button" @click="presentation = 'collapsed'">
           {{ language.t('platform.screen.BusinessNotificationPanel.collapse-reminders', '收起提醒') }}

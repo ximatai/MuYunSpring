@@ -86,3 +86,71 @@ it('retains selected names in the confirmation summary across searches', async (
   expect(wrapper.find('.permission-summary').text()).toBe('追加负责人：张三、李四');
   wrapper.unmount();
 });
+
+it('switches fixed permission labels while retaining the selected people and original command', async () => {
+  const { defineComponent, h } = await import('vue');
+  const { mount } = await import('@vue/test-utils');
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async (input: { method?: string; path: string }) =>
+    input.method === 'POST'
+      ? { changed: true }
+      : input.path.endsWith('candidates')
+        ? [{ id: 'new', title: '原人员名称' }]
+        : { version: 7, ownerId: 'old', assigneeIds: [], memberIds: [], titles: { old: '原归属人' } },
+  );
+  const context = {
+    moduleAlias: 'test.order',
+    http: { request },
+  } as unknown as ModuleContext<QueryListRecord>;
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(RecordPermissionDialog, { open: true, context, recordId: 'record' });
+      },
+    }),
+    {
+      global: {
+        stubs: {
+          UiModal: { template: '<section><slot /></section>', name: 'UiModal' },
+          UiSpin: { template: '<div><slot /></div>' },
+          RecordFormGrid: { template: '<div><slot /></div>' },
+          RecordDetailFields: true,
+          UiSelect: true,
+          UiCheckbox: true,
+        },
+      },
+    },
+  );
+  await flushPromises();
+  const picker = wrapper.findAllComponents({ name: 'UiSelect' })[1]!;
+  expect(picker.props('placeholder')).toBe('Search and select people');
+  picker.vm.$emit('update:value', 'new');
+  await flushPromises();
+  expect(wrapper.get('.permission-summary').text()).toContain('原人员名称');
+  const reads = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(picker.props('value')).toBe('new');
+  expect(picker.props('placeholder')).toBe('搜索并选择人员');
+  expect(request.mock.calls).toHaveLength(reads);
+  language.setLanguage('en');
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  await flushPromises();
+  expect(request).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      method: 'POST',
+      body: {
+        version: 7,
+        operation: 'TRANSFER',
+        relation: null,
+        userIds: ['new'],
+        previousUserId: undefined,
+        retainPreviousOwner: false,
+      },
+    }),
+  );
+  wrapper.unmount();
+});
