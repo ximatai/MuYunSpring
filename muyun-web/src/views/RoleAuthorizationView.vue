@@ -187,7 +187,7 @@ const actionColumns = computed<UiDataTableColumn[]>(() => [
       ]
     : []),
 ]);
-const dataGrantColumns: UiDataTableColumn[] = [
+const dataGrantColumns = computed<UiDataTableColumn[]>(() => [
   {
     key: 'title',
     title: language.t('platform.screen.RoleAuthorizationView.standard-action', '标准动作'),
@@ -204,7 +204,7 @@ const dataGrantColumns: UiDataTableColumn[] = [
     title: language.t('platform.screen.RoleAuthorizationView.data-scope', '数据范围'),
     width: 160,
   },
-];
+]);
 const actionRows = computed(() => actions.value as unknown as UiDataTableRecord[]);
 const dataGrantRows = computed(
   () => (dataGrantMatrix.value?.actions ?? []) as unknown as UiDataTableRecord[],

@@ -244,8 +244,8 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
       const enable = options.context.abilities.enable();
       const result =
         selected.value.enabled === false
-          ? await enable.enable(selected.value.id, { version: requiredVersion(selected.value) })
-          : await enable.disable(selected.value.id, { version: requiredVersion(selected.value) });
+          ? await enable.enable(selected.value.id, { version: requiredVersion(selected.value, language) })
+          : await enable.disable(selected.value.id, { version: requiredVersion(selected.value, language) });
       const refreshed = await crud.view(selected.value.id);
       selected.value = refreshed;
       draft.value = copyRecord(refreshed);
