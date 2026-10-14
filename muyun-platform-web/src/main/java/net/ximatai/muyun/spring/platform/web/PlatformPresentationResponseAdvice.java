@@ -4,6 +4,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.ximatai.muyun.spring.common.i18n.*;
+import net.ximatai.muyun.spring.platform.application.ApplicationConstructionDeliveryService;
+import net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirements;
+import net.ximatai.muyun.spring.platform.application.ApplicationConstructionText;
 import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowRuntimeRenderBundle;
@@ -45,7 +48,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskContinueResult.class.isAssignableFrom(parameter.getParameterType()) ||
-                parameter.getContainingClass() == ModuleFieldOptionWebController.class;
+                parameter.getContainingClass() == ModuleFieldOptionWebController.class ||
+                parameter.getContainingClass() == ApplicationConstructionPlanWebController.class;
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
             Class<? extends HttpMessageConverter<?>> converter, ServerHttpRequest request, ServerHttpResponse response) { return project(body); }
@@ -67,15 +71,40 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         if (slots.isEmpty()) return body;
         var prepared = resolver.prepare(slots.stream().map(Slot::source).toList());
         var output = mapper.valueToTree(body);
+        Map<String, TextPresentation> constructionBindings = new java.util.LinkedHashMap<>();
         for (var slot : slots) {
+            if (slot.resourceOnly()) {
+                String path = slot.parentPath() + "/" + slot.property();
+                // Only producer-declared slots that still match their original display facts are projected.
+                if (output.at(path).isTextual() && output.at(path).asText().equals(TextResources.format(slot.source().originalText(), slot.arguments())))
+                    constructionBindings.put(path, TextPresentations.of(slot.source(), slot.arguments(), prepared, catalog));
+                continue;
+            }
             if (!(output.at(slot.parentPath()) instanceof ObjectNode parent)) continue;
             parent.set(slot.property() + "Text", mapper.valueToTree(TextPresentations.of(slot.source(), Map.of(), prepared, catalog)));
             parent.put(slot.property(), prepared.resolve(slot.source(), Map.of(), LanguageContext.currentTag()).text());
         }
+        if (!constructionBindings.isEmpty() && output instanceof ObjectNode object)
+            object.set("textBindings", mapper.valueToTree(constructionBindings));
         return mapper.convertValue(output, new TypeReference<Object>() { });
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof WebListResponse<?> list) collect(list.records(), path + "/records", slots);
+        if (value instanceof ApplicationConstructionDeliveryService.Task task) {
+            for (int i = 0; i < task.objects().size(); i++) {
+                var object = task.objects().get(i); String objectPath = path + "/objects/" + i;
+                for (int j = 0; j < object.options().size(); j++)
+                    constructionSlot(objectPath + "/options/" + j, "explanation", object.options().get(j).explanationSource(), slots);
+                constructionEvidence(object.requirements(), objectPath + "/requirements", slots);
+                if (object.progress() != null)
+                    constructionList(objectPath + "/progress/remainingWork", object.progress().remainingWorkSources(), slots);
+            }
+            constructionEvidence(task.unmappedRequirements(), path + "/unmappedRequirements", slots);
+        } else if (value instanceof ApplicationConstructionDeliveryService.Progress progress) {
+            constructionList(path + "/remainingWork", progress.remainingWorkSources(), slots);
+            constructionEvidence(progress.requirements(), path + "/requirements", slots);
+        } else if (value instanceof ApplicationConstructionDeliveryService.AcceptancePreview preview) {
+            constructionList(path + "/checks", preview.checkSources(), slots);
+        } else if (value instanceof WebListResponse<?> list) collect(list.records(), path + "/records", slots);
         else if (value instanceof WebPageResponse<?> page) {
             collect(page.records(), path + "/records", slots);
             if (page.navigation() instanceof Map<?, ?> navigation && navigation.get("moduleTitles") instanceof net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog titles)
@@ -170,5 +199,20 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 slots.add(new Slot(path, "message", source));
         } catch (Exception ignored) { /* Unverified declarations retain their frozen original. */ }
     }
-    private record Slot(String parentPath, String property, TextReference source) { }
+    private static void constructionEvidence(List<ApplicationConstructionRequirements.Evidence> evidence, String path, List<Slot> slots) {
+        if (evidence == null) return;
+        for (int i = 0; i < evidence.size(); i++) constructionSlot(path + "/" + i, "explanation", evidence.get(i).explanationSource(), slots);
+    }
+    private static void constructionList(String path, List<ApplicationConstructionText> texts, List<Slot> slots) {
+        if (texts == null) return;
+        for (int i = 0; i < texts.size(); i++) constructionSlot(path, String.valueOf(i), texts.get(i), slots);
+    }
+    private static void constructionSlot(String path, String property, ApplicationConstructionText text, List<Slot> slots) {
+        if (text != null && text.source().sourceKind() == TextReference.SourceKind.CODE && text.source().sourceId().startsWith("platform.construction.") &&
+                text.source().sourceVersion().equals(TextReference.versionOf(text.source().originalText())))
+            slots.add(new Slot(path, property, text.source(), text.arguments(), true));
+    }
+    private record Slot(String parentPath, String property, TextReference source, Map<String, ?> arguments, boolean resourceOnly) {
+        Slot(String parentPath, String property, TextReference source) { this(parentPath, property, source, Map.of(), false); }
+    }
 }

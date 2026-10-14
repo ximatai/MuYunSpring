@@ -185,4 +185,52 @@ class ApplicationConstructionDeliveryServiceTest {
             assertThat(mapper.writeValueAsString(task).length()).isLessThan(20_000);
         }
     }
+    @Test void producerDeclarationsLocalizeProgressAndAcceptanceWithoutChangingUserFacts() {
+        var plans = mock(ApplicationConstructionPlanService.class);
+        var fields = mock(ApplicationConstructionFieldService.class);
+        var database = mock(IDatabaseOperations.class);
+        var receipts = mock(ApplicationConstructionDeliveryDao.class);
+        var pages = mock(PlatformPageDefinitionService.class);
+        var activation = mock(DynamicRuntimeActivationService.class);
+        var service = new ApplicationConstructionDeliveryService(database, plans, fields, receipts,
+                mock(ApplicationConstructionAcceptanceDao.class), pages, mock(PlatformPresentationVariantService.class),
+                mock(PlatformPresentationRevisionResolver.class), mock(MenuService.class), activation);
+        var content = new ApplicationConstructionPlanContent("用户方案", "用户目标", List.of("用户要求"), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("order", "用户对象", "业务用途", "sample.order")),
+                List.of(), List.of("用户规则 $1\\path"), List.of(), List.of(), List.of(), List.of("用户验收例子"), List.of());
+        var plan = new ApplicationConstructionPlanService.Snapshot("plan", 1, content, java.time.Instant.EPOCH,
+                "LINKED", List.of(), List.of(), List.of(), List.of());
+        when(plans.read("plan")).thenReturn(plan);
+        var description = new ApplicationConstructionFieldService.Description("sample.order", 1, 1, List.of(), List.of(), java.util.Map.of(), java.util.Map.of(), List.of());
+        when(fields.describe("plan", "order")).thenReturn(description);
+        when(fields.binding(plan, "order")).thenReturn(new ApplicationConstructionFieldService.Binding("order", "sample.order", "metadata", "main"));
+        when(pages.resolveGlobalPage("sample.order", "management")).thenReturn(java.util.Optional.empty());
+        when(fields.evidence(plan, "order", description)).thenReturn(List.of());
+        when(receipts.list(any(net.ximatai.muyun.database.core.orm.Criteria.class))).thenReturn(List.of());
+        when(activation.status("sample.order")).thenReturn(new DynamicRuntimeActivationService.Status("sample.order", 1, null, null, "PENDING", null, null));
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "实施人员"))) {
+            var progress = service.progress("plan", "order");
+            assertThat(progress.remainingWork()).contains("当前正式页面尚未发布或不可用", "模块运行态尚未激活");
+            assertThat(progress.remainingWorkSources()).hasSameSizeAs(progress.remainingWork());
+            for (var text : progress.remainingWorkSources()) {
+                var translated = resources.resolve(text.source(), text.arguments(), "en");
+                assertThat(translated.resourceTag()).isEqualTo("en");
+                assertThat(translated.missing()).isFalse();
+                assertThat(text.source().sourceVersion()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.versionOf(text.source().originalText()));
+            }
+        }
+        var evidence = new ApplicationConstructionRequirements.Evidence(ApplicationConstructionRequirement.Section.SCOPE,
+                0, "用户要求", "order", "", ApplicationConstructionRequirements.Status.MANUAL_RESPONSIBILITY, "用户兑现说明");
+        var checks = ApplicationConstructionDeliveryService.acceptanceChecks(content, List.of(evidence));
+        var english = checks.stream().map(text -> resources.resolve(text.source(), text.arguments(), "en").text()).toList();
+        assertThat(english).contains("Business rule: 用户规则 $1\\path", "Acceptance example: 用户验收例子");
+        assertThat(english).anyMatch(text -> text.contains("用户要求 — 用户兑现说明"));
+        assertThat(checks).allSatisfy(text -> assertThat(resources.resolve(text.source(), text.arguments(), "en").missing()).isFalse());
+        assertThat(evidence.explanationSource()).isNull();
+        assertThat(content.rules()).containsExactly("用户规则 $1\\path");
+        verifyNoInteractions(database);
+    }
+
 }

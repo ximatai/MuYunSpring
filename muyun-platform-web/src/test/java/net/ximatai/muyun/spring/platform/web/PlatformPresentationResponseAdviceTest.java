@@ -211,4 +211,23 @@ class PlatformPresentationResponseAdviceTest {
         assertThat(check.getFailureMessage()).isNull();
     }
 
+    @Test void constructionSourcesCannotOverwriteMismatchedFactsOrBorrowCodeForConfiguration() {
+        var original = "模块运行态尚未激活";
+        var valid = net.ximatai.muyun.spring.platform.application.ApplicationConstructionText.code("progress.runtime-inactive", original);
+        var invalid = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionText(
+                new TextReference(TextReference.SourceKind.CODE, valid.source().sourceId(), "sha256-" + "0".repeat(64), original), Map.of());
+        var configured = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionText(
+                TextReference.configured(valid.source().sourceId(), original), Map.of());
+        for (var source : List.of(valid, invalid, configured)) {
+            String fact = source == valid ? "用户原始业务文本" : original;
+            var progress = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionDeliveryService.Progress(
+                    "order", "sample.order", "ACTIVE", true, true, "menu", false, false,
+                    List.of(fact), List.of(), List.of(), List.of(source));
+            var output = mapper.valueToTree(advice(Map.of(valid.source(), "Runtime inactive")).project(progress));
+            assertThat(output.at("/remainingWork/0").asText()).isEqualTo(fact);
+            assertThat(output.path("textBindings").isMissingNode()).isTrue();
+            assertThat(output.path("businessDataStatus").asText()).isEqualTo("NOT_QUERIED");
+        }
+    }
+
 }

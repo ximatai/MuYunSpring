@@ -1,4 +1,5 @@
 import {
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   emptyAssistantCapabilityInputSchema,
@@ -57,7 +58,8 @@ export function createConstructionReferenceDiscoveryCapabilities(
         const value = input as { applicationAlias?: unknown; search?: unknown; offset?: unknown } | null;
         if (!value || typeof value !== 'object' || Array.isArray(value))
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionReferenceDiscovery.invalid-catalog-query-parameters',
               '目录查询参数无效',
             ),
@@ -70,7 +72,8 @@ export function createConstructionReferenceDiscoveryCapabilities(
             !/^[a-z][a-z0-9_]*$/.test(applicationAlias))
         )
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionReferenceDiscovery.invalid-application-identifier',
               '应用标识无效',
             ),
@@ -84,7 +87,8 @@ export function createConstructionReferenceDiscoveryCapabilities(
           Number(offset) < 0
         )
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionReferenceDiscovery.invalid-catalog-query-parameters',
               '目录查询参数无效',
             ),
@@ -137,7 +141,8 @@ export function createConstructionReferenceDiscoveryCapabilities(
           !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
         )
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.invalid-reference-module-identifier',
               '引用模块标识无效',
             ),
@@ -145,7 +150,8 @@ export function createConstructionReferenceDiscoveryCapabilities(
         const { keyOffset = 0, labelOffset = 0 } = input as { keyOffset?: unknown; labelOffset?: unknown };
         if (![keyOffset, labelOffset].every((offset) => Number.isSafeInteger(offset) && Number(offset) >= 0))
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionFields.invalid-catalog-pagination-offset',
               '目录分页位置无效',
             ),

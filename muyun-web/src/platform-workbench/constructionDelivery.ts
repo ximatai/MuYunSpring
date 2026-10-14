@@ -1,9 +1,14 @@
 import {
+  constructionAcceptancePresentation,
+  constructionProgressPresentation,
+} from './constructionPresentation';
+import {
   constructionObjectKeySchema,
   requireConfirmedConstructionPlan,
   type ConstructionPlanState,
 } from './constructionPlanGuard';
 import {
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   createUuid,
@@ -35,14 +40,19 @@ export function createConstructionDeliveryCapabilities(
       Object.keys(input).some((key) => !allowed.includes(key))
     )
       throw new AssistantCapabilityUsageError(
-        language.t('platform.screen.constructionDelivery.invalid-construction-parameters', '建设参数无效'),
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionDelivery.invalid-construction-parameters',
+          '建设参数无效',
+        ),
       );
     return input as Record<string, unknown>;
   };
   const text = (value: unknown) => {
     if (typeof value !== 'string' || !value.trim() || value.length > 120)
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionDelivery.construction-parameters-are-empty-or-too-long',
           '建设参数为空或过长',
         ),
@@ -133,7 +143,7 @@ export function createConstructionDeliveryCapabilities(
                 'platform.screen.constructionDelivery.view-the-full-acceptance-checklist',
                 '查看完整验收清单',
               ),
-              lines: preview.checks,
+              lines: constructionAcceptancePresentation(preview, language).checks,
             },
           },
           async execute() {
@@ -163,7 +173,8 @@ export function createConstructionDeliveryCapabilities(
     propose() {
       if (!acceptance)
         throw new AssistantCapabilityUsageError(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionDelivery.review-the-acceptance-scope-first',
             '请先核对验收范围',
           ),
@@ -186,7 +197,8 @@ export function createConstructionDeliveryCapabilities(
         const plan = current().saved;
         if (!plan)
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.restore-a-confirmed-plan-first',
               '请先恢复已确认方案',
             ),
@@ -194,7 +206,10 @@ export function createConstructionDeliveryCapabilities(
         return client.progress(plan.planId, (input as { objectKey: string }).objectKey);
       },
       present: (value) => {
-        const progress = value as Awaited<ReturnType<ConstructionPlanClient['progress']>>;
+        const progress = constructionProgressPresentation(
+          value as Awaited<ReturnType<ConstructionPlanClient['progress']>>,
+          language,
+        );
         return {
           title:
             current().saved?.content.objects.find((item) => item.key === progress.objectKey)?.name ??

@@ -500,3 +500,39 @@ it('renders safe failures in the current owner language without retrying request
     wrapper.unmount();
   }
 });
+
+it('refreshes local CODE validation errors after language changes without repeating the failed edit', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { session, client } = fixture(language);
+  session.edit(content);
+  const edit = vi.spyOn(session, 'editManually');
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  try {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Edit business plan')!
+      .trigger('click');
+    const generation = session.current().generation;
+    await wrapper.get('input').setValue('');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Update candidate for later confirmation')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('Plan text is empty or exceeds the length limit');
+    expect(edit).toHaveBeenCalledOnce();
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('方案文本为空或超出长度限制');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('Plan text is empty or exceeds the length limit');
+    expect(edit).toHaveBeenCalledOnce();
+    expect(session.current().generation).toBe(generation);
+    expect(session.current().candidate).toEqual(content);
+    expect(client.confirm).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+    edit.mockRestore();
+  }
+});

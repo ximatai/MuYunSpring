@@ -1,6 +1,7 @@
 import type { ConstructionPlanSnapshot } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
 } from '@muyun/web-core';
@@ -20,7 +21,8 @@ export function requireConfirmedConstructionPlan(
   const { saved, generation, dirty, editing } = current();
   if (!saved || dirty || editing)
     throw new AssistantCapabilityUsageError(
-      language.t(
+      codeOperationErrorMessage(
+        language,
         'platform.screen.constructionPlanGuard.confirm-the-latest-requirements-plan-first',
         '请先确认最新需求方案',
       ),

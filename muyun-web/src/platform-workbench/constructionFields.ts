@@ -5,6 +5,7 @@ import {
 } from './constructionPlanGuard';
 import type { ConstructionFieldResult } from '@muyun/web-contracts';
 import {
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   pageAssistantCatalog,
@@ -23,14 +24,19 @@ export function createConstructionFieldCapabilities(
   function object(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value))
       throw new AssistantCapabilityUsageError(
-        language.t('platform.screen.constructionFields.invalid-field-parameters', '字段参数无效'),
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionFields.invalid-field-parameters',
+          '字段参数无效',
+        ),
       );
     return value as Record<string, unknown>;
   }
   function text(value: unknown, max: number): string {
     if (typeof value !== 'string' || !value.trim() || value.length > max)
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionFields.field-parameters-are-empty-or-too-long',
           '字段参数为空或过长',
         ),
@@ -103,7 +109,8 @@ export function createConstructionFieldCapabilities(
           )
         )
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionFields.invalid-catalog-pagination-offset',
               '目录分页位置无效',
             ),
@@ -174,7 +181,8 @@ export function createConstructionFieldCapabilities(
         const plan = current().saved;
         if (!plan)
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionFields.restore-the-requirements-plan-first',
               '请先恢复需求方案',
             ),

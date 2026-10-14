@@ -12,6 +12,8 @@ import type {
 } from '@muyun/web-contracts';
 import {
   createUuid,
+  codeOperationErrorMessage,
+  type OperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   AppError,
@@ -180,18 +182,25 @@ function planChangesSchema(schema: typeof constructionPlanContentSchema) {
 }
 const constructionPlanChangesSchema = planChangesSchema(constructionPlanContentSchema);
 function planParser(language: LanguageContext) {
-  function fail(message: string): never {
+  function fail(message: string | OperationErrorMessage): never {
     throw new AssistantCapabilityUsageError(message);
   }
   function record(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value))
-      fail(language.t('platform.screen.constructionPlanSession.invalid-plan-format', '方案格式无效'));
+      fail(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionPlanSession.invalid-plan-format',
+          '方案格式无效',
+        ),
+      );
     return value as Record<string, unknown>;
   }
   function text(value: unknown, max: number): string {
     if (typeof value !== 'string' || !value.trim() || value.length > max)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.plan-text-is-empty-or-exceeds-the-length-limit',
           '方案文本为空或超出长度限制',
         ),
@@ -206,13 +215,19 @@ function planParser(language: LanguageContext) {
   ): T[] {
     if (!Array.isArray(value))
       fail(
-        language.t('platform.screen.constructionPlanSession.value-must-be-an-array', '{value1} 必须是数组', {
-          value1: path,
-        }),
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionPlanSession.value-must-be-an-array',
+          '{value1} 必须是数组',
+          {
+            value1: path,
+          },
+        ),
       );
     if (value.length > max)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.value-has-value-items-the-limit-is-value-summarize-related',
           '{value1} 当前 {value2} 项，最多 {value3} 项。请归纳相关业务要求，不删除已确认需求；同一项可用多个 requirements 分别兑现。',
           { value1: path, value2: value.length, value3: max },
@@ -228,11 +243,12 @@ export function parseConstructionPlan(
 ): ConstructionPlanContent {
   const parser = planParser(language);
   const { record, text, list } = parser;
-  const fail: (message: string) => never = parser.fail;
+  const fail: (message: string | OperationErrorMessage) => never = parser.fail;
   const input = record(value);
   if (Object.keys(input).some((key) => !Object.hasOwn(constructionPlanContentSchema.properties, key)))
     fail(
-      language.t(
+      codeOperationErrorMessage(
+        language,
         'platform.screen.constructionPlanSession.the-plan-contains-unsupported-properties',
         '方案包含不支持的属性',
       ),
@@ -253,7 +269,8 @@ export function parseConstructionPlan(
         const key = text(object.key, 64);
         if (!/^[a-z][a-z0-9_-]*$/.test(key))
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.invalid-business-object-identifier',
               '业务对象标识格式无效',
             ),
@@ -266,7 +283,8 @@ export function parseConstructionPlan(
             (moduleAlias !== '' && !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(moduleAlias)))
         )
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.select-the-alias-of-an-actual-standard-module',
               '请选择实际标准模块的别名',
             ),
@@ -286,7 +304,11 @@ export function parseConstructionPlan(
         const decision = record(value);
         if (decision.source !== 'USER_REQUIREMENT' && decision.source !== 'RECOMMENDATION')
           fail(
-            language.t('platform.screen.constructionPlanSession.invalid-requirement-source', '需求来源无效'),
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.constructionPlanSession.invalid-requirement-source',
+              '需求来源无效',
+            ),
           );
         return { statement: text(decision.statement, 500), source: decision.source };
       },
@@ -296,7 +318,8 @@ export function parseConstructionPlan(
   if (input.requirements !== undefined) {
     if (!Array.isArray(input.requirements) || input.requirements.length > 64)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.at-most-64-requirement-mappings-are-allowed',
           '需求兑现项最多 64 项',
         ),
@@ -318,7 +341,8 @@ export function parseConstructionPlan(
         ].includes(String(item.mode))
       )
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.invalid-requirement-fulfillment-mode',
             '需求兑现方式无效',
           ),
@@ -337,7 +361,8 @@ export function parseConstructionPlan(
         section === 'SCOPE' ? content.inScope : section === 'RULE' ? content.rules : content.relationships;
       if (!Number.isInteger(item.index) || Number(item.index) < 0 || Number(item.index) >= source.length)
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.requirements-value-index-value-does-not-refer-to-a-requirement',
             'requirements[{value1}].index={value2} 未引用本版要求（{value3}）；{value4}。请修正该引用并保留完整方案，不得删除已确认要求或其他必填部分。',
             {
@@ -360,7 +385,8 @@ export function parseConstructionPlan(
       const objectKey = text(item.objectKey, 64);
       if (!content.objects.some((object) => object.key === objectKey))
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.the-mapped-business-object-does-not-exist',
             '兑现项业务对象不存在',
           ),
@@ -375,7 +401,8 @@ export function parseConstructionPlan(
             : Boolean(fieldName)
       )
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.requirements-value-fieldname-does-not-match-value-value',
             'requirements[{value1}].fieldName 与 {value2} 不匹配：{value3}。',
             {
@@ -401,7 +428,8 @@ export function parseConstructionPlan(
       const reference = item.reference == null ? null : record(item.reference);
       if ((mode === 'REFERENCE') !== Boolean(reference))
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.a-reference-requirement-must-declare-its-target',
             '引用兑现项必须声明目标',
           ),
@@ -412,7 +440,8 @@ export function parseConstructionPlan(
         const targetModule = typeof reference.moduleAlias === 'string' ? reference.moduleAlias.trim() : '';
         if (Boolean(targetObject) === Boolean(targetModule))
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.choose-either-a-plan-object-or-an-existing-module',
               '请选择方案对象或已有模块之一',
             ),
@@ -422,7 +451,8 @@ export function parseConstructionPlan(
           (!content.objects.some((object) => object.key === targetObject) || targetObject === objectKey)
         )
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.the-reference-target-must-be-another-object-in-this-plan',
               '引用目标必须是方案中的另一个对象',
             ),
@@ -432,7 +462,8 @@ export function parseConstructionPlan(
           (targetModule.length > 128 || !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(targetModule))
         )
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.invalid-reference-module-identifier',
               '引用模块标识无效',
             ),
@@ -441,7 +472,8 @@ export function parseConstructionPlan(
       }
       if (section === 'RELATION' && mode !== 'UNSUPPORTED' && mode !== 'REFERENCE' && mode !== 'CHILD')
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.a-regular-field-cannot-fulfill-an-object-relationship',
             '普通字段不能兑现对象关联',
           ),
@@ -449,7 +481,8 @@ export function parseConstructionPlan(
       const key = [section, item.index, objectKey, mode, fieldName].join(':');
       if (bindings.has(key))
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.requirement-mappings-must-be-unique',
             '需求兑现项不能重复',
           ),
@@ -468,13 +501,20 @@ export function parseConstructionPlan(
   }
   if (new Set(content.objects.map((object) => object.key)).size !== content.objects.length)
     fail(
-      language.t(
+      codeOperationErrorMessage(
+        language,
         'platform.screen.constructionPlanSession.business-object-identifiers-must-be-unique',
         '业务对象标识不能重复',
       ),
     );
   if (new TextEncoder().encode(JSON.stringify(content)).length > constructionPlanLimits.contentBytes)
-    fail(language.t('platform.screen.constructionPlanSession.plan-content-is-too-long', '方案内容过长'));
+    fail(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.constructionPlanSession.plan-content-is-too-long',
+        '方案内容过长',
+      ),
+    );
   return content;
 }
 export function presentConstructionPlan(
@@ -597,7 +637,7 @@ export function createConstructionPlanSession(
 ) {
   const parser = planParser(language);
   const { record, text } = parser;
-  const fail: (message: string) => never = parser.fail;
+  const fail: (message: string | OperationErrorMessage) => never = parser.fail;
   const parse = (value: unknown) => parseConstructionPlan(value, language);
   const state = shallowRef<{
     planId?: string;
@@ -638,14 +678,16 @@ export function createConstructionPlanSession(
   function requireDesignOpen() {
     if (current().saved?.constructionStatus === 'DELIVERED')
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.this-business-has-been-delivered-read-current-low-code-governance',
           '此业务已交付，请读取当前低代码治理配置进行改进；历史方案仅供参考',
         ),
       );
     if (state.value.planId && !state.value.candidate && linkedRecordPending)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.read-the-construction-record-linked-to-this-conversation-first-for',
           '请先读取此对话关联的建设记录；改进已有业务可直接读取当前治理配置',
         ),
@@ -666,7 +708,8 @@ export function createConstructionPlanSession(
     syncIdentity();
     if (unresolved)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.query-the-previous-confirmation-result-first',
           '上次确认结果尚未查明，请先查询结果',
         ),
@@ -682,7 +725,8 @@ export function createConstructionPlanSession(
     requireDesignOpen();
     if (unresolved)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.query-the-previous-confirmation-result-first',
           '上次确认结果尚未查明，请先查询结果',
         ),
@@ -723,14 +767,16 @@ export function createConstructionPlanSession(
     const before = current();
     if (!before.candidate)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.prepare-the-complete-requirements-plan-first',
           '请先整理完整需求方案',
         ),
       );
     if (before.reviewRequired)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.linked-content-needs-review-after-manual-edits-update-the-complete',
           '人工修改后的关联内容尚待核对，请更新完整方案',
         ),
@@ -741,7 +787,8 @@ export function createConstructionPlanSession(
       Object.keys(changes).some((key) => !Object.hasOwn(constructionPlanChangesSchema.properties, key))
     )
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.a-partial-revision-must-contain-valid-business-plan-sections',
           '局部修订须提供有效的业务方案部分',
         ),
@@ -756,7 +803,8 @@ export function createConstructionPlanSession(
             : 'relationships';
       if (before.candidate[key][requirement.index] !== content[key][requirement.index])
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.these-changes-affect-requirements-linked-to-existing-configuration-review-their',
             '修改涉及已有配置对应的要求，请同时核对兑现方式并更新完整方案',
           ),
@@ -768,7 +816,8 @@ export function createConstructionPlanSession(
     syncIdentity();
     if (unresolved)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.query-the-previous-confirmation-result-first',
           '上次确认结果尚未查明，请先查询结果',
         ),
@@ -788,7 +837,8 @@ export function createConstructionPlanSession(
     syncIdentity();
     if (scope !== owner)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-signed-in-identity-changed-read-again',
           '登录身份已变化，请重新读取',
         ),
@@ -801,14 +851,16 @@ export function createConstructionPlanSession(
     const scope = owner;
     if (before.planId && before.planId !== id)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.this-conversation-already-has-a-construction-goal-start-a-new',
           '当前对话已关联一个建设目标，讨论其他独立目标请新建对话',
         ),
       );
     if (dirty() || unresolved || manualEditing.value)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.confirm-the-current-candidate-or-have-the-user-discard-it',
           '请先确认当前候选，或由用户放弃候选后再恢复方案',
         ),
@@ -817,7 +869,8 @@ export function createConstructionPlanSession(
     syncIdentity();
     if (scope !== owner || state.value.generation !== before.generation)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-current-plan-changed-restore-it-again',
           '当前方案已变化，请重新恢复',
         ),
@@ -828,7 +881,8 @@ export function createConstructionPlanSession(
     syncIdentity();
     if (loaded.scope !== owner || loaded.generation !== state.value.generation)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-current-plan-changed-restore-it-again',
           '当前方案已变化，请重新恢复',
         ),
@@ -845,7 +899,8 @@ export function createConstructionPlanSession(
     const loaded = await load(id);
     if (!isCurrent())
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-restoration-entry-changed-select-the-plan-again',
           '恢复入口已变化，请重新选择方案',
         ),
@@ -857,7 +912,8 @@ export function createConstructionPlanSession(
     const scope = owner;
     if (!before.planId || !before.saved)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.restore-or-confirm-a-plan-first',
           '请先恢复或确认方案',
         ),
@@ -866,7 +922,8 @@ export function createConstructionPlanSession(
     current();
     if (owner !== scope || before.generation !== state.value.generation)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-current-plan-changed-read-its-history-again',
           '当前方案已变化，请重新读取历史',
         ),
@@ -904,42 +961,48 @@ export function createConstructionPlanSession(
     const scope = owner;
     if (manualEditing.value)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.finish-or-cancel-manual-editing-first',
           '请先完成或取消人工修改',
         ),
       );
     if (before.reviewRequired)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-goal-or-scope-changed-review-related-questions-assumptions-and',
           '目标或范围已修改，请先核对关联问题、假设和规则，再准备确认',
         ),
       );
     if (submitting)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.confirmation-is-being-submitted-wait-for-the-result',
           '正在提交确认，请等待结果',
         ),
       );
     if (unresolved)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.query-the-previous-confirmation-result-first',
           '上次确认结果尚未查明，请先查询结果',
         ),
       );
     if (!before.planId || !before.candidate || !dirty())
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.prepare-or-edit-the-requirements-plan-first',
           '请先整理或修改需求方案',
         ),
       );
     if (!before.candidate.inScope.length || !before.candidate.acceptanceExamples.length)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.define-the-current-scope-and-at-least-one-acceptance-example',
           '确认前须明确本期范围和至少一个验收例子',
         ),
@@ -1108,7 +1171,8 @@ export function createConstructionPlanSession(
         current();
         if (owner !== scope)
           fail(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionPlanSession.the-signed-in-identity-changed-read-again',
               '登录身份已变化，请重新读取',
             ),
@@ -1236,7 +1300,8 @@ export function createConstructionPlanSession(
     const scope = owner;
     if (!before.saved || dirty() || before.reviewRequired)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.confirm-the-latest-requirements-and-fulfillment-mappings-first',
           '请先确认最新需求及兑现方式',
         ),
@@ -1245,14 +1310,16 @@ export function createConstructionPlanSession(
     current();
     if (owner !== scope || state.value.generation !== before.generation)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.the-plan-changed-read-the-task-again',
           '方案已变化，请重新读取任务',
         ),
       );
     if (result.planRevision !== before.saved.revision)
       fail(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionPlanSession.requirements-were-updated-in-another-conversation-restore-the-latest-plan',
           '需求已在其他会话更新，请恢复最新方案后继续',
         ),
@@ -1403,14 +1470,16 @@ export function createConstructionPlanSession(
           const value = input as { generation: number; content: ConstructionPlanContent };
           if (manualEditing.value)
             fail(
-              language.t(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.constructionPlanSession.finish-or-cancel-manual-editing-first',
                 '请先完成或取消人工修改',
               ),
             );
           if (value.generation !== current().generation)
             fail(
-              language.t(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.constructionPlanSession.the-candidate-changed-read-construction-describe-again-first',
                 '候选已变化，请先重新读取 construction.describe',
               ),
@@ -1451,14 +1520,16 @@ export function createConstructionPlanSession(
           const value = input as { generation: number; changes: Record<string, unknown> };
           if (manualEditing.value)
             fail(
-              language.t(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.constructionPlanSession.finish-or-cancel-manual-editing-first',
                 '请先完成或取消人工修改',
               ),
             );
           if (value.generation !== current().generation)
             fail(
-              language.t(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.constructionPlanSession.the-candidate-changed-read-construction-describe-again-first',
                 '候选已变化，请先重新读取 construction.describe',
               ),
@@ -1503,7 +1574,8 @@ export function createConstructionPlanSession(
           const { planId } = input as { planId: string };
           if (current().planId !== planId && !savedPlans.value.some((plan) => plan.planId === planId))
             fail(
-              language.t(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.constructionPlanSession.query-saved-plans-first',
                 '请先查询已保存的方案',
               ),
@@ -1557,7 +1629,8 @@ export function createConstructionPlanSession(
       const before = current();
       if (!before.saved)
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.restore-a-confirmed-plan-first',
             '请先恢复已确认方案',
           ),
@@ -1566,7 +1639,8 @@ export function createConstructionPlanSession(
       const after = current();
       if (after.saved?.planId !== before.saved!.planId || after.generation !== before.generation)
         fail(
-          language.t(
+          codeOperationErrorMessage(
+            language,
             'platform.screen.constructionPlanSession.the-construction-context-changed-query-again',
             '建设上下文已变化，请重新查询',
           ),

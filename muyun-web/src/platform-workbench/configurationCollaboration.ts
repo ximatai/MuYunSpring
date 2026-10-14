@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import {
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   AssistantCapabilityUsageError,
@@ -20,7 +21,8 @@ export function createConfigurationCollaboration(language: LanguageContext = pla
   function parseMode(input: unknown, starting: boolean) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.configurationCollaboration.select-a-collaboration-mode-for-this-configuration-task',
           '请选择本次配置的协作方式',
         ),
@@ -32,7 +34,8 @@ export function createConfigurationCollaboration(language: LanguageContext = pla
       (starting && (typeof value.goal !== 'string' || !value.goal.trim() || value.goal.length > 200))
     )
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.configurationCollaboration.provide-a-configuration-goal-and-a-valid-collaboration-mode',
           '请提供配置目标和有效的协作方式',
         ),
@@ -174,7 +177,8 @@ export function createConfigurationCollaboration(language: LanguageContext = pla
               async execute() {
                 if (!isCurrent())
                   throw new AssistantCapabilityUsageError(
-                    language.t(
+                    codeOperationErrorMessage(
+                      language,
                       'platform.screen.configurationCollaboration.the-collaboration-mode-or-task-changed-confirm-again',
                       '协作方式或任务已变化，请重新确认',
                     ),

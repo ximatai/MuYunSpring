@@ -253,10 +253,10 @@ export class StaleAssistantInvocationError extends Error {
   }
 }
 
-import { DraftUpdateRejectedError, OperationUsageError } from './operationErrors';
+import { DraftUpdateRejectedError, OperationUsageError, type OperationErrorMessage } from './operationErrors';
 /** Preserves the public assistant error contract at the adapter boundary. */
 export class AssistantCapabilityUsageError extends OperationUsageError {
-  constructor(message: string, code?: OperationUsageError['code']) {
+  constructor(message: string | OperationErrorMessage, code?: OperationUsageError['code']) {
     super(message, code);
     this.name = 'AssistantCapabilityUsageError';
   }

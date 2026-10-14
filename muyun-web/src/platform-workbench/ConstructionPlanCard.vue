@@ -1,8 +1,15 @@
 <script setup lang="ts">
+import { constructionTaskPresentation, constructionProgressPresentation } from './constructionPresentation';
 import { computed, ref, shallowRef, watch } from 'vue';
 import type { ConstructionPlanSnapshot, ConstructionProgress, ConstructionTask } from '@muyun/web-contracts';
 import { UiButton } from '@muyun/vue-ui-antdv';
-import { AppError, userFacingErrorMessage } from '@muyun/web-core';
+import {
+  AppError,
+  userFacingErrorMessage,
+  OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
+} from '@muyun/web-core';
 import {
   constructionPlanBindings,
   presentConstructionPlan,
@@ -56,7 +63,13 @@ watch(
 );
 const state = computed(() => props.session.state.value);
 const delivered = computed(() => state.value.saved?.constructionStatus === 'DELIVERED');
-const currentTask = computed(() => props.session.currentTask());
+const currentTask = computed(() => {
+  const task = props.session.currentTask();
+  return task && constructionTaskPresentation(task, language);
+});
+const displayedProgress = computed(() =>
+  progress.value.map((item) => constructionProgressPresentation(item, language)),
+);
 const taskError = ref(false);
 async function refreshTask() {
   const generation = state.value.generation;
@@ -145,11 +158,13 @@ async function run(action: () => unknown) {
     await action();
   } catch (cause) {
     error.value = () =>
-      cause instanceof AppError
-        ? userFacingErrorMessage(cause, language)
-        : cause instanceof Error
-          ? cause.message
-          : language.t('platform.screen.ConstructionPlanCard.plan-operation-failed', '方案操作失败');
+      cause instanceof OperationUsageError
+        ? resolveOperationErrorMessage(cause, language)
+        : cause instanceof AppError
+          ? userFacingErrorMessage(cause, language)
+          : cause instanceof Error
+            ? cause.message
+            : language.t('platform.screen.ConstructionPlanCard.plan-operation-failed', '方案操作失败');
   } finally {
     working.value = false;
   }
@@ -375,7 +390,7 @@ async function run(action: () => unknown) {
       }}</UiButton
     >
     <section
-      v-for="item in progress"
+      v-for="item in displayedProgress"
       :key="item.objectKey"
       :aria-label="
         language.t('platform.screen.ConstructionPlanCard.actual-construction-progress', '实际建设进度')
@@ -439,7 +454,7 @@ async function run(action: () => unknown) {
       </p>
     </details>
     <section
-      v-for="object in session.currentTask()?.objects ?? []"
+      v-for="object in currentTask?.objects ?? []"
       :key="object.objectKey"
       :aria-label="language.t('platform.screen.ConstructionPlanCard.construction-task', '建设任务')"
     >
@@ -651,8 +666,9 @@ async function run(action: () => unknown) {
         run(async () => {
           const result = await session.recovery.value?.();
           if (!result)
-            throw new Error(
-              language.t(
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
                 'platform.screen.ConstructionPlanCard.the-confirmation-result-is-not-available-yet-query-again-later',
                 '尚未查到确认结果，请稍后再次查询',
               ),

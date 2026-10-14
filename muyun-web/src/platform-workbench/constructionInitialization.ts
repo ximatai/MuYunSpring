@@ -1,5 +1,6 @@
 import { constructionObjectKeySchema, type ConstructionPlanState } from './constructionPlanGuard';
 import {
+  codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   AssistantCapabilityUsageError,
@@ -16,7 +17,8 @@ export function createConstructionInitializationCapabilities(
   function objectInput(input: unknown) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionInitialization.invalid-initialization-parameters',
           '初始化参数无效',
         ),
@@ -27,7 +29,8 @@ export function createConstructionInitializationCapabilities(
     const value = input[key];
     if (typeof value !== 'string' || !value.trim() || value.length > max)
       throw new AssistantCapabilityUsageError(
-        language.t(
+        codeOperationErrorMessage(
+          language,
           'platform.screen.constructionInitialization.invalid-initialization-parameter-value',
           '初始化参数 {value1} 无效',
           { value1: key },
@@ -56,7 +59,8 @@ export function createConstructionInitializationCapabilities(
         const saved = current().saved;
         if (!saved)
           throw new AssistantCapabilityUsageError(
-            language.t(
+            codeOperationErrorMessage(
+              language,
               'platform.screen.constructionInitialization.confirm-or-restore-the-requirements-plan-first',
               '请先确认或恢复需求方案',
             ),
