@@ -42,6 +42,13 @@ export interface LanguageContext {
   setCatalog(catalog: LanguageCatalog): void;
   registerResources(tag: string, messages: Record<string, string>): void;
   resolve(key: string, defaultText?: string, args?: Record<string, unknown>): TextResolution;
+  /** Resolve registered resources without changing selection, including disabled fallback locales. */
+  resolveForLanguage(
+    tag: string,
+    key: string,
+    defaultText?: string,
+    args?: Record<string, unknown>,
+  ): TextResolution;
   t(key: string, defaultText?: string, args?: Record<string, unknown>): string;
 }
 
@@ -104,27 +111,30 @@ export function createLanguageContext(
   const catalog = computed(() => catalogState.value);
   const languageTag = computed(() => active.value);
   const language = computed(() => catalog.value.languages.find((entry) => entry.tag === active.value)!);
-  const resolve: LanguageContext['resolve'] = (key, defaultText, args) => {
+  const resolveForLanguage: LanguageContext['resolveForLanguage'] = (requested, key, defaultText, args) => {
+    const requestedTag = canonicalTag(requested);
     // Track resource publication as well as selection in Vue consumers of t().
     void revisionState.value;
-    for (const tag of fallbackTags(catalog.value, active.value)) {
+    for (const tag of fallbackTags(catalog.value, requestedTag)) {
       const messages = resources.get(tag);
       if (messages && Object.hasOwn(messages, key))
         return {
           text: interpolate(messages[key]!, args),
-          requestedTag: active.value,
+          requestedTag,
           resourceTag: tag,
           missing: false,
-          fallback: tag !== active.value,
+          fallback: tag !== requestedTag,
         };
     }
     return {
       text: interpolate(defaultText ?? key, args),
-      requestedTag: active.value,
+      requestedTag,
       missing: true,
       fallback: true,
     };
   };
+  const resolve: LanguageContext['resolve'] = (key, defaultText, args) =>
+    resolveForLanguage(active.value, key, defaultText, args);
   return {
     catalog,
     languageTag,
@@ -134,6 +144,7 @@ export function createLanguageContext(
     revision: computed(() => revisionState.value),
     selectionRevision: computed(() => selectionRevision.value),
     resolve,
+    resolveForLanguage,
     t: (...args) => resolve(...args).text,
     setLanguage(tag) {
       selectionRevision.value++;

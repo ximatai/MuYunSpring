@@ -1,5 +1,5 @@
 import {
-  createLanguageContext,
+  type LanguageContext,
   platformLanguageContext,
   platformCodeTextReference,
   type HttpClient,
@@ -35,15 +35,11 @@ export function createModuleOpenApiPageDescriptor(moduleAlias: string, moduleTit
 }
 
 /** Creates the authenticated OpenAPI directory as an ordinary workbench page. */
-export function createOpenApiCatalogPageDescriptor(): PageDescriptor {
+export function createOpenApiCatalogPageDescriptor(
+  language: LanguageContext = platformLanguageContext,
+): PageDescriptor {
   const key = 'platform.screen.OpenApiCatalogView.module-api-directory';
   const source = platformCodeTextReference(key)!;
-  // Resolve deployment resources independently; never switch the user's context to build a tab.
-  const catalog = platformLanguageContext.catalog.value;
-  const resourceCatalog = {
-    ...catalog,
-    languages: catalog.languages.map((item) => ({ ...item, enabled: true })),
-  };
   return {
     pageType: 'platform-route',
     openMode: 'workbench-route',
@@ -52,12 +48,9 @@ export function createOpenApiCatalogPageDescriptor(): PageDescriptor {
     titleText: {
       source,
       languages: Object.fromEntries(
-        catalog.languages.map((item) => [
+        language.catalog.value.languages.map((item) => [
           item.tag,
-          createLanguageContext({ catalog: resourceCatalog, languageTag: item.tag }).resolve(
-            key,
-            source.originalText,
-          ),
+          language.resolveForLanguage(item.tag, key, source.originalText),
         ]),
       ),
     },

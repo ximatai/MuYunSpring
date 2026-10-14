@@ -39,6 +39,8 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 根组件使用 `<UiLanguageProvider :context="language">`，内部通过 `useLanguageContext()` 获取上下文，或用 `language.t(key, defaultText, args)` 显示文字。消费者仍通过 `configureUserPreferencePersistence` 连接自己的认证 HTTP 工厂；`LanguageSelector` 的 `identityScope` 使用当前账户身份，未登录时保留设备偏好。账户切换和用户选择会使过期恢复结果失效；账户持久化失败不会转写设备存储。
 
+`language.resolveForLanguage(tag, key, defaultText, args)` 从所属应用已登记资源解析指定语种，包括停用的回退语种，用于交付多语种展示快照；它不修改用户选择或语言版本。
+
 框架前端语言资源在 `src/web-core/locales/languagePacks.json` 登记和交付。新增语言增加资源与登记；第三方控件资源通过 `registerUiLanguageLocales` 在应用装配时登记。平台公共键不提供租户覆盖，业务应用以自身命名空间贡献文案。该语言基础只调整展示文本和请求上下文，不修改业务数据、草稿及保存协议。
 
 通用组件的默认文案按消费者注入的语言上下文解析。命令式确认弹窗使用 `confirmAction(options, language)`；在 Vue 外创建的编辑会话与工作台保护入口也应显式传递所属应用的语言上下文，避免退回全局默认语言。调用方提供的动作标题、确认内容和业务名称仍由调用方负责其来源与翻译。需要在已打开弹窗内跟随语言更新的标题、内容、按钮和明细可通过 `options.presentation` 返回展示投影；必输确认文本、危险操作标记和执行回调仍由原始选项冻结。草稿保护注册允许以回调提供来源名称，工作台读取当前展示名称，不重新登记或解除草稿与忙碌保护。

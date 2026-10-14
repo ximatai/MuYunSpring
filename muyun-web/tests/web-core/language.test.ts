@@ -186,3 +186,29 @@ it('keeps three concurrent consumer request scopes independent through completio
   pending[3].complete(undefined);
   await next;
 });
+
+it('resolves disabled resources without changing selection or its revisions', () => {
+  const context = createLanguageContext({ languageTag: 'en' });
+  const key = 'test.disabled-label';
+  context.registerResources('fr', { [key]: 'Valeur {name}' });
+  const revision = context.revision.value;
+  const selectionRevision = context.selectionRevision.value;
+  expect(context.resolveForLanguage('fr', key, 'unused', { name: 'Ada' })).toMatchObject({
+    text: 'Valeur Ada',
+    requestedTag: 'fr',
+    resourceTag: 'fr',
+    fallback: false,
+    missing: false,
+  });
+  expect(
+    context.resolveForLanguage('fr', 'platform.screen.WorkflowAdministrationView.reset-approval'),
+  ).toMatchObject({
+    text: 'Reset business approval',
+    resourceTag: 'en',
+    fallback: true,
+  });
+  expect(() => context.resolveForLanguage('de', key)).toThrow('Unregistered fallback language');
+  expect(context.languageTag.value).toBe('en');
+  expect(context.revision.value).toBe(revision);
+  expect(context.selectionRevision.value).toBe(selectionRevision);
+});

@@ -105,3 +105,30 @@ it('keeps the API directory tab original and identity while delivering all regis
   assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), '开放模块 API');
   assert.equal(descriptor.target, target);
 });
+
+it('uses owning application resources for an extended locale without changing selection', async () => {
+  const { createLanguageContext, presentationLabel } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.setCatalog({
+    ...language.catalog.value,
+    languages: [
+      ...language.catalog.value.languages,
+      { tag: 'de', nativeName: 'Deutsch', direction: 'ltr', fallbackTag: 'en' },
+    ],
+  });
+  const key = 'platform.screen.OpenApiCatalogView.module-api-directory';
+  language.registerResources('de', { [key]: 'Modul-API-Verzeichnis' });
+  const revision = language.revision.value;
+  const selectionRevision = language.selectionRevision.value;
+  const descriptor = createOpenApiCatalogPageDescriptor(language);
+  assert.equal(language.languageTag.value, 'en');
+  assert.equal(language.revision.value, revision);
+  assert.equal(language.selectionRevision.value, selectionRevision);
+  const target = descriptor.target;
+  language.setLanguage('de');
+  assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), language.t(key));
+  assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), 'Modul-API-Verzeichnis');
+  language.setLanguage('en');
+  assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), 'Module API directory');
+  assert.equal(descriptor.target, target);
+});
