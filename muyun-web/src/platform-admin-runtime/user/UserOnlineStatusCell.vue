@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onMounted, watch } from 'vue';
 import type { QueryListRecord, RecordQueryListColumn } from '@muyun/platform-components';
 import { useUserOnlineStatusStore } from './userOnlineStatusStore';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UserOnlineStatusCell' });
 
@@ -16,10 +19,20 @@ const title = computed(() => {
     const presentCount = value.presentSessionCount ?? 0;
     const idleCount = value.idleSessionCount ?? 0;
     return idleCount >= presentCount
-      ? `闲置 (${presentCount}/${value.activeSessionCount})`
-      : `使用中 (${Math.max(0, presentCount - idleCount)}/${value.activeSessionCount})`;
+      ? language.t('platform.screen.UserOnlineStatusCell.idle-value-value', '闲置 ({value1}/{value2})', {
+          value1: presentCount,
+          value2: value.activeSessionCount,
+        })
+      : language.t('platform.screen.UserOnlineStatusCell.active-value-value', '使用中 ({value1}/{value2})', {
+          value1: Math.max(0, presentCount - idleCount),
+          value2: value.activeSessionCount,
+        });
   }
-  return value.online ? `在线 (${value.activeSessionCount})` : '离线';
+  return value.online
+    ? language.t('platform.screen.UserOnlineStatusCell.online-value', '在线 ({value1})', {
+        value1: value.activeSessionCount,
+      })
+    : language.t('platform.sessions.presence.offline', '离线');
 });
 
 function observe() {

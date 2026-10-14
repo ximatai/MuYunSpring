@@ -1,3 +1,4 @@
+import { createLanguageContext, AppError } from '@muyun/web-core';
 import { assert, it } from 'vitest';
 import { useUserSessionRows } from '@/platform-admin-runtime/user/useUserSessionRows.ts';
 import type { QueryListRecord } from '@/platform-components/index.ts';
@@ -50,3 +51,38 @@ async function waitFor(predicate: () => boolean) {
   }
   assert.equal(predicate(), true);
 }
+
+it('projects retained session-load errors safely in the owner language without repeating reads', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  let reads = 0;
+  const rows = useUserSessionRows({
+    language,
+    source: 'test-user-expansion',
+    context: {
+      can: () => true,
+      recordActions: async () => ({}),
+      http: {
+        request: async () => {
+          reads++;
+          throw new AppError('private diagnostics', { code: 'INTERNAL_ERROR', status: 500 });
+        },
+      },
+    } as unknown as ModuleContext<QueryListRecord>,
+  });
+  rows.handleUserRowExpand({ id: 'user-owner' }, true);
+  await waitFor(() => Boolean(rows.userSessionState('user-owner').error));
+  assert.equal(
+    rows.userSessionState('user-owner').error,
+    'A system error prevented the operation from completing',
+  );
+  language.setLanguage('zh-CN');
+  assert.equal(rows.userSessionState('user-owner').error, '系统异常，操作未完成');
+  language.setLanguage('en');
+  assert.equal(
+    rows.userSessionState('user-owner').error,
+    'A system error prevented the operation from completing',
+  );
+  assert.equal(reads, 1);
+  assert.deepEqual(rows.userSessionState('user-owner').records, []);
+  rows.reset();
+});

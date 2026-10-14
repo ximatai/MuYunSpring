@@ -1,4 +1,6 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import PasswordPolicyPreview from '@/views/PasswordPolicyPreview.vue';
 import type { ModulePageCardAssistantContext } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
@@ -195,3 +197,45 @@ function cardContext(
     loadFailed: false,
   };
 }
+
+it('projects password trial feedback without re-evaluating rules or reloading on language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn().mockResolvedValue([
+    { id: 'rule-a', title: '未命名规则', message: '未配置失败提示', pattern: 'A', scopeType: 'global' },
+    { id: 'rule-b', pattern: '', scopeType: 'global' },
+  ]);
+  const context = { ...cardContext(request, {}), mode: 'view' as const };
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(PasswordPolicyPreview, { context });
+      },
+    }),
+    { global: { stubs: { PasswordPolicyPreview: false } } },
+  );
+  await flushPromises();
+  const preview = wrapper.findComponent(PasswordPolicyPreview);
+  const test = vi.spyOn(RegExp.prototype, 'test');
+  await preview.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'secret');
+  const trialCount = () =>
+    test.mock.instances.filter((regex) => regex instanceof RegExp && regex.source === '^(?:A)$').length;
+  expect(trialCount()).toBe(1);
+  expect(preview.text()).toContain('Unnamed rule');
+  expect(preview.text()).toContain('The regular expression must not be empty');
+  // A business value equal to a platform fallback remains original.
+  expect(preview.text()).toContain('未配置失败提示');
+  expect(preview.text()).toContain('2 rules failed');
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(preview.text()).toContain('正则表达式不能为空');
+  language.setLanguage('en');
+  await flushPromises();
+  expect(preview.text()).toContain('The regular expression must not be empty');
+  expect(preview.findComponent({ name: 'UiInput' }).props('value')).toBe('secret');
+  expect(preview.findComponent({ name: 'UiRadioGroup' }).props('value')).toBe('ALL');
+  expect(trialCount()).toBe(1);
+  expect(request).toHaveBeenCalledTimes(1);
+  test.mockRestore();
+  wrapper.unmount();
+});

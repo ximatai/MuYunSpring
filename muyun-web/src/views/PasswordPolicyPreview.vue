@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext, platformCodeTextReference } from '@muyun/web-core';
+import type { TextReference } from '@muyun/web-contracts';
 import { computed, ref, watch } from 'vue';
 import type { ModulePageCardAssistantContext } from '@muyun/dynamic-page-runtime';
 import { UiInput, UiRadioGroup, type UiRadioOption } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PasswordPolicyPreview' });
 
@@ -22,7 +26,9 @@ interface PasswordPolicyPreviewRuleResult {
   title: string;
   message: string;
   passed: boolean;
-  diagnostic?: string;
+  titleSource?: TextReference;
+  messageSource?: TextReference;
+  diagnostic?: TextReference;
 }
 
 const props = defineProps<{ context: ModulePageCardAssistantContext }>();
@@ -38,8 +44,12 @@ const hasCurrentRule = computed(
   () => props.context.mode !== 'view' || normalizedId(currentRule.value?.id) !== undefined,
 );
 const scopeOptions = computed<readonly UiRadioOption[]>(() => [
-  { value: 'CURRENT', label: '本规则', disabled: !hasCurrentRule.value },
-  { value: 'ALL', label: '全规则' },
+  {
+    value: 'CURRENT',
+    label: language.t('platform.screen.PasswordPolicyPreview.current-rule', '本规则'),
+    disabled: !hasCurrentRule.value,
+  },
+  { value: 'ALL', label: language.t('platform.screen.PasswordPolicyPreview.all-rules', '全规则') },
 ]);
 
 // A current-rule preview has no meaning while the detail card has no selected
@@ -111,16 +121,54 @@ const results = computed<PasswordPolicyPreviewRuleResult[]>(() => {
   return previewRules.value.map((rule, index) => evaluateRule(rule, password.value, index));
 });
 
+// Validation depends only on raw rules and the password; language projects retained results.
+const displayedResults = computed(() =>
+  results.value.map((item) => ({
+    ...item,
+    title: item.titleSource ? language.t(item.titleSource.sourceId, item.title) : item.title,
+    message: item.messageSource ? language.t(item.messageSource.sourceId, item.message) : item.message,
+    diagnostic: item.diagnostic
+      ? language.t(item.diagnostic.sourceId, item.diagnostic.originalText)
+      : undefined,
+  })),
+);
+
 const summary = computed(() => {
-  if (!hasCurrentRule.value && scope.value === 'CURRENT') return '请选择或新建一条规则';
-  if (scope.value === 'ALL' && allRulesLoading.value) return '正在加载权威规则集';
-  if (scope.value === 'ALL' && allRulesLoadFailed.value) return '无法加载权威规则集';
-  if (!password.value) return '输入测试密码后即时反馈';
-  if (results.value.length === 0) return '当前没有参与试算的启用规则';
+  if (!hasCurrentRule.value && scope.value === 'CURRENT')
+    return language.t(
+      'platform.screen.PasswordPolicyPreview.select-or-create-a-rule',
+      '请选择或新建一条规则',
+    );
+  if (scope.value === 'ALL' && allRulesLoading.value)
+    return language.t(
+      'platform.screen.PasswordPolicyPreview.loading-the-authoritative-rules',
+      '正在加载权威规则集',
+    );
+  if (scope.value === 'ALL' && allRulesLoadFailed.value)
+    return language.t(
+      'platform.screen.PasswordPolicyPreview.unable-to-load-the-authoritative-rules',
+      '无法加载权威规则集',
+    );
+  if (!password.value)
+    return language.t(
+      'platform.screen.PasswordPolicyPreview.enter-a-test-password-for-immediate-feedback',
+      '输入测试密码后即时反馈',
+    );
+  if (results.value.length === 0)
+    return language.t(
+      'platform.screen.PasswordPolicyPreview.no-enabled-rules-participate-in-this-preview',
+      '当前没有参与试算的启用规则',
+    );
   const failed = results.value.filter((item) => !item.passed).length;
   return failed === 0
-    ? `全部通过（${results.value.length}/${results.value.length}）`
-    : `${failed} 条规则未通过`;
+    ? language.t(
+        'platform.screen.PasswordPolicyPreview.all-passed-value-value',
+        '全部通过（{value1}/{value2}）',
+        { value1: results.value.length, value2: results.value.length },
+      )
+    : language.t('platform.screen.PasswordPolicyPreview.value-rules-failed', '{value1} 条规则未通过', {
+        value1: failed,
+      });
 });
 
 function asRule(
@@ -135,23 +183,43 @@ function evaluateRule(
   value: string,
   index: number,
 ): PasswordPolicyPreviewRuleResult {
-  const title = normalizedText(rule.title, '未命名规则');
-  const message = normalizedText(rule.message, '未配置失败提示');
+  const titleSource = rule.title?.trim()
+    ? undefined
+    : platformCodeTextReference('platform.screen.PasswordPolicyPreview.unnamed-rule');
+  const messageSource = rule.message?.trim()
+    ? undefined
+    : platformCodeTextReference('platform.screen.PasswordPolicyPreview.no-failure-message-configured');
+  const title = normalizedText(rule.title, titleSource?.originalText ?? '');
+  const message = normalizedText(rule.message, messageSource?.originalText ?? '');
   const pattern = rule.pattern;
   if (!pattern?.trim()) {
-    return { key: ruleKey(rule, index), title, message, passed: false, diagnostic: '正则表达式不能为空' };
+    return {
+      key: ruleKey(rule, index),
+      title,
+      message,
+      titleSource,
+      messageSource,
+      passed: false,
+      diagnostic: platformCodeTextReference(
+        'platform.screen.PasswordPolicyPreview.regular-expression-required',
+      ),
+    };
   }
   try {
     // Java validates with Matcher.matches(); wrapping keeps browser feedback full-string based too.
     const passed = new RegExp(`^(?:${pattern})$`).test(value);
-    return { key: ruleKey(rule, index), title, message, passed };
+    return { key: ruleKey(rule, index), title, message, titleSource, messageSource, passed };
   } catch {
     return {
       key: ruleKey(rule, index),
       title,
       message,
+      titleSource,
+      messageSource,
       passed: false,
-      diagnostic: '当前浏览器不支持该正则语法；保存时仍由服务端 Java 正则校验',
+      diagnostic: platformCodeTextReference(
+        'platform.screen.PasswordPolicyPreview.browser-regex-unsupported',
+      ),
     };
   }
 }
@@ -183,7 +251,7 @@ function participatesInAllRules(rule: PasswordPolicyRuleSnapshot) {
 <template>
   <section class="password-policy-preview">
     <header>
-      <h3>密码试算</h3>
+      <h3>{{ language.t('platform.screen.PasswordPolicyPreview.password-preview', '密码试算') }}</h3>
       <span :class="{ failed: results.some((item) => !item.passed) }">{{ summary }}</span>
     </header>
 
@@ -199,14 +267,21 @@ function participatesInAllRules(rule: PasswordPolicyRuleSnapshot) {
       v-model:value="password"
       type="text"
       autocomplete="off"
-      placeholder="输入测试密码"
-      aria-label="测试密码"
+      :placeholder="language.t('platform.screen.PasswordPolicyPreview.enter-a-test-password', '输入测试密码')"
+      :aria-label="language.t('platform.screen.PasswordPolicyPreview.test-password', '测试密码')"
     />
 
     <ul v-if="results.length" class="preview-results">
-      <li v-for="item in results" :key="item.key" :class="{ passed: item.passed, failed: !item.passed }">
+      <li
+        v-for="item in displayedResults"
+        :key="item.key"
+        :class="{ passed: item.passed, failed: !item.passed }"
+      >
         <strong>{{ item.title }}</strong>
-        <span>{{ item.diagnostic ?? (item.passed ? '通过' : item.message) }}</span>
+        <span>{{
+          item.diagnostic ??
+          (item.passed ? language.t('platform.workflow-record.check-passed', '通过') : item.message)
+        }}</span>
       </li>
     </ul>
   </section>

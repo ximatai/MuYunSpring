@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onMounted, ref, watch } from 'vue';
 import { UiDataTable } from '@muyun/vue-ui-antdv';
 import type { UiDataTableColumn, UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import type { Application, TenantApplication, WebPageResponse } from '@muyun/web-contracts';
 import { presentPlatformError } from '@muyun/platform-components';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'TenantApplicationConfigurationDrawer' });
 
@@ -14,10 +17,18 @@ const enabledAliases = ref(new Set<string>());
 const loading = ref(false);
 const saving = ref(false);
 
-const columns: UiDataTableColumn[] = [
-  { key: 'title', title: '应用名称', width: 260 },
-  { key: 'alias', title: '应用 alias', width: 220 },
-];
+const columns = computed<UiDataTableColumn[]>(() => [
+  {
+    key: 'title',
+    title: language.t('platform.screen.TenantApplicationConfigurationDrawer.application-name', '应用名称'),
+    width: 260,
+  },
+  {
+    key: 'alias',
+    title: language.t('platform.screen.TenantApplicationConfigurationDrawer.application-alias', '应用 alias'),
+    width: 220,
+  },
+]);
 const rows = computed(() => applications.value as unknown as UiDataTableRecord[]);
 const selection = computed(() => ({
   selectedRowKeys: [...enabledAliases.value],
@@ -33,7 +44,7 @@ function syncTitleActions() {
   props.context.setTitleActions([
     {
       key: 'cancel',
-      label: '取消',
+      label: language.t('platform.action.cancel', '取消'),
       disabled: saving.value,
       run: () => {
         if (!saving.value) props.context.close();
@@ -41,7 +52,7 @@ function syncTitleActions() {
     },
     {
       key: 'confirm',
-      label: '确认',
+      label: language.t('platform.screen.UiModal.confirmText', '确认'),
       emphasis: 'primary',
       disabled: saving.value,
       loading: saving.value,
@@ -55,7 +66,7 @@ onMounted(() => {
   void load();
 });
 
-watch(saving, syncTitleActions);
+watch([saving, language.revision], syncTitleActions);
 
 async function load() {
   const tenantId = String(props.context.record?.id ?? '');
@@ -83,7 +94,7 @@ async function load() {
         .filter((alias): alias is string => typeof alias === 'string' && available.has(alias)),
     ]);
   } catch (error) {
-    presentPlatformError(error, { source: 'tenant-application-configuration', phase: 'load' });
+    presentPlatformError(error, { language, source: 'tenant-application-configuration', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -103,7 +114,7 @@ async function save() {
     props.context.refreshList();
     props.context.close();
   } catch (error) {
-    presentPlatformError(error, { source: 'tenant-application-configuration', phase: 'action' });
+    presentPlatformError(error, { language, source: 'tenant-application-configuration', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -116,7 +127,14 @@ function tenantApplicationsPath(tenantId: string, suffix: 'query' | 'configure')
 
 <template>
   <section class="tenant-application-configuration">
-    <p>勾选表示向当前租户开通应用；取消勾选将移除该租户的应用开通记录。</p>
+    <p>
+      {{
+        language.t(
+          'platform.screen.TenantApplicationConfigurationDrawer.select-applications-to-provision-for-this-tenant-deselecting-an-application',
+          '勾选表示向当前租户开通应用；取消勾选将移除该租户的应用开通记录。',
+        )
+      }}
+    </p>
     <UiDataTable
       :columns="columns"
       :rows="rows"
@@ -124,7 +142,12 @@ function tenantApplicationsPath(tenantId: string, suffix: 'query' | 'configure')
       :pagination="false"
       :selection="selection"
       :row-key="(record) => String(record.alias ?? record.id ?? '')"
-      empty-description="暂无可配置应用"
+      :empty-description="
+        language.t(
+          'platform.screen.TenantApplicationConfigurationDrawer.no-applications-available-for-configuration',
+          '暂无可配置应用',
+        )
+      "
     />
   </section>
 </template>

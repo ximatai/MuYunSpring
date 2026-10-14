@@ -693,7 +693,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(employeeEmploymentTableSource, /:expanded-row-keys="expandedEmployeeKeys"/);
   assert.match(employeeEmploymentTableSource, /@row-dblclick="toggleEmployeeExpanded"/);
   assert.match(employeeEmploymentTableSource, /function toggleEmployeeExpanded/);
-  assert.match(employeeEmploymentTableSource, /<RecordExpandedSubtable title="任职信息">/);
+  assert.match(
+    employeeEmploymentTableSource,
+    /<RecordExpandedSubtable\s+:title="language\.t\('platform\.screen\.CurrentUserProfileDialog\.employment-details', '任职信息'\)"/,
+  );
   assert.match(
     employeeEmploymentTableSource,
     /:selection="selectionOf\(record as unknown as EmployeeEmploymentGroup\)"/,

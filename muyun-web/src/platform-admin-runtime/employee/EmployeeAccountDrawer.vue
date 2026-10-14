@@ -45,7 +45,7 @@ async function load() {
       path: `/iam.employee/${encodeURIComponent(employeeId)}/account`,
     });
   } catch (error) {
-    presentPlatformError(error, { source: 'employee-account', phase: 'load' });
+    presentPlatformError(error, { language, source: 'employee-account', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -56,7 +56,13 @@ async function provision() {
   if (!employeeId || saving.value) return;
   const normalizedUsername = username.value.trim();
   if (!normalizedUsername || !password.value) {
-    presentPlatformMessage('请输入账号和初始密码。', { source: 'employee-account', phase: 'validation' });
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.EmployeeAccountDrawer.enter-an-account-and-initial-password',
+        '请输入账号和初始密码。',
+      ),
+      { language, source: 'employee-account', phase: 'validation' },
+    );
     return;
   }
   saving.value = true;
@@ -72,7 +78,7 @@ async function provision() {
     password.value = '';
     props.context.refreshList();
   } catch (error) {
-    presentPlatformError(error, { source: 'employee-account', phase: 'action' });
+    presentPlatformError(error, { language, source: 'employee-account', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -96,9 +102,15 @@ async function bindExistingAccount(userId: string) {
     });
     selectedExistingUserId.value = undefined;
     props.context.refreshList();
-    presentPlatformMessage('账号已绑定到当前职员。', { source: 'employee-account', phase: 'action' });
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.EmployeeAccountDrawer.the-account-is-bound-to-this-employee',
+        '账号已绑定到当前职员。',
+      ),
+      { language, source: 'employee-account', phase: 'action' },
+    );
   } catch (error) {
-    presentPlatformError(error, { source: 'employee-account', phase: 'action' });
+    presentPlatformError(error, { language, source: 'employee-account', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -147,9 +159,12 @@ async function remove() {
   if (!employeeId || !account.value || saving.value) return;
   const confirmed = await confirmAction(
     {
-      title: '移除账户',
-      content: '确认移除该职员的账户？该用户账号会同步删除。',
-      okText: '移除',
+      title: language.t('platform.screen.EmployeeAccountDrawer.remove-account', '移除账户'),
+      content: language.t(
+        'platform.screen.EmployeeAccountDrawer.remove-this-employee-s-account-the-user-account-will-also',
+        '确认移除该职员的账户？该用户账号会同步删除。',
+      ),
+      okText: language.t('platform.screen.RecordPermissionDialog.remove', '移除'),
       danger: true,
     },
     language,
@@ -164,7 +179,7 @@ async function remove() {
     account.value = undefined;
     props.context.refreshList();
   } catch (error) {
-    presentPlatformError(error, { source: 'employee-account', phase: 'action' });
+    presentPlatformError(error, { language, source: 'employee-account', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -177,21 +192,55 @@ function employeeIdOf() {
 </script>
 
 <template>
-  <UiSpin v-if="loading" tip="加载账号绑定" />
+  <UiSpin
+    v-if="loading"
+    :tip="language.t('platform.screen.EmployeeAccountDrawer.loading-account-binding', '加载账号绑定')"
+  />
   <section v-else class="employee-account-drawer">
-    <UiError v-if="!employeeIdOf()" title="职员不存在" message="请重新打开职员档案后再设置账号。" />
+    <UiError
+      v-if="!employeeIdOf()"
+      :title="language.t('platform.screen.EmployeeAccountDrawer.employee-not-found', '职员不存在')"
+      :message="
+        language.t(
+          'platform.screen.EmployeeAccountDrawer.reopen-the-employee-record-to-set-up-an-account',
+          '请重新打开职员档案后再设置账号。',
+        )
+      "
+    />
     <template v-else-if="account">
-      <p>当前已绑定用户：{{ account.userId ?? '-' }}</p>
-      <UiButton danger icon-name="delete" :loading="saving" @click="remove">移除账户</UiButton>
+      <p>
+        {{ language.t('platform.screen.EmployeeAccountDrawer.currently-bound-user', '当前已绑定用户：')
+        }}{{ account.userId ?? '-' }}
+      </p>
+      <UiButton danger icon-name="delete" :loading="saving" @click="remove">{{
+        language.t('platform.screen.EmployeeAccountDrawer.remove-account', '移除账户')
+      }}</UiButton>
     </template>
     <template v-else>
       <section class="employee-account-existing-picker">
-        <p>绑定已有用户账号；仅显示当前租户内启用且尚未绑定其他职员的账号。</p>
+        <p>
+          {{
+            language.t(
+              'platform.screen.EmployeeAccountDrawer.bind-an-existing-user-account-only-enabled-accounts-in-this',
+              '绑定已有用户账号；仅显示当前租户内启用且尚未绑定其他职员的账号。',
+            )
+          }}
+        </p>
         <UserPicker
           :value="selectedExistingUserId"
           :disabled="saving"
-          placeholder="搜索并选择已有登录账号"
-          title="选择已有登录账号"
+          :placeholder="
+            language.t(
+              'platform.screen.EmployeeAccountDrawer.search-and-select-an-existing-login-account',
+              '搜索并选择已有登录账号',
+            )
+          "
+          :title="
+            language.t(
+              'platform.screen.EmployeeAccountDrawer.select-an-existing-login-account',
+              '选择已有登录账号',
+            )
+          "
           :search-page="searchExistingUsers"
           :resolve-users="resolveExistingUsers"
           @update:value="selectedExistingUserId = typeof $event === 'string' ? $event : undefined"
@@ -199,17 +248,37 @@ function employeeIdOf() {
         />
       </section>
       <form @submit.prevent="provision">
-        <p>也可直接创建登录账号并自动绑定到当前职员。</p>
+        <p>
+          {{
+            language.t(
+              'platform.screen.EmployeeAccountDrawer.you-can-also-create-a-login-account-and-bind-it',
+              '也可直接创建登录账号并自动绑定到当前职员。',
+            )
+          }}
+        </p>
         <label>
-          <span>账号</span>
-          <UiInput v-model:value="username" :disabled="saving" placeholder="请输入登录账号" />
+          <span>{{ language.t('platform.screen.EmployeeAccountDrawer.account', '账号') }}</span>
+          <UiInput
+            v-model:value="username"
+            :disabled="saving"
+            :placeholder="
+              language.t('platform.screen.EmployeeAccountDrawer.enter-a-login-account', '请输入登录账号')
+            "
+          />
         </label>
         <label>
-          <span>初始密码</span>
-          <UiInput v-model:value="password" type="password" :disabled="saving" placeholder="请输入初始密码" />
+          <span>{{ language.t('platform.screen.EmployeeAccountDrawer.initial-password', '初始密码') }}</span>
+          <UiInput
+            v-model:value="password"
+            type="password"
+            :disabled="saving"
+            :placeholder="
+              language.t('platform.screen.EmployeeAccountDrawer.enter-an-initial-password', '请输入初始密码')
+            "
+          />
         </label>
         <UiButton type="primary" html-type="submit" icon-name="plus" :loading="saving">
-          创建账号并绑定
+          {{ language.t('platform.screen.EmployeeAccountDrawer.create-and-bind-account', '创建账号并绑定') }}
         </UiButton>
       </form>
     </template>

@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import { presentPlatformError, presentPlatformMessage } from '@muyun/platform-components';
 import { UiButton, UiError, UiInput } from '@muyun/vue-ui-antdv';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import type { ResetPasswordResponse } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UserPasswordDrawer' });
 
@@ -19,7 +22,10 @@ async function changePassword() {
   const id = userId.value;
   if (!id || saving.value || props.context.module.can('changePassword', id) !== true) return;
   if (!password.value) {
-    presentPlatformMessage('请输入新密码。', { source: 'iam-user-password', phase: 'validation' });
+    presentPlatformMessage(
+      language.t('platform.screen.UserPasswordDrawer.enter-a-new-password', '请输入新密码。'),
+      { language, source: 'iam-user-password', phase: 'validation' },
+    );
     return;
   }
   saving.value = true;
@@ -31,11 +37,14 @@ async function changePassword() {
       body: { password: password.value },
     });
     password.value = '';
-    presentPlatformMessage('密码已修改。', { source: 'iam-user-password', phase: 'action' });
+    presentPlatformMessage(
+      language.t('platform.screen.UserPasswordDrawer.password-changed', '密码已修改。'),
+      { language, source: 'iam-user-password', phase: 'action' },
+    );
     props.context.refreshList();
     props.context.refreshDetailExtensions();
   } catch (cause) {
-    presentPlatformError(cause, { source: 'iam-user-password', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'iam-user-password', phase: 'action' });
   } finally {
     props.context.setCloseBlocked(false);
     saving.value = false;
@@ -55,7 +64,7 @@ async function resetPassword() {
     props.context.refreshList();
     props.context.refreshDetailExtensions();
   } catch (cause) {
-    presentPlatformError(cause, { source: 'iam-user-password', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'iam-user-password', phase: 'action' });
   } finally {
     props.context.setCloseBlocked(false);
     saving.value = false;
@@ -64,23 +73,48 @@ async function resetPassword() {
 </script>
 
 <template>
-  <UiError v-if="!userId" title="用户不存在" message="请重新打开用户详情后再管理密码。" />
+  <UiError
+    v-if="!userId"
+    :title="language.t('platform.screen.UserPasswordDrawer.user-not-found', '用户不存在')"
+    :message="
+      language.t(
+        'platform.screen.UserPasswordDrawer.reopen-the-user-details-to-manage-the-password',
+        '请重新打开用户详情后再管理密码。',
+      )
+    "
+  />
   <section v-else class="user-password-drawer">
     <label v-if="context.module.can('changePassword', userId) === true">
-      <span>新密码</span>
-      <UiInput v-model:value="password" type="password" :disabled="saving" placeholder="请输入新密码" />
-      <UiButton type="primary" :loading="saving" @click="changePassword">修改密码</UiButton>
+      <span>{{ language.t('platform.screen.LoginView.new-password', '新密码') }}</span>
+      <UiInput
+        v-model:value="password"
+        type="password"
+        :disabled="saving"
+        :placeholder="language.t('platform.screen.App.enter-your-new-password', '请输入新密码')"
+      />
+      <UiButton type="primary" :loading="saving" @click="changePassword">{{
+        language.t('platform.screen.LoginView.change-password', '修改密码')
+      }}</UiButton>
     </label>
     <section v-if="context.module.can('resetPassword', userId) === true" class="user-password-reset">
-      <p>由系统生成临时密码。请在安全渠道交付给用户，并提醒其尽快修改。</p>
-      <UiButton :loading="saving" @click="resetPassword">生成临时密码</UiButton>
+      <p>
+        {{
+          language.t(
+            'platform.screen.UserPasswordDrawer.generate-a-temporary-password-deliver-it-to-the-user-through',
+            '由系统生成临时密码。请在安全渠道交付给用户，并提醒其尽快修改。',
+          )
+        }}
+      </p>
+      <UiButton :loading="saving" @click="resetPassword">{{
+        language.t('platform.screen.UserPasswordDrawer.generate-temporary-password', '生成临时密码')
+      }}</UiButton>
       <dl v-if="resetResult">
         <div>
-          <dt>临时密码</dt>
+          <dt>{{ language.t('platform.screen.UserPasswordDrawer.temporary-password', '临时密码') }}</dt>
           <dd>{{ resetResult.temporaryPassword }}</dd>
         </div>
         <div>
-          <dt>失效时间</dt>
+          <dt>{{ language.t('platform.screen.UserPasswordDrawer.expires-at', '失效时间') }}</dt>
           <dd>{{ resetResult.expiresAt ?? '-' }}</dd>
         </div>
       </dl>
