@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue';
 import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
 import { useWorkbenchNavigation } from '@muyun/platform-workbench';
@@ -8,8 +9,11 @@ import { createModuleMenuReceiptStore } from './moduleMenuReceiptStore';
 import { createModuleMenuClient } from './moduleMenuClient';
 import { createModuleMenuSession } from './moduleMenuSession';
 import ModuleMenuEditor from './ModuleMenuEditor.vue';
+
+const viewLanguage = useLanguageContext();
 const props = defineProps<{ moduleAlias: string }>();
 const workspace = useModuleMenuWorkspace();
+const language = workspace?.language ?? viewLanguage;
 const user = useCurrentUserContext();
 const identity = () =>
   JSON.stringify([
@@ -35,8 +39,12 @@ const session =
       owner,
       props.moduleAlias,
       () => Boolean(user?.value?.userId) && identity() === owner,
+      undefined,
+      undefined,
+      language,
     ),
     navigation?.refreshMenus,
+    language,
   );
 async function activate() {
   if (active) return;
@@ -54,7 +62,10 @@ async function activate() {
       surface: {
         describe: () => ({
           surface: 'module-menu',
-          title: '添加业务菜单入口',
+          title: language.t(
+            'platform.screen.ModuleMenuGovernanceSurface.add-a-business-menu-entry',
+            '添加业务菜单入口',
+          ),
           facts: workspace?.describe() ?? { moduleAlias: props.moduleAlias },
         }),
         capabilities: () => host?.capabilities?.() ?? [],
@@ -79,7 +90,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="module-menu-governance">
-    <h2>业务入口</h2>
+    <h2>{{ language.t('platform.governance.tab.menu', '业务入口') }}</h2>
     <ModuleMenuEditor :session="session" show-save />
   </section>
 </template>

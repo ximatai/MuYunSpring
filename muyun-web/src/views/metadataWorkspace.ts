@@ -397,6 +397,7 @@ export function createMetadataWorkspace(
                             await waitForConfigurationEditor(
                               () => visible.value === selected && editorReady(selected),
                               signal,
+                              language,
                             );
                             return settleNavigation(signal);
                           },

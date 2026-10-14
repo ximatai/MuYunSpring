@@ -289,6 +289,9 @@ const moduleMenuWorkspace = createModuleMenuWorkspace(
     pageCompositionWorkspace.clearFocus();
   },
   () => refreshWorkbenchMenus(),
+  undefined,
+  undefined,
+  platformLanguageContext,
 );
 provideModuleMenuWorkspace(moduleMenuWorkspace);
 providePageCompositionWorkspace(pageCompositionWorkspace);

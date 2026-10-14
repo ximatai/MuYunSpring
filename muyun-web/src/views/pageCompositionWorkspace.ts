@@ -173,7 +173,7 @@ export function createPageCompositionWorkspace(
             const retained = sessions.has(alias);
             const value = session(alias);
             // Loading belongs to the retained session; only focus is an invocation effect.
-            await waitForConfigurationEditor(() => !value.isMutating.value, context.signal);
+            await waitForConfigurationEditor(() => !value.isMutating.value, context.signal, language);
             const install = retained ? await value.prepareCatalogRefresh() : undefined;
             context.applyEffect(() => {
               install?.();

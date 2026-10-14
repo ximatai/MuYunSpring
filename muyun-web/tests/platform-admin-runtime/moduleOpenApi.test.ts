@@ -93,3 +93,15 @@ it('forwards the current session only to trusted OpenAPI request origins', async
 it('uses the configured backend origin for interactive OpenAPI calls', () => {
   assert.equal(openApiBackendBaseUrl(), undefined);
 });
+
+it('keeps the API directory tab original and identity while delivering all registered language resources', async () => {
+  const { createLanguageContext, presentationLabel } = await import('@muyun/web-core');
+  const descriptor = createOpenApiCatalogPageDescriptor();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const target = descriptor.target;
+  assert.equal(descriptor.title, '开放模块 API');
+  assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), 'Module API directory');
+  language.setLanguage('zh-CN');
+  assert.equal(presentationLabel(descriptor.title!, descriptor.titleText, language), '开放模块 API');
+  assert.equal(descriptor.target, target);
+});

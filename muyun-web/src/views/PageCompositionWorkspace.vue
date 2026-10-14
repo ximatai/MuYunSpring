@@ -84,7 +84,7 @@ function activate() {
       unregister = host.registry.register({
         pageInstanceKey,
         contextRevision: () => `${current.moduleAlias}:${current.contextRevision.value}`,
-        settle: (signal) => waitForConfigurationEditor(ready, signal),
+        settle: (signal) => waitForConfigurationEditor(ready, signal, current.language),
         surface: {
           ...createPageCompositionAssistantSurface(
             current.adapter,

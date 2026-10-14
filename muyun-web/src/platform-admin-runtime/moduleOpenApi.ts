@@ -1,4 +1,9 @@
-import type { HttpClient } from '@muyun/web-core';
+import {
+  createLanguageContext,
+  platformLanguageContext,
+  platformCodeTextReference,
+  type HttpClient,
+} from '@muyun/web-core';
 import type { PageDescriptor } from '@muyun/web-contracts';
 import { effectiveAuthToken } from './authSession';
 
@@ -31,11 +36,31 @@ export function createModuleOpenApiPageDescriptor(moduleAlias: string, moduleTit
 
 /** Creates the authenticated OpenAPI directory as an ordinary workbench page. */
 export function createOpenApiCatalogPageDescriptor(): PageDescriptor {
+  const key = 'platform.screen.OpenApiCatalogView.module-api-directory';
+  const source = platformCodeTextReference(key)!;
+  // Resolve deployment resources independently; never switch the user's context to build a tab.
+  const catalog = platformLanguageContext.catalog.value;
+  const resourceCatalog = {
+    ...catalog,
+    languages: catalog.languages.map((item) => ({ ...item, enabled: true })),
+  };
   return {
     pageType: 'platform-route',
     openMode: 'workbench-route',
     hostType: 'platform-route-host',
     title: '开放模块 API',
+    titleText: {
+      source,
+      languages: Object.fromEntries(
+        catalog.languages.map((item) => [
+          item.tag,
+          createLanguageContext({ catalog: resourceCatalog, languageTag: item.tag }).resolve(
+            key,
+            source.originalText,
+          ),
+        ]),
+      ),
+    },
     target: { route: '/openapi' },
     tabPolicy: { identity: 'by-target', closable: true, cacheable: true },
   };

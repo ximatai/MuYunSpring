@@ -1,5 +1,7 @@
 import {
   createMenuClient,
+  platformLanguageContext,
+  type LanguageContext,
   createModuleCrudClient,
   withHttpHeaders,
   type HttpClient,
@@ -64,12 +66,24 @@ export function createModuleMenuClient(http: HttpClient) {
   };
 }
 
-export function menuSchemeScopeLabel(scheme?: MenuScheme) {
-  if (!scheme) return '尚未确定';
-  if (scheme.scopeType === 'system') return '系统配置用户';
-  if (scheme.organizationId) return `机构 ${scheme.organizationId} 的用户`;
-  if (scheme.tenantId) return `租户 ${scheme.tenantId} 的用户`;
-  return '尚未声明适用范围';
+export function menuSchemeScopeLabel(
+  scheme?: MenuScheme,
+  language: LanguageContext = platformLanguageContext,
+) {
+  if (!scheme) return language.t('platform.screen.moduleMenuClient.not-yet-determined', '尚未确定');
+  if (scheme.scopeType === 'system')
+    return language.t('platform.screen.moduleMenuClient.system-configuration-users', '系统配置用户');
+  if (scheme.organizationId)
+    return language.t(
+      'platform.screen.moduleMenuClient.users-in-organization-value',
+      '机构 {value1} 的用户',
+      { value1: scheme.organizationId },
+    );
+  if (scheme.tenantId)
+    return language.t('platform.screen.moduleMenuClient.users-in-tenant-value', '租户 {value1} 的用户', {
+      value1: scheme.tenantId,
+    });
+  return language.t('platform.screen.moduleMenuClient.audience-not-declared', '尚未声明适用范围');
 }
 
 export function menuPlacements(nodes: MenuTreeNode[], parentPath = ''): MenuPlacement[] {

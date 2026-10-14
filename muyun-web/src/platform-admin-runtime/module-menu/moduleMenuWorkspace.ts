@@ -10,6 +10,7 @@ import {
   type HttpClient,
   type UserPreferenceStore,
 } from '@muyun/web-core';
+import { platformLanguageContext, codeOperationErrorMessage, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from '../../views/configurationEditorNavigation';
 import { createModuleMenuReceiptStore, type MenuReceiptPointerStorage } from './moduleMenuReceiptStore';
 import { createModuleMenuClient, menuSchemeScopeLabel } from './moduleMenuClient';
@@ -29,6 +30,7 @@ export function createModuleMenuWorkspace(
   refreshMenus?: () => Promise<MenuTreeNode[]>,
   preferences?: UserPreferenceStore,
   pointerStorage?: MenuReceiptPointerStorage,
+  language: LanguageContext = platformLanguageContext,
 ) {
   const client = createModuleMenuClient(http);
   let owner = identity();
@@ -91,8 +93,10 @@ export function createModuleMenuWorkspace(
           () => identity() === scope && sessions.get(alias) === value,
           preferences,
           pointerStorage,
+          language,
         ),
         refreshMenus,
+        language,
       );
       sessions.set(alias, value);
     }
@@ -121,8 +125,8 @@ export function createModuleMenuWorkspace(
       title: value.title.value,
       scheme: scheme?.title,
       scopeType: scheme?.scopeType,
-      audience: menuSchemeScopeLabel(scheme),
-      position: directory?.path ?? '顶层',
+      audience: menuSchemeScopeLabel(scheme, language),
+      position: directory?.path ?? language.t('platform.screen.moduleMenuWorkspace.top-level', '顶层'),
       openMode: value.openMode.value,
       saved: Boolean(value.saved.value),
       visibility: value.visibilityChecked.value ? Boolean(value.visibleMenu.value) : 'NOT_CHECKED',
@@ -132,6 +136,7 @@ export function createModuleMenuWorkspace(
     };
   }
   return {
+    language,
     session,
     focus,
     clearFocus,
@@ -149,7 +154,7 @@ export function createModuleMenuWorkspace(
       return (
         value && {
           moduleAlias: value.moduleAlias,
-          title: '菜单入口',
+          title: language.t('platform.screen.moduleMenuWorkspace.menu-entry', '菜单入口'),
           hasUnsavedChanges: value.ready.value && !value.saved.value,
           visible: visible.value === value,
           open: openEditor ? () => openEditor(value.moduleAlias) : undefined,
@@ -211,16 +216,29 @@ export function createModuleMenuWorkspace(
                     value.moduleAlias.length > 128 ||
                     !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(value.moduleAlias)
                   )
-                    throw new OperationUsageError('请提供已发现的正式模块标识');
+                    throw new OperationUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.moduleMenuWorkspace.provide-the-exact-module-alias-from-observed-facts',
+                        '请提供已发现的正式模块标识',
+                      ),
+                    );
                   return value.moduleAlias;
                 },
                 async execute(alias: string, context) {
                   const value = session(alias);
                   if (!value.ready.value) await value.load();
-                  if (!value.ready.value)
+                  if (!value.ready.value) {
+                    const failure = value.failureCause();
+                    if (failure) throw failure;
                     throw new OperationUsageError(
-                      value.error.value || value.entryIssue.value || '入口编辑尚未就绪，请重试加载',
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.moduleMenuWorkspace.the-entry-editor-is-not-ready-reload-it',
+                        '入口编辑尚未就绪，请重试加载',
+                      ),
                     );
+                  }
                   context.applyEffect(
                     () => {
                       focus(value);
@@ -231,6 +249,7 @@ export function createModuleMenuWorkspace(
                       await waitForConfigurationEditor(
                         () => visible.value === value && !value.loading.value,
                         signal,
+                        language,
                       );
                       return settle(signal);
                     },
@@ -238,8 +257,16 @@ export function createModuleMenuWorkspace(
                   return { opened: true, saved: Boolean(value.saved.value), moduleAlias: alias };
                 },
                 present: () => ({
-                  title: '菜单入口编辑已打开',
-                  lines: ['已打开共享候选，尚未添加新入口。请按实际菜单方案和位置准备并审阅。'],
+                  title: language.t(
+                    'platform.screen.moduleMenuWorkspace.menu-entry-editor-opened',
+                    '菜单入口编辑已打开',
+                  ),
+                  lines: [
+                    language.t(
+                      'platform.screen.moduleMenuWorkspace.the-shared-candidate-is-open-no-new-entry-has-been',
+                      '已打开共享候选，尚未添加新入口。请按实际菜单方案和位置准备并审阅。',
+                    ),
+                  ],
                 }),
               },
             ]
@@ -268,7 +295,13 @@ export function createModuleMenuWorkspace(
           selected.revision.value !== candidateRevision ||
           selectionVersion !== catalogVersion
         )
-          throw new OperationUsageError('请先打开当前模块的标准入口编辑器并重新读取');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.moduleMenuWorkspace.open-the-standard-entry-editor-for-the-current-module-and',
+              '请先打开当前模块的标准入口编辑器并重新读取',
+            ),
+          );
       };
       let proposal: AssistantOperationProposal | undefined;
       const capabilities: AssistantCapability[] = [
@@ -296,7 +329,13 @@ export function createModuleMenuWorkspace(
               (value.offset !== undefined &&
                 (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0))
             )
-              throw new OperationUsageError('目录分页参数无效');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.moduleMenuWorkspace.invalid-directory-pagination-parameters',
+                  '目录分页参数无效',
+                ),
+              );
             return Number(value.offset ?? 0);
           },
           async execute(offset: number) {
@@ -309,13 +348,16 @@ export function createModuleMenuWorkspace(
                 selectionKey: keyFor(schemeKeys, item.id!),
                 title: item.title ?? item.alias,
                 scopeType: item.scopeType,
-                audience: menuSchemeScopeLabel(item),
+                audience: menuSchemeScopeLabel(item, language),
                 tenant: item.tenantId,
                 organization: item.organizationId,
                 selected: item.id === selected.schemeId.value,
               })),
               positions: [
-                { selectionKey: keyFor(positionKeys, 'root'), title: '顶层' },
+                {
+                  selectionKey: keyFor(positionKeys, 'root'),
+                  title: language.t('platform.screen.moduleMenuWorkspace.top-level', '顶层'),
+                },
                 ...selected.directories.value
                   .slice(offset, offset + 40)
                   .map((item) => ({ selectionKey: keyFor(positionKeys, item.menu.id), title: item.path })),
@@ -358,19 +400,37 @@ export function createModuleMenuWorkspace(
                 (typeof value.title !== 'string' || [...value.title].length > 120)) ||
               (value.openMode !== undefined && value.openMode !== 'tab' && value.openMode !== 'window')
             )
-              throw new OperationUsageError('菜单候选参数无效');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.moduleMenuWorkspace.invalid-menu-candidate-parameters',
+                  '菜单候选参数无效',
+                ),
+              );
             const patch: ModuleMenuRevision = {
               title: value.title as string | undefined,
               openMode: value.openMode as 'tab' | 'window' | undefined,
             };
             if (value.schemeKey !== undefined) {
               if (typeof value.schemeKey !== 'string' || !schemeKeys.has(value.schemeKey))
-                throw new OperationUsageError('菜单方案选择已失效，请重新读取');
+                throw new OperationUsageError(
+                  codeOperationErrorMessage(
+                    language,
+                    'platform.screen.moduleMenuWorkspace.the-menu-scheme-selection-is-no-longer-valid-reload-it',
+                    '菜单方案选择已失效，请重新读取',
+                  ),
+                );
               patch.schemeId = schemeKeys.get(value.schemeKey);
             }
             if (value.positionKey !== undefined) {
               if (typeof value.positionKey !== 'string' || !positionKeys.has(value.positionKey))
-                throw new OperationUsageError('放置位置选择已失效，请重新读取');
+                throw new OperationUsageError(
+                  codeOperationErrorMessage(
+                    language,
+                    'platform.screen.moduleMenuWorkspace.the-position-selection-is-no-longer-valid-reload-it',
+                    '放置位置选择已失效，请重新读取',
+                  ),
+                );
               patch.parentId = positionKeys.get(value.positionKey);
             }
             return patch;
@@ -396,12 +456,25 @@ export function createModuleMenuWorkspace(
             current();
             const prepared = await selected.prepare();
             context.commitInternalState(() => {
-              proposal = { ...prepared, modelSummary: '添加已审阅的标准菜单入口；不授予业务权限。' };
+              proposal = {
+                ...prepared,
+                modelSummary: language.t(
+                  'platform.screen.moduleMenuWorkspace.add-the-reviewed-standard-menu-entry-this-does-not-grant',
+                  '添加已审阅的标准菜单入口；不授予业务权限。',
+                ),
+              };
             });
             return { awaitingHumanConfirmation: true };
           },
           propose() {
-            if (!proposal) throw new OperationUsageError('请先审阅当前入口候选');
+            if (!proposal)
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.moduleMenuWorkspace.review-the-current-entry-candidate-first',
+                  '请先审阅当前入口候选',
+                ),
+              );
             return proposal;
           },
         },

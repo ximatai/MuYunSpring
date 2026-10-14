@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { createLanguageContext } from '@muyun/web-core';
 import { createBackendHttpClient } from '@/platform-admin-runtime/backendHttp';
 import { saveAuthToken } from '@/platform-admin-runtime/authSession';
 
@@ -99,4 +100,20 @@ it('does not dispatch failed or ordinary responses, or streams', async () => {
   } finally {
     subscription.unsubscribe();
   }
+});
+
+it('sends the explicit owner language for JSON and streams while retaining dynamic authentication', async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({}))
+    .mockResolvedValueOnce(new Response('data: done\n\n'));
+  vi.stubGlobal('fetch', fetcher);
+  const language = createLanguageContext({ languageTag: 'en' });
+  const client = createBackendHttpClient({ withAuth: false, language });
+  await client.request({ path: '/catalog' });
+  expect(fetcher.mock.calls[0]?.[1].headers['Accept-Language']).toBe('en');
+  language.setLanguage('zh-CN');
+  await client.stream({ path: '/stream' });
+  expect(fetcher.mock.calls[1]?.[1].headers['Accept-Language']).toBe('zh-CN');
+  expect(fetcher.mock.calls[1]?.[1].headers.Authorization).toBeUndefined();
 });

@@ -168,6 +168,7 @@ export function createBusinessRuleWorkspace(
                           !selected.loading.value &&
                           (selected.ready.value || selected.submissionStatus.value === 'unknown'),
                         signal,
+                        language,
                       );
                       return settleNavigation(signal);
                     },

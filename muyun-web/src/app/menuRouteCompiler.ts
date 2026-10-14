@@ -1,3 +1,8 @@
+import {
+  createLanguageContext,
+  codeOperationErrorMessage,
+  type OperationErrorMessage,
+} from '@muyun/web-core';
 import type { Component } from 'vue';
 import type { RouteRecordRaw } from 'vue-router';
 import type { MenuEntryType, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
@@ -31,7 +36,9 @@ export interface RouteConfigurationIssue {
   actual?: { entryType?: MenuEntryType; moduleAlias?: string; route?: string; externalUrl?: string };
   expected?: { entryType?: MenuEntryType; moduleAlias?: string; route?: string; componentPath?: string };
   reason: string;
+  reasonText?: OperationErrorMessage;
   suggestion?: string;
+  suggestionText?: OperationErrorMessage;
 }
 
 export interface CompiledMenuRoute {
@@ -61,7 +68,18 @@ export function validateAndCompileMenuRoutes(
   for (const definition of definitions) {
     const name = createStaticRouteName(definition.route);
     if (!isInternalRoute(definition.route) || definitionByRoute.has(definition.route) || names.has(name)) {
-      issues.push(issue('ROUTE_CONFLICT', undefined, `静态路由声明冲突：${definition.route}`, definition));
+      issues.push(
+        issue(
+          'ROUTE_CONFLICT',
+          undefined,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.conflicting-static-route-declaration-value',
+            '静态路由声明冲突：{value1}',
+            { value1: definition.route },
+          ),
+          definition,
+        ),
+      );
       continue;
     }
     names.add(name);
@@ -71,7 +89,11 @@ export function validateAndCompileMenuRoutes(
         issue(
           'COMPONENT_NOT_FOUND',
           undefined,
-          `声明的 Vue 页面文件不存在：${definition.componentPath}`,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.the-declared-vue-page-file-does-not-exist-value',
+            '声明的 Vue 页面文件不存在：{value1}',
+            { value1: definition.componentPath },
+          ),
           definition,
         ),
       );
@@ -104,7 +126,17 @@ export function validateAndCompileMenuRoutes(
     if (entries.some((entry) => routeSignature(entry.route) !== baseline)) {
       rejected.add(path);
       for (const entry of entries)
-        issues.push(issue('ROUTE_CONFLICT', entry.menu, `多个菜单对同一路径配置不一致：${path}`));
+        issues.push(
+          issue(
+            'ROUTE_CONFLICT',
+            entry.menu,
+            declaredRouteText(
+              'platform.screen.menuRouteCompiler.multiple-menus-have-conflicting-configurations-for-the-same-path-value',
+              '多个菜单对同一路径配置不一致：{value1}',
+              { value1: path },
+            ),
+          ),
+        );
     }
   }
   const accepted = compiledRoutes.filter((entry) => !rejected.has(entry.route.path));
@@ -161,18 +193,42 @@ function validateMenu(
           issue: issue(
             'MENU_ENTRY_TYPE_MISSING',
             menu,
-            '当前接口缺少入口类型，无法安全注册路由',
+            declaredRouteText(
+              'platform.screen.menuRouteCompiler.the-response-has-no-entry-type-the-route-cannot-be',
+              '当前接口缺少入口类型，无法安全注册路由',
+            ),
             undefined,
-            '请由服务端返回 entryType',
+            declaredRouteText(
+              'platform.screen.menuRouteCompiler.the-server-must-return-entrytype',
+              '请由服务端返回 entryType',
+            ),
           ),
         }
       : {};
   }
   if (!menu.openMode || !menu.moduleAlias)
-    return { issue: issue('ENTRY_FIELDS_CONFLICT', menu, '入口必须配置 moduleAlias 与 openMode') };
+    return {
+      issue: issue(
+        'ENTRY_FIELDS_CONFLICT',
+        menu,
+        declaredRouteText(
+          'platform.screen.menuRouteCompiler.the-entry-must-specify-modulealias-and-openmode',
+          '入口必须配置 moduleAlias 与 openMode',
+        ),
+      ),
+    };
   if (menu.entryType === 'module') {
     if (menu.route || menu.externalUrl)
-      return { issue: issue('ENTRY_FIELDS_CONFLICT', menu, 'MODULE 入口不得携带 route 或 externalUrl') };
+      return {
+        issue: issue(
+          'ENTRY_FIELDS_CONFLICT',
+          menu,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.a-module-entry-must-not-include-route-or-externalurl',
+            'MODULE 入口不得携带 route 或 externalUrl',
+          ),
+        ),
+      };
     const pageMode = menu.pageMode ?? 'LIST';
     const readableDefinition =
       pageMode === 'LIST'
@@ -189,9 +245,16 @@ function validateMenu(
         issue: issue(
           'ROUTE_CONFLICT',
           menu,
-          `动态模块标准地址已被静态页面占用：${path}`,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.the-standard-dynamic-module-address-is-occupied-by-a-static',
+            '动态模块标准地址已被静态页面占用：{value1}',
+            { value1: path },
+          ),
           reservedDefinition,
-          '为该动态模块声明语义化地址，或调整冲突的静态页面地址',
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.declare-a-semantic-address-for-this-dynamic-module-or-change',
+            '为该动态模块声明语义化地址，或调整冲突的静态页面地址',
+          ),
         ),
       };
     }
@@ -213,7 +276,16 @@ function validateMenu(
       menu.defaultUiConfigId ||
       menu.defaultQueryTemplateId
     ) {
-      return { issue: issue('ENTRY_FIELDS_CONFLICT', menu, 'ROUTE 入口字段组合无效') };
+      return {
+        issue: issue(
+          'ENTRY_FIELDS_CONFLICT',
+          menu,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.invalid-field-combination-for-a-route-entry',
+            'ROUTE 入口字段组合无效',
+          ),
+        ),
+      };
     }
     const definition = definitions.get(menu.route);
     if (!definition)
@@ -221,9 +293,16 @@ function validateMenu(
         issue: issue(
           'ROUTE_NOT_REGISTERED',
           menu,
-          `前端未注册 route：${menu.route}`,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.the-frontend-has-not-registered-route-value',
+            '前端未注册 route：{value1}',
+            { value1: menu.route },
+          ),
           undefined,
-          '在静态路由注册表中声明该 route',
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.declare-this-route-in-the-static-route-registry',
+            '在静态路由注册表中声明该 route',
+          ),
         ),
       };
     if (definition.moduleAlias !== menu.moduleAlias)
@@ -231,14 +310,30 @@ function validateMenu(
         issue: issue(
           'MODULE_ALIAS_MISMATCH',
           menu,
-          '菜单 moduleAlias 与前端路由声明不一致',
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.the-menu-modulealias-does-not-match-the-frontend-route-declaration',
+            '菜单 moduleAlias 与前端路由声明不一致',
+          ),
           definition,
-          '将菜单绑定模块修改为前端路由要求的模块',
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.bind-the-menu-to-the-module-required-by-the-frontend',
+            '将菜单绑定模块修改为前端路由要求的模块',
+          ),
         ),
       };
     const loader = loaders[definition.componentPath];
     if (!loader)
-      return { issue: issue('COMPONENT_NOT_FOUND', menu, '声明的 Vue 页面文件不存在', definition) };
+      return {
+        issue: issue(
+          'COMPONENT_NOT_FOUND',
+          menu,
+          declaredRouteText(
+            'platform.screen.menuRouteCompiler.the-declared-vue-page-file-does-not-exist',
+            '声明的 Vue 页面文件不存在',
+          ),
+          definition,
+        ),
+      };
     return {
       route: {
         path: definition.route,
@@ -255,7 +350,16 @@ function validateMenu(
     menu.defaultQueryTemplateId ||
     !menu.externalUrl
   ) {
-    return { issue: issue('ENTRY_FIELDS_CONFLICT', menu, 'LINK 入口字段组合无效') };
+    return {
+      issue: issue(
+        'ENTRY_FIELDS_CONFLICT',
+        menu,
+        declaredRouteText(
+          'platform.screen.menuRouteCompiler.invalid-field-combination-for-a-link-entry',
+          'LINK 入口字段组合无效',
+        ),
+      ),
+    };
   }
   if (menu.openMode === 'window') return { window: true };
   return {
@@ -291,9 +395,9 @@ function routeMeta(menu: MenuRecord, extra: Record<string, unknown> = {}) {
 function issue(
   code: RouteConfigurationIssueCode,
   menu?: MenuRecord,
-  reason = '',
+  reason: string | OperationErrorMessage = '',
   definition?: StaticRouteDefinition,
-  suggestion?: string,
+  suggestion?: string | OperationErrorMessage,
 ): RouteConfigurationIssue {
   return {
     code,
@@ -318,8 +422,10 @@ function issue(
           componentPath: definition.componentPath,
         }
       : undefined,
-    reason,
-    suggestion,
+    reason: typeof reason === 'string' ? reason : reason.message,
+    ...(typeof reason === 'string' ? {} : { reasonText: reason }),
+    suggestion: typeof suggestion === 'string' || suggestion === undefined ? suggestion : suggestion.message,
+    ...(typeof suggestion === 'object' ? { suggestionText: suggestion } : {}),
   };
 }
 
@@ -345,4 +451,14 @@ function isInternalRoute(value: string): boolean {
 function routeSignature(route: RouteRecordRaw): string {
   const meta = route.meta ?? {};
   return `${route.path}|${meta.entryType}|${meta.moduleAlias}|${meta.componentPath ?? ''}`;
+}
+
+// Compile original diagnostics independently of any user's selected language.
+const declarationLanguage = createLanguageContext({ languageTag: 'zh-CN' });
+function declaredRouteText(
+  key: string,
+  original: string,
+  args?: Record<string, unknown>,
+): OperationErrorMessage {
+  return codeOperationErrorMessage(declarationLanguage, key, original, args);
 }

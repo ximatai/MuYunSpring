@@ -1,7 +1,17 @@
 import { nextTick, watch } from 'vue';
+import {
+  platformLanguageContext,
+  codeOperationErrorMessage,
+  OperationUsageError,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 /** Lazy page loading may finish after the router commits; resume only once the shared editor is mounted. */
-export async function waitForConfigurationEditor(visible: () => boolean, signal?: AbortSignal) {
+export async function waitForConfigurationEditor(
+  visible: () => boolean,
+  signal?: AbortSignal,
+  language: LanguageContext = platformLanguageContext,
+) {
   if (signal?.aborted) throw new DOMException('Navigation cancelled', 'AbortError');
   if (!visible()) {
     await new Promise<void>((resolve, reject) => {
@@ -20,7 +30,19 @@ export async function waitForConfigurationEditor(visible: () => boolean, signal?
         },
         { flush: 'post' },
       );
-      const timeout = setTimeout(() => finish(new Error('配置页面尚未就绪，请重新打开后继续。')), 15_000);
+      const timeout = setTimeout(
+        () =>
+          finish(
+            new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.configurationEditorNavigation.the-configuration-page-is-not-ready-reopen-it-before-continuing',
+                '配置页面尚未就绪，请重新打开后继续。',
+              ),
+            ),
+          ),
+        15_000,
+      );
       signal?.addEventListener('abort', abort, { once: true });
     });
   }
