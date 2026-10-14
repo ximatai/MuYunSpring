@@ -436,6 +436,8 @@ export interface ModulePageWorkspaceView<
   route?: string;
   component: Component;
   titleOf(input: TInput): string;
+  titleKey?: string;
+  titleArgsOf?(input: TInput): Record<string, unknown>;
   parse(query: Record<string, RouteQueryValue>): TInput | undefined;
   layout?: PageLayoutMode;
 }

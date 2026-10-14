@@ -1,4 +1,5 @@
 import type { BusinessRoutePageDescriptor, RouteQueryValue } from '@muyun/web-contracts';
+import { createCodeTextPresentation, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type {
   WorkspaceViewDefinition,
   WorkspaceViewInput,
@@ -69,11 +70,13 @@ export function createWorkspaceViewDescriptor<TInput extends WorkspaceViewInput>
   view: WorkspaceViewDefinition<TInput>,
   input: TInput,
   presentation: WorkspaceViewPresentation = 'tab',
-  title = view.titleOf(input),
+  title?: string,
+  language: LanguageContext = platformLanguageContext,
 ): BusinessRoutePageDescriptor {
   if (!view.presentations.includes(presentation)) {
     throw new Error(`工作视图 ${view.type} 不支持 ${presentation} 承载`);
   }
+  const originalTitle = title ?? view.titleOf(input);
   const params = {
     workspaceView: view.type,
     workspacePresentation: presentation,
@@ -88,7 +91,17 @@ export function createWorkspaceViewDescriptor<TInput extends WorkspaceViewInput>
     pageType: 'business-route',
     openMode: 'workbench-route',
     hostType: 'business-route-host',
-    title,
+    title: originalTitle,
+    ...(title === undefined && view.titleKey
+      ? {
+          titleText: createCodeTextPresentation(
+            view.titleKey,
+            originalTitle,
+            language,
+            view.titleArgsOf?.(input),
+          ),
+        }
+      : {}),
     layout: view.layout,
     target: { route: view.route, moduleAlias: view.moduleAlias, query: params },
     params: identityParams,
@@ -99,6 +112,7 @@ export function createWorkspaceViewDescriptor<TInput extends WorkspaceViewInput>
 export function dismissWorkspaceViewDescriptor(
   descriptor: BusinessRoutePageDescriptor,
   view: WorkspaceViewDefinition<WorkspaceViewInput>,
+  language: LanguageContext = platformLanguageContext,
 ): BusinessRoutePageDescriptor {
   const input = view.parse(descriptor.target.query ?? {});
   const transientKeys = new Set(['workspaceView', 'workspacePresentation', ...Object.keys(input ?? {})]);
@@ -109,6 +123,13 @@ export function dismissWorkspaceViewDescriptor(
   return {
     ...descriptor,
     title: view.routeTitle ?? descriptor.title,
+    ...(view.routeTitle
+      ? {
+          titleText: view.routeTitleKey
+            ? createCodeTextPresentation(view.routeTitleKey, view.routeTitle, language)
+            : undefined,
+        }
+      : {}),
     target: { ...descriptor.target, query: routeQuery },
     params: { ...withoutTransient(descriptor.params ?? {}), ...parentRouteQuery },
     tabPolicy: { identity: 'by-params' },

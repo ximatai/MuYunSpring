@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import type { ExternalLinkPageDescriptor, RemoteUrlPageDescriptor } from '@muyun/web-contracts';
 import { computed } from 'vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ExternalPageHost' });
 
@@ -29,7 +32,7 @@ const title = computed(() => props.descriptor.title ?? props.descriptor.target.u
       target="_blank"
       rel="noopener noreferrer"
     >
-      打开页面
+      {{ language.t('platform.screen.ExternalPageHost.open-page', '打开页面') }}
     </a>
   </section>
 </template>

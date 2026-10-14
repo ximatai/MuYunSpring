@@ -163,7 +163,7 @@ export function restoreWorkbenchStartupStateFromUrl(
     explicitMenu && explicitTarget && explicitMenuOwnsDynamicDescriptor(explicitTarget, descriptor)
       ? { ...descriptor, title: explicitMenu.title }
       : descriptor;
-  const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptorWithExplicitMenuTitle);
+  const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptorWithExplicitMenuTitle, options.title);
   const effectiveDescriptor = workspaceDescriptor ?? descriptorWithExplicitMenuTitle;
   const existingTabs = state.tabs ?? [];
   const existingWorkspaceTab = workspaceDescriptor
@@ -224,7 +224,7 @@ function existingWorkspaceTabFor(tabs: MenuTab[], descriptor: PageDescriptor): M
   );
 }
 
-function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {
+function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor, explicitTitle?: string) {
   if (descriptor.pageType !== 'business-route') return undefined;
   const workspaceView = resolveWorkspaceView(descriptor);
   return workspaceView
@@ -232,7 +232,7 @@ function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {
         workspaceView.view,
         workspaceView.input,
         workspaceView.presentation,
-        descriptor.title,
+        explicitTitle,
       )
     : undefined;
 }

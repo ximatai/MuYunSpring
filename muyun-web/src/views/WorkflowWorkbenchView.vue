@@ -836,7 +836,10 @@ async function togglePolicy(policy: Delegation) {
               'platform.screen.WorkflowWorkbenchView.edit-personal-delegation',
               '编辑个人委托',
             )
-          : '个人代办设置'
+          : workflowLanguage.t(
+              'platform.screen.WorkflowWorkbenchView.personal-delegation-settings',
+              '个人代办设置',
+            )
       "
       :before-close="mayClosePolicy"
       @close="delegationOpen = false"

@@ -931,6 +931,8 @@ it('restores one logical workspace tab from public URLs while retaining its inst
     moduleAlias: 'platform.module',
     component: { template: '<div />' },
     presentations: ['tab'] as const,
+    titleKey: 'platform.workspace-view.governance.title',
+    titleArgsOf: ({ moduleAlias }: { moduleAlias: string }) => ({ module: moduleAlias }),
     titleOf: ({ moduleAlias }: { moduleAlias: string }) => `低代码治理：${moduleAlias}`,
     tabIdentityParamsOf: ({ moduleAlias }: { moduleAlias: string }) => ({ moduleAlias }),
     parse: (query: Record<string, unknown>) => {
@@ -955,6 +957,8 @@ it('restores one logical workspace tab from public URLs while retaining its inst
     const first = metadata.tabs?.[0];
 
     assert.equal(metadata.tabs?.length, 1);
+    assert.equal(first?.title, '低代码治理：education.exam');
+    assert.equal(first?.pageDescriptor?.titleText?.languages.en?.text, 'Low-code governance: education.exam');
     assert.match(first?.instanceKey ?? '', /^[0-9a-f-]{36}$/i);
     assert.equal(first?.pageDescriptor?.params?.moduleAlias, 'education.exam');
     assert.notProperty(first?.pageDescriptor?.params ?? {}, 'governanceTab');

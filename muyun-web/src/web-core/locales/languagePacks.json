@@ -3171,7 +3171,25 @@
       "platform.entry.add-to-menu": "添加到菜单",
       "platform.entry.low-code": "低代码",
       "platform.entry.dictionary-categories-must-belong-to-a-folder": "字典类目只能挂在目录下",
-      "platform.entry.module-context-unavailable": "模块上下文不可用"
+      "platform.entry.module-context-unavailable": "模块上下文不可用",
+      "platform.workspace-view.workflow.title": "审批流程：{module}",
+      "platform.workspace-view.modules.route-title": "模块管理",
+      "platform.workspace-view.actions.title": "动作：{module}",
+      "platform.workspace-view.governance.title": "低代码治理：{module}",
+      "platform.workspace-view.role-detail.title": "角色详情",
+      "platform.workspace-view.roles.route-title": "角色管理",
+      "platform.workspace-view.role-authorization.title": "角色授权",
+      "platform.workspace-view.role-authorization.route-title": "角色授权",
+      "platform.screen.HomeView.select-a-menu-on-the-left": "请选择左侧菜单",
+      "platform.screen.HomeView.choose-a-feature-from-the-left-menu-to-get-started": "从左侧菜单选择功能，即可开始工作。",
+      "platform.screen.BusinessActivityLogView.business-audit-logs": "操作日志",
+      "platform.screen.WorkflowAdministrationView.a-reason-is-required-for-exception-handling-all-operations-are": "异常处理需要明确原因，所有操作记录审计",
+      "platform.screen.WorkflowAdministrationView.select-a-business-module": "请选择业务模块",
+      "platform.screen.WorkflowConfigurationView.version-value-value": "版本 {value1} · {value2}",
+      "platform.screen.ExternalPageHost.open-page": "打开页面",
+      "platform.screen.WorkspaceViewOutlet.unable-to-restore-this-workspace-view": "无法恢复该工作视图",
+      "platform.workflow-config.convergence-counting": "汇聚：{summary}，只计算有效出口。",
+      "platform.workspace-view.pin-as-tab": "固定为页签"
     }
   },
   "en": {
@@ -6347,7 +6365,25 @@
       "platform.entry.add-to-menu": "Add to menu",
       "platform.entry.low-code": "Low code",
       "platform.entry.dictionary-categories-must-belong-to-a-folder": "Dictionary categories must belong to a folder",
-      "platform.entry.module-context-unavailable": "Module context unavailable"
+      "platform.entry.module-context-unavailable": "Module context unavailable",
+      "platform.workspace-view.workflow.title": "Approval workflow: {module}",
+      "platform.workspace-view.modules.route-title": "Module management",
+      "platform.workspace-view.actions.title": "Actions: {module}",
+      "platform.workspace-view.governance.title": "Low-code governance: {module}",
+      "platform.workspace-view.role-detail.title": "Role details",
+      "platform.workspace-view.roles.route-title": "Role management",
+      "platform.workspace-view.role-authorization.title": "Role authorization",
+      "platform.workspace-view.role-authorization.route-title": "Role authorization",
+      "platform.screen.HomeView.select-a-menu-on-the-left": "Select a menu on the left",
+      "platform.screen.HomeView.choose-a-feature-from-the-left-menu-to-get-started": "Choose a feature from the left menu to get started.",
+      "platform.screen.BusinessActivityLogView.business-audit-logs": "Business audit logs",
+      "platform.screen.WorkflowAdministrationView.a-reason-is-required-for-exception-handling-all-operations-are": "A reason is required for exception handling. All operations are audited.",
+      "platform.screen.WorkflowAdministrationView.select-a-business-module": "Select a business module",
+      "platform.screen.WorkflowConfigurationView.version-value-value": "Version {value1} · {value2}",
+      "platform.screen.ExternalPageHost.open-page": "Open page",
+      "platform.screen.WorkspaceViewOutlet.unable-to-restore-this-workspace-view": "Unable to restore this workspace view",
+      "platform.workflow-config.convergence-counting": "Convergence: {summary}. Only active exits are counted.",
+      "platform.workspace-view.pin-as-tab": "Pin as tab"
     }
   },
   "fr": {

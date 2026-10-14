@@ -38,7 +38,13 @@ provideModulePageNavigation(
     openPage: navigation.openPage,
     openWorkspaceTab(view, input, title) {
       navigation.openPage(
-        createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input, 'tab', title),
+        createWorkspaceViewDescriptor(
+          workspaceViewDefinitionForModulePage(view),
+          input,
+          'tab',
+          title,
+          language,
+        ),
       );
     },
   },

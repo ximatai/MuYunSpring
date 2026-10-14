@@ -747,7 +747,11 @@ function addRoute() {
               :options="
                 versions.map((item) => ({
                   value: item.id,
-                  label: `版本 ${item.versionNo} · ${workflowTitle(item.publishStatus)}`,
+                  label: workflowLanguage.t(
+                    'platform.screen.WorkflowConfigurationView.version-value-value',
+                    '版本 {value1} · {value2}',
+                    { value1: item.versionNo, value2: workflowTitle(item.publishStatus) },
+                  ),
                 }))
               "
               :disabled="busy || dirty"
@@ -1067,7 +1071,15 @@ function addRoute() {
             }}
           </li>
         </ul>
-        <p>汇聚：{{ branchConvergenceSummary(branch) }}，只计算有效出口。</p>
+        <p>
+          {{
+            workflowLanguage.t(
+              'platform.workflow-config.convergence-counting',
+              '汇聚：{summary}，只计算有效出口。',
+              { summary: branchConvergenceSummary(branch) },
+            )
+          }}
+        </p>
       </div>
       <details>
         <summary>

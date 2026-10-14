@@ -17,6 +17,7 @@ import {
 import {
   configureWorkspaceViewContributions,
   createWorkspaceViewDescriptor,
+  dismissWorkspaceViewDescriptor,
 } from '@/platform-workbench/workspaceViews.ts';
 import type { PageDescriptor } from '@/web-contracts/index.ts';
 import { platformAdminRoutes } from '@/platform-admin-runtime/platformAdminRoutes.ts';
@@ -720,4 +721,40 @@ it('tabKeyOf separates independent instances while the default instance keeps it
   assert.equal(tabKeyOf(defaultDescriptor), 'menu:customer-list');
   assert.equal(tabKeyOf(independentDescriptor), 'menu:customer-list');
   assert.equal(pageDescriptorToUrl(independentDescriptor), '/crm/customer/list');
+});
+
+it('keeps original workspace identity while snapshotting default headings and preserving explicit title ownership', async () => {
+  const { createLanguageContext, presentationLabel } = await import('@muyun/web-core');
+  const { moduleGovernanceWorkspaceView: view } = await import('@/views/moduleGovernanceWorkspaceView');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const input = {
+    moduleAlias: 'education.exam',
+    moduleTitle: '考试{module}',
+    governanceTab: 'metadata' as const,
+  };
+  const descriptor = createWorkspaceViewDescriptor(view, input, 'tab', undefined, language);
+  const original = descriptor.title!;
+  const url = pageDescriptorToUrl(descriptor),
+    key = tabKeyOf(descriptor);
+  assert.equal(original, '低代码治理：考试{module}');
+  assert.equal(
+    presentationLabel(original, descriptor.titleText, language),
+    'Low-code governance: 考试{module}',
+  );
+  language.setLanguage('zh-CN');
+  assert.equal(presentationLabel(original, descriptor.titleText, language), original);
+  language.setLanguage('en');
+  assert.equal(pageDescriptorToUrl(descriptor), url);
+  assert.equal(tabKeyOf(descriptor), key);
+  assert.equal(descriptor.title, original);
+  assert.equal(descriptor.target.query?.moduleTitle, '考试{module}');
+  const explicit = createWorkspaceViewDescriptor(view, input, 'tab', original, language);
+  assert.isUndefined(explicit.titleText);
+  assert.equal(explicit.title, original);
+  assert.equal(tabKeyOf(explicit), key);
+  const dismissed = dismissWorkspaceViewDescriptor(descriptor, view, language);
+  assert.equal(dismissed.title, '模块管理');
+  assert.equal(presentationLabel(dismissed.title!, dismissed.titleText, language), 'Module management');
+  assert.isUndefined(dismissed.target.query?.workspaceView);
+  assert.equal(descriptor.target.query?.workspaceView, view.type);
 });

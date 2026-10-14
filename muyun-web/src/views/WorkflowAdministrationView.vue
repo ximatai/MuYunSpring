@@ -541,7 +541,12 @@ function title(record: { id?: string; title?: string }) {
       :title="
         workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-administration', '工作流运维')
       "
-      subtitle="异常处理需要明确原因，所有操作记录审计"
+      :subtitle="
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.a-reason-is-required-for-exception-handling-all-operations-are',
+          '异常处理需要明确原因，所有操作记录审计',
+        )
+      "
       :columns="columns"
       :rows="rows"
       clickable-rows
@@ -583,7 +588,17 @@ function title(record: { id?: string; title?: string }) {
               :disabled="busy || Boolean(pending)"
               show-search
               :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
-              :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
+              :placeholder="
+                historyMode
+                  ? workflowLanguage.t(
+                      'platform.screen.WorkflowAdministrationView.select-a-business-module',
+                      '请选择业务模块',
+                    )
+                  : workflowLanguage.t(
+                      'platform.screen.WorkflowWorkbenchView.all-business-modules',
+                      '全部业务模块',
+                    )
+              " /></label
           ><label class="workflow-field" v-if="!historyMode"
             ><RecordFieldLabel>{{
               workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-status', '流程状态')
@@ -592,11 +607,11 @@ function title(record: { id?: string; title?: string }) {
               v-model:value="instanceStatus"
               :disabled="busy || Boolean(pending)"
               :options="[
-                { value: 'running', label: '进行中' },
-                { value: 'completed', label: '已完成' },
-                { value: 'rejected', label: '已驳回' },
-                { value: 'revoked', label: '已撤回' },
-                { value: 'terminated', label: '已终止' },
+                { value: 'running', label: workflowLanguage.t('platform.workflow.running', '进行中') },
+                { value: 'completed', label: workflowLanguage.t('platform.workflow.completed', '已完成') },
+                { value: 'rejected', label: workflowLanguage.t('platform.workflow.rejected', '已驳回') },
+                { value: 'revoked', label: workflowLanguage.t('platform.workflow.revoked', '已撤回') },
+                { value: 'terminated', label: workflowLanguage.t('platform.workflow.terminated', '已终止') },
               ]" /></label
           ><label class="workflow-field"
             >{{

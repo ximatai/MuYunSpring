@@ -14,6 +14,10 @@ export interface WorkspaceViewDefinition<TInput extends WorkspaceViewInput> {
   layout?: PageLayoutMode;
   drawerProfile?: WorkspaceDrawerProfile;
   routeTitle?: string;
+  routeTitleKey?: string;
+  /** CODE display resources; titleOf keeps the original and never depends on user language. */
+  titleKey?: string;
+  titleArgsOf?(input: TInput): Record<string, unknown>;
   titleOf(input: TInput): string;
   /**
    * Returns the input fields that identify one workbench tab. Other parsed

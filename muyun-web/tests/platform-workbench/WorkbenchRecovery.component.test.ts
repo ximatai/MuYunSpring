@@ -82,3 +82,54 @@ it('presents realtime status through its own consumer language without changing 
     wrapper.unmount();
   }
 });
+
+it('shows translated workspace tab resources while preserving original tab titles and selection keys', async () => {
+  const { createWorkspaceViewDescriptor } = await import('@/platform-workbench/workspaceViews');
+  const { moduleGovernanceWorkspaceView } = await import('@/views/moduleGovernanceWorkspaceView');
+  const { tabKeyOf } = await import('@/platform-workbench/menuNavigation');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const descriptor = createWorkspaceViewDescriptor(
+    moduleGovernanceWorkspaceView,
+    { moduleAlias: 'education.exam', moduleTitle: '业务原名' },
+    'tab',
+    undefined,
+    language,
+  );
+  expect(descriptor.titleText?.languages.en?.text).toBe('Low-code governance: 业务原名');
+  const key = tabKeyOf(descriptor);
+  const tab = { key, title: descriptor.title!, pageDescriptor: descriptor, closable: true };
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(Workbench, {
+            startup: {
+              session: { currentUser: { userId: 'stable-user', username: '原始账户', system: true } },
+              menus: [],
+              tabs: [tab],
+              activeTabKey: key,
+            },
+            activeTabKey: key,
+          });
+      },
+    }),
+  );
+  try {
+    await flushPromises();
+    const tabs = wrapper.findComponent({ name: 'UiTabs' });
+    language.setLanguage('en');
+    await nextTick();
+    expect(tabs.props('tabs')[0].title).toBe('Low-code governance: 业务原名');
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(tabs.props('tabs')[0].title).toBe('低代码治理：业务原名');
+    language.setLanguage('en');
+    await nextTick();
+    expect(tabs.props('tabs')[0].key).toBe(key);
+    expect(tab.title).toBe('低代码治理：业务原名');
+    expect(wrapper.findComponent(Workbench).emitted('changeTab')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});

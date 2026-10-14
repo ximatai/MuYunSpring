@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import type { PlatformRoutePageDescriptor } from '@muyun/web-contracts';
 import { computed } from 'vue';
 import { RouterView } from 'vue-router';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PlatformRouteHost' });
 
@@ -22,7 +25,7 @@ const title = computed(
   <RouterView v-if="props.descriptor.target.route === '/'" />
   <section v-else class="page-host">
     <header>
-      <span class="host-badge">平台页面</span>
+      <span class="host-badge">{{ language.t('platform.screen.Workbench.platform-page', '平台页面') }}</span>
       <h2>{{ title }}</h2>
     </header>
     <p>

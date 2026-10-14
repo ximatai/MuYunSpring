@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
+import { useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { computed, onUnmounted } from 'vue';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
 import { provideModulePageUnsavedStateHost } from '@muyun/dynamic-page-runtime';
@@ -10,6 +11,7 @@ import { dismissWorkspaceViewDescriptor, resolveWorkspaceView } from './workspac
 import { registerWorkspaceViewUnsavedState } from './workspaceViewUnsavedState';
 
 const props = defineProps<{ descriptor: BusinessRoutePageDescriptor }>();
+const language = useLanguageContext();
 const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
 // `replacePage` preserves this physical tab key even if URL-restorable view
 // state changes. Keep the original owner rather than recomputing a key from
@@ -39,8 +41,17 @@ provideWorkspaceViewHost({
   },
   setTitle(title) {
     const normalizedTitle = title.trim();
-    if (!normalizedTitle || !navigation || props.descriptor.title === normalizedTitle) return;
-    navigation.replacePage(ownerPageKey, { ...props.descriptor, title: normalizedTitle });
+    if (
+      !normalizedTitle ||
+      !navigation ||
+      (props.descriptor.title === normalizedTitle && !props.descriptor.titleText)
+    )
+      return;
+    navigation.replacePage(ownerPageKey, {
+      ...props.descriptor,
+      title: normalizedTitle,
+      titleText: undefined,
+    });
   },
   replaceQuery(changes) {
     if (!navigation) return;
@@ -58,7 +69,10 @@ provideWorkspaceViewHost({
   dismiss() {
     const view = resolvedView.value;
     if (view && navigation)
-      navigation.replacePage(ownerPageKey, dismissWorkspaceViewDescriptor(props.descriptor, view.view));
+      navigation.replacePage(
+        ownerPageKey,
+        dismissWorkspaceViewDescriptor(props.descriptor, view.view, language),
+      );
   },
   close() {
     navigation?.closePage(ownerPageKey);
@@ -73,8 +87,22 @@ onUnmounted(() => ownedRegistrations.forEach((release) => release()));
     :is="resolvedView.view.component"
     v-if="resolvedView"
     v-bind="resolvedView.input"
-    :title="descriptor.title ?? resolvedView.view.titleOf(resolvedView.input)"
+    :title="
+      presentationLabel(
+        descriptor.title ?? resolvedView.view.titleOf(resolvedView.input),
+        descriptor.titleText,
+        language,
+      )
+    "
     @close-workspace="navigation?.closePage(ownerPageKey)"
   />
-  <UiEmpty v-else description="无法恢复该工作视图" />
+  <UiEmpty
+    v-else
+    :description="
+      language.t(
+        'platform.screen.WorkspaceViewOutlet.unable-to-restore-this-workspace-view',
+        '无法恢复该工作视图',
+      )
+    "
+  />
 </template>

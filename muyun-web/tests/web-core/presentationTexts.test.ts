@@ -1,7 +1,11 @@
 import { computed, reactive } from 'vue';
 import { expect, it } from 'vitest';
 import { createLanguageContext } from '@/web-core/language';
-import { originalPresentation, translatedPresentation } from '@/web-core/presentationTexts';
+import {
+  createCodeTextPresentation,
+  originalPresentation,
+  translatedPresentation,
+} from '@/web-core/presentationTexts';
 import type { TextPresentation } from '@/web-contracts';
 
 const label: TextPresentation = {
@@ -82,4 +86,42 @@ it('projects only formal action titles while preserving codes, authorization, in
   });
   expect(original.actions[0]?.title).toBe('接收订单');
   expect(original.textBindings['/actions/0/title'].source.originalText).toBe('接收订单');
+});
+
+it('snapshots owned extension resources and disabled fallbacks without switching the consumer context', async () => {
+  const { createHash } = await import('node:crypto');
+  const context = createLanguageContext({ languageTag: 'en' });
+  context.setCatalog({
+    ...context.catalog.value,
+    languages: [
+      ...context.catalog.value.languages,
+      { tag: 'de', nativeName: 'Deutsch', direction: 'ltr', fallbackTag: 'en', enabled: false },
+    ],
+  });
+  context.registerResources('en', { 'consumer.heading': 'Heading: {name}' });
+  context.registerResources('de', { 'consumer.heading': 'Titel: {name}' });
+  const revision = context.revision.value,
+    selection = context.selectionRevision.value;
+  const original = '原文：业务{module}';
+  const snapshot = createCodeTextPresentation('consumer.heading', original, context, {
+    name: '业务{module}',
+  });
+  expect(snapshot.source).toEqual({
+    sourceKind: 'CODE',
+    sourceId: 'consumer.heading',
+    originalText: original,
+    sourceVersion: `sha256-${createHash('sha256').update(original, 'utf8').digest('hex')}`,
+  });
+  expect(snapshot.languages.en!.text).toBe('Heading: 业务{module}');
+  expect(snapshot.languages.de!.text).toBe('Titel: 业务{module}');
+  expect(snapshot.languages.fr!.text).toBe('Heading: 业务{module}');
+  expect(context.languageTag.value).toBe('en');
+  expect(context.revision.value).toBe(revision);
+  expect(context.selectionRevision.value).toBe(selection);
+  const missing = createCodeTextPresentation('consumer.missing', original, context, {
+    module: 'must not interpolate business values',
+  });
+  expect(missing.languages.en!.text).toBe(original);
+  expect(missing.languages.en!.missing).toBe(true);
+  expect(() => createCodeTextPresentation(' ', original, context)).toThrow('must not be blank');
 });

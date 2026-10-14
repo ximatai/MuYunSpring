@@ -1,5 +1,6 @@
 import {
   type LanguageContext,
+  createCodeTextPresentation,
   platformLanguageContext,
   platformCodeTextReference,
   type HttpClient,
@@ -45,15 +46,7 @@ export function createOpenApiCatalogPageDescriptor(
     openMode: 'workbench-route',
     hostType: 'platform-route-host',
     title: '开放模块 API',
-    titleText: {
-      source,
-      languages: Object.fromEntries(
-        language.catalog.value.languages.map((item) => [
-          item.tag,
-          language.resolveForLanguage(item.tag, key, source.originalText),
-        ]),
-      ),
-    },
+    titleText: createCodeTextPresentation(key, source.originalText, language),
     target: { route: '/openapi' },
     tabPolicy: { identity: 'by-target', closable: true, cacheable: true },
   };

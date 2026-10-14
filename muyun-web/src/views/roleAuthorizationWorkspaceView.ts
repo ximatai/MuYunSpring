@@ -13,8 +13,10 @@ export const roleAuthorizationWorkspaceView = defineWorkspaceView<RoleAuthorizat
   component: defineAsyncComponent(() => import('./RoleAuthorizationView.vue')),
   layout: 'workspace',
   routeTitle: '角色授权',
+  routeTitleKey: 'platform.workspace-view.role-authorization.route-title',
   drawerProfile: 'wide-work',
   presentations: ['drawer', 'tab'],
+  titleKey: 'platform.workspace-view.role-authorization.title',
   titleOf: () => '角色授权',
   parse(query) {
     const roleId = query.roleId;

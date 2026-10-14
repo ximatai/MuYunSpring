@@ -1,6 +1,31 @@
 import { toRaw } from 'vue';
 import type { TextReference, TextPresentation, TextPresentationDocument } from '@muyun/web-contracts';
 import type { LanguageContext, TextResolution } from './language';
+import { sha256Hex } from './sha256';
+
+/** Snapshot a producer's concrete CODE original; arguments format deployed resources, never business values in the fallback. */
+export function createCodeTextPresentation(
+  key: string,
+  originalText: string,
+  context: LanguageContext,
+  args?: Record<string, unknown>,
+): TextPresentation {
+  if (!key.trim()) throw new Error('CODE text key must not be blank');
+  return {
+    source: {
+      sourceKind: 'CODE',
+      sourceId: key,
+      sourceVersion: `sha256-${sha256Hex(originalText)}`,
+      originalText,
+    },
+    languages: Object.fromEntries(
+      context.catalog.value.languages.map(({ tag }) => {
+        const resolution = context.resolveForLanguage(tag, key, undefined, args);
+        return [tag, resolution.missing ? { ...resolution, text: originalText } : resolution];
+      }),
+    ),
+  };
+}
 
 export function resolvePresentationText(text: TextPresentation, context: LanguageContext): TextResolution {
   const requestedTag = context.languageTag.value;
