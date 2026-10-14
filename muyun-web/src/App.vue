@@ -113,6 +113,7 @@ import {
   restoreSessionWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
+  withWorkbenchTabTitle,
 } from './app/workbenchStartup';
 import { getMenuNavigationTarget, withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
@@ -1122,7 +1123,12 @@ function navigateWorkbenchRoute(
 ) {
   if (!state) return { created: false };
   const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions, newInstance);
+  let next = restoreWorkbenchStartupStateFromUrl(
+    state,
+    url,
+    { ...platformAdminRouteResolveOptions, title: tabTitle },
+    newInstance,
+  );
   const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
   if (replaceCurrent && state.activeTabKey && replacement) {
     const currentTab = state.tabs?.find((tab) => tab.key === state.activeTabKey);
@@ -1157,7 +1163,7 @@ function navigateWorkbenchRoute(
     next = {
       ...next,
       tabs: (next.tabs ?? []).map((tab) =>
-        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+        tab.key === next.activeTabKey ? withWorkbenchTabTitle(tab, tabTitle) : tab,
       ),
     };
   }
@@ -1197,7 +1203,9 @@ function handleSetTabName(instanceKey: string, name: string) {
   if (!current || !instanceKey || !title) return;
   startup.value = {
     ...current,
-    tabs: (current.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+    tabs: (current.tabs ?? []).map((tab) =>
+      tab.instanceKey === instanceKey ? withWorkbenchTabTitle(tab, title) : tab,
+    ),
   };
 }
 

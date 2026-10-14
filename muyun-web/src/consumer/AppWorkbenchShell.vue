@@ -35,6 +35,7 @@ import {
   restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
+  withWorkbenchTabTitle,
 } from '../app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
@@ -252,7 +253,13 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   const fullPath = routeUrlWithOpenOptions(path, options);
   if (!currentTabKey || !currentTab)
     return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
-  const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    props.startup,
+    fullPath,
+    { ...props.resolveOptions, title: options.tabTitle ?? props.resolveOptions.title },
+    false,
+    language,
+  );
   const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
   if (!replacement) return { created: false };
   const pageDescriptor =
@@ -335,12 +342,13 @@ function navigateRoute(
       title: tabTitle ?? props.resolveOptions.title,
     },
     newInstance,
+    language,
   );
   if (tabTitle && restored.activeTabKey) {
     restored = {
       ...restored,
       tabs: (restored.tabs ?? []).map((tab) =>
-        tab.key === restored.activeTabKey ? { ...tab, title: tabTitle } : tab,
+        tab.key === restored.activeTabKey ? withWorkbenchTabTitle(tab, tabTitle) : tab,
       ),
     };
   }
@@ -354,7 +362,7 @@ function setTabName(instanceKey: string, name: string) {
   update({
     ...props.startup,
     tabs: (props.startup.tabs ?? []).map((tab) =>
-      tab.instanceKey === instanceKey ? { ...tab, title } : tab,
+      tab.instanceKey === instanceKey ? withWorkbenchTabTitle(tab, title) : tab,
     ),
   });
 }
@@ -389,7 +397,7 @@ function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') 
 }
 
 function restoreFromLocation(location: string) {
-  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions));
+  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions, false, language));
 }
 
 async function restoreLockedTabs() {
@@ -399,6 +407,7 @@ async function restoreLockedTabs() {
       await restoreLockedTabPreference(userPreferences),
       props.startup.menus,
       props.resolveOptions,
+      language,
     );
     if (!isMounted || restoreRevision !== lockedTabPreferenceRevision) return;
     lockedTabs.value = restoredLockedTabs;

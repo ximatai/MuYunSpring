@@ -1,4 +1,4 @@
-import { platformLanguageContext } from '@muyun/web-core';
+import { platformLanguageContext, createCodeTextPresentation } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -504,5 +504,33 @@ it('provides a tab-scoped portal host to pages supplied through the public shell
     wrapper.get('.tab-panel-host').element,
   );
   expect(wrapper.findComponent(RecordDetailDrawer).exists()).toBe(true);
+  wrapper.unmount();
+});
+
+it('lets an explicit tab rename replace a translated default title without changing page identity', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  const state = JSON.parse(JSON.stringify(wrapper.props('startup'))) as WorkbenchStartupState;
+  const tab = state.tabs![0]!;
+  tab.pageDescriptor = {
+    ...tab.pageDescriptor!,
+    title: '角色详情',
+    titleText: createCodeTextPresentation(
+      'platform.workspace-view.role-detail.title',
+      '角色详情',
+      platformLanguageContext,
+    ),
+  };
+  await wrapper.setProps({ startup: state });
+  const before = JSON.stringify(tab.pageDescriptor.target);
+  navigation()?.setTabName?.(tab.instanceKey!, '角色详情');
+  await syncStartup(wrapper);
+  const renamed = wrapper.props('startup').tabs![0]!;
+  expect(renamed.title).toBe('角色详情');
+  expect(renamed.pageDescriptor?.title).toBe('角色详情');
+  expect(renamed.pageDescriptor?.titleText).toBeUndefined();
+  expect(renamed.key).toBe(tab.key);
+  expect(JSON.stringify(renamed.pageDescriptor?.target)).toBe(before);
   wrapper.unmount();
 });
