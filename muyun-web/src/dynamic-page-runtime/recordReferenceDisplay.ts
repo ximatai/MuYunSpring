@@ -1,13 +1,16 @@
+import { platformLanguageContext } from '@muyun/web-core';
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import type { ReferencePickerCandidate } from '@muyun/platform-components';
 import { referencePickerDisplayTitle } from '@muyun/platform-components';
 
 /** Editor-owned display observations; never candidates, write inputs or permission. */
 export function createRecordReferenceDisplay(
-  form: Pick<RecordFormDraftAccess, 'editingRecord' | 'referencePickerConfigs'>,
+  form: Pick<RecordFormDraftAccess, 'editingRecord' | 'referencePickerConfigs' | 'language'>,
   sessionKey: () => unknown,
 ) {
-  const displays = new Map<string, { key: string; display: string }>();
+  const language = form.language ?? platformLanguageContext;
+  const displays = new Map<string, { key: string; names: readonly string[] }>();
+  const format = (names: readonly string[]) => names.join(language.t('platform.list.separator', '、'));
   const key = (fieldName: string) =>
     JSON.stringify([
       sessionKey(),
@@ -27,26 +30,25 @@ export function createRecordReferenceDisplay(
         !ids.length ||
         selected.some(
           (candidate) =>
-            !candidate ||
-            !candidate.title.trim() ||
-            candidate.identifierFallback ||
-            candidate.unavailable ||
-            candidate.title === candidate.id,
+            !candidate || !candidate.title.trim() || candidate.identifierFallback || candidate.unavailable,
         )
       ) {
         displays.delete(fieldName);
         return;
       }
-      const display = selected.map((candidate) => referencePickerDisplayTitle(candidate!)).join('、');
-      if (display.length > 2000) {
+      const names = selected.map((candidate) => referencePickerDisplayTitle(candidate!));
+      if (format(names).length > 2000) {
         displays.delete(fieldName);
         return;
       }
-      displays.set(fieldName, { key: key(fieldName), display });
+      displays.set(fieldName, { key: key(fieldName), names });
     },
     current(fieldName: string): string | undefined {
       const observed = displays.get(fieldName);
-      if (observed?.key === key(fieldName)) return observed.display;
+      if (observed?.key === key(fieldName)) {
+        const display = format(observed.names);
+        return display.length <= 2000 ? display : undefined;
+      }
       displays.delete(fieldName);
       return undefined;
     },

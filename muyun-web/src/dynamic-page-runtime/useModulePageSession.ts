@@ -3299,6 +3299,7 @@ export function useModulePageSession(
 
   const draftReferenceDisplay = createRecordReferenceDisplay(
     {
+      language,
       get editingRecord() {
         return editingRecord.value;
       },

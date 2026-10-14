@@ -1,3 +1,4 @@
+import { createRecordReferenceDisplay } from '@/dynamic-page-runtime/recordReferenceDisplay';
 import { createLanguageContext } from '@/web-core';
 import { recordFormAssistantFacts } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import { expect, it, vi } from 'vitest';
@@ -242,4 +243,35 @@ it('uses the owning form language for live and explicit reads without changing f
   expect(resolve).toHaveBeenCalledOnce();
   expect(view.editingRecord?.productId).toBe('product-id');
   expect(view.updateDraftFields).not.toHaveBeenCalled();
+});
+
+it('formats observed candidate names in the owning language for assistant live facts without querying or editing', () => {
+  const { view, searchPage } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const form = { ...view, language };
+  form.editingRecord!.productId = ['product-id', 'A001'];
+  const display = createRecordReferenceDisplay(form, form.contextRevision);
+  form.referenceDisplay = display.current;
+  const candidates = [
+    { id: 'product-id', title: 'Alice', affectPatch: { unitPrice: '99' } },
+    { id: 'A001', title: 'A001' },
+  ];
+  display.observe('productId', candidates);
+  const current = () =>
+    recordFormAssistantFacts(form).fields.find((field) => field.fieldName === 'productId')!.currentValue;
+  expect(current()).toBe('Alice, A001');
+  candidates[0]!.title = 'Mutated';
+  language.setLanguage('zh-CN');
+  expect(current()).toBe('Alice、A001');
+  language.setLanguage('en');
+  expect(current()).toBe('Alice, A001');
+  expect(searchPage).not.toHaveBeenCalled();
+  expect(form.referencePickerConfigs.productId!.provider!.resolve).not.toHaveBeenCalled();
+  expect(form.editingRecord).toEqual({ quantity: '1', unitPrice: '8.80', productId: ['product-id', 'A001'] });
+  expect(form.updateDraftFields).not.toHaveBeenCalled();
+  display.observe('productId', [
+    { id: 'product-id', title: 'Alice' },
+    { id: 'A001', title: 'A001', identifierFallback: true },
+  ]);
+  expect(current()).toBe('Selected (verify name when needed)');
 });
