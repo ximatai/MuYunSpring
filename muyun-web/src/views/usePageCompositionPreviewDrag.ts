@@ -982,19 +982,17 @@ export function usePageCompositionPreviewDrag(
                   '不能放置在此处',
                 )
               : hovered.value.kind === 'node'
-                ? language.t(
-                    'platform.screen.usePageCompositionPreviewDrag.place-valuevalue',
-                    '放置：{value1}{value2}',
-                    {
-                      value1: hovered.value.node.title,
-                      value2:
-                        hovered.value.position === 'before'
-                          ? language.t('platform.screen.UiTree.before', '之前')
-                          : hovered.value.position === 'after'
-                            ? language.t('platform.screen.UiTree.after', '之后')
-                            : language.t('platform.screen.UiTree.inside', '内部'),
-                    },
-                  )
+                ? hovered.value.position === 'before'
+                  ? language.t('platform.page.drag.place-before', '放置：{title}之前', {
+                      title: hovered.value.node.title,
+                    })
+                  : hovered.value.position === 'after'
+                    ? language.t('platform.page.drag.place-after', '放置：{title}之后', {
+                        title: hovered.value.node.title,
+                      })
+                    : language.t('platform.page.drag.place-inside', '放置：{title}内部', {
+                        title: hovered.value.node.title,
+                      })
                 : '',
           }
         : undefined,

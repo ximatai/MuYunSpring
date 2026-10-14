@@ -2330,7 +2330,6 @@
       "platform.screen.usePageCompositionPreviewDrag.drag-value": "拖动{value1}",
       "platform.screen.usePageCompositionPreviewDrag.drag-value-space-to-start-arrow-keys-to-position-enter": "拖动{value1}；空格开始，方向键定位，回车放置，Esc 取消",
       "platform.screen.usePageCompositionPreviewDrag.cannot-place-here": "不能放置在此处",
-      "platform.screen.usePageCompositionPreviewDrag.place-valuevalue": "放置：{value1}{value2}",
       "platform.screen.usePageCompositionActionPreviewDrag.action-area": "动作区域",
       "platform.screen.PageQuerySummaryEditor.numeric-total": "数值合计",
       "platform.screen.PageQuerySummaryEditor.business-metric": "业务指标",
@@ -2365,7 +2364,10 @@
       "platform.page.radio.loading": "正在读取字典候选",
       "platform.page.radio.hierarchy-unavailable": "层级字典不能使用 radio，请改用下拉或弹框",
       "platform.page.radio.too-many-options": "当前有 {count} 个启用候选，radio 最多支持 {maximum} 个",
-      "platform.page.composition.list": "列表"
+      "platform.page.composition.list": "列表",
+      "platform.page.drag.place-before": "放置：{title}之前",
+      "platform.page.drag.place-after": "放置：{title}之后",
+      "platform.page.drag.place-inside": "放置：{title}内部"
     }
   },
   "en": {
@@ -4700,7 +4702,6 @@
       "platform.screen.usePageCompositionPreviewDrag.drag-value": "Drag {value1}",
       "platform.screen.usePageCompositionPreviewDrag.drag-value-space-to-start-arrow-keys-to-position-enter": "Drag {value1}; Space to start, arrow keys to position, Enter to place, Esc to cancel",
       "platform.screen.usePageCompositionPreviewDrag.cannot-place-here": "Cannot place here",
-      "platform.screen.usePageCompositionPreviewDrag.place-valuevalue": "Place: {value1}{value2}",
       "platform.screen.usePageCompositionActionPreviewDrag.action-area": "Action area",
       "platform.screen.PageQuerySummaryEditor.numeric-total": "Numeric total",
       "platform.screen.PageQuerySummaryEditor.business-metric": "Business metric",
@@ -4735,7 +4736,10 @@
       "platform.page.radio.loading": "Loading dictionary options",
       "platform.page.radio.hierarchy-unavailable": "Hierarchical dictionaries cannot use radio; use a dropdown or dialog",
       "platform.page.radio.too-many-options": "There are {count} enabled options; radio supports at most {maximum}",
-      "platform.page.composition.list": "List"
+      "platform.page.composition.list": "List",
+      "platform.page.drag.place-before": "Place before {title}",
+      "platform.page.drag.place-after": "Place after {title}",
+      "platform.page.drag.place-inside": "Place inside {title}"
     }
   },
   "fr": {
