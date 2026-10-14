@@ -87,7 +87,8 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
     }
 
     private static String sourceObjectId(String sourceId, String prefix) {
-        if (sourceId == null || !sourceId.startsWith(prefix) || !sourceId.endsWith("/title")) return null;
+        if (sourceId == null || sourceId.length() <= prefix.length() + "/title".length() ||
+                !sourceId.startsWith(prefix) || !sourceId.endsWith("/title")) return null;
         String encoded = sourceId.substring(prefix.length(), sourceId.length() - "/title".length());
         if (encoded.isBlank() || encoded.contains("/")) return null;
         String id = encoded.replace("~1", "/").replace("~0", "~");

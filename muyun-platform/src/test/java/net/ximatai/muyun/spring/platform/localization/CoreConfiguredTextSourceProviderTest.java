@@ -68,6 +68,19 @@ class CoreConfiguredTextSourceProviderTest {
         verify(dictionaries).select(item.getId()); verifyNoMoreInteractions(dictionaries);
     }
 
+    @Test void rejectsOverlappingOrNoncanonicalSourceSegmentsWithoutParsingFailures() {
+        var beans = new DefaultListableBeanFactory();
+        var provider = new CoreConfiguredTextSourceProvider(beans.getBeanProvider(net.ximatai.muyun.spring.platform.menu.MenuService.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService.class),
+                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), new ObjectMapper(),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
+        try (var scope = TenantContext.system("invalid source maintenance")) {
+            for (String id : List.of("config/menu/title", "config/menu//title", "config/menu/a~2/title", "config/menu/a/b/title"))
+                assertThat(provider.findCurrentSource("platform.menu", id)).isEmpty();
+            assertThat(provider.findCurrentSource("platform.dictionary_item", "config/dictionary/item/title")).isEmpty();
+        }
+    }
+
     @Test void defaultSingleLookupRejectsConflictingOriginalsBeforeChoosingAVersion() {
         ConfiguredTextSourceProvider provider = alias -> List.of(
                 ConfigurationTextSources.menuTitle("menu", "旧菜单"), ConfigurationTextSources.menuTitle("menu", "新菜单"));
