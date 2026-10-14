@@ -243,7 +243,7 @@ function branchConvergenceSummary(branch: WorkflowNode) {
   return `${labels[mode]}${mode === 'ratio' ? ` ${convergence?.convergeRatio ?? 100}%` : ''}`;
 }
 useWorkspaceViewUnsavedState(
-  workflowLanguage.t('platform.workflow-config.configuration', '流程配置'),
+  () => workflowLanguage.t('platform.workflow-config.configuration', '流程配置'),
   () => dirty.value || selectionDirty.value,
   () => busy.value,
 );

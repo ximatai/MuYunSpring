@@ -27,6 +27,7 @@ import {
   useModuleContext,
   useAssistantSurfaceHost,
   createAssistantTurnRequester,
+  useLanguageContext,
 } from '@muyun/web-core';
 import {
   createBusinessRuleAssistantSurface,
@@ -90,6 +91,8 @@ import {
 import { useBusinessRuleWorkspace } from './businessRuleWorkspace';
 import MetadataSourceTree from './MetadataSourceTree.vue';
 import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'BusinessRuleGovernanceSurface' });
 
@@ -491,7 +494,7 @@ const locatorFieldOptions = computed(() => [
   ...editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
 ]);
 useWorkspaceViewUnsavedState(
-  '业务规则',
+  () => language.t('platform.governance.tab.rules', '业务规则'),
   () => (!sharedWorkspace && hasUnsavedChanges.value) || !!newRuleDraft.value,
   () => applying.value,
 );

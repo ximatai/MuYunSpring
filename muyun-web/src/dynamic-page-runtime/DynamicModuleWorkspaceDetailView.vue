@@ -61,7 +61,7 @@ const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, savin
 const workflowInteraction = ref({ editing: false, busy: false, dirty: false });
 const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
 useModulePageUnsavedState(
-  '记录详情',
+  () => language.t('platform.screen.useModulePageSession.record-details', '记录详情'),
   () => isDirty.value || referenceRecordDetailInteraction.value.dirty,
   () => saving.value || togglingEnabled.value || referenceRecordDetailInteraction.value.busy,
 );

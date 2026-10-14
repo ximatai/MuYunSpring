@@ -19,57 +19,59 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
       let modal: ReturnType<typeof confirm>;
       let stopLanguageWatch: (() => void) | undefined;
       try {
+        const display = () => ({ ...options, ...options.presentation?.() });
+        const content = () => {
+          const shown = display();
+          return h('div', [
+            shown.content ? h('p', { style: { whiteSpace: 'pre-line' } }, shown.content) : undefined,
+            requiredText
+              ? h(
+                  'p',
+                  language.t('platform.confirm.required-text', '请输入「{text}」以确认此操作。', {
+                    text: requiredText,
+                  }),
+                )
+              : undefined,
+            requiredText
+              ? h(Input, {
+                  value: typedText,
+                  placeholder: requiredText,
+                  autofocus: true,
+                  'onUpdate:value': (value: string) => {
+                    typedText = value;
+                    modal.update({
+                      okButtonProps: {
+                        danger: options.danger,
+                        disabled: !matchesRequiredText(requiredText, typedText),
+                      },
+                    });
+                  },
+                })
+              : undefined,
+            shown.details
+              ? h('details', [
+                  h('summary', shown.details.title),
+                  h(
+                    'div',
+                    { style: { whiteSpace: 'pre-line', maxHeight: '45vh', overflow: 'auto' } },
+                    shown.details.lines.join('\n'),
+                  ),
+                ])
+              : undefined,
+          ]);
+        };
+        const modalPresentation = () => {
+          const shown = display();
+          return {
+            title: shown.title,
+            content: requiredText || shown.details ? content : shown.content,
+            okText: shown.okText ?? language.t('platform.confirm.confirm', '确认'),
+            cancelText: shown.cancelText ?? language.t('platform.confirm.cancel', '取消'),
+          };
+        };
         modal = confirm({
-          title: options.title,
-          content:
-            requiredText || options.details
-              ? () =>
-                  h('div', [
-                    options.content
-                      ? h('p', { style: { whiteSpace: 'pre-line' } }, options.content)
-                      : undefined,
-                    requiredText
-                      ? h(
-                          'p',
-                          language.t('platform.confirm.required-text', '请输入「{text}」以确认此操作。', {
-                            text: requiredText,
-                          }),
-                        )
-                      : undefined,
-                    requiredText
-                      ? h(Input, {
-                          value: typedText,
-                          placeholder: requiredText,
-                          autofocus: true,
-                          'onUpdate:value': (value: string) => {
-                            typedText = value;
-                            modal.update({
-                              okButtonProps: {
-                                danger: options.danger,
-                                disabled: !matchesRequiredText(requiredText, typedText),
-                              },
-                            });
-                          },
-                        })
-                      : undefined,
-                    options.details
-                      ? h('details', [
-                          h('summary', options.details.title),
-                          h(
-                            'div',
-                            { style: { whiteSpace: 'pre-line', maxHeight: '45vh', overflow: 'auto' } },
-                            options.details.lines.join('\n'),
-                          ),
-                        ])
-                      : undefined,
-                  ])
-              : options.content,
-          okText: options.okText ?? language.t('platform.confirm.confirm', '确认'),
-          cancelText: options.cancelText ?? language.t('platform.confirm.cancel', '取消'),
-          okButtonProps: {
-            danger: options.danger,
-            disabled: Boolean(requiredText),
-          },
+          ...modalPresentation(),
+          okButtonProps: { danger: options.danger, disabled: Boolean(requiredText) },
           onOk: () => {
             if (!matchesRequiredText(requiredText, typedText)) {
               return Promise.reject(new Error('Confirmation text does not match'));
@@ -82,12 +84,7 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
             overlay.release();
           },
         });
-        stopLanguageWatch = watch(language.revision, () =>
-          modal.update({
-            okText: options.okText ?? language.t('platform.confirm.confirm', '确认'),
-            cancelText: options.cancelText ?? language.t('platform.confirm.cancel', '取消'),
-          }),
-        );
+        stopLanguageWatch = watch(language.revision, () => modal.update(modalPresentation()));
       } catch (cause) {
         stopLanguageWatch?.();
         overlay.release();

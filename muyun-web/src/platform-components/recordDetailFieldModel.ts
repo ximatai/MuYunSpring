@@ -70,7 +70,7 @@ export function resolveRecordDetailDisplayValue(
           ? presentationLabel(item.title, item.titleText, options.language ?? platformLanguageContext)
           : code;
       })
-      .join('、');
+      .join(language.t('platform.list.separator', '、'));
   }
   const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
@@ -114,14 +114,14 @@ export function resolveRecordDetailDisplayValue(
       .map(referenceSummaryLabel)
       .filter((label): label is string => Boolean(label));
     if (summaryLabels.length > 0) {
-      return summaryLabels.join('、');
+      return summaryLabels.join(language.t('platform.list.separator', '、'));
     }
     const titles = referenceTitle.filter(
       (title): title is string | number | boolean =>
         typeof title === 'string' || typeof title === 'number' || typeof title === 'boolean',
     );
     if (titles.length > 0) {
-      return titles.join('、');
+      return titles.join(language.t('platform.list.separator', '、'));
     }
   }
   if (isPresent(referenceTitle)) {

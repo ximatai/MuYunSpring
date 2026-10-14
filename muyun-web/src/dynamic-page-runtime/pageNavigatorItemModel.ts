@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { RecordExplorerItemDescriptor } from '@muyun/platform-components';
 import type { RecordInlineAction } from '@muyun/web-contracts';
 
@@ -15,8 +16,15 @@ export function navigatorItemOf(
   secondaryField: string | undefined,
   manageable: boolean,
   actionsOf: ((record: { id?: string }) => RecordInlineAction[]) | undefined,
+  language: LanguageContext = platformLanguageContext,
 ): RecordExplorerItemDescriptor {
-  const title = String(record.title ?? record.name ?? record.code ?? record.id ?? '未命名记录');
+  const title = String(
+    record.title ??
+      record.name ??
+      record.code ??
+      record.id ??
+      language.t('platform.record.unnamed', '未命名记录'),
+  );
   const secondary =
     secondaryField == null
       ? (record.code ?? record.alias)

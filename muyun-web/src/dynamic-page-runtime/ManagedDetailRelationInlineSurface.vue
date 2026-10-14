@@ -14,7 +14,7 @@ import {
   type RecordFormDraftAccess,
 } from './recordFormDraftAccess';
 import { recordMutationPayload } from './recordMutationPayload';
-import { recordFieldDisplay } from './recordDisplayProjection';
+import { recordReferenceDisplay } from './recordDisplayProjection';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
   RecordFormFields,
@@ -718,8 +718,7 @@ function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
       const record = displayRecord(row);
       const field = resolveRecordFormFieldState(fieldName, { fields: formFields.value, record });
       if (!field.reference) return undefined;
-      const display = recordFieldDisplay(field, record);
-      return display === '已选择（名称暂不可用）' ? undefined : display;
+      return recordReferenceDisplay(field, record, false, language);
     },
     contextRevision: () => String(revision.value),
     updateDraftFields(changes, source) {

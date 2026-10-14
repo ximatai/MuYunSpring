@@ -11,7 +11,7 @@ import {
 } from '@muyun/platform-components';
 
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { pageActionEntryDescription, pageActionEntryTitle } from '@muyun/web-core';
+import { pageActionEntryDescription, pageActionEntryTitle, useLanguageContext } from '@muyun/web-core';
 import {
   UiButton,
   UiTree,
@@ -34,6 +34,9 @@ import PageCompositionTree from './PageCompositionTree.vue';
 import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from './pageCompositionDragPayload';
 
 import type { PageCompositionSession } from './pageCompositionSession';
+
+const language = useLanguageContext();
+
 const props = withDefaults(defineProps<{ session: PageCompositionSession; retained?: boolean }>(), {
   retained: false,
 });
@@ -180,7 +183,7 @@ const {
   candidateChanges,
 } = props.session;
 useWorkspaceViewUnsavedState(
-  '页面配置',
+  () => language.t('platform.governance.tab.ui', '页面配置'),
   () => !props.retained && props.session.hasUnsavedChanges.value,
   () => props.session.isMutating.value,
 );

@@ -8,7 +8,13 @@ import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
 } from '@/dynamic-page-runtime/modulePageAssistantSurface';
-import { configureModuleContext, createHttpClient, createAssistantSurfaceRegistry } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createHttpClient,
+  createAssistantSurfaceRegistry,
+  createLanguageContext,
+  provideLanguageContext,
+} from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
@@ -38,6 +44,125 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModulePageHostSession;
     delete config.global.stubs.ModulePageHostRuntime;
     delete config.global.stubs.ModuleHttpProvider;
+  });
+
+  it('switches an independently scoped draft between English and Chinese without changing its data or repeating requests', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      calls.push(path);
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'dynamic',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'crm.customer',
+            defaultEditor: {
+              fields: [
+                {
+                  fieldRef: { fieldName: 'name' },
+                  label: '原始业务字段',
+                  visible: { constant: true },
+                  valueType: 'STRING',
+                },
+                { fieldRef: { fieldName: 'organizationId' }, visible: { constant: true } },
+                {
+                  fieldRef: { fieldName: 'departmentId' },
+                  visible: { constant: true },
+                  reference: {
+                    targetModuleAlias: 'iam.department',
+                    cardinality: 'ONE',
+                    candidateDelivery: 'SOURCE_FIELD',
+                    pickerMode: 'TREE',
+                    candidateDependencies: [{ sourceField: 'organizationId', targetField: 'organizationId' }],
+                    resolvePath: '/crm.customer/references/departmentId/resolve',
+                  },
+                },
+              ],
+            },
+            page: { template: 'FLAT_MANAGEMENT', navigator: { levels: [] }, detail: {}, explorer: {} },
+          },
+        });
+      return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0 });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const Host = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(ModulePageHost, {
+            descriptor: {
+              pageType: 'dynamic-module',
+              openMode: 'dynamic-runner',
+              hostType: 'module-page-host',
+              title: '客户甲',
+              tabPolicy: { identity: 'by-menu' },
+              target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+            },
+          });
+      },
+    });
+    const wrapper = mount(Host, {
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordQueryListPanel: true,
+          RecordFormSurface: true,
+        },
+      },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(await session.createRootRecord()).toBe(true);
+    session.updateDraftFields(
+      [
+        { fieldName: 'name', value: '未保存业务值' },
+        { fieldName: 'organizationId', value: 'organization-1' },
+      ],
+      'user',
+    );
+    await flushPromises();
+    expect(session.detailTitle).toBe('Create 客户甲');
+    expect(session.recordCreationState()).toMatchObject({
+      ready: false,
+      reason: 'DRAFT_ACTIVE',
+      message: expect.stringContaining('An unsaved draft is open'),
+    });
+    const draft = { ...session.editingRecord };
+    const reference = session.referencePickerConfigs.departmentId!;
+    expect(reference.scopedTree?.title).toBe('Select department');
+    const referenceProvider = reference.provider;
+    const scopedProvider = reference.scopedTree?.provider;
+    const requestCount = calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(session.detailTitle).toBe('新建客户甲');
+    expect(session.recordCreationState()).toMatchObject({
+      ready: false,
+      reason: 'DRAFT_ACTIVE',
+      message: expect.stringContaining('可继续编辑'),
+    });
+    expect(session.editingRecord).toEqual(draft);
+    expect(session.formFields.get('name')?.label).toBe('原始业务字段');
+    expect(session.referencePickerConfigs.departmentId?.provider).toBe(referenceProvider);
+    expect(session.referencePickerConfigs.departmentId?.scopedTree?.provider).toBe(scopedProvider);
+    expect(session.referencePickerConfigs.departmentId?.scopedTree?.title).toBe('选择所属部门');
+    // Language refresh is allowed to read text bindings, never business records or candidates.
+    expect(
+      calls
+        .slice(requestCount)
+        .filter(
+          (path) => !/^\/platform\.module\/[^/]+\/(?:reference-)?context$/.test(new URL(path).pathname),
+        ),
+    ).toEqual([]);
+    expect(calls.some((path) => path.endsWith('/create'))).toBe(false);
+    wrapper.unmount();
   });
 
   it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'])(
@@ -2147,7 +2272,8 @@ describe('ModulePageHost', () => {
 
       await flushPromises();
 
-      expect(wrapper.text()).toContain('页面入口不可用');
+      expect(wrapper.text()).toContain('系统异常，操作未完成');
+      expect(wrapper.text()).not.toContain('页面入口不可用');
       expect(wrapper.find('management-workspace-stub').exists()).toBe(false);
       expect(wrapper.find('tree-record-explorer-stub').exists()).toBe(false);
       expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);

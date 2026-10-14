@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@/web-core';
 import { afterEach, expect, it } from 'vitest';
 import {
   clearWorkspaceViewUnsavedState,
@@ -64,4 +65,37 @@ it('keeps identically named panels independent when one unmounts', () => {
   expect(workspaceViewBusyStateSources(pageKey)).toEqual([]);
   unregisterFirst();
   expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+});
+
+it('reads current localized source names without replacing or dropping draft registrations', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const source = () => language.t('platform.screen.useModulePageSession.record-details', '记录详情');
+  const unregister = registerWorkspaceViewUnsavedState(
+    pageKey,
+    source(),
+    () => true,
+    () => true,
+    source,
+  );
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual(['Record details']);
+  language.setLanguage('zh-CN');
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual(['记录详情']);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual(['记录详情']);
+  unregister();
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual([]);
+});
+
+it('retains draft and busy protection when a localized source title fails', () => {
+  registerWorkspaceViewUnsavedState(
+    pageKey,
+    'original source',
+    () => true,
+    () => true,
+    () => {
+      throw new Error('display failed');
+    },
+  );
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual(['original source']);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual(['original source']);
 });

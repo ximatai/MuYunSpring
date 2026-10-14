@@ -467,7 +467,7 @@ const policyDirty = computed(
   () => delegationOpen.value && JSON.stringify(policyDraft.value) !== policyInitial.value,
 );
 useWorkspaceViewUnsavedState(
-  '个人委托',
+  () => workflowLanguage.t('platform.unsaved-source.WorkflowWorkbenchView', '个人委托'),
   () => policyDirty.value,
   () => delegationBusy.value,
 );

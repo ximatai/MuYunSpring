@@ -1083,7 +1083,7 @@ function resolveRow(record: QueryListRecord): QueryListRow {
   const configuredActions = rowActions(record)
     .map((action) => rowActionWithState(record, action))
     .map((action) => recordActionAvailabilityState(action, recordId));
-  const actions = resolveRecordActions(props.context, configuredActions, false, recordId);
+  const actions = resolveRecordActions(props.context, configuredActions, false, recordId, language);
   const primaryActions = actions.filter((action, index) => index === 0 || action.pinned === true);
   const secondaryActions = actions.filter((action, index) => index !== 0 && action.pinned !== true);
   return {

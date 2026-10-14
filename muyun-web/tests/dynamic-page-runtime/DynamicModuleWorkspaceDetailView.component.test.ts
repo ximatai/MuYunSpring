@@ -71,7 +71,12 @@ it('reports nested reference record edits and mutations through the workspace st
   });
   await flushPromises();
 
-  expect(registerUnsavedState).toHaveBeenCalledWith('记录详情', expect.any(Function), expect.any(Function));
+  expect(registerUnsavedState).toHaveBeenCalledWith(
+    '记录详情',
+    expect.any(Function),
+    expect.any(Function),
+    expect.any(Function),
+  );
   expect(reportedDirty?.()).toBe(false);
   expect(reportedBusy?.()).toBe(false);
 

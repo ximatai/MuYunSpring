@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ModuleContext } from '@muyun/web-core';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
 
@@ -44,6 +45,7 @@ export function resolveRecordActions(
   actions: RecordActionItem[],
   defaultLoading = false,
   recordId?: string,
+  language: LanguageContext = platformLanguageContext,
 ): ResolvedRecordActionItem[] {
   return actions.flatMap((action, index) => {
     if (action.visible === false) {
@@ -75,7 +77,14 @@ export function resolveRecordActions(
         key: action.key ?? action.actionCode ?? `action-${index}`,
         iconName: action.iconName ?? defaultActionIcon(action),
         authorized,
-        reason: actionState?.reason ?? (awaitingAuthorizationRecord ? '请先选择作用域记录' : undefined),
+        reason:
+          actionState?.reason ??
+          (awaitingAuthorizationRecord
+            ? language.t(
+                'platform.screen.recordActionBarModel.select-a-scope-record-first',
+                '请先选择作用域记录',
+              )
+            : undefined),
         disabled: loading || action.disabled === true || !authorized,
         loading,
       },

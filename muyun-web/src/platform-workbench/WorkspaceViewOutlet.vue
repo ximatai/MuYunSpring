@@ -18,8 +18,13 @@ const ownerPageKey = tabKeyOf(props.descriptor);
 const navigation = useWorkbenchNavigation();
 const ownedRegistrations = new Set<() => void>();
 
-function registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
-  const unregister = registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty, isBusy);
+function registerUnsavedState(
+  source: string,
+  isDirty: () => boolean,
+  isBusy?: () => boolean,
+  sourceTitle?: () => string,
+) {
+  const unregister = registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty, isBusy, sourceTitle);
   const release = () => {
     unregister();
     ownedRegistrations.delete(release);

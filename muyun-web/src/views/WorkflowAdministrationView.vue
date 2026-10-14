@@ -459,7 +459,8 @@ function chooseOperation(code: string, taskId?: string) {
   reason.value = '';
 }
 useWorkspaceViewUnsavedState(
-  '工作流运维',
+  () =>
+    workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-administration', '工作流运维'),
   () => Boolean(pending.value && reason.value.trim()),
   () => busy.value,
 );

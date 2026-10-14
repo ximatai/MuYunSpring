@@ -8,8 +8,10 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { useModuleContext } from '@muyun/web-core';
+import { useModuleContext, useLanguageContext } from '@muyun/web-core';
 import { UiActionButton, UiCheckbox, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModuleExperienceProfileOverview' });
 
@@ -154,7 +156,10 @@ const isDirty = computed(
     Object.keys(capabilitySelections.value).length > 0 ||
     dataScopeChanged.value,
 );
-useWorkspaceViewUnsavedState('业务呈现方式', () => isDirty.value);
+useWorkspaceViewUnsavedState(
+  () => language.t('platform.unsaved-source.ModuleExperienceProfileOverview', '业务呈现方式'),
+  () => isDirty.value,
+);
 const capabilityGroups = computed(() => {
   const facts = profile.value?.mode === selectedMode.value ? profile.value.capabilities : undefined;
   const fallback = fallbackCapabilities[selectedMode.value];

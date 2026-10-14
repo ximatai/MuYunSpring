@@ -187,7 +187,7 @@ const handleMetadataModelDrop = binding('handleMetadataModelDrop');
 const metadataFieldPropertyLabel = binding('metadataFieldPropertyLabel');
 const fieldSpecDisplayLabel = binding('fieldSpecDisplayLabel');
 useWorkspaceViewUnsavedState(
-  '元数据',
+  () => language.t('platform.governance.tab.metadata', '元数据'),
   () => !workspace && session.value.dirty.value,
   () => session.value.saving.value,
 );

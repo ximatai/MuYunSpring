@@ -86,7 +86,7 @@ const resolvedActions = computed(() => {
           : action,
       )
     : props.actions;
-  return resolveRecordActions(props.context, actions, props.loading, props.recordId);
+  return resolveRecordActions(props.context, actions, props.loading, props.recordId, language);
 });
 
 function handleClick(action: RecordActionItem, event: MouseEvent) {

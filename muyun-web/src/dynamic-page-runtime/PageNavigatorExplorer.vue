@@ -62,6 +62,7 @@ function itemOf(record: NavigatorItemRecord) {
     props.level.descriptor.secondaryField,
     managementAvailable.value,
     props.actionsOf,
+    language,
   );
 }
 </script>

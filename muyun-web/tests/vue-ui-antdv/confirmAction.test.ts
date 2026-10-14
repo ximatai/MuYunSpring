@@ -75,7 +75,9 @@ it('uses consumer language for prompts while retaining the exact business-title 
   assert.equal(updates.at(-1)?.okButtonProps?.disabled, true);
   language.setLanguage('zh-CN');
   await nextTick();
-  assert.deepEqual(updates.at(-1), { okText: '确认', cancelText: '取消' });
+  assert.equal(updates.at(-1)?.okText, '确认');
+  assert.equal(updates.at(-1)?.cancelText, '取消');
+  assert.equal(updates.at(-1)?.title, 'Delete record');
   updateValue('原始记录甲');
   assert.equal(updates.at(-1)?.okButtonProps?.disabled, false);
   options.onOk?.();

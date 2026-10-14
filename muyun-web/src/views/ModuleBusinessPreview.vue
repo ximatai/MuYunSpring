@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue';
 import { ModulePageHost } from '@muyun/dynamic-page-runtime';
-import { useModuleContext, type ModuleRuntimeContext } from '@muyun/web-core';
+import { useModuleContext, type ModuleRuntimeContext, useLanguageContext } from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { UiButton, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 const props = defineProps<{
   moduleAlias: string;
@@ -19,7 +21,7 @@ const generation = ref(0);
 const interaction = ref({ editing: false, busy: false, dirty: false });
 const reloadBlocked = computed(() => interaction.value.editing || interaction.value.busy);
 useWorkspaceViewUnsavedState(
-  '业务预览',
+  () => language.t('platform.governance.tab.preview', '业务预览'),
   () => interaction.value.dirty,
   () => interaction.value.busy,
 );

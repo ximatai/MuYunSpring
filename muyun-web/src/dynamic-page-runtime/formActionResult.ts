@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { normalizeModuleRecord } from '@muyun/web-core';
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -16,14 +17,35 @@ export function hasFormActionRecordPatch(response: unknown): boolean {
 }
 
 /** Only an explicit form result may update an unsaved draft. Ordinary action data is not a patch. */
-export function formActionResult(response: unknown): {
+export function formActionResult(
+  response: unknown,
+  language: LanguageContext = platformLanguageContext,
+): {
   recordPatch: Record<string, unknown>;
   message?: string;
 } {
-  if (!object(response)) throw new Error('表单动作未返回有效结果');
+  if (!object(response))
+    throw new Error(
+      language.t(
+        'platform.screen.formActionResult.the-form-action-returned-an-invalid-result',
+        '表单动作未返回有效结果',
+      ),
+    );
   const value = formActionValue(response);
-  if (!object(value) || !('recordPatch' in value)) throw new Error('表单动作未返回字段回填协议');
-  if (value.recordPatch != null && !object(value.recordPatch)) throw new Error('表单动作回填格式无效');
+  if (!object(value) || !('recordPatch' in value))
+    throw new Error(
+      language.t(
+        'platform.screen.formActionResult.the-form-action-did-not-return-a-field-patch-contract',
+        '表单动作未返回字段回填协议',
+      ),
+    );
+  if (value.recordPatch != null && !object(value.recordPatch))
+    throw new Error(
+      language.t(
+        'platform.screen.formActionResult.the-form-action-returned-an-invalid-field-patch',
+        '表单动作回填格式无效',
+      ),
+    );
   const patch = Object.fromEntries(
     Object.entries(normalizeModuleRecord(value.recordPatch ?? {})).filter(
       ([key]) => !['id', 'version', '__proto__', 'constructor', 'prototype'].includes(key),

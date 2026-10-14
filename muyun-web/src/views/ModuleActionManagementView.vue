@@ -88,7 +88,10 @@ const hasUnsavedChanges = computed(() => {
     : emptyActionDraft(props.moduleAlias);
   return JSON.stringify(draft.value) !== JSON.stringify(baseline);
 });
-useWorkspaceViewUnsavedState('模块动作', () => hasUnsavedChanges.value);
+useWorkspaceViewUnsavedState(
+  () => language.t('platform.unsaved-source.ModuleActionManagementView', '模块动作'),
+  () => hasUnsavedChanges.value,
+);
 const canSort = computed(() => actionContext.can('sort') === true);
 const sortDisabled = computed(
   () => mode.value !== 'view' || saving.value || Boolean(searchKeyword.value.trim()),

@@ -163,7 +163,7 @@ function matchesKeyword(record: RecordPickerRecord, value: string) {
 function isDisabled(record: RecordPickerRecord) {
   return (
     record.enabled === false ||
-    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints, language))
   );
 }
 

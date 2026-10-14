@@ -1,4 +1,12 @@
-import { computed, inject, provide, ref, type ComputedRef, type InjectionKey } from 'vue';
+import {
+  computed,
+  hasInjectionContext,
+  inject,
+  provide,
+  ref,
+  type ComputedRef,
+  type InjectionKey,
+} from 'vue';
 import packs from './locales/languagePacks.json';
 import { withHttpHeaders, type HttpClient, type StreamingHttpClient } from './http';
 
@@ -198,7 +206,7 @@ export function provideLanguageContext(context: LanguageContext) {
   provide(LANGUAGE_CONTEXT, context);
 }
 export function useLanguageContext() {
-  return inject(LANGUAGE_CONTEXT, platformLanguageContext);
+  return hasInjectionContext() ? inject(LANGUAGE_CONTEXT, platformLanguageContext) : platformLanguageContext;
 }
 export function withLanguageContext(
   client: StreamingHttpClient,

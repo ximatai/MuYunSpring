@@ -747,7 +747,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /registerRoleAuthorizationWorkspaceHandoffRecipient/);
   assert.match(roleAuthorizationViewSource, /onPromoted: dismissPromotedDrawer/);
   assert.match(roleAuthorizationViewSource, /onPromotionRejected/);
-  assert.match(roleAuthorizationViewSource, /useWorkspaceViewUnsavedState\(\s*'角色授权'/);
+  assert.match(
+    roleAuthorizationViewSource,
+    /useWorkspaceViewUnsavedState\(\s*\(\) => language\.t\([^)]*'角色授权'/,
+  );
   assert.match(roleAuthorizationViewSource, /dismissal: 'guarded'/);
   assert.match(roleAuthorizationViewSource, /beforeClose: confirmWorkspaceDismissal/);
   assert.match(roleViewSource, /const roleDetailDirty = computed/);
@@ -757,7 +760,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleViewSource,
     /async function startCreateRole\(\)[\s\S]*roleDraft\.value = createRoleDraft[\s\S]*resetRoleDraftBaseline\(\)/,
   );
-  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*'角色详情'/);
+  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*\(\) => language\.t\([^)]*'角色详情'/);
   assert.match(roleViewSource, /async function selectOrganizationScope[\s\S]*selectedTenant\.value = tenant/);
   assert.match(roleViewSource, /before-close="confirmRoleDetailDismissal"/);
   assert.match(roleAuthorizationViewSource, /UiCheckbox/);
@@ -1051,7 +1054,10 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   );
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
-  assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
+  assert.match(
+    hostSource,
+    /'platform.screen.useModulePageSession.the-value-entry-is-not-supported-by-the-module-page'/,
+  );
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="navigatorExplorerCount \+ tenantScopeExplorerCount"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
@@ -1127,13 +1133,16 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   const moduleActionsSource = readSource('src/dynamic-page-runtime/composables/useModulePageActions.ts');
   assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
   assert.match(hostSource, /useRecycleBinExplorerMode<QueryListRecord>/);
-  assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
+  assert.match(hostSource, /'platform.screen.ManagedDetailRelationSurface.delete-value'/);
   assert.match(hostSource, /useModulePageActions\(\)/);
   assert.match(moduleActionsSource, /handlePlatformActionSuccess\(result,/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, '保存成功'\)/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, '删除成功'\)/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
-  assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*'保存成功'/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*'删除成功'/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*enabling[\s\S]*'已启用'[\s\S]*'已停用'/);
+  assert.match(
+    hostSource,
+    /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action', language \}\)/,
+  );
   assert.notMatch(hostSource, /formViewCode/);
   assert.notMatch(hostSource, /<button/);
   assert.notMatch(hostSource, /@muyun\/vue-ui-antdv/);
@@ -1327,7 +1336,10 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
   assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
-  assert.match(dynamicWorkspaceDetailSource, /useModulePageUnsavedState\(\s*'记录详情'/);
+  assert.match(
+    dynamicWorkspaceDetailSource,
+    /useModulePageUnsavedState\(\s*\(\) => language\.t\([^)]*'记录详情'/,
+  );
   assert.match(dynamicWorkspaceDetailSource, /const \{ record, draft, mode, formSessionKey, isDirty,/);
   assert.match(dynamicWorkspaceDetailSource, /confirmDiscardEditing/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);

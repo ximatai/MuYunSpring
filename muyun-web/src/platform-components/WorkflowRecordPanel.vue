@@ -122,7 +122,7 @@ const dirty = computed(() =>
   ),
 );
 useWorkspaceViewUnsavedState(
-  '审批办理',
+  () => workflowLanguage.t('platform.unsaved-source.WorkflowRecordPanel', '审批办理'),
   () => dirty.value,
   () => busy.value || preparing.value,
 );

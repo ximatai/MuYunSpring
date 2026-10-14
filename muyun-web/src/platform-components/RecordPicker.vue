@@ -205,7 +205,7 @@ function toTreeNode(node: WebTreeNode<RecordPickerRecord>): UiTreeSelectNode {
 function isRecordDisabled(record: RecordPickerRecord) {
   return (
     record.enabled === false ||
-    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints, language))
   );
 }
 function updateValue(value: string | number | (string | number)[] | null) {

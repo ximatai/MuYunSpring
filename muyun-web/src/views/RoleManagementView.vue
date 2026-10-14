@@ -225,7 +225,7 @@ const roleDetailDirty = computed(() => {
   );
 });
 useWorkspaceViewUnsavedState(
-  '角色详情',
+  () => language.t('platform.unsaved-source.RoleManagementView', '角色详情'),
   () => roleDetailDirty.value,
   () => savingRole.value,
 );

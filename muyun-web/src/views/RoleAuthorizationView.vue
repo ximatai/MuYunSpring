@@ -206,7 +206,7 @@ const permissionMatrixDirty = computed(() => {
 });
 const authorizationDirty = computed(() => dataGrantDirty.value || permissionMatrixDirty.value);
 useWorkspaceViewUnsavedState(
-  '角色授权',
+  () => language.t('platform.unsaved-source.RoleAuthorizationView', '角色授权'),
   () => authorizationDirty.value,
   () => saving.value,
 );
