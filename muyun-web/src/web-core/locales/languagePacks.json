@@ -2052,7 +2052,8 @@
       "platform.list.comma-separator": "，",
       "platform.metadata.field-change-with-details": "{action}「{title}」：{details}",
       "platform.metadata.field-change": "{action}「{title}」",
-      "platform.metadata.option-value": "{label}：{value}"
+      "platform.metadata.option-value": "{label}：{value}",
+      "platform.metadata.governance.relation": "关系"
     }
   },
   "en": {
@@ -4109,7 +4110,8 @@
       "platform.list.comma-separator": ", ",
       "platform.metadata.field-change-with-details": "{action} “{title}”: {details}",
       "platform.metadata.field-change": "{action} “{title}”",
-      "platform.metadata.option-value": "{label}: {value}"
+      "platform.metadata.option-value": "{label}: {value}",
+      "platform.metadata.governance.relation": "Relation"
     }
   },
   "fr": {

@@ -3333,6 +3333,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             field.id,
             field.fieldOwnership,
             field.systemManaged,
+            metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value),
           ]),
           proposal: assistantProposal(),
           candidate: candidate && {

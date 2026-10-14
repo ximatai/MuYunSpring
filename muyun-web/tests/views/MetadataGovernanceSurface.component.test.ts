@@ -2651,3 +2651,94 @@ it('relocalizes failed option-directory feedback without repeating reads or chan
   expect(shared.view.choicesError.value).toBe('The option directory failed to load. Cancel and retry.');
   shared.dispose();
 });
+
+it('expires old assistant facts when a formal refresh changes relationship field governance without changing field identity', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  let foreignKey = 'parentId';
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path === '/platform.module/education.exam/metadata-relations/query') {
+      const response = responseFor(options) as { records: Array<Record<string, unknown>> };
+      return {
+        ...response,
+        records: response.records.map((relation) =>
+          relation.id === 'rel-child' ? { ...relation, foreignKey } : relation,
+        ),
+      };
+    }
+    if (options.path === '/platform.metadata/meta-child/fields/query')
+      return {
+        records: [
+          {
+            id: 'parent',
+            fieldName: 'parentId',
+            columnName: 'parent_id',
+            title: '业务父记录',
+            fieldSpecAlias: 'string',
+            fieldOwnership: 'BUSINESS',
+            fieldForm: 'PHYSICAL',
+          },
+        ],
+        pages: 1,
+        totalKnown: true,
+      };
+    return responseFor(options);
+  });
+  const http = { request } as HttpClient;
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  const shared = workspace.session('education.exam');
+  await shared.ensureLoaded();
+  shared.selectRelation('rel-child');
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('governance-page');
+  registry.register({
+    pageInstanceKey: 'governance-page',
+    contextRevision: () => String(shared.contextRevision.value),
+    surface: createMetadataGovernanceAssistantSurface(shared.adapter, vi.fn()),
+  });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      provideMetadataWorkspace(workspace);
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'governance-page' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const originalField = { ...shared.view.state.allFields.value[0]! };
+  expect(shared.view.fieldEditableInSession(originalField)).toBe(false);
+  expect(shared.adapter.editableBasicFieldNames()).not.toContain('parentId');
+  const before = registry.snapshot()!.token;
+  const revision = shared.contextRevision.value;
+  foreignKey = 'otherId';
+  // This is the actual guarded read-state path, which does not toggle loading/workspaceReady.
+  await shared.ensureLoaded(true, (accept) => accept());
+  await flushPromises();
+  expect(shared.view.state.allFields.value[0]).toEqual(originalField);
+  expect(shared.view.fieldEditableInSession(originalField)).toBe(true);
+  expect(shared.adapter.editableBasicFieldNames()).toContain('parentId');
+  expect(shared.contextRevision.value).toBeGreaterThan(revision);
+  expect(registry.snapshot()!.token.contextRevision).not.toBe(before.contextRevision);
+  await expect(
+    registry.invoke(
+      { id: 'stale-governance', code: 'configuration.describe-metadata-model', input: {} },
+      before,
+    ),
+  ).rejects.toThrow('Assistant invocation no longer matches the active page context');
+  const current = registry.snapshot()!.token;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(registry.snapshot()!.token.contextRevision).toBe(current.contextRevision);
+});

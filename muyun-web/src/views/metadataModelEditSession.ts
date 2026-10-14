@@ -569,7 +569,7 @@ export function metadataFieldGovernanceLabel(
       BUSINESS: language.t('platform.screen.metadataModelEditSession.business', '业务'),
       CAPABILITY_DERIVED: language.t('platform.screen.metadataModelEditSession.capability', '能力'),
       PLATFORM_SYSTEM: language.t('platform.screen.metadataModelEditSession.platform', '平台'),
-      RELATION_FOREIGN_KEY: language.t('platform.screen.QueryCriteriaGroupEditor.operator', '关系'),
+      RELATION_FOREIGN_KEY: language.t('platform.metadata.governance.relation', '关系'),
     }[kind] ?? kind
   );
 }
