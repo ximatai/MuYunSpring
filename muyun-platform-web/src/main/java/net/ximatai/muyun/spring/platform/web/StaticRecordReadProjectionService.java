@@ -396,7 +396,7 @@ public class StaticRecordReadProjectionService {
                     false,
                     field.optionBinding(),
                     field.selectionMode(),
-                    field.optionTitleField()
+                    field.optionTitleField(), field.reference(), field.persistentControl(), field.titleSource()
             );
         }
         if (projection.sortable()) {

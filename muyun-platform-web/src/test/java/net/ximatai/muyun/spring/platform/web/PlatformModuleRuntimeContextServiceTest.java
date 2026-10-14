@@ -796,6 +796,10 @@ class PlatformModuleRuntimeContextServiceTest {
                 .containsExactly("title");
         assertThat(plan.querySchema().quickSearch().fields()).isEqualTo(!Boolean.FALSE.equals(searchable) ? List.of("title") : List.of());
         assertThat(plan.querySchema().quickSearch().enabled()).isEqualTo(!Boolean.FALSE.equals(searchable));
+        var titleSource = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.metadataFieldTitle(
+                "sales.contract", "contract", "title", "Title");
+        assertThat(plan.querySchema().quickSearch().fieldSchemas()).allSatisfy(field ->
+                assertThat(field.titleSource()).isEqualTo(titleSource));
         assertThat(plan.uiDescriptor().page().explorer().titleField()).isEqualTo("title");
         assertThat(plan.uiDescriptor().page().template()).isEqualTo(template);
     }

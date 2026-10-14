@@ -7,7 +7,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionRefreshStrategy;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
+import net.ximatai.muyun.spring.platform.localization.MetadataQuerySchemas;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
@@ -313,7 +313,7 @@ public class PlatformPageBootstrapService {
                 new ResolvedDetailRelationQueryContract("/" + moduleAlias + "/view/{id}/associations/"
                         + viewCode + "/query", resolvedTargetUiConfigId, resolvedQueryTemplateId, true,
                         view.queryable(), listProjection,
-                        DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
+                        MetadataQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
     }
 
     /**

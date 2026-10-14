@@ -35,6 +35,7 @@ class ConfigurationTranslationRepositoryIT extends PlatformPostgresIntegrationTe
     @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     @Autowired DataSource dataSource;
     @BeforeEach void installTransactions() {
+        clearInvocations(events);
         var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
         net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureMutationTransactionOperator(new net.ximatai.muyun.spring.ability.MutationTransactionOperator() {
             public <T> T execute(java.util.function.Supplier<T> work) { return new org.springframework.transaction.support.TransactionTemplate(transactions).execute(status -> work.get()); }
@@ -81,6 +82,28 @@ class ConfigurationTranslationRepositoryIT extends PlatformPostgresIntegrationTe
                     .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
         }
     }
+    @Test void publishedMetadataFieldTranslationsResolveFromBothQueryAndQuickSearchSchemas() {
+        var entity = net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor.from(
+                new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition("order", "order", "订单",
+                        List.of(net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("title", "业务标题").queryable()), Set.of()));
+        var schema = MetadataQuerySchemas.from("test.order", entity, List.of("title"));
+        var source = ConfigurationTextSources.metadataFieldTitle("test.order", "order", "title", "业务标题");
+        var previous = original.getAndSet(source);
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("root", "root"));
+             var scope = TenantContext.system("metadata query translation contract")) {
+            assertThat(schema.fields().getFirst().titleSource()).isEqualTo(source);
+            assertThat(schema.quickSearch().fieldSchemas().getFirst().titleSource()).isEqualTo(source);
+            var draft = translations.saveDraft("test.order", source.sourceId(), source.sourceVersion(), "en", "Business title", null);
+            assertThat(resolver.resolve(schema.fields().getFirst().titleSource(), Map.of(), "en").text()).isEqualTo("业务标题");
+            translations.publish(draft.getId(), source.sourceVersion(), draft.getVersion());
+            assertThat(resolver.resolve(schema.fields().getFirst().titleSource(), Map.of(), "en").text()).isEqualTo("Business title");
+            assertThat(resolver.resolve(schema.quickSearch().fieldSchemas().getFirst().titleSource(), Map.of(), "en").text()).isEqualTo("Business title");
+            assertThat(schema.fields().getFirst().title()).isEqualTo("业务标题");
+            assertThat(schema.fields().getFirst().name()).isEqualTo("title");
+            assertThat(schema.quickSearch().fields()).containsExactly("title");
+        } finally { original.set(previous); }
+    }
+
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = ConfigurationTranslationDao.class)
     @Import({ConfigurationTranslationService.class, PlatformTextResolver.class})
