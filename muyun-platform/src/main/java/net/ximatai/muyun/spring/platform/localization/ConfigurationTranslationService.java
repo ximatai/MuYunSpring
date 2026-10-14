@@ -108,6 +108,22 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
         });
     }
 
+    /** Install a deployed baseline only when this original version has never been maintained. */
+    public boolean seedPublished(String moduleAlias, TextReference source, String languageTag, String text) {
+        requireSystem();
+        return inMutationTransaction(() -> {
+            var current = currentSource(moduleAlias, source.sourceId(), source.sourceVersion());
+            if (!current.equals(source)) throw staleSource();
+            String tag = requireLanguage(languageTag);
+            requireText(text);
+            lockMutation("translation", hash(source.sourceId()) + "/" + source.sourceVersion() + "/" + tag);
+            if (findOne(identity(source, tag)) != null) return false;
+            var draft = saveDraft(moduleAlias, source.sourceId(), source.sourceVersion(), tag, text, null);
+            publish(draft.getId(), source.sourceVersion(), draft.getVersion());
+            return true;
+        });
+    }
+
     /** One read for a presentation batch; drafts and other original versions are never visible. */
     public List<ConfigurationTranslation> published(Collection<TextReference> references) {
         var configured = references.stream().filter(source -> source.sourceKind() == TextReference.SourceKind.CONFIG).toList();

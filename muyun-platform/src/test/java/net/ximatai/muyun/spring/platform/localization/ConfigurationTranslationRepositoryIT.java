@@ -104,6 +104,40 @@ class ConfigurationTranslationRepositoryIT extends PlatformPostgresIntegrationTe
         } finally { original.set(previous); }
     }
 
+    @Test void seedsOnlyUntouchedOriginalVersionsAndPreservesMaintainedDraftsAndPublications() {
+        var source = TextReference.configured("config/test/seed/title", "初始标题");
+        var previous = original.getAndSet(source);
+        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var seeds = new ConfiguredTextSeedService(translations, beans.getBeanProvider(ConfiguredTextSeedTargetProvider.class));
+        var entry = new ConfiguredTextSeedResources.Entry("test.order", source.sourceId(), source.sourceVersion(), "en", "Initial title");
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("root", "root"));
+             var scope = TenantContext.system("deployed text seed contract")) {
+            assertThat(seeds.seed(List.of(entry), null)).isEqualTo(1);
+            var row = translations.published(List.of(source)).getFirst();
+            int version = row.getVersion();
+            assertThat(seeds.seed(List.of(entry), null)).isZero();
+            assertThat(translations.published(List.of(source)).getFirst().getVersion()).isEqualTo(version);
+            var maintained = translations.saveDraft("test.order", source.sourceId(), source.sourceVersion(), "en", "Maintained draft", version);
+            assertThat(seeds.seed(List.of(entry), null)).isZero();
+            assertThat(translations.translations("test.order").stream().filter(value -> row.getId().equals(value.getId())).findFirst().orElseThrow().getDraftText()).isEqualTo("Maintained draft");
+            assertThat(resolver.resolve(source, Map.of(), "en").text()).isEqualTo("Initial title");
+            translations.publish(row.getId(), source.sourceVersion(), maintained.getVersion());
+            assertThat(seeds.seed(List.of(entry), null)).isZero();
+            assertThat(resolver.resolve(source, Map.of(), "en").text()).isEqualTo("Maintained draft");
+            var changed = TextReference.configured(source.sourceId(), "变化后的标题");
+            original.set(changed);
+            assertThat(seeds.seed(List.of(entry), null)).isZero();
+            assertThat(resolver.resolve(changed, Map.of(), "en").text()).isEqualTo("变化后的标题");
+            assertThat(seeds.seed(List.of(new ConfiguredTextSeedResources.Entry("test.order", changed.sourceId(), changed.sourceVersion(), "en", "Changed title")), null)).isEqualTo(1);
+            var manual = TextReference.configured("config/test/manual-seed/title", "人工草稿");
+            original.set(manual);
+            var draft = translations.saveDraft("test.order", manual.sourceId(), manual.sourceVersion(), "en", "Unpublished manual draft", null);
+            assertThat(seeds.seed(List.of(new ConfiguredTextSeedResources.Entry("test.order", manual.sourceId(), manual.sourceVersion(), "en", "Must not replace")), null)).isZero();
+            assertThat(translations.select(draft.getId()).getPublishedText()).isNull();
+            assertThat(translations.select(draft.getId()).getDraftText()).isEqualTo("Unpublished manual draft");
+        } finally { original.set(previous); }
+    }
+
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = ConfigurationTranslationDao.class)
     @Import({ConfigurationTranslationService.class, PlatformTextResolver.class})

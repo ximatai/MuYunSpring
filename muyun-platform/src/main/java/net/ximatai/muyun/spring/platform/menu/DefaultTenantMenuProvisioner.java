@@ -16,7 +16,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.Objects;
 
-public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
+public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner, org.springframework.core.Ordered {
     public static final String TENANT_ADMIN_SCHEME_ALIAS = "tenant_admin";
     public static final String TENANT_ADMIN_SCHEME_TITLE = "租户管理";
     private static final String SCHEME_ID_PREFIX = "tenant_menu_";
@@ -36,6 +36,8 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
     public void afterTenantCreated(String tenantId) {
         reconcileTenantAdminMenus(tenantId);
     }
+
+    @Override public int getOrder() { return 100; }
 
     /**
      * Reconciles the system-provided default menu copy for an existing tenant.
@@ -234,7 +236,7 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
                 String.valueOf(source.getSortOrder())));
     }
 
-    private static String tenantMenuId(String tenantId, String sourceMenuId) {
+    public static String tenantMenuId(String tenantId, String sourceMenuId) {
         String validTenantId = requireText(tenantId, "tenantId");
         String validSourceMenuId = requireText(sourceMenuId, "sourceMenuId");
         String candidate = MENU_ID_PREFIX + validTenantId + "_" + shortHash(validSourceMenuId);

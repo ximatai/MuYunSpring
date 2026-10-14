@@ -326,6 +326,47 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void publishesOfficialConfigurationLabelsAndSeedsNewTenantMenuCopiesWithoutOverwritingMaintenance() {
+        var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        var menus = applicationContext.getBean(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+        String tenantId = "english_preset_it";
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("preset-test", "preset-test"));
+             var scope = TenantContext.system("official configuration translations integration test")) {
+            var menu = menus.select("platform.menu.module.iam.user");
+            var original = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(menu.getId(), menu.getTitle());
+            assertThat(texts.resolve(original, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            Tenant tenant = new Tenant(); tenant.setAlias(tenantId); tenant.setTitle("English acceptance tenant"); tenant.setEnabled(true);
+            tenantService.insert(tenant);
+            String copyId = net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner.tenantMenuId(tenantId, menu.getId());
+            net.ximatai.muyun.spring.platform.menu.Menu copy;
+            try (var tenantScope = TenantContext.use(tenantId)) { copy = menus.select(copyId); }
+            assertThat(copy).isNotNull();
+            var target = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(copyId, copy.getTitle());
+            assertThat(target.sourceId()).isNotEqualTo(original.sourceId());
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            var row = translations.published(java.util.List.of(target)).getFirst();
+            tenantService.provisionTenant(tenantId);
+            assertThat(translations.published(java.util.List.of(target)).getFirst().getVersion()).isEqualTo(row.getVersion());
+            var draft = translations.saveDraft("platform.menu", target.sourceId(), target.sourceVersion(), "en", "Maintained users", row.getVersion());
+            tenantService.provisionTenant(tenantId);
+            assertThat(translations.select(row.getId()).getDraftText()).isEqualTo("Maintained users");
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            translations.publish(row.getId(), target.sourceVersion(), draft.getVersion());
+            tenantService.provisionTenant(tenantId);
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Maintained users");
+        }
+        String token = issueSuperAdminSessionToken();
+        try {
+            var headers = bearerHeaders(token); headers.set("Accept-Language", "en");
+            var response = restTemplate.exchange("/platform.menu/mine", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            assertThat(response.getBody().toString()).contains("Platform administration", "Users", "titleText");
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
     void shouldLoadApplicationContextWithRealDatabase() {
         assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
                 .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);
