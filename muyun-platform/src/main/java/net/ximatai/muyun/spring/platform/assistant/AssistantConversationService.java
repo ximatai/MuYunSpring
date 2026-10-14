@@ -25,8 +25,10 @@ public class AssistantConversationService {
         this.conversations = Objects.requireNonNull(conversations);
     }
     public record OperationReceipt(String executionScopeKey, com.fasterxml.jackson.databind.JsonNode reference) {}
-    public record Message(String role, String text, OperationReceipt operationReceipt) {
-        public Message(String role, String text) { this(role, text, null); }
+    public record Message(String role, String text, OperationReceipt operationReceipt, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode controlText) {
+        public Message { if (controlText != null && controlText.isNull()) controlText = null; }
+        public Message(String role, String text) { this(role, text, null, null); }
+        public Message(String role, String text, OperationReceipt operationReceipt) { this(role, text, operationReceipt, null); }
     }
     public record ConfigurationTask(String goal, String mode) {}
     public record Content(String title, List<Message> messages, List<Message> history, String planId,
@@ -130,6 +132,11 @@ public class AssistantConversationService {
             if (message == null || message.text() == null || message.text().length() > length ||
                     !("user".equals(message.role()) || "assistant".equals(message.role()) || "status".equals(message.role())))
                 throw new IllegalArgumentException("会话消息格式无效");
+            if (message.controlText() != null && !message.controlText().isNull()) {
+                if (!display || "user".equals(message.role()) || message.operationReceipt() != null)
+                    throw new IllegalArgumentException("Control text belongs only to platform display messages");
+                AssistantControlText.validate(message.controlText());
+            }
             if (message.operationReceipt() != null) {
                 if (!display || !"assistant".equals(message.role())) throw new IllegalArgumentException("操作查询引用只属于助手展示消息");
                 validateReceipt(message.operationReceipt());

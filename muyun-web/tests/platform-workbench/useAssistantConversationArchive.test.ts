@@ -237,3 +237,91 @@ it('refreshes default titles and failure explanations in the archive owner langu
   expect(list).toHaveBeenCalledOnce();
   expect(content.messages[0]!.text).toBe('业务原文');
 });
+
+it('coalesces asynchronous source serialization and discards late snapshots after an identity change', async () => {
+  let finish!: (value: AssistantConversationContent) => void;
+  let value: AssistantConversationContent = {
+    title: '旧身份原文',
+    messages: [{ role: 'user', text: '旧需求' }],
+    history: [],
+  };
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => ({
+      id,
+      revision: revision + 1,
+      updatedAt: '',
+      content,
+    })),
+    list: vi.fn(),
+    read: vi.fn(),
+  };
+  let serialize = true;
+  const content = vi.fn(() =>
+    serialize
+      ? new Promise<AssistantConversationContent>((resolve) => {
+          finish = resolve;
+        })
+      : value,
+  );
+  const archive = useAssistantConversationArchive(client, content, vi.fn(), vi.fn());
+  archive.changeScope('old-owner');
+  const first = archive.save();
+  const queued = archive.save();
+  expect(content).toHaveBeenCalledOnce();
+  archive.changeScope('new-owner');
+  serialize = false;
+  value = { title: '新身份原文', messages: [{ role: 'user', text: '新需求' }], history: [] };
+  expect(await archive.save()).toBe(true);
+  const id = archive.id.value;
+  finish({ title: '旧身份原文', messages: [{ role: 'user', text: '旧需求' }], history: [] });
+  expect(await first).toBe(false);
+  expect(await queued).toBe(false);
+  expect(archive.id.value).toBe(id);
+  expect(archive.title.value).toBe('新身份原文');
+  expect(client.save).toHaveBeenCalledOnce();
+  expect(vi.mocked(client.save).mock.calls[0]![1]).toBe('new-owner');
+});
+
+it.each(['startNew', 'open'] as const)(
+  'keeps %s busy through serialization and prevents overlapping conversation transitions',
+  async (operation) => {
+    let finish!: (value: AssistantConversationContent) => void;
+    const value: AssistantConversationContent = {
+      title: '原始对话',
+      messages: [{ role: 'user', text: '原文' }],
+      history: [],
+    };
+    const client: AssistantConversationClient = {
+      save: vi.fn(async (id, _scope, revision, content) => ({
+        id,
+        revision: revision + 1,
+        updatedAt: '',
+        content,
+      })),
+      list: vi.fn(),
+      read: vi.fn(async () => ({ id: 'saved', revision: 1, updatedAt: '', content: value })),
+    };
+    const clear = vi.fn();
+    const archive = useAssistantConversationArchive(
+      client,
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      vi.fn(),
+      clear,
+    );
+    archive.changeScope('owner');
+    const pending = operation === 'open' ? archive.open('saved') : archive.startNew();
+    expect(archive.loading.value).toBe(true);
+    await archive.startNew();
+    await archive.open('other');
+    expect(client.read).not.toHaveBeenCalled();
+    finish(value);
+    await pending;
+    expect(archive.loading.value).toBe(false);
+    expect(client.save).toHaveBeenCalledOnce();
+    expect(clear).toHaveBeenCalledTimes(operation === 'startNew' ? 1 : 0);
+    expect(client.read).toHaveBeenCalledTimes(operation === 'open' ? 1 : 0);
+  },
+);

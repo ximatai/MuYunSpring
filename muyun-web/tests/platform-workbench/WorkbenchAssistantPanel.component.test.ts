@@ -1,5 +1,6 @@
+import { webcrypto } from 'node:crypto';
 import { flushPromises, mount } from '@vue/test-utils';
-import { expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
@@ -16,6 +17,14 @@ import {
   type AssistantConversationClient,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
+
+const originalCrypto = globalThis.crypto;
+beforeAll(() => {
+  vi.stubGlobal('crypto', webcrypto);
+});
+afterAll(() => {
+  vi.stubGlobal('crypto', originalCrypto);
+});
 
 function createRegistry(requestTurn: AssistantTurnRequester) {
   return createRegistryWithCapabilities(requestTurn, []);
@@ -1501,7 +1510,7 @@ it('restores persisted text after remount without reactivating old confirmation 
     .find((button) => button.text() === '新对话')!
     .trigger('click');
   await flushPromises();
-  expect(configurationCollaboration.task.value).toBeUndefined();
+  await vi.waitFor(() => expect(configurationCollaboration.task.value).toBeUndefined());
   expect(wrapper.find('[aria-label="本次配置协作方式"]').exists()).toBe(false);
   wrapper.unmount();
 });
@@ -1645,7 +1654,7 @@ it.each([false, true, 'denied'])(
     expect(JSON.stringify(requestTurn.mock.calls)).toContain('暂不修改或保存');
     expect(wrapper.text()).not.toContain('查看关联的已保存建设方案');
     await click('新对话');
-    expect(plan.current().planId).toBeUndefined();
+    await vi.waitFor(() => expect(plan.current().planId).toBeUndefined());
     expect(plan.current().candidate).toBeUndefined();
     wrapper.unmount();
   },
@@ -2526,6 +2535,7 @@ it('keeps display observations for later messages but clears them on new convers
     await wrapper.get('textarea').setValue(message);
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.find('.assistant-panel__working').exists()).toBe(false));
   };
   try {
     await submit('核实应用后继续');
@@ -2551,6 +2561,7 @@ it('keeps display observations for later messages but clears them on new convers
       .find((button) => button.text() === '新对话')!
       .trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.findAll('.assistant-message')).toHaveLength(0));
     await submit('查看当前页面');
     expect(JSON.stringify(requests.at(-1)!.history)).not.toContain('正式应用名称');
   } finally {
@@ -2691,6 +2702,83 @@ it('localizes selection controls while retaining model prompts, option names and
     await flushPromises();
     expect(wrapper.text()).toContain('也可以继续输入其他内容');
     expect(wrapper.text()).toContain('原始业务名称');
+    expect(requestTurn).toHaveBeenCalledOnce();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('saves and restores fixed model failure sources in the new language while preserving raw history and avoiding replay', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved = JSON.parse(JSON.stringify({ id, revision: revision + 1, content, updatedAt: '2026-10-14' }));
+      return saved!;
+    }),
+    list: vi.fn(async () =>
+      saved ? [{ id: saved.id, title: saved.content.title, updatedAt: saved.updatedAt }] : [],
+    ),
+    read: vi.fn(async () => JSON.parse(JSON.stringify(saved))),
+  };
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry, conversationClient: client });
+    },
+  });
+  const wrapper = mount(Host);
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === label)!
+      .trigger('click');
+    await flushPromises();
+  };
+  try {
+    await wrapper.get('textarea').setValue('用户需求原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(saved?.content.messages.some((message) => message.controlText)).toBe(true));
+    const rawFailure = saved!.content.messages.find((message) => message.controlText)!;
+    expect(rawFailure.text).toContain('等待模型回复超时');
+    expect(JSON.stringify(saved!.content.history)).not.toContain('controlText');
+    expect(JSON.stringify(rawFailure.controlText)).not.toContain('private diagnostic');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).not.toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain('用户需求原文');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(saved!.content.messages.find((message) => message.controlText)!.text).toBe(rawFailure.text);
+    // A valid reference from an unknown version cannot partially relocalize the old control fact.
+    const packet = saved!.content.messages.find((message) => message.controlText)!.controlText!;
+    if (!('parts' in packet)) throw new Error('Missing failure parts');
+    const first = packet.parts[0];
+    if (!first || typeof first === 'string' || !('source' in first))
+      throw new Error('Missing failure source');
+    first.source.sourceId = 'platform.error.AI_FUTURE_UNKNOWN';
+    language.setLanguage('en');
+    await flushPromises();
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.findAll('.assistant-message--status').map((message) => message.text())).toContain(
+      rawFailure.text,
+    );
+    expect(wrapper.text()).not.toContain('The model response timed out');
     expect(requestTurn).toHaveBeenCalledOnce();
   } finally {
     wrapper.unmount();

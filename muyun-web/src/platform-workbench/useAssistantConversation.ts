@@ -1,3 +1,12 @@
+import {
+  codeControlText,
+  joinControlText,
+  resolveControlText,
+  archiveControlText,
+  restoreControlText,
+  modelControlOriginal,
+  type ControlText,
+} from './assistantControlText';
 import { useLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { useAssistantConversationArchive } from './useAssistantConversationArchive';
 import type { AssistantConversationClient } from '@muyun/web-core';
@@ -13,7 +22,6 @@ import type {
 } from '@muyun/web-contracts';
 import {
   AppError,
-  modelFailureMessage,
   restoreAssistantOperationReceipt,
   parseOperationReceiptReference,
   AssistantConversationInterruptedError,
@@ -33,7 +41,8 @@ interface ConversationItem {
   id: number;
   role: 'user' | 'assistant' | 'status';
   text: string;
-  presentation?: () => string;
+  controlText?: ControlText;
+  archivedControlText?: import('@muyun/web-core').AssistantControlText;
   selection?: ConversationSelection;
   confirmation?: AssistantOperationConfirmation;
   confirmationState?: AssistantConfirmationState;
@@ -216,50 +225,61 @@ export function useAssistantConversation(props: {
   }
   const archive = useAssistantConversationArchive(
     props.conversationClient,
-    () => ({
-      title:
-        items.value.find((item) => item.role === 'user')?.text.slice(0, 120) ||
-        language.t('platform.screen.WorkbenchAssistantPanel.new-conversation', '新对话'),
-      messages: items.value.map((item) => archiveMessage(item, language)),
-      history: completedHistory.value,
-      configurationTask: props.configurationCollaboration?.task.value,
-      executionScopeKey: executionScope,
-      pendingRequest:
-        busy.value && requestGeneration === executionGeneration
-          ? items.value.filter((item) => item.role === 'user').at(-1)?.text
-          : undefined,
-      planId:
-        linkedPlanId.value ??
-        props.constructionPlan?.current().saved?.planId ??
-        (props.constructionPlan?.recovery.value ? props.constructionPlan.current().planId : undefined),
-    }),
+    async () => {
+      const snapshot = {
+        title:
+          items.value.find((item) => item.role === 'user')?.text.slice(0, 120) ||
+          language.t('platform.screen.WorkbenchAssistantPanel.new-conversation', '新对话'),
+        messages: items.value.map((item) => archiveMessage(item, language)),
+        history: completedHistory.value,
+        configurationTask: props.configurationCollaboration?.task.value,
+        executionScopeKey: executionScope,
+        pendingRequest:
+          busy.value && requestGeneration === executionGeneration
+            ? items.value.filter((item) => item.role === 'user').at(-1)?.text
+            : undefined,
+        planId:
+          linkedPlanId.value ??
+          props.constructionPlan?.current().saved?.planId ??
+          (props.constructionPlan?.recovery.value ? props.constructionPlan.current().planId : undefined),
+      };
+      return { ...snapshot, messages: await Promise.all(snapshot.messages) };
+    },
     async (content) => {
       clearConversation(true);
       const restoredEpoch = conversationEpoch;
-      items.value = content.messages.map((message) => {
-        const item: ConversationItem = { role: message.role, text: message.text, id: ++nextItemId };
-        if (message.operationReceipt && props.conversationClient?.lookupOperation) {
-          try {
-            const reference = parseOperationReceiptReference(message.operationReceipt.reference);
-            const scope = message.operationReceipt.executionScopeKey;
-            item.confirmationScope = scope;
-            item.confirmation = markRaw(
-              restoreAssistantOperationReceipt(
-                reference,
-                () => props.conversationClient!.lookupOperation!(reference),
-                () =>
-                  restoredEpoch === conversationEpoch &&
-                  props.registry.snapshot()?.token.executionScopeKey === scope,
-                language,
-              ),
-            );
-            item.confirmationState = 'unknown';
-          } catch {
-            /* Historical invalid references never become requests. */
+      const restoredItems = await Promise.all(
+        content.messages.map(async (message) => {
+          const item: ConversationItem = { role: message.role, text: message.text, id: ++nextItemId };
+          if (message.controlText && message.role !== 'user' && !message.operationReceipt) {
+            item.archivedControlText = message.controlText;
+            item.controlText = await restoreControlText(message.controlText);
           }
-        }
-        return item;
-      });
+          if (message.operationReceipt && props.conversationClient?.lookupOperation) {
+            try {
+              const reference = parseOperationReceiptReference(message.operationReceipt.reference);
+              const scope = message.operationReceipt.executionScopeKey;
+              item.confirmationScope = scope;
+              item.confirmation = markRaw(
+                restoreAssistantOperationReceipt(
+                  reference,
+                  () => props.conversationClient!.lookupOperation!(reference),
+                  () =>
+                    restoredEpoch === conversationEpoch &&
+                    props.registry.snapshot()?.token.executionScopeKey === scope,
+                  language,
+                ),
+              );
+              item.confirmationState = 'unknown';
+            } catch {
+              /* Historical invalid references never become requests. */
+            }
+          }
+          return item;
+        }),
+      );
+      if (restoredEpoch !== conversationEpoch) return;
+      items.value = restoredItems;
       const sameScope = content.executionScopeKey === executionScope;
       completedHistory.value = sameScope
         ? boundedHistory([
@@ -283,13 +303,14 @@ export function useAssistantConversation(props: {
           await props.constructionPlan.restore(content.planId, () => epoch === conversationEpoch);
         } catch (cause) {
           if (epoch === conversationEpoch)
-            append('status', () =>
+            append(
+              'status',
               cause instanceof AppError && (cause.status === 403 || cause.status === 404)
-                ? language.t(
+                ? codeControlText(
                     'platform.screen.useAssistantConversation.the-conversation-was-restored-but-the-linked-plan-is-missing',
                     '聊天记录已恢复，但关联方案不存在或当前身份无权访问，暂不能继续修改该方案。可以核对登录身份与业务范围；如需重新整理，请新建对话。已有业务仍可按当前配置核实。',
                   )
-                : language.t(
+                : codeControlText(
                     'platform.screen.useAssistantConversation.historical-construction-records-are-temporarily-unavailable-you-can-still-check',
                     '历史建设记录暂时无法读取，仍可直接核实和改进当前业务。未完成设计请稍后重试读取。',
                   ),
@@ -310,17 +331,20 @@ export function useAssistantConversation(props: {
 
   function append(
     role: ConversationItem['role'],
-    text: string | (() => string),
+    text: string | ControlText,
     details?: AssistantResultPresentation['details'],
     diagnostic?: string,
   ) {
-    const normalized = (typeof text === 'function' ? text() : text).trim();
+    const controlText = typeof text === 'string' ? undefined : structuredClone(text);
+    if (role === 'user' && controlText)
+      throw new Error('User messages cannot declare platform control sources');
+    const normalized = (typeof text === 'string' ? text : resolveControlText(text, language)).trim();
     if (!normalized) return;
     items.value.push({
       id: ++nextItemId,
       role,
       text: normalized,
-      ...(typeof text === 'function' ? { presentation: text } : {}),
+      ...(controlText ? { controlText } : {}),
       details,
       diagnostic,
     });
@@ -370,19 +394,20 @@ export function useAssistantConversation(props: {
     };
     const commitTurn = (entries: AssistantConversationMessage[]) =>
       commitConversation(continuation ? undefined : userGoal, entries);
-    append(continuation ? 'status' : 'user', () =>
-      continuation
-        ? readOnly
-          ? language.t(
+    if (continuation)
+      append(
+        'status',
+        readOnly
+          ? codeControlText(
               'platform.screen.useAssistantConversation.checking-current-progress-without-modifying-or-saving',
               '正在核实当前进度，暂不修改或保存。',
             )
-          : language.t(
+          : codeControlText(
               'platform.screen.useAssistantConversation.checking-current-status-and-preparing-the-next-step-you-can',
               '正在核实当前状态并准备下一步，可随时停止。',
-            )
-        : message,
-    );
+            ),
+      );
+    else append('user', message);
     busy.value = true;
     activity.value = 'understanding';
     controller = new AbortController();
@@ -592,16 +617,15 @@ export function useAssistantConversation(props: {
               if (result.error) {
                 append(
                   'status',
-                  () =>
-                    result.execution === 'unknown'
-                      ? language.t(
-                          'platform.screen.useAssistantConversation.this-step-s-result-is-unknown-check-it-before-resubmitting',
-                          '这一步的结果尚未确定，请先核实，不要重复提交。已完成的其他步骤保留。',
-                        )
-                      : language.t(
-                          'platform.screen.useAssistantConversation.this-step-did-not-complete-revise-it-using-the-validation',
-                          '这一步未完成，可根据校验结果继续调整。已完成的其他步骤保留。',
-                        ),
+                  result.execution === 'unknown'
+                    ? codeControlText(
+                        'platform.screen.useAssistantConversation.this-step-s-result-is-unknown-check-it-before-resubmitting',
+                        '这一步的结果尚未确定，请先核实，不要重复提交。已完成的其他步骤保留。',
+                      )
+                    : codeControlText(
+                        'platform.screen.useAssistantConversation.this-step-did-not-complete-revise-it-using-the-validation',
+                        '这一步未完成，可根据校验结果继续调整。已完成的其他步骤保留。',
+                      ),
                   undefined,
                   result.error.code !== 'CAPABILITY_FAILED' ? result.error.message : undefined,
                 );
@@ -618,27 +642,25 @@ export function useAssistantConversation(props: {
       if (result.termination === 'step-limit')
         append(
           'status',
-          () =>
-            result.steps.some((step) => step.appliedEffectCount > 0)
-              ? language.t(
-                  'platform.screen.useAssistantConversation.this-turn-is-paused-at-the-automatic-processing-limit-completed',
-                  '本轮已暂停：本次自动处理已达上限。已完成的操作保留，但不代表业务已保存；点击“继续处理”即可接着核对剩余事项，无需重复刚才的要求。',
-                )
-              : language.t(
-                  'platform.screen.useAssistantConversation.this-turn-is-paused-at-the-automatic-processing-limit-select',
-                  '本轮已暂停：本次自动处理已达上限。点击“继续处理”可接着核对剩余事项，无需重复刚才的要求；读取信息不代表修改或保存。',
-                ),
+          result.steps.some((step) => step.appliedEffectCount > 0)
+            ? codeControlText(
+                'platform.screen.useAssistantConversation.this-turn-is-paused-at-the-automatic-processing-limit-completed',
+                '本轮已暂停：本次自动处理已达上限。已完成的操作保留，但不代表业务已保存；点击“继续处理”即可接着核对剩余事项，无需重复刚才的要求。',
+              )
+            : codeControlText(
+                'platform.screen.useAssistantConversation.this-turn-is-paused-at-the-automatic-processing-limit-select',
+                '本轮已暂停：本次自动处理已达上限。点击“继续处理”可接着核对剩余事项，无需重复刚才的要求；读取信息不代表修改或保存。',
+              ),
           undefined,
           diagnosticText(),
         );
       else if (result.termination === 'repeated-call') {
         append(
           'status',
-          () =>
-            language.t(
-              'platform.screen.useAssistantConversation.repeated-operations-stopped-continue-checking-known-facts-or-clarify-your',
-              '已停止重复操作，可以根据已查明的内容继续核实或补充需求。',
-            ),
+          codeControlText(
+            'platform.screen.useAssistantConversation.repeated-operations-stopped-continue-checking-known-facts-or-clarify-your',
+            '已停止重复操作，可以根据已查明的内容继续核实或补充需求。',
+          ),
           undefined,
           diagnosticText(),
         );
@@ -650,8 +672,9 @@ export function useAssistantConversation(props: {
         const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
         const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
         if (applied > 0) {
-          append('assistant', () =>
-            language.t(
+          append(
+            'assistant',
+            codeControlText(
               'platform.screen.useAssistantConversation.page-operations-completed-check-the-current-page',
               '页面操作已完成，请检查当前页面。',
             ),
@@ -664,8 +687,9 @@ export function useAssistantConversation(props: {
             ),
           });
         } else if (succeeded) {
-          append('assistant', () =>
-            language.t(
+          append(
+            'assistant',
+            codeControlText(
               'platform.screen.useAssistantConversation.information-was-read-but-no-explanation-was-produced-please-ask',
               '信息已读取，但未生成可展示的说明，请重新提问。',
             ),
@@ -701,14 +725,19 @@ export function useAssistantConversation(props: {
           },
         ]);
         reopenSelection(sourceSelection);
-        append('status', () =>
-          language.t('platform.screen.useAssistantConversation.this-operation-stopped', '已停止本次操作。'),
+        append(
+          'status',
+          codeControlText(
+            'platform.screen.useAssistantConversation.this-operation-stopped',
+            '已停止本次操作。',
+          ),
         );
       } else if (error instanceof StaleAssistantInvocationError) {
         reopenSelection(sourceSelection);
         commitTurn([]);
-        append('status', () =>
-          language.t(
+        append(
+          'status',
+          codeControlText(
             'platform.screen.useAssistantConversation.the-page-changed-in-a-way-that-conflicts-with-this',
             '页面发生了与当前任务冲突的变化，本轮已暂停。请确认当前页面后告诉我继续或调整目标。',
           ),
@@ -728,54 +757,57 @@ export function useAssistantConversation(props: {
           applied;
         const reason = () =>
           error.termination === 'cancelled'
-            ? language.t('platform.screen.useAssistantConversation.turn-cancelled', '本轮已取消')
+            ? codeControlText('platform.screen.useAssistantConversation.turn-cancelled', '本轮已取消')
             : error.termination === 'context-changed'
-              ? language.t(
+              ? codeControlText(
                   'platform.screen.useAssistantConversation.page-context-changed',
                   '页面上下文已变化',
                 )
-              : language.t(
+              : codeControlText(
                   'platform.screen.useAssistantConversation.subsequent-processing-failed',
                   '后续处理失败',
                 );
         append(
           'status',
-          () =>
-            unknown
-              ? language.t(
-                  'platform.screen.useAssistantConversation.value-some-page-operation-results-are-unknown-check-the-current',
-                  '{value1}，有页面操作的结果尚不确定。请检查当前页面；不会自动重试。',
-                  { value1: reason() },
-                )
-              : language.t(
-                  'platform.screen.useAssistantConversation.value-the-goal-has-not-been-verified-as-complete',
-                  '{value1}，目标尚未核实完成。',
-                  { value1: reason() },
-                ) +
-                (applied > 0
-                  ? hasPresentedEffects
-                    ? language.t(
-                        'platform.screen.useAssistantConversation.see-completed-steps-in-the-operation-records-above-opening-a',
-                        '已生效步骤见上方平台操作记录；打开页面、准备草稿不代表保存。',
-                      )
-                    : language.t(
-                        'platform.screen.useAssistantConversation.some-page-operations-took-effect-but-their-specific-results-were',
-                        '本轮已有页面操作生效，但缺少具体结果说明，请核对当前页面；不能据此判断已保存。',
-                      )
-                  : language.t(
-                      'platform.screen.useAssistantConversation.no-page-operations-are-confirmed-to-have-taken-effect-in',
-                      '本轮没有已确认生效的页面操作。',
-                    )) +
-                (error.termination === 'model-failed'
-                  ? `\n${assistantFailureMessage(error.cause, language)}`
-                  : ''),
+          unknown
+            ? codeControlText(
+                'platform.screen.useAssistantConversation.value-some-page-operation-results-are-unknown-check-the-current',
+                '{value1}，有页面操作的结果尚不确定。请检查当前页面；不会自动重试。',
+                { value1: reason() },
+              )
+            : joinControlText(
+                joinControlText(
+                  codeControlText(
+                    'platform.screen.useAssistantConversation.value-the-goal-has-not-been-verified-as-complete',
+                    '{value1}，目标尚未核实完成。',
+                    { value1: reason() },
+                  ),
+                  applied > 0
+                    ? hasPresentedEffects
+                      ? codeControlText(
+                          'platform.screen.useAssistantConversation.see-completed-steps-in-the-operation-records-above-opening-a',
+                          '已生效步骤见上方平台操作记录；打开页面、准备草稿不代表保存。',
+                        )
+                      : codeControlText(
+                          'platform.screen.useAssistantConversation.some-page-operations-took-effect-but-their-specific-results-were',
+                          '本轮已有页面操作生效，但缺少具体结果说明，请核对当前页面；不能据此判断已保存。',
+                        )
+                    : codeControlText(
+                        'platform.screen.useAssistantConversation.no-page-operations-are-confirmed-to-have-taken-effect-in',
+                        '本轮没有已确认生效的页面操作。',
+                      ),
+                ),
+                error.termination === 'model-failed'
+                  ? joinControlText('\n', assistantFailureText(error.cause))
+                  : '',
+              ),
           undefined,
           diagnosticText(),
         );
       } else {
         reopenSelection(sourceSelection);
         commitTurn(turnHistory);
-        append('status', () => assistantFailureMessage(error, language), undefined, diagnosticText());
+        append('status', assistantFailureText(error), undefined, diagnosticText());
       }
     } finally {
       if (epoch === conversationEpoch) {
@@ -794,8 +826,9 @@ export function useAssistantConversation(props: {
     selection.state = selectionIsCurrent(selection) ? 'open' : 'superseded';
     selection.selectedOptionId = undefined;
     selection.retryable = true;
-    append('status', () =>
-      language.t(
+    append(
+      'status',
+      codeControlText(
         'platform.screen.useAssistantConversation.this-selection-could-not-be-processed-retry-it-or-describe',
         '本次选择未能处理完成。可以重试选项，也可以用文字继续说明；已有内容保留。',
       ),
@@ -842,8 +875,9 @@ export function useAssistantConversation(props: {
         interruptedRequest.value = undefined;
         restoredRequest.value = '';
         supersedePendingSelections();
-        append('status', () =>
-          language.t(
+        append(
+          'status',
+          codeControlText(
             'platform.screen.useAssistantConversation.business-scope-changed-the-conversation-and-goal-are-retained-subsequent',
             '业务范围已变化，对话与目标保留；后续操作将重新核实当前页面的数据。',
           ),
@@ -1048,8 +1082,9 @@ export function useAssistantConversation(props: {
           : `${next}\n${confirmationFact}`;
         if (correctionsTruncated || message.length > MAX_HISTORY_MESSAGE_LENGTH) {
           interruptedRequest.value = undefined;
-          append('status', () =>
-            language.t(
+          append(
+            'status',
+            codeControlText(
               'platform.screen.useAssistantConversation.this-operation-completed-but-subsequent-requirements-exceed-the-safe-retention',
               '本次操作已完成，但后续需求超过安全保留范围，已暂停自动处理。请重新明确剩余目标；已有结果保留，不会重复提交。',
             ),
@@ -1130,7 +1165,8 @@ export function useAssistantConversation(props: {
     adjustRequest,
     continueConversation,
     items,
-    itemText: (item: ConversationItem) => item.presentation?.() ?? item.text,
+    itemText: (item: ConversationItem) =>
+      item.controlText ? resolveControlText(item.controlText, language) : item.text,
     busy,
     activityText,
     operationPending,
@@ -1145,33 +1181,35 @@ export function useAssistantConversation(props: {
   };
 }
 
-function assistantFailureMessage(error: unknown, language: LanguageContext) {
-  const resultBoundary = language.t(
+function assistantFailureText(error: unknown): ControlText {
+  const resultBoundary = codeControlText(
     'platform.screen.useAssistantConversation.pending-content-was-not-submitted-any-earlier-saved-results-are',
     '待确认内容没有提交；如此前已有保存结果，不受本次失败影响。',
   );
   if (error instanceof AppError) {
     if (error.code === 'CONFIG_MISSING') {
-      return language.t(
+      return codeControlText(
         'platform.screen.useAssistantConversation.this-identity-has-no-available-model-configuration-ask-an-administrator',
         '当前身份缺少可用的模型配置。请联系管理员检查租户模型连接、平台共享范围及凭据配置。{value1}',
         { value1: resultBoundary },
       );
     }
-    const modelMessage = modelFailureMessage(error, language);
+    const modelKey = `platform.error.${error.code}`;
+    const modelOriginal = modelControlOriginal(modelKey);
+    const modelMessage = modelOriginal ? codeControlText(modelKey, modelOriginal) : undefined;
     if (modelMessage) {
       const recovery = ['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(
         error.code,
       )
-        ? language.t(
+        ? codeControlText(
             'platform.screen.useAssistantConversation.check-the-current-page-before-continuing',
             '请核实当前页面后继续处理。',
           )
         : '';
-      return `${modelMessage}${recovery}${resultBoundary}`;
+      return joinControlText(modelMessage, recovery, resultBoundary);
     }
   }
-  return language.t(
+  return codeControlText(
     'platform.screen.useAssistantConversation.this-reply-could-not-be-completed-valuerevise-the-request-and',
     '本轮回复未能完成。{value1}可以调整需求后继续处理。',
     { value1: resultBoundary },
@@ -1184,8 +1222,15 @@ function assistantHistoryText(text: string | undefined, selection?: AssistantSel
     .join('\n');
 }
 
-function archiveMessage(item: ConversationItem, language: LanguageContext) {
-  return {
+async function archiveMessage(item: ConversationItem, language: LanguageContext) {
+  const controlText =
+    item.controlText && (JSON.parse(JSON.stringify(item.controlText)) as ControlText | undefined);
+  const archivedControlText =
+    item.archivedControlText &&
+    (JSON.parse(JSON.stringify(item.archivedControlText)) as
+      | import('@muyun/web-core').AssistantControlText
+      | undefined);
+  const snapshot = {
     role: item.role,
     ...(item.confirmation?.receiptReference &&
     item.confirmationScope &&
@@ -1246,5 +1291,11 @@ function archiveMessage(item: ConversationItem, language: LanguageContext) {
     ]
       .filter(Boolean)
       .join('\n'),
+  };
+  return {
+    ...snapshot,
+    ...(item.role !== 'user' && !item.confirmation && !item.selection && (controlText || archivedControlText)
+      ? { controlText: archivedControlText ?? (await archiveControlText(controlText!)) }
+      : {}),
   };
 }

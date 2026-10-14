@@ -43,6 +43,12 @@ export interface LanguageContext {
   t(key: string, defaultText?: string, args?: Record<string, unknown>): string;
 }
 
+/** Platform-owned CODE originals, independent of the selected or deployed default language. */
+export function platformCodeTextOriginal(key: string): string | undefined {
+  const originals: Record<string, string> = packs['zh-CN'].messages;
+  return Object.hasOwn(originals, key) ? originals[key] : undefined;
+}
+
 const initialCatalog: LanguageCatalog = {
   defaultTag: 'zh-CN',
   languages: Object.entries(packs).map(([tag, pack]) => ({

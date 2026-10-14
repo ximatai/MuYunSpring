@@ -15,7 +15,7 @@ import type {
 /** Serializes checkpoints; scope generations prevent late reads/writes from replacing another conversation. */
 export function useAssistantConversationArchive(
   client: AssistantConversationClient | undefined,
-  content: () => AssistantConversationContent,
+  content: () => AssistantConversationContent | Promise<AssistantConversationContent>,
   restore: (content: AssistantConversationContent) => void | Promise<void>,
   clear: () => void,
   leaveBlockedReason: () => string | undefined = () => undefined,
@@ -38,7 +38,9 @@ export function useAssistantConversationArchive(
     const failure = readFailure.value;
     return failure && { ...failure, message: failure.message() };
   });
-  const loading = ref(false);
+  const reading = ref(false);
+  const transitioning = shallowRef<symbol>();
+  const loading = computed(() => reading.value || transitioning.value !== undefined);
   const ready = ref(false);
   const historyOpen = ref(false);
   const entries = ref<AssistantConversationSummary[]>([]);
@@ -68,30 +70,33 @@ export function useAssistantConversationArchive(
     saving = undefined;
     entries.value = [];
     historyOpen.value = false;
-    loading.value = false;
+    reading.value = false;
+    transitioning.value = undefined;
   }
   async function save(): Promise<boolean> {
     if (!client) return true;
-    if (!scope || loading.value) return false;
+    if (!scope || reading.value) return false;
     if (saving) {
       const epoch = generation;
       const succeeded = await saving;
       if (epoch !== generation || !succeeded) return false;
       return save();
     }
-    const value = content();
-    if (!value.messages.some((message) => message.role === 'user')) return true;
-    const encoded = JSON.stringify(value);
-    if (encoded === saved) return true;
     const epoch = generation,
       key = scope;
-    const conversationId = id.value ?? createUuid().replaceAll('-', '');
-    id.value = conversationId;
-    storedTitle.value = value.title;
-    status.value = 'saving';
-    saveFailure.value = undefined;
     const pending = (async () => {
       try {
+        const pendingContent = content();
+        const value = 'then' in pendingContent ? await pendingContent : pendingContent;
+        if (epoch !== generation || reading.value) return false;
+        if (!value.messages.some((message) => message.role === 'user')) return true;
+        const encoded = JSON.stringify(value);
+        if (encoded === saved) return true;
+        const conversationId = id.value ?? createUuid().replaceAll('-', '');
+        id.value = conversationId;
+        storedTitle.value = value.title;
+        status.value = 'saving';
+        saveFailure.value = undefined;
         const result = await client.save(conversationId, key, revision, value);
         if (epoch !== generation) return false;
         revision = result.revision;
@@ -123,7 +128,7 @@ export function useAssistantConversationArchive(
     if (!client || !scope || loading.value) return;
     const epoch = generation,
       key = scope;
-    loading.value = true;
+    reading.value = true;
     readFailure.value = undefined;
     historyOpen.value = true;
     const next = more ? page.value + 1 : 1;
@@ -147,7 +152,7 @@ export function useAssistantConversationArchive(
                 ),
         };
     } finally {
-      if (epoch === generation) loading.value = false;
+      if (epoch === generation) reading.value = false;
     }
   }
   function canLeave() {
@@ -157,39 +162,45 @@ export function useAssistantConversationArchive(
     return false;
   }
   async function open(conversationId: string) {
-    if (!canLeave()) return;
+    if (!client || !scope || loading.value || !canLeave()) return;
+    const transition = Symbol('open-conversation');
+    transitioning.value = transition;
     const beforeSave = generation;
-    if (!client || !scope || loading.value || !(await save()) || beforeSave !== generation) return;
-    const epoch = ++generation,
-      key = scope;
-    loading.value = true;
-    readFailure.value = undefined;
     try {
-      const result = await client.read(conversationId, key);
-      if (epoch !== generation) return;
-      id.value = result.id;
-      revision = result.revision;
-      saved = JSON.stringify(result.content);
-      storedTitle.value = result.content.title;
-      await restore(result.content);
-      if (epoch !== generation) return;
-      status.value = 'restored';
-      historyOpen.value = false;
-    } catch (cause) {
-      if (epoch === generation)
-        readFailure.value = {
-          kind: 'open',
-          id: conversationId,
-          message: () =>
-            cause instanceof Error
-              ? userFacingErrorMessage(normalizeError(cause), language)
-              : language.t(
-                  'platform.screen.useAssistantConversationArchive.conversation-could-not-be-restored',
-                  '会话恢复失败',
-                ),
-        };
+      if (!(await save()) || beforeSave !== generation || !canLeave()) return;
+      const epoch = ++generation,
+        key = scope;
+      reading.value = true;
+      readFailure.value = undefined;
+      try {
+        const result = await client.read(conversationId, key);
+        if (epoch !== generation) return;
+        id.value = result.id;
+        revision = result.revision;
+        saved = JSON.stringify(result.content);
+        storedTitle.value = result.content.title;
+        await restore(result.content);
+        if (epoch !== generation) return;
+        status.value = 'restored';
+        historyOpen.value = false;
+      } catch (cause) {
+        if (epoch === generation)
+          readFailure.value = {
+            kind: 'open',
+            id: conversationId,
+            message: () =>
+              cause instanceof Error
+                ? userFacingErrorMessage(normalizeError(cause), language)
+                : language.t(
+                    'platform.screen.useAssistantConversationArchive.conversation-could-not-be-restored',
+                    '会话恢复失败',
+                  ),
+          };
+      } finally {
+        if (epoch === generation) reading.value = false;
+      }
     } finally {
-      if (epoch === generation) loading.value = false;
+      if (transitioning.value === transition) transitioning.value = undefined;
     }
   }
   async function saveCopy() {
@@ -201,18 +212,26 @@ export function useAssistantConversationArchive(
     await save();
   }
   async function startNew() {
-    if (!canLeave()) return;
+    if (loading.value || !canLeave()) return;
+    const transition = Symbol('new-conversation');
+    transitioning.value = transition;
     const epoch = generation;
-    if (loading.value || !(await save()) || epoch !== generation) return;
-    discardAndStartNew();
+    try {
+      if (!(await save()) || epoch !== generation || !canLeave()) return;
+      clearRecordAndConversation();
+    } finally {
+      if (transitioning.value === transition) transitioning.value = undefined;
+    }
   }
-  function discardAndStartNew() {
-    if (!canLeave()) return;
-    if (loading.value || saving) return;
+  function clearRecordAndConversation() {
     generation++;
     resetRecord();
     historyOpen.value = false;
     clear();
+  }
+  function discardAndStartNew() {
+    if (loading.value || saving || !canLeave()) return;
+    clearRecordAndConversation();
   }
   return {
     enabled: Boolean(client),
