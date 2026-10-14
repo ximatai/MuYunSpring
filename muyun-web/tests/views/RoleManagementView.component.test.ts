@@ -4,7 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { confirmAction } from '@muyun/vue-ui-antdv';
 import RoleManagementView from '@/views/RoleManagementView.vue';
 import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext.ts';
-import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  type LanguageContext,
+  configureModuleContext,
+  createHttpClient,
+} from '@muyun/web-core';
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
@@ -24,7 +30,7 @@ const formFields = {
   template: '<section />',
 };
 
-function mountRoleManagement(props: Record<string, string> = {}) {
+function mountRoleManagement(props: Record<string, string> = {}, language?: LanguageContext) {
   const requests: Array<{ path: string; selection?: string }> = [];
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -59,6 +65,7 @@ function mountRoleManagement(props: Record<string, string> = {}) {
   configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
   const Harness = defineComponent({
     setup() {
+      if (language) provideLanguageContext(language);
       provideCurrentUserContext(ref({ system: false, tenantId: 'tenant-1' } as never));
       return () => h(RoleManagementView, props);
     },
@@ -160,4 +167,38 @@ describe('RoleManagementView create draft dismissal', () => {
     expect(wrapper.findComponent(roleList).props('sortable')).toBe(true);
     wrapper.unmount();
   });
+});
+
+it('translates selected scope presentation while retaining its identity and the unsaved role', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { wrapper, requests } = mountRoleManagement({}, language);
+  try {
+    await flushPromises();
+    await flushPromises();
+    wrapper.findComponent(roleList).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+    const form = wrapper.findComponent(formFields);
+    form.vm.$emit('update:field', 'title', '未保存的业务角色名');
+    await flushPromises();
+    const record = form.vm.$attrs.record;
+    const before = JSON.stringify(record);
+    const calls = requests.length;
+    const drawer = wrapper.findComponent({ name: 'RecordDetailDrawer' });
+    expect(drawer.props('subtitle')).toContain('Tenant level');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(drawer.props('subtitle')).toContain('租户本级');
+    expect(form.vm.$attrs.record).toBe(record);
+    expect(JSON.stringify(form.vm.$attrs.record)).toBe(before);
+    expect(requests.length).toBe(calls);
+    expect(drawer.props('open')).toBe(true);
+    expect(confirmAction).not.toHaveBeenCalled();
+    language.setLanguage('en');
+    await flushPromises();
+    expect(drawer.props('subtitle')).toContain('Tenant level');
+    expect(JSON.stringify(form.vm.$attrs.record)).toBe(before);
+  } finally {
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+  }
 });

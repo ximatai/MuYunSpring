@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiSelect } from '@muyun/vue-ui-antdv';
 import type { OptionValue, OptionValueList, Role } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleGroupMemberSelector' });
 
@@ -68,25 +71,29 @@ function parseRoleIds(value: unknown) {
 }
 
 function roleTitle(record: Partial<Role> | undefined) {
-  return String(record?.title ?? record?.id ?? '角色');
+  return String(record?.title ?? record?.id ?? language.t('platform.screen.RoleManagementView.role', '角色'));
 }
 
 function roleKindTitle(value: Role['roleKind']) {
   if (value === 'dataGrant') {
-    return '数据授权角色';
+    return language.t('platform.screen.RoleManagementView.data-authorization-role', '数据授权角色');
   }
-  return '标准角色';
+  return language.t('platform.screen.RoleManagementView.standard-role', '标准角色');
 }
 </script>
 
 <template>
   <label class="role-group-member-selector">
-    <span class="role-group-member-selector-label">成员角色</span>
+    <span class="role-group-member-selector-label">{{
+      language.t('platform.screen.RoleManagementView.member-roles', '成员角色')
+    }}</span>
     <UiSelect
       mode="multiple"
       :value="selectedRoleIds"
       :options="options"
-      placeholder="请选择成员角色"
+      :placeholder="
+        language.t('platform.screen.RoleGroupMemberSelector.select-member-roles', '请选择成员角色')
+      "
       :disabled="disabled"
       :allow-clear="true"
       @update:value="updateValue"

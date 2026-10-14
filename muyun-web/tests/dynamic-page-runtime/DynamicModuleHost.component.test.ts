@@ -1,3 +1,4 @@
+import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
@@ -13,6 +14,7 @@ import {
   createHttpClient,
   createAssistantSurfaceRegistry,
   createLanguageContext,
+  codeOperationErrorMessage,
   provideLanguageContext,
 } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
@@ -3144,6 +3146,20 @@ describe('ModulePageHost', () => {
       props: ['context'],
       template: '<aside>范围树</aside>',
     };
+    const language = createLanguageContext({ languageTag: 'en' });
+    const source = codeOperationErrorMessage(language, 'iam.role.scope.platform', '平台角色').source;
+    const labelText = {
+      source,
+      languages: {
+        en: {
+          text: 'Platform roles',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+      },
+    };
     const requestHeaders: Headers[] = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -3153,7 +3169,23 @@ describe('ModulePageHost', () => {
           moduleAlias: 'crm.customer',
           capabilities: [],
           actions: [{ actionCode: 'create', authorized: true }],
-          uiDescriptor: { schemaVersion: '1', moduleAlias: 'crm.customer', page: page() },
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              list: {
+                fields: { viewCode: 'default_list', viewKind: 'LIST', fields: [] },
+                title: {
+                  program: {
+                    schemaVersion: 1,
+                    profile: 'PAGE_TEXT',
+                    referencedFields: ['selection.label'],
+                    root: { kind: 'FIELD', field: 'selection.label', arguments: [] },
+                  },
+                },
+              },
+            }),
+          },
         });
       }
       if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
@@ -3176,13 +3208,23 @@ describe('ModulePageHost', () => {
           extension: {
             key: 'customer-scope-tree',
             component: ScopeTree,
-            selection: { kind: 'customerScope', initialKey: () => 'platform' },
+            selection: {
+              kind: 'customerScope',
+              initialKey: () => 'platform',
+              initialPresentation: () => ({ label: '平台角色', labelText }),
+            },
           },
         },
       },
     ]);
 
-    const wrapper = shallowMount(ModulePageHost, {
+    const Owner = defineComponent({
+      setup(_, { attrs }) {
+        provideLanguageContext(language);
+        return () => h(ModulePageHost, { descriptor: attrs.descriptor as StandardModulePageDescriptor });
+      },
+    });
+    const owner = shallowMount(Owner, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -3195,6 +3237,7 @@ describe('ModulePageHost', () => {
       },
       global: {
         stubs: {
+          ModulePageHost: false,
           ManagementWorkspace: { template: '<section><slot /></section>' },
           ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -3203,6 +3246,7 @@ describe('ModulePageHost', () => {
     });
     await flushPromises();
 
+    const wrapper = owner.findComponent(ModulePageHost);
     const extension = wrapper.findComponent({ name: 'ScopeTree' });
     expect(extension.exists()).toBe(true);
     expect(extension.props('context')).toEqual(
@@ -3220,6 +3264,20 @@ describe('ModulePageHost', () => {
         (headers) => headers.get('X-MuYun-Page-Selection') === '{"kind":"customerScope","key":"platform"}',
       ),
     ).toBe(true);
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(session.modulePageTitle).toBe('Platform roles');
+    const calls = requestHeaders.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(session.modulePageTitle).toBe('平台角色');
+    expect(requestHeaders.length).toBe(calls);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(session.modulePageTitle).toBe('Platform roles');
+    expect(requestHeaders.length).toBe(calls);
+    owner.unmount();
   });
 
   it.each([

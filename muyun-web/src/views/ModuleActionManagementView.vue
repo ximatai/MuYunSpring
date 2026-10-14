@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { useLanguageContext, createStaticResourceTreeClient, useModuleContext } from '@muyun/web-core';
+import {
+  codeOperationErrorMessage,
+  useLanguageContext,
+  createStaticResourceTreeClient,
+  useModuleContext,
+} from '@muyun/web-core';
 import { computed, onMounted, ref } from 'vue';
 import {
   CrudRecordListExplorer,
@@ -61,22 +66,60 @@ const searchKeyword = ref('');
 const sorting = ref(false);
 const executorDefinitions = ref<ExecutorDefinition[]>([]);
 const management = useFlatCrudManagementState({
+  language,
   context: actionContext,
   confirmAction: (options) => confirmAction(options, language),
   emptyDraft: () => emptyActionDraft(props.moduleAlias),
   normalizeDraft: (record) => normalizeActionDraft(record, props.moduleAlias),
   copyRecord: (record) => ({ ...record }),
   titleOf: actionTitleOf,
-  fallbackTitle: '模块动作',
-  createTitle: '新建动作',
-  requiredMessage: '动作编码不能为空',
+  get fallbackTitle() {
+    return language.t('platform.unsaved-source.ModuleActionManagementView', '模块动作');
+  },
+  get createTitle() {
+    return language.t('platform.screen.ModuleActionManagementView.new-action', '新建动作');
+  },
+  get requiredMessage() {
+    return codeOperationErrorMessage(
+      language,
+      'platform.screen.ModuleActionManagementView.the-action-code-is-required',
+      '动作编码不能为空',
+    );
+  },
   isValid: (record) => Boolean(record.actionCode?.trim()),
-  recordName: '动作',
-  deleteTitle: '删除动作',
-  saveDeniedMessage: '当前用户无权保存模块动作',
-  createDeniedMessage: '当前用户无权新建模块动作',
-  enableDeniedMessage: '当前用户无权变更模块动作启停状态',
-  deleteDeniedMessage: () => '当前用户无权删除模块动作',
+  get recordName() {
+    return language.t('platform.governance.tab.actions', '动作');
+  },
+  get deleteTitle() {
+    return language.t('platform.screen.ModuleActionManagementView.delete-action', '删除动作');
+  },
+  get saveDeniedMessage() {
+    return codeOperationErrorMessage(
+      language,
+      'platform.screen.ModuleActionManagementView.you-do-not-have-permission-to-save-module-actions',
+      '当前用户无权保存模块动作',
+    );
+  },
+  get createDeniedMessage() {
+    return codeOperationErrorMessage(
+      language,
+      'platform.screen.ModuleActionManagementView.you-do-not-have-permission-to-create-module-actions',
+      '当前用户无权新建模块动作',
+    );
+  },
+  get enableDeniedMessage() {
+    return codeOperationErrorMessage(
+      language,
+      'platform.screen.ModuleActionManagementView.you-do-not-have-permission-to-enable-or-disable-module',
+      '当前用户无权变更模块动作启停状态',
+    );
+  },
+  deleteDeniedMessage: () =>
+    codeOperationErrorMessage(
+      language,
+      'platform.screen.ModuleActionManagementView.you-do-not-have-permission-to-delete-module-actions',
+      '当前用户无权删除模块动作',
+    ),
   canDeleteRecord: (record) => record.systemManaged !== true,
   canEnableRecord: (record) => record.systemManaged !== true,
 });
@@ -108,7 +151,12 @@ const actionLevelOptions = computed(() => {
   const levels = executor?.supportedLevels ?? ['LIST', 'RECORD', 'BATCH', 'ANY'];
   return levels.map((value) => ({
     value,
-    label: { LIST: '列表', RECORD: '单条记录', BATCH: '批量', ANY: '任意' }[value],
+    label: {
+      LIST: language.t('platform.page.composition.list', '列表'),
+      RECORD: language.t('platform.screen.ModuleActionManagementView.single-record', '单条记录'),
+      BATCH: language.t('platform.screen.ModuleActionManagementView.batch', '批量'),
+      ANY: language.t('platform.screen.ModuleActionManagementView.any', '任意'),
+    }[value],
   }));
 });
 const actionDetailFieldNames = computed(() => [
@@ -151,16 +199,22 @@ const cardActions = computed<RecordActionItem[]>(() => {
             {
               key: 'reset-permission-governance',
               actionCode: 'update',
-              title: '全部重置',
+              title: language.t('platform.screen.ModuleActionManagementView.reset-all', '全部重置'),
               disabled: management.saving.value,
             },
           ]
         : []),
-      { key: 'cancel', title: '取消', disabled: management.saving.value },
+      {
+        key: 'cancel',
+        title: language.t('platform.action.cancel', '取消'),
+        disabled: management.saving.value,
+      },
       {
         key: 'save',
         actionCode: management.mode.value === 'create' ? 'create' : 'update',
-        title: management.saving.value ? '保存中' : '保存',
+        title: management.saving.value
+          ? language.t('platform.action.saving', '保存中')
+          : language.t('platform.action.save', '保存'),
         primary: true,
         loading: management.saving.value,
       },
@@ -171,13 +225,13 @@ const cardActions = computed<RecordActionItem[]>(() => {
     {
       key: 'edit',
       actionCode: 'update',
-      title: '编辑',
+      title: language.t('platform.action.edit', '编辑'),
       disabled: !selected || !management.canUpdate.value,
     },
     {
       key: 'delete',
       actionCode: 'delete',
-      title: '删除',
+      title: language.t('platform.action.delete', '删除'),
       danger: true,
       loading: management.saving.value,
       disabled: !selected || selected.systemManaged === true || !management.canDelete.value,
@@ -190,7 +244,12 @@ function actionItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor 
   return {
     title: actionTitleOf(action),
     secondary: action.actionCode,
-    tag: action.systemManaged === true ? '平台托管' : !action.executorKey ? '待绑定' : '已绑定',
+    tag:
+      action.systemManaged === true
+        ? language.t('platform.screen.pageCompositionSession.platform-managed', '平台托管')
+        : !action.executorKey
+          ? language.t('platform.screen.PageCompositionTree.binding-pending', '待绑定')
+          : language.t('platform.screen.RoleAccountGrantDrawer.assigned', '已绑定'),
     muted: action.enabled === false,
   };
 }
@@ -248,7 +307,7 @@ async function loadExecutorDefinitions() {
     });
   } catch (cause) {
     executorDefinitions.value = [];
-    presentPlatformError(cause, { source: 'module-action-management', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'module-action-management', phase: 'load' });
   }
 }
 
@@ -310,59 +369,111 @@ function hasText(value: string | undefined) {
 }
 
 function actionTitleOf(action: PlatformModuleAction) {
-  return action.title?.trim() || action.actionCode?.trim() || action.id || '未命名动作';
+  return (
+    action.title?.trim() ||
+    action.actionCode?.trim() ||
+    action.id ||
+    language.t('platform.screen.ModuleActionManagementView.untitled-action', '未命名动作')
+  );
 }
 
 function actionDetailDisplayValue(fieldName: string, value: unknown) {
   const labels: Record<string, Record<string, string>> = {
     category: {
-      STANDARD: '标准动作',
-      CUSTOM: '自定义动作',
-      DIALOG: '弹窗动作',
-      WORKFLOW: '工作流动作',
-      GENERATE: '生成动作',
+      STANDARD: language.t('platform.screen.RoleAuthorizationView.standard-action', '标准动作'),
+      CUSTOM: language.t('platform.screen.ModuleActionManagementView.custom-action', '自定义动作'),
+      DIALOG: language.t('platform.screen.ModuleActionManagementView.dialog-action', '弹窗动作'),
+      WORKFLOW: language.t('platform.screen.ModuleActionManagementView.workflow-action', '工作流动作'),
+      GENERATE: language.t('platform.screen.ModuleActionManagementView.generation-action', '生成动作'),
     },
-    actionLevel: { LIST: '列表', RECORD: '单条记录', BATCH: '批量', ANY: '任意' },
-    accessMode: { AUTH_REQUIRED: '需要授权', LOGIN_REQUIRED: '登录可用', ANONYMOUS_ALLOWED: '匿名可用' },
+    actionLevel: {
+      LIST: language.t('platform.page.composition.list', '列表'),
+      RECORD: language.t('platform.screen.ModuleActionManagementView.single-record', '单条记录'),
+      BATCH: language.t('platform.screen.ModuleActionManagementView.batch', '批量'),
+      ANY: language.t('platform.screen.ModuleActionManagementView.any', '任意'),
+    },
+    accessMode: {
+      AUTH_REQUIRED: language.t(
+        'platform.screen.ModuleActionManagementView.authorization-required',
+        '需要授权',
+      ),
+      LOGIN_REQUIRED: language.t('platform.screen.ModuleActionManagementView.signed-in-access', '登录可用'),
+      ANONYMOUS_ALLOWED: language.t(
+        'platform.screen.ModuleActionManagementView.anonymous-access',
+        '匿名可用',
+      ),
+    },
     executorType: {
-      STANDARD: '平台标准',
-      SERVICE: '服务（二开）',
-      DIALOG: '弹窗协议',
-      WORKFLOW: '工作流',
-      GENERATE: '生成器',
+      STANDARD: language.t('platform.screen.ModuleActionManagementView.platform-standard', '平台标准'),
+      SERVICE: language.t('platform.screen.ModuleActionManagementView.custom-service', '服务（二开）'),
+      DIALOG: language.t('platform.screen.ModuleActionManagementView.dialog-protocol', '弹窗协议'),
+      WORKFLOW: language.t('platform.screen.ModuleActionManagementView.workflow', '工作流'),
+      GENERATE: language.t('platform.screen.ModuleActionManagementView.generator', '生成器'),
     },
     defaultGrantPolicy: {
-      NONE: '不默认授予',
-      ANY_LOGIN_USER: '所有登录用户',
-      OWNER: '记录所有者',
-      ASSIGNEE: '办理人',
-      MEMBER: '成员',
+      NONE: language.t('platform.screen.ModuleActionManagementView.no-default-grant', '不默认授予'),
+      ANY_LOGIN_USER: language.t(
+        'platform.screen.ModuleActionManagementView.all-signed-in-users',
+        '所有登录用户',
+      ),
+      OWNER: language.t('platform.screen.ModuleActionManagementView.record-owner', '记录所有者'),
+      ASSIGNEE: language.t('platform.screen.WorkflowWorkbenchView.processors', '办理人'),
+      MEMBER: language.t('platform.screen.ModuleActionManagementView.member', '成员'),
     },
     sourceType: {
-      STATIC_MODULE: '静态模块声明',
-      CODE_EXTENSION: '代码扩展',
-      DYNAMIC_MODULE: '动态模块配置',
-      WORKFLOW_DEFINITION: '工作流定义',
-      WORKFLOW_RUNTIME: '工作流运行时',
-      RECORD_GENERATION_RULE: '生单规则',
-      DOCUMENT_RELATION: '单据关系',
-      PRINT_TEMPLATE: '打印模板',
+      STATIC_MODULE: language.t(
+        'platform.screen.ModuleActionManagementView.static-module-declaration',
+        '静态模块声明',
+      ),
+      CODE_EXTENSION: language.t('platform.screen.ModuleActionManagementView.code-extension', '代码扩展'),
+      DYNAMIC_MODULE: language.t(
+        'platform.screen.ModuleActionManagementView.dynamic-module-configuration',
+        '动态模块配置',
+      ),
+      WORKFLOW_DEFINITION: language.t(
+        'platform.screen.ModuleActionManagementView.workflow-definition',
+        '工作流定义',
+      ),
+      WORKFLOW_RUNTIME: language.t(
+        'platform.screen.ModuleActionManagementView.workflow-runtime',
+        '工作流运行时',
+      ),
+      RECORD_GENERATION_RULE: language.t(
+        'platform.screen.ModuleActionManagementView.document-generation-rule',
+        '生单规则',
+      ),
+      DOCUMENT_RELATION: language.t(
+        'platform.screen.ModuleActionManagementView.document-relation',
+        '单据关系',
+      ),
+      PRINT_TEMPLATE: language.t('platform.screen.ModuleActionManagementView.print-template', '打印模板'),
     },
   };
-  if (fieldName === 'actionAuth') return value === true ? '启用' : '未启用';
-  if (fieldName === 'dataAuth') return value === true ? '启用' : '未启用';
+  if (fieldName === 'actionAuth')
+    return value === true
+      ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+      : language.t('platform.screen.ModuleActionManagementView.not-enabled', '未启用');
+  if (fieldName === 'dataAuth')
+    return value === true
+      ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+      : language.t('platform.screen.ModuleActionManagementView.not-enabled', '未启用');
   return typeof value === 'string' ? labels[fieldName]?.[value] : undefined;
 }
 </script>
 
 <template>
   <StaticManagementLayout
-    explorer-title="模块动作"
-    refresh-title="刷新动作"
+    :explorer-title="language.t('platform.unsaved-source.ModuleActionManagementView', '模块动作')"
+    :refresh-title="language.t('platform.screen.ModuleActionManagementView.refresh-actions', '刷新动作')"
     :mode="mode"
     :detail-title="cardTitle"
     :explorer-search-keyword="searchKeyword"
-    explorer-search-placeholder="搜索动作名称或编码"
+    :explorer-search-placeholder="
+      language.t(
+        'platform.screen.ModuleActionManagementView.search-action-name-or-code',
+        '搜索动作名称或编码',
+      )
+    "
     @update:explorer-search-keyword="searchKeyword = $event"
     @refresh="reloadKey += 1"
   >
@@ -377,21 +488,31 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         :disabled="sortDisabled"
         :title="
           searchKeyword.trim()
-            ? '清空搜索后可调整排序'
+            ? language.t(
+                'platform.screen.ModulePageHostRuntime.clear-the-search-to-reorder-records',
+                '清空搜索后可调整排序',
+              )
             : mode !== 'view'
-              ? '结束编辑后可调整排序'
+              ? language.t(
+                  'platform.screen.ModuleActionManagementView.finish-editing-before-reordering',
+                  '结束编辑后可调整排序',
+                )
               : sorting
-                ? '结束排序'
-                : '调整排序'
+                ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+                : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
         "
-        :aria-label="sorting ? '结束排序' : '调整排序'"
+        :aria-label="
+          sorting
+            ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+            : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
+        "
         @click="sorting = !sorting"
       />
       <ModuleActionButton
         class="record-panel-create-button"
         :context="actionContext"
         action-code="create"
-        title="新建动作"
+        :title="language.t('platform.screen.ModuleActionManagementView.new-action', '新建动作')"
         icon-only
         :disabled="!canCreateManualAction || saving"
         @click="startCreate"
@@ -404,9 +525,18 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         :reload-key="reloadKey"
         :keyword="searchKeyword"
         :sorting="sorting && canSort && !sortDisabled"
-        empty-description="当前模块暂无动作"
-        loading-tip="加载模块动作"
-        fallback-title="未命名动作"
+        :empty-description="
+          language.t(
+            'platform.screen.ModuleActionManagementView.no-actions-are-available-for-this-module',
+            '当前模块暂无动作',
+          )
+        "
+        :loading-tip="
+          language.t('platform.screen.RoleAuthorizationView.loading-module-actions', '加载模块动作')
+        "
+        :fallback-title="
+          language.t('platform.screen.ModuleActionManagementView.untitled-action', '未命名动作')
+        "
         :item-of="actionItemOf"
         @loaded="management.handleListLoaded($event as PlatformModuleAction[])"
         @select="management.handleSelect($event as PlatformModuleAction)"
@@ -429,7 +559,17 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
 
     <UiEmpty
       v-if="!selected && mode === 'view'"
-      :description="moduleKind === 'static' ? '静态模块动作由 Java 声明自动注册' : '当前模块暂无动作'"
+      :description="
+        moduleKind === 'static'
+          ? language.t(
+              'platform.screen.ModuleActionManagementView.static-module-actions-are-registered-automatically-from-java-declarations',
+              '静态模块动作由 Java 声明自动注册',
+            )
+          : language.t(
+              'platform.screen.ModuleActionManagementView.no-actions-are-available-for-this-module',
+              '当前模块暂无动作',
+            )
+      "
     />
     <template v-else-if="mode === 'view' && selected">
       <RecordDetailFields
@@ -437,20 +577,55 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         :display-of="actionDetailDisplayValue"
         :field-names="actionDetailFieldNames"
         :fallback="{
-          actionCode: { label: '动作编码' },
-          title: { label: '动作名称' },
-          category: { label: '动作类别' },
-          actionLevel: { label: '执行层级' },
-          accessMode: { label: '访问方式' },
-          executorType: { label: '执行方式' },
-          executorKey: { label: '执行实现' },
-          actionAuth: { label: '动作授权' },
-          dataAuth: { label: '数据授权' },
-          defaultGrantPolicy: { label: '默认授予策略' },
-          availableExpression: { label: '可用条件' },
-          unavailableMessage: { label: '不可用提示' },
-          sourceType: { label: '注册来源' },
-          bindingAlias: { label: '绑定标识' },
+          actionCode: {
+            label: language.t('platform.screen.ModuleActionManagementView.action-code', '动作编码'),
+          },
+          title: { label: language.t('platform.screen.ModuleActionManagementView.action-name', '动作名称') },
+          category: {
+            label: language.t('platform.screen.ModuleActionManagementView.action-category', '动作类别'),
+          },
+          actionLevel: {
+            label: language.t('platform.screen.ModuleActionManagementView.execution-level', '执行层级'),
+          },
+          accessMode: {
+            label: language.t('platform.screen.ModuleActionManagementView.access-mode', '访问方式'),
+          },
+          executorType: {
+            label: language.t('platform.screen.ModuleActionManagementView.execution-method', '执行方式'),
+          },
+          executorKey: {
+            label: language.t(
+              'platform.screen.ModuleActionManagementView.executor-implementation',
+              '执行实现',
+            ),
+          },
+          actionAuth: {
+            label: language.t('platform.screen.ModuleActionManagementView.action-authorization', '动作授权'),
+          },
+          dataAuth: {
+            label: language.t('platform.screen.ModuleActionManagementView.data-authorization', '数据授权'),
+          },
+          defaultGrantPolicy: {
+            label: language.t(
+              'platform.screen.ModuleActionManagementView.default-grant-policy',
+              '默认授予策略',
+            ),
+          },
+          availableExpression: {
+            label: language.t(
+              'platform.screen.ModuleActionManagementView.availability-condition',
+              '可用条件',
+            ),
+          },
+          unavailableMessage: {
+            label: language.t('platform.screen.ModuleActionManagementView.unavailable-message', '不可用提示'),
+          },
+          sourceType: {
+            label: language.t('platform.screen.ModuleActionManagementView.registration-source', '注册来源'),
+          },
+          bindingAlias: {
+            label: language.t('platform.screen.ModuleActionManagementView.binding-id', '绑定标识'),
+          },
         }"
       />
     </template>
@@ -460,32 +635,67 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
       @submit.prevent="management.save"
     >
       <section class="action-declaration-section">
-        <h3>动作声明</h3>
+        <h3>{{ language.t('platform.screen.ModuleActionManagementView.action-declaration', '动作声明') }}</h3>
         <RecordDetailFields
           :record="draft as RecordFormRecord"
           :display-of="actionDetailDisplayValue"
           :field-names="actionDeclarationFieldNames"
           :fallback="{
-            actionCode: { label: '动作编码' },
-            title: { label: '动作名称' },
-            category: { label: '动作类别' },
-            actionLevel: { label: '执行层级' },
-            executorType: { label: '执行方式' },
-            executorKey: { label: '执行实现' },
-            sourceType: { label: '注册来源' },
+            actionCode: {
+              label: language.t('platform.screen.ModuleActionManagementView.action-code', '动作编码'),
+            },
+            title: {
+              label: language.t('platform.screen.ModuleActionManagementView.action-name', '动作名称'),
+            },
+            category: {
+              label: language.t('platform.screen.ModuleActionManagementView.action-category', '动作类别'),
+            },
+            actionLevel: {
+              label: language.t('platform.screen.ModuleActionManagementView.execution-level', '执行层级'),
+            },
+            executorType: {
+              label: language.t('platform.screen.ModuleActionManagementView.execution-method', '执行方式'),
+            },
+            executorKey: {
+              label: language.t(
+                'platform.screen.ModuleActionManagementView.executor-implementation',
+                '执行实现',
+              ),
+            },
+            sourceType: {
+              label: language.t('platform.screen.ModuleActionManagementView.registration-source', '注册来源'),
+            },
           }"
         />
       </section>
       <section class="permission-governance-section">
-        <h3>权限治理</h3>
+        <h3>
+          {{ language.t('platform.screen.ModuleActionManagementView.permission-governance', '权限治理') }}
+        </h3>
         <div class="governance-grid">
           <section class="governance-item">
             <header>
               <div>
                 <h4>
-                  访问方式
-                  <UiTooltip title="决定调用动作前需要满足的身份条件。">
-                    <button type="button" class="governance-help" aria-label="访问方式说明">
+                  {{ language.t('platform.screen.ModuleActionManagementView.access-mode', '访问方式') }}
+                  <UiTooltip
+                    :title="
+                      language.t(
+                        'platform.screen.ModuleActionManagementView.define-the-identity-requirements-for-invoking-this-action',
+                        '决定调用动作前需要满足的身份条件。',
+                      )
+                    "
+                  >
+                    <button
+                      type="button"
+                      class="governance-help"
+                      :aria-label="
+                        language.t(
+                          'platform.screen.ModuleActionManagementView.access-method-description',
+                          '访问方式说明',
+                        )
+                      "
+                    >
                       <UiIcon name="help" />
                     </button>
                   </UiTooltip>
@@ -498,7 +708,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
                   size="small"
                   :disabled="formDisabled"
                   @click="resetGovernanceField('accessModeOverride')"
-                  >重置</UiButton
+                  >{{ language.t('platform.screen.WorkflowWorkbenchView.reset', '重置') }}</UiButton
                 >
               </span>
             </header>
@@ -506,9 +716,27 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
               :value="draft.accessModeOverride ?? draft.accessMode"
               :disabled="formDisabled"
               :options="[
-                { label: '需要授权', value: 'AUTH_REQUIRED' },
-                { label: '登录可用', value: 'LOGIN_REQUIRED' },
-                { label: '匿名可用', value: 'ANONYMOUS_ALLOWED' },
+                {
+                  label: language.t(
+                    'platform.screen.ModuleActionManagementView.authorization-required',
+                    '需要授权',
+                  ),
+                  value: 'AUTH_REQUIRED',
+                },
+                {
+                  label: language.t(
+                    'platform.screen.ModuleActionManagementView.signed-in-access',
+                    '登录可用',
+                  ),
+                  value: 'LOGIN_REQUIRED',
+                },
+                {
+                  label: language.t(
+                    'platform.screen.ModuleActionManagementView.anonymous-access',
+                    '匿名可用',
+                  ),
+                  value: 'ANONYMOUS_ALLOWED',
+                },
               ]"
               @update:value="updateDraft('accessModeOverride', $event)"
             />
@@ -517,9 +745,30 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
             <header>
               <div>
                 <h4>
-                  默认授予策略
-                  <UiTooltip title="定义满足条件的用户首次获得动作时的默认规则。">
-                    <button type="button" class="governance-help" aria-label="默认授予策略说明">
+                  {{
+                    language.t(
+                      'platform.screen.ModuleActionManagementView.default-grant-policy',
+                      '默认授予策略',
+                    )
+                  }}
+                  <UiTooltip
+                    :title="
+                      language.t(
+                        'platform.screen.ModuleActionManagementView.define-the-default-grant-rules-when-eligible-users-first-receive',
+                        '定义满足条件的用户首次获得动作时的默认规则。',
+                      )
+                    "
+                  >
+                    <button
+                      type="button"
+                      class="governance-help"
+                      :aria-label="
+                        language.t(
+                          'platform.screen.ModuleActionManagementView.default-grant-policy-description',
+                          '默认授予策略说明',
+                        )
+                      "
+                    >
                       <UiIcon name="help" />
                     </button>
                   </UiTooltip>
@@ -532,7 +781,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
                   size="small"
                   :disabled="formDisabled"
                   @click="resetGovernanceField('defaultGrantPolicyOverride')"
-                  >重置</UiButton
+                  >{{ language.t('platform.screen.WorkflowWorkbenchView.reset', '重置') }}</UiButton
                 >
               </span>
             </header>
@@ -540,11 +789,32 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
               :value="draft.defaultGrantPolicyOverride ?? draft.defaultGrantPolicy"
               :disabled="formDisabled"
               :options="[
-                { label: '不默认授予', value: 'NONE' },
-                { label: '所有登录用户', value: 'ANY_LOGIN_USER' },
-                { label: '记录所有者', value: 'OWNER' },
-                { label: '办理人', value: 'ASSIGNEE' },
-                { label: '成员', value: 'MEMBER' },
+                {
+                  label: language.t(
+                    'platform.screen.ModuleActionManagementView.no-default-grant',
+                    '不默认授予',
+                  ),
+                  value: 'NONE',
+                },
+                {
+                  label: language.t(
+                    'platform.screen.ModuleActionManagementView.all-signed-in-users',
+                    '所有登录用户',
+                  ),
+                  value: 'ANY_LOGIN_USER',
+                },
+                {
+                  label: language.t('platform.screen.ModuleActionManagementView.record-owner', '记录所有者'),
+                  value: 'OWNER',
+                },
+                {
+                  label: language.t('platform.screen.WorkflowWorkbenchView.processors', '办理人'),
+                  value: 'ASSIGNEE',
+                },
+                {
+                  label: language.t('platform.screen.ModuleActionManagementView.member', '成员'),
+                  value: 'MEMBER',
+                },
               ]"
               @update:value="updateDraft('defaultGrantPolicyOverride', $event)"
             />
@@ -553,9 +823,27 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
             <header>
               <div>
                 <h4>
-                  动作授权
-                  <UiTooltip title="控制角色是否需要被显式授予该动作。">
-                    <button type="button" class="governance-help" aria-label="动作授权说明">
+                  {{
+                    language.t('platform.screen.ModuleActionManagementView.action-authorization', '动作授权')
+                  }}
+                  <UiTooltip
+                    :title="
+                      language.t(
+                        'platform.screen.ModuleActionManagementView.control-whether-roles-require-an-explicit-grant-for-this-action',
+                        '控制角色是否需要被显式授予该动作。',
+                      )
+                    "
+                  >
+                    <button
+                      type="button"
+                      class="governance-help"
+                      :aria-label="
+                        language.t(
+                          'platform.screen.ModuleActionManagementView.action-permission-description',
+                          '动作授权说明',
+                        )
+                      "
+                    >
                       <UiIcon name="help" />
                     </button>
                   </UiTooltip>
@@ -568,7 +856,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
                   size="small"
                   :disabled="formDisabled"
                   @click="resetGovernanceField('actionAuthOverride')"
-                  >重置</UiButton
+                  >{{ language.t('platform.screen.WorkflowWorkbenchView.reset', '重置') }}</UiButton
                 >
               </span>
             </header>
@@ -576,12 +864,14 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
               <UiSwitch
                 :checked="(draft.actionAuthOverride ?? draft.actionAuth) !== false"
                 :disabled="formDisabled"
-                checked-text="开"
-                unchecked-text="关"
+                :checked-text="language.t('platform.screen.ModuleActionManagementView.on', '开')"
+                :unchecked-text="language.t('platform.screen.ModuleActionManagementView.off', '关')"
                 @update:checked="updateDraft('actionAuthOverride', $event)"
               />
               <strong>{{
-                (draft.actionAuthOverride ?? draft.actionAuth) !== false ? '已启用' : '未启用'
+                (draft.actionAuthOverride ?? draft.actionAuth) !== false
+                  ? language.t('platform.screen.DynamicModuleWorkspaceDetailView.enabled', '已启用')
+                  : language.t('platform.screen.ModuleActionManagementView.not-enabled', '未启用')
               }}</strong>
             </div>
           </section>
@@ -589,9 +879,27 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
             <header>
               <div>
                 <h4>
-                  数据授权
-                  <UiTooltip title="启用后，读取和执行会继续按数据范围校验。">
-                    <button type="button" class="governance-help" aria-label="数据授权说明">
+                  {{
+                    language.t('platform.screen.ModuleActionManagementView.data-authorization', '数据授权')
+                  }}
+                  <UiTooltip
+                    :title="
+                      language.t(
+                        'platform.screen.ModuleActionManagementView.when-enabled-reads-and-execution-are-checked-against-the-data',
+                        '启用后，读取和执行会继续按数据范围校验。',
+                      )
+                    "
+                  >
+                    <button
+                      type="button"
+                      class="governance-help"
+                      :aria-label="
+                        language.t(
+                          'platform.screen.ModuleActionManagementView.data-permission-description',
+                          '数据授权说明',
+                        )
+                      "
+                    >
                       <UiIcon name="help" />
                     </button>
                   </UiTooltip>
@@ -604,7 +912,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
                   size="small"
                   :disabled="formDisabled"
                   @click="resetGovernanceField('dataAuthOverride')"
-                  >重置</UiButton
+                  >{{ language.t('platform.screen.WorkflowWorkbenchView.reset', '重置') }}</UiButton
                 >
               </span>
             </header>
@@ -612,11 +920,15 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
               <UiSwitch
                 :checked="(draft.dataAuthOverride ?? draft.dataAuth) === true"
                 :disabled="formDisabled"
-                checked-text="开"
-                unchecked-text="关"
+                :checked-text="language.t('platform.screen.ModuleActionManagementView.on', '开')"
+                :unchecked-text="language.t('platform.screen.ModuleActionManagementView.off', '关')"
                 @update:checked="updateDraft('dataAuthOverride', $event)"
               />
-              <strong>{{ (draft.dataAuthOverride ?? draft.dataAuth) === true ? '已启用' : '未启用' }}</strong>
+              <strong>{{
+                (draft.dataAuthOverride ?? draft.dataAuth) === true
+                  ? language.t('platform.screen.DynamicModuleWorkspaceDetailView.enabled', '已启用')
+                  : language.t('platform.screen.ModuleActionManagementView.not-enabled', '未启用')
+              }}</strong>
             </div>
           </section>
         </div>
@@ -624,10 +936,15 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
     </form>
     <form v-else class="static-record-form" @submit.prevent="management.save">
       <p class="form-hint wide-field">
-        可以先保存动作，再绑定执行能力。待绑定动作不可执行，页面引用后需完成绑定才能发布。
+        {{
+          language.t(
+            'platform.screen.ModuleActionManagementView.you-can-save-an-action-before-binding-its-executor-unbound',
+            '可以先保存动作，再绑定执行能力。待绑定动作不可执行，页面引用后需完成绑定才能发布。',
+          )
+        }}
       </p>
       <label>
-        <span>动作编码</span>
+        <span>{{ language.t('platform.screen.ModuleActionManagementView.action-code', '动作编码') }}</span>
         <UiInput
           :value="draft.actionCode"
           :disabled="formDisabled"
@@ -635,11 +952,13 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         />
       </label>
       <label>
-        <span>动作名称</span>
+        <span>{{ language.t('platform.screen.ModuleActionManagementView.action-name', '动作名称') }}</span>
         <UiInput :value="draft.title" :disabled="formDisabled" @update:value="updateDraft('title', $event)" />
       </label>
       <label>
-        <span>执行层级</span>
+        <span>{{
+          language.t('platform.screen.ModuleActionManagementView.execution-level', '执行层级')
+        }}</span>
         <UiSelect
           :value="draft.actionLevel"
           :disabled="formDisabled"
@@ -648,38 +967,62 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         />
       </label>
       <label>
-        <span>访问方式</span>
+        <span>{{ language.t('platform.screen.ModuleActionManagementView.access-mode', '访问方式') }}</span>
         <UiSelect
           :value="draft.accessMode"
           :disabled="formDisabled"
           :options="[
-            { label: '需要授权', value: 'AUTH_REQUIRED' },
-            { label: '登录可用', value: 'LOGIN_REQUIRED' },
-            { label: '匿名可用', value: 'ANONYMOUS_ALLOWED' },
+            {
+              label: language.t(
+                'platform.screen.ModuleActionManagementView.authorization-required',
+                '需要授权',
+              ),
+              value: 'AUTH_REQUIRED',
+            },
+            {
+              label: language.t('platform.screen.ModuleActionManagementView.signed-in-access', '登录可用'),
+              value: 'LOGIN_REQUIRED',
+            },
+            {
+              label: language.t('platform.screen.ModuleActionManagementView.anonymous-access', '匿名可用'),
+              value: 'ANONYMOUS_ALLOWED',
+            },
           ]"
           @update:value="updateDraft('accessMode', $event)"
         />
       </label>
       <label v-if="moduleKind === 'dynamic'">
-        <span>执行能力（可稍后绑定）</span>
+        <span>{{
+          language.t(
+            'platform.screen.ModuleActionManagementView.executor-can-be-bound-later',
+            '执行能力（可稍后绑定）',
+          )
+        }}</span>
         <UiSelect
           :value="draft.executorKey"
           allow-clear
-          placeholder="待绑定"
+          :placeholder="language.t('platform.screen.PageCompositionTree.binding-pending', '待绑定')"
           :disabled="formDisabled"
           :options="executorOptions"
           @update:value="updateExecutor($event)"
         />
       </label>
       <p v-if="moduleKind !== 'dynamic'" class="form-hint wide-field">
-        静态模块通过同编码的代码动作声明绑定执行能力。
+        {{
+          language.t(
+            'platform.screen.ModuleActionManagementView.static-modules-bind-an-executor-through-a-code-action-declaration',
+            '静态模块通过同编码的代码动作声明绑定执行能力。',
+          )
+        }}
       </p>
       <label class="checkbox-field">
         <UiCheckbox
           :checked="draft.actionAuth !== false"
           :disabled="formDisabled"
           @update:checked="updateDraft('actionAuth', $event)"
-          >启用动作授权</UiCheckbox
+          >{{
+            language.t('platform.screen.ModuleActionManagementView.enable-action-permissions', '启用动作授权')
+          }}</UiCheckbox
         >
       </label>
       <label class="checkbox-field">
@@ -687,26 +1030,50 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
           :checked="draft.dataAuth === true"
           :disabled="formDisabled"
           @update:checked="updateDraft('dataAuth', $event)"
-          >启用数据授权</UiCheckbox
+          >{{
+            language.t('platform.screen.ModuleActionManagementView.enable-data-permissions', '启用数据授权')
+          }}</UiCheckbox
         >
       </label>
       <label>
-        <span>默认授予策略</span>
+        <span>{{
+          language.t('platform.screen.ModuleActionManagementView.default-grant-policy', '默认授予策略')
+        }}</span>
         <UiSelect
           :value="draft.defaultGrantPolicy"
           :disabled="formDisabled"
           :options="[
-            { label: '不默认授予', value: 'NONE' },
-            { label: '所有登录用户', value: 'ANY_LOGIN_USER' },
-            { label: '记录所有者', value: 'OWNER' },
-            { label: '办理人', value: 'ASSIGNEE' },
-            { label: '成员', value: 'MEMBER' },
+            {
+              label: language.t('platform.screen.ModuleActionManagementView.no-default-grant', '不默认授予'),
+              value: 'NONE',
+            },
+            {
+              label: language.t(
+                'platform.screen.ModuleActionManagementView.all-signed-in-users',
+                '所有登录用户',
+              ),
+              value: 'ANY_LOGIN_USER',
+            },
+            {
+              label: language.t('platform.screen.ModuleActionManagementView.record-owner', '记录所有者'),
+              value: 'OWNER',
+            },
+            {
+              label: language.t('platform.screen.WorkflowWorkbenchView.processors', '办理人'),
+              value: 'ASSIGNEE',
+            },
+            {
+              label: language.t('platform.screen.ModuleActionManagementView.member', '成员'),
+              value: 'MEMBER',
+            },
           ]"
           @update:value="updateDraft('defaultGrantPolicy', $event)"
         />
       </label>
       <label class="wide-field">
-        <span>可用条件表达式</span>
+        <span>{{
+          language.t('platform.screen.ModuleActionManagementView.availability-expression', '可用条件表达式')
+        }}</span>
         <UiTextArea
           :value="draft.availableExpression"
           :disabled="formDisabled"
@@ -714,7 +1081,9 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         />
       </label>
       <label class="wide-field">
-        <span>不可用提示</span>
+        <span>{{
+          language.t('platform.screen.ModuleActionManagementView.unavailable-message', '不可用提示')
+        }}</span>
         <UiTextArea
           :value="draft.unavailableMessage"
           :disabled="formDisabled"

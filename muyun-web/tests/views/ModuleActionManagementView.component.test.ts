@@ -1,7 +1,19 @@
+import { showErrorMessage } from '@muyun/vue-ui-antdv';
+import { defineComponent, h } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
-import { expect, it } from 'vitest';
-import { configureModuleContext, type HttpRequestOptions } from '@/web-core';
+import { expect, it, vi } from 'vitest';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  configureModuleContext,
+  type HttpRequestOptions,
+} from '@/web-core';
 import ModuleActionManagementView from '@/views/ModuleActionManagementView.vue';
+
+vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
+  showErrorMessage: vi.fn(),
+}));
 
 it.each(['static', 'dynamic'] as const)(
   'creates an unbound %s action after selecting a managed action',
@@ -140,3 +152,68 @@ it.each([true, false])(
     wrapper.unmount();
   },
 );
+
+it('keeps the action draft and read state when the owner language changes after validation failure', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/context'))
+      return {
+        moduleAlias: 'platform.module_action',
+        capabilities: [],
+        actions: ['create', 'update', 'query'].map((actionCode) => ({
+          actionCode,
+          authorized: true,
+          actionLevel: 'ANY',
+        })),
+      } as never;
+    if (options.path.endsWith('/action-executors')) return [] as never;
+    return { records: [], total: 0 } as never;
+  });
+  configureModuleContext({ http: { request } });
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(ModuleActionManagementView, { moduleAlias: 'sales.entry', moduleKind: 'dynamic' });
+    },
+  });
+  const wrapper = mount(Host, {
+    global: {
+      stubs: {
+        StaticManagementLayout: {
+          template:
+            '<div><slot name="explorer-actions"/><slot name="explorer"/><slot name="detail-actions"/><slot/></div>',
+        },
+        CrudRecordListExplorer: { name: 'CrudRecordListExplorer', template: '<div/>' },
+        RecordMetaSection: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    wrapper
+      .findComponent({ name: 'CrudRecordListExplorer' })
+      .vm.$emit('loaded', [{ id: 'menu', actionCode: 'menu', title: '业务动作原名', systemManaged: true }]);
+    await flushPromises();
+    await wrapper.get('button[title="New action"]').trigger('click');
+    await wrapper.get('form.static-record-form').trigger('submit');
+    await flushPromises();
+    expect(showErrorMessage).toHaveBeenLastCalledWith('The action code is required.');
+    const calls = request.mock.calls.length;
+    const inputs = wrapper.findAll('input').map((input) => (input.element as HTMLInputElement).value);
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.find('button[title="新建动作"]').exists()).toBe(true);
+    expect(wrapper.findAll('input').map((input) => (input.element as HTMLInputElement).value)).toEqual(
+      inputs,
+    );
+    expect(request.mock.calls.length).toBe(calls);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.find('button[title="New action"]').exists()).toBe(true);
+    expect(
+      request.mock.calls.some(([options]) => options.method === 'POST' && !options.path.endsWith('/query')),
+    ).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});

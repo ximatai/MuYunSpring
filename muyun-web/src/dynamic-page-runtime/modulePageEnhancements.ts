@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import type {
   CurrentUser,
+  TextPresentation,
   PageDescriptor,
   PageLayoutMode,
   RouteQueryValue,
@@ -126,6 +127,7 @@ export interface ModulePageNavigatorSelection {
 
 /** The only display facts a navigator extension may contribute to PAGE_TEXT. */
 export interface ModulePageSelectionPresentation {
+  labelText?: TextPresentation;
   label: string;
   secondaryLabel?: string;
 }

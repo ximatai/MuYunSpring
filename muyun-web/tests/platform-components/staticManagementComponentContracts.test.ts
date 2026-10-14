@@ -594,8 +594,14 @@ it('role management enters the standard runner while keeping IAM scope and actio
     /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,
   );
   assert.match(roleEnhancementSource, /recordActions: roleRecordActions/);
-  assert.match(roleEnumTitleCellSource, /account: '账号角色'/);
-  assert.match(roleEnumTitleCellSource, /standard: '标准角色'/);
+  assert.match(
+    roleEnumTitleCellSource,
+    /account: language\.t\('platform\.screen\.RoleManagementView\.account-role', '账号角色'\)/,
+  );
+  assert.match(
+    roleEnumTitleCellSource,
+    /standard: language\.t\('platform\.screen\.RoleManagementView\.standard-role', '标准角色'\)/,
+  );
   assert.match(roleViewSource, /tenantRootTreeNode/);
   assert.match(roleViewSource, /selectPlatformScope/);
   assert.match(roleViewSource, /title: '平台角色'/);
@@ -640,7 +646,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleViewSource, /standard-crud-actions/);
   assert.match(roleViewSource, /standard-crud-row-actions/);
   assert.match(roleViewSource, /:extra-row-actions-of="roleExtraRowActionsOf"/);
-  assert.match(roleViewSource, /key: 'bind'[\s\S]*title: '绑定'[\s\S]*after: 'edit'[\s\S]*pinned: true/);
+  assert.match(
+    roleViewSource,
+    /key: 'bind'[\s\S]*title: language\.t\('platform\.screen\.RoleManagementView\.assign', '绑定'\)[\s\S]*after: 'edit'[\s\S]*pinned: true/,
+  );
   assert.match(panelSource, /primaryActions: ResolvedRecordActionItem\[\]/);
   assert.match(panelSource, /index === 0 \|\| action\.pinned === true/);
   assert.match(roleViewSource, /:row-action-state-of="roleRowActionStateOf"/);
@@ -670,7 +679,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleEmploymentGrantDrawerSource,
     /<section v-if="selectedEmployments\.length > 0" class="role-employment-grant-selected">/,
   );
-  assert.match(roleEmploymentGrantDrawerSource, /<strong>已选任职<\/strong>/);
+  assert.match(
+    roleEmploymentGrantDrawerSource,
+    /<strong>[\s\S]*language\.t\('platform\.screen\.RoleEmploymentGrantDrawer\.selected-positions', '已选任职'\)[\s\S]*<\/strong>/,
+  );
   assert.match(roleEmploymentGrantDrawerSource, /@click="removeSelectedEmployment\(employment\.id\)"/);
   assert.match(roleEmploymentGrantDrawerSource, /function selectedEmploymentTitle/);
   assert.match(roleEmploymentGrantDrawerSource, /const selectionInitialized = ref\(false\)/);
@@ -711,7 +723,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.notMatch(roleViewSource, /account-grants/);
   assert.notMatch(roleViewSource, /employment-grants/);
   assert.notMatch(roleViewSource, /permissionMatrix/);
-  assert.match(roleViewSource, /key: 'authorize'[\s\S]*actionCode: 'rolePermissions'[\s\S]*title: '授权'/);
+  assert.match(
+    roleViewSource,
+    /key: 'authorize'[\s\S]*actionCode: 'rolePermissions'[\s\S]*title: language\.t\('platform\.page-action\.MANAGE_PERMISSIONS\.title', '授权'\)/,
+  );
   assert.match(roleViewSource, /authorizationDrawerOpen\.value = true/);
   assert.match(roleViewSource, /<RoleAuthorizationView[\s\S]*:role-id="authorizationRole\.id"[\s\S]*drawer/);
   assert.notMatch(roleViewSource, /createWorkspaceViewDescriptor\([\s\S]*roleAuthorizationWorkspaceView/);
@@ -1409,7 +1424,10 @@ it('platform account-role binding selects a target tenant before loading or savi
     /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/,
   );
   assert.match(drawerSource, /if \(!bindingReady\.value\) \{[\s\S]*clearBindingData\(\);/);
-  assert.match(drawerSource, /<RecordPicker[\s\S]*placeholder="请选择角色下发的目标租户"/);
+  assert.match(
+    drawerSource,
+    /<RecordPicker[\s\S]*:placeholder="[\s\S]*'platform\.screen\.RoleAccountGrantDrawer\.select-the-target-tenant-for-this-role-assignment',[\s\S]*'请选择角色下发的目标租户'/,
+  );
   assert.match(drawerSource, /targetTenantId: targetTenantId\.value/);
   assert.match(
     grantClientSource,

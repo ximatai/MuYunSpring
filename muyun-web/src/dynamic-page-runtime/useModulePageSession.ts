@@ -1409,7 +1409,11 @@ export function useModulePageSession(
     if (!descriptor) return undefined;
     if (descriptor.text != null) return descriptor.text;
     return new FormulaRuntime().evaluatePageText(descriptor.program, {
-      'selection.label': navigatorExtensionPresentation.value?.label ?? '',
+      'selection.label': presentationLabel(
+        navigatorExtensionPresentation.value?.label ?? '',
+        navigatorExtensionPresentation.value?.labelText,
+        language,
+      ),
       'selection.secondaryLabel': navigatorExtensionPresentation.value?.secondaryLabel ?? '',
     });
   }

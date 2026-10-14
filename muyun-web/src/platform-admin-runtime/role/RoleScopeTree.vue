@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RecordExplorerPanel, presentPlatformError } from '@muyun/platform-components';
 import { UiSpin, UiTree, useTreeData, type UiTreeLoadRequest, type UiTreeNode } from '@muyun/vue-ui-antdv';
+import type { TextPresentation } from '@muyun/web-contracts';
 import type { ModulePageNavigatorExtensionContext } from '@muyun/dynamic-page-runtime';
 import { createBackendHttpClient } from '../backendHttp';
 import {
@@ -11,13 +13,16 @@ import {
   type RoleScopeSelectionLevel,
 } from './roleScopeSelectionClient';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'RoleScopeTree' });
 
 const props = defineProps<{ context: ModulePageNavigatorExtensionContext }>();
 
 interface ScopeTreeNode {
+  labelText?: TextPresentation;
   ui: UiTreeNode;
-  selection?: { key: string; label: string; secondaryLabel?: string };
+  selection?: { key: string; label: string; labelText?: TextPresentation; secondaryLabel?: string };
   children?: RoleScopeChildrenQuery;
 }
 
@@ -40,13 +45,24 @@ const tenantNavigationVisible = computed(
   () => descriptor.value?.navigations.some((navigation) => navigation.level === 'TENANT') === true,
 );
 const searchable = computed(() => descriptor.value?.navigations.length !== 0);
-const panelTitle = computed(() => (tenantNavigationVisible.value ? '租户' : '机构'));
+const panelTitle = computed(() =>
+  tenantNavigationVisible.value
+    ? language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')
+    : language.t('platform.user-picker.axis.organization', '机构'),
+);
 const branchData = useTreeData({
   nodes: () => nodes.value,
   loader: () => loadChildren,
   version: () => treeReloadKey.value,
 });
-const visibleNodes = branchData.nodes;
+const visibleNodes = computed(() => projectNodes(branchData.nodes.value));
+function projectNodes(values: readonly UiTreeNode[]): UiTreeNode[] {
+  return values.map((node) => ({
+    ...node,
+    title: presentationLabel(node.title, entries.value.get(node.key)?.labelText, language),
+    ...(node.children ? { children: projectNodes(node.children) } : {}),
+  }));
+}
 const branchStates = branchData.states;
 let rootLoadRevision = 0;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -68,12 +84,21 @@ async function initialize() {
   try {
     descriptor.value = await client.descriptor();
     const defaultSelection = descriptor.value.directSelections[0];
+    const current = descriptor.value.directSelections.find(
+      (selection) => selection.selectionKey === props.context.selectionKey,
+    );
+    if (current?.labelText)
+      selectSelection({ key: current.selectionKey, label: current.label, labelText: current.labelText });
     if (!props.context.selectionKey && defaultSelection) {
-      selectSelection({ key: defaultSelection.selectionKey, label: defaultSelection.label });
+      selectSelection({
+        key: defaultSelection.selectionKey,
+        label: defaultSelection.label,
+        labelText: defaultSelection.labelText,
+      });
     }
     await loadRoots();
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-scope-tree', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -96,7 +121,7 @@ async function loadRoots(options: { append?: boolean } = {}) {
   } catch (cause) {
     if (revision !== rootLoadRevision) return;
     nodes.value = [];
-    presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-scope-tree', phase: 'load' });
   } finally {
     if (revision === rootLoadRevision) {
       loading.value = false;
@@ -119,7 +144,8 @@ function rootNodesOf(currentDescriptor: RoleScopeSelectionDescriptor) {
   return [
     ...currentDescriptor.directSelections.map((selection) => ({
       ui: { key: selection.selectionKey, title: selection.label, isLeaf: true },
-      selection: { key: selection.selectionKey, label: selection.label },
+      labelText: selection.labelText,
+      selection: { key: selection.selectionKey, label: selection.label, labelText: selection.labelText },
     })),
     ...currentDescriptor.navigations
       .filter((navigation) => navigation.level === 'ORGANIZATION')
@@ -133,6 +159,7 @@ function rootNodesOf(currentDescriptor: RoleScopeSelectionDescriptor) {
 function navigationTreeNode(navigation: RoleScopeSelectionDescriptor['navigations'][number]): ScopeTreeNode {
   return {
     ui: { key: `navigation:${navigation.navigationKey}`, title: navigation.label, isLeaf: false },
+    labelText: navigation.labelText,
     children: { navigationKey: navigation.navigationKey, level: navigation.level },
   };
 }
@@ -172,7 +199,13 @@ function childQueryOf(
 
 async function loadChildren(node: UiTreeNode, request: UiTreeLoadRequest) {
   const entry = entries.value.get(node.key);
-  if (!entry?.children) throw new Error('角色归属范围已失效');
+  if (!entry?.children)
+    throw new Error(
+      language.t(
+        'platform.screen.RoleScopeTree.the-role-ownership-scope-is-no-longer-available',
+        '角色归属范围已失效',
+      ),
+    );
   try {
     const page = await client.candidates({
       ...entry.children,
@@ -191,7 +224,8 @@ async function loadChildren(node: UiTreeNode, request: UiTreeLoadRequest) {
       nextCursor: page.nextPage == null ? undefined : String(page.nextPage),
     };
   } catch (cause) {
-    if (!request.signal.aborted) presentPlatformError(cause, { source: 'role-scope-tree', phase: 'load' });
+    if (!request.signal.aborted)
+      presentPlatformError(cause, { language, source: 'role-scope-tree', phase: 'load' });
     throw cause;
   }
 }
@@ -207,16 +241,23 @@ function handleSelect(node: UiTreeNode) {
   if (selection) selectSelection(selection);
 }
 
-function selectSelection(selection: { key: string; label: string; secondaryLabel?: string }) {
+function selectSelection(selection: {
+  key: string;
+  label: string;
+  labelText?: TextPresentation;
+  secondaryLabel?: string;
+}) {
   props.context.selectSelectionKey(selection.key, {
     label: selection.label,
+    ...(selection.labelText ? { labelText: selection.labelText } : {}),
     secondaryLabel: selection.secondaryLabel,
   });
 }
 
 function clearSelection() {
   const fallback = descriptor.value?.directSelections[0];
-  if (fallback) selectSelection({ key: fallback.selectionKey, label: fallback.label });
+  if (fallback)
+    selectSelection({ key: fallback.selectionKey, label: fallback.label, labelText: fallback.labelText });
 }
 </script>
 
@@ -224,14 +265,21 @@ function clearSelection() {
   <RecordExplorerPanel
     class="role-scope-tree"
     :title="panelTitle"
-    refresh-title="刷新角色归属范围"
+    :refresh-title="
+      language.t('platform.screen.RoleScopeTree.refresh-role-ownership-scopes', '刷新角色归属范围')
+    "
     :search-keyword="keyword"
-    search-placeholder="搜索名称、编码或标识"
+    :search-placeholder="
+      language.t('platform.screen.RoleScopeTree.search-names-codes-or-ids', '搜索名称、编码或标识')
+    "
     :searchable="searchable"
     @refresh="loadRoots"
     @update:search-keyword="keyword = $event"
   >
-    <UiSpin v-if="loading" tip="加载角色归属范围" />
+    <UiSpin
+      v-if="loading"
+      :tip="language.t('platform.screen.RoleScopeTree.loading-role-ownership-scopes', '加载角色归属范围')"
+    />
     <UiTree
       v-else
       v-model:expanded-keys="expandedKeys"

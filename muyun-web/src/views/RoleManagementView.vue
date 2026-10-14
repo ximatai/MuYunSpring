@@ -152,7 +152,7 @@ const scopeTenants = new Map<string, Tenant>();
 const scopeOrganizations = new Map<string, Organization>();
 const scopeOrganizationTenantIds = new Map<string, string>();
 const visibleScopeTreeNodes = computed(() =>
-  filterScopeTreeNodes(scopeBranchData.nodes.value, tenantSearchKeyword.value),
+  filterScopeTreeNodes(projectScopeTreeNodes(scopeBranchData.nodes.value), tenantSearchKeyword.value),
 );
 const canSelectPlatformScope = computed(() => currentUser?.value?.system === true);
 const canBrowseTenants = computed(() => currentUser?.value?.system === true);
@@ -177,10 +177,14 @@ const roleListContext = computed(
     ) as ModuleContext<QueryListRecord>,
 );
 const roleListColumns = computed<RecordQueryListColumn[]>(() => [
-  { key: 'title', title: '角色名称', width: '22%' },
+  {
+    key: 'title',
+    title: language.t('platform.screen.RoleManagementView.role-name', '角色名称'),
+    width: '22%',
+  },
   {
     key: 'assignmentType',
-    title: '授权层级',
+    title: language.t('platform.screen.RoleManagementView.assignment-level', '授权层级'),
     width: '13%',
     render: (record) =>
       optionTitle(
@@ -191,34 +195,43 @@ const roleListColumns = computed<RecordQueryListColumn[]>(() => [
   },
   {
     key: 'roleKind',
-    title: '角色类型',
+    title: language.t('platform.screen.RoleManagementView.role-kind', '角色类型'),
     width: '13%',
     render: (record) =>
       optionTitle(record, 'roleKind', roleKindTitle(record.roleKind as RoleKind | undefined)),
   },
   {
     key: 'sharePolicy',
-    title: '公开策略',
+    title: language.t('platform.screen.RoleManagementView.visibility-policy', '公开策略'),
     width: '15%',
     render: (record) =>
       optionTitle(record, 'sharePolicy', sharePolicyTitle(record.sharePolicy as RoleSharePolicy | undefined)),
   },
   {
     key: 'systemManaged',
-    title: '系统托管',
+    title: language.t('platform.screen.RoleManagementView.system-managed', '系统托管'),
     width: '12%',
     render: (record) => booleanTitle(record.systemManaged),
   },
-  { key: 'enabled', title: '状态', type: 'enabledStatus', width: '10%' },
+  {
+    key: 'enabled',
+    title: language.t('platform.screen.WorkflowWorkbenchView.status', '状态'),
+    type: 'enabledStatus',
+    width: '10%',
+  },
 ]);
 const roleListReady = computed(() => Boolean(selectedScope.value));
 const roleDetailTitle = computed(() => {
   if (roleDetailMode.value === 'create') {
-    return '新建角色';
+    return language.t('platform.screen.RoleManagementView.new-role', '新建角色');
   }
   return roleTitle(selectedRole.value ?? roleDraft.value);
 });
-const roleDetailSubtitle = computed(() => selectedScope.value?.title ?? '角色详情');
+const roleDetailSubtitle = computed(
+  () =>
+    scopeDisplayTitle(selectedScope.value) ||
+    language.t('platform.unsaved-source.RoleManagementView', '角色详情'),
+);
 const roleDetailDirty = computed(() => {
   return (
     roleDetailMode.value !== 'view' && roleDraftBaseline.value !== recordDraftFingerprint(roleDraft.value)
@@ -258,7 +271,7 @@ const roleDetailActions = computed<RecordActionItem[]>(() => {
       {
         key: 'edit',
         actionCode: 'update',
-        title: '编辑',
+        title: language.t('platform.action.edit', '编辑'),
         iconName: 'edit',
         disabled: savingRole.value || selectedRole.value.systemManaged === true,
       },
@@ -273,7 +286,7 @@ const roleDetailActions = computed<RecordActionItem[]>(() => {
       {
         key: 'delete',
         actionCode: 'delete',
-        title: '删除',
+        title: language.t('platform.action.delete', '删除'),
         iconName: 'delete',
         danger: true,
         disabled: savingRole.value || selectedRole.value.systemManaged === true,
@@ -281,11 +294,16 @@ const roleDetailActions = computed<RecordActionItem[]>(() => {
     ];
   }
   return [
-    { key: 'cancel', title: '取消', iconName: 'close', disabled: savingRole.value },
+    {
+      key: 'cancel',
+      title: language.t('platform.action.cancel', '取消'),
+      iconName: 'close',
+      disabled: savingRole.value,
+    },
     {
       key: 'save',
       actionCode: roleDetailMode.value === 'create' ? 'create' : 'update',
-      title: '保存',
+      title: language.t('platform.action.save', '保存'),
       iconName: 'save',
       primary: true,
       loading: savingRole.value,
@@ -330,47 +348,64 @@ const roleDetailPromotion = useWorkspaceViewPromotion({
   onPromoted: closeRoleDetail,
 });
 const roleFormFieldFallback = computed<Record<RoleFormFieldName, RecordFormFieldFallback>>(() => ({
-  title: { label: '角色名称', required: true, visible: true, placeholder: '请输入角色名称' },
+  title: {
+    label: language.t('platform.screen.RoleManagementView.role-name', '角色名称'),
+    required: true,
+    visible: true,
+    placeholder: language.t('platform.screen.RoleManagementView.enter-a-role-name', '请输入角色名称'),
+  },
   assignmentType: {
-    label: '授权层级',
+    label: language.t('platform.screen.RoleManagementView.assignment-level', '授权层级'),
     required: true,
     visible: true,
     controlType: 'select',
     options: assignmentTypeOptions(roleDraft.value.roleKind),
   },
   roleKind: {
-    label: '角色类型',
+    label: language.t('platform.screen.RoleManagementView.role-kind', '角色类型'),
     required: true,
     visible: true,
     controlType: 'select',
     options: roleKindOptions(roleDraft.value.assignmentType),
   },
   memberRoleIds: {
-    label: '成员角色',
+    label: language.t('platform.screen.RoleManagementView.member-roles', '成员角色'),
     visible: roleDraft.value.roleKind === 'group',
   },
   ownerScopeType: {
-    label: '归属范围',
+    label: language.t('platform.screen.RoleManagementView.ownership-scope', '归属范围'),
     required: true,
     visible: true,
     readOnly: true,
     controlType: 'select',
     options: [
-      { label: '平台', value: 'platform' },
-      { label: '租户', value: 'tenant' },
-      { label: '机构', value: 'organization' },
+      { label: language.t('platform.screen.metadataModelEditSession.platform', '平台'), value: 'platform' },
+      { label: language.t('platform.screen.ModulePageHostRuntime.tenant', '租户'), value: 'tenant' },
+      { label: language.t('platform.user-picker.axis.organization', '机构'), value: 'organization' },
     ],
   },
-  ownerScopeId: { label: '归属对象', visible: true, readOnly: true },
+  ownerScopeId: {
+    label: language.t('platform.screen.RoleManagementView.scope-owner', '归属对象'),
+    visible: true,
+    readOnly: true,
+  },
   sharePolicy: {
-    label: '公开策略',
+    label: language.t('platform.screen.RoleManagementView.visibility-policy', '公开策略'),
     required: true,
     visible: true,
     controlType: 'select',
     options: sharePolicyOptions(selectedScope.value?.kind ?? roleDraft.value.ownerScopeType),
   },
-  description: { label: '说明', visible: true, placeholder: '请输入角色说明' },
-  enabled: { label: '启用状态', visible: true, controlType: 'enabledStatus' },
+  description: {
+    label: language.t('platform.reference-picker.subtitle', '说明'),
+    visible: true,
+    placeholder: language.t('platform.screen.RoleManagementView.enter-a-role-description', '请输入角色说明'),
+  },
+  enabled: {
+    label: language.t('platform.screen.RecordStatusSwitch.enabled-status', '启用状态'),
+    visible: true,
+    controlType: 'enabledStatus',
+  },
 }));
 const rolePrimaryFormFieldNames: RoleFormFieldName[] = ['title', 'assignmentType', 'roleKind'];
 const roleSecondaryFormFieldNames: RoleFormFieldName[] = [
@@ -443,7 +478,7 @@ async function loadRoleFormDefinition() {
     const runtimeContext = await roleContext.runtime.ready;
     roleFormFieldDefinitions.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
   }
 }
 
@@ -470,7 +505,7 @@ async function loadMemberRoleCandidates(scope = selectedScope.value) {
     memberRoleCandidates.value = response.records;
   } catch (cause) {
     memberRoleCandidates.value = [];
-    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
   }
 }
 
@@ -581,7 +616,7 @@ async function loadScopeTree() {
     }
   } catch (cause) {
     scopeTreeNodes.value = [];
-    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
   } finally {
     scopeTreeLoading.value = false;
   }
@@ -600,7 +635,10 @@ function tenantTreeNode(tenant: Tenant): UiTreeNode {
 async function loadScopeTreeChildren(node: UiTreeNode, request: UiTreeLoadRequest) {
   const tenantId = tenantIdFromNodeKey(node.key);
   const tenant = tenantId ? scopeTenants.get(tenantId) : undefined;
-  if (!tenantId || !tenant) throw new Error('租户已失效');
+  if (!tenantId || !tenant)
+    throw new Error(
+      language.t('platform.screen.RoleManagementView.the-tenant-is-no-longer-available', '租户已失效'),
+    );
   try {
     const scopedContext = createScopedTreeModuleContext(organizationContext, {
       scopeFieldName: 'tenantId',
@@ -616,7 +654,8 @@ async function loadScopeTreeChildren(node: UiTreeNode, request: UiTreeLoadReques
     ];
     return { mode: 'replace' as const, nodes: children, hasMore: false };
   } catch (cause) {
-    if (!request.signal.aborted) presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    if (!request.signal.aborted)
+      presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
     throw cause;
   }
 }
@@ -766,7 +805,7 @@ function roleExtraRowActionsOf(record: QueryListRecord): RecordActionItem[] {
     {
       key: 'bind',
       actionCode: roleBindingActionCode(record),
-      title: '绑定',
+      title: language.t('platform.screen.RoleManagementView.assign', '绑定'),
       after: 'edit',
       pinned: true,
       visible: canBindRoleRecord(record),
@@ -774,7 +813,7 @@ function roleExtraRowActionsOf(record: QueryListRecord): RecordActionItem[] {
     {
       key: 'authorize',
       actionCode: 'rolePermissions',
-      title: '授权',
+      title: language.t('platform.page-action.MANAGE_PERMISSIONS.title', '授权'),
       after: 'bind',
       pinned: true,
       visible: canAuthorizeRoleRecord(record),
@@ -871,7 +910,7 @@ async function openRoleBinding(record: QueryListRecord, employment = false) {
     bindingDrawerOpen.value = false;
     employmentBindingDrawerOpen.value = false;
     bindingRole.value = undefined;
-    presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
   }
 }
 
@@ -889,7 +928,13 @@ async function startCreateRole() {
     return;
   }
   if (!selectedScope.value) {
-    presentPlatformMessage('请先选择角色归属范围', { phase: 'validation' });
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.RoleManagementView.select-the-role-ownership-scope-first',
+        '请先选择角色归属范围',
+      ),
+      { language, phase: 'validation' },
+    );
     return;
   }
   selectedRole.value = undefined;
@@ -928,14 +973,20 @@ async function openRoleDetail(record: QueryListRecord, mode: RoleDetailMode) {
     }
     if (!roleMatchesSelectedScope(fullRecord)) {
       roleDetailLoadFailed.value = true;
-      presentPlatformMessage('角色不属于当前归属范围', { source: 'role-management', phase: 'load' });
+      presentPlatformMessage(
+        language.t(
+          'platform.screen.RoleManagementView.the-role-does-not-belong-to-the-current-ownership-scope',
+          '角色不属于当前归属范围',
+        ),
+        { language, source: 'role-management', phase: 'load' },
+      );
       return;
     }
     commitRoleDetailRecord(fullRecord, mode);
   } catch (cause) {
     if (canCommitRoleDetailRequest(id, requestSeq)) {
       roleDetailLoadFailed.value = true;
-      presentPlatformError(cause, { source: 'role-management', phase: 'load' });
+      presentPlatformError(cause, { language, source: 'role-management', phase: 'load' });
     }
   } finally {
     if (canCommitRoleDetailRequest(id, requestSeq)) {
@@ -1019,9 +1070,18 @@ async function saveRole() {
     loading: savingRole,
     mode: roleDetailMode.value === 'edit' ? 'edit' : 'create',
     source: 'role-management',
-    validateContext: () => (selectedScope.value ? undefined : '请先选择角色归属范围'),
+    validateContext: () =>
+      selectedScope.value
+        ? undefined
+        : language.t(
+            'platform.screen.RoleManagementView.select-the-role-ownership-scope-first',
+            '请先选择角色归属范围',
+          ),
     canSave: () => canSaveRole.value,
-    deniedMessage: '当前用户无权保存角色',
+    deniedMessage: language.t(
+      'platform.screen.RoleManagementView.you-do-not-have-permission-to-save-roles',
+      '当前用户无权保存角色',
+    ),
     createRecord: () => normalizedRoleDraft(roleDraft.value, selectedScope.value!),
     validateRecord: validateRoleDraft,
     save: (draft, mode) =>
@@ -1042,13 +1102,20 @@ async function removeRole(record: Partial<Role> | QueryListRecord | undefined) {
     source: 'role-management',
     record: () => (record?.id ? record : undefined),
     canExecute: (target) => roleContext.can('delete') === true && (target as Role).systemManaged !== true,
-    deniedMessage: '当前用户无权删除角色',
+    deniedMessage: language.t(
+      'platform.screen.RoleManagementView.you-do-not-have-permission-to-delete-roles',
+      '当前用户无权删除角色',
+    ),
     confirm: (target) =>
       confirmAction(
         {
-          title: '删除角色',
-          content: `确认删除角色「${roleTitle(target)}」？`,
-          okText: '删除',
+          title: language.t('platform.screen.RoleManagementView.delete-role', '删除角色'),
+          content: language.t(
+            'platform.screen.RoleManagementView.delete-role-value',
+            '确认删除角色「{value1}」？',
+            { value1: roleTitle(target) },
+          ),
+          okText: language.t('platform.action.delete', '删除'),
           danger: true,
         },
         language,
@@ -1082,7 +1149,10 @@ async function toggleRoleEnabled(record: Partial<Role> | QueryListRecord | undef
     record: () => (record?.id ? record : undefined),
     canExecute: (target) =>
       roleContext.can(roleToggleActionCode(target)) === true && (target as Role).systemManaged !== true,
-    deniedMessage: '当前用户无权变更角色启停状态',
+    deniedMessage: language.t(
+      'platform.screen.RoleManagementView.you-do-not-have-permission-to-enable-or-disable-roles',
+      '当前用户无权变更角色启停状态',
+    ),
     execute: (target) =>
       target.enabled === false
         ? roleRequestContext.value.crud.enable(String(target.id), {
@@ -1114,9 +1184,15 @@ async function confirmRoleDetailDismissal() {
   if (!roleDetailDirty.value) return true;
   return confirmAction(
     {
-      title: '放弃未保存的角色修改',
-      content: '当前角色存在未保存的修改，离开后将丢失。是否继续？',
-      okText: '放弃修改',
+      title: language.t(
+        'platform.screen.RoleManagementView.discard-unsaved-role-changes',
+        '放弃未保存的角色修改',
+      ),
+      content: language.t(
+        'platform.screen.RoleManagementView.this-role-has-unsaved-changes-that-will-be-lost-when',
+        '当前角色存在未保存的修改，离开后将丢失。是否继续？',
+      ),
+      okText: language.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
       danger: true,
     },
     language,
@@ -1257,14 +1333,17 @@ function validateRoleDraft(draft: Role) {
       fallback: roleFormFieldFallback.value,
     });
     if (field.visible && field.required && !draft[fieldName]) {
-      return `请填写${field.label}`;
+      return language.t('platform.screen.UiForm.enter-value', '请填写{value1}', { value1: field.label });
     }
   }
   if (draft.ownerScopeType !== 'platform' && !draft.ownerScopeId) {
-    return '请选择归属对象';
+    return language.t('platform.screen.RoleManagementView.select-an-ownership-target', '请选择归属对象');
   }
   if (!sharePolicyOptions(draft.ownerScopeType).some((option) => option.value === draft.sharePolicy)) {
-    return '请选择当前归属范围可用的公开策略';
+    return language.t(
+      'platform.screen.RoleManagementView.select-a-sharing-policy-available-in-the-current-ownership-scope',
+      '请选择当前归属范围可用的公开策略',
+    );
   }
   return undefined;
 }
@@ -1289,26 +1368,37 @@ function roleKindRequiresEmployment(value: RoleKind | undefined) {
 
 function assignmentTypeOptions(roleKind: RoleKind | undefined) {
   if (roleKindRequiresEmployment(roleKind)) {
-    return [{ label: '任职角色', value: 'employment' }];
+    return [
+      {
+        label: language.t('platform.screen.RoleManagementView.position-role', '任职角色'),
+        value: 'employment',
+      },
+    ];
   }
   return [
-    { label: '账号角色', value: 'account' },
-    { label: '任职角色', value: 'employment' },
+    { label: language.t('platform.screen.RoleManagementView.account-role', '账号角色'), value: 'account' },
+    {
+      label: language.t('platform.screen.RoleManagementView.position-role', '任职角色'),
+      value: 'employment',
+    },
   ];
 }
 
 function roleKindOptions(assignmentType: RoleAssignmentType | undefined) {
   const standardOptions = [
-    { label: '标准角色', value: 'standard' },
-    { label: '系统角色', value: 'system' },
+    { label: language.t('platform.screen.RoleManagementView.standard-role', '标准角色'), value: 'standard' },
+    { label: language.t('platform.screen.RoleManagementView.system-role', '系统角色'), value: 'system' },
   ];
   if (assignmentType === 'account') {
     return standardOptions;
   }
   return [
     standardOptions[0],
-    { label: '角色组', value: 'group' },
-    { label: '数据授权角色', value: 'dataGrant' },
+    { label: language.t('platform.screen.RoleManagementView.role-group', '角色组'), value: 'group' },
+    {
+      label: language.t('platform.screen.RoleManagementView.data-authorization-role', '数据授权角色'),
+      value: 'dataGrant',
+    },
     standardOptions[1],
   ];
 }
@@ -1328,48 +1418,64 @@ function defaultSharePolicy(): RoleSharePolicy {
 function sharePolicyOptions(scopeType: RoleOwnerScopeType | undefined) {
   if (scopeType === 'platform') {
     return [
-      { label: '私有', value: 'private' },
-      { label: '全局公开', value: 'platform' },
+      { label: language.t('platform.screen.RoleManagementView.private', '私有'), value: 'private' },
+      {
+        label: language.t('platform.screen.RoleManagementView.globally-visible', '全局公开'),
+        value: 'platform',
+      },
     ];
   }
   if (scopeType === 'organization') {
     return [
-      { label: '私有', value: 'private' },
-      { label: '本级及下级', value: 'ownerAndChildren' },
+      { label: language.t('platform.screen.RoleManagementView.private', '私有'), value: 'private' },
+      {
+        label: language.t('platform.screen.RoleManagementView.current-scope-and-descendants', '本级及下级'),
+        value: 'ownerAndChildren',
+      },
     ];
   }
   return [
-    { label: '私有', value: 'private' },
-    { label: '租户公开', value: 'tenant' },
+    { label: language.t('platform.screen.RoleManagementView.private', '私有'), value: 'private' },
+    {
+      label: language.t('platform.screen.RoleManagementView.visible-within-tenant', '租户公开'),
+      value: 'tenant',
+    },
   ];
 }
 
 function assignmentTypeTitle(value: RoleAssignmentType | undefined) {
-  return value === 'account' ? '账号角色' : '任职角色';
+  return value === 'account'
+    ? language.t('platform.screen.RoleManagementView.account-role', '账号角色')
+    : language.t('platform.screen.RoleManagementView.position-role', '任职角色');
 }
 
 function roleKindTitle(value: RoleKind | undefined) {
   const titles: Record<RoleKind, string> = {
-    standard: '标准角色',
-    group: '角色组',
-    dataGrant: '数据授权角色',
-    system: '系统角色',
+    standard: language.t('platform.screen.RoleManagementView.standard-role', '标准角色'),
+    group: language.t('platform.screen.RoleManagementView.role-group', '角色组'),
+    dataGrant: language.t('platform.screen.RoleManagementView.data-authorization-role', '数据授权角色'),
+    system: language.t('platform.screen.RoleManagementView.system-role', '系统角色'),
   };
   return titles[value ?? 'standard'];
 }
 
 function sharePolicyTitle(value: RoleSharePolicy | undefined) {
   const titles: Record<RoleSharePolicy, string> = {
-    private: '私有',
-    ownerAndChildren: '本级及下级',
-    tenant: '租户公开',
-    platform: '全局公开',
+    private: language.t('platform.screen.RoleManagementView.private', '私有'),
+    ownerAndChildren: language.t(
+      'platform.screen.RoleManagementView.current-scope-and-descendants',
+      '本级及下级',
+    ),
+    tenant: language.t('platform.screen.RoleManagementView.visible-within-tenant', '租户公开'),
+    platform: language.t('platform.screen.RoleManagementView.globally-visible', '全局公开'),
   };
   return titles[value ?? 'private'];
 }
 
 function booleanTitle(value: unknown) {
-  return value === true ? '是' : '否';
+  return value === true
+    ? language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')
+    : language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否');
 }
 
 function optionTitle(record: QueryListRecord, fieldName: string, fallback: string) {
@@ -1392,7 +1498,9 @@ function roleBindingActionCode(record: Partial<Role> | QueryListRecord | undefin
 }
 
 function roleBindingTitle(record: Partial<Role> | QueryListRecord | undefined) {
-  return record?.assignmentType === 'employment' ? '绑定任职' : '绑定用户';
+  return record?.assignmentType === 'employment'
+    ? language.t('platform.screen.RoleManagementView.assign-to-positions', '绑定任职')
+    : language.t('platform.screen.RoleManagementView.assign-to-users', '绑定用户');
 }
 
 function roleToggleActionCode(record: Partial<Role> | QueryListRecord | undefined) {
@@ -1400,19 +1508,31 @@ function roleToggleActionCode(record: Partial<Role> | QueryListRecord | undefine
 }
 
 function roleToggleTitle(record: Partial<Role> | QueryListRecord | undefined) {
-  return record?.enabled === false ? '启用' : '停用';
+  return record?.enabled === false
+    ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+    : language.t('platform.screen.WorkflowWorkbenchView.disabled', '停用');
 }
 
 function roleTitle(record: Partial<Role> | QueryListRecord | undefined) {
-  return String(record?.title ?? record?.id ?? '角色');
+  return String(record?.title ?? record?.id ?? language.t('platform.screen.RoleManagementView.role', '角色'));
 }
 
 function tenantTitle(record: Tenant | undefined) {
-  return String(record?.title ?? record?.alias ?? record?.id ?? '未命名租户');
+  return String(
+    record?.title ??
+      record?.alias ??
+      record?.id ??
+      language.t('platform.screen.RoleManagementView.untitled-tenant', '未命名租户'),
+  );
 }
 
 function organizationTitle(record: Organization | undefined) {
-  return String(record?.title ?? record?.code ?? record?.id ?? '未命名机构');
+  return String(
+    record?.title ??
+      record?.code ??
+      record?.id ??
+      language.t('platform.screen.RoleManagementView.untitled-organization', '未命名机构'),
+  );
 }
 
 function scopeDisplayValue(fieldName: string, value: unknown) {
@@ -1420,7 +1540,7 @@ function scopeDisplayValue(fieldName: string, value: unknown) {
     return ownerScopeTypeTitle(roleDraft.value.ownerScopeType);
   }
   if (fieldName === 'ownerScopeId') {
-    return selectedScope.value?.title ?? String(value ?? '');
+    return scopeDisplayTitle(selectedScope.value) || String(value ?? '');
   }
   if (fieldName === 'memberRoleIds') {
     return memberRoleIdsTitle(value);
@@ -1443,12 +1563,33 @@ function memberRoleIdsTitle(value: unknown) {
 
 function ownerScopeTypeTitle(value: RoleOwnerScopeType | undefined) {
   if (value === 'platform') {
-    return '平台';
+    return language.t('platform.screen.metadataModelEditSession.platform', '平台');
   }
   if (value === 'organization') {
-    return '机构';
+    return language.t('platform.user-picker.axis.organization', '机构');
   }
-  return '租户';
+  return language.t('platform.screen.ModulePageHostRuntime.tenant', '租户');
+}
+
+function scopeDisplayTitle(scope: RoleScope | undefined): string {
+  if (!scope) return '';
+  if (scope.kind === 'platform') return language.t('platform.role.scope.platform-roles', '平台角色');
+  if (scope.kind === 'tenant')
+    return language.t('platform.role.scope.tenant-level', '{title} / 租户本级', {
+      title: tenantTitle(scope.tenant),
+    });
+  return scope.organization
+    ? organizationTitle(scope.organization)
+    : language.t('platform.role.scope.organization-id', '机构：{id}', { id: scope.id });
+}
+function projectScopeTreeNodes(nodes: readonly UiTreeNode[]): UiTreeNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    ...(tenantRootIdFromNodeKey(node.key)
+      ? { secondary: language.t('platform.role.scope.tenant-level-roles', '租户本级角色') }
+      : {}),
+    ...(node.children ? { children: projectScopeTreeNodes(node.children) } : {}),
+  }));
 }
 
 function filterScopeTreeNodes(nodes: UiTreeNode[], keyword: string): UiTreeNode[] {
@@ -1488,15 +1629,23 @@ function parseRoleIds(value: unknown) {
     <RecordExplorerPanel
       v-if="!isWorkspaceView || isDrawerWorkspaceView"
       class="role-scope-panel"
-      title="租户"
-      refresh-title="刷新租户列表"
+      :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
+      :refresh-title="language.t('platform.screen.TenantScopeExplorer.refresh-tenants', '刷新租户列表')"
       :search-keyword="tenantSearchKeyword"
-      search-placeholder="搜索租户名称、alias 或 ID"
+      :search-placeholder="
+        language.t(
+          'platform.screen.RoleManagementView.search-tenant-names-aliases-or-ids',
+          '搜索租户名称、alias 或 ID',
+        )
+      "
       :searchable="canBrowseTenants"
       @refresh="loadScopeTree"
       @update:search-keyword="tenantSearchKeyword = $event"
     >
-      <UiSpin v-if="scopeTreeLoading" tip="加载租户" />
+      <UiSpin
+        v-if="scopeTreeLoading"
+        :tip="language.t('platform.screen.RoleManagementView.loading-tenants', '加载租户')"
+      />
       <UiTree
         v-else
         v-model:expanded-keys="scopeTreeExpandedKeys"
@@ -1526,7 +1675,13 @@ function parseRoleIds(value: unknown) {
       v-if="!isWorkspaceView || isDrawerWorkspaceView"
       class="role-list-panel"
       :context="roleListContext"
-      :title="selectedScope ? `角色列表 - ${selectedScope.title}` : '角色列表'"
+      :title="
+        selectedScope
+          ? language.t('platform.screen.RoleManagementView.roles-value', '角色列表 - {value1}', {
+              value1: scopeDisplayTitle(selectedScope),
+            })
+          : language.t('platform.screen.RoleManagementView.role-list', '角色列表')
+      "
       :columns="roleListColumns"
       standard-crud-actions
       standard-crud-row-actions
@@ -1536,9 +1691,18 @@ function parseRoleIds(value: unknown) {
       :reload-key="roleReloadKey"
       :ready="roleListReady"
       :sortable="true"
-      quick-search-placeholder="搜索角色名称或说明"
-      empty-description="当前范围暂无角色"
-      waiting-description="请选择角色归属范围"
+      :quick-search-placeholder="
+        language.t(
+          'platform.screen.RoleManagementView.search-role-names-or-descriptions',
+          '搜索角色名称或说明',
+        )
+      "
+      :empty-description="
+        language.t('platform.screen.RoleManagementView.no-roles-in-the-current-scope', '当前范围暂无角色')
+      "
+      :waiting-description="
+        language.t('platform.screen.RoleManagementView.select-a-role-ownership-scope', '请选择角色归属范围')
+      "
       @action="handleRoleListAction"
       @row-action="handleRoleRowAction"
       @row-dblclick="handleRoleRowDblclick"
@@ -1574,10 +1738,26 @@ function parseRoleIds(value: unknown) {
         />
       </template>
 
-      <UiSpin v-if="loadingRoleDetail" class="role-detail-state" tip="加载角色详情" />
+      <UiSpin
+        v-if="loadingRoleDetail"
+        class="role-detail-state"
+        :tip="language.t('platform.screen.RoleManagementView.loading-role-details', '加载角色详情')"
+      />
       <div v-else-if="roleDetailLoadFailed" class="role-detail-state">
-        <UiError title="详情加载失败" message="无法加载角色详情，请重试" />
-        <UiButton type="primary" icon-name="reload" @click="retryRoleDetail">重试</UiButton>
+        <UiError
+          :title="
+            language.t('platform.screen.NavigatorManagementEditor.could-not-load-details', '详情加载失败')
+          "
+          :message="
+            language.t(
+              'platform.screen.RoleManagementView.failed-to-load-role-details-try-again',
+              '无法加载角色详情，请重试',
+            )
+          "
+        />
+        <UiButton type="primary" icon-name="reload" @click="retryRoleDetail">{{
+          language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+        }}</UiButton>
       </div>
 
       <template v-else-if="roleDetailMode === 'view' || roleDetailMode === 'create' || selectedRole">
@@ -1592,8 +1772,10 @@ function parseRoleIds(value: unknown) {
 
         <form v-else class="role-form" @submit.prevent="saveRole">
           <label>
-            <span class="role-form-label">当前范围</span>
-            <UiInput :value="selectedScope?.title ?? '-'" disabled />
+            <span class="role-form-label">{{
+              language.t('platform.screen.RoleManagementView.current-scope', '当前范围')
+            }}</span>
+            <UiInput :value="scopeDisplayTitle(selectedScope) || '-'" disabled />
           </label>
           <RecordFormFields
             :mode="roleDetailMode"
@@ -1648,10 +1830,26 @@ function parseRoleIds(value: unknown) {
         />
       </template>
 
-      <UiSpin v-if="loadingRoleDetail" class="role-detail-state" tip="加载角色详情" />
+      <UiSpin
+        v-if="loadingRoleDetail"
+        class="role-detail-state"
+        :tip="language.t('platform.screen.RoleManagementView.loading-role-details', '加载角色详情')"
+      />
       <div v-else-if="roleDetailLoadFailed" class="role-detail-state">
-        <UiError title="详情加载失败" message="无法加载角色详情，请重试" />
-        <UiButton type="primary" icon-name="reload" @click="retryRoleDetail">重试</UiButton>
+        <UiError
+          :title="
+            language.t('platform.screen.NavigatorManagementEditor.could-not-load-details', '详情加载失败')
+          "
+          :message="
+            language.t(
+              'platform.screen.RoleManagementView.failed-to-load-role-details-try-again',
+              '无法加载角色详情，请重试',
+            )
+          "
+        />
+        <UiButton type="primary" icon-name="reload" @click="retryRoleDetail">{{
+          language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+        }}</UiButton>
       </div>
 
       <template v-else-if="roleDetailMode === 'view' || selectedRole">
@@ -1666,8 +1864,10 @@ function parseRoleIds(value: unknown) {
 
         <form v-else class="role-form" @submit.prevent="saveRole">
           <label>
-            <span class="role-form-label">当前范围</span>
-            <UiInput :value="selectedScope?.title ?? '-'" disabled />
+            <span class="role-form-label">{{
+              language.t('platform.screen.RoleManagementView.current-scope', '当前范围')
+            }}</span>
+            <UiInput :value="scopeDisplayTitle(selectedScope) || '-'" disabled />
           </label>
           <RecordFormFields
             :mode="roleDetailMode"

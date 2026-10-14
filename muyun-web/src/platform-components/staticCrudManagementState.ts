@@ -1,5 +1,16 @@
-import { computed, ref, type Ref } from 'vue';
-import { normalizeError, type AppError, type ModuleContext } from '@muyun/web-core';
+import { computed, ref, shallowRef, type Ref } from 'vue';
+import {
+  normalizeError,
+  platformLanguageContext,
+  codeOperationErrorMessage,
+  OperationUsageError,
+  resolveOperationErrorMessage,
+  userFacingErrorMessage,
+  type OperationErrorMessage,
+  type LanguageContext,
+  type AppError,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type { UiConfirmOptions } from '@muyun/vue-ui-antdv';
 import {
   createPlatformActionResultReactionHandlers,
@@ -41,6 +52,7 @@ export type StaticCrudActionErrorHandler<TRecord extends StaticCrudRecord> = Pla
 >;
 
 export interface StaticCrudManagementOptions<TRecord extends StaticCrudRecord> {
+  readonly language?: LanguageContext;
   context: ModuleContext<TRecord>;
   confirmAction: StaticCrudConfirmAction;
   emptyDraft: () => TRecord;
@@ -49,17 +61,17 @@ export interface StaticCrudManagementOptions<TRecord extends StaticCrudRecord> {
   titleOf: (record: TRecord) => string;
   fallbackTitle: string;
   createTitle: string;
-  requiredMessage: string;
+  requiredMessage: string | OperationErrorMessage;
   isValid: (record: TRecord) => boolean;
   recordName: string;
   deleteTitle: string;
-  saveDeniedMessage: string;
-  createDeniedMessage: string;
-  enableDeniedMessage: string;
-  deleteDeniedMessage: (record: TRecord | undefined) => string;
+  saveDeniedMessage: string | OperationErrorMessage;
+  createDeniedMessage: string | OperationErrorMessage;
+  enableDeniedMessage: string | OperationErrorMessage;
+  deleteDeniedMessage: (record: TRecord | undefined) => string | OperationErrorMessage;
   canDeleteRecord?: (record: TRecord) => boolean;
   canEnableRecord?: (record: TRecord, actionCode: 'enable' | 'disable') => boolean;
-  validateBeforeSave?: (record: TRecord) => string | undefined;
+  validateBeforeSave?: (record: TRecord) => string | OperationErrorMessage | undefined;
   actionErrorHandlers?: StaticCrudActionErrorHandler<TRecord>[];
   actionResultReactionHandlers?: Record<string, PlatformActionResultReactionHandler | undefined>;
 }
@@ -67,12 +79,20 @@ export interface StaticCrudManagementOptions<TRecord extends StaticCrudRecord> {
 export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
   options: StaticCrudManagementOptions<TRecord>,
 ) {
+  const language = options.language ?? platformLanguageContext;
   const selected = ref<TRecord>() as Ref<TRecord | undefined>;
   const draft = ref<TRecord>(options.emptyDraft()) as Ref<TRecord>;
   const mode = ref<StaticCrudCardMode>('view');
   const reloadKey = ref(0);
   const saving = ref(false);
-  const actionError = ref<string>();
+  const actionFailure = shallowRef<AppError | OperationUsageError>();
+  const actionError = computed(() =>
+    actionFailure.value instanceof OperationUsageError
+      ? resolveOperationErrorMessage(actionFailure.value, language)
+      : actionFailure.value
+        ? userFacingErrorMessage(actionFailure.value, language)
+        : undefined,
+  );
   const copyRecord = options.copyRecord ?? ((record: TRecord) => ({ ...record }) as TRecord);
   const actionResultReactionHandlers = createStaticCrudActionReactionHandlers();
 
@@ -188,7 +208,7 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
       const result =
         mode.value === 'create'
           ? await crud.insert(validDraft)
-          : await crud.update(requiredId(validDraft, options.recordName), validDraft);
+          : await crud.update(requiredId(validDraft, options.recordName, language), validDraft);
       const saved = result.record;
       selected.value = saved;
       draft.value = copyRecord(saved);
@@ -257,8 +277,12 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
     );
     const confirmed = await options.confirmAction({
       title: options.deleteTitle,
-      content: `确认删除${options.recordName}「${options.titleOf(record)}」？`,
-      okText: '删除',
+      content: language.t(
+        'platform.screen.staticCrudManagementState.delete-value-value',
+        '确认删除{value1}「{value2}」？',
+        { value1: options.recordName, value2: options.titleOf(record) },
+      ),
+      okText: language.t('platform.action.delete', '删除'),
       danger: true,
       requiredText,
     });
@@ -266,7 +290,13 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
       return;
     }
     if (selected.value?.id !== record.id) {
-      presentActionMessage('待删除记录已变化，请重新确认删除操作');
+      presentActionMessage(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.staticCrudManagementState.the-record-to-delete-has-changed-confirm-the-deletion-again',
+          '待删除记录已变化，请重新确认删除操作',
+        ),
+      );
       return;
     }
     clearFeedback();
@@ -274,7 +304,7 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
     try {
       await options.context.runtime.ready;
       const crud = options.context.abilities.crud();
-      const result = await crud.delete(record.id, { version: requiredVersion(record) });
+      const result = await crud.delete(record.id, { version: requiredVersion(record, language) });
       await presentActionSuccess(result, [
         platformActionResultReactions.clearSelection(),
         platformActionResultReactions.refreshList(),
@@ -296,8 +326,8 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
     if (tryHandleActionError(error, context)) {
       return;
     }
-    actionError.value = error.message;
-    presentPlatformError(error, { source: 'static-crud-action', phase: 'action' });
+    actionFailure.value = cause instanceof OperationUsageError ? cause : error;
+    presentPlatformError(error, { language, source: 'static-crud-action', phase: 'action' });
   }
 
   function tryHandleActionError(error: AppError, context: StaticCrudActionErrorContext<TRecord>) {
@@ -310,19 +340,24 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
   }
 
   function presentActionMessage(
-    message: string,
+    message: string | OperationErrorMessage,
     phase: 'validation' | 'authorization' | 'action' = 'action',
   ) {
-    actionError.value = message;
-    presentPlatformMessage(message, { source: 'static-crud-action', phase });
+    actionFailure.value = new OperationUsageError(message);
+    presentPlatformMessage(resolveOperationErrorMessage(actionFailure.value, language), {
+      language,
+      source: 'static-crud-action',
+      phase,
+    });
   }
 
   function clearFeedback() {
-    actionError.value = undefined;
+    actionFailure.value = undefined;
   }
 
   function presentActionSuccess(result: unknown, defaultReactions: PlatformActionResultReaction[]) {
     return handlePlatformActionSuccess(withPlatformActionResultReactions(result, defaultReactions), {
+      language,
       source: 'static-crud-action',
       phase: 'action',
       reactionHandlers: actionResultReactionHandlers,
@@ -372,16 +407,33 @@ export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
   };
 }
 
-function requiredId(record: StaticCrudRecord, recordName: string) {
+function requiredId(
+  record: StaticCrudRecord,
+  recordName: string,
+  language: LanguageContext = platformLanguageContext,
+) {
   if (!record.id) {
-    throw new Error(`${recordName} ID 不能为空`);
+    throw new OperationUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.staticCrudManagementState.the-value-id-is-required',
+        '{value1} ID 不能为空',
+        { value1: recordName },
+      ),
+    );
   }
   return record.id;
 }
 
-function requiredVersion(record: StaticCrudRecord) {
+function requiredVersion(record: StaticCrudRecord, language: LanguageContext = platformLanguageContext) {
   if (record.version == null) {
-    throw new Error('记录版本不能为空，请重新加载后再操作');
+    throw new OperationUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.staticCrudManagementState.the-record-version-is-required-reload-before-continuing',
+        '记录版本不能为空，请重新加载后再操作',
+      ),
+    );
   }
   return record.version;
 }

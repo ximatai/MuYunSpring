@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { useLanguageContext, useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
+  useLanguageContext,
+  useModuleContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
   RecordDetailPanel,
   RecordExplorerPanel,
@@ -80,7 +87,10 @@ const dataScopeCatalog = ref<RoleDataScopePolicyCatalog>();
 const loading = ref(false);
 const loadingActions = ref(false);
 const saving = ref(false);
-const error = ref<string>();
+const failure = shallowRef<OperationUsageError>();
+const error = computed(() =>
+  failure.value ? resolveOperationErrorMessage(failure.value, language) : undefined,
+);
 const savedDataGrantSnapshot = ref<string>();
 const actionDrafts = new Map<string, RolePermissionAction[]>();
 const actionSnapshots = new Map<string, string>();
@@ -91,10 +101,22 @@ const isGroup = computed(() => role.value?.roleKind === 'group');
 const isDataGrant = computed(() => role.value?.roleKind === 'dataGrant');
 const isEmploymentRole = computed(() => role.value?.assignmentType === 'employment');
 const isActionDrawerSurface = computed(() => Boolean(props.drawerContext));
-const roleTitle = computed(() => role.value?.title ?? roleId ?? '角色');
-const workspaceTitle = computed(() => `授权：${roleTitle.value}`);
+const roleTitle = computed(
+  () => role.value?.title ?? roleId ?? language.t('platform.screen.RoleManagementView.role', '角色'),
+);
+const workspaceTitle = computed(() =>
+  language.t('platform.screen.RoleAuthorizationView.permissions-value', '授权：{value1}', {
+    value1: roleTitle.value,
+  }),
+);
 const actionPanelTitle = computed(() =>
-  selectedModule.value ? `动作授权 - ${selectedModule.value.title}` : `动作授权 - ${roleTitle.value}`,
+  selectedModule.value
+    ? language.t('platform.screen.RoleAuthorizationView.action-permissions-value', '动作授权 - {value1}', {
+        value1: selectedModule.value.title,
+      })
+    : language.t('platform.screen.RoleAuthorizationView.action-permissions-value', '动作授权 - {value1}', {
+        value1: roleTitle.value,
+      }),
 );
 const selectedModule = computed(() =>
   modules.value.find((item) => item.moduleAlias === selectedModuleAlias.value),
@@ -148,14 +170,40 @@ const supportsDataScope = computed(
   () => isEmploymentRole.value && actions.value.some((action) => Boolean(action.dataAuth)),
 );
 const actionColumns = computed<UiDataTableColumn[]>(() => [
-  { key: 'title', title: '动作', width: 160 },
-  { key: 'granted', title: '授权', width: 104, align: 'center' },
-  ...(supportsDataScope.value ? [{ key: 'dataScopePolicy', title: '数据范围', width: 200 }] : []),
+  { key: 'title', title: language.t('platform.governance.tab.actions', '动作'), width: 160 },
+  {
+    key: 'granted',
+    title: language.t('platform.page-action.MANAGE_PERMISSIONS.title', '授权'),
+    width: 104,
+    align: 'center',
+  },
+  ...(supportsDataScope.value
+    ? [
+        {
+          key: 'dataScopePolicy',
+          title: language.t('platform.screen.RoleAuthorizationView.data-scope', '数据范围'),
+          width: 200,
+        },
+      ]
+    : []),
 ]);
 const dataGrantColumns: UiDataTableColumn[] = [
-  { key: 'title', title: '标准动作', width: 130 },
-  { key: 'configured', title: '启用模板', width: 104, align: 'center' },
-  { key: 'dataScopePolicy', title: '数据范围', width: 160 },
+  {
+    key: 'title',
+    title: language.t('platform.screen.RoleAuthorizationView.standard-action', '标准动作'),
+    width: 130,
+  },
+  {
+    key: 'configured',
+    title: language.t('platform.screen.RoleAuthorizationView.enable-template', '启用模板'),
+    width: 104,
+    align: 'center',
+  },
+  {
+    key: 'dataScopePolicy',
+    title: language.t('platform.screen.RoleAuthorizationView.data-scope', '数据范围'),
+    width: 160,
+  },
 ];
 const actionRows = computed(() => actions.value as unknown as UiDataTableRecord[]);
 const dataGrantRows = computed(
@@ -217,10 +265,18 @@ const someActionsGranted = computed(
   () => actions.value.some((action) => action.granted) && !allActionsGranted.value,
 );
 const actionOperationSummary = computed(() => {
-  const moduleTitle = selectedModule.value?.title ?? '未选择模块';
+  const moduleTitle =
+    selectedModule.value?.title ??
+    language.t('platform.screen.RoleAuthorizationView.no-module-selected', '未选择模块');
   const grantedCount = actions.value.filter((action) => action.granted).length;
-  const changes = authorizationDirty.value ? '有未确认修改' : '未修改';
-  return `当前模块：${moduleTitle} · 已授权 ${grantedCount}/${actions.value.length} 项 · ${changes}`;
+  const changes = authorizationDirty.value
+    ? language.t('platform.screen.ConstructionPlanCard.unconfirmed-changes', '有未确认修改')
+    : language.t('platform.screen.RoleAuthorizationView.unchanged', '未修改');
+  return language.t(
+    'platform.screen.RoleAuthorizationView.current-module-value-value-value-actions-granted-value',
+    '当前模块：{value1} · 已授权 {value2}/{value3} 项 · {value4}',
+    { value1: moduleTitle, value2: grantedCount, value3: actions.value.length, value4: changes },
+  );
 });
 const authorizationPromotion = useWorkspaceViewPromotion({
   view: roleAuthorizationWorkspaceView,
@@ -244,10 +300,13 @@ const authorizationPromotion = useWorkspaceViewPromotion({
   // the host migration and closes the source drawer.
   onPromoted: dismissPromotedDrawer,
   onPromotionRejected: () =>
-    presentPlatformMessage('目标页签存在未确认的授权配置；请先确认或关闭该页签后再固定当前抽屉。', {
-      source: 'role-authorization',
-      phase: 'validation',
-    }),
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.RoleAuthorizationView.the-target-tab-has-unconfirmed-permission-changes-confirm-or-close',
+        '目标页签存在未确认的授权配置；请先确认或关闭该页签后再固定当前抽屉。',
+      ),
+      { language, source: 'role-authorization', phase: 'validation' },
+    ),
 });
 
 onMounted(() => {
@@ -292,13 +351,13 @@ function configureActionDrawerPresentation() {
   drawer.setOperation({
     summary: isDataGrant.value
       ? authorizationDirty.value
-        ? '有未确认修改'
-        : '未修改'
+        ? language.t('platform.screen.ConstructionPlanCard.unconfirmed-changes', '有未确认修改')
+        : language.t('platform.screen.RoleAuthorizationView.unchanged', '未修改')
       : actionOperationSummary.value,
     actions: [
       {
         key: 'confirm-role-authorization',
-        label: '确认',
+        label: language.t('platform.screen.UiModal.confirmText', '确认'),
         emphasis: 'primary',
         disabled: saving.value || !authorizationDirty.value,
         loading: saving.value,
@@ -310,11 +369,17 @@ function configureActionDrawerPresentation() {
 
 async function load() {
   if (!roleId) {
-    error.value = '缺少角色标识，无法打开授权页。';
+    failure.value = new OperationUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.RoleAuthorizationView.the-role-id-is-missing-cannot-open-the-permissions-page',
+        '缺少角色标识，无法打开授权页。',
+      ),
+    );
     return;
   }
   loading.value = true;
-  error.value = undefined;
+  failure.value = undefined;
   try {
     role.value = await roleContext.crud.view(roleId);
     if (role.value.roleKind === 'group') return;
@@ -332,8 +397,14 @@ async function load() {
     selectedModuleAlias.value =
       restoredWorkspaceSession?.selectedModuleAlias ?? modules.value[0]?.moduleAlias;
   } catch (cause) {
-    error.value = '授权信息加载失败，请重试。';
-    presentPlatformError(cause, { source: 'role-authorization', phase: 'load' });
+    failure.value = new OperationUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.RoleAuthorizationView.failed-to-load-permission-information-try-again',
+        '授权信息加载失败，请重试。',
+      ),
+    );
+    presentPlatformError(cause, { language, source: 'role-authorization', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -365,7 +436,7 @@ async function loadActions() {
     actionDraftVersion.value += 1;
     dataScopeCatalog.value = catalog;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-authorization', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-authorization', phase: 'load' });
   } finally {
     loadingActions.value = false;
   }
@@ -446,13 +517,17 @@ async function saveDataGrantMatrix() {
       })),
     );
     await handlePlatformActionSuccess(result, {
+      language,
       source: 'role-authorization',
       phase: 'action',
-      fallbackMessage: '数据权限模板已保存',
+      fallbackMessage: language.t(
+        'platform.screen.RoleAuthorizationView.data-permission-template-saved',
+        '数据权限模板已保存',
+      ),
     });
     savedDataGrantSnapshot.value = JSON.stringify(dataGrantMatrix.value.actions);
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-authorization', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'role-authorization', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -488,14 +563,18 @@ async function savePermissionMatrix() {
       ),
     );
     await handlePlatformActionSuccess(result, {
+      language,
       source: 'role-authorization',
       phase: 'action',
-      fallbackMessage: '角色授权已保存',
+      fallbackMessage: language.t(
+        'platform.screen.RoleAuthorizationView.role-permissions-saved',
+        '角色授权已保存',
+      ),
     });
     dirtyDrafts.forEach(([moduleAlias, draft]) => actionSnapshots.set(moduleAlias, JSON.stringify(draft)));
     actionDraftVersion.value += 1;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-authorization', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'role-authorization', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -513,9 +592,15 @@ async function confirmWorkspaceDismissal() {
   if (!authorizationDirty.value) return true;
   return confirmAction(
     {
-      title: '放弃未确认的授权配置',
-      content: '当前修改尚未确认，关闭后将丢失这些修改。',
-      okText: '放弃修改',
+      title: language.t(
+        'platform.screen.RoleAuthorizationView.discard-unconfirmed-permission-changes',
+        '放弃未确认的授权配置',
+      ),
+      content: language.t(
+        'platform.screen.RoleAuthorizationView.these-changes-have-not-been-confirmed-and-will-be-lost',
+        '当前修改尚未确认，关闭后将丢失这些修改。',
+      ),
+      okText: language.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
       danger: true,
     },
     language,
@@ -561,9 +646,11 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
 }
 
 function scopeTitle(value: Role | undefined) {
-  if (value?.ownerScopeType === 'platform') return '平台范围';
-  if (value?.ownerScopeType === 'organization') return '机构范围';
-  return '租户范围';
+  if (value?.ownerScopeType === 'platform')
+    return language.t('platform.screen.RoleAuthorizationView.platform-scope', '平台范围');
+  if (value?.ownerScopeType === 'organization')
+    return language.t('platform.screen.RoleAuthorizationView.organization-scope', '机构范围');
+  return language.t('platform.screen.RoleAuthorizationView.tenant-scope', '租户范围');
 }
 </script>
 
@@ -576,7 +663,7 @@ function scopeTitle(value: Role | undefined) {
         :loading="saving"
         @click="confirmAuthorization"
       >
-        确认
+        {{ language.t('platform.screen.UiModal.confirmText', '确认') }}
       </UiButton>
     </template>
     <section
@@ -585,24 +672,68 @@ function scopeTitle(value: Role | undefined) {
         { 'role-authorization-page--drawer': isDrawerWorkspaceView || isActionDrawerSurface },
       ]"
     >
-      <UiSpin v-if="loading" tip="加载授权信息" />
-      <UiError v-else-if="error" title="授权页加载失败" :message="error" />
+      <UiSpin
+        v-if="loading"
+        :tip="language.t('platform.screen.RoleAuthorizationView.loading-permissions', '加载授权信息')"
+      />
+      <UiError
+        v-else-if="error"
+        :title="
+          language.t(
+            'platform.screen.RoleAuthorizationView.failed-to-load-the-permissions-page',
+            '授权页加载失败',
+          )
+        "
+        :message="error"
+      />
       <UiEmpty
         v-else-if="isGroup"
-        title="角色组不独立授权"
-        description="角色组只组合成员角色；请到成员角色分别配置动作和数据权限。"
+        :title="
+          language.t(
+            'platform.screen.RoleAuthorizationView.role-groups-do-not-have-separate-permissions',
+            '角色组不独立授权',
+          )
+        "
+        :description="
+          language.t(
+            'platform.screen.RoleAuthorizationView.role-groups-combine-their-member-roles-configure-action-and-data',
+            '角色组只组合成员角色；请到成员角色分别配置动作和数据权限。',
+          )
+        "
       />
       <RecordExplorerPanel
         v-else-if="isDataGrant && dataGrantMatrix"
         class="data-grant-content"
-        :title="usesStandaloneWorkspaceShell ? '数据权限模板' : `数据权限模板 - ${roleTitle}`"
+        :title="
+          usesStandaloneWorkspaceShell
+            ? language.t('platform.screen.RoleAuthorizationView.data-permission-template', '数据权限模板')
+            : language.t(
+                'platform.screen.RoleAuthorizationView.data-permission-template-value',
+                '数据权限模板 - {value1}',
+                { value1: roleTitle },
+              )
+        "
         :searchable="false"
         @refresh="load"
       >
         <header class="panel-title">
           <div>
-            <h3>标准动作的数据范围模板</h3>
-            <p>模板只会在具体任职的普通角色动作选择“继承数据授权角色”时生效。</p>
+            <h3>
+              {{
+                language.t(
+                  'platform.screen.RoleAuthorizationView.data-scope-templates-for-standard-actions',
+                  '标准动作的数据范围模板',
+                )
+              }}
+            </h3>
+            <p>
+              {{
+                language.t(
+                  'platform.screen.RoleAuthorizationView.a-template-takes-effect-only-when-a-standard-role-action',
+                  '模板只会在具体任职的普通角色动作选择“继承数据授权角色”时生效。',
+                )
+              }}
+            </p>
           </div>
           <UiButton
             v-if="!isWorkspaceView"
@@ -611,7 +742,7 @@ function scopeTitle(value: Role | undefined) {
             :loading="saving"
             @click="confirmAuthorization"
           >
-            确认
+            {{ language.t('platform.screen.UiModal.confirmText', '确认') }}
           </UiButton>
         </header>
         <UiDataTable :columns="dataGrantColumns" :rows="dataGrantRows" row-key="actionCode" horizontal-scroll>
@@ -631,7 +762,9 @@ function scopeTitle(value: Role | undefined) {
               :value="record.dataScopePolicy as DataScopePolicy"
               :options="scopeOptions"
               :disabled="!record.configured || saving"
-              placeholder="请选择数据范围"
+              :placeholder="
+                language.t('platform.screen.RoleAuthorizationView.select-a-data-scope', '请选择数据范围')
+              "
               :allow-clear="false"
               @update:value="record.dataScopePolicy = String($event || '')"
             />
@@ -645,9 +778,16 @@ function scopeTitle(value: Role | undefined) {
         <RecordExplorerPanel
           v-model:search-keyword="moduleKeyword"
           class="module-panel"
-          title="模块树"
-          refresh-title="刷新模块目录"
-          search-placeholder="搜索模块名称或别名"
+          :title="language.t('platform.screen.RoleAuthorizationView.module-tree', '模块树')"
+          :refresh-title="
+            language.t('platform.screen.RoleAuthorizationView.refresh-module-directory', '刷新模块目录')
+          "
+          :search-placeholder="
+            language.t(
+              'platform.screen.RoleAuthorizationView.search-module-names-or-aliases',
+              '搜索模块名称或别名',
+            )
+          "
           @refresh="load"
         >
           <RecordTreeSelector
@@ -664,11 +804,17 @@ function scopeTitle(value: Role | undefined) {
               :loading="saving"
               @click="confirmAuthorization"
             >
-              确认
+              {{ language.t('platform.screen.UiModal.confirmText', '确认') }}
             </UiButton>
           </template>
-          <UiSpin v-if="loadingActions" tip="加载模块动作" />
-          <UiEmpty v-else-if="!selectedModuleAlias" title="请选择模块" />
+          <UiSpin
+            v-if="loadingActions"
+            :tip="language.t('platform.screen.RoleAuthorizationView.loading-module-actions', '加载模块动作')"
+          />
+          <UiEmpty
+            v-else-if="!selectedModuleAlias"
+            :title="language.t('platform.screen.useModulePageSession.select-a-module', '请选择模块')"
+          />
           <UiDataTable
             v-else
             :columns="actionColumns"
@@ -683,10 +829,15 @@ function scopeTitle(value: Role | undefined) {
                   :checked="allActionsGranted"
                   :indeterminate="someActionsGranted"
                   :disabled="saving || !actions.length"
-                  aria-label="全选当前模块动作授权"
+                  :aria-label="
+                    language.t(
+                      'platform.screen.RoleAuthorizationView.grant-all-actions-in-the-current-module',
+                      '全选当前模块动作授权',
+                    )
+                  "
                   @change="updateAllActions"
                 />
-                授权
+                {{ language.t('platform.page-action.MANAGE_PERMISSIONS.title', '授权') }}
               </span>
               <template v-else>{{ column.title }}</template>
             </template>
@@ -717,21 +868,34 @@ function scopeTitle(value: Role | undefined) {
                     :value="selectValue(record.referenceFieldId)"
                     :options="referenceDependencyOptions"
                     :disabled="saving"
-                    placeholder="请选择引用字段"
+                    :placeholder="
+                      language.t(
+                        'platform.screen.RoleAuthorizationView.select-a-reference-field',
+                        '请选择引用字段',
+                      )
+                    "
                     :allow-clear="false"
                     @update:value="
                       updateReferenceDependency(record as unknown as RolePermissionAction, $event)
                     "
                   />
                   <small v-if="record.referenceFieldId">
-                    依赖目标：{{ referenceDependencyOf(record.referenceFieldId)?.targetModuleTitle }} ·
+                    {{ language.t('platform.screen.RoleAuthorizationView.dependency-target', '依赖目标：')
+                    }}{{ referenceDependencyOf(record.referenceFieldId)?.targetModuleTitle }} ·
                     {{ referenceDependencyOf(record.referenceFieldId)?.referenceActionTitle }}
                   </small>
-                  <small v-else>请先选择引用字段，再开启该动作授权。</small>
+                  <small v-else>{{
+                    language.t(
+                      'platform.screen.RoleAuthorizationView.select-a-reference-field-before-granting-this-action',
+                      '请先选择引用字段，再开启该动作授权。',
+                    )
+                  }}</small>
                 </template>
               </div>
               <span v-else-if="isEmploymentDataScopeColumn(column, record)">—</span>
-              <span v-else class="not-applicable">不适用</span>
+              <span v-else class="not-applicable">{{
+                language.t('platform.screen.RoleAuthorizationView.not-applicable', '不适用')
+              }}</span>
             </template>
           </UiDataTable>
         </RecordExplorerPanel>

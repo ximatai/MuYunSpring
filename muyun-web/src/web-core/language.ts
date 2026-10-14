@@ -59,6 +59,11 @@ export function platformCodeTextReference(key: string): TextReference | undefine
     : { sourceKind: 'CODE', sourceId: key, sourceVersion: `sha256-${sha256Hex(originalText)}`, originalText };
 }
 
+/** Compare a declared source with the actual original, including its content version. */
+export function textReferenceMatchesOriginal(source: TextReference, original: string): boolean {
+  return source.originalText === original && source.sourceVersion === `sha256-${sha256Hex(original)}`;
+}
+
 const initialCatalog: LanguageCatalog = {
   defaultTag: 'zh-CN',
   languages: Object.entries(packs).map(([tag, pack]) => ({
