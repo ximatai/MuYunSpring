@@ -6,6 +6,7 @@ import {
   configureModuleContext,
   createLanguageContext,
   provideLanguageContext,
+  platformCodeTextReference,
   type StreamingHttpClient,
 } from '@/web-core';
 import RuntimeLogView from '@/views/RuntimeLogView.vue';
@@ -163,3 +164,71 @@ it('changes live log labels and retained reset notices without reconnecting or r
   }
   expect(cancel).toHaveBeenCalledOnce();
 });
+
+it.each(['declared', 'stale', 'wrong-original', 'unknown', 'legacy'] as const)(
+  'projects only a verified platform SSE error source (%s) without reconnecting',
+  async (kind) => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const stream = vi.fn(
+      async () =>
+        new ReadableStream<Uint8Array>({
+          start(value) {
+            controller = value;
+          },
+          cancel,
+        }),
+    );
+    configureModuleContext({ http: { request: async () => ({}), stream } as StreamingHttpClient });
+    const language = createLanguageContext({ languageTag: 'en' });
+    const source = platformCodeTextReference('platform.runtime-log.stream-interrupted')!;
+    const payload = {
+      code: 'RUNTIME_LOG_STREAM_INTERRUPTED',
+      message: '程序日志流已中断',
+      messageSource: source,
+    };
+    if (kind === 'stale') payload.messageSource = { ...source, sourceVersion: 'stale' };
+    if (kind === 'wrong-original') payload.message = '扩展程序诊断原文';
+    if (kind === 'unknown') payload.messageSource = { ...source, sourceId: 'custom.notice' };
+    if (kind === 'legacy') Reflect.deleteProperty(payload, 'messageSource');
+    const Harness = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(RuntimeLogView);
+      },
+    });
+    const wrapper = mount(Harness, {
+      global: {
+        stubs: {
+          RecordQueryListPanel: { template: '<section><slot name="operations" /></section>' },
+          RecordDetailDrawer: {
+            props: ['open', 'subtitle'],
+            template: '<section v-if="open"><p>{{ subtitle }}</p><slot /></section>',
+          },
+          UiButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+        },
+      },
+    });
+    try {
+      await wrapper.find('button').trigger('click');
+      await flushPromises();
+      controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify(payload)}\n\n`));
+      await flushPromises();
+      expect(wrapper.text()).toContain(
+        kind === 'declared' ? 'The runtime log stream was interrupted.' : payload.message,
+      );
+      language.setLanguage('zh-CN');
+      await flushPromises();
+      expect(wrapper.text()).toContain(payload.message);
+      language.setLanguage('en');
+      await flushPromises();
+      expect(wrapper.text()).toContain(
+        kind === 'declared' ? 'The runtime log stream was interrupted.' : payload.message,
+      );
+      expect(stream).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

@@ -2974,7 +2974,8 @@
       "platform.log.statistic.totalDurationMillis": "累计耗时（毫秒）",
       "platform.log.statistic.knownAffectedRecordCount": "含影响数记录数",
       "platform.log.statistic.totalAffectedRecordCount": "累计影响记录数",
-      "platform.screen.ModuleExperienceProfileOverview.published-capability-dependencies": "已发布页面仍依赖 {capabilities}，这些能力会保留到新骨架发布后。"
+      "platform.screen.ModuleExperienceProfileOverview.published-capability-dependencies": "已发布页面仍依赖 {capabilities}，这些能力会保留到新骨架发布后。",
+      "platform.runtime-log.stream-interrupted": "程序日志流已中断"
     }
   },
   "en": {
@@ -5953,7 +5954,8 @@
       "platform.log.statistic.totalDurationMillis": "Total duration (ms)",
       "platform.log.statistic.knownAffectedRecordCount": "Records with affected-record counts",
       "platform.log.statistic.totalAffectedRecordCount": "Total affected records",
-      "platform.screen.ModuleExperienceProfileOverview.published-capability-dependencies": "Published pages still require {capabilities}. These capabilities will remain until a new skeleton is published."
+      "platform.screen.ModuleExperienceProfileOverview.published-capability-dependencies": "Published pages still require {capabilities}. These capabilities will remain until a new skeleton is published.",
+      "platform.runtime-log.stream-interrupted": "The runtime log stream was interrupted."
     }
   },
   "fr": {

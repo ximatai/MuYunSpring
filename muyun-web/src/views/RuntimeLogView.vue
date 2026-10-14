@@ -7,6 +7,9 @@ import {
   codeOperationErrorMessage,
   resolveOperationErrorMessage,
   type OperationErrorMessage,
+  isTextReference,
+  textReferenceMatchesOriginal,
+  platformCodeTextOriginal,
 } from '@muyun/web-core';
 import { computed, nextTick, onBeforeUnmount, ref, watch, shallowRef } from 'vue';
 import {
@@ -226,13 +229,22 @@ function handleStreamEvent(event: RuntimeLogSseEvent, revision: number, controll
     case 'error': {
       const payload = eventPayload(event.data);
       streamState.value = 'error';
+      const message = optionalTextOf(payload.message);
+      const source = payload.messageSource;
       streamNotice.value =
-        optionalTextOf(payload.message) ??
-        codeOperationErrorMessage(
-          language,
-          'platform.screen.RuntimeLogView.the-live-log-connection-encountered-an-error-reconnect',
-          '实时日志连接出现错误，请重新连接。',
-        );
+        payload.code === 'RUNTIME_LOG_STREAM_INTERRUPTED' &&
+        isTextReference(source) &&
+        source.sourceKind === 'CODE' &&
+        source.sourceId === 'platform.runtime-log.stream-interrupted' &&
+        source.originalText === platformCodeTextOriginal(source.sourceId) &&
+        textReferenceMatchesOriginal(source, message ?? '')
+          ? { message: message!, source, args: {} }
+          : (message ??
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.RuntimeLogView.the-live-log-connection-encountered-an-error-reconnect',
+              '实时日志连接出现错误，请重新连接。',
+            ));
       stopActiveStream();
     }
   }
