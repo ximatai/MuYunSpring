@@ -41,7 +41,8 @@ export function userSessionTerminalTitle(
   session: UserSessionView,
   language: LanguageContext = platformLanguageContext,
 ) {
-  const original = terminalTitles[session.terminalType ?? ''];
+  const code = session.terminalType ?? '';
+  const original = Object.hasOwn(terminalTitles, code) ? terminalTitles[code] : undefined;
   const terminal = original
     ? language.t(`platform.sessions.terminal.${session.terminalType}`, original)
     : session.terminalTypeTitle || language.t('platform.sessions.terminal.other', '其他终端');

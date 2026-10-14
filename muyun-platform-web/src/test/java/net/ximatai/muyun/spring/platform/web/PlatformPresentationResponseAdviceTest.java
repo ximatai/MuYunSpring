@@ -18,10 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PlatformPresentationResponseAdviceTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private PlatformPresentationResponseAdvice advice(Map<TextReference, String> english) {
+        return adviceForTranslations(Map.of("en", english));
+    }
+    private PlatformPresentationResponseAdvice adviceForTranslations(Map<String, Map<TextReference, String>> translations) {
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("languages", LanguageCatalog.load(getClass().getClassLoader(), "zh-CN"));
         beans.registerSingleton("texts", (TextResolver) (source, arguments, tag) -> new TextResources.Resolution(
-                "en".equals(tag) ? english.getOrDefault(source, source.originalText()) : source.originalText(), tag, tag, false, false));
+                translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
     @Test void localizesOnlyTypedNavigationAndOptionLabelsAndPreservesOriginalsAndCodes() {
@@ -148,6 +151,44 @@ class PlatformPresentationResponseAdviceTest {
         assertThat(directory.originalTitles()).containsEntry("sales.order", "订单业务");
         assertThat(card.business()).isSameAs(business);
         assertThat(card.business().moduleTitle()).isEqualTo("订单业务");
+    }
+
+    @Test void bindsCheckTitlesAndFailuresToFrozenIdentityAndKeepsUnidentifiedFailuresOriginal() {
+        var first = new WorkflowTaskCheckResult(); first.setCheckKey("first"); first.setCheckTitle("Business completion condition");
+        first.setFailureMessage("Completion condition not met"); first.setPassed(false); first.setResultPayloadText("{\"count\":0}");
+        var second = new WorkflowTaskCheckResult(); second.setCheckKey("second"); second.setCheckTitle("Business completion condition");
+        second.setFailureMessage("Completion condition not met"); second.setPassed(false);
+        var title1 = ConfigurationTextSources.workflowCheckText("v1", "task", "first", "title", first.getCheckTitle());
+        var title2 = ConfigurationTextSources.workflowCheckText("v1", "task", "second", "title", second.getCheckTitle());
+        var failure1 = ConfigurationTextSources.workflowCheckText("v1", "task", "first", "failureMessage", first.getFailureMessage());
+        var failure2 = ConfigurationTextSources.workflowCheckText("v1", "task", "second", "failureMessage", second.getFailureMessage());
+        var newer = ConfigurationTextSources.workflowCheckText("v2", "task", "first", "failureMessage", first.getFailureMessage());
+        var changed = ConfigurationTextSources.workflowCheckText("v1", "task", "first", "failureMessage", "Changed original");
+        var projection = adviceForTranslations(Map.of("zh-CN", Map.of(title1, "第一项完成条件", title2, "第二项完成条件",
+                failure1, "第一项尚未完成", failure2, "第二项尚未完成", newer, "新版本提示", changed, "另一原文提示")));
+        var evaluation = WorkflowModuleTaskEvaluation.failedCheck(first, List.of(first, second), List.of());
+        var process = new WorkflowModuleTaskProcessBundle("t", "i", "v1", "task", "sales.order", "r", null, null, null, evaluation, null);
+        try (var language = LanguageContext.use("zh-CN")) {
+            var output = mapper.valueToTree(projection.project(WorkflowModuleTaskContinueResult.blocked(process)));
+            assertThat(output.at("/processBundle/evaluation/failureMessage").asText()).isEqualTo("第一项尚未完成");
+            assertThat(output.at("/processBundle/evaluation/failureCheckKey").asText()).isEqualTo("first");
+            assertThat(output.at("/processBundle/evaluation/checkResults/0/checkTitle").asText()).isEqualTo("第一项完成条件");
+            assertThat(output.at("/processBundle/evaluation/checkResults/1/checkTitle").asText()).isEqualTo("第二项完成条件");
+            assertThat(output.at("/processBundle/evaluation/checkResults/1/failureMessage").asText()).isEqualTo("第二项尚未完成");
+            assertThat(output.at("/processBundle/evaluation/checkResults/0/resultPayloadText").asText()).isEqualTo(first.getResultPayloadText());
+            assertThat(output.at("/processBundle/evaluation/checkResults/0/passed").asBoolean()).isFalse();
+            assertThat(output.at("/processBundle/evaluation/failureMessageText/source/sourceId").asText()).isEqualTo(failure1.sourceId());
+            assertThat(output.at("/processBundle/evaluation/failureMessageText/source/originalText").asText()).isEqualTo(first.getFailureMessage());
+            assertThat(output.at("/processBundle/evaluation/failureMessageText/languages/en/text").asText()).isEqualTo(first.getFailureMessage());
+            var unidentified = new WorkflowModuleTaskProcessBundle("t", "i", "v1", "task", "sales.order", "r", null, null, null,
+                    WorkflowModuleTaskEvaluation.failed("Completion condition not met", List.of(first), List.of()), null);
+            var unchanged = mapper.valueToTree(projection.project(unidentified));
+            assertThat(unchanged.at("/evaluation/failureMessage").asText()).isEqualTo("Completion condition not met");
+            assertThat(unchanged.at("/evaluation/failureMessageText").isMissingNode()).isTrue();
+        }
+        assertThat(evaluation.failureMessage()).isEqualTo("Completion condition not met");
+        assertThat(first.getCheckTitle()).isEqualTo("Business completion condition");
+        assertThat(first.getFailureMessage()).isEqualTo("Completion condition not met");
     }
 
 }

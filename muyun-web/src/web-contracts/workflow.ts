@@ -229,7 +229,16 @@ export interface WorkflowTaskPreparation {
   evaluation: {
     passed: boolean;
     failureMessage?: string;
-    checkResults: Array<{ checkKey: string; passed: boolean; failureMessage?: string }>;
+    failureCheckKey?: string;
+    failureMessageText?: TextPresentation;
+    checkResults: Array<{
+      checkKey: string;
+      checkTitle?: string;
+      checkTitleText?: TextPresentation;
+      passed: boolean;
+      failureMessage?: string;
+      failureMessageText?: TextPresentation;
+    }>;
     guides: Array<{
       guideKey: string;
       title?: string;

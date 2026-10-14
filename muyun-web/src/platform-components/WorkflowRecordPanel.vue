@@ -232,6 +232,30 @@ const displayTaskGuides = computed(
         guide.title == null ? undefined : presentationLabel(guide.title, guide.titleText, workflowLanguage),
     })) ?? [],
 );
+const displayTaskFailure = computed(() => {
+  const evaluation = taskProcess.value?.evaluation;
+  return evaluation?.failureMessage
+    ? presentationLabel(evaluation.failureMessage, evaluation.failureMessageText, workflowLanguage)
+    : workflowLanguage.t(
+        'platform.screen.WorkflowRecordPanel.business-completion-conditions-are-not-yet-met',
+        '业务完成条件尚未满足',
+      );
+});
+const displayTaskChecks = computed(
+  () =>
+    taskProcess.value?.evaluation.checkResults.map((check) => ({
+      ...check,
+      checkTitle: presentationLabel(
+        check.checkTitle || check.checkKey,
+        check.checkTitleText,
+        workflowLanguage,
+      ),
+      failureMessage:
+        check.failureMessage == null
+          ? undefined
+          : presentationLabel(check.failureMessage, check.failureMessageText, workflowLanguage),
+    })) ?? [],
+);
 function guideInstruction(guide: WorkflowTaskPreparation['evaluation']['guides'][number]) {
   const original = guideConfig(guide).instruction;
   return typeof original === 'string'
@@ -366,6 +390,29 @@ watch(
           ...process,
           evaluation: {
             ...process.evaluation,
+            failureMessageText: sameWorkflowTextSource(
+              process.evaluation.failureMessageText,
+              nextProcess.evaluation.failureMessageText,
+            )
+              ? nextProcess.evaluation.failureMessageText
+              : process.evaluation.failureMessageText,
+            checkResults: process.evaluation.checkResults.map((check) => {
+              const refreshed = nextProcess.evaluation.checkResults.find(
+                (item) => item.checkKey === check.checkKey,
+              );
+              return {
+                ...check,
+                checkTitleText: sameWorkflowTextSource(check.checkTitleText, refreshed?.checkTitleText)
+                  ? refreshed?.checkTitleText
+                  : check.checkTitleText,
+                failureMessageText: sameWorkflowTextSource(
+                  check.failureMessageText,
+                  refreshed?.failureMessageText,
+                )
+                  ? refreshed?.failureMessageText
+                  : check.failureMessageText,
+              };
+            }),
             guides: process.evaluation.guides.map((guide) => {
               const refreshed = nextProcess.evaluation.guides.find(
                 (item) => item.guideKey === guide.guideKey,
@@ -543,7 +590,7 @@ async function preview() {
     branches.value = await client.value.submitBranches(props.context.moduleAlias, props.recordId);
     await choose({
       actionCode: 'submitApproval',
-      title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.submit-for-approval', '提交审批'),
+      title: '提交审批',
       reasonRequired: false,
     });
     if (!branches.value.length) await refreshPreview();
@@ -987,7 +1034,7 @@ async function execute() {
         @click="
           choose({
             actionCode: 'revoke',
-            title: workflowLanguage.t('platform.screen.WorkflowRecordPanel.withdraw-application', '撤回申请'),
+            title: '撤回申请',
             reasonRequired: true,
           })
         "
@@ -1257,16 +1304,12 @@ async function execute() {
                       'platform.screen.WorkflowRecordPanel.business-conditions-are-met',
                       '当前业务条件已满足',
                     )
-                  : (taskProcess.evaluation.failureMessage ??
-                    workflowLanguage.t(
-                      'platform.screen.WorkflowRecordPanel.business-completion-conditions-are-not-yet-met',
-                      '业务完成条件尚未满足',
-                    ))
+                  : displayTaskFailure
               }}
             </p>
             <ul>
-              <li v-for="check in taskProcess.evaluation.checkResults" :key="check.checkKey">
-                {{ check.checkKey }} ·
+              <li v-for="check in displayTaskChecks" :key="check.checkKey">
+                {{ check.checkTitle }} ·
                 {{
                   check.passed
                     ? workflowLanguage.t('platform.workflow-record.check-passed', '通过')

@@ -75,6 +75,12 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
                 var task = mapper.readTree(node.getNodeConfigText()).path("task");
                 if (task.isMissingNode()) continue;
                 var specification = mapper.treeToValue(task, WorkflowBusinessTaskSpec.class);
+                for (var check : specification.checks()) {
+                    if (check.getTitle() != null && !check.getTitle().isBlank())
+                        result.add(ConfigurationTextSources.workflowCheckText(version.getId(), node.getNodeKey(), check.getCheckKey(), "title", check.getTitle()));
+                    if (check.getFailureMessage() != null && !check.getFailureMessage().isBlank())
+                        result.add(ConfigurationTextSources.workflowCheckText(version.getId(), node.getNodeKey(), check.getCheckKey(), "failureMessage", check.getFailureMessage()));
+                }
                 for (var guide : specification.guides()) {
                     if (guide.getTitle() != null && !guide.getTitle().isBlank())
                         result.add(ConfigurationTextSources.workflowGuideText(version.getId(), node.getNodeKey(), guide.getGuideKey(), "title", guide.getTitle()));

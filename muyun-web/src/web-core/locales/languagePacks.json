@@ -1212,7 +1212,8 @@
       "platform.workflow-record.check-passed": "通过",
       "platform.workflow-task-editor.new-check-title": "业务完成条件",
       "platform.workflow-task-editor.new-check-failure": "业务数据尚未满足完成条件",
-      "platform.workflow-record.fill-complete": "填写业务数据并完成任务"
+      "platform.workflow-record.fill-complete": "填写业务数据并完成任务",
+      "platform.workflow.submitApproval": "提交审批"
     }
   },
   "en": {
@@ -2429,7 +2430,8 @@
       "platform.workflow-record.check-passed": "Passed",
       "platform.workflow-task-editor.new-check-title": "Business completion condition",
       "platform.workflow-task-editor.new-check-failure": "Business data does not yet meet the completion condition",
-      "platform.workflow-record.fill-complete": "Fill in business data and complete task"
+      "platform.workflow-record.fill-complete": "Fill in business data and complete task",
+      "platform.workflow.submitApproval": "Submit for approval"
     }
   },
   "fr": {

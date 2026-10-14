@@ -777,6 +777,31 @@ class WorkflowTaskActionServiceTest {
     }
 
     @Test
+    void rejectsAnIdentifiedFailedCheckWithItsFrozenTextSourceAndOriginalCommandContract() {
+        var task = task("task-1", WorkflowTaskKind.BUSINESS, WorkflowTaskStatus.TODO);
+        var instance = instance(); instance.setWorkflowVersionId("v1");
+        var node = node(null, null); node.setNodeType(WorkflowNodeType.TASK); node.setNodeKey("task");
+        var failed = new WorkflowTaskCheckResult(); failed.setCheckKey("ready"); failed.setPassed(false);
+        failed.setFailureMessage("原文条件尚未满足");
+        when(taskDao.findById("task-1")).thenReturn(task);
+        when(instanceDao.findById("instance-1")).thenReturn(instance);
+        when(nodeDao.findById("node-1")).thenReturn(node);
+        when(taskEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(WorkflowModuleTaskEvaluation.failedCheck(failed, List.of(failed), List.of()));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(net.ximatai.muyun.spring.ability.action.BusinessException.class,
+                () -> service.completeBusinessTask(WorkflowTaskActionRequest.complete("task-1", "user-1", "done")));
+        assertThat(failure.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(failure.httpStatus()).isEqualTo(400);
+        assertThat(failure.getMessage()).isEqualTo("原文条件尚未满足");
+        assertThat(failure.actionMessage().textSource()).isEqualTo(
+                net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.workflowCheckText(
+                        "v1", "task", "ready", "failureMessage", "原文条件尚未满足"));
+        assertThat(task.getTaskStatus()).isEqualTo(WorkflowTaskStatus.TODO);
+        verify(taskDao, never()).updateByIdAndVersion(any(), any());
+        verifyNoInteractions(eventDao, checkResultDao, progressionService);
+    }
+
+    @Test
     void shouldPassSelectedRouteKeyWhenCompletingBusinessTask() {
         WorkflowTask task = task("task-1", WorkflowTaskKind.BUSINESS, WorkflowTaskStatus.TODO);
         WorkflowNodeInstance node = node(null, null);

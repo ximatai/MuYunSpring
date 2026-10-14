@@ -79,6 +79,7 @@ const titles: Record<string, string> = {
   converge_reached: '已到达汇聚',
   normal_converged: '汇聚已满足',
   submit: '提交',
+  submitApproval: '提交审批',
   approve: '通过',
   reject: '驳回',
   rollback: '回退',

@@ -33,6 +33,8 @@ class DefaultWorkflowModuleTaskEvaluatorTest {
         var passed = evaluate();
         assertThat(failed.passed()).isFalse();
         assertThat(failed.failureMessage()).isEqualTo("missing contract");
+        assertThat(failed.failureCheckKey()).isEqualTo("contract");
+        assertThat(failed.checkResults().getFirst().getCheckTitle()).isEqualTo("合同条件原名");
         assertThat(failed.checkResults().getFirst().getCheckStatus()).isEqualTo(WorkflowTaskCheckStatus.FAILED);
         assertThat(passed.passed()).isTrue();
         var evidence = passed.checkResults().getFirst();
@@ -71,6 +73,7 @@ class DefaultWorkflowModuleTaskEvaluatorTest {
     }
     private WorkflowTaskCheck formula() {
         var check = new WorkflowTaskCheck(); check.setCheckKey("contract"); check.setCheckKind(WorkflowTaskCheckKind.FORMULA);
+        check.setTitle("合同条件原名");
         check.setExpression("{ready} == true"); check.setFailureMessage("missing contract"); return check;
     }
 }

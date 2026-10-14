@@ -111,7 +111,22 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             }
         } else if (value instanceof WorkflowAdminActiveTaskView task && task.workflowVersionId() != null && !Boolean.TRUE.equals(task.addedByAddSign())) {
             slots.add(new Slot(path, "nodeTitle", ConfigurationTextSources.workflowNodeTitle(task.workflowVersionId(), task.nodeKey(), task.nodeTitle())));
-        } else if (value instanceof WorkflowModuleTaskProcessBundle process && process.workflowVersionId() != null) {
+        } else if (value instanceof WorkflowModuleTaskProcessBundle process && hasText(process.workflowVersionId()) && hasText(process.nodeKey())) {
+            var evaluation = process.evaluation();
+            if (hasText(evaluation.failureCheckKey()) && hasText(evaluation.failureMessage()))
+                slots.add(new Slot(path + "/evaluation", "failureMessage", ConfigurationTextSources.workflowCheckText(
+                        process.workflowVersionId(), process.nodeKey(), evaluation.failureCheckKey(), "failureMessage", evaluation.failureMessage())));
+            for (int i = 0; i < evaluation.checkResults().size(); i++) {
+                var check = evaluation.checkResults().get(i);
+                if (!hasText(check.getCheckKey())) continue;
+                var checkPath = path + "/evaluation/checkResults/" + i;
+                if (hasText(check.getCheckTitle()))
+                    slots.add(new Slot(checkPath, "checkTitle", ConfigurationTextSources.workflowCheckText(
+                            process.workflowVersionId(), process.nodeKey(), check.getCheckKey(), "title", check.getCheckTitle())));
+                if (hasText(check.getFailureMessage()))
+                    slots.add(new Slot(checkPath, "failureMessage", ConfigurationTextSources.workflowCheckText(
+                            process.workflowVersionId(), process.nodeKey(), check.getCheckKey(), "failureMessage", check.getFailureMessage())));
+            }
             for (int i = 0; i < process.evaluation().guides().size(); i++)
                 guideSources(process, process.evaluation().guides().get(i), path + "/evaluation/guides/" + i, slots);
             if (process.nextGuide() != null) guideSources(process, process.nextGuide(), path + "/nextGuide", slots);
@@ -123,6 +138,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             }
         }
     }
+    private static boolean hasText(String value) { return value != null && !value.isBlank(); }
+
     private void guideSources(WorkflowModuleTaskProcessBundle process, WorkflowTaskGuide guide, String path, List<Slot> slots) {
         if (guide.getTitle() != null && !guide.getTitle().isBlank())
             slots.add(new Slot(path, "title", ConfigurationTextSources.workflowGuideText(process.workflowVersionId(), process.nodeKey(), guide.getGuideKey(), "title", guide.getTitle())));
