@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { RecordExplorerPanel } from '@muyun/platform-components';
 import { UiEmpty, UiSpin, UiSwitch, UiTree, type UiTreeNode } from '@muyun/vue-ui-antdv';
 
 defineOptions({ name: 'MetadataSourceTree', inheritAttrs: false });
-withDefaults(
+const language = useLanguageContext();
+const props = withDefaults(
   defineProps<{
     nodes: UiTreeNode[];
     title?: string;
@@ -18,7 +20,6 @@ withDefaults(
     unavailableDescription?: string;
   }>(),
   {
-    title: '可用字段',
     embedded: false,
     utilityPlacement: 'header',
     searchKeyword: '',
@@ -27,7 +28,6 @@ withDefaults(
     refreshDisabled: false,
     loading: false,
     unavailable: false,
-    unavailableDescription: '暂无可用元数据',
   },
 );
 const emit = defineEmits<{
@@ -39,11 +39,11 @@ const emit = defineEmits<{
 
 <template>
   <RecordExplorerPanel
-    :title="title"
+    :title="props.title ?? language.t('platform.screen.MetadataSourceTree.available-fields', '可用字段')"
     :embedded="embedded"
     :utility-placement="utilityPlacement"
     :search-keyword="searchKeyword"
-    search-placeholder="搜索字段"
+    :search-placeholder="language.t('platform.screen.MetadataSourceTree.search-fields', '搜索字段')"
     :searchable="searchable"
     :refresh-disabled="refreshDisabled"
     @update:search-keyword="emit('update:searchKeyword', $event)"
@@ -52,18 +52,35 @@ const emit = defineEmits<{
     <template v-if="$slots.title" #title><slot name="title" /></template>
     <template v-if="searchable" #utility-actions>
       <label class="metadata-source-tree__system-fields">
-        <span>系统字段</span>
+        <span>{{ language.t('platform.screen.MetadataGovernanceSurface.system-fields', '系统字段') }}</span>
         <UiSwitch
           :checked="showSystemFields"
           size="small"
-          :title="showSystemFields ? '隐藏系统字段' : '显示系统字段'"
-          :aria-label="showSystemFields ? '隐藏系统字段' : '显示系统字段'"
+          :title="
+            showSystemFields
+              ? language.t('platform.screen.MetadataGovernanceSurface.hide-system-fields', '隐藏系统字段')
+              : language.t('platform.screen.MetadataGovernanceSurface.show-system-fields', '显示系统字段')
+          "
+          :aria-label="
+            showSystemFields
+              ? language.t('platform.screen.MetadataGovernanceSurface.hide-system-fields', '隐藏系统字段')
+              : language.t('platform.screen.MetadataGovernanceSurface.show-system-fields', '显示系统字段')
+          "
           @update:checked="emit('update:showSystemFields', $event)"
         />
       </label>
     </template>
-    <UiSpin v-if="loading" tip="加载元数据" />
-    <UiEmpty v-else-if="unavailable" :description="unavailableDescription" />
+    <UiSpin
+      v-if="loading"
+      :tip="language.t('platform.screen.MetadataGovernanceSurface.loading-metadata', '加载元数据')"
+    />
+    <UiEmpty
+      v-else-if="unavailable"
+      :description="
+        props.unavailableDescription ??
+        language.t('platform.screen.MetadataSourceTree.no-metadata-available', '暂无可用元数据')
+      "
+    />
     <div v-else class="metadata-tree" :data-testid="$attrs['data-testid']">
       <UiTree :nodes="nodes" v-bind="$attrs" :drag-operations="['copy']" :allow-drop="() => false" />
       <slot />

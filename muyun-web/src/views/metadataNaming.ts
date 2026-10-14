@@ -1,3 +1,9 @@
+import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
+  type OperationErrorMessage,
+} from '@muyun/web-core';
 import { pinyin } from 'pinyin-pro';
 import type { MetadataFieldPropertyKind } from './metadataOrchestrationState';
 
@@ -30,13 +36,28 @@ export function physicalNameOf(fieldName?: string): string {
 }
 
 /** Match the platform record-name contract before a shared candidate is staged. */
-export function recordNameFieldProblem(field: {
-  titleField?: boolean | null;
-  fieldName?: string | null;
-  columnName?: string | null;
-}): string | undefined {
+export function recordNameFieldProblemMessage(
+  field: {
+    titleField?: boolean | null;
+    fieldName?: string | null;
+    columnName?: string | null;
+  },
+  language: LanguageContext = platformLanguageContext,
+): OperationErrorMessage | undefined {
   if (field.titleField && (field.fieldName?.trim() !== 'title' || field.columnName?.trim() !== 'title'))
-    return '记录名称须使用标准 title 字段与 title 物理列；新增时可省略字段名由平台生成，其他信息应作为普通字段。';
+    return codeOperationErrorMessage(
+      language,
+      'platform.screen.metadataNaming.record-names-must-use-the-standard-title-field-and-title',
+      '记录名称须使用标准 title 字段与 title 物理列；新增时可省略字段名由平台生成，其他信息应作为普通字段。',
+    );
+}
+
+/** Compatibility display helper; editors retain the declared message instead of this rendered string. */
+export function recordNameFieldProblem(
+  field: Parameters<typeof recordNameFieldProblemMessage>[0],
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
+  return recordNameFieldProblemMessage(field, language)?.message;
 }
 
 export function generatedFieldName(title?: string): string {

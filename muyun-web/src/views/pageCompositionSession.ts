@@ -734,10 +734,14 @@ export function createPageCompositionSession(
     const metadataTreeNodes = computed<UiTreeNode[]>(() => [
       ...(editorMode.value === 'fields'
         ? [
-            metadataSourceRoot(mainEntityTitle.value, [
-              ...visibleFields.value.map(metadataFieldNode),
-              ...childRelationNodes(relation.value?.metadataId),
-            ]),
+            metadataSourceRoot(
+              mainEntityTitle.value,
+              [
+                ...visibleFields.value.map(metadataFieldNode),
+                ...childRelationNodes(relation.value?.metadataId),
+              ],
+              language,
+            ),
           ]
         : []),
       ...(editorMode.value === 'actions'
@@ -1284,34 +1288,38 @@ export function createPageCompositionSession(
     }
 
     function metadataFieldNode(field: PageComposerField): UiTreeNode {
-      return metadataSourceFieldNode(field, {
-        secondary:
-          [
-            ...(fieldUsageIndex.value.get(field.fieldName) ?? []),
-            field.pending ? '新增' : metadataSourceFieldNode(field, { key: field.id }).secondary,
-          ]
-            .filter(Boolean)
-            .join(' · ') || undefined,
-        key: `metadata:field:${field.id}`,
-        actions: [
-          {
-            key: 'add',
-            title: `添加 ${field.title} 到…`,
-            iconName: 'plus',
-            disabled: isMutating.value,
-            items: [
-              ...(skeleton.value?.columns === false && !field.fieldName.includes('.')
-                ? [
-                    { key: 'explorer-title', title: '用作导航标题' },
-                    { key: 'explorer-secondary', title: '用作辅助信息' },
-                  ]
-                : [{ key: 'add-list', title: '添加到列表' }]),
-              ...(state.separateDetail.value ? [{ key: 'add-detail', title: '添加到详情' }] : []),
-              { key: 'add-form', title: state.separateDetail.value ? '添加到表单' : '添加到详情 / 表单' },
-            ],
-          },
-        ],
-      });
+      return metadataSourceFieldNode(
+        field,
+        {
+          secondary:
+            [
+              ...(fieldUsageIndex.value.get(field.fieldName) ?? []),
+              field.pending ? '新增' : metadataSourceFieldNode(field, { key: field.id }, language).secondary,
+            ]
+              .filter(Boolean)
+              .join(' · ') || undefined,
+          key: `metadata:field:${field.id}`,
+          actions: [
+            {
+              key: 'add',
+              title: `添加 ${field.title} 到…`,
+              iconName: 'plus',
+              disabled: isMutating.value,
+              items: [
+                ...(skeleton.value?.columns === false && !field.fieldName.includes('.')
+                  ? [
+                      { key: 'explorer-title', title: '用作导航标题' },
+                      { key: 'explorer-secondary', title: '用作辅助信息' },
+                    ]
+                  : [{ key: 'add-list', title: '添加到列表' }]),
+                ...(state.separateDetail.value ? [{ key: 'add-detail', title: '添加到详情' }] : []),
+                { key: 'add-form', title: state.separateDetail.value ? '添加到表单' : '添加到详情 / 表单' },
+              ],
+            },
+          ],
+        },
+        language,
+      );
     }
 
     async function ensureReferencePaths(fieldNames: readonly string[]) {

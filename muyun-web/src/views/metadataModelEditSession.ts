@@ -1,3 +1,5 @@
+import { codeOperationErrorMessage, OperationUsageError } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts';
 import {
@@ -95,7 +97,7 @@ export interface MetadataModelChangeSetProposal {
  * relation-level field proposal shape: the module façade owns atomic validation/persistence while
  * this class keeps every tree action local until the user chooses one publish operation.
  */
-export function createMetadataModelWorkspaceEditSession() {
+export function createMetadataModelWorkspaceEditSession(language: LanguageContext = platformLanguageContext) {
   const draft = ref<Record<string, MetadataModelRelationDraft>>();
   const initial = ref<Record<string, MetadataModelRelationDraft>>({});
   const relationOrder = ref<Record<string, string[]>>({});
@@ -140,7 +142,7 @@ export function createMetadataModelWorkspaceEditSession() {
     enabledCapabilities: Readonly<Record<string, string[]>> = {},
     baseline: Readonly<Record<string, MetadataModelRelationDraft>> = initial.value,
   ): () => void {
-    const recovered = createMetadataModelWorkspaceEditSession();
+    const recovered = createMetadataModelWorkspaceEditSession(language);
     recovered.begin(sources);
     const targets = new Set([
       ...proposal.relationDrafts.map((item) => item.relationId),
@@ -153,20 +155,45 @@ export function createMetadataModelWorkspaceEditSession() {
         baseline[relationId].metadataId !== recovered.relation(relationId)?.metadataId ||
         baseline[relationId].parentMetadataId !== recovered.relation(relationId)?.parentMetadataId
       )
-        throw new Error('候选所属元数据实体已变化；不会迁移到其他实体，原候选已保留。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataModelEditSession.the-candidate-s-owner-metadata-entity-changed-it-will-not',
+            '候选所属元数据实体已变化；不会迁移到其他实体，原候选已保留。',
+          ),
+        );
     }
     for (const candidate of proposal.relationDrafts) {
       const current = recovered.relation(candidate.relationId);
-      if (!current) throw new Error('候选所属元数据已不存在；原候选已保留，请核对配置。');
+      if (!current)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataModelEditSession.the-candidate-s-owner-metadata-no-longer-exists-the-original',
+            '候选所属元数据已不存在；原候选已保留，请核对配置。',
+          ),
+        );
       for (const change of candidate.fieldDrafts) {
         if (!change.field || change.operation === 'DELETE')
-          throw new Error('无法恢复此字段候选；原候选已保留，请核对配置。');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataModelEditSession.unable-to-restore-this-field-candidate-the-original-candidate-was',
+              '无法恢复此字段候选；原候选已保留，请核对配置。',
+            ),
+          );
         const existing =
           change.operation === 'UPDATE'
             ? current.fields[change.fieldId ?? '']
             : Object.values(current.fields).find((field) => field.fieldName === change.field!.fieldName);
         if (change.operation === 'UPDATE' && !existing)
-          throw new Error('候选中的原字段已不存在；不会按同名迁移，原候选已保留。');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataModelEditSession.an-original-field-in-the-candidate-no-longer-exists-it',
+              '候选中的原字段已不存在；不会按同名迁移，原候选已保留。',
+            ),
+          );
         const original =
           change.operation === 'UPDATE'
             ? baseline[candidate.relationId]?.fields[change.fieldId ?? '']
@@ -244,12 +271,24 @@ export function createMetadataModelWorkspaceEditSession() {
     }
     for (const order of proposal.fieldOrders) {
       if (!sameMembers(recovered.relation(order.relationId)?.sortableFieldIds ?? [], order.fieldIds))
-        throw new Error('字段排序范围已变化；原候选已保留，请重新核对。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataModelEditSession.the-field-ordering-scope-changed-the-original-candidate-was-retained',
+            '字段排序范围已变化；原候选已保留，请重新核对。',
+          ),
+        );
       recovered.stageFieldOrder(order.relationId, order.fieldIds);
     }
     for (const order of proposal.relationOrders) {
       if (!sameMembers(recovered.relationOrder.value[order.parentMetadataId ?? ''] ?? [], order.relationIds))
-        throw new Error('元数据排序范围已变化；原候选已保留，请重新核对。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataModelEditSession.the-metadata-ordering-scope-changed-the-original-candidate-was-retained',
+            '元数据排序范围已变化；原候选已保留，请重新核对。',
+          ),
+        );
       recovered.stageRelationOrder(order.parentMetadataId, order.relationIds);
     }
     const rebased = recovered.buildProposal()!;
@@ -521,13 +560,16 @@ export function metadataFieldGovernanceKind(
   return 'BUSINESS';
 }
 
-export function metadataFieldGovernanceLabel(kind: MetadataFieldGovernanceKind): string {
+export function metadataFieldGovernanceLabel(
+  kind: MetadataFieldGovernanceKind,
+  language: LanguageContext = platformLanguageContext,
+): string {
   return (
     {
-      BUSINESS: '业务',
-      CAPABILITY_DERIVED: '能力',
-      PLATFORM_SYSTEM: '平台',
-      RELATION_FOREIGN_KEY: '关系',
+      BUSINESS: language.t('platform.screen.metadataModelEditSession.business', '业务'),
+      CAPABILITY_DERIVED: language.t('platform.screen.metadataModelEditSession.capability', '能力'),
+      PLATFORM_SYSTEM: language.t('platform.screen.metadataModelEditSession.platform', '平台'),
+      RELATION_FOREIGN_KEY: language.t('platform.screen.QueryCriteriaGroupEditor.operator', '关系'),
     }[kind] ?? kind
   );
 }

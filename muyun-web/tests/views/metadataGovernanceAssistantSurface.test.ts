@@ -1,4 +1,6 @@
 import {
+  createLanguageContext,
+  resolveOperationErrorMessage,
   AssistantCapabilityUsageError,
   createAssistantSurfaceRegistry,
   runAssistantConversation,
@@ -632,4 +634,58 @@ it('returns a rejected update to the model as not-applied and continues with cor
   ]);
   expect(result.steps[1].results[0].execution).toBe('effect-applied');
   expect(commit).toHaveBeenCalledOnce();
+});
+
+it('uses the owning adapter language for capabilities and preserves rejection sources without creating a draft', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const base = fixture();
+  const summary = { ...base.summary(), draft: { active: false, dirty: false, editorOpen: false } };
+  const prepareChildDraft = vi.fn(() => () => ({}));
+  const adapter = { ...base, language, summary: () => summary, prepareChildDraft };
+  const surface = createMetadataGovernanceAssistantSurface(adapter, vi.fn());
+  const other = createMetadataGovernanceAssistantSurface(fixture(), vi.fn());
+  expect(surface.describe().title).toBe('考试管理 · Metadata');
+  expect(other.describe().title).toBe('考试管理 · 元数据');
+  const capability = surface
+    .capabilities()
+    .find((item) => item.descriptor.code === 'configuration.prepare-metadata-child-draft')!;
+  let failure: unknown;
+  try {
+    capability.parseInput({ alias: 'INVALID', title: '业务标题', parentRelationId: 'relation-main' });
+  } catch (cause) {
+    failure = cause;
+  }
+  expect(failure).toBeInstanceOf(AssistantCapabilityUsageError);
+  expect((failure as Error).message).toBe('Invalid detail alias format');
+  language.setLanguage('zh-CN');
+  expect(resolveOperationErrorMessage(failure as AssistantCapabilityUsageError, language)).toBe(
+    '明细标识格式无效',
+  );
+  expect(surface.describe().title).toBe('考试管理 · 元数据');
+  language.setLanguage('en');
+  expect(resolveOperationErrorMessage(failure as AssistantCapabilityUsageError, language)).toBe(
+    'Invalid detail alias format',
+  );
+  expect(summary.selectedRelation?.title).toBe('考试');
+  expect(prepareChildDraft).not.toHaveBeenCalled();
+});
+
+it('presents readable English omitted counts without reinterpreting server or business explanations', async () => {
+  const adapter = { ...fixture(), language: createLanguageContext({ languageTag: 'en' }) };
+  const preview = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find((item) => item.descriptor.code === 'configuration.preview-metadata-draft')!;
+  const output = await adapter.preview(proposal, new AbortController().signal);
+  const presentation = preview.present!({
+    ...output,
+    valid: false,
+    errors: Array.from({ length: 22 }, () => ({ message: '业务错误原文' })),
+    warnings: [{ message: '业务说明原文' }],
+  });
+  expect(presentation.title).toBe('Configuration candidate precheck (not active)');
+  expect(presentation.lines[1]).toBe('业务错误原文');
+  expect(presentation.lines.at(-1)).toBe(
+    'Additional results omitted: Errors: 4, Warnings: 1, Field impacts: 1. View the full precheck results on the configuration page.',
+  );
+  expect(presentation.lines).toHaveLength(20);
 });

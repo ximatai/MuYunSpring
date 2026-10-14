@@ -393,6 +393,7 @@ const fieldTreeNodes = computed(() => [
             .includes(fieldKeyword.value.trim().toLowerCase()),
       )
       .map(referenceFieldNode),
+    language,
   ),
 ]);
 const formulaCapabilities = computed(() =>
@@ -802,6 +803,7 @@ function referenceFieldNode(field: BusinessRuleReferenceField): UiTreeNode {
       disabled: Boolean(reason) && !expandable,
       muted: Boolean(reason),
     },
+    language,
   );
 }
 

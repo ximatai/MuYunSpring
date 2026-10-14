@@ -1,4 +1,4 @@
-import { platformLanguageContext } from '@muyun/web-core';
+import { platformLanguageContext, createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -2530,4 +2530,124 @@ it('shows metadata unknown recovery, retains a manual candidate and requires fre
   expect(applies()[1]![0].body).toMatchObject({
     proposal: { relationDrafts: [{ fieldDrafts: [{ field: { title: '人工审阅后的名称' } }] }] },
   });
+});
+
+it('uses each metadata workspace language and preserves its candidate, confirmation and invocation scope across language changes', async () => {
+  const english = createLanguageContext({ languageTag: 'en' });
+  const chinese = createLanguageContext({ languageTag: 'zh-CN' });
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    english,
+  );
+  const other = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    chinese,
+  );
+  const shared = workspace.session('education.exam');
+  const chineseSession = other.session('education.exam');
+  await Promise.all([shared.ensureLoaded(), chineseSession.ensureLoaded()]);
+  workspace.focus(shared);
+  shared.view.startEditField(shared.view.state.allFields.value[0]!, { kind: 'BASIC' });
+  shared.view.fieldDraft.value.title = '业务填写的名称';
+  const prepared = await shared.adapter.prepareConfirmation!(new AbortController().signal);
+  const before = structuredClone(shared.adapter.proposal!());
+  const revision = shared.contextRevision.value;
+  const candidateRevision = shared.revision.value;
+  const confirmation = structuredClone(prepared.presentation);
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(english);
+      provideMetadataWorkspace(workspace);
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const requestCount = request.mock.calls.length;
+  expect(wrapper.text()).toContain('Fixed default value');
+  expect(wrapper.text()).not.toContain('固定默认值');
+  expect(shared.view.editorModeOptions.value.map((item) => item.label)).toEqual([
+    'Simple mode',
+    'Advanced mode',
+  ]);
+  expect(shared.view.fieldCreationItems.value[0]!.title).toBe('Basic field');
+  expect(shared.adapter.candidate!()?.changes).toContainEqual(
+    expect.objectContaining({ property: 'Display name', after: '业务填写的名称' }),
+  );
+  expect(chineseSession.view.fieldCreationItems.value[0]!.title).toBe('普通字段');
+  english.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain('固定默认值');
+  expect(shared.view.editorModeOptions.value[0]!.label).toBe('简单模式');
+  expect(shared.adapter.candidate!()?.changes).toContainEqual(
+    expect.objectContaining({ property: '显示名称', after: '业务填写的名称' }),
+  );
+  expect(shared.contextRevision.value).toBe(revision);
+  expect(shared.revision.value).toBe(candidateRevision);
+  expect(shared.adapter.proposal!()).toEqual(before);
+  expect(prepared.presentation).toEqual(confirmation);
+  expect(prepared.isCurrent()).toBe(true);
+  expect(shared.view.fieldDraft.value.title).toBe('业务填写的名称');
+  expect(request).toHaveBeenCalledTimes(requestCount);
+  english.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Fixed default value');
+  expect(prepared.isCurrent()).toBe(true);
+  shared.view.fieldDraft.value.required = !shared.view.fieldDraft.value.required;
+  expect(shared.contextRevision.value).toBeGreaterThan(revision);
+  expect(prepared.isCurrent()).toBe(false);
+});
+
+it('relocalizes failed option-directory feedback without repeating reads or changing the reference draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/reference-target-modules')) throw new Error('diagnostic from directory');
+    return responseFor(options);
+  });
+  const http = { request } as HttpClient;
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  const shared = workspace.session('education.exam');
+  await shared.ensureLoaded();
+  shared.view.startCreateChildNode('MODULE_REFERENCE');
+  shared.view.updateFieldTitle('业务引用名称');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('The option directory failed to load. Cancel and retry.');
+  const draft = structuredClone({ ...shared.view.fieldDraft.value });
+  const requestCount = request.mock.calls.length;
+  const revision = shared.contextRevision.value;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('选项目录加载失败，请取消后重试。');
+  expect(shared.view.fieldDraft.value).toEqual(draft);
+  expect(shared.contextRevision.value).toBe(revision);
+  expect(request).toHaveBeenCalledTimes(requestCount);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('The option directory failed to load. Cancel and retry.');
+  shared.dispose();
 });

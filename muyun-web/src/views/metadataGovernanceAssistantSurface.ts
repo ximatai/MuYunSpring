@@ -1,3 +1,5 @@
+import { codeOperationErrorMessage } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
@@ -45,8 +47,9 @@ export function createMetadataGovernanceAssistantSurface(
   requestTurn: AssistantTurnRequester,
   contributedCapabilities: () => AssistantCapability[] = () => [],
 ): AssistantSurface {
+  const language = adapter.language ?? platformLanguageContext;
   return {
-    describe: () => surfaceContext(adapter.summary()),
+    describe: () => surfaceContext(adapter.summary(), language),
     capabilities: () =>
       adapter.summary().factsAvailable === false
         ? [
@@ -74,8 +77,16 @@ export function createMetadataGovernanceAssistantSurface(
                       };
                     },
                     present: () => ({
-                      title: '已读取当前元数据',
-                      lines: ['已在当前基线上保留候选意图；原未知提交不据此认定成功，后续保存须重新审阅。'],
+                      title: language.t(
+                        'platform.screen.metadataGovernanceAssistantSurface.current-metadata-read',
+                        '已读取当前元数据',
+                      ),
+                      lines: [
+                        language.t(
+                          'platform.screen.metadataGovernanceAssistantSurface.candidate-intent-was-retained-on-the-current-baseline-this-does',
+                          '已在当前基线上保留候选意图；原未知提交不据此认定成功，后续保存须重新审阅。',
+                        ),
+                      ],
                     }),
                   } satisfies AssistantCapability,
                 ]
@@ -213,6 +224,7 @@ function removeMetadataNewFieldDraftCapability(
 function prepareMetadataCapabilityDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability {
+  const language = adapter.language ?? platformLanguageContext;
   const available =
     adapter.summary().selectedRelation?.capabilities?.filter((fact) => fact.configurable && !fact.enabled) ??
     [];
@@ -239,7 +251,13 @@ function prepareMetadataCapabilityDraftCapability(
         typeof input.selected !== 'boolean' ||
         !available.some((fact) => fact.capability === input.capability)
       )
-        throw new AssistantCapabilityUsageError('请选择当前可配置的基础能力。');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.select-a-currently-configurable-core-capability',
+            '请选择当前可配置的基础能力。',
+          ),
+        );
       return { capability: input.capability as string, selected: input.selected };
     },
     async execute(input, context) {
@@ -252,6 +270,7 @@ function prepareMetadataCapabilityDraftCapability(
 function prepareMetadataMainDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability {
+  const language = adapter.language ?? platformLanguageContext;
   return {
     effect: 'configuration-draft',
     descriptor: {
@@ -267,7 +286,13 @@ function prepareMetadataMainDraftCapability(
     },
     parseInput(input) {
       if (!isRecord(input) || Object.keys(input).some((key) => key !== 'title'))
-        throw new AssistantCapabilityUsageError('请提供主实体名称');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.provide-a-main-entity-name',
+            '请提供主实体名称',
+          ),
+        );
       return { title: boundedString(input.title, 'title', 120, true) };
     },
     async execute(input, context) {
@@ -279,6 +304,7 @@ function prepareMetadataMainDraftCapability(
 function prepareMetadataChildDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability {
+  const language = adapter.language ?? platformLanguageContext;
   return {
     effect: 'configuration-draft',
     descriptor: {
@@ -301,9 +327,22 @@ function prepareMetadataChildDraftCapability(
         !isRecord(input) ||
         Object.keys(input).some((key) => !['alias', 'title', 'parentRelationId'].includes(key))
       )
-        throw new AssistantCapabilityUsageError('请提供明细名称和标识');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.provide-a-detail-name-and-alias',
+            '请提供明细名称和标识',
+          ),
+        );
       const alias = boundedString(input.alias, 'alias', 63, true);
-      if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias)) throw new AssistantCapabilityUsageError('明细标识格式无效');
+      if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias))
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.invalid-detail-alias-format',
+            '明细标识格式无效',
+          ),
+        );
       return {
         alias,
         title: boundedString(input.title, 'title', 120, true),
@@ -315,18 +354,41 @@ function prepareMetadataChildDraftCapability(
       const selected = adapter.summary().selectedRelation;
       if (!selected || selected.relationId !== value.parentRelationId)
         throw new AssistantCapabilityUsageError(
-          '明细的目标父级与当前选择不一致；请核对父级，已有错误候选时先审阅或放弃，再选择正确的父级。',
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.the-detail-s-target-parent-differs-from-the-current-selection',
+            '明细的目标父级与当前选择不一致；请核对父级，已有错误候选时先审阅或放弃，再选择正确的父级。',
+          ),
         );
       return context.applyEffect(adapter.prepareChildDraft!({ alias: value.alias, title: value.title }));
     },
     present(output) {
       const candidate = output as { title: string; parentTitle?: string };
       return {
-        title: '明细结构草稿已准备',
+        title: language.t(
+          'platform.screen.metadataGovernanceAssistantSurface.detail-structure-draft-prepared',
+          '明细结构草稿已准备',
+        ),
         lines: [
-          `明细：${candidate.title}`,
-          `所属父级：${candidate.parentTitle || '当前选中的元数据，请在编辑器核对'}`,
-          '尚未保存；父级关系以当前草稿为准。',
+          language.t('platform.screen.metadataGovernanceAssistantSurface.detail-value', '明细：{value1}', {
+            value1: candidate.title,
+          }),
+          language.t(
+            'platform.screen.metadataGovernanceAssistantSurface.owner-parent-value',
+            '所属父级：{value1}',
+            {
+              value1:
+                candidate.parentTitle ||
+                language.t(
+                  'platform.screen.metadataGovernanceAssistantSurface.the-currently-selected-metadata-check-it-in-the-editor',
+                  '当前选中的元数据，请在编辑器核对',
+                ),
+            },
+          ),
+          language.t(
+            'platform.screen.metadataGovernanceAssistantSurface.not-saved-the-parent-relationship-follows-the-current-draft',
+            '尚未保存；父级关系以当前草稿为准。',
+          ),
         ],
       };
     },
@@ -336,6 +398,7 @@ function prepareMetadataChildDraftCapability(
 function prepareMetadataConfirmationCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability {
+  const language = adapter.language ?? platformLanguageContext;
   let prepared: AssistantOperationProposal | undefined;
   return {
     effect: 'read',
@@ -354,7 +417,14 @@ function prepareMetadataConfirmationCapability(
       return { pendingConfirmation: true, saved: false };
     },
     propose() {
-      if (!prepared) throw new AssistantCapabilityUsageError('请重新准备配置确认');
+      if (!prepared)
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.prepare-the-configuration-confirmation-again',
+            '请重新准备配置确认',
+          ),
+        );
       return prepared;
     },
   };
@@ -363,6 +433,7 @@ function prepareMetadataConfirmationCapability(
 function prepareMetadataFieldPlanCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<MetadataFieldPlanInput> {
+  const language = adapter.language ?? platformLanguageContext;
   const basicSchema = addMetadataFieldDraftCapability(adapter).descriptor.inputSchema;
   const propertySchemas = metadataPropertyFieldSchemas(adapter);
   return {
@@ -410,11 +481,12 @@ function prepareMetadataFieldPlanCapability(
         if (!isRecord(item)) throw new AssistantCapabilityUsageError('Invalid field plan item');
         if (item.kind === 'BASIC') {
           const { kind, ...field } = item;
-          return { ...parseAddFieldDraftInput(field, adapter.fieldSpecAliases()), kind };
+          return { ...parseAddFieldDraftInput(field, adapter.fieldSpecAliases(), language), kind };
         }
         return parseAddPropertyFieldDraftInput(
           item,
           adapter.fieldSpecAliases().includes('json_set') ? ['SINGLE', 'MULTIPLE'] : ['SINGLE'],
+          language,
         );
       });
     },
@@ -446,7 +518,7 @@ function findMetadataFieldTargetsCapability(
         },
       },
     },
-    parseInput: parseFindFieldTargetsInput,
+    parseInput: (input) => parseFindFieldTargetsInput(input, adapter.language ?? platformLanguageContext),
     async execute(input, context) {
       if (!adapter.findFieldTargets)
         throw new AssistantCapabilityUsageError('Metadata field target lookup is unavailable');
@@ -505,6 +577,7 @@ function metadataPropertyFieldSchemas(adapter: MetadataGovernanceAssistantAdapte
 function referenceAffectDirectoryCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability {
+  const language = adapter.language ?? platformLanguageContext;
   return {
     effect: 'read',
     descriptor: {
@@ -527,7 +600,13 @@ function referenceAffectDirectoryCapability(
         Object.keys(input).some((key) => !['target', 'offset'].includes(key)) ||
         (input.offset !== undefined && (!Number.isSafeInteger(input.offset) || Number(input.offset) < 0))
       )
-        throw new AssistantCapabilityUsageError('请提供引用目标与有效分页位置。');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.provide-a-reference-target-and-valid-page-offset',
+            '请提供引用目标与有效分页位置。',
+          ),
+        );
       return { target: boundedString(input.target, 'target', 128, true), offset: Number(input.offset ?? 0) };
     },
     async execute(value, context) {
@@ -548,6 +627,7 @@ function referenceAffectDirectoryCapability(
 function addMetadataPropertyFieldDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<AddMetadataPropertyFieldDraftInput> {
+  const language = adapter.language ?? platformLanguageContext;
   const dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'> = adapter
     .fieldSpecAliases()
     .includes('json_set')
@@ -561,7 +641,7 @@ function addMetadataPropertyFieldDraftCapability(
         'Add a module-reference or dictionary field as a visible, unsaved metadata candidate. First resolve target with configuration.find-metadata-field-targets, then pass the exact returned target.',
       inputSchema: { type: 'object', anyOf: metadataPropertyFieldSchemas(adapter) },
     },
-    parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes),
+    parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes, language),
     async execute(input, context) {
       if (!adapter.preparePropertyFieldDraft || !adapter.preparePropertyFieldCommit)
         throw new AssistantCapabilityUsageError('Metadata property field drafting is unavailable');
@@ -577,6 +657,7 @@ function addMetadataPropertyFieldDraftCapability(
 function updateMetadataFieldDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<UpdateMetadataFieldDraftInput> {
+  const language = adapter.language ?? platformLanguageContext;
   const fieldNames = adapter.editableBasicFieldNames();
   const fieldSpecAliases = adapter.fieldSpecAliases();
   return {
@@ -607,7 +688,7 @@ function updateMetadataFieldDraftCapability(
         },
       },
     },
-    parseInput: (input) => parseUpdateFieldDraftInput(input, fieldNames, fieldSpecAliases),
+    parseInput: (input) => parseUpdateFieldDraftInput(input, fieldNames, fieldSpecAliases, language),
     async execute(input, context) {
       if (!adapter.prepareFieldUpdate)
         throw new AssistantCapabilityUsageError('Metadata field updating is unavailable');
@@ -620,6 +701,7 @@ function updateMetadataFieldDraftCapability(
 function updateMetadataReferenceDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<UpdateMetadataReferenceDraftInput> {
+  const language = adapter.language ?? platformLanguageContext;
   const fieldNames = adapter.editableReferenceFieldNames!();
   return {
     effect: 'configuration-draft',
@@ -664,14 +746,33 @@ function updateMetadataReferenceDraftCapability(
                 !/^[a-z][A-Za-z0-9]{0,62}:[a-z][A-Za-z0-9]{0,62}$/.test(mapping),
             )))
       )
-        throw new AssistantCapabilityUsageError('请提供当前引用字段及有效的回填或启用限制设置。');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.provide-a-current-reference-field-and-valid-value-mappings-or',
+            '请提供当前引用字段及有效的回填或启用限制设置。',
+          ),
+        );
       if (input.requireEnabled === undefined && input.affectMappings === undefined)
-        throw new AssistantCapabilityUsageError('请至少提供一项引用设置。');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.provide-at-least-one-reference-setting',
+            '请至少提供一项引用设置。',
+          ),
+        );
       return input as unknown as UpdateMetadataReferenceDraftInput;
     },
     async execute(input, context) {
       const commit = await adapter.prepareReferenceUpdate!(input, context.signal);
-      if (!context.isCurrent()) throw new AssistantCapabilityUsageError('引用准备已过期，请重新核实。');
+      if (!context.isCurrent())
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataGovernanceAssistantSurface.reference-preparation-expired-verify-again',
+            '引用准备已过期，请重新核实。',
+          ),
+        );
       return context.applyEffect(commit);
     },
   };
@@ -680,6 +781,7 @@ function updateMetadataReferenceDraftCapability(
 function addMetadataFieldDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<AddMetadataFieldDraftInput> {
+  const language = adapter.language ?? platformLanguageContext;
   const aliases = adapter.fieldSpecAliases();
   return {
     effect: 'configuration-draft',
@@ -715,7 +817,7 @@ function addMetadataFieldDraftCapability(
         },
       },
     },
-    parseInput: (input) => parseAddFieldDraftInput(input, aliases),
+    parseInput: (input) => parseAddFieldDraftInput(input, aliases, language),
     async execute(input, context) {
       if (!adapter.prepareNewFieldDraft)
         throw new AssistantCapabilityUsageError('Metadata field drafting is unavailable');
@@ -725,10 +827,19 @@ function addMetadataFieldDraftCapability(
   };
 }
 
-function surfaceContext(summary: MetadataGovernanceAssistantModelSummary): AssistantSurfaceContext {
+function surfaceContext(
+  summary: MetadataGovernanceAssistantModelSummary,
+  language: LanguageContext = platformLanguageContext,
+): AssistantSurfaceContext {
   return {
     surface: 'metadata-governance',
-    title: summary.moduleTitle ? `${summary.moduleTitle} · 元数据` : `${summary.moduleAlias} · 元数据`,
+    title: summary.moduleTitle
+      ? language.t('platform.screen.metadataGovernanceAssistantSurface.value-metadata', '{value1} · 元数据', {
+          value1: summary.moduleTitle,
+        })
+      : language.t('platform.screen.metadataGovernanceAssistantSurface.value-metadata', '{value1} · 元数据', {
+          value1: summary.moduleAlias,
+        }),
     facts: {
       moduleAlias: summary.moduleAlias,
       factsAvailable: summary.factsAvailable,
@@ -764,6 +875,7 @@ function describeMetadataModelCapability(
 function describeMetadataCandidateCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<Record<string, never>, MetadataFieldCandidate> {
+  const language = adapter.language ?? platformLanguageContext;
   return {
     effect: 'read',
     descriptor: {
@@ -785,11 +897,11 @@ function describeMetadataCandidateCapability(
     present(candidate) {
       const display = (value: string | boolean | undefined) =>
         value === undefined
-          ? '未设置'
+          ? language.t('platform.screen.RecordPermissionDialog.not-set', '未设置')
           : typeof value === 'boolean'
             ? value
-              ? '是'
-              : '否'
+              ? language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')
+              : language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否')
             : value.slice(0, 200);
       const summary = adapter.summary();
       const name =
@@ -803,13 +915,37 @@ function describeMetadataCandidateCapability(
         ['title', 'required', 'uniqueField', 'enabled', 'fixedDefault'].includes(change.propertyKey),
       );
       return {
-        title: `「${name}」的修改（尚未保存）`,
+        title: language.t(
+          'platform.screen.metadataGovernanceAssistantSurface.changes-to-value-unsaved',
+          '「{value1}」的修改（尚未保存）',
+          { value1: name },
+        ),
         lines: businessChanges.length
           ? businessChanges.map(
               (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
             )
-          : [candidate.changes.length ? '已准备配置更改，可查看详细内容。' : '当前内容与已保存配置一致。'],
-        ...(changes.length ? { details: { title: '查看详细配置', lines: changes } } : {}),
+          : [
+              candidate.changes.length
+                ? language.t(
+                    'platform.screen.metadataGovernanceAssistantSurface.configuration-changes-prepared-details-are-available',
+                    '已准备配置更改，可查看详细内容。',
+                  )
+                : language.t(
+                    'platform.screen.metadataGovernanceAssistantSurface.the-current-content-matches-the-saved-configuration',
+                    '当前内容与已保存配置一致。',
+                  ),
+            ],
+        ...(changes.length
+          ? {
+              details: {
+                title: language.t(
+                  'platform.screen.metadataGovernanceAssistantSurface.view-configuration-details',
+                  '查看详细配置',
+                ),
+                lines: changes,
+              },
+            }
+          : {}),
       };
     },
   };
@@ -823,28 +959,67 @@ function previewMetadataDraftCapability(adapter: MetadataGovernanceAssistantAdap
     plan?: unknown;
   }
 > {
+  const language = adapter.language ?? platformLanguageContext;
   return {
     effect: 'read',
     present(preview) {
       const details = [
-        ...preview.errors.map((issue) => ({ kind: '错误', text: issue.message })),
-        ...preview.warnings.map((issue) => ({ kind: '警告', text: issue.message })),
-        ...preview.fieldImpacts.map((impact) => ({ kind: '字段影响', text: impact.description })),
+        ...preview.errors.map((issue) => ({
+          kind: language.t('platform.screen.metadataGovernanceAssistantSurface.errors', '错误'),
+          text: issue.message,
+        })),
+        ...preview.warnings.map((issue) => ({
+          kind: language.t('platform.screen.metadataGovernanceAssistantSurface.warnings', '警告'),
+          text: issue.message,
+        })),
+        ...preview.fieldImpacts.map((impact) => ({
+          kind: language.t('platform.screen.metadataGovernanceAssistantSurface.field-impacts', '字段影响'),
+          text: impact.description,
+        })),
       ];
       // Reserve one line for the conclusion and, when needed, one for omitted counts.
       const visibleCount = details.length > 19 ? 18 : 19;
       const omitted = details.slice(visibleCount);
-      const omittedSummary = ['错误', '警告', '字段影响']
+      const omittedSummary = [
+        language.t('platform.screen.metadataGovernanceAssistantSurface.errors', '错误'),
+        language.t('platform.screen.metadataGovernanceAssistantSurface.warnings', '警告'),
+        language.t('platform.screen.metadataGovernanceAssistantSurface.field-impacts', '字段影响'),
+      ]
         .map((kind) => ({ kind, count: omitted.filter((item) => item.kind === kind).length }))
         .filter(({ count }) => count > 0)
-        .map(({ kind, count }) => `${count} 项${kind}`)
-        .join('、');
+        .map(({ kind, count }) =>
+          language.t(
+            'platform.screen.metadataGovernanceAssistantSurface.value-value',
+            '{value1} 项{value2}',
+            { value1: count, value2: kind },
+          ),
+        )
+        .join(language.t('platform.list.separator', '、'));
       return {
-        title: '配置候选预检（尚未生效）',
+        title: language.t(
+          'platform.screen.metadataGovernanceAssistantSurface.configuration-candidate-precheck-not-active',
+          '配置候选预检（尚未生效）',
+        ),
         lines: [
-          preview.valid ? '预检通过，仍需人工审阅并确认保存。' : '预检未通过。',
+          preview.valid
+            ? language.t(
+                'platform.screen.metadataGovernanceAssistantSurface.precheck-passed-human-review-and-save-confirmation-are-still-required',
+                '预检通过，仍需人工审阅并确认保存。',
+              )
+            : language.t(
+                'platform.screen.metadataGovernanceAssistantSurface.precheck-failed',
+                '预检未通过。',
+              ),
           ...details.slice(0, visibleCount).map(({ text }) => text.slice(0, 500)),
-          ...(omitted.length ? [`另有 ${omittedSummary}未展示，请在配置页面查看完整预检结果。`] : []),
+          ...(omitted.length
+            ? [
+                language.t(
+                  'platform.screen.metadataGovernanceAssistantSurface.value-more-items-were-omitted-view-the-full-precheck-results',
+                  '另有 {value1}未展示，请在配置页面查看完整预检结果。',
+                  { value1: omittedSummary },
+                ),
+              ]
+            : []),
         ],
       };
     },
@@ -919,7 +1094,11 @@ function canAddPropertyFieldDraft(adapter: MetadataGovernanceAssistantAdapter): 
   );
 }
 
-function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): AddMetadataFieldDraftInput {
+function parseAddFieldDraftInput(
+  input: unknown,
+  fieldSpecAliases: string[],
+  language: LanguageContext = platformLanguageContext,
+): AddMetadataFieldDraftInput {
   if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set([
     'title',
@@ -951,7 +1130,7 @@ function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): Ad
     title,
     ...(fieldName ? { fieldName } : {}),
     fieldSpecAlias,
-    ...optionalDefaultValue(input),
+    ...optionalDefaultValue(input, language),
     ...optionalBooleanProperties(input, ['required', 'unique', 'indexed', 'sortable', 'titleField']),
   };
 }
@@ -960,6 +1139,7 @@ function parseUpdateFieldDraftInput(
   input: unknown,
   fieldNames: string[],
   fieldSpecAliases: string[],
+  language: LanguageContext = platformLanguageContext,
 ): UpdateMetadataFieldDraftInput {
   if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set([
@@ -986,7 +1166,7 @@ function parseUpdateFieldDraftInput(
   if (fieldSpecAlias && !fieldSpecAliases.includes(fieldSpecAlias))
     throw new AssistantCapabilityUsageError('Unknown metadata field specification');
   const changes = {
-    ...optionalDefaultValue(input),
+    ...optionalDefaultValue(input, language),
     ...(title ? { title } : {}),
     ...(fieldSpecAlias ? { fieldSpecAlias } : {}),
     ...optionalBooleanProperties(input, [
@@ -1003,13 +1183,22 @@ function parseUpdateFieldDraftInput(
   return { fieldName, ...changes };
 }
 
-function parseFindFieldTargetsInput(input: unknown): FindMetadataFieldTargetsInput {
+function parseFindFieldTargetsInput(
+  input: unknown,
+  language: LanguageContext = platformLanguageContext,
+): FindMetadataFieldTargetsInput {
   if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   if (Object.keys(input).some((key) => !['kind', 'keyword'].includes(key)))
     throw new AssistantCapabilityUsageError('Capability input contains unsupported target lookup properties');
   const kind = metadataPropertyFieldKind(input.kind);
   if (kind === 'MODULE_REFERENCE' && input.defaultValue !== undefined)
-    throw new AssistantCapabilityUsageError('引用初值应使用关联初始化。');
+    throw new AssistantCapabilityUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.metadataGovernanceAssistantSurface.use-relationship-initialization-for-reference-initial-values',
+        '引用初值应使用关联初始化。',
+      ),
+    );
   const keyword = boundedString(input.keyword, 'keyword', 100, false);
   return { kind, ...(keyword ? { keyword } : {}) };
 }
@@ -1017,6 +1206,7 @@ function parseFindFieldTargetsInput(input: unknown): FindMetadataFieldTargetsInp
 function parseAddPropertyFieldDraftInput(
   input: unknown,
   dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'>,
+  language: LanguageContext = platformLanguageContext,
 ): AddMetadataPropertyFieldDraftInput {
   if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set([
@@ -1035,7 +1225,13 @@ function parseAddPropertyFieldDraftInput(
     );
   const kind = metadataPropertyFieldKind(input.kind);
   if (kind === 'MODULE_REFERENCE' && input.defaultValue !== undefined)
-    throw new AssistantCapabilityUsageError('引用初值应使用关联初始化。');
+    throw new AssistantCapabilityUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.metadataGovernanceAssistantSurface.use-relationship-initialization-for-reference-initial-values',
+        '引用初值应使用关联初始化。',
+      ),
+    );
   const title = boundedString(input.title, 'title', 100, true);
   const fieldName = boundedString(input.fieldName, 'fieldName', 63, false);
   if (fieldName && !isPlatformFieldName(fieldName))
@@ -1068,7 +1264,13 @@ function parseAddPropertyFieldDraftInput(
           !item.split(':').every(isPlatformFieldName),
       ))
   )
-    throw new AssistantCapabilityUsageError('选择回填必须使用最多八项不同的来源字段:当前字段映射。');
+    throw new AssistantCapabilityUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.metadataGovernanceAssistantSurface.value-mappings-must-contain-at-most-eight-distinct-source-field',
+        '选择回填必须使用最多八项不同的来源字段:当前字段映射。',
+      ),
+    );
   const required = optionalBooleanProperties(input, ['required']).required;
   return {
     kind,
@@ -1076,7 +1278,7 @@ function parseAddPropertyFieldDraftInput(
     ...(fieldName ? { fieldName } : {}),
     target,
     ...(kind === 'DICTIONARY'
-      ? { selectionMode: selectionMode ?? 'SINGLE', ...optionalDefaultValue(input) }
+      ? { selectionMode: selectionMode ?? 'SINGLE', ...optionalDefaultValue(input, language) }
       : {}),
     ...(required !== undefined ? { required } : {}),
     ...(input.affectMappings !== undefined ? { affectMappings: input.affectMappings as string[] } : {}),
@@ -1100,13 +1302,22 @@ function boundedString(value: unknown, name: string, maxLength: number, required
   return value.trim();
 }
 
-function optionalDefaultValue(input: Record<string, unknown>): { defaultValue?: string | null } {
+function optionalDefaultValue(
+  input: Record<string, unknown>,
+  language: LanguageContext = platformLanguageContext,
+): { defaultValue?: string | null } {
   if (input.defaultValue === undefined) return {};
   if (
     input.defaultValue !== null &&
     (typeof input.defaultValue !== 'string' || input.defaultValue.length > 512)
   )
-    throw new AssistantCapabilityUsageError('固定默认值须为最多 512 字符的文本，清除时使用 null。');
+    throw new AssistantCapabilityUsageError(
+      codeOperationErrorMessage(
+        language,
+        'platform.screen.metadataGovernanceAssistantSurface.a-fixed-default-must-be-text-of-at-most-512',
+        '固定默认值须为最多 512 字符的文本，清除时使用 null。',
+      ),
+    );
   return { defaultValue: input.defaultValue as string | null };
 }
 

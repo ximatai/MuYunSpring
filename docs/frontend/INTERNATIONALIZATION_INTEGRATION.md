@@ -92,6 +92,8 @@ language.registerResources("en", { "sales.order.title": "Order" });
 
 Excel 模板及导出仅投影明确声明的列标签。工作表名称、实体身份、技术表头、下拉原值、引用标题反推、歧义拒绝及记录值保持原有数据交换契约。
 
+元数据建设会话、助手能力和共享字段树使用所属页面语言。字段属性、基础能力和本地预检提示按消费时解析；业务名称、别名、字段映射和配置候选保留原始值。语言变化不修改候选或助手业务上下文代次；已准备的整组保存确认保持原审阅快照，提交继续校验原候选指纹。
+
 ## 本地操作校验提示
 
 固定校验可用 `codeOperationErrorMessage(language, key, original, args)` 声明原文模板和参数，再交给 `OperationUsageError` 或助手适配异常。错误码和发生时的 `message` 保留为事实，`resolveOperationErrorMessage(error, language)` 按消费者当前语言解析展示；参数保留快照，展示更新不重复验证、编辑或提交。`DraftUpdateRejectedError` 保留原错误的文本来源。原有字符串错误继续按原文展示，在线配置与无法核实版本的来源不借用代码资源。
