@@ -115,56 +115,60 @@ const constructionPlan = props.constructionPlanClient
 watch(assistantIdentity, () => constructionPlan?.current(), { flush: 'sync' });
 const configurationCollaboration = createConfigurationCollaboration();
 const configurationEditor = computed(() => props.assistantWorkspaceContribution?.editor?.());
-const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentity, () => {
-  const plan = constructionPlan?.current();
-  const planFacts = constructionPlan?.facts();
-  const contribution = props.assistantWorkspaceContribution?.current();
-  const menuCatalog = workbenchAssistantMenuCatalog(props.startup?.menus ?? []);
-  return {
-    revision: JSON.stringify([
-      plan?.generation,
-      contribution?.revision,
-      configurationCollaboration.revision.value,
-      menuCatalog,
-    ]),
-    facts: {
-      ...(contribution?.facts ?? {}),
-      menuCatalog,
-      configurationTask: configurationCollaboration.task.value,
-      configurationBoundary: configurationCollaboration.boundary(configurationEditor.value),
-      configurationEditor: configurationEditor.value
-        ? {
-            kind: configurationEditor.value.kind,
-            openingCapability: configurationEditor.value.openingCapability,
-            moduleAlias: configurationEditor.value.moduleAlias,
-            title: configurationEditor.value.title,
-            hasUnsavedChanges: configurationEditor.value.hasUnsavedChanges,
-            visible: configurationEditor.value.visible,
-          }
-        : undefined,
-      ...(plan
-        ? {
-            constructionPlan: {
-              generation: plan.generation,
-              planId: plan.planId,
-              revision: plan.saved?.revision ?? 0,
-              goal: plan.candidate?.goal,
-              title: plan.candidate?.title,
-              constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
-              configurationSource: 'CURRENT_GOVERNANCE',
-              historicalDesign: plan.saved?.constructionStatus === 'DELIVERED',
-              persistence: planFacts?.persistence,
-              dirty: planFacts?.dirty,
-              manualEditing: planFacts?.manualEditing,
-              reviewRequired: planFacts?.reviewRequired,
-              confirmationResultUnknown: planFacts?.confirmationResultUnknown,
-              detailsCapability: 'construction.describe',
-            },
-          }
-        : {}),
-    },
-  };
-});
+const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
+  assistantIdentity,
+  () => {
+    const plan = constructionPlan?.current();
+    const planFacts = constructionPlan?.facts();
+    const contribution = props.assistantWorkspaceContribution?.current();
+    const menuCatalog = workbenchAssistantMenuCatalog(props.startup?.menus ?? [], language);
+    return {
+      revision: JSON.stringify([
+        plan?.generation,
+        contribution?.revision,
+        configurationCollaboration.revision.value,
+        menuCatalog,
+      ]),
+      facts: {
+        ...(contribution?.facts ?? {}),
+        menuCatalog,
+        configurationTask: configurationCollaboration.task.value,
+        configurationBoundary: configurationCollaboration.boundary(configurationEditor.value),
+        configurationEditor: configurationEditor.value
+          ? {
+              kind: configurationEditor.value.kind,
+              openingCapability: configurationEditor.value.openingCapability,
+              moduleAlias: configurationEditor.value.moduleAlias,
+              title: configurationEditor.value.title,
+              hasUnsavedChanges: configurationEditor.value.hasUnsavedChanges,
+              visible: configurationEditor.value.visible,
+            }
+          : undefined,
+        ...(plan
+          ? {
+              constructionPlan: {
+                generation: plan.generation,
+                planId: plan.planId,
+                revision: plan.saved?.revision ?? 0,
+                goal: plan.candidate?.goal,
+                title: plan.candidate?.title,
+                constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
+                configurationSource: 'CURRENT_GOVERNANCE',
+                historicalDesign: plan.saved?.constructionStatus === 'DELIVERED',
+                persistence: planFacts?.persistence,
+                dirty: planFacts?.dirty,
+                manualEditing: planFacts?.manualEditing,
+                reviewRequired: planFacts?.reviewRequired,
+                confirmationResultUnknown: planFacts?.confirmationResultUnknown,
+                detailsCapability: 'construction.describe',
+              },
+            }
+          : {}),
+      },
+    };
+  },
+  language,
+);
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
 async function settleAssistantNavigation(signal?: AbortSignal, requireFormal = false) {
@@ -231,6 +235,7 @@ function workbenchAssistantCapabilities() {
         return true;
       },
       settleAssistantNavigation,
+      language,
     ),
     ...(constructionPlan?.capabilities() ?? []),
     ...shared.filter((capability) => capability !== opening),

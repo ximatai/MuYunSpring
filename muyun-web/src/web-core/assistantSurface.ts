@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from './language';
 import { AppError } from './errors';
 import {
   assistantCapabilityCatalog,
@@ -276,6 +277,7 @@ export class AssistantEffectInterruptedError extends Error {
 export function createAssistantSurfaceRegistry(
   identityScope: () => string = () => '',
   workspaceContext?: () => { revision: string; facts: Record<string, unknown> },
+  language: LanguageContext = platformLanguageContext,
 ): AssistantSurfaceRegistry {
   const registrations = new Map<string, RegisteredAssistantSurface[]>();
   const pending = new Set<AbortController>();
@@ -713,16 +715,21 @@ export function createAssistantSurfaceRegistry(
           ...(postReadToken ? { readStateChanged: true } : {}),
           ...(capability.propose
             ? {
-                confirmation: createAssistantOperationConfirmation(capability.propose(value), () => {
-                  const current = snapshot()?.token;
-                  return (
-                    current !== undefined &&
-                    current.identityScopeKey === token.identityScopeKey &&
-                    current.pageInstanceKey === token.pageInstanceKey &&
-                    current.surfaceGeneration === token.surfaceGeneration &&
-                    current.executionScopeKey === token.executionScopeKey
-                  );
-                }),
+                confirmation: createAssistantOperationConfirmation(
+                  capability.propose(value),
+                  () => {
+                    const current = snapshot()?.token;
+                    return (
+                      current !== undefined &&
+                      current.identityScopeKey === token.identityScopeKey &&
+                      current.pageInstanceKey === token.pageInstanceKey &&
+                      current.surfaceGeneration === token.surfaceGeneration &&
+                      current.executionScopeKey === token.executionScopeKey
+                    );
+                  },
+                  Date.now,
+                  language,
+                ),
               }
             : {}),
           ...(capability.present ? { presentation: capability.present(value) } : {}),

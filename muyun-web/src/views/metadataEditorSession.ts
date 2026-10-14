@@ -2279,7 +2279,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         if (manualChildCreation?.state === 'unknown') {
           await manualChildCreation.check();
         } else {
-          manualChildCreation = createOperationConfirmation(prepareChildConfirmation(), valid);
+          manualChildCreation = createOperationConfirmation(
+            prepareChildConfirmation(),
+            valid,
+            Date.now,
+            language,
+          );
           await manualChildCreation.confirm();
         }
         if (!valid()) return;

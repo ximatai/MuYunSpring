@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createLanguageContext,
   createAssistantSurfaceRegistry,
   sameAssistantInvocationToken,
   emptyAssistantCapabilityInputSchema,
@@ -893,4 +894,42 @@ it('isolates both synchronous and asynchronous observation failures without chan
   expect(observe).toHaveBeenCalledWith(
     expect.objectContaining({ toolCallCount: 2, usage: { totalTokens: 3 } }),
   );
+});
+
+it('passes the registry owner language to prepared confirmations without changing invocation identity', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const registry = createAssistantSurfaceRegistry(() => 'same-owner', undefined, language);
+  const execute = vi.fn(async () => ({ title: '业务原始结果', lines: [] }));
+  registry.register({
+    pageInstanceKey: 'form',
+    contextRevision: () => 'same-draft',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn: async () => ({ toolCalls: [] }),
+      capabilities: () => [
+        {
+          effect: 'read' as const,
+          descriptor: { code: 'save.prepare', description: 'Prepare', inputSchema: {} },
+          parseInput: () => ({}),
+          execute: async () => ({}),
+          propose: () => ({
+            presentation: { title: '业务原始确认', lines: [] },
+            expiresAt: Date.now() + 60_000,
+            isCurrent: () => true,
+            execute,
+            lookup: async () => undefined,
+          }),
+        },
+      ],
+    },
+  });
+  registry.activate('form');
+  const token = registry.snapshot()!.token;
+  const result = await registry.invoke({ id: 'prepare', code: 'save.prepare', input: {} }, token);
+  expect(result.confirmation?.confirmLabel).toBe('Confirm save');
+  language.setLanguage('zh-CN');
+  expect(result.confirmation?.confirmLabel).toBe('确认保存');
+  expect(result.confirmation?.presentation.title).toBe('业务原始确认');
+  expect(registry.snapshot()!.token).toEqual(token);
+  expect(execute).not.toHaveBeenCalled();
 });

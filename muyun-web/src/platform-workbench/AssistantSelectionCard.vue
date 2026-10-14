@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { AssistantSelectionInteraction, AssistantSelectionOption } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'AssistantSelectionCard' });
 
@@ -28,11 +31,19 @@ const selectedLabel = computed(
   >
     <div v-if="state === 'answered'" class="assistant-selection__resolved">
       <UiIcon name="check" />
-      <span>{{ selectedLabel ? `已选择：${selectedLabel}` : '已完成选择' }}</span>
+      <span>{{
+        selectedLabel
+          ? language.t('platform.screen.AssistantSelectionCard.selected-value', '已选择：{value1}', {
+              value1: selectedLabel,
+            })
+          : language.t('platform.screen.AssistantSelectionCard.selection-completed', '已完成选择')
+      }}</span>
     </div>
     <div v-else-if="state === 'superseded'" class="assistant-selection__resolved">
       <UiIcon name="minus" />
-      <span>此选择已更新</span>
+      <span>{{
+        language.t('platform.screen.AssistantSelectionCard.this-selection-has-been-updated', '此选择已更新')
+      }}</span>
     </div>
     <template v-else>
       <strong>{{ selection.prompt }}</strong>
@@ -54,10 +65,15 @@ const selectedLabel = computed(
         :disabled="state !== 'open'"
         @click="emit('abandon')"
       >
-        放弃本次提议
+        {{ language.t('platform.screen.AssistantSelectionCard.abandon-this-proposal', '放弃本次提议') }}
       </UiButton>
       <span v-if="selection.inputPolicy === 'free_text_allowed'" class="assistant-selection__hint">
-        也可以继续输入其他内容
+        {{
+          language.t(
+            'platform.screen.AssistantSelectionCard.you-can-also-type-something-else',
+            '也可以继续输入其他内容',
+          )
+        }}
       </span>
     </template>
   </div>

@@ -1,10 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnInput, AssistantTurnOutput } from '@muyun/web-contracts';
 import {
+  createLanguageContext,
+  provideLanguageContext,
+  platformLanguageContext,
   AppError,
   createAssistantSurfaceRegistry,
   AssistantCapabilityUsageError,
@@ -2614,4 +2617,82 @@ it('includes the final summary request in complete-round usage', async () => {
   expect(diagnostic).toContain('结果整理请求');
   expect(diagnostic).toContain('22 tokens（总量覆盖 13/13）');
   wrapper.unmount();
+});
+
+it('uses its own English scope and refreshes fixed failure text without replaying or translating the user draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private upstream diagnostic', { code: 'AI_MODEL_TIMEOUT', status: 504 });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    expect(wrapper.get('aside').attributes('aria-label')).toBe('AI assistant');
+    expect(wrapper.get('textarea').attributes('placeholder')).toBe('Describe what you want to accomplish');
+    await wrapper.get('textarea').setValue('原始用户需求');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(wrapper.text()).toContain('原始用户需求');
+    expect(wrapper.text()).not.toContain('private upstream diagnostic');
+    await wrapper.get('textarea').setValue('未发送草稿');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.get('textarea').element.value).toBe('未发送草稿');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(platformLanguageContext.languageTag.value).toBe('zh-CN');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('localizes selection controls while retaining model prompts, option names and messages', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => ({
+    text: '模型原始回复',
+    toolCalls: [],
+    selection: {
+      interactionId: 'choose',
+      prompt: '原始选择问题',
+      presentation: 'options' as const,
+      inputPolicy: 'free_text_allowed' as const,
+      options: [{ id: 'a', label: '原始业务名称' }],
+    },
+  }));
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    await wrapper.get('textarea').setValue('业务输入');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('模型原始回复');
+    expect(wrapper.text()).toContain('原始选择问题');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(wrapper.text()).toContain('You can also type something else');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('也可以继续输入其他内容');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(requestTurn).toHaveBeenCalledOnce();
+  } finally {
+    wrapper.unmount();
+  }
 });

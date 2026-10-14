@@ -1,3 +1,4 @@
+import { AppError, createLanguageContext } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import { useAssistantConversationArchive } from '@/platform-workbench/useAssistantConversationArchive';
 import type {
@@ -197,4 +198,42 @@ it('does not leave a conversation while a construction confirmation has an unkno
   expect(read).not.toHaveBeenCalled();
   expect(clear).not.toHaveBeenCalled();
   expect(archive.saveError.value).toBe('先查询原确认结果');
+});
+
+it('refreshes default titles and failure explanations in the archive owner language without transport or content changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const content: AssistantConversationContent = {
+    title: '原始用户标题',
+    messages: [{ role: 'user', text: '业务原文' }],
+    history: [],
+  };
+  const save = vi.fn().mockRejectedValue(new AppError('private failure', { code: 'NETWORK_ERROR' }));
+  const list = vi.fn().mockRejectedValue(null);
+  const client = { save, list, read: vi.fn() } as AssistantConversationClient;
+  const archive = useAssistantConversationArchive(
+    client,
+    () => content,
+    vi.fn(),
+    vi.fn(),
+    undefined,
+    language,
+  );
+  archive.changeScope('own-identity');
+  expect(archive.title.value).toBe('New conversation');
+  language.setLanguage('zh-CN');
+  expect(archive.title.value).toBe('新对话');
+  language.setLanguage('en');
+  expect(await archive.save()).toBe(false);
+  await archive.list();
+  expect(archive.saveError.value).toContain('Cannot connect to the service');
+  expect(archive.readError.value?.message).toBe('Conversation history could not be loaded');
+  const id = archive.id.value;
+  language.setLanguage('zh-CN');
+  expect(archive.saveError.value).toContain('暂时无法连接服务');
+  expect(archive.readError.value?.message).toBe('历史会话加载失败');
+  expect(archive.title.value).toBe('原始用户标题');
+  expect(archive.id.value).toBe(id);
+  expect(save).toHaveBeenCalledOnce();
+  expect(list).toHaveBeenCalledOnce();
+  expect(content.messages[0]!.text).toBe('业务原文');
 });

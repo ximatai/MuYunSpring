@@ -1,5 +1,11 @@
-import { createUuid } from '@muyun/web-core';
-import { ref } from 'vue';
+import {
+  platformLanguageContext,
+  type LanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  createUuid,
+} from '@muyun/web-core';
+import { computed, ref, shallowRef } from 'vue';
 import type {
   AssistantConversationClient,
   AssistantConversationContent,
@@ -13,14 +19,25 @@ export function useAssistantConversationArchive(
   restore: (content: AssistantConversationContent) => void | Promise<void>,
   clear: () => void,
   leaveBlockedReason: () => string | undefined = () => undefined,
+  language: LanguageContext = platformLanguageContext,
 ) {
   const id = ref<string>();
-  const title = ref('新对话');
+  const storedTitle = ref<string>();
+  const title = computed(
+    () =>
+      storedTitle.value ?? language.t('platform.screen.WorkbenchAssistantPanel.new-conversation', '新对话'),
+  );
   const status = ref<'idle' | 'saving' | 'saved' | 'unsaved' | 'restored'>('idle');
-  const saveError = ref('');
-  const readError = ref<
-    { kind: 'list'; more: boolean; message: string } | { kind: 'open'; id: string; message: string }
+  const saveFailure = shallowRef<() => string>();
+  const saveError = computed(() => saveFailure.value?.() ?? '');
+  const readFailure = shallowRef<
+    | { kind: 'list'; more: boolean; message: () => string }
+    | { kind: 'open'; id: string; message: () => string }
   >();
+  const readError = computed(() => {
+    const failure = readFailure.value;
+    return failure && { ...failure, message: failure.message() };
+  });
   const loading = ref(false);
   const ready = ref(false);
   const historyOpen = ref(false);
@@ -37,10 +54,10 @@ export function useAssistantConversationArchive(
     id.value = undefined;
     revision = 0;
     saved = '';
-    title.value = '新对话';
+    storedTitle.value = undefined;
     status.value = 'idle';
-    saveError.value = '';
-    readError.value = undefined;
+    saveFailure.value = undefined;
+    readFailure.value = undefined;
   }
   function changeScope(value: string | undefined) {
     if (scope === value) return;
@@ -70,9 +87,9 @@ export function useAssistantConversationArchive(
       key = scope;
     const conversationId = id.value ?? createUuid().replaceAll('-', '');
     id.value = conversationId;
-    title.value = value.title;
+    storedTitle.value = value.title;
     status.value = 'saving';
-    saveError.value = '';
+    saveFailure.value = undefined;
     const pending = (async () => {
       try {
         const result = await client.save(conversationId, key, revision, value);
@@ -84,7 +101,13 @@ export function useAssistantConversationArchive(
       } catch (cause) {
         if (epoch === generation) {
           status.value = 'unsaved';
-          saveError.value = cause instanceof Error ? cause.message : '保存失败，请重试';
+          saveFailure.value = () =>
+            cause instanceof Error
+              ? userFacingErrorMessage(normalizeError(cause), language)
+              : language.t(
+                  'platform.screen.useAssistantConversationArchive.save-failed-please-retry',
+                  '保存失败，请重试',
+                );
         }
         return false;
       }
@@ -101,7 +124,7 @@ export function useAssistantConversationArchive(
     const epoch = generation,
       key = scope;
     loading.value = true;
-    readError.value = undefined;
+    readFailure.value = undefined;
     historyOpen.value = true;
     const next = more ? page.value + 1 : 1;
     try {
@@ -112,10 +135,16 @@ export function useAssistantConversationArchive(
       hasMore.value = result.length === 30;
     } catch (cause) {
       if (epoch === generation)
-        readError.value = {
+        readFailure.value = {
           kind: 'list',
           more,
-          message: cause instanceof Error ? cause.message : '历史会话加载失败',
+          message: () =>
+            cause instanceof Error
+              ? userFacingErrorMessage(normalizeError(cause), language)
+              : language.t(
+                  'platform.screen.useAssistantConversationArchive.conversation-history-could-not-be-loaded',
+                  '历史会话加载失败',
+                ),
         };
     } finally {
       if (epoch === generation) loading.value = false;
@@ -124,7 +153,7 @@ export function useAssistantConversationArchive(
   function canLeave() {
     const reason = leaveBlockedReason();
     if (!reason) return true;
-    saveError.value = reason;
+    saveFailure.value = () => leaveBlockedReason() ?? reason;
     return false;
   }
   async function open(conversationId: string) {
@@ -134,24 +163,30 @@ export function useAssistantConversationArchive(
     const epoch = ++generation,
       key = scope;
     loading.value = true;
-    readError.value = undefined;
+    readFailure.value = undefined;
     try {
       const result = await client.read(conversationId, key);
       if (epoch !== generation) return;
       id.value = result.id;
       revision = result.revision;
       saved = JSON.stringify(result.content);
-      title.value = result.content.title;
+      storedTitle.value = result.content.title;
       await restore(result.content);
       if (epoch !== generation) return;
       status.value = 'restored';
       historyOpen.value = false;
     } catch (cause) {
       if (epoch === generation)
-        readError.value = {
+        readFailure.value = {
           kind: 'open',
           id: conversationId,
-          message: cause instanceof Error ? cause.message : '会话恢复失败',
+          message: () =>
+            cause instanceof Error
+              ? userFacingErrorMessage(normalizeError(cause), language)
+              : language.t(
+                  'platform.screen.useAssistantConversationArchive.conversation-could-not-be-restored',
+                  '会话恢复失败',
+                ),
         };
     } finally {
       if (epoch === generation) loading.value = false;
