@@ -1,5 +1,6 @@
 import type { OperationPresentation, OperationReceiptReference } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
+import { sha256Hex } from './sha256';
 
 /** Only query identities survive a conversation. Payloads, permissions and confirmation are never restored. */
 export function parseOperationReceiptReference(value: unknown): OperationReceiptReference {
@@ -73,12 +74,7 @@ export async function pagePublicationDigest(revision: {
   templateVersion?: number;
   uiTreeJson?: string;
 }) {
-  const bytes = new TextEncoder().encode(
-    JSON.stringify([revision.templateAlias, revision.templateVersion, revision.uiTreeJson]),
-  );
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
+  return sha256Hex(JSON.stringify([revision.templateAlias, revision.templateVersion, revision.uiTreeJson]));
 }
 export async function lookupOperationReceipt(
   http: HttpClient,

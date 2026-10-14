@@ -1,3 +1,5 @@
+import type { TextReference } from '@muyun/web-contracts';
+import { sha256Hex } from './sha256';
 import {
   computed,
   hasInjectionContext,
@@ -47,6 +49,14 @@ export interface LanguageContext {
 export function platformCodeTextOriginal(key: string): string | undefined {
   const originals: Record<string, string> = packs['zh-CN'].messages;
   return Object.hasOwn(originals, key) ? originals[key] : undefined;
+}
+
+/** Immutable CODE source facts belong to the platform resource producer, never to a consumer locale. */
+export function platformCodeTextReference(key: string): TextReference | undefined {
+  const originalText = platformCodeTextOriginal(key);
+  return originalText === undefined
+    ? undefined
+    : { sourceKind: 'CODE', sourceId: key, sourceVersion: `sha256-${sha256Hex(originalText)}`, originalText };
 }
 
 const initialCatalog: LanguageCatalog = {

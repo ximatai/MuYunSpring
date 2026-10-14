@@ -1,6 +1,6 @@
-import { webcrypto } from 'node:crypto';
+import * as controlTexts from '@/platform-workbench/assistantControlText';
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
@@ -17,14 +17,6 @@ import {
   type AssistantConversationClient,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
-
-const originalCrypto = globalThis.crypto;
-beforeAll(() => {
-  vi.stubGlobal('crypto', webcrypto);
-});
-afterAll(() => {
-  vi.stubGlobal('crypto', originalCrypto);
-});
 
 function createRegistry(requestTurn: AssistantTurnRequester) {
   return createRegistryWithCapabilities(requestTurn, []);
@@ -2708,7 +2700,9 @@ it('localizes selection controls while retaining model prompts, option names and
   }
 });
 
-it('saves and restores fixed model failure sources in the new language while preserving raw history and avoiding replay', async () => {
+it('saves, continues and restores fixed failure sources on LAN HTTP while preserving raw history', async () => {
+  const originalCrypto = globalThis.crypto;
+  vi.stubGlobal('crypto', { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
   const language = createLanguageContext({ languageTag: 'zh-CN' });
   let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
   const client: AssistantConversationClient = {
@@ -2761,6 +2755,14 @@ it('saves and restores fixed model failure sources in the new language while pre
     await flushPromises();
     expect(wrapper.text()).toContain('等待模型回复超时');
     expect(requestTurn).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮用户原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(saved!.content.messages.some((message) => message.text === '第二轮用户原文')).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
     expect(saved!.content.messages.find((message) => message.controlText)!.text).toBe(rawFailure.text);
     // A valid reference from an unknown version cannot partially relocalize the old control fact.
     const packet = saved!.content.messages.find((message) => message.controlText)!.controlText!;
@@ -2778,9 +2780,51 @@ it('saves and restores fixed model failure sources in the new language while pre
     expect(wrapper.findAll('.assistant-message--status').map((message) => message.text())).toContain(
       rawFailure.text,
     );
-    expect(wrapper.text()).not.toContain('The model response timed out');
-    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(requestTurn).toHaveBeenCalledTimes(2);
   } finally {
     wrapper.unmount();
+    vi.stubGlobal('crypto', originalCrypto);
+  }
+});
+
+it('keeps raw conversation save and later model turns available when optional source materialization fails', async () => {
+  const encoder = vi
+    .spyOn(controlTexts, 'archiveControlText')
+    .mockRejectedValueOnce(new Error('Invalid source'));
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const saved: import('@muyun/web-core').AssistantConversationContent[] = [];
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved.push(JSON.parse(JSON.stringify(content)));
+      return { id, revision: revision + 1, content, updatedAt: '2026-10-14' };
+    }),
+    list: vi.fn(async () => []),
+    read: vi.fn(),
+  };
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+  });
+  try {
+    await wrapper.get('textarea').setValue('第一轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() =>
+      expect(
+        saved.some((content) =>
+          content.messages.some(
+            (message) => message.text.includes('等待模型回复超时') && !message.controlText,
+          ),
+        ),
+      ).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    expect(JSON.stringify(saved)).not.toContain('private diagnostic');
+  } finally {
+    wrapper.unmount();
+    encoder.mockRestore();
   }
 });

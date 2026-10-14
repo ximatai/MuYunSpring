@@ -1223,13 +1223,6 @@ function assistantHistoryText(text: string | undefined, selection?: AssistantSel
 }
 
 async function archiveMessage(item: ConversationItem, language: LanguageContext) {
-  const controlText =
-    item.controlText && (JSON.parse(JSON.stringify(item.controlText)) as ControlText | undefined);
-  const archivedControlText =
-    item.archivedControlText &&
-    (JSON.parse(JSON.stringify(item.archivedControlText)) as
-      | import('@muyun/web-core').AssistantControlText
-      | undefined);
   const snapshot = {
     role: item.role,
     ...(item.confirmation?.receiptReference &&
@@ -1292,10 +1285,21 @@ async function archiveMessage(item: ConversationItem, language: LanguageContext)
       .filter(Boolean)
       .join('\n'),
   };
-  return {
-    ...snapshot,
-    ...(item.role !== 'user' && !item.confirmation && !item.selection && (controlText || archivedControlText)
-      ? { controlText: archivedControlText ?? (await archiveControlText(controlText!)) }
-      : {}),
-  };
+  // Display provenance is optional. A bad source must not prevent saving the immutable transcript.
+  if (item.role !== 'user' && !item.confirmation && !item.selection) {
+    try {
+      const controlText =
+        item.controlText && (JSON.parse(JSON.stringify(item.controlText)) as ControlText | undefined);
+      const archivedControlText =
+        item.archivedControlText &&
+        (JSON.parse(JSON.stringify(item.archivedControlText)) as
+          | import('@muyun/web-core').AssistantControlText
+          | undefined);
+      if (archivedControlText) return { ...snapshot, controlText: archivedControlText };
+      if (controlText) return { ...snapshot, controlText: await archiveControlText(controlText) };
+    } catch {
+      return snapshot;
+    }
+  }
+  return snapshot;
 }

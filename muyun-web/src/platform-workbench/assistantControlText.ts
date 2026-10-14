@@ -1,5 +1,5 @@
 import type { AssistantControlText, LanguageContext } from '@muyun/web-core';
-import { platformCodeTextOriginal } from '@muyun/web-core';
+import { platformCodeTextOriginal, platformCodeTextReference } from '@muyun/web-core';
 
 type Argument = string | number | boolean | null | ControlText;
 /** The author supplies CODE identity and original template, never inferred from rendered prose. */
@@ -39,12 +39,6 @@ export function resolveControlText(text: ControlText, language: LanguageContext)
   );
 }
 
-async function versionOf(original: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(original));
-  return (
-    'sha256-' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
-  );
-}
 /** Materializes immutable references without persisting closures, errors or translated argument fragments. */
 export async function archiveControlText(text: ControlText): Promise<AssistantControlText> {
   if ('parts' in text)
@@ -53,7 +47,8 @@ export async function archiveControlText(text: ControlText): Promise<AssistantCo
         text.parts.map((part) => (typeof part === 'string' ? part : archiveControlText(part))),
       ),
     };
-  if (!owned(text.code) || platformCodeTextOriginal(text.code) !== text.original)
+  const source = platformCodeTextReference(text.code);
+  if (!owned(text.code) || source?.originalText !== text.original)
     throw new Error('Unregistered assistant control text source');
   const args =
     text.args &&
@@ -66,12 +61,7 @@ export async function archiveControlText(text: ControlText): Promise<AssistantCo
       ),
     );
   return {
-    source: {
-      sourceKind: 'CODE',
-      sourceId: text.code,
-      sourceVersion: await versionOf(text.original),
-      originalText: text.original,
-    },
+    source,
     ...(args ? { args } : {}),
   };
 }
@@ -117,16 +107,18 @@ export async function restoreControlText(input: AssistantControlText): Promise<C
       !owned(source.sourceId) ||
       typeof source.originalText !== 'string' ||
       source.originalText.length > 4000 ||
-      source.sourceVersion !== (await versionOf(source.originalText))
+      typeof source.sourceVersion !== 'string'
     )
       throw new Error('Invalid control text source');
     const frozen = `${source.sourceId}@${source.sourceVersion}`;
-    const code =
-      platformCodeTextOriginal(source.sourceId) === source.originalText
-        ? source.sourceId
-        : platformCodeTextOriginal(frozen) === source.originalText
-          ? frozen
-          : undefined;
+    const code = [source.sourceId, frozen].find((key) => {
+      const known = platformCodeTextReference(key);
+      return (
+        known !== undefined &&
+        known.originalText === source.originalText &&
+        known.sourceVersion === source.sourceVersion
+      );
+    });
     if (!code) throw new Error('Unknown control text version');
     sources++;
     const rawArgs = record.args;

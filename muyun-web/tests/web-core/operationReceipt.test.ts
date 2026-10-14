@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   lookupOperationReceipt,
@@ -42,30 +43,44 @@ it('queries the original record request using current authorization without repl
   expect(() => parseOperationReceiptReference({ ...reference, payload: { total: 1 } })).toThrow();
   expect(() => parseOperationReceiptReference({ ...reference, moduleAlias: '../outside' })).toThrow();
 });
-it('matches the full immutable publication content, including an archived revision', async () => {
-  const revision = {
-    id: 'rev',
-    status: 'archived',
-    templateAlias: 'management',
-    templateVersion: 2,
-    uiTreeJson: '{"nodes":[]}',
-  };
-  const pointer: OperationReceiptReference = {
-    kind: 'page-publication',
-    variantId: 'variant',
-    revisionId: 'rev',
-    contentDigest: await pagePublicationDigest(revision),
-  };
-  const request = vi.fn(async () => revision);
-  expect(await lookupOperationReceipt({ request } as never, pointer)).toBeDefined();
-  expect(request.mock.calls[0]).toEqual([
-    { path: '/platform.presentation-variant/variant/revisions/view/rev' },
-  ]);
-  revision.templateVersion = 3;
-  expect(await lookupOperationReceipt({ request } as never, pointer)).toBeUndefined();
-  revision.templateVersion = 2;
-  revision.status = 'draft';
-  expect(await lookupOperationReceipt({ request } as never, pointer)).toBeUndefined();
+it('matches immutable publication content on LAN HTTP, including an archived revision', async () => {
+  const originalCrypto = globalThis.crypto;
+  vi.stubGlobal('crypto', { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
+  try {
+    const revision = {
+      id: 'rev',
+      status: 'archived',
+      templateAlias: 'management',
+      templateVersion: 2,
+      uiTreeJson: '{"nodes":[]}',
+    };
+    const pointer: OperationReceiptReference = {
+      kind: 'page-publication',
+      variantId: 'variant',
+      revisionId: 'rev',
+      contentDigest: await pagePublicationDigest(revision),
+    };
+    expect(pointer.contentDigest).toBe(
+      createHash('sha256')
+        .update(
+          JSON.stringify([revision.templateAlias, revision.templateVersion, revision.uiTreeJson]),
+          'utf8',
+        )
+        .digest('hex'),
+    );
+    const request = vi.fn(async () => revision);
+    expect(await lookupOperationReceipt({ request } as never, pointer)).toBeDefined();
+    expect(request.mock.calls[0]).toEqual([
+      { path: '/platform.presentation-variant/variant/revisions/view/rev' },
+    ]);
+    revision.templateVersion = 3;
+    expect(await lookupOperationReceipt({ request } as never, pointer)).toBeUndefined();
+    revision.templateVersion = 2;
+    revision.status = 'draft';
+    expect(await lookupOperationReceipt({ request } as never, pointer)).toBeUndefined();
+  } finally {
+    vi.stubGlobal('crypto', originalCrypto);
+  }
 });
 it('recovered confirmations only query, coalesce clicks and ignore late results after scope change', async () => {
   let scope = true;
