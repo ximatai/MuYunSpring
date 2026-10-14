@@ -2744,12 +2744,18 @@ it('saves, continues and restores fixed failure sources on LAN HTTP while preser
     language.setLanguage('en');
     await flushPromises();
     expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
     await click('Conversation history');
     await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
     await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
     await click('Show earlier messages');
     expect(wrapper.text()).toContain('The model response timed out');
     expect(wrapper.text()).not.toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
     expect(wrapper.text()).toContain('用户需求原文');
     language.setLanguage('zh-CN');
     await flushPromises();

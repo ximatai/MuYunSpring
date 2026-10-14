@@ -782,6 +782,7 @@ export function useAssistantConversation(props: {
                     '{value1}，目标尚未核实完成。',
                     { value1: reason() },
                   ),
+                  '\n',
                   applied > 0
                     ? hasPresentedEffects
                       ? codeControlText(
@@ -1206,7 +1207,9 @@ function assistantFailureText(error: unknown): ControlText {
             '请核实当前页面后继续处理。',
           )
         : '';
-      return joinControlText(modelMessage, recovery, resultBoundary);
+      return recovery
+        ? joinControlText(modelMessage, '\n', recovery, '\n', resultBoundary)
+        : joinControlText(modelMessage, '\n', resultBoundary);
     }
   }
   return codeControlText(
