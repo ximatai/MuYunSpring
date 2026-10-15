@@ -209,8 +209,7 @@ final class StaticModuleOpenApiSchemaFactory {
     }
 
     private PlatformApiDocument.Schema platformWebErrorSchema() {
-        return new PlatformApiDocument.Schema("PlatformWebError", "object", null,
-                List.of("traceId", "code", "status", "message"), Map.of(
+        var fields = new LinkedHashMap<String, PlatformApiDocument.Property>(Map.of(
                 "traceId", requiredStringProperty(),
                 "code", new PlatformApiDocument.Property("string", null, true, false, false,
                         null, null, null, null, null, null, List.of()),
@@ -222,7 +221,11 @@ final class StaticModuleOpenApiSchemaFactory {
                 "targets", arrayProperty("object"),
                 "details", objectProperty(null),
                 "messageArgs", objectProperty(null)
-        ), null);
+        ));
+        fields.put("textSource", objectProperty(null));
+        fields.put("messageText", objectProperty(null));
+        return new PlatformApiDocument.Schema("PlatformWebError", "object", null,
+                List.of("traceId", "code", "status", "message"), Map.copyOf(fields), null);
     }
 
     private PlatformApiDocument.Property stringProperty() {

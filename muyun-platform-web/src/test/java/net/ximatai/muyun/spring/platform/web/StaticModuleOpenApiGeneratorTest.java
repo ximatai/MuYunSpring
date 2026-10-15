@@ -40,6 +40,7 @@ class StaticModuleOpenApiGeneratorTest {
                 FieldDefinition.string("code", "编码").required().writeRules(rules)));
         var module = StaticModuleDefinition.builder("demo", "demo.task", "任务").entities(List.of(entity)).build();
         var schemas = new StaticModuleOpenApiSchemaFactory().schemas(module);
+        assertThat(schemas.get("PlatformWebError").properties()).containsKeys("textSource", "messageText");
         assertThat(schemas.get("Task").required()).containsExactly("code");
         assertThat(schemas.get("TaskCreate").writeOperation())
                 .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.INSERT);

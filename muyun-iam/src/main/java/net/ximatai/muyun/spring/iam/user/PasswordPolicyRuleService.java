@@ -90,7 +90,7 @@ public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPo
     public void validatePassword(String password) {
         for (PasswordPolicyRule rule : activeGlobalRules()) {
             if (!Pattern.compile(rule.getPattern()).matcher(password == null ? "" : password).matches()) {
-                throw BusinessExceptions.warning("iam.user.password-policy-violated", rule.getMessage());
+                throw BusinessExceptions.warningText("iam.user.password-policy-violated", PasswordPolicyTextSources.message(rule));
             }
         }
     }

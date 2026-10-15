@@ -32,7 +32,9 @@ class PasswordPolicyRuleServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("密码长度不能少于 6 位")
                 .satisfies(error -> assertThat(((BusinessException) error).actionMessage().code())
-                        .isEqualTo("iam.user.password-policy-violated"));
+                        .isEqualTo("iam.user.password-policy-violated"))
+                .satisfies(error -> assertThat(((BusinessException) error).actionMessage().textSource().sourceId())
+                        .isEqualTo("iam.password-policy.fallback.message"));
     }
 
     @Test
@@ -58,6 +60,23 @@ class PasswordPolicyRuleServiceTest {
         assertThatThrownBy(() -> service.validatePassword("secret"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("密码必须包含数字");
+    }
+
+    @Test
+    void configuredPolicyFailureRetainsTheActualRuleMessageAndVersion() {
+        var dao = mock(PasswordPolicyRuleDao.class);
+        var configured = rule("必须包含数字", ".*\\d.*", "密码必须包含数字", 20);
+        configured.setId("custom-policy");
+        when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(configured));
+        var service = new PasswordPolicyRuleService(dao);
+        assertThatThrownBy(() -> service.validatePassword("letters"))
+                .isInstanceOfSatisfying(BusinessException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo("iam.user.password-policy-violated");
+                    assertThat(failure.actionMessage().textSource()).isEqualTo(PasswordPolicyTextSources.message(configured));
+                    assertThat(failure.actionMessage().textSource().sourceKind())
+                            .isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+                    assertThat(failure.getMessage()).isEqualTo(configured.getMessage());
+                });
     }
 
     @Test

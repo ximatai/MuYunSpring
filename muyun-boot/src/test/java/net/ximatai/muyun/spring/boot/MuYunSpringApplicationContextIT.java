@@ -367,6 +367,23 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void translatesTheActualConfiguredPasswordPolicyFailureWithoutChangingItsMachineCode() {
+        var policies = applicationContext.getBean(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        try (var scope = TenantContext.system("configured password policy localization test")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> policies.validatePassword("short"))
+                    .isInstanceOfSatisfying(net.ximatai.muyun.spring.ability.action.BusinessException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("iam.user.password-policy-violated");
+                        var source = failure.actionMessage().textSource();
+                        assertThat(source.sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+                        assertThat(texts.resolve(source, java.util.Map.of(), "en").text())
+                                .isEqualTo("The password must contain at least 6 characters");
+                        assertThat(failure.getMessage()).isEqualTo("密码长度不能少于 6 位");
+                    });
+        }
+    }
+
+    @Test
     void shouldLoadApplicationContextWithRealDatabase() {
         assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
                 .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);
