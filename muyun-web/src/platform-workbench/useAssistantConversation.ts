@@ -54,6 +54,7 @@ interface ConversationItem {
 
 interface ConversationSelection {
   value: AssistantSelectionInteraction;
+  request: string;
   token?: AssistantInvocationToken;
   state: 'open' | 'submitting' | 'answered' | 'superseded';
   selectedOptionId?: string;
@@ -160,6 +161,7 @@ export function useAssistantConversation(props: {
   let identityScope: string | undefined;
   let streamingItemId: number | undefined;
   let pendingStreamText = '';
+  let pendingUserGoal: string | undefined;
   const MAX_HISTORY_MESSAGE_LENGTH = 4_000;
 
   const restored = ref(false);
@@ -216,6 +218,7 @@ export function useAssistantConversation(props: {
     interruptedRequest.value = undefined;
     streamingItemId = undefined;
     pendingStreamText = '';
+    pendingUserGoal = undefined;
     restored.value = false;
     restoredThroughId.value = 0;
     restoredRequest.value = '';
@@ -236,7 +239,7 @@ export function useAssistantConversation(props: {
         executionScopeKey: executionScope,
         pendingRequest:
           busy.value && requestGeneration === executionGeneration
-            ? items.value.filter((item) => item.role === 'user').at(-1)?.text
+            ? (pendingUserGoal ?? items.value.filter((item) => item.role === 'user').at(-1)?.text)
             : undefined,
         planId:
           linkedPlanId.value ??
@@ -350,14 +353,18 @@ export function useAssistantConversation(props: {
     });
   }
 
-  function appendAssistant(text: string | undefined, selection?: AssistantSelectionInteraction) {
+  function appendAssistant(
+    text: string | undefined,
+    selection: AssistantSelectionInteraction | undefined,
+    request: string,
+  ) {
     const normalized = text?.trim() ?? '';
     if (!normalized && !selection) return;
     items.value.push({
       id: ++nextItemId,
       role: 'assistant',
       text: normalized,
-      ...(selection ? { selection: newSelection(selection) } : {}),
+      ...(selection ? { selection: newSelection(selection, request) } : {}),
     });
   }
 
@@ -388,7 +395,9 @@ export function useAssistantConversation(props: {
     const epoch = conversationEpoch;
     let requestScope = executionGeneration;
     requestGeneration = requestScope;
-    const userGoal = continuation?.userGoal ?? message;
+    const requestMessage = sourceSelection ? selectionRequest(sourceSelection, message) : message;
+    const userGoal = continuation?.userGoal ?? requestMessage;
+    pendingUserGoal = userGoal;
     const rememberInterruption = () => {
       interruptedRequest.value = { userGoal, readOnly };
     };
@@ -440,7 +449,7 @@ export function useAssistantConversation(props: {
         reopenSelection(sourceSelection);
         return;
       }
-      const result = await runAssistantConversation(props.registry, message, {
+      const result = await runAssistantConversation(props.registry, requestMessage, {
         signal: controller.signal,
         capabilitySelection,
         displayObservations,
@@ -550,6 +559,7 @@ export function useAssistantConversation(props: {
           expireStaleSelections();
           requestScope = executionGeneration;
           requestGeneration = requestScope;
+          pendingUserGoal = userGoal;
           turnHistory.length = 0;
           streamingItemId = undefined;
           pendingStreamText = '';
@@ -590,12 +600,13 @@ export function useAssistantConversation(props: {
               role: 'assistant',
               text: assistantHistoryText(step.output.text, step.output.selection),
             });
-            if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
+            if (streamingItemId === undefined)
+              appendAssistant(step.output.text, step.output.selection, userGoal);
             else {
               const item = items.value.find(({ id }) => id === streamingItemId);
               if (item) {
                 item.text = step.output.text?.trim() ?? '';
-                if (step.output.selection) item.selection = newSelection(step.output.selection);
+                if (step.output.selection) item.selection = newSelection(step.output.selection, userGoal);
               }
             }
           }
@@ -815,6 +826,7 @@ export function useAssistantConversation(props: {
         refreshConfirmations();
         streamingItemId = undefined;
         pendingStreamText = '';
+        pendingUserGoal = undefined;
         controller = undefined;
         busy.value = false;
         activity.value = 'idle';
@@ -836,8 +848,20 @@ export function useAssistantConversation(props: {
     );
   }
 
-  function newSelection(value: AssistantSelectionInteraction): ConversationSelection {
-    return { value, state: 'open', token: props.registry.snapshot()?.token };
+  function newSelection(value: AssistantSelectionInteraction, request: string): ConversationSelection {
+    return { value, request, state: 'open', token: props.registry.snapshot()?.token };
+  }
+
+  function selectionRequest(selection: ConversationSelection, choice: string): string {
+    return language.t(
+      'platform.assistant.selection-request',
+      '{request}\n本次询问：{prompt}\n用户选择：{choice}',
+      {
+        request: selection.request,
+        prompt: selection.value.prompt,
+        choice,
+      },
+    );
   }
 
   function selectionIsCurrent(selection: ConversationSelection) {
@@ -875,6 +899,7 @@ export function useAssistantConversation(props: {
         completedHistory.value = [];
         interruptedRequest.value = undefined;
         restoredRequest.value = '';
+        pendingUserGoal = undefined;
         supersedePendingSelections();
         append(
           'status',
@@ -908,6 +933,17 @@ export function useAssistantConversation(props: {
     if (!selection || selection.state !== 'open' || busy.value || archive.loading.value) return;
     if (!selectionIsCurrent(selection)) {
       selection.state = 'superseded';
+      return;
+    }
+    if (selectionRequest(selection, option.label).length > MAX_HISTORY_MESSAGE_LENGTH) {
+      selection.state = 'superseded';
+      append(
+        'status',
+        codeControlText(
+          'platform.assistant.selection-request-too-long',
+          '需求与选择超过安全保留范围，已暂停处理。请精简并重新说明当前目标；已有结果保留，不会重复提交。',
+        ),
+      );
       return;
     }
     const history = conversationHistory();

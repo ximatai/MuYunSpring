@@ -3209,7 +3209,9 @@
       "platform.page.composition.summary-group-total": "按{group}分组{field}合计",
       "platform.page.composition.summary-group": "按{group}分组统计",
       "platform.page.composition.summary-metric": "业务指标",
-      "platform.page.composition.generated-group": "分组 {number}"
+      "platform.page.composition.generated-group": "分组 {number}",
+      "platform.assistant.selection-request": "{request}\n本次询问：{prompt}\n用户选择：{choice}",
+      "platform.assistant.selection-request-too-long": "需求与选择超过安全保留范围，已暂停处理。请精简并重新说明当前目标；已有结果保留，不会重复提交。"
     }
   },
   "en": {
@@ -6423,7 +6425,9 @@
       "platform.page.composition.summary-group-total": "{field} total by {group}",
       "platform.page.composition.summary-group": "Summary by {group}",
       "platform.page.composition.summary-metric": "Business metric",
-      "platform.page.composition.generated-group": "Group {number}"
+      "platform.page.composition.generated-group": "Group {number}",
+      "platform.assistant.selection-request": "{request}\nQuestion for this request: {prompt}\nUser choice: {choice}",
+      "platform.assistant.selection-request-too-long": "The request and choice exceed the safe retention limit. Processing has paused. Shorten and restate your current goal; existing results are retained and will not be submitted again."
     }
   },
   "fr": {
