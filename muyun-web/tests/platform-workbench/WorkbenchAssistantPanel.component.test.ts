@@ -246,7 +246,7 @@ it('renders optional suggestions and submits a structured selection response', a
   expect(requestTurn).toHaveBeenNthCalledWith(
     2,
     expect.objectContaining({
-      message: '新增一条记录',
+      message: expect.stringContaining('帮我处理当前业务'),
       selectionResponse: {
         interactionId: 'selection-1',
         optionId: 'create',
@@ -257,6 +257,8 @@ it('renders optional suggestions and submits a structured selection response', a
     expect.any(Object),
   );
   expect(wrapper.text()).toContain('已选择：新增一条记录');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('你想先做哪一步？');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('新增一条记录');
   expect(wrapper.text()).toContain('我会继续新增记录');
 });
 
@@ -306,6 +308,9 @@ it('keeps free text available while a required choice can still be answered', as
   );
   expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
   expect(wrapper.text()).toContain('已选择：取消');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('帮我调整查询');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('确认应用当前查询条件吗？');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('取消');
 });
 
 it.each(['free_text_allowed', 'selection_required'] as const)(
@@ -1027,7 +1032,10 @@ it('keeps failed required choices retryable without blocking a free-text recover
   await flushPromises();
   expect(requestTurn).toHaveBeenCalledTimes(3);
   expect(wrapper.text()).toContain('收到补充');
-  expect(requestTurn.mock.calls[2]![0].history).toContainEqual({ role: 'user', text: '租户甲' });
+  expect(requestTurn.mock.calls[2]![0].history).toContainEqual({
+    role: 'user',
+    text: requestTurn.mock.calls[1]![0].message,
+  });
   wrapper.unmount();
 });
 
@@ -1889,11 +1897,18 @@ it('keeps the same archived conversation across governance navigation and expire
   expect(write).not.toHaveBeenCalled();
 });
 
-it('continues in the same conversation after an agent opens a page in another execution scope', async () => {
+it('retains the initiating request through a selection and cross-scope navigation without retaining old observations', async () => {
   const registry = createAssistantSurfaceRegistry();
+  const goal = '登记客户甲，电话000-1015-1234，先准备草稿，不保存';
   const targetRequest = vi.fn<AssistantTurnRequester>(async () => ({
     text: '已准备好，请查看页面',
     toolCalls: [],
+  }));
+  const save = vi.fn<AssistantConversationClient['save']>(async (id, _scope, revision, content) => ({
+    id,
+    revision: revision + 1,
+    updatedAt: '',
+    content,
   }));
   registry.register({
     pageInstanceKey: 'governance',
@@ -1911,7 +1926,20 @@ it('continues in the same conversation after an agent opens a page in another ex
     contextRevision: () => 'stable',
     surface: {
       describe: () => ({ surface: 'test', facts: {} }),
-      requestTurn: async () => ({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
+      requestTurn: vi
+        .fn<AssistantTurnRequester>()
+        .mockResolvedValueOnce({
+          text: 'old scope observation must not be retained',
+          toolCalls: [],
+          selection: {
+            interactionId: 'choose-module',
+            prompt: '选择客户入口',
+            inputPolicy: 'selection_required',
+            presentation: 'options',
+            options: [{ id: 'customer', label: '客户登记入口' }],
+          },
+        })
+        .mockResolvedValueOnce({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
       capabilities: () => [
         {
           effect: 'page',
@@ -1930,14 +1958,75 @@ it('continues in the same conversation after an agent opens a page in another ex
     },
   });
   registry.activate('business');
-  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
-  await wrapper.get('textarea').setValue('帮我准备商品表单');
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry,
+      conversationClient: { list: vi.fn(async () => []), read: vi.fn(), save },
+    },
+  });
+  await wrapper.get('textarea').setValue(goal);
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
+  await wrapper.get('.assistant-selection__options button').trigger('click');
+  await flushPromises();
   await vi.waitFor(() => expect(targetRequest, wrapper.text()).toHaveBeenCalledOnce());
-  expect(wrapper.text()).toContain('帮我准备商品表单');
+  const selectedRequest = targetRequest.mock.calls[0]![0].message;
+  expect(selectedRequest).toContain(goal);
+  expect(selectedRequest).toContain('客户登记入口');
+  expect(selectedRequest).toContain('选择客户入口');
+  expect(selectedRequest).not.toContain('old scope observation');
+  expect(targetRequest.mock.calls[0]![0].history).toEqual([]);
+  expect(save.mock.calls.some(([, , , content]) => content.pendingRequest === selectedRequest)).toBe(true);
+  await wrapper.get('textarea').setValue('把电话改为000-1015-5678，仍然不要保存');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(targetRequest.mock.calls[1]![0].history).toContainEqual({ role: 'user', text: selectedRequest });
+  expect(wrapper.text()).toContain(goal);
   expect(wrapper.text()).toContain('已准备好，请查看页面');
   expect(wrapper.text()).not.toContain('本轮已暂停');
+  wrapper.unmount();
+});
+
+it('stops an oversized chain of choices without truncating the initiating goal or sending another request', async () => {
+  const goal = '原始业务要求' + '甲'.repeat(3_850);
+  const choice = (id: string, label: string): AssistantTurnOutput => ({
+    toolCalls: [],
+    selection: {
+      interactionId: id,
+      prompt: '请选择处理方式',
+      inputPolicy: 'selection_required',
+      presentation: 'options',
+      options: [{ id: 'choose', label }],
+    },
+  });
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce(choice('first', '先核对'))
+    .mockResolvedValueOnce(choice('second', '更详细的处理方式'.repeat(30)));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+  try {
+    await wrapper.get('textarea').setValue(goal);
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    await wrapper.get('.assistant-selection__options button').trigger('click');
+    await flushPromises();
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+    expect(requestTurn.mock.calls[1]![0].message).toContain(goal);
+    expect(requestTurn.mock.calls[1]![0].message).toContain('先核对');
+    await wrapper.get('.assistant-selection__options button').trigger('click');
+    await flushPromises();
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+    expect(requestTurn.mock.calls.every(([request]) => request.message.length <= 4_000)).toBe(true);
+    expect(wrapper.text()).toContain('需求与选择超过安全保留范围');
+    expect(wrapper.text()).toContain('已有结果保留，不会重复提交');
+    expect(wrapper.find('.assistant-selection__options').exists()).toBe(false);
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
 });
 
 it.each(['继续处理', '调整需求'])(
