@@ -7,7 +7,7 @@ import type {
   ResolvedReferenceFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { Component } from 'vue';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { formatPlatformDateTime } from './platformDateTime';
 import { formatPlatformFileSize } from './platformFileSize';
@@ -152,7 +152,7 @@ export function resolveRecordQueryListDisplayValue(
     const display = readonlyReferenceDisplay(
       column.reference,
       record[column.key],
-      column.titleField ? record[column.titleField] : record[`${column.key}Title`],
+      readonlyReferenceSummaryOf(record, column.titleField ?? `${column.key}Title`, language),
       language,
     );
     if (display !== undefined) return display;

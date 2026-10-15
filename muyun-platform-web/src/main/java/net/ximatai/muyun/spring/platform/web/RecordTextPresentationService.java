@@ -12,6 +12,11 @@ import net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.output.RecordOutputTransformer;
@@ -85,7 +90,7 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     public Object projectCaptured(Object body) {
         var attributes = RequestContextHolder.getRequestAttributes();
         var sources = attributes == null ? null : (ResponseSources) attributes.getAttribute(SOURCES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
-        return sources == null ? body : render(body, sources.fields, sources.summaries);
+        return sources == null ? body : render(body, sources.fields, sources.summaries, sources.dynamicFields);
     }
 
     private static void capture(Map<String, Map<String, TextReference>> sources) {
@@ -103,6 +108,15 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     private static final class ResponseSources {
         private final Map<String, Map<String, TextReference>> fields = new LinkedHashMap<>();
         private final Map<String, Set<String>> ambiguous = new HashMap<>();
+        private final Map<String, Map<String, TextReference>> dynamicFields = new LinkedHashMap<>();
+        private final Set<String> ambiguousDynamicIds = new HashSet<>();
+        void addDynamic(String id, Map<String, TextReference> sources) {
+            if (ambiguousDynamicIds.contains(id) || sources.isEmpty() && !dynamicFields.containsKey(id)) return;
+            var previous = dynamicFields.putIfAbsent(id, Map.copyOf(sources));
+            if (previous != null && !previous.equals(sources)) {
+                dynamicFields.remove(id); ambiguousDynamicIds.add(id);
+            }
+        }
         private final Map<SummarySourceKey, Map<String, TextReference>> summaries = new LinkedHashMap<>();
         private final Set<SummarySourceKey> ambiguousSummaries = new HashSet<>();
         void addSummary(SummarySourceKey key, Map<String, TextReference> sources) {
@@ -166,7 +180,9 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     }
 
     private record SummarySourceKey(String ownerId, String field, String targetId) {}
-    private record PresentationRecord(ObjectNode record, Map<String, TextReference> fields) {}
+    private record PresentationRecord(ObjectNode record, ObjectNode values, Map<String, TextReference> fields) {
+        PresentationRecord(ObjectNode record, Map<String, TextReference> fields) { this(record, record, fields); }
+    }
 
     /** Only compiler-declared summaries of delivered reference identities are presentation documents. */
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -215,6 +231,70 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
         }
     }
 
+    /** Dynamic read envelopes use the same target-owned sources as static configuration records. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void captureDynamicReferences(ModuleDefinition module,
+            List<DynamicRecord> records) {
+        var registry = abilities.getIfAvailable();
+        var attributes = RequestContextHolder.getRequestAttributes();
+        if (registry == null || attributes == null || records == null || records.isEmpty()) return;
+        capture(Map.of());
+        var snapshot = (ResponseSources) attributes.getAttribute(SOURCES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
+        Map<String, Map<String, TextReference>> captured = new LinkedHashMap<>();
+        records.forEach(record -> captured.put(record.getId(), new LinkedHashMap<>()));
+        for (var reference : module.references()) {
+            if (reference.cardinality() != ReferenceCardinality.ONE
+                    || reference.projections().isEmpty()) continue;
+            var target = registry.findByTarget(reference.target())
+                    .filter(candidate -> candidate instanceof RecordTextSourceAbility<?>).orElse(null);
+            if (target == null) continue;
+            Map<String, List<DynamicRecord>> groups = new LinkedHashMap<>();
+            for (var record : records) {
+                if (!reference.sourceEntityAlias().equals(record.getEntity().alias())) continue;
+                var tenant = reference.tenantScope() == ReferenceTenantScope.SAME_TENANT
+                        ? record.getTenantId() : null;
+                groups.computeIfAbsent(tenant, ignored -> new ArrayList<>()).add(record);
+            }
+            groups.forEach((tenant, owners) -> {
+                var ids = owners.stream().flatMap(record -> reference.plan()
+                        .normalizeValues(record.getValues().get(reference.sourceField())).stream()).distinct().toList();
+                if (ids.isEmpty()) return;
+                java.util.function.Supplier<Map<String, Map<String, TextReference>>> read = () -> {
+                    var criteria = Criteria.of().in("id", ids);
+                    java.util.function.Function<Criteria, Map<String, Map<String, TextReference>>> sources = query -> {
+                        var source = (RecordTextSourceAbility<EntityContract>) target;
+                        Map<String, Map<String, TextReference>> result = new LinkedHashMap<>();
+                        for (var row : source.list(query, new PageRequest(0, ids.size())))
+                            result.put(row.getId(), source.recordTextSources(row));
+                        return result;
+                    };
+                    if (target instanceof DataScopeAbility scoped) {
+                        var scope = scoped.readScope(PlatformAction.REFERENCE, criteria);
+                        return (Map<String, Map<String, TextReference>>) scoped.withDataScopeTenant(scope, () -> sources.apply(scope.criteria()));
+                    }
+                    return sources.apply(criteria);
+                };
+                Map<String, Map<String, TextReference>> texts;
+                if (tenant != null) {
+                    try (var ignored = TenantContext.use(tenant)) { texts = read.get(); }
+                } else texts = read.get();
+                for (var record : owners) {
+                    var identity = reference.plan().normalizeValues(record.getValues().get(reference.sourceField()));
+                    if (identity.isEmpty()) continue;
+                    var fields = texts.getOrDefault(identity.getFirst(), Map.of());
+                    for (var projection : reference.projections()) {
+                        var source = fields.get(projection.targetField());
+                        if (source != null && source.originalText().equals(record.getValues().get(projection.outputField())))
+                            captured.get(record.getId()).put(projection.outputField(), source);
+                    }
+                }
+            });
+        }
+        captured.forEach(snapshot::addDynamic);
+        records.stream().flatMap(record -> record.getChildren().values().stream())
+                .forEach(children -> captureDynamicReferences(module, children));
+    }
+
     private static List<ObjectNode> summaryRecords(JsonNode value) {
         if (value instanceof ObjectNode object) return List.of(object);
         List<ObjectNode> records = new ArrayList<>();
@@ -223,8 +303,13 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     }
 
     private Object render(Object body, Map<String, Map<String, TextReference>> sources, Map<SummarySourceKey, Map<String, TextReference>> summaries) {
+        return render(body, sources, summaries, Map.of());
+    }
+
+    private Object render(Object body, Map<String, Map<String, TextReference>> sources, Map<SummarySourceKey, Map<String, TextReference>> summaries,
+            Map<String, Map<String, TextReference>> dynamicSources) {
         var resolver = resolvers.getIfAvailable(); var catalog = catalogs.getIfAvailable();
-        if (body == null || resolver == null || catalog == null || sources.isEmpty() && summaries.isEmpty()) return body;
+        if (body == null || resolver == null || catalog == null || sources.isEmpty() && summaries.isEmpty() && dynamicSources.isEmpty()) return body;
         JsonNode output = mapper.valueToTree(body);
         List<ObjectNode> records = new ArrayList<>(); collectRecords(output, records);
         List<PresentationRecord> presentations = new ArrayList<>();
@@ -237,20 +322,39 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
                     if (key.targetId().equals(item.path("id").asText())) presentations.add(new PresentationRecord(item, fields));
             });
         }
+        collectDynamicPresentations(output, dynamicSources, presentations);
         var prepared = resolver.prepare(presentations.stream().flatMap(item -> item.fields().entrySet().stream()
-                .filter(entry -> item.record().path(entry.getKey()).isTextual() && item.record().path(entry.getKey()).asText().equals(entry.getValue().originalText()))
+                .filter(entry -> item.values().path(entry.getKey()).isTextual() && item.values().path(entry.getKey()).asText().equals(entry.getValue().originalText()))
                 .map(Map.Entry::getValue)).distinct().toList());
         for (var item : presentations) {
             var record = item.record(); var fields = item.fields();
             ObjectNode texts = mapper.createObjectNode();
             fields.forEach((field, source) -> {
                 // Never reveal a source for a hidden, changed, masked or non-textual read field.
-                if (record.path(field).isTextual() && record.path(field).asText().equals(source.originalText()))
+                if (item.values().path(field).isTextual() && item.values().path(field).asText().equals(source.originalText()))
                     texts.set(field, mapper.valueToTree(TextPresentations.of(source, Map.of(), prepared, catalog)));
             });
             if (!texts.isEmpty()) record.set("$texts", texts);
         }
         return output;
+    }
+
+    private static void collectDynamicPresentations(JsonNode node, Map<String, Map<String, TextReference>> sources,
+            List<PresentationRecord> output) {
+        if (node == null) return;
+        if (node.isArray()) { node.forEach(item -> collectDynamicPresentations(item, sources, output)); return; }
+        if (!(node instanceof ObjectNode record)) return;
+        if (record.path("id").isTextual()) {
+            if (record.get("values") instanceof ObjectNode values) {
+                output.add(new PresentationRecord(record, values, sources.getOrDefault(record.path("id").asText(), Map.of())));
+                var children = record.get("children");
+                if (children != null && children.isObject()) children.forEach(items -> collectDynamicPresentations(items, sources, output));
+            }
+            return;
+        }
+        collectDynamicPresentations(record.get("records"), sources, output);
+        collectDynamicPresentations(record.get("record"), sources, output);
+        collectDynamicPresentations(record.get("children"), sources, output);
     }
 
     public WebReferenceResolveResponse projectReference(String moduleAlias, String labelField,

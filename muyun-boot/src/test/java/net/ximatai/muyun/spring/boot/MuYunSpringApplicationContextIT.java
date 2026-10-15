@@ -479,6 +479,38 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void dynamicReferenceEnvelopesUsePublishedTargetSourcesWithoutChangingStoredTitles() {
+        var texts = applicationContext.getBean(RecordTextPresentationService.class);
+        var fields = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+        var entity = new EntityDefinition("entry", "english_reference_contract", "Entry",
+                List.of(FieldDefinition.string("control", "Control")));
+        var module = net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition.builder("test.entry", "Entries")
+                .entities(List.of(entity)).references(List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition(
+                        "entry", "control", "platform.field_ui_control",
+                        net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                        List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "controlTitle")),
+                        null, null, null, null, Set.of(), List.of(), List.of(), null,
+                        net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope.GLOBAL))).build();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("dynamic-reference-test", "Dynamic reference test"));
+             var scope = TenantContext.system("dynamic reference configuration contract")) {
+            String original = fields.select("text").getTitle();
+            var record = new DynamicRecord(entity); record.setId("owner"); record.setTenantId("tenant-a");
+            record.setValue("control", "text"); record.putProjectedValue("controlTitle", original);
+            texts.captureDynamicReferences(module, List.of(record));
+            var wire = java.util.Map.of("id", "owner", "version", 3, "values", record.getValues(), "children", java.util.Map.of());
+            var output = mapper.valueToTree(texts.projectCaptured(wire));
+            assertThat(output.at("/$texts/controlTitle/languages/en/text").asText()).isEqualTo("Text input");
+            assertThat(output.at("/values/controlTitle").asText()).isEqualTo(original);
+            assertThat(output.at("/values/control").asText()).isEqualTo("text");
+            assertThat(fields.select("text").getTitle()).isEqualTo(original);
+            assertThat(mapper.valueToTree(wire).path("$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
     void keepsReferenceSummaryTranslationsWhenTheSourceReferenceIsInternalOnly() {
         var definition = StaticModuleDefinition.builder("platform", "platform.field_spec", "Field specifications")
                 .capabilities(Set.of(EntityCapability.CRUD))

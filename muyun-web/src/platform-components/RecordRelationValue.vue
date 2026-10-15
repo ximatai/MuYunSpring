@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
 import {
   resolveRecordBooleanStatusValue,
@@ -7,7 +8,9 @@ import {
 } from './recordFormFieldModel';
 import { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
+import { readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 defineOptions({ name: 'RecordRelationValue' });
+const language = useLanguageContext();
 defineProps<{ field: RecordFormFieldState; record: RecordFormRecord; text?: string }>();
 </script>
 <template>
@@ -27,7 +30,7 @@ defineProps<{ field: RecordFormFieldState; record: RecordFormRecord; text?: stri
     ><ReadonlyReferenceValue
       :reference="field.reference"
       :value="record[field.fieldName]"
-      :summary="field.referenceTitleField ? record[field.referenceTitleField] : undefined"
+      :summary="readonlyReferenceSummaryOf(record, field.referenceTitleField, language)"
       empty-text="-"
   /></span>
   <span v-else class="managed-relation-inline__value">{{

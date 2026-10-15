@@ -433,7 +433,9 @@ public class DynamicRecordWebController implements
 
     private PageResult<DynamicRecord> queryRecords(WebQueryRequest request, RecordReadVisibility visibility) {
         if (request == null && visibility == RecordReadVisibility.ACTIVE) {
-            return CrudWeb.super.queryRecords(request);
+            var page = CrudWeb.super.queryRecords(request);
+            captureReadTexts(page.getRecords());
+            return page;
         }
         WebPageRequest webPage = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
         PageRequest pageRequest = PageRequest.of(webPage.pageNum(), webPage.pageSize());
@@ -442,23 +444,34 @@ public class DynamicRecordWebController implements
                 DynamicWebRequest.moduleAlias(), recordService,
                 projectionFields(DynamicWebRequest.moduleAlias()));
         Set<String> storageProjectionFields = pageReferenceStorageFields(projectionFields);
-        ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(storageProjectionFields);
+        Set<String> readFields = new LinkedHashSet<>(storageProjectionFields);
+        recordService.moduleDefinitions().stream()
+                .filter(module -> DynamicWebRequest.moduleAlias().equals(module.moduleAlias()))
+                .flatMap(module -> module.references().stream())
+                .filter(reference -> mainEntityAlias(DynamicWebRequest.moduleAlias()).equals(reference.sourceEntityAlias()))
+                .filter(reference -> reference.projections().stream().anyMatch(projection -> projectionFields.contains(projection.outputField())))
+                .map(reference -> reference.sourceField()).forEach(readFields::add);
+        ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(readFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
-                ? queryProjectionRecords(storageProjectionFields, criteria, pageRequest, visibility, sorts)
+                ? queryProjectionRecords(readFields, criteria, pageRequest, visibility, sorts)
                 : null;
         if (projectedPage != null) {
             populateReadProjections(projectedPage.getRecords(), projectionFields);
-            return projectedPage;
+            captureReadTexts(projectedPage.getRecords());
+            if (readFields.equals(storageProjectionFields)) return projectedPage;
+            return PageResult.of(projectedPage.getRecords().stream().map(record -> project(record, projectionFields)).toList(),
+                    projectedPage.getTotal(), PageRequest.of(projectedPage.getPageNum(), projectedPage.getPageSize()));
         }
         PageResult<DynamicRecord> page = visibility == RecordReadVisibility.RETAINED
                 ? service().pageRecycleBin(criteria, pageRequest, sorts)
                 : service().pageQuery(criteria, pageRequest, sorts);
-        Set<String> fields = storageProjectionFields;
+        populateReadProjections(page.getRecords(), projectionFields);
+        captureReadTexts(page.getRecords());
+        Set<String> fields = projectionFields;
         List<DynamicRecord> records = page.getRecords().stream()
                 .map(record -> project(record, fields))
                 .toList();
-        populateReadProjections(records, projectionFields);
         return PageResult.of(records, page.getTotal(), PageRequest.of(page.getPageNum(), page.getPageSize()));
     }
 
@@ -518,17 +531,15 @@ public class DynamicRecordWebController implements
     public List<DynamicRecord> queryListRecords(WebQueryRequest request) {
         List<DynamicRecord> records = CrudWeb.super.queryListRecords(request);
         if (request == null) {
+            captureReadTexts(records);
             return records;
         }
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
                 DynamicWebRequest.moduleAlias(), recordService,
                 projectionFields(DynamicWebRequest.moduleAlias()));
-        Set<String> storageProjectionFields = pageReferenceStorageFields(projectionFields);
-        List<DynamicRecord> projected = records.stream()
-                .map(record -> project(record, storageProjectionFields))
-                .toList();
-        populateReadProjections(projected, projectionFields);
-        return projected;
+        populateReadProjections(records, projectionFields);
+        captureReadTexts(records);
+        return records.stream().map(record -> project(record, projectionFields)).toList();
     }
 
     @Override
@@ -657,7 +668,15 @@ public class DynamicRecordWebController implements
         plan.uiDescriptor().detailRelations().stream()
                 .filter(relation -> relation.embeddedField() != null)
                 .forEach(relation -> enrichEmbeddedRelation(enriched, relation.code()));
+        captureReadTexts(List.of(enriched));
         return enriched;
+    }
+
+    private void captureReadTexts(List<DynamicRecord> records) {
+        if (recordTexts == null) return;
+        recordService.moduleDefinitions().stream()
+                .filter(module -> DynamicWebRequest.moduleAlias().equals(module.moduleAlias()))
+                .findFirst().ifPresent(module -> recordTexts.captureDynamicReferences(module, records));
     }
 
     private void enrichEmbeddedRelation(DynamicRecord parent,

@@ -2009,6 +2009,41 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldCaptureProjectionTitleSourcesBeforeRemovingTheirInternalReferenceIds() throws Exception {
+        var projection = mock(DynamicRelationProjectionReadService.class);
+        var texts = mock(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        var definition = module().toBuilder().references(List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition(
+                ENTITY, "customerId", "crm.customer", ReferenceCardinality.ONE,
+                List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "customerTitle"))))).build();
+        when(service.moduleDefinitions()).thenReturn(List.of(definition));
+        when(projection.resolveListOutputFields(eq(MODULE), eq(service), any())).thenReturn(Set.of("customerTitle"));
+        when(projection.describeListQuery(eq(MODULE), eq(service), any())).thenReturn(new ProjectionQueryDescriptor(
+                MODULE, "test", true, ProjectionQueryFallbackReason.NONE, Set.of("customerTitle"), Set.of("id"),
+                Set.of("customerTitle"), Set.of("customerTitle"), Set.of("id", "customerTitle"), List.of()));
+        var record = new DynamicRecord(entity()); record.setId("contract-1");
+        record.putProjectedValue("customerId", "customer-1"); record.putProjectedValue("customerTitle", "原始名称");
+        record.putProjectedValue("customerInternalCode", "internal");
+        when(projection.queryList(eq(MODULE), eq(service), any(), any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(java.util.Optional.of(PageResult.of(List.of(record), 1, PageRequest.of(1, 20))));
+        var controller = controllerFixture(service, activeTenantVerifier).projection(projection).build();
+        controller.setRecordTextPresentationService(texts);
+        var projectedMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        projectedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json").content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values.customerTitle").value("原始名称"))
+                .andExpect(jsonPath("$.records[0].values.customerId").doesNotExist())
+                .andExpect(jsonPath("$.records[0].values.customerInternalCode").doesNotExist());
+        verify(projection).queryList(eq(MODULE), eq(service), eq(Set.of("customerTitle", "customerId")),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class));
+        verify(texts).captureDynamicReferences(eq(definition), eq(List.of(record)));
+        assertThat(record.getValues().get("customerId")).isEqualTo("customer-1");
+    }
+
+    @Test
     void shouldFallbackWhenDynamicSqlProjectionDoesNotSupportAllUiFields() throws Exception {
         DynamicRelationProjectionReadService projectionReadService = mock(DynamicRelationProjectionReadService.class);
         MockMvc lowCodeMvc = projectionMvc(projectionReadService);

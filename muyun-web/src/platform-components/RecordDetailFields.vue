@@ -20,6 +20,7 @@ import {
 import { resolveRecordDetailDisplayValue, type RecordDetailDisplayResolver } from './recordDetailFieldModel';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
+import { readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 
 defineOptions({ name: 'RecordDetailFields' });
 const language = useLanguageContext();
@@ -268,7 +269,7 @@ function groupEndsAt(index: number) {
               v-else-if="field.reference && !hasCustomDisplayValue(field) && !hasOptionTitle(field)"
               :reference="field.reference"
               :value="props.record[field.fieldName]"
-              :summary="field.referenceTitleField ? props.record[field.referenceTitleField] : undefined"
+              :summary="readonlyReferenceSummaryOf(props.record, field.referenceTitleField, language)"
               :empty-text="props.emptyText"
             />
             <span v-else>{{ displayValue(field) }}</span>

@@ -11,6 +11,17 @@ export interface ReadonlyReferenceDisplayItem {
   browseable: boolean;
 }
 
+/** Reads a scalar companion's display resource without changing its owner record or summary identity. */
+export function readonlyReferenceSummaryOf(
+  record: Record<string, unknown>,
+  field: string | undefined,
+  language: LanguageContext = platformLanguageContext,
+): unknown {
+  if (!field) return undefined;
+  const summary = record[field];
+  return typeof summary === 'string' ? recordPresentationLabel(record, field, language) : summary;
+}
+
 /**
  * Formats only record-projected reference facts. It never resolves candidates: an absent title
  * remains the persisted ID, which distinguishes an unavailable projection from a deleted or

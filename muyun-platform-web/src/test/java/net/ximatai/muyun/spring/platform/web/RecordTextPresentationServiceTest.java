@@ -171,6 +171,50 @@ class RecordTextPresentationServiceTest {
         } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
     }
 
+    @Test
+    void dynamicEnvelopesProjectOnlyDeclaredMatchingReferenceFieldsAndKeepChildAndBusinessValues() {
+        var service = service();
+        var entity = new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition("entry", "test_entry", "Entry",
+                List.of(net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("configuration", "Configuration")));
+        var module = net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition.builder("test.entry", "Entries")
+                .entities(List.of(entity)).references(List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition(
+                        "entry", "configuration", "test.configuration",
+                        net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                        List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "configurationTitle")))))
+                .build();
+        var record = new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord(entity);
+        record.setId("owner"); record.setTenantId("tenant-a"); record.setValue("configuration", "row");
+        record.putProjectedValue("configurationTitle", "配置名称");
+        var child = record.copy(); child.setId("child"); record.setChildren("lines", List.of(child));
+        var business = Map.of("id", "child", "values", Map.of("configurationTitle", "配置名称"));
+        var input = Map.of("id", "owner", "version", 7, "values", Map.of("configuration", "row", "configurationTitle", "配置名称", "businessJson", business),
+                "children", Map.of("lines", List.of(Map.of("id", "child", "values", Map.of("configurationTitle", "配置名称")))));
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("reader")) {
+            doAnswer(call -> {
+                assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId()).contains("tenant-a");
+                var original = new Application(); original.setId("row"); original.setTitle("配置名称");
+                return List.of(original);
+            }).when(sourceAbility).list(any(), any(PageRequest.class));
+            service.captureDynamicReferences(module, List.of(record));
+            assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId()).contains("reader");
+            var output = mapper.valueToTree(service.projectCaptured(input));
+            assertThat(output.at("/$texts/configurationTitle/languages/en/text").asText()).isEqualTo("Configuration name");
+            assertThat(output.at("/children/lines/0/$texts/configurationTitle/languages/en/text").asText()).isEqualTo("Configuration name");
+            assertThat(output.at("/values/configurationTitle").asText()).isEqualTo("配置名称");
+            assertThat(output.at("/values/configuration").asText()).isEqualTo("row");
+            assertThat(output.at("/values/businessJson/$texts").isMissingNode()).isTrue();
+            assertThat(output.path("version").asInt()).isEqualTo(7);
+            assertThat(mapper.valueToTree(input).path("$texts").isMissingNode()).isTrue();
+            var masked = Map.of("id", "owner", "values", Map.of("configurationTitle", "masked"));
+            assertThat(mapper.valueToTree(service.projectCaptured(masked)).path("$texts").isMissingNode()).isTrue();
+            when(sourceAbility.list(any(), any(PageRequest.class))).thenReturn(List.of());
+            service.captureDynamicReferences(module, List.of(record));
+            assertThat(mapper.valueToTree(service.projectCaptured(input)).path("$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
     private interface RetainedConfiguration extends ConfiguredRecordTextAbility<Application>, net.ximatai.muyun.spring.ability.RecycleBinAbility<Application> { }
 
 }

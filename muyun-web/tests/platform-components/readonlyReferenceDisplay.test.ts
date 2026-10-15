@@ -4,6 +4,7 @@ import {
   readonlyReferenceDisplay,
   readonlyReferenceDisplayItems,
   readonlyReferenceNameProjection,
+  readonlyReferenceSummaryOf,
 } from '@/platform-components/readonlyReferenceDisplay';
 
 describe('readonly reference display', () => {
@@ -128,4 +129,53 @@ it('projects delivered summary names while preserving order, identity and unavai
     readonlyReferenceDisplay({ cardinality: 'ONE' }, 'text', { ...summary, title: '人工改名' }, language),
   ).toBe('人工改名 (text) (unavailable)');
   expect(summary.title).toBe('文本');
+});
+
+it('projects scalar companion resources without changing raw identity or summaries', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = {
+    role: 'role-1',
+    roleTitle: '租户管理员',
+    $texts: {
+      roleTitle: {
+        source: {
+          sourceKind: 'CONFIG',
+          sourceId: 'role/title',
+          sourceVersion: 'v1',
+          originalText: '租户管理员',
+        },
+        languages: {
+          en: {
+            text: 'Tenant administrator',
+            requestedTag: 'en',
+            resourceTag: 'en',
+            missing: false,
+            fallback: false,
+          },
+        },
+      },
+    },
+  };
+  const before = JSON.stringify(record);
+  for (const [tag, expected] of [
+    ['en', 'Tenant administrator'],
+    ['zh-CN', '租户管理员'],
+    ['en', 'Tenant administrator'],
+  ] as const) {
+    language.setLanguage(tag);
+    const summary = readonlyReferenceSummaryOf(record, 'roleTitle', language);
+    expect(readonlyReferenceDisplayItems({ cardinality: 'ONE' }, record.role, summary, language)).toEqual([
+      { id: 'role-1', label: expected, browseable: true },
+    ]);
+    expect(
+      readonlyReferenceNameProjection({ cardinality: 'ONE' }, record.role, summary, language).display,
+    ).toBe(expected);
+  }
+  expect(readonlyReferenceSummaryOf({ ...record, roleTitle: '人工改名' }, 'roleTitle', language)).toBe(
+    '人工改名',
+  );
+  const structured = { id: 'role-1', title: '租户管理员' };
+  expect(readonlyReferenceSummaryOf({ roleTitle: structured }, 'roleTitle', language)).toBe(structured);
+  expect(readonlyReferenceSummaryOf(record, undefined, language)).toBeUndefined();
+  expect(JSON.stringify(record)).toBe(before);
 });

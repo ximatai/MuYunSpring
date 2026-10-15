@@ -4,7 +4,7 @@ import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import {
   recordPresentationLabel,
   recordPresentationText,
@@ -108,7 +108,7 @@ export function resolveRecordDetailDisplayValue(
       ? language.t('platform.reference.selected-name-unavailable', '已选择（名称暂不可用）')
       : emptyText;
   }
-  const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
+  const referenceTitle = readonlyReferenceSummaryOf(record, field.referenceTitleField, language);
   if (field.reference) {
     const display = readonlyReferenceDisplay(field.reference, value, referenceTitle, language);
     if (display !== undefined) return display || emptyText;

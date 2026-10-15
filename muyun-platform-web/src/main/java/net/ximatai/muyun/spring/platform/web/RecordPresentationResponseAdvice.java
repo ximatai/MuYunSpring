@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.WebAnnotationSupport;
@@ -32,12 +33,15 @@ public class RecordPresentationResponseAdvice implements ResponseBodyAdvice<Obje
         if (!(request instanceof ServletServerHttpRequest servlet) || !contentType.isCompatibleWith(MediaType.APPLICATION_JSON)) return body;
         var catalog = endpoints.getIfAvailable();
         var handler = servlet.getServletRequest().getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
-        if (catalog == null || !(handler instanceof HandlerMethod method)) return body;
-        var endpoint = catalog.find(servlet.getServletRequest(), method).orElse(null);
-        if (endpoint == null || !Set.of(PlatformAction.QUERY, PlatformAction.VIEW, PlatformAction.TREE, PlatformAction.REFERENCE, PlatformAction.RECYCLE_BIN_QUERY, PlatformAction.UPDATE)
-                .contains(endpoint.definition().action())) return body;
+        if (!(handler instanceof HandlerMethod method)) return body;
+        var endpoint = catalog == null ? null : catalog.find(servlet.getServletRequest(), method).orElse(null);
+        // Dynamic routes are ordinary MVC mappings; their declared action is the same read contract.
+        var declaration = WebAnnotationSupport.findMergedMethodAnnotation(method.getMethod(), method.getBeanType(), ActionEndpoint.class);
+        var action = endpoint != null ? endpoint.definition().action() : declaration == null ? null : declaration.value();
+        if (action == null || !Set.of(PlatformAction.QUERY, PlatformAction.VIEW, PlatformAction.TREE, PlatformAction.REFERENCE, PlatformAction.RECYCLE_BIN_QUERY, PlatformAction.UPDATE)
+                .contains(action)) return body;
         // Aggregate retained-child reads require UPDATE permission, but are not mutation endpoints.
-        if (endpoint.definition().action() == PlatformAction.UPDATE &&
+        if (action == PlatformAction.UPDATE &&
                 WebAnnotationSupport.hasMergedMethodOrTypeAnnotation(method.getMethod(), method.getBeanType(), BusinessMutation.class)) return body;
         var presentation = texts.getIfAvailable();
         return presentation == null ? body : presentation.projectCaptured(body);

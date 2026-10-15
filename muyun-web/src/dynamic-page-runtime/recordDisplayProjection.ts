@@ -8,6 +8,7 @@ import {
   evaluateUiFormula,
   referencePickerDisplayTitle,
   readonlyReferenceNameProjection,
+  readonlyReferenceSummaryOf,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
   resolveRecordDetailDisplayValue,
@@ -36,7 +37,7 @@ export function recordFieldDisplay(
     const projection = readonlyReferenceNameProjection(
       field.reference,
       record[field.fieldName],
-      field.referenceTitleField ? record[field.referenceTitleField] : undefined,
+      readonlyReferenceSummaryOf(record, field.referenceTitleField, language),
       language,
     );
     if (!projection.selected)
@@ -70,7 +71,7 @@ export function recordReferenceDisplay(
   return readonlyReferenceNameProjection(
     field.reference,
     record[field.fieldName],
-    field.referenceTitleField ? record[field.referenceTitleField] : undefined,
+    readonlyReferenceSummaryOf(record, field.referenceTitleField, language),
     language,
   ).display;
 }
