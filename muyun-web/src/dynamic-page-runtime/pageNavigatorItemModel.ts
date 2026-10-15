@@ -1,4 +1,4 @@
-import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { RecordExplorerItemDescriptor } from '@muyun/platform-components';
 import type { RecordInlineAction } from '@muyun/web-contracts';
 
@@ -19,7 +19,7 @@ export function navigatorItemOf(
   language: LanguageContext = platformLanguageContext,
 ): RecordExplorerItemDescriptor {
   const title = String(
-    record.title ??
+    recordPresentationLabel(record, 'title', language) ??
       record.name ??
       record.code ??
       record.id ??

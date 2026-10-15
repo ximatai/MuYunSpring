@@ -70,6 +70,11 @@ export interface TextPresentation {
     { text: string; requestedTag: string; resourceTag?: string | null; missing: boolean; fallback: boolean }
   >;
 }
+/** Read-only labels on explicitly opted-in configuration records. Raw fields remain authoritative. */
+export interface RecordTextPresentation {
+  $texts?: Readonly<Record<string, TextPresentation>>;
+}
+
 /** Server-issued addresses of display slots; never addresses of business record values. */
 export interface TextPresentationDocument {
   textBindings?: Record<string, TextPresentation>;
@@ -851,6 +856,7 @@ export interface WebReferenceResolveRequest {
 export interface WebReferenceResolveItem {
   id: string;
   title?: string;
+  titleText?: TextPresentation;
   /** Public, source-declared candidate context; never an arbitrary projection dump. */
   subtitle?: string;
   matchedBy?: WebReferenceMatchMode;

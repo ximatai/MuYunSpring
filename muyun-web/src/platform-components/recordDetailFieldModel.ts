@@ -5,7 +5,13 @@ import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
 import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
-import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import {
+  recordPresentationLabel,
+  recordPresentationText,
+  presentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
 
@@ -36,6 +42,8 @@ export function resolveRecordDetailDisplayValue(
   if (isPresent(customValue)) {
     return String(customValue);
   }
+  if (!options.draft && recordPresentationText(record, field.fieldName))
+    return recordPresentationLabel(record, field.fieldName, language) ?? String(value);
   const scale = field.inputRequirements?.scale;
   if (
     field.valueType === 'DECIMAL' &&

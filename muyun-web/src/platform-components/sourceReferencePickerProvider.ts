@@ -2,6 +2,7 @@ import type {
   ResolvedReferenceFieldDescriptor,
   WebReferenceResolveItem,
   WebTreeNode,
+  TextPresentation,
 } from '@muyun/web-contracts';
 import type { ReferenceResolveClient } from '@muyun/web-core';
 import type {
@@ -42,6 +43,7 @@ export function createSourceReferencePickerProvider({
   const candidateOf = (item: {
     id: string;
     title?: string;
+    titleText?: TextPresentation;
     subtitle?: string;
     projections?: Record<string, unknown>;
     affectPatch?: Record<string, unknown>;
@@ -50,6 +52,7 @@ export function createSourceReferencePickerProvider({
     return {
       id: item.id,
       title: title ?? item.id,
+      titleText: item.titleText?.source.originalText === title ? item.titleText : undefined,
       ...(item.subtitle?.trim() ? { subtitle: item.subtitle.trim() } : {}),
       ...(!title ? { identifierFallback: true } : {}),
       projections: item.projections,

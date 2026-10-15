@@ -25,6 +25,7 @@ import java.util.regex.PatternSyntaxException;
 
 @Service
 public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPolicyRule> implements
+        net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility<PasswordPolicyRule>,
         SoftDeleteAbility<PasswordPolicyRule>,
         EnableAbility<PasswordPolicyRule>,
         SortAbility<PasswordPolicyRule>,
@@ -136,5 +137,13 @@ public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPo
         rule.setEnabled(Boolean.TRUE);
         rule.setSortOrder(10);
         return rule;
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(PasswordPolicyRule record) {
+        var result = new java.util.LinkedHashMap<String, net.ximatai.muyun.spring.common.i18n.TextReference>();
+        if (record.getTitle() != null && !record.getTitle().isBlank()) result.put("title", PasswordPolicyTextSources.title(record));
+        if (record.getMessage() != null && !record.getMessage().isBlank()) result.put("message", PasswordPolicyTextSources.message(record));
+        return java.util.Map.copyOf(result);
     }
 }

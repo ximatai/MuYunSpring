@@ -1,3 +1,4 @@
+import { toRaw } from 'vue';
 import { platformLanguageContext } from '@muyun/web-core';
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import type { ReferencePickerCandidate } from '@muyun/platform-components';
@@ -9,7 +10,7 @@ export function createRecordReferenceDisplay(
   sessionKey: () => unknown,
 ) {
   const language = form.language ?? platformLanguageContext;
-  const displays = new Map<string, { key: string; names: readonly string[] }>();
+  const displays = new Map<string, { key: string; candidates: readonly ReferencePickerCandidate[] }>();
   const format = (names: readonly string[]) => names.join(language.t('platform.list.separator', '、'));
   const key = (fieldName: string) =>
     JSON.stringify([
@@ -36,17 +37,27 @@ export function createRecordReferenceDisplay(
         displays.delete(fieldName);
         return;
       }
-      const names = selected.map((candidate) => referencePickerDisplayTitle(candidate!));
+      const names = selected.map((candidate) => referencePickerDisplayTitle(candidate!, language));
       if (format(names).length > 2000) {
         displays.delete(fieldName);
         return;
       }
-      displays.set(fieldName, { key: key(fieldName), names });
+      displays.set(fieldName, {
+        key: key(fieldName),
+        candidates: selected.map((candidate) => ({
+          id: candidate!.id,
+          title: candidate!.title,
+          subtitle: candidate!.subtitle,
+          titleText: candidate!.titleText && structuredClone(toRaw(candidate!.titleText)),
+        })),
+      });
     },
     current(fieldName: string): string | undefined {
       const observed = displays.get(fieldName);
       if (observed?.key === key(fieldName)) {
-        const display = format(observed.names);
+        const display = format(
+          observed.candidates.map((candidate) => referencePickerDisplayTitle(candidate, language)),
+        );
         return display.length <= 2000 ? display : undefined;
       }
       displays.delete(fieldName);

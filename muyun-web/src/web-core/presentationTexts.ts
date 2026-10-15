@@ -141,3 +141,40 @@ export function isTextReference(value: unknown): value is TextReference {
     typeof source.originalText === 'string'
   );
 }
+
+/** A label is valid only while its explicitly declared source still matches the raw record value. */
+export function recordPresentationText(
+  record: object | undefined,
+  field: string,
+): TextPresentation | undefined {
+  if (!record) return undefined;
+  const values = record as Record<string, unknown>;
+  const texts = values.$texts;
+  if (!Object.hasOwn(values, field) || !texts || typeof texts !== 'object') return undefined;
+  const text = (texts as Record<string, TextPresentation>)[field];
+  return text &&
+    isTextReference(text.source) &&
+    text.languages &&
+    typeof values[field] === 'string' &&
+    text.source.originalText === values[field]
+    ? text
+    : undefined;
+}
+
+export function recordPresentationLabel(
+  record: object,
+  field: string,
+  context: LanguageContext,
+): string | undefined {
+  const original = (record as Record<string, unknown>)[field];
+  if (original == null) return undefined;
+  return presentationLabel(String(original), recordPresentationText(record, field), context);
+}
+
+/** Removes only the record's read metadata; arbitrary nested JSON business values are preserved. */
+export function withoutRecordPresentation<T>(record: T): T {
+  if (!record || typeof record !== 'object' || !Object.hasOwn(record, '$texts')) return record;
+  const values = { ...(record as Record<string, unknown>) };
+  delete values.$texts;
+  return values as T;
+}

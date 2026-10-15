@@ -28,6 +28,7 @@ import java.util.Locale;
 /** Owns the trusted, global provider catalogue. */
 @Service
 public class AiModelProviderService extends StandardBusinessService<AiModelProvider> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<AiModelProvider>,
         GlobalScopedAbility<AiModelProvider>,
         SoftDeleteAbility<AiModelProvider>,
         EnableAbility<AiModelProvider>,
@@ -152,4 +153,5 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
             throw new PlatformException("AI model providers are only manageable by platform super administrators");
         }
     }
+
 }

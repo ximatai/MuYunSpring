@@ -15,11 +15,22 @@ public record WebReferenceResolveItem(
          * It is intentionally absent for ordinary query and translation results.
          */
         Boolean hasChildren,
-        String subtitle
+        String subtitle,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        net.ximatai.muyun.spring.common.i18n.TextPresentation titleText
 ) {
     public WebReferenceResolveItem {
         projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
         affectPatch = affectPatch == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(affectPatch));
+    }
+
+    public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
+            Map<String, Object> projections, Map<String, Object> affectPatch, Boolean hasChildren, String subtitle) {
+        this(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, null);
+    }
+
+    public WebReferenceResolveItem withTitleText(net.ximatai.muyun.spring.common.i18n.TextPresentation text) {
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, text);
     }
 
     public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
@@ -28,7 +39,7 @@ public record WebReferenceResolveItem(
     }
 
     public WebReferenceResolveItem withSubtitle(String subtitle) {
-        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle);
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, titleText);
     }
 
     /** Compatibility constructor for callers that do not deliver lazy-tree structure. */

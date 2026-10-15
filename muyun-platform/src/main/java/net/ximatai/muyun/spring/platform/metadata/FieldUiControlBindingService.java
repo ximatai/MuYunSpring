@@ -19,6 +19,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldUiControlBindingService extends AbstractAbilityService<FieldUiControlBinding> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<FieldUiControlBinding>,
         SoftDeleteAbility<FieldUiControlBinding>,
         SortAbility<FieldUiControlBinding>,
         ChildAbility<FieldUiControlBinding>,
@@ -99,4 +100,5 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
                 "field UI control mapping must be unique: " + mapping.getFieldUiControlAlias()
                         + "." + mapping.getValueKey());
     }
+
 }

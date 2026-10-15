@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import {
   UiEmpty,
@@ -109,7 +109,7 @@ function recordTitle(record: RecordListExplorerRecord) {
   return (
     item?.title ??
     props.titleOf?.(record) ??
-    record.title ??
+    recordPresentationLabel(record, 'title', language) ??
     record.name ??
     record.code ??
     record.id ??

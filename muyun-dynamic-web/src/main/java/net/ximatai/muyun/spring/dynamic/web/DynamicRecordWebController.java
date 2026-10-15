@@ -188,6 +188,7 @@ public class DynamicRecordWebController implements
     private final TenantRequestScope tenantRequestScope;
     private RecycleBinFacade recycleBinFacade;
     private StaticReferenceResolveFacade staticReferenceResolveFacade;
+    private net.ximatai.muyun.spring.platform.web.RecordTextPresentationService recordTexts;
     private final DynamicOpenApiGenerator openApiGenerator = new DynamicOpenApiGenerator();
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -248,6 +249,11 @@ public class DynamicRecordWebController implements
     @Autowired(required = false)
     void setRecycleBinFacade(RecycleBinFacade recycleBinFacade) {
         this.recycleBinFacade = recycleBinFacade;
+    }
+
+    @Autowired(required = false)
+    void setRecordTextPresentationService(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService recordTexts) {
+        this.recordTexts = recordTexts;
     }
 
     @Autowired(required = false)
@@ -1455,7 +1461,7 @@ public class DynamicRecordWebController implements
         return WebReferenceTenantScope.within(normalized,
                 reference == null ? ReferenceTenantScope.SAME_TENANT : reference.tenantScope(),
                 sourceRecordId -> dynamicSourceTenant(moduleAlias, entityAlias, sourceRecordId),
-                () -> normalized.mode() == WebReferenceResolveMode.TREE
+                () -> withReferenceTexts(reference, normalized.mode() == WebReferenceResolveMode.TREE
                         ? dynamicReferenceTree(reference, normalized)
                         : webReferenceResponse(recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName,
                                 new DynamicReferenceResolveRequest(
@@ -1467,7 +1473,13 @@ public class DynamicRecordWebController implements
                                         DynamicWebQueryMapper.page(normalized.page()),
                                         normalized.includeProjections(),
                                         normalized.formValues()
-                                ))));
+                                )))));
+    }
+
+    private WebReferenceResolveResponse withReferenceTexts(DynamicReferenceDescriptor reference, WebReferenceResolveResponse response) {
+        if (recordTexts == null || reference == null) return response;
+        return recordTexts.projectReference(ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()).qualifiedName(),
+                reference.labelField() == null ? "title" : reference.labelField(), response);
     }
 
     private String dynamicSourceTenant(String moduleAlias, String entityAlias, String sourceRecordId) {

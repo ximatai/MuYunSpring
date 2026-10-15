@@ -36,6 +36,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class ApplicationService extends StandardBusinessService<Application> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<Application>,
         RecycleBinAbility<Application>,
         DeletionRecoveryAbility<Application>,
         GlobalScopedAbility<Application>,
@@ -225,5 +226,14 @@ public class ApplicationService extends StandardBusinessService<Application> imp
             return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-application.toggle-unavailable", "平台托管应用不可变更启用状态");
         }
         return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-application.edit-unavailable", "平台托管应用不可编辑");
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(Application record) {
+        if (record.getTitle() == null || record.getTitle().isBlank()) return java.util.Map.of();
+        var source = Boolean.TRUE.equals(record.getSystemManaged())
+                ? net.ximatai.muyun.spring.common.i18n.TextReference.code("application/" + record.getAlias() + "/title", record.getTitle())
+                : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.recordText(MODULE_ALIAS, record.getId(), "title", record.getTitle());
+        return source == null ? java.util.Map.of() : java.util.Map.of("title", source);
     }
 }

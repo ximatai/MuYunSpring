@@ -384,6 +384,32 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void deliversConfigurationRecordLabelsWithoutReplacingEditableOriginals() {
+        String token = issueSuperAdminSessionToken();
+        try {
+            var headers = bearerHeaders(token); headers.set("Accept-Language", "en");
+            var query = restTemplate.exchange("/platform.field_spec/query", org.springframework.http.HttpMethod.POST,
+                    new org.springframework.http.HttpEntity<>(java.util.Map.of(), headers), JsonNode.class);
+            assertThat(query.getStatusCode().value()).isEqualTo(200);
+            var stringSpec = java.util.stream.StreamSupport.stream(query.getBody().path("records").spliterator(), false)
+                    .filter(row -> "string".equals(row.path("alias").asText())).findFirst().orElseThrow();
+            assertThat(stringSpec.path("title").asText()).isEqualTo("短文本");
+            assertThat(stringSpec.at("/$texts/title/languages/en/text").asText()).isEqualTo("Short text");
+            assertThat(stringSpec.at("/$texts/title/source/sourceKind").asText()).isEqualTo("CONFIG");
+            var app = restTemplate.exchange("/platform.application/view/platform", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(app.getStatusCode().value()).isEqualTo(200);
+            assertThat(app.getBody().path("title").asText()).isEqualTo("平台能力");
+            assertThat(app.getBody().at("/$texts/title/languages/en/text").asText()).isEqualTo("Platform capabilities");
+            var policies = restTemplate.exchange("/iam.password_policy_rule/active-global-rules", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(policies.getStatusCode().value()).isEqualTo(200);
+            assertThat(policies.getBody().at("/0/message").asText()).isEqualTo("密码长度不能少于 6 位");
+            assertThat(policies.getBody().at("/0/$texts/message/languages/en/text").asText()).isEqualTo("The password must contain at least 6 characters");
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
     void shouldLoadApplicationContextWithRealDatabase() {
         assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
                 .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);

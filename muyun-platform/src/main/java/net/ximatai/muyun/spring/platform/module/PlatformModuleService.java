@@ -28,6 +28,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 
 @Service
 public class PlatformModuleService extends AbstractAbilityService<PlatformModule> implements
+        net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility<PlatformModule>,
         TenantLayerAbility<PlatformModule>,
         SoftDeleteAbility<PlatformModule>,
         EnableAbility<PlatformModule>,
@@ -230,5 +231,12 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
 
     private Criteria applicationScope(String applicationAlias) {
         return Criteria.of().eq("applicationAlias", applicationAlias);
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(PlatformModule record) {
+        if (record.getTitle() == null || record.getTitle().isBlank()) return java.util.Map.of();
+        var source = record.titleSource();
+        return source == null ? java.util.Map.of() : java.util.Map.of("title", source);
     }
 }

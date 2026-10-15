@@ -1,6 +1,6 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
+import { createLanguageContext, provideLanguageContext, createCodeTextPresentation } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import PasswordPolicyPreview from '@/views/PasswordPolicyPreview.vue';
 import type { ModulePageCardAssistantContext } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
@@ -238,4 +238,50 @@ it('projects password trial feedback without re-evaluating rules or reloading on
   expect(request).toHaveBeenCalledTimes(1);
   test.mockRestore();
   wrapper.unmount();
+});
+
+it('projects version-matched policy names and messages while preserving the browser-only validation result', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.registerResources('en', {
+    'test.policy.title': 'Length rule',
+    'test.policy.message': 'At least six characters',
+  });
+  const request = vi.fn();
+  const rule = {
+    id: 'rule',
+    title: '长度规则',
+    message: '至少六位',
+    pattern: '.{6,}',
+    enabled: true,
+    $texts: {
+      title: createCodeTextPresentation('test.policy.title', '长度规则', language),
+      message: createCodeTextPresentation('test.policy.message', '至少六位', language),
+    },
+  };
+  const context = cardContext(request, rule);
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(PasswordPolicyPreview, { context });
+      },
+    }),
+    { global: { stubs: { PasswordPolicyPreview: false } } },
+  );
+  try {
+    const preview = wrapper.findComponent(PasswordPolicyPreview);
+    preview.findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'abc');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Length rule');
+    expect(wrapper.text()).toContain('At least six characters');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('长度规则');
+    expect(wrapper.text()).toContain('至少六位');
+    expect(request).not.toHaveBeenCalled();
+    expect(rule.title).toBe('长度规则');
+    expect(rule.pattern).toBe('.{6,}');
+  } finally {
+    wrapper.unmount();
+  }
 });

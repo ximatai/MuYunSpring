@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { useLanguageContext, platformCodeTextReference } from '@muyun/web-core';
-import type { TextReference } from '@muyun/web-contracts';
+import {
+  useLanguageContext,
+  platformCodeTextReference,
+  recordPresentationText,
+  presentationLabel,
+} from '@muyun/web-core';
+import type { TextReference, TextPresentation, RecordTextPresentation } from '@muyun/web-contracts';
 import { computed, ref, watch } from 'vue';
 import type { ModulePageCardAssistantContext } from '@muyun/dynamic-page-runtime';
 import { UiInput, UiRadioGroup, type UiRadioOption } from '@muyun/vue-ui-antdv';
@@ -11,7 +16,7 @@ defineOptions({ name: 'PasswordPolicyPreview' });
 
 type PreviewScope = 'CURRENT' | 'ALL';
 
-interface PasswordPolicyRuleSnapshot {
+interface PasswordPolicyRuleSnapshot extends RecordTextPresentation {
   id?: string;
   title?: string;
   pattern?: string;
@@ -29,6 +34,8 @@ interface PasswordPolicyPreviewRuleResult {
   titleSource?: TextReference;
   messageSource?: TextReference;
   diagnostic?: TextReference;
+  titleText?: TextPresentation;
+  messageText?: TextPresentation;
 }
 
 const props = defineProps<{ context: ModulePageCardAssistantContext }>();
@@ -125,8 +132,12 @@ const results = computed<PasswordPolicyPreviewRuleResult[]>(() => {
 const displayedResults = computed(() =>
   results.value.map((item) => ({
     ...item,
-    title: item.titleSource ? language.t(item.titleSource.sourceId, item.title) : item.title,
-    message: item.messageSource ? language.t(item.messageSource.sourceId, item.message) : item.message,
+    title: item.titleSource
+      ? language.t(item.titleSource.sourceId, item.title)
+      : presentationLabel(item.title, item.titleText, language),
+    message: item.messageSource
+      ? language.t(item.messageSource.sourceId, item.message)
+      : presentationLabel(item.message, item.messageText, language),
     diagnostic: item.diagnostic
       ? language.t(item.diagnostic.sourceId, item.diagnostic.originalText)
       : undefined,
@@ -191,9 +202,14 @@ function evaluateRule(
     : platformCodeTextReference('platform.screen.PasswordPolicyPreview.no-failure-message-configured');
   const title = normalizedText(rule.title, titleSource?.originalText ?? '');
   const message = normalizedText(rule.message, messageSource?.originalText ?? '');
+  const texts = {
+    titleText: recordPresentationText(rule, 'title'),
+    messageText: recordPresentationText(rule, 'message'),
+  };
   const pattern = rule.pattern;
   if (!pattern?.trim()) {
     return {
+      ...texts,
       key: ruleKey(rule, index),
       title,
       message,
@@ -208,9 +224,10 @@ function evaluateRule(
   try {
     // Java validates with Matcher.matches(); wrapping keeps browser feedback full-string based too.
     const passed = new RegExp(`^(?:${pattern})$`).test(value);
-    return { key: ruleKey(rule, index), title, message, titleSource, messageSource, passed };
+    return { ...texts, key: ruleKey(rule, index), title, message, titleSource, messageSource, passed };
   } catch {
     return {
+      ...texts,
       key: ruleKey(rule, index),
       title,
       message,

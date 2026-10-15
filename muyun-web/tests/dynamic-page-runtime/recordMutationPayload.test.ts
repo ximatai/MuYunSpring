@@ -50,3 +50,10 @@ it('keeps writable fields while removing list-only reference projections from a 
     }),
   ).toEqual({ id: 'exam-1', title: '已编辑标题', supplierId: 'supplier-2' });
 });
+
+it('excludes record display resources while retaining original configuration values and nested business JSON', () => {
+  const business = { $texts: { literal: '业务值' } };
+  expect(
+    recordMutationPayload({ id: 'one', version: 2, title: '原文', $texts: { title: {} }, business }),
+  ).toEqual({ id: 'one', version: 2, title: '原文', business });
+});

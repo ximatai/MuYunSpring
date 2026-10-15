@@ -4,6 +4,8 @@ import { createLanguageContext } from '@/web-core/language';
 import {
   createCodeTextPresentation,
   originalPresentation,
+  recordPresentationLabel,
+  withoutRecordPresentation,
   translatedPresentation,
 } from '@/web-core/presentationTexts';
 import type { TextPresentation } from '@/web-contracts';
@@ -124,4 +126,30 @@ it('snapshots owned extension resources and disabled fallbacks without switching
   expect(missing.languages.en!.text).toBe(original);
   expect(missing.languages.en!.missing).toBe(true);
   expect(() => createCodeTextPresentation(' ', original, context)).toThrow('must not be blank');
+});
+
+it('uses only matching configuration record labels and omits read metadata from writes without touching nested JSON', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = {
+    id: 'one',
+    version: 3,
+    title: '姓名',
+    $texts: { title: label },
+    business: { $texts: { literal: '{value}' }, title: '业务原值' },
+  };
+  expect(recordPresentationLabel(record, 'title', language)).toBe('Name');
+  expect(recordPresentationLabel({ id: 'two', title: '姓名' }, 'title', language)).toBe('姓名');
+  language.setLanguage('zh-CN');
+  expect(recordPresentationLabel(record, 'title', language)).toBe('姓名');
+  language.setLanguage('en');
+  record.title = '人工修改 {value}';
+  expect(recordPresentationLabel(record, 'title', language)).toBe('人工修改 {value}');
+  expect(withoutRecordPresentation(record)).toEqual({
+    id: 'one',
+    version: 3,
+    title: '人工修改 {value}',
+    business: record.business,
+  });
+  expect(record.$texts).toBeDefined();
+  expect(withoutRecordPresentation(record).business).toBe(record.business);
 });

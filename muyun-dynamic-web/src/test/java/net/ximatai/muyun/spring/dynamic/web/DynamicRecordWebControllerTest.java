@@ -3464,6 +3464,19 @@ class DynamicRecordWebControllerTest {
         source.setTenantId("tenant-b");
         when(service.select(MODULE, ENTITY, "contract-1")).thenReturn(source);
         AtomicReference<String> observedTenant = new AtomicReference<>();
+        var presentation = mock(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        AtomicReference<String> presentationTenant = new AtomicReference<>();
+        when(presentation.projectReference(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            presentationTenant.set(TenantContext.currentTenantId().orElse(null));
+            return invocation.getArgument(2);
+        });
+        var controller = controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).build();
+        controller.setRecordTextPresentationService(presentation);
+        var scopedMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
         when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
                 .thenAnswer(ignored -> {
                     observedTenant.set(TenantContext.currentTenantId().orElse(null));
@@ -3471,7 +3484,7 @@ class DynamicRecordWebControllerTest {
                             DynamicReferenceResolveMode.QUERY, List.of(), List.of(), 0, 20, 0);
                 });
 
-        mvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
+        scopedMvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "mode", "QUERY",
@@ -3481,6 +3494,7 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk());
 
         assertThat(observedTenant.get()).isEqualTo("tenant-b");
+        assertThat(presentationTenant.get()).isEqualTo("tenant-b");
         verify(service).select(MODULE, ENTITY, "contract-1");
     }
 

@@ -1,3 +1,4 @@
+import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
@@ -2352,7 +2353,9 @@ export function useModulePageSession(
   function explorerRecordText(record: object, field: string | undefined): string | undefined {
     if (!field) return undefined;
     const value = (record as Record<string, unknown>)[field];
-    return value == null || String(value).trim() === '' ? undefined : String(value);
+    return value == null || String(value).trim() === ''
+      ? undefined
+      : recordPresentationLabel(record, field, language);
   }
   function matchesPageQuickSearch(record: object, keyword: string): boolean {
     const fields = runtimePage.value?.quickSearchFields;
@@ -2381,7 +2384,7 @@ export function useModulePageSession(
     return {
       title:
         explorerRecordText(record, runtimePage.value?.explorer?.titleField) ??
-        record.title ??
+        recordPresentationLabel(record, 'title', language) ??
         record.alias ??
         record.code ??
         record.id ??
@@ -5259,7 +5262,12 @@ export function useModulePageSession(
   }
 
   function recordTitle(record: QueryListRecord | undefined) {
-    const titleValue = record?.title ?? record?.name ?? record?.code ?? record?.id;
+    const titleValue =
+      record &&
+      (recordPresentationLabel(record, 'title', language) ??
+        recordPresentationLabel(record, 'name', language) ??
+        record.code ??
+        record.id);
     return titleValue == null ? undefined : String(titleValue);
   }
 

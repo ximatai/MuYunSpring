@@ -47,11 +47,12 @@ public class StaticReferenceResolveFacade {
     private final StaticModuleDefinitionCatalog modules;
     private final StaticAbilityCatalog abilities;
     private final DynamicRecordService dynamicRecords;
+    private final java.util.Optional<RecordTextPresentationService> texts;
 
     @Autowired
     public StaticReferenceResolveFacade(StaticModuleDefinitionCatalog modules, StaticAbilityCatalog abilities,
-                                       ObjectProvider<DynamicRecordService> dynamicRecords) {
-        this(modules, abilities, dynamicRecords.getIfAvailable());
+                                       ObjectProvider<DynamicRecordService> dynamicRecords, ObjectProvider<RecordTextPresentationService> texts) {
+        this(modules, abilities, dynamicRecords.getIfAvailable(), java.util.Optional.ofNullable(texts.getIfAvailable()));
     }
 
     StaticReferenceResolveFacade(StaticModuleDefinitionCatalog modules, StaticAbilityCatalog abilities) {
@@ -60,9 +61,15 @@ public class StaticReferenceResolveFacade {
 
     StaticReferenceResolveFacade(StaticModuleDefinitionCatalog modules, StaticAbilityCatalog abilities,
                                  DynamicRecordService dynamicRecords) {
+        this(modules, abilities, dynamicRecords, java.util.Optional.empty());
+    }
+
+    StaticReferenceResolveFacade(StaticModuleDefinitionCatalog modules, StaticAbilityCatalog abilities,
+            DynamicRecordService dynamicRecords, java.util.Optional<RecordTextPresentationService> texts) {
         this.modules = modules;
         this.abilities = abilities;
         this.dynamicRecords = dynamicRecords;
+        this.texts = java.util.Objects.requireNonNull(texts);
     }
 
     public WebReferenceResolveResponse resolve(String moduleAlias, String fieldName,
@@ -91,8 +98,9 @@ public class StaticReferenceResolveFacade {
     }
 
     private WebReferenceResolveResponse withSubtitles(ReferencePlan plan, WebReferenceResolveResponse response) {
-        return net.ximatai.muyun.spring.web.WebReferenceCandidateSubtitles.apply(response, plan.target(),
+        var result = net.ximatai.muyun.spring.web.WebReferenceCandidateSubtitles.apply(response, plan.target(),
                 plan.candidateSubtitleProjection(), selectionProjectionResolver());
+        return texts.map(service -> service.projectReference(plan.target().qualifiedName(), titleField(plan), result)).orElse(result);
     }
 
     /**

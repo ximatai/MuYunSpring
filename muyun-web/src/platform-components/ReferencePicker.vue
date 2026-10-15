@@ -158,7 +158,7 @@ const rows = computed<UiDataTableRecord[]>(() =>
   page.value.records.map((candidate) => ({
     ...(candidate.projections ?? {}),
     id: candidate.id,
-    title: candidate.title,
+    title: candidateTitle(candidate),
     subtitle: candidate.subtitle,
   })),
 );
@@ -173,7 +173,7 @@ const inputSummary = computed(() => {
       noun: selectionNoun.value,
     });
   const selected = summary.value[0]!;
-  const title = referencePickerDisplayTitle(selected);
+  const title = referencePickerDisplayTitle(selected, language);
   return selected.unavailable
     ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', { title: title })
     : title;
@@ -183,9 +183,9 @@ const tags = computed(() =>
     key: candidate.id,
     label: candidate.unavailable
       ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
-          title: referencePickerDisplayTitle(candidate),
+          title: referencePickerDisplayTitle(candidate, language),
         })
-      : referencePickerDisplayTitle(candidate),
+      : referencePickerDisplayTitle(candidate, language),
   })),
 );
 const selection = computed<UiDataTableSelection | undefined>(() =>
@@ -214,9 +214,9 @@ const dropdownOptions = computed(() =>
     value: candidate.id,
     label: candidate.unavailable
       ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
-          title: referencePickerDisplayTitle(candidate),
+          title: referencePickerDisplayTitle(candidate, language),
         })
-      : referencePickerDisplayTitle(candidate),
+      : referencePickerDisplayTitle(candidate, language),
     disabled:
       candidate.unavailable ||
       candidate.disabled ||
@@ -449,13 +449,19 @@ function closePicker() {
   loading.value = false;
 }
 
+function candidateTitle(candidate: ReferencePickerCandidate) {
+  return referencePickerDisplayTitle({ title: candidate.title, titleText: candidate.titleText }, language);
+}
+
 function treeNode(node: ReferencePickerTreeNode): UiTreeNode {
   const record = node.record;
   return {
     key: record.id,
     title: record.unavailable
-      ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', { title: record.title })
-      : record.title,
+      ? language.t('platform.reference-picker.unavailable', '{title}（不可用）', {
+          title: candidateTitle(record),
+        })
+      : candidateTitle(record),
     secondary: record.subtitle,
     disabled: record.disabled || record.unavailable,
     isLeaf: !node.children?.length,

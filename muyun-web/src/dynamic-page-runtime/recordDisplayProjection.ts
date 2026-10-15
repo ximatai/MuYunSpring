@@ -97,7 +97,7 @@ export async function resolvedRecordFieldDisplay(
           'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
           '已选择（名称暂不可用）',
         );
-      const title = referencePickerDisplayTitle(candidate);
+      const title = referencePickerDisplayTitle(candidate, language);
       return candidate.unavailable
         ? language.t('platform.screen.ScopedTreePicker.value-unavailable', '{value1}（不可用）', {
             value1: title,

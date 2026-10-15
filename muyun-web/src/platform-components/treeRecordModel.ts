@@ -1,4 +1,4 @@
-import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
 
 export interface TreeRecordBase {
@@ -14,7 +14,7 @@ export function defaultTreeRecordTitle<TRecord extends TreeRecordBase>(
   language: LanguageContext = platformLanguageContext,
 ) {
   return (
-    record.title ??
+    recordPresentationLabel(record, 'title', language) ??
     record.code ??
     record.id ??
     fallback ??

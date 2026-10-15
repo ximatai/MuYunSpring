@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 @Service
 public class DictionaryCategoryService extends AbstractAbilityService<DictionaryCategory> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<DictionaryCategory>,
         SoftDeleteAbility<DictionaryCategory>,
         EnableAbility<DictionaryCategory>,
         TreeAbility<DictionaryCategory>,
@@ -169,4 +170,5 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
         }
         return value.trim();
     }
+
 }
