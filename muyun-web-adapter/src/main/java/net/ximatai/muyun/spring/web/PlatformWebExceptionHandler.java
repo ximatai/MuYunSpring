@@ -238,17 +238,7 @@ public class PlatformWebExceptionHandler {
     void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
 
     private PlatformWebError presentationError(PlatformWebError original) {
-        if (original == null || textResolver == null) return original;
-        var action = original.actionMessage();
-        var source = original.textSource() != null ? original.textSource() : action == null ? null : action.textSource();
-        if (source == null) return original;
-        var args = original.textSource() != null || action == null ? original.messageArgs() : action.messageArgs();
-        var prepared = textResolver.prepare(java.util.List.of(source));
-        String display = prepared.resolve(source, args).text();
-        var result = original.withTextSource(source).withDisplayText(display, action == null ? null : new ActionMessage(action.code(), display,
-                action.type(), args, source));
-        return languageCatalog == null ? result : result.withMessageText(
-                net.ximatai.muyun.spring.common.i18n.TextPresentations.of(source, args, prepared, languageCatalog));
+        return original == null ? null : original.presented(textResolver, languageCatalog);
     }
 
     private ResponseEntity<PlatformWebError> recorded(ResponseEntity<PlatformWebError> response, Throwable exception) {

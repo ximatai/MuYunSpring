@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.i18n.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -20,6 +22,16 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
     public static final String TENANT_HEADER = "X-MuYun-Tenant-Id";
     private final CurrentUserProvider currentUserProvider;
     private final RequestTenantVerifier requestTenantVerifier;
+    private TextResolver textResolver;
+    private LanguageCatalog languageCatalog;
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setLanguageCatalog(LanguageCatalog catalog) { this.languageCatalog = catalog; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setObjectMapper(ObjectMapper mapper) { this.objectMapper = mapper; }
 
     /**
      * 仅供不接受业务租户请求的轻量装配使用。生产 Web 应用应使用双参数构造器，
@@ -93,12 +105,8 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
             } catch (net.ximatai.muyun.spring.common.exception.PlatformException | IllegalArgumentException denied) {
                 LOGGER.warn("Business tenant request rejected for identity tenant {}: {}",
                         currentUser.tenantId(), denied.getMessage());
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                response.setContentType("application/json");
-                response.setCharacterEncoding("UTF-8");
-                response.getWriter().write("{\"code\":\"TENANT_ACCESS_DENIED\",\"status\":403,\"message\":\"业务租户不可用或无权访问\"}");
-                RequestErrorLogRecorder.markFilterResponse(request, "TENANT_ACCESS_DENIED", 403,
-                        "业务租户不可用或无权访问");
+                reject(request, response, "TENANT_ACCESS_DENIED", HttpServletResponse.SC_FORBIDDEN,
+                        TextReference.code("platform.error.tenant-access-denied", "业务租户不可用或无权访问"));
                 return;
             }
             RequestErrorLogRecorder.snapshotTenant(request, requestedTenant);
@@ -149,24 +157,23 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
     }
 
     private void rejectAuthenticationRequired(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType("application/json");
-        response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"code":"AUTH_REQUIRED","status":401,"message":"current user context is not available"}
-                """);
-        RequestErrorLogRecorder.markFilterResponse(request, "AUTH_REQUIRED", 401,
-                "current user context is not available");
+        reject(request, response, "AUTH_REQUIRED", HttpServletResponse.SC_UNAUTHORIZED,
+                TextReference.code("platform.error.authentication-required", "current user context is not available"));
     }
 
     private void rejectPasswordChangeRequired(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        reject(request, response, "PASSWORD_CHANGE_REQUIRED", HttpServletResponse.SC_FORBIDDEN,
+                TextReference.code("platform.error.password-change-required", "password change required"));
+    }
+
+    private void reject(HttpServletRequest request, HttpServletResponse response, String code, int status,
+                         TextReference source) throws IOException {
+        var error = PlatformWebError.of(code, status, source.originalText()).withTextSource(source)
+                .presented(textResolver, languageCatalog);
+        response.setStatus(status);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"code":"PASSWORD_CHANGE_REQUIRED","status":403,"message":"password change required"}
-                """);
-        RequestErrorLogRecorder.markFilterResponse(request, "PASSWORD_CHANGE_REQUIRED", 403,
-                "password change required");
+        response.getWriter().write(objectMapper.writeValueAsString(error));
+        RequestErrorLogRecorder.markFilterResponse(request, code, status, source.originalText());
     }
 }

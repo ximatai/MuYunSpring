@@ -1230,7 +1230,19 @@ class MuYunSpringApplicationContextIT {
         assertThat(menus.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(menus.getBody()).isNotNull();
         assertThat(menus.getBody().path("code").asText()).isEqualTo("PASSWORD_CHANGE_REQUIRED");
-        assertThat(menus.getBody().path("message").asText()).isEqualTo("password change required");
+        assertThat(menus.getBody().path("message").asText()).isEqualTo("请先修改密码后再继续");
+        for (String language : List.of("en", "zh-CN", "en")) {
+            HttpHeaders localizedHeaders = bearerHeaders(token);
+            localizedHeaders.set("Accept-Language", language);
+            ResponseEntity<JsonNode> localized = restTemplate.exchange("/platform.menu/mine", HttpMethod.GET,
+                    new HttpEntity<>(localizedHeaders), JsonNode.class);
+            assertThat(localized.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(localized.getBody().path("code").asText()).isEqualTo("PASSWORD_CHANGE_REQUIRED");
+            assertThat(localized.getBody().path("message").asText()).isEqualTo(language.equals("en")
+                    ? "Change your password before continuing" : "请先修改密码后再继续");
+            assertThat(localized.getBody().path("textSource").path("sourceId").asText())
+                    .isEqualTo("platform.error.password-change-required");
+        }
 
         ResponseEntity<Void> logout = restTemplate.exchange(
                 "/iam.auth/logout", HttpMethod.POST, bearerRequest, Void.class);
