@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import { useWorkbenchNavigation } from '@muyun/platform-workbench';
 import type { ModulePageDetailSectionContext } from '@muyun/dynamic-page-runtime';
-import type { MenuRecord } from '@muyun/web-contracts';
-import { createModuleMenuClient, menuPlacements, type MenuPlacement } from './moduleMenuClient';
+import type { MenuRecord, MenuScheme, MenuTreeNode } from '@muyun/web-contracts';
+import { createModuleMenuClient, menuPlacements } from './moduleMenuClient';
 
 const language = useLanguageContext();
 
 const props = defineProps<{ context: ModulePageDetailSectionContext }>();
 const navigation = useWorkbenchNavigation();
-const entries = ref<MenuPlacement[]>([]);
+const entryTrees = ref<{ scheme: MenuScheme; tree: MenuTreeNode[] }[]>([]);
+const entries = computed(() =>
+  entryTrees.value.flatMap(({ scheme, tree }) =>
+    menuPlacements(
+      tree,
+      recordPresentationLabel(scheme, 'title', language) ?? scheme.alias ?? scheme.id,
+      language,
+    ).filter(
+      ({ menu }) => menu.moduleAlias === String(props.context.record.alias ?? props.context.record.id ?? ''),
+    ),
+  ),
+);
 const visible = ref(new Map<string, MenuRecord>());
 const loading = ref(false);
 const loadFailed = ref(false);
@@ -33,23 +44,18 @@ watch(
 );
 async function load() {
   const current = ++revision;
-  const alias = String(props.context.record.alias ?? props.context.record.id ?? '');
   const client = createModuleMenuClient(props.context.module.http);
   loading.value = true;
   loadFailed.value = false;
-  entries.value = [];
+  entryTrees.value = [];
   visible.value = new Map();
   try {
     const [schemes, mine] = await Promise.all([client.schemes(), client.visible()]);
     const results = await Promise.all(
-      schemes.map(async (scheme) =>
-        menuPlacements(await client.tree(scheme.id!), scheme.title ?? scheme.alias ?? scheme.id).filter(
-          ({ menu }) => menu.moduleAlias === alias,
-        ),
-      ),
+      schemes.map(async (scheme) => ({ scheme, tree: await client.tree(scheme.id!) })),
     );
     if (current !== revision) return;
-    entries.value = results.flat();
+    entryTrees.value = results;
     visible.value = new Map(menuPlacements(mine).map(({ menu }) => [menu.id, menu]));
   } catch {
     if (current === revision) loadFailed.value = true;

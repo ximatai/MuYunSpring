@@ -28,7 +28,7 @@ export function navigatorItemOf(
   const secondary =
     secondaryField == null
       ? (record.code ?? record.alias)
-      : (record as Record<string, unknown>)[secondaryField];
+      : recordPresentationLabel(record, secondaryField, language);
   return {
     title,
     ...(secondary && secondary !== title ? { secondary: String(secondary) } : {}),

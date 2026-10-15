@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { codeOperationErrorMessage } from '@muyun/web-core';
+import { recordPresentationLabel, codeOperationErrorMessage } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiButton, UiInput, UiSelect, UiTreeSelect } from '@muyun/vue-ui-antdv';
 import type { ModuleMenuSession } from './moduleMenuSession';
@@ -33,14 +33,14 @@ const candidateDisabled = computed(() => disabled.value || form.updating.value);
 const options = computed(() =>
   form.options.value.map((item) => ({
     value: item.id!,
-    label: `${item.title ?? item.alias ?? item.id} · ${menuSchemeScopeLabel(item, language)}`,
+    label: `${recordPresentationLabel(item, 'title', language) ?? item.alias ?? item.id} · ${menuSchemeScopeLabel(item, language)}`,
   })),
 );
 const directories = computed(() => [
   {
     value: 'root',
     title: language.t('platform.screen.moduleMenuWorkspace.top-level', '顶层'),
-    children: menuDirectoryOptions(form.tree.value),
+    children: menuDirectoryOptions(form.tree.value, false, language),
   },
 ]);
 async function save() {
@@ -140,7 +140,7 @@ defineExpose({ save });
           language.t(
             'platform.screen.ModuleMenuEditor.duplicate-position',
             '此位置已有「{title}」，仍可另加入口。',
-            { title: form.duplicate.value.menu.title },
+            { title: recordPresentationLabel(form.duplicate.value.menu, 'title', language) },
           )
         }}
       </p>

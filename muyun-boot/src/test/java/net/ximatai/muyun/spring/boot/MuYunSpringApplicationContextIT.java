@@ -439,6 +439,30 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void projectsPublishedConfigurationSourcesForDeclaredReferenceSummaries() {
+        var fields = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldSpecService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var system = CurrentUserContext.use(CurrentUser.systemUser("reference-text-test", "Reference text test"));
+             var scope = TenantContext.system("configuration reference text contract")) {
+            var controls = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+            var record = fields.select("string");
+            var summary = new java.util.LinkedHashMap<String, Object>(controls.projections(List.of("text"), List.of("title", "alias")).get("text"));
+            summary.put("id", "text");
+            record.setDefaultUiControlSummary(summary);
+            texts.transformRecord(fields, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+            var raw = mapper.valueToTree(record);
+            var projected = mapper.valueToTree(texts.projectCaptured(record));
+            assertThat(projected.at("/defaultUiControlSummary/id").asText()).isEqualTo("text");
+            assertThat(projected.at("/defaultUiControlSummary/title").asText()).isEqualTo(raw.at("/defaultUiControlSummary/title").asText());
+            assertThat(projected.at("/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text input");
+            assertThat(raw.at("/defaultUiControlSummary/$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
     void translatesTheActualConfiguredPasswordPolicyFailureWithoutChangingItsMachineCode() {
         var policies = applicationContext.getBean(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class);
         var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);

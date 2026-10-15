@@ -1,5 +1,6 @@
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
 import {
+  recordPresentationLabel,
   createUuid,
   OperationUsageError,
   parseEmptyAssistantCapabilityInput,
@@ -123,7 +124,7 @@ export function createModuleMenuWorkspace(
     return {
       moduleAlias: value.moduleAlias,
       title: value.title.value,
-      scheme: scheme?.title,
+      scheme: scheme && recordPresentationLabel(scheme, 'title', language),
       scopeType: scheme?.scopeType,
       audience: menuSchemeScopeLabel(scheme, language),
       position: directory?.path ?? language.t('platform.screen.moduleMenuWorkspace.top-level', '顶层'),
@@ -346,7 +347,7 @@ export function createModuleMenuWorkspace(
               ...facts(),
               schemes: selected.options.value.slice(offset, offset + 40).map((item) => ({
                 selectionKey: keyFor(schemeKeys, item.id!),
-                title: item.title ?? item.alias,
+                title: recordPresentationLabel(item, 'title', language) ?? item.alias,
                 scopeType: item.scopeType,
                 audience: menuSchemeScopeLabel(item, language),
                 tenant: item.tenantId,

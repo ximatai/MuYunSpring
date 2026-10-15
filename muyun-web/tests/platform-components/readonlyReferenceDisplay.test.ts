@@ -87,3 +87,45 @@ it('uses one identity-aware reference projection for localized display and name-
     ),
   ).toEqual({ selected: true });
 });
+
+it('projects delivered summary names while preserving order, identity and unavailability', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const summary = {
+    id: 'text',
+    title: '文本',
+    alias: 'text',
+    unavailable: true,
+    $texts: {
+      title: {
+        source: {
+          sourceKind: 'CONFIG',
+          sourceId: 'config/record/platform.field_ui_control/text/title',
+          sourceVersion: 'v1',
+          originalText: '文本',
+        },
+        languages: {
+          en: { text: 'Text', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+        },
+      },
+    },
+  };
+  expect(
+    readonlyReferenceDisplayItems({ cardinality: 'MANY' }, ['text', 'missing'], [summary], language),
+  ).toEqual([
+    { id: 'text', label: 'Text (text) (unavailable)', browseable: false },
+    { id: 'missing', label: 'missing', browseable: false },
+  ]);
+  expect(readonlyReferenceNameProjection({ cardinality: 'ONE' }, 'text', summary, language).display).toBe(
+    'Text (text) (unavailable)',
+  );
+  language.setLanguage('zh-CN');
+  expect(readonlyReferenceDisplay({ cardinality: 'ONE' }, 'text', summary, language)).toBe(
+    '文本 (text)（不可用）',
+  );
+  language.setLanguage('en');
+  expect(readonlyReferenceDisplay({ cardinality: 'ONE' }, 'other', summary, language)).toBe('other');
+  expect(
+    readonlyReferenceDisplay({ cardinality: 'ONE' }, 'text', { ...summary, title: '人工改名' }, language),
+  ).toBe('人工改名 (text) (unavailable)');
+  expect(summary.title).toBe('文本');
+});

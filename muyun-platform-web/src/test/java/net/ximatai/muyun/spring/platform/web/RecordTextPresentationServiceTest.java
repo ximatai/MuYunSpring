@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
 import net.ximatai.muyun.spring.platform.application.Application;
@@ -51,6 +52,51 @@ class RecordTextPresentationServiceTest {
         assertThat(output.at("/records/2/$texts").isMissingNode()).isTrue();
         assertThat(output.at("/records/0/version").asInt()).isEqualTo(7);
         assertThat(mapper.<com.fasterxml.jackson.databind.JsonNode>valueToTree(input)).isEqualTo(before);
+    }
+
+    @Test @SuppressWarnings("unchecked")
+    void projectsOnlyDeclaredReferenceSummariesAndKeepsTheirRawIdentity() {
+        var control = new net.ximatai.muyun.spring.platform.metadata.FieldUiControl(); control.setId("text"); control.setTitle("文本");
+        ConfiguredRecordTextAbility<net.ximatai.muyun.spring.platform.metadata.FieldUiControl> target = mock(ConfiguredRecordTextAbility.class, withSettings().extraInterfaces(net.ximatai.muyun.spring.ability.DataScopeAbility.class));
+        when(target.getModuleAlias()).thenReturn("platform.field_ui_control");
+        doReturn(net.ximatai.muyun.spring.platform.metadata.FieldUiControl.class).when(target).modelClass();
+        var scoped = (net.ximatai.muyun.spring.ability.DataScopeAbility<?>) target;
+        when(scoped.readScope(eq(net.ximatai.muyun.spring.common.platform.PlatformAction.REFERENCE), any()))
+                .thenAnswer(call -> net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult.crossTenantRestricted(call.getArgument(1)));
+        doCallRealMethod().when(scoped).withDataScopeTenant(any(), any());
+        when(target.list(any(), any(PageRequest.class))).thenAnswer(call -> {
+            assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.tenantFilterBypassed()).isTrue();
+            return List.of(control);
+        });
+        when(target.recordTextSources(control)).thenReturn(Map.of("title", TextReference.configured("config/control/text/title", "文本")));
+        net.ximatai.muyun.spring.ability.CrudAbility<?> owner = mock(net.ximatai.muyun.spring.ability.CrudAbility.class);
+        doReturn(net.ximatai.muyun.spring.platform.metadata.FieldSpec.class).when(owner).modelClass();
+        var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("abilities", new StaticAbilityCatalog(List.of(target)));
+        beans.registerSingleton("languages", LanguageCatalog.load(getClass().getClassLoader(), "zh-CN"));
+        beans.registerSingleton("texts", (TextResolver) (source, args, language) -> new TextResources.Resolution(
+                "en".equals(language) ? "Text" : source.originalText(), language, language, false, false));
+        var texts = new RecordTextPresentationService(mapper, beans.getBeanProvider(StaticAbilityCatalog.class),
+                beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class), beans.getBeanProvider(OptionSourceRegistry.class));
+        var summary = Map.of("id", "text", "title", "文本", "alias", "text");
+        var input = Map.<String, Object>of("id", "string", "defaultUiControlAlias", "text", "defaultUiControlSummary", summary,
+                "uiControlAliases", List.of("text"), "uiControlSummaries", List.of(summary, Map.of("id", "other", "title", "文本")), "businessJson", summary);
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            texts.captureProjected(owner, List.of(input), RecordReadVisibility.ACTIVE);
+            assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.tenantFilterBypassed()).isFalse();
+            var result = mapper.valueToTree(texts.projectCaptured(input));
+            assertThat(result.at("/defaultUiControlSummary/title").asText()).isEqualTo("文本");
+            assertThat(result.at("/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text");
+            assertThat(result.at("/uiControlSummaries/0/$texts/title/languages/en/text").asText()).isEqualTo("Text");
+            assertThat(result.at("/uiControlSummaries/1/$texts").isMissingNode()).isTrue();
+            assertThat(result.at("/businessJson/$texts").isMissingNode()).isTrue();
+            assertThat(mapper.valueToTree(input).at("/defaultUiControlSummary/$texts").isMissingNode()).isTrue();
+            when(target.list(any(), any(PageRequest.class))).thenReturn(List.of());
+            texts.captureProjected(owner, List.of(input), RecordReadVisibility.ACTIVE);
+            assertThat(mapper.valueToTree(texts.projectCaptured(input)).at("/defaultUiControlSummary/$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
     }
 
     @Test void referenceLabelsKeepRawMatchingAndFieldEffectsForListTranslationAndTree() {

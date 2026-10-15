@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiSelect } from '@muyun/vue-ui-antdv';
 import type { OptionValue, OptionValueList, Role } from '@muyun/web-contracts';
@@ -71,7 +71,11 @@ function parseRoleIds(value: unknown) {
 }
 
 function roleTitle(record: Partial<Role> | undefined) {
-  return String(record?.title ?? record?.id ?? language.t('platform.screen.RoleManagementView.role', '角色'));
+  return String(
+    (record && recordPresentationLabel(record, 'title', language)) ??
+      record?.id ??
+      language.t('platform.screen.RoleManagementView.role', '角色'),
+  );
 }
 
 function roleKindTitle(value: Role['roleKind']) {

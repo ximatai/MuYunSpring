@@ -1,4 +1,4 @@
-import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { FieldSpec, Metadata, MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts';
 import type { RecordExplorerItemDescriptor } from '../platform-components/recordExplorerItemModel';
@@ -516,7 +516,7 @@ export function fieldSpecOptionListOf(
     .map((item) => ({
       value: item.alias ?? item.id ?? '',
       label:
-        item.title ??
+        recordPresentationLabel(item, 'title', language) ??
         item.alias ??
         item.id ??
         language.t(
@@ -541,11 +541,14 @@ export function dataSafeFieldSpecOptions(
 }
 
 /** Use the catalog title for human-facing metadata surfaces; aliases remain stable machine identities. */
-export function fieldSpecDisplayLabel(fieldSpecAlias: string | undefined, specs: FieldSpec[]): string {
+export function fieldSpecDisplayLabel(
+  fieldSpecAlias: string | undefined,
+  specs: FieldSpec[],
+  language: LanguageContext = platformLanguageContext,
+): string {
   if (!fieldSpecAlias) return '';
-  return (
-    specs.find((spec) => spec.alias === fieldSpecAlias || spec.id === fieldSpecAlias)?.title ?? fieldSpecAlias
-  );
+  const spec = specs.find((spec) => spec.alias === fieldSpecAlias || spec.id === fieldSpecAlias);
+  return spec ? (recordPresentationLabel(spec, 'title', language) ?? fieldSpecAlias) : fieldSpecAlias;
 }
 
 export function entityTitleOf(

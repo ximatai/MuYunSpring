@@ -121,7 +121,7 @@ describe('standard record UI language scope', () => {
       pageNum: 2,
       pages: 3,
     });
-    expect(wrapper.text()).toContain('At least 42 records');
+    expect(wrapper.text()).toContain('Records: at least 42');
     expect(wrapper.text()).toContain('Page 2 / 3');
     expect(wrapper.text()).toContain('客户甲');
     const surface = wrapper.findComponent(RecordQueryListSurface);

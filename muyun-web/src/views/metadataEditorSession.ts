@@ -1,5 +1,5 @@
 import type { TextPresentation } from '@muyun/web-contracts';
-import { presentationLabel } from '@muyun/web-core';
+import { recordPresentationLabel, presentationLabel } from '@muyun/web-core';
 import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
@@ -423,7 +423,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .slice(0, ASSISTANT_FIELD_SPEC_LIMIT)
           .flatMap((spec) => {
             const alias = spec.alias ?? spec.id;
-            return alias ? [{ alias, title: spec.title }] : [];
+            return alias ? [{ alias, title: recordPresentationLabel(spec, 'title', language) }] : [];
           }),
       };
     }
@@ -537,7 +537,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...new Map(
           dictionaries.value.map((item) => {
             const value = `${item.applicationAlias}.${item.alias}`;
-            return [value, { value, label: `${item.title || item.alias} · ${value}` }];
+            return [
+              value,
+              {
+                value,
+                label: `${recordPresentationLabel(item, 'title', language) || item.alias} · ${value}`,
+              },
+            ];
           }),
         ).values(),
       ];
@@ -2041,7 +2047,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           requireUnchangedCandidate,
           undefined,
           Object.fromEntries(
-            state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
+            state.fieldSpecs.value.map((spec) => [
+              spec.alias ?? '',
+              recordPresentationLabel(spec, 'title', language) || spec.alias || '',
+            ]),
           ),
           Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
           language,
@@ -2232,7 +2241,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         current,
         signal,
         Object.fromEntries(
-          state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
+          state.fieldSpecs.value.map((spec) => [
+            spec.alias ?? '',
+            recordPresentationLabel(spec, 'title', language) || spec.alias || '',
+          ]),
         ),
         Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
         language,

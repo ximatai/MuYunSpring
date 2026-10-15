@@ -1,4 +1,4 @@
-import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 type ReferenceSummary = Record<string, unknown>;
@@ -126,7 +126,7 @@ function referenceId(value: unknown): string[] {
 }
 
 function summaryDisplay(summary: ReferenceSummary, fallbackId: string, language: LanguageContext) {
-  const title = isText(summary.title) ? summary.title : undefined;
+  const title = isText(summary.title) ? recordPresentationLabel(summary, 'title', language) : undefined;
   const alias = isText(summary.alias) ? summary.alias : undefined;
   const label = title && alias && title !== alias ? `${title} (${alias})` : (title ?? alias ?? fallbackId);
   return summary.unavailable === true

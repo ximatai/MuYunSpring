@@ -1551,7 +1551,7 @@ export function useModulePageSession(
       const title = recordTitle(record);
       if (!record || !title) return [];
       const secondaryField = level.descriptor.secondaryField;
-      const secondary = secondaryField == null ? undefined : record[secondaryField];
+      const secondary = explorerRecordText(record, secondaryField);
       const displayTitle = secondary && String(secondary) !== title ? `${title}（${secondary}）` : title;
       return [
         language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
@@ -2379,8 +2379,7 @@ export function useModulePageSession(
 
   function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
     const secondaryField = flatManagementContent.value?.secondaryField;
-    const secondaryValue =
-      secondaryField == null ? undefined : (record as unknown as Record<string, unknown>)[secondaryField];
+    const secondaryValue = explorerRecordText(record, secondaryField);
     return {
       title:
         explorerRecordText(record, runtimePage.value?.explorer?.titleField) ??

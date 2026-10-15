@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  recordPresentationLabel,
   OperationUsageError,
   codeOperationErrorMessage,
   resolveOperationErrorMessage,
@@ -102,7 +103,10 @@ const isDataGrant = computed(() => role.value?.roleKind === 'dataGrant');
 const isEmploymentRole = computed(() => role.value?.assignmentType === 'employment');
 const isActionDrawerSurface = computed(() => Boolean(props.drawerContext));
 const roleTitle = computed(
-  () => role.value?.title ?? roleId ?? language.t('platform.screen.RoleManagementView.role', '角色'),
+  () =>
+    (role.value && recordPresentationLabel(role.value, 'title', language)) ??
+    roleId ??
+    language.t('platform.screen.RoleManagementView.role', '角色'),
 );
 const workspaceTitle = computed(() =>
   language.t('platform.screen.RoleAuthorizationView.permissions-value', '授权：{value1}', {

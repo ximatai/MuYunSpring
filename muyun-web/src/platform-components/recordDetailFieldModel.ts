@@ -114,12 +114,12 @@ export function resolveRecordDetailDisplayValue(
     if (display !== undefined) return display || emptyText;
   }
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {
-    return referenceSummaryLabel(referenceTitle) ?? String(value ?? emptyText);
+    return referenceSummaryLabel(referenceTitle, language) ?? String(value ?? emptyText);
   }
   if (field.controlType === 'recordMultiPicker' && Array.isArray(referenceTitle)) {
     const summaryLabels = referenceTitle
       .filter(isReferenceSummary)
-      .map(referenceSummaryLabel)
+      .map((summary) => referenceSummaryLabel(summary, language))
       .filter((label): label is string => Boolean(label));
     if (summaryLabels.length > 0) {
       return summaryLabels.join(language.t('platform.list.separator', '、'));
@@ -159,8 +159,8 @@ function isReferenceSummary(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function referenceSummaryLabel(summary: Record<string, unknown>) {
-  const title = summary.title;
+function referenceSummaryLabel(summary: Record<string, unknown>, language: LanguageContext) {
+  const title = recordPresentationLabel(summary, 'title', language);
   const alias = summary.alias;
   if (isPresent(title) && isPresent(alias) && String(title) !== String(alias)) {
     return `${title} (${alias})`;

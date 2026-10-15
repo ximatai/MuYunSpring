@@ -983,7 +983,7 @@ onUnmounted(() => {
           <strong>{{ field.title }}</strong>
           <p>
             {{ metadataFieldPropertyLabel(fieldPropertyOf(field).kind) }} ·
-            {{ fieldSpecDisplayLabel(field.fieldSpecAlias, state.fieldSpecs.value) }} ·
+            {{ fieldSpecDisplayLabel(field.fieldSpecAlias, state.fieldSpecs.value, language) }} ·
             {{
               field.required
                 ? language.t('platform.form.required-marker', '必填')
@@ -1072,7 +1072,7 @@ onUnmounted(() => {
           :record="{
             fieldName: selectedField?.fieldName,
             columnName: selectedField?.columnName || '—',
-            fieldSpec: fieldSpecDisplayLabel(selectedField?.fieldSpecAlias, state.fieldSpecs.value),
+            fieldSpec: fieldSpecDisplayLabel(selectedField?.fieldSpecAlias, state.fieldSpecs.value, language),
             property: metadataFieldPropertyLabel(fieldPropertyOf(selectedField!).kind),
             constraints: `${selectedField?.required ? language.t('platform.form.required-marker', '必填') : language.t('platform.screen.MetadataGovernanceSurface.optional', '非必填')}${selectedField?.uniqueField ? language.t('platform.screen.MetadataGovernanceSurface.unique-label', ' · 唯一') : ''}${selectedField?.indexed ? language.t('platform.screen.MetadataGovernanceSurface.indexed', ' · 索引') : ''}`,
             ownership: fieldSourceOf(selectedField!),

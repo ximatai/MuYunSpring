@@ -225,7 +225,7 @@ it('projects password trial feedback without re-evaluating rules or reloading on
   expect(preview.text()).toContain('The regular expression must not be empty');
   // A business value equal to a platform fallback remains original.
   expect(preview.text()).toContain('未配置失败提示');
-  expect(preview.text()).toContain('2 rules failed');
+  expect(preview.text()).toContain('Rules failed: 2');
   language.setLanguage('zh-CN');
   await flushPromises();
   expect(preview.text()).toContain('正则表达式不能为空');

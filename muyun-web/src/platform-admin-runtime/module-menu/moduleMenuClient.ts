@@ -1,4 +1,5 @@
 import {
+  recordPresentationLabel,
   createMenuClient,
   platformLanguageContext,
   type LanguageContext,
@@ -86,21 +87,30 @@ export function menuSchemeScopeLabel(
   return language.t('platform.screen.moduleMenuClient.audience-not-declared', '尚未声明适用范围');
 }
 
-export function menuPlacements(nodes: MenuTreeNode[], parentPath = ''): MenuPlacement[] {
+export function menuPlacements(
+  nodes: MenuTreeNode[],
+  parentPath = '',
+  language: LanguageContext = platformLanguageContext,
+): MenuPlacement[] {
   return nodes.flatMap(({ record, children }) => {
-    const path = parentPath ? `${parentPath} / ${record.title}` : record.title;
-    return [{ menu: record, path }, ...menuPlacements(children, path)];
+    const title = recordPresentationLabel(record, 'title', language) ?? record.title;
+    const path = parentPath ? `${parentPath} / ${title}` : title;
+    return [{ menu: record, path }, ...menuPlacements(children, path, language)];
   });
 }
 
-export function menuDirectoryOptions(nodes: MenuTreeNode[], parentDisabled = false): UiTreeSelectNode[] {
+export function menuDirectoryOptions(
+  nodes: MenuTreeNode[],
+  parentDisabled = false,
+  language: LanguageContext = platformLanguageContext,
+): UiTreeSelectNode[] {
   return nodes.map(({ record, children }) => {
     const disabled = parentDisabled || record.enabled === false;
     return {
       value: record.id,
-      title: record.title,
+      title: recordPresentationLabel(record, 'title', language) ?? record.title,
       disabled: disabled || Boolean(record.moduleAlias),
-      children: menuDirectoryOptions(children, disabled),
+      children: menuDirectoryOptions(children, disabled, language),
     };
   });
 }

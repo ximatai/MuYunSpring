@@ -1,5 +1,6 @@
 import { computed, ref, shallowRef } from 'vue';
 import {
+  recordPresentationLabel,
   createUuid,
   AppError,
   OperationRejectedError,
@@ -117,7 +118,7 @@ export function createModuleMenuSession(
   let restored = false;
   const valid = () => !disposed && scope.valid();
   const options = computed(() => schemes.value.filter((item) => item.enabled !== false && item.id));
-  const directories = computed(() => availableDirectories(tree.value));
+  const directories = computed(() => availableDirectories(tree.value, language));
   const canSave = computed(
     () =>
       valid() &&
@@ -132,7 +133,7 @@ export function createModuleMenuSession(
       Boolean(title.value.trim()),
   );
   const duplicate = computed(() =>
-    menuPlacements(tree.value).find(
+    menuPlacements(tree.value, '', language).find(
       ({ menu }) => menu.moduleAlias === moduleAlias && menu.parentId === parentId.value,
     ),
   );
@@ -376,8 +377,11 @@ export function createModuleMenuSession(
       savedPath.value =
         original.path ??
         [
-          options.value.find((item) => item.id === resolved.schemeId)?.title,
-          menuPlacements(tree.value).find(({ menu }) => menu.id === resolved.parentId)?.path,
+          (() => {
+            const scheme = options.value.find((item) => item.id === resolved.schemeId);
+            return scheme && recordPresentationLabel(scheme, 'title', language);
+          })(),
+          menuPlacements(tree.value, '', language).find(({ menu }) => menu.id === resolved.parentId)?.path,
           resolved.title,
         ]
           .filter(Boolean)
@@ -475,7 +479,11 @@ export function createModuleMenuSession(
     return {
       scheme,
       signature,
-      path: [scheme.title ?? scheme.alias, ...ancestry.map((item) => item.title), record.title]
+      path: [
+        recordPresentationLabel(scheme, 'title', language) ?? scheme.alias,
+        ...ancestry.map((item) => recordPresentationLabel(item, 'title', language)),
+        record.title,
+      ]
         .filter(Boolean)
         .join(' / '),
     };
@@ -550,7 +558,7 @@ export function createModuleMenuSession(
                 language.t(
                   'platform.screen.moduleMenuSession.this-position-already-contains-value-another-entry-will-be-added',
                   '此位置已有「{value1}」，本次将另加一个入口。',
-                  { value1: duplicate.value.menu.title },
+                  { value1: recordPresentationLabel(duplicate.value.menu, 'title', language) },
                 ),
               ]
             : []),
@@ -760,18 +768,15 @@ function directoryAncestry(nodes: MenuTreeNode[], id: string, parents: MenuRecor
   }
   return [];
 }
-export function availableDirectories(nodes: MenuTreeNode[]): MenuPlacement[] {
-  return nodes.flatMap(({ record, children }) =>
-    record.enabled === false
-      ? []
-      : [
-          ...(!record.moduleAlias ? [{ menu: record, path: record.title }] : []),
-          ...availableDirectories(children).map((item) => ({
-            ...item,
-            path: `${record.title} / ${item.path}`,
-          })),
-        ],
-  );
+export function availableDirectories(
+  nodes: MenuTreeNode[],
+  language: LanguageContext = platformLanguageContext,
+): MenuPlacement[] {
+  const enabledTree = (items: MenuTreeNode[]): MenuTreeNode[] =>
+    items
+      .filter(({ record }) => record.enabled !== false)
+      .map((node) => ({ ...node, children: enabledTree(node.children) }));
+  return menuPlacements(enabledTree(nodes), '', language).filter(({ menu }) => !menu.moduleAlias);
 }
 export function moduleMenuEntryIssue(
   entry: ModuleRuntimeContext,

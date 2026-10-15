@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { recordPresentationLabel, useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
@@ -446,7 +446,11 @@ function selectedUserDescription(user: UserSelectorItem) {
 }
 
 function roleTitle(record: Partial<Role>) {
-  return String(record.title ?? record.id ?? language.t('platform.screen.RoleManagementView.role', '角色'));
+  return String(
+    recordPresentationLabel(record, 'title', language) ??
+      record.id ??
+      language.t('platform.screen.RoleManagementView.role', '角色'),
+  );
 }
 
 function scopeTitle(role: Role | undefined) {
