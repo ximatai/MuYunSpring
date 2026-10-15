@@ -2,6 +2,7 @@
 import { useLanguageContext } from '@muyun/web-core';
 import { pageActionEntryTitle, pageActionIntent } from '@muyun/web-core';
 import {
+  compositionSkeletonText,
   canPlaceActionInAnchor,
   actionButtons,
   actionButtonKey,
@@ -178,7 +179,9 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   const nodes: UiTreeNode[] = [
     {
       key: 'ui:slot:list',
-      title: props.skeleton?.navigationTitle ?? language.t('platform.page.composition.list', '列表'),
+      title: props.skeleton
+        ? compositionSkeletonText(props.skeleton, 'navigationTitle', language)
+        : language.t('platform.page.composition.list', '列表'),
       isLeaf: false,
       children: [
         {
@@ -277,9 +280,9 @@ const treeNodes = computed<UiTreeNode[]>(() => {
           : []),
         {
           key: 'ui:slot:list:fields',
-          title:
-            props.skeleton?.fieldGroupTitle ??
-            language.t('platform.screen.PageCompositionTree.list-display-fields', '列表展示字段'),
+          title: props.skeleton
+            ? compositionSkeletonText(props.skeleton, 'fieldGroupTitle', language)
+            : language.t('platform.screen.PageCompositionTree.list-display-fields', '列表展示字段'),
           secondary:
             props.skeleton?.columns === false
               ? undefined

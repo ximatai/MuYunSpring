@@ -10,6 +10,19 @@ class PlatformPresentationTemplateCatalogTest {
     private final PlatformPresentationTemplateCatalog catalog = new PlatformPresentationTemplateCatalog();
 
     @Test
+    void serializesSkeletonCodeKeysAndLeavesDefaultSlotTitlesUnconfigured() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var skeletons = mapper.valueToTree(PlatformPresentationTemplateCatalog.managementSkeletons());
+        assertThat(skeletons.get(1).get("navigationTitleKey").asText())
+                .isEqualTo("platform.presentation.management.LIST_CARD.navigationTitle");
+        for (var template : catalog.listFor(PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT)) {
+            var tree = mapper.readTree(template.defaultUiTreeJson());
+            assertThat(tree.path("nodes")).allMatch(node -> !node.has("title"));
+            if (template.version() > 1) catalog.validateUiTree(template.defaultUiTreeJson(), template);
+        }
+    }
+
+    @Test
     void acceptsIndependentDetailOnlyInVersionFiveAndValidatesItsPlacements() {
         String tree = """
                 {"template":"management","templateVersion":5,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],

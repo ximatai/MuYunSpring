@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   createPageCompositionDraftState,
   defaultPageQuerySummaryLabel,
-  hasDefaultPageQuerySummaryLabel,
   pageQuerySummaryDescription,
 } from '@/views/pageCompositionDraftState';
 
@@ -45,8 +44,8 @@ describe('pageCompositionDraftState', () => {
       template: 'management',
       templateVersion: 1,
       nodes: [
-        { slot: 'list', title: '列表', fields: ['examDate'] },
-        { slot: 'form', title: '详情 / 表单', fields: ['title', 'examDate'] },
+        { slot: 'list', fields: ['examDate'] },
+        { slot: 'form', fields: ['title', 'examDate'] },
       ],
     });
   });
@@ -88,7 +87,7 @@ describe('pageCompositionDraftState', () => {
     ]);
   });
 
-  it('uses business titles for grouped explanations and only treats generated names as replaceable', () => {
+  it('uses business titles for grouped explanations and generated names', () => {
     const catalog = {
       groupFields: [{ fieldName: 'supplierId', title: '供应商' }],
       fields: [{ fieldName: 'purchaseAmount', title: '采购金额' }],
@@ -103,14 +102,6 @@ describe('pageCompositionDraftState', () => {
 
     expect(pageQuerySummaryDescription(grouped, catalog)).toBe('按供应商分组 · 记录数 · 采购金额合计');
     expect(defaultPageQuerySummaryLabel(grouped, catalog)).toBe('按供应商分组采购金额合计');
-    expect(hasDefaultPageQuerySummaryLabel(grouped, catalog)).toBe(true);
-    expect(hasDefaultPageQuerySummaryLabel({ ...grouped, label: '供应商金额概览' }, catalog)).toBe(false);
-    expect(
-      hasDefaultPageQuerySummaryLabel(
-        { key: 'count', label: '匹配记录数', source: 'MATCHED_COUNT' },
-        catalog,
-      ),
-    ).toBe(true);
     expect(
       pageQuerySummaryDescription({ ...grouped, fieldName: undefined, label: '按供应商分组统计' }, catalog),
     ).toBe('按供应商分组 · 记录数');
@@ -463,7 +454,7 @@ it('localizes only draft navigation while keeping serialized source values and g
   state.addFormGroup();
   const original = JSON.stringify(state.toManagementUiTree());
   expect(state.nodes.value[0]!.title).toBe('List');
-  expect(state.formGroups.value[0]!.title).toBe('分组 1');
+  expect(state.formGroups.value[0]!.title).toBe('Group 1');
   language.setLanguage('zh-CN');
   expect(state.nodes.value[0]!.title).toBe('列表');
   expect(JSON.stringify(state.toManagementUiTree())).toBe(original);
@@ -471,4 +462,25 @@ it('localizes only draft navigation while keeping serialized source values and g
   language.setLanguage('en');
   expect(state.nodes.value[0]!.title).toBe('List');
   expect(JSON.stringify(state.toManagementUiTree())).toBe(original);
+});
+
+it('preserves explicit slot originals, including text identical to platform defaults', () => {
+  const state = createPageCompositionDraftState();
+  state.slotTitles.value = { list: '记录列表', form: '详情 / 表单' };
+  expect(state.toManagementUiTree().nodes.map((node) => node.title)).toEqual(['记录列表', '详情 / 表单']);
+});
+
+it('generates initial summary names in the session language without translating business titles', () => {
+  const english = createLanguageContext({ languageTag: 'en' });
+  const catalog = { fields: [{ fieldName: 'amount', title: '业务原文' }] };
+  expect(
+    defaultPageQuerySummaryLabel({ key: 'count', source: 'MATCHED_COUNT', label: '' }, catalog, english),
+  ).toBe('Record count');
+  expect(
+    defaultPageQuerySummaryLabel(
+      { key: 'sum', source: 'SUM', fieldName: 'amount', label: '' },
+      catalog,
+      english,
+    ),
+  ).toBe('业务原文 total');
 });

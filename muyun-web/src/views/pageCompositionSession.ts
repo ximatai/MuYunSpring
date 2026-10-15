@@ -1,4 +1,6 @@
 import { AppError, resolveOperationErrorMessage, userFacingErrorMessage } from '@muyun/web-core';
+import { translatedPresentation } from '@muyun/web-core';
+import { type TextPresentationDocument } from '@muyun/web-contracts';
 import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref, shallowRef, watch } from 'vue';
@@ -45,7 +47,6 @@ import {
   type PageQuerySummary,
   type PageQuerySummarySource,
   defaultPageQuerySummaryLabel,
-  hasDefaultPageQuerySummaryLabel,
   pageQuerySummaryDescription,
 } from './pageCompositionDraftState';
 import {
@@ -335,7 +336,12 @@ export function createPageCompositionSession(
     const quickSearchPlaceholderDraft = ref('');
     const savedUiTreeJson = ref<string>();
     const savedDraftApplied = ref(false);
-    const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
+    const previewDocument = shallowRef<PresentationRevisionPreview>();
+    const previewDescriptor = computed(() =>
+      previewDocument.value
+        ? translatedPresentation(previewDocument.value, language).uiDescriptor
+        : undefined,
+    );
     const previewLayouts = ref<Record<'form' | 'detail', PageCompositionStructure>>();
     const previewStructure = computed(
       () =>
@@ -996,6 +1002,7 @@ export function createPageCompositionSession(
         explorerSecondaryField.value = undefined;
         state.mergeLayout('form');
         state.replaceFields({ list: [], form: [] });
+        state.slotTitles.value = {};
         state.updateQuickSearchPlaceholder(undefined);
         savedUiTreeJson.value = undefined;
         void loadWorkspace();
@@ -1325,7 +1332,7 @@ export function createPageCompositionSession(
         ...state.querySummaries.value,
         {
           ...nextSummary,
-          label: defaultPageQuerySummaryLabel(nextSummary, summaryCatalog.value),
+          label: defaultPageQuerySummaryLabel(nextSummary, summaryCatalog.value, language),
         },
       ]);
       selectedSummaryKey.value = nextSummary.key;
@@ -1339,8 +1346,7 @@ export function createPageCompositionSession(
       const sourceOrFieldChanged =
         'source' in patch || 'fieldName' in patch || 'contributorKey' in patch || 'groupByField' in patch;
       if ('label' in patch) customSummaryKeys.add(current.key);
-      const keepsDefaultLabel =
-        !customSummaryKeys.has(current.key) && hasDefaultPageQuerySummaryLabel(current, summaryCatalog.value);
+      const keepsDefaultLabel = !customSummaryKeys.has(current.key);
       state.replaceQuerySummaries(
         state.querySummaries.value.map((summary, candidateIndex) =>
           candidateIndex !== index
@@ -1370,7 +1376,7 @@ export function createPageCompositionSession(
         // A catalogue refresh must never rewrite a draft. Only a deliberate source/field action updates a default.
         label:
           sourceOrFieldChanged && keepsDefaultLabel && !('label' in patch)
-            ? defaultPageQuerySummaryLabel(next, summaryCatalog.value)
+            ? defaultPageQuerySummaryLabel(next, summaryCatalog.value, language)
             : next.label,
       };
     }
@@ -1691,6 +1697,7 @@ export function createPageCompositionSession(
         draftParseFailure.value = undefined;
         state.mergeLayout('form');
         state.replaceFields({ list: [], form: [] });
+        state.slotTitles.value = {};
         state.updateQuickSearchPlaceholder(undefined);
         savedUiTreeJson.value = undefined;
         await hydrateDraft(revision.value);
@@ -1743,7 +1750,7 @@ export function createPageCompositionSession(
         clearTimeout(previewDebounceTimer);
         previewDebounceTimer = undefined;
       }
-      previewDescriptor.value = undefined;
+      previewDocument.value = undefined;
       previewLayouts.value = undefined;
       previewLoading.value = false;
       previewFailure.value = undefined;
@@ -1847,7 +1854,7 @@ export function createPageCompositionSession(
           };
         };
         previewLayouts.value = { form: structureFor('form'), detail: structureFor('detail') };
-        previewDescriptor.value = preview.uiDescriptor;
+        previewDocument.value = preview;
         previewFailure.value = undefined;
       } catch (cause) {
         if (requestSequence !== previewRequestSequence) return;
@@ -1893,7 +1900,8 @@ export function createPageCompositionSession(
           props?: { list?: { searchPlaceholder?: unknown } };
           querySummaries?: PageQuerySummary[];
           nodes?: Array<{
-            slot?: PageComposerSlot | 'detail';
+            slot?: PageComposerSlot | 'detail' | 'explorer';
+            title?: string;
             fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
             order?: Array<{ field?: string; group?: string }>;
             relations?: Array<{
@@ -1931,6 +1939,11 @@ export function createPageCompositionSession(
           referenceEpoch !== referenceDirectoryEpoch
         )
           return;
+        state.slotTitles.value = Object.fromEntries(
+          (tree.nodes ?? [])
+            .filter((node) => node.slot && typeof node.title === 'string')
+            .map((node) => [node.slot === 'explorer' ? 'list' : node.slot, node.title]),
+        );
         compositionMode.value = modeTree.mode ?? configuredMode.value;
         const explorer = modeTree.nodes?.find((node) => node.slot === 'explorer');
         explorerTitleField.value = explorer?.titleField ?? 'title';
@@ -2046,8 +2059,12 @@ export function createPageCompositionSession(
           });
         }
         state.selectLayout(state.separateDetail.value ? previousLayout : 'form');
-        customSummaryKeys.clear();
         state.replaceQuerySummaries(Array.isArray(tree.querySummaries) ? tree.querySummaries : []);
+        if (!referencesLoaded) {
+          customSummaryKeys.clear();
+          // Persisted labels are configuration originals. Display refreshes retain the current session's authorship.
+          state.querySummaries.value.forEach((summary) => customSummaryKeys.add(summary.key));
+        }
         if (hasCatalogDependentSummary.value) void loadSummaryCatalog();
         quickSearchFields.value =
           modeTree.quickSearchFields ??
@@ -2105,7 +2122,12 @@ export function createPageCompositionSession(
               alias: 'management',
               contractType: pageCompositionTransport.managementContract,
               mainRelationId: relation.value.id,
-              title: `${(props.moduleTitle !== props.moduleAlias && props.moduleTitle) || relation.value.title || props.moduleAlias}管理页`,
+              title: language.t('platform.page.composition.generated-page-title', '{name}管理页', {
+                name:
+                  (props.moduleTitle !== props.moduleAlias && props.moduleTitle) ||
+                  relation.value.title ||
+                  props.moduleAlias,
+              }),
               enabled: true,
             })
           ).record;
@@ -2118,7 +2140,7 @@ export function createPageCompositionSession(
             await variantClient(moduleAlias, page.value.id).insert({
               clientType: pageCompositionTransport.webClient,
               scopeType: pageCompositionTransport.globalScope,
-              title: 'Web 全局呈现',
+              title: language.t('platform.page.composition.generated-variant-title', 'Web 全局呈现'),
               enabled: true,
             })
           ).record;
@@ -2151,7 +2173,11 @@ export function createPageCompositionSession(
             templateVersion: JSON.parse(treeJsonToPersist).templateVersion,
             uiTreeJson: treeJsonToPersist,
             status: pageCompositionTransport.draftRevision,
-            title: latestPublished ? `基于 v${latestPublished.revisionNo ?? 1} 的草稿` : '初始草稿',
+            title: latestPublished
+              ? language.t('platform.page.composition.generated-revision-title', '基于 v{version} 的草稿', {
+                  version: latestPublished.revisionNo ?? 1,
+                })
+              : language.t('platform.page.composition.initial-draft', '初始草稿'),
             enabled: true,
           })
         ).record;
@@ -2360,7 +2386,9 @@ export function createPageCompositionSession(
           templateVersion: publishedRevision.templateVersion ?? 1,
           uiTreeJson,
           status: pageCompositionTransport.draftRevision,
-          title: `基于 v${publishedRevision.revisionNo ?? 1} 的草稿`,
+          title: language.t('platform.page.composition.generated-revision-title', '基于 v{version} 的草稿', {
+            version: publishedRevision.revisionNo ?? 1,
+          }),
           enabled: true,
         })
       ).record;
@@ -2670,12 +2698,16 @@ export function createPageCompositionSession(
       if (source.kind === 'child') {
         if (!componentCatalog.value?.canCreateChild || isMutating.value || target.kind !== 'form') return;
         const key = createUuid().replaceAll('-', '');
-        pendingChildren.value.push({ key, title: '明细表', fields: [] });
+        pendingChildren.value.push({
+          key,
+          title: language.t('platform.screen.pageCompositionSession.detail-table', '明细表'),
+          fields: [],
+        });
         state.addFormRelation({
           pending: true,
           id: key,
           relationCode: `detail_${key}`,
-          title: '明细表',
+          title: language.t('platform.screen.pageCompositionSession.detail-table', '明细表'),
           fields: [],
         });
         if (target.index !== undefined) state.moveFormRelation(key, target.index);
@@ -4018,7 +4050,7 @@ export type PresentationVariant = {
   scopeType?: 'global' | 'tenant' | 'organization';
   enabled?: boolean;
 };
-export type PresentationRevisionPreview = {
+export type PresentationRevisionPreview = TextPresentationDocument & {
   pageId: string;
   variantId: string;
   revisionId: string;

@@ -1,3 +1,4 @@
+import { type LanguageContext } from '@muyun/web-core';
 import { pageActionIntent } from '@muyun/web-core';
 import type { PageActionInvocation } from '@muyun/web-contracts';
 import type { ManagementUiTree } from './pageCompositionDraftState';
@@ -7,11 +8,24 @@ export type CompositionMode = 'TREE_CARD' | 'LIST_CARD' | 'MICRO_LIST_CARD';
 export interface CompositionSkeleton {
   mode: CompositionMode;
   title: string;
+  titleKey?: string;
   navigationTitle: string;
+  navigationTitleKey?: string;
   fieldGroupTitle: string;
+  fieldGroupTitleKey?: string;
   columns: boolean;
   maxIdentityFields: number;
 }
+/** Catalogue text keys belong to platform code; resolve only for display, never into the draft. */
+export function compositionSkeletonText(
+  skeleton: CompositionSkeleton,
+  property: 'title' | 'navigationTitle' | 'fieldGroupTitle',
+  language: LanguageContext,
+) {
+  const key = skeleton[`${property}Key`];
+  return key ? language.t(key, skeleton[property]) : skeleton[property];
+}
+
 export interface ExplorerComposition {
   titleField: string;
   secondaryField?: string;
@@ -72,8 +86,8 @@ export function modeAwareTree(
       node.slot !== 'list'
         ? node
         : skeleton.columns
-          ? { ...node, title: skeleton.navigationTitle }
-          : { slot: 'explorer', title: skeleton.navigationTitle, fields: [], ...explorer },
+          ? node
+          : { ...node, slot: 'explorer', fields: [], ...explorer },
     ),
   };
 }

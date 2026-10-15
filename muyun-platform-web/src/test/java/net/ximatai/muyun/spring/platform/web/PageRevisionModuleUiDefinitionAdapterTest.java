@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
 import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
+import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,6 +19,60 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
+    @Test
+    void includesThePreviewHttpEndpointInTheSharedPresentationProjection() throws Exception {
+        var method = PlatformPresentationRevisionWebController.class.getMethod("preview", String.class, String.class,
+                PresentationRevisionPreviewRequest.class);
+        var advice = new ModulePresentationResponseAdvice(new com.fasterxml.jackson.databind.ObjectMapper(),
+                (net.ximatai.muyun.spring.common.i18n.TextResolver) null, null);
+        assertThat(advice.supports(new org.springframework.core.MethodParameter(method, -1), null)).isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD"})
+    void projectsTemplateDefaultsAsCodeWithoutReclassifyingExplicitConfiguration(String mode) {
+        String tree = """
+                {"template":"management","templateVersion":4,"mode":"%s","quickSearchFields":[],"actions":[],
+                "nodes":[%s,{"slot":"form","fields":["title"]}]}
+                """.formatted(mode, mode.equals("LIST_CARD") ? "{\"slot\":\"list\",\"fields\":[]}"
+                        : "{\"slot\":\"explorer\",\"titleField\":\"title\",\"fields\":[]}");
+        var templates = new PlatformPresentationTemplateCatalog();
+        templates.validateUiTree(tree, templates.require("management", 4,
+                net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT));
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(tree), List.of("title"));
+        var descriptor = ModuleUiTextLocations.withConfiguredSources(ModuleUiDescriptorCompiler.compile(definition), true);
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        String key = "ui/education.exam/page/" + (mode.equals("LIST_CARD") ? "list" : "explorer") + "/searchPlaceholder";
+        var source = descriptor.sourceTexts().get(key);
+        assertThat(source.sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+        assertThat(resources.resolve(source.sourceId(), source.originalText(), Map.of(), "en").text()).isEqualTo("Search name, code or ID");
+        assertThat(descriptor.sourceTexts().get("ui/education.exam/page/detail/createTitle").sourceKind())
+                .isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var context = new PlatformModuleRuntimeContext("education.exam", "业务原文", net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC,
+                ModuleEntryType.MODULE, null, null, null, java.util.Set.of(), List.of(), java.util.Set.of(), List.of(), descriptor, false);
+        try (var ignored = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("en")) {
+            var output = mapper.valueToTree(new ModulePresentationResponseAdvice(mapper, resources, catalog).project(context));
+            String path = "/uiDescriptor/page/" + (mode.equals("LIST_CARD") ? "list" : "explorer") + "/searchPlaceholder";
+            assertThat(output.at(path).asText()).isEqualTo("Search name, code or ID");
+            assertThat(output.at("/uiDescriptor/page/detail/createTitle").asText()).isEqualTo("New record");
+            var preview = new PresentationRevisionPreview("page", "variant", "revision", descriptor);
+            var previewOutput = mapper.valueToTree(new ModulePresentationResponseAdvice(mapper, resources, catalog).project(preview));
+            assertThat(previewOutput.at(path).asText()).isEqualTo("Search name, code or ID");
+            assertThat(previewOutput.get("textBindings").isEmpty()).isFalse();
+            assertThat(previewOutput.get("revisionId").asText()).isEqualTo("revision");
+        }
+        String explicit = tree.replace("\"slot\":\"form\"", "\"slot\":\"form\",\"title\":\"新建记录\"")
+                .replace("\"nodes\":", "\"props\":{\"list\":{\"searchPlaceholder\":\"搜索名称、编码或 ID\"}},\"nodes\":");
+        var custom = ModuleUiTextLocations.withConfiguredSources(ModuleUiDescriptorCompiler.compile(
+                PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(explicit), List.of("title"))), true);
+        assertThat(custom.sourceTexts().get(key).sourceKind())
+                .isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+        assertThat(custom.sourceTexts().get("ui/education.exam/page/detail/createTitle").sourceKind())
+                .isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+    }
+
     @Test
     void compilesSeparateDetailIncludingEmptyDisplayWithoutChangingTheEditor() {
         String tree = """
@@ -324,7 +379,7 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         assertThat(page.detail().editor().title()).isEqualTo("编辑考试");
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "subject", "examDate");
-        assertThat(page.list().searchPlaceholder()).isEqualTo("考试列表");
+        assertThat(page.list().searchPlaceholder()).isEqualTo("搜索名称、编码或 ID");
     }
 
     @Test

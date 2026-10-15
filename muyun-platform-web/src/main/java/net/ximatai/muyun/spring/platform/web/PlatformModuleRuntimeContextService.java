@@ -972,7 +972,7 @@ public class PlatformModuleRuntimeContextService {
             contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
         }
         return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
-                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions());
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions(), definition.sourceTexts());
     }
 
     private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,

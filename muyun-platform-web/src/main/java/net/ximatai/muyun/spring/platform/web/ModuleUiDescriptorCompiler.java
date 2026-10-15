@@ -347,7 +347,7 @@ public final class ModuleUiDescriptorCompiler {
                                 optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
                                 relationOptionFields, relationReferenceFields))).toList()
                         : List.of(),
-                List.of()
+                List.of(), definition.sourceTexts()
         );
     }
 
