@@ -5,6 +5,7 @@ import { computed, ref, shallowRef, watch } from 'vue';
 import {
   createDataExchangeClient,
   normalizeError,
+  presentationLabel,
   type ModuleContext,
   type ImportParseResult,
   type ImportExecutionResult,
@@ -36,6 +37,7 @@ const matchFields = ref<Record<string, string>>({});
 const strategies = ref<Record<string, ImportDuplicateStrategy>>({});
 let revision = 0;
 const inputKey = ref(0);
+const uploadInput = ref<HTMLInputElement>();
 watch(
   () => [props.context, props.scopeKey],
   () => {
@@ -206,15 +208,21 @@ async function exportData() {
       }}</RecordPanelButton>
       <p>
         <input
+          ref="uploadInput"
           :key="inputKey"
           :aria-label="
             language.t('platform.screen.ModuleDataExchangeSurface.upload-import-file', '上传导入文件')
           "
           type="file"
+          hidden
           accept=".xlsx"
           :disabled="busy || disabled"
           @change="upload"
         />
+        <RecordPanelButton :disabled="busy || disabled" @click="uploadInput?.click()">{{
+          language.t('platform.screen.ModuleDataExchangeSurface.upload-import-file', '上传导入文件')
+        }}</RecordPanelButton>
+        <span v-if="file"> {{ file.name }}</span>
       </p>
       <section v-for="sheet in parsed?.sheets" :key="sheet.entityAlias" class="import-sheet">
         <strong
@@ -292,7 +300,7 @@ async function exportData() {
       <p v-if="error" role="alert">{{ error }}</p>
       <div v-if="result" role="status">
         <p>
-          {{ result.message }}：{{
+          {{ presentationLabel(result.message, result.messageText, language) }}：{{
             language.t('platform.screen.ModuleDataExchangeSurface.import-counts', '', {
               created: result.created,
               updated: result.updated,
@@ -317,7 +325,7 @@ async function exportData() {
         <RecordPanelButton v-if="result.errorFileToken" :disabled="busy" @click="errors">{{
           language.t('platform.screen.ModuleDataExchangeSurface.download-error-file', '下载错误文件')
         }}</RecordPanelButton>
-        <p>
+        <p v-if="result.errorCount > 0">
           {{
             language.t(
               'platform.screen.ModuleDataExchangeSurface.correct-the-file-and-upload-it-again',

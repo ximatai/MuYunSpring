@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
 import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+import net.ximatai.muyun.spring.common.i18n.*;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -46,15 +49,26 @@ public class DynamicImportWebController {
     private final DynamicImportFacade importFacade;
     private final DynamicImportErrorFileService errorFileService;
     private final ActiveTenantVerifier activeTenantVerifier;
+    private final ObjectProvider<TextResolver> textResolvers;
+    private final ObjectProvider<LanguageCatalog> languageCatalogs;
 
     public DynamicImportWebController(DynamicRecordService recordService,
                                       DynamicImportFacade importFacade,
                                       DynamicImportErrorFileService errorFileService,
                                       ActiveTenantVerifier activeTenantVerifier) {
+        this(recordService, importFacade, errorFileService, activeTenantVerifier, null, null);
+    }
+
+    @Autowired
+    public DynamicImportWebController(DynamicRecordService recordService, DynamicImportFacade importFacade,
+                                      DynamicImportErrorFileService errorFileService, ActiveTenantVerifier activeTenantVerifier,
+                                      ObjectProvider<TextResolver> textResolvers, ObjectProvider<LanguageCatalog> languageCatalogs) {
         this.recordService = recordService;
         this.importFacade = importFacade;
         this.errorFileService = errorFileService;
         this.activeTenantVerifier = activeTenantVerifier;
+        this.textResolvers = textResolvers;
+        this.languageCatalogs = languageCatalogs;
     }
 
     @PostMapping("/parse")
@@ -148,16 +162,22 @@ public class DynamicImportWebController {
             errorFileToken = errorFileService.save(moduleAlias, currentTenantId(moduleAlias), errorFileName,
                     errorWorkbookBytes);
         }
+        var message = errorCount == 0
+                ? TextReference.code("exchange.import.completed", "导入完成")
+                : TextReference.code("exchange.import.completed-with-errors", "导入完成，请修正异常数据后重试");
+        var resolver = textResolvers == null ? null : textResolvers.getIfAvailable();
+        var catalog = languageCatalogs == null ? null : languageCatalogs.getIfAvailable();
         return new DynamicImportUploadResult(
                 execution.created(),
                 execution.updated(),
                 execution.skipped(),
                 errorCount,
                 writtenCount > 0 && errorCount > 0,
-                errorCount == 0 ? "导入完成" : "导入完成，请修正异常数据后重试",
+                resolver == null ? message.originalText() : resolver.resolve(message, java.util.Map.of()).text(),
                 errorFileName,
                 errorFileToken,
-                execution.summaries()
+                execution.summaries(),
+                resolver == null || catalog == null ? null : TextPresentations.of(message, java.util.Map.of(), resolver, catalog)
         );
     }
 

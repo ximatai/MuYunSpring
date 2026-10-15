@@ -15,6 +15,8 @@ public final class ExcelExchangeProtocol {
     public static final String RELATE_ID_FIELD = "relateId";
     public static final String RELATE_ID_TECHNICAL_FIELD = "__relateId";
     public static final String RELATE_ID_TITLE = "关联标识";
+    public static final net.ximatai.muyun.spring.common.i18n.TextReference RELATE_ID_TITLE_SOURCE =
+            net.ximatai.muyun.spring.common.i18n.TextReference.code("exchange.column.relate-id", RELATE_ID_TITLE);
 
     public static final String TECHNICAL_HEADER_SEPARATOR = ".";
     public static final int TECHNICAL_HEADER_ROW_INDEX = 0;
