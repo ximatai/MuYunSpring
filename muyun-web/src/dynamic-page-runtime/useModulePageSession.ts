@@ -3166,7 +3166,11 @@ export function useModulePageSession(
     markAssistantUserInteraction();
     navigatorManagementDetail.saving.value = true;
     try {
-      const record = recordMutationPayload(draft, navigatorManagementFormFields.value.values());
+      const record = recordMutationPayload(
+        draft,
+        navigatorManagementFormFields.value.values(),
+        level.context.runtime.snapshot()?.capabilities,
+      );
       const id = record.id == null ? undefined : String(record.id);
       const result =
         !creating && id
@@ -3946,7 +3950,7 @@ export function useModulePageSession(
     ) {
       return;
     }
-    return recordMutationPayload(draft, formFields.value.values());
+    return recordMutationPayload(draft, formFields.value.values(), context.runtime.snapshot()?.capabilities);
   }
 
   const reliableRecordSaveAvailable = computed(
@@ -4172,7 +4176,14 @@ export function useModulePageSession(
       interaction === assistantInteractionRevision.value &&
       mode === editorMode.value &&
       Boolean(editingRecord.value) &&
-      snapshot === JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values()));
+      snapshot ===
+        JSON.stringify(
+          recordMutationPayload(
+            editingRecord.value!,
+            formFields.value.values(),
+            context.runtime.snapshot()?.capabilities,
+          ),
+        );
     saving.value = true;
     activeDetailActionKey.value = actionKey;
     try {
@@ -4528,7 +4539,13 @@ export function useModulePageSession(
       review.isCurrent() &&
       !detailActionBusy.value &&
       Boolean(editingRecord.value) &&
-      JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
+      JSON.stringify(
+        recordMutationPayload(
+          editingRecord.value!,
+          formFields.value.values(),
+          context.runtime.snapshot()?.capabilities,
+        ),
+      ) === snapshot;
     const fieldLines = review.fieldLines;
     if (!isCurrent())
       throw new AssistantOperationRejectedError(

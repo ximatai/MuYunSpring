@@ -57,3 +57,61 @@ it('excludes record display resources while retaining original configuration val
     recordMutationPayload({ id: 'one', version: 2, title: '原文', $texts: { title: {} }, business }),
   ).toEqual({ id: 'one', version: 2, title: '原文', business });
 });
+
+it('keeps permission read facts out of ordinary saves even when the page does not compose them', () => {
+  const business = { authUserId: 'literal JSON value' };
+  const record = {
+    id: 'one',
+    version: 2,
+    title: '原文',
+    customerId: 'customer-1',
+    business,
+    authUserId: 'owner',
+    authAssigneeIds: 'assignee',
+    authMemberIds: 'member',
+    authOrganizationId: 'organization',
+    authDepartmentId: 'department',
+    authModuleAlias: 'sales.order',
+  };
+  expect(recordMutationPayload(record)).toEqual({
+    id: 'one',
+    version: 2,
+    title: '原文',
+    customerId: 'customer-1',
+    business,
+  });
+  expect(record.authUserId).toBe('owner');
+  expect(record.business).toBe(business);
+});
+
+it('omits uncomposed approval and storage facts without erasing same-named fields outside that capability', () => {
+  const record = {
+    id: 'one',
+    version: 2,
+    title: '原文',
+    enabled: true,
+    sortOrder: 10,
+    tenantId: 'tenant',
+    deleted: false,
+    deletedAt: null,
+    deletedBy: null,
+    createdBy: 'creator',
+    createdAt: '2026-10-15T00:00:00Z',
+    updatedBy: 'updater',
+    updatedAt: '2026-10-15T00:00:00Z',
+    approvalInstanceId: 'instance',
+    approvalStatus: 'approved',
+    approvalSubmittedBy: 'submitter',
+    approvalSubmittedAt: '2026-10-15T00:00:00Z',
+    approvalCompletedAt: '2026-10-15T01:00:00Z',
+  };
+  expect(recordMutationPayload(record, [], ['APPROVAL'])).toEqual({
+    id: 'one',
+    version: 2,
+    title: '原文',
+    enabled: true,
+    sortOrder: 10,
+  });
+  expect(recordMutationPayload(record).approvalStatus).toBe('approved');
+  expect(record.approvalInstanceId).toBe('instance');
+});

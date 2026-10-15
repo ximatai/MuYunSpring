@@ -134,6 +134,21 @@ class DynamicRecordWebMvcSliceTest {
     }
 
     @Test
+    void rejectsPermissionFieldsInOrdinaryDynamicWritesWithASourcedFailure() throws Exception {
+        DynamicEntityOperations mainEntity = mock(DynamicEntityOperations.class);
+        when(recordService.mainEntityAlias(MODULE)).thenReturn(ENTITY);
+        when(recordService.mainEntity(MODULE)).thenReturn(mainEntity);
+        when(mainEntity.newRecord()).thenAnswer(invocation -> new DynamicRecord(entity()));
+        mvc.perform(post("/{moduleAlias}/update/{id}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("{\"id\":\"contract-1\",\"version\":0,\"values\":{\"authUserId\":\"forged\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.actionMessage.textSource.sourceId").value("platform.validation.permissions.action-required"));
+        verify(mainEntity, org.mockito.Mockito.never()).update(any());
+    }
+
+    @Test
     void shouldLetStaticControllerTakeOverExactAliasPathAndKeepDynamicFallback() throws Exception {
         mvc.perform(post("/{moduleAlias}/query", MODULE))
                 .andExpect(status().isOk())

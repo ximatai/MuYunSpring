@@ -7,8 +7,35 @@ export function recordMutationPayload(
   fields: Iterable<
     Pick<ResolvedViewFieldDescriptor, 'fieldRef' | 'reference' | 'referenceSummary' | 'readOnly'>
   > = [],
+  capabilities: Iterable<string> = [],
 ): RecordFormRecord {
-  const outputs = new Set<string>();
+  // Platform storage facts remain read-only when the page does not compose them.
+  const outputs = new Set<string>([
+    'tenantId',
+    'deleted',
+    'deletedAt',
+    'deletedBy',
+    'createdBy',
+    'createdAt',
+    'updatedBy',
+    'updatedAt',
+    'authUserId',
+    'authAssigneeIds',
+    'authMemberIds',
+    'authOrganizationId',
+    'authDepartmentId',
+    'authModuleAlias',
+  ]);
+  if (new Set(capabilities).has('APPROVAL')) {
+    for (const field of [
+      'approvalInstanceId',
+      'approvalStatus',
+      'approvalSubmittedBy',
+      'approvalSubmittedAt',
+      'approvalCompletedAt',
+    ])
+      outputs.add(field);
+  }
   for (const field of fields) {
     for (const projection of field.reference?.displayProjections ?? []) outputs.add(projection.outputField);
     if (field.referenceSummary) outputs.add(field.fieldRef.fieldName);
