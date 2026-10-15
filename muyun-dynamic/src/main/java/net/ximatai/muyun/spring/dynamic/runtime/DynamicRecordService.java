@@ -199,6 +199,11 @@ public class DynamicRecordService {
                 }
 
                 @Override
+                public Map<String, String> titles(Collection<String> ids) {
+                    return DynamicRecordService.this.titles(target.moduleAlias(), target.entityAlias(), ids);
+                }
+
+                @Override
                 public Map<String, Map<String, Object>> projections(Collection<String> ids,
                                                                        Collection<String> fieldNames) {
                     return DynamicRecordService.this.projections(target.moduleAlias(), target.entityAlias(),

@@ -3,6 +3,11 @@ package net.ximatai.muyun.spring.platform.exchange.exporter;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
@@ -17,16 +22,21 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
 import net.ximatai.muyun.spring.platform.exchange.template.DynamicExchangeTemplatePlanBuilder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +47,17 @@ class DynamicExportExecutorTest {
     private final DynamicRecordActionGateway records = mock(DynamicRecordActionGateway.class);
     private final DynamicExportExecutor executor = new DynamicExportExecutor(
             recordService, new DynamicExchangeTemplatePlanBuilder());
+
+    private void localReferenceTitles(ReferenceTarget target, Map<String, String> titles) {
+        ReferenceAbility<?> ability = mock(ReferenceAbility.class);
+        when(recordService.referenceAbility(target)).thenReturn(Optional.of(ability));
+        when(ability.titles(any())).thenReturn(titles);
+    }
+
+    @AfterEach
+    void resetReferenceTargets() {
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
+    }
 
     @Test
     void shouldExportMainRecordsThroughExportActionGateway() {
@@ -115,7 +136,7 @@ class DynamicExportExecutorTest {
         PageRequest pageRequest = PageRequest.of(1, 50);
         when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
         when(records.list("order", criteria, pageRequest)).thenReturn(List.of(first, second));
-        when(records.list(org.mockito.ArgumentMatchers.eq("order_line"), any(Criteria.class), any(PageRequest.class)))
+        when(records.list(eq("order_line"), any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(firstLine));
 
         ExcelWorkbookPlan plan = executor.export(new DynamicExportCommand(
@@ -158,8 +179,7 @@ class DynamicExportExecutorTest {
         PageRequest pageRequest = PageRequest.of(1, 20);
         when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
         when(records.list("order", criteria, pageRequest)).thenReturn(List.of(first));
-        when(recordService.titles(MODULE, "customer", Set.of("customer-1")))
-                .thenReturn(Map.of("customer-1", "Acme"));
+        localReferenceTitles(ReferenceTarget.of(MODULE, "customer"), Map.of("customer-1", "Acme"));
 
         ExcelWorkbookPlan plan = executor.export(new DynamicExportCommand(
                 descriptor, criteria, pageRequest, List.of()));
@@ -190,13 +210,60 @@ class DynamicExportExecutorTest {
         PageRequest pageRequest = PageRequest.of(1, 20);
         when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
         when(records.list("order", criteria, pageRequest)).thenReturn(List.of(first));
-        when(recordService.titles(MODULE, "tag", Set.of("tag-1", "tag-2")))
-                .thenReturn(Map.of("tag-1", "Urgent", "tag-2", "Wholesale"));
+        localReferenceTitles(ReferenceTarget.of(MODULE, "tag"), Map.of("tag-1", "Urgent", "tag-2", "Wholesale"));
 
         ExcelWorkbookPlan plan = executor.export(new DynamicExportCommand(
                 descriptor, criteria, pageRequest, List.of()));
 
         ExcelSheetPlan main = plan.sheets().getFirst();
         assertThat(main.rows()).containsExactly(List.of("order-1", "SO-001", "Urgent,Wholesale"));
+    }
+
+    @Test
+    void shouldBatchStaticTargetTitlesAndKeepMissingIdsWithoutUsingDynamicReads() {
+        var entity = new EntityDefinition("order", "sales_order", "Order", List.of(
+                FieldDefinition.string("role", "Role")));
+        var descriptor = DynamicModuleDescriptor.from(ModuleDefinition.builder(MODULE, "Order")
+                .entities(List.of(entity))
+                .references(List.of(EntityReferenceDefinition.to("order", "role", "iam.role"))).build());
+        ReferenceAbility<?> roles = mock(ReferenceAbility.class);
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> {
+            assertThat(target).isEqualTo(ReferenceTarget.of("iam", "role"));
+            return Optional.of(roles);
+        });
+        var first = new DynamicRecord(entity).setValue("role", "role-1");
+        first.setId("order-1");
+        var second = new DynamicRecord(entity).setValue("role", "missing");
+        second.setId("order-2");
+        when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
+        when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(first, second));
+        when(roles.titles(Set.of("role-1", "missing"))).thenReturn(Map.of("role-1", "租户管理员"));
+
+        var plan = executor.export(new DynamicExportCommand(descriptor, Criteria.of(), PageRequest.of(1, 20), List.of()));
+
+        assertThat(plan.sheets().getFirst().rows()).containsExactly(
+                List.of("order-1", "租户管理员"), List.of("order-2", "missing"));
+        verify(roles).titles(Set.of("role-1", "missing"));
+        verify(recordService, never()).titles(any(), any(), any());
+    }
+
+    @Test
+    void shouldRejectAnUnregisteredReferenceTarget() {
+        var entity = new EntityDefinition("order", "sales_order", "Order", List.of(
+                FieldDefinition.string("role", "Role")));
+        var descriptor = DynamicModuleDescriptor.from(ModuleDefinition.builder(MODULE, "Order")
+                .entities(List.of(entity))
+                .references(List.of(EntityReferenceDefinition.to("order", "role", "iam.role"))).build());
+        var record = new DynamicRecord(entity).setValue("role", "role-1");
+        record.setId("order-1");
+        when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
+        when(records.list(eq("order"), any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(record));
+        when(recordService.referenceAbility(ReferenceTarget.of("iam", "role"))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> executor.export(new DynamicExportCommand(
+                descriptor, Criteria.of(), PageRequest.of(1, 20), List.of())))
+                .isInstanceOfSatisfying(PlatformException.class,
+                        error -> assertThat(error.code()).isEqualTo(PlatformErrorCodes.CONFIG_MISSING));
     }
 }
