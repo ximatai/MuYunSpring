@@ -410,6 +410,64 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void configurationLabelsFollowGlobalReadScopeForTenantUsersAndActualRelationProducers() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenant = insertActiveTenant("label_" + suffix), user = "labeluser_" + suffix;
+        insertUser(tenant, user, user);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", user);
+        grantTenantScopedEmploymentAction(tenant, user, suffix, "iam.password_policy_rule", PlatformAction.QUERY);
+        String token = issueActiveSessionToken(tenant, user, user);
+        String adminToken = issueSuperAdminSessionToken();
+        String childId = "labelchild" + suffix;
+        jdbcTemplate.update("insert into platform_field_ui_control_attribute (id, title, field_ui_control_alias, attribute_alias, deleted) values (?, ?, 'text', ?, true)",
+                childId, "明细配置名称", childId);
+        try {
+            var policies = restTemplate.exchange("/iam.password_policy_rule/active-global-rules", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(token)), JsonNode.class);
+            assertThat(policies.getStatusCode()).withFailMessage("tenant global read: %s", policies.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(policies.getBody().at("/0/message").asText()).isEqualTo("密码长度不能少于 6 位");
+            assertThat(policies.getBody().at("/0/$texts/message/languages/en/text").asText()).isEqualTo("The password must contain at least 6 characters");
+            var headers = bearerHeaders(adminToken);
+            String control = jdbcTemplate.queryForObject("select id from platform_field_ui_control where alias = 'text'", String.class);
+            var properties = restTemplate.exchange("/platform.field_ui_control/view/" + control + "/relations/properties/recycle-bin/query", HttpMethod.POST,
+                    new HttpEntity<>(Map.of(), headers), JsonNode.class);
+            assertThat(properties.getStatusCode()).withFailMessage("relation read: %s", properties.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(properties.getBody().path("records")).isNotEmpty();
+            var child = java.util.stream.StreamSupport.stream(properties.getBody().path("records").spliterator(), false)
+                    .filter(row -> childId.equals(row.path("id").asText())).findFirst().orElseThrow();
+            assertThat(child.at("/$texts/title/source/sourceId").asText())
+                    .isEqualTo("config/record/platform.field_ui_control_property/" + childId + "/title");
+            assertThat(child.at("/$texts/title/source/originalText").asText()).isEqualTo("明细配置名称");
+        } finally {
+            userSessionService.logout(token); userSessionService.logout(adminToken);
+            jdbcTemplate.update("delete from platform_field_ui_control_attribute where id = ?", childId);
+        }
+    }
+
+    @Test
+    void retainedConfigurationLabelsKeepTheirOriginalsAndDeletionEnvelope() {
+        String id = "labelretained" + Long.toUnsignedString(System.nanoTime(), 36);
+        String token = issueSuperAdminSessionToken();
+        jdbcTemplate.update("insert into platform_application (id, title, deleted, deleted_at) values (?, ?, true, current_timestamp)", id, "保留的配置名称");
+        try {
+            var headers = bearerHeaders(token);
+            var response = restTemplate.exchange("/platform.application/recycle-bin/query", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("conditions", List.of(Map.of("fieldName", "id", "operator", "EQ", "values", List.of(id)))), headers), JsonNode.class);
+            assertThat(response.getStatusCode()).withFailMessage("retained read: %s", response.getBody()).isEqualTo(HttpStatus.OK);
+            var item = java.util.stream.StreamSupport.stream(response.getBody().path("records").spliterator(), false)
+                    .filter(row -> id.equals(row.at("/record/id").asText())).findFirst().orElseThrow();
+            assertThat(item.at("/record/title").asText()).isEqualTo("保留的配置名称");
+            assertThat(item.at("/record/$texts/title/source/sourceKind").asText()).isEqualTo("CONFIG");
+            assertThat(item.at("/record/$texts/title/source/originalText").asText()).isEqualTo("保留的配置名称");
+            assertThat(item.has("restorable")).isTrue();
+            var detail = restTemplate.exchange("/platform.application/recycle-bin/view/" + id, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(detail.getBody().at("/$texts/title/source/originalText").asText()).isEqualTo("保留的配置名称");
+        } finally { userSessionService.logout(token); jdbcTemplate.update("delete from platform_application where id = ?", id); }
+    }
+
+    @Test
     void shouldLoadApplicationContextWithRealDatabase() {
         assertThat(applicationContext.getBean(net.ximatai.muyun.spring.platform.workflow.WorkflowUserTitleResolver.class))
                 .isInstanceOf(net.ximatai.muyun.spring.iam.web.workflow.IamWorkflowUserTitleResolver.class);

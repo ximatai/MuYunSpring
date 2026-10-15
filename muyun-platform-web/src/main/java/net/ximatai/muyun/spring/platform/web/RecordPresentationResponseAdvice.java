@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
+import net.ximatai.muyun.spring.web.BusinessMutation;
+import net.ximatai.muyun.spring.web.WebAnnotationSupport;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.Ordered;
@@ -32,10 +34,13 @@ public class RecordPresentationResponseAdvice implements ResponseBodyAdvice<Obje
         var handler = servlet.getServletRequest().getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
         if (catalog == null || !(handler instanceof HandlerMethod method)) return body;
         var endpoint = catalog.find(servlet.getServletRequest(), method).orElse(null);
-        if (endpoint == null || !Set.of(PlatformAction.QUERY, PlatformAction.VIEW, PlatformAction.TREE, PlatformAction.REFERENCE, PlatformAction.RECYCLE_BIN_QUERY)
+        if (endpoint == null || !Set.of(PlatformAction.QUERY, PlatformAction.VIEW, PlatformAction.TREE, PlatformAction.REFERENCE, PlatformAction.RECYCLE_BIN_QUERY, PlatformAction.UPDATE)
                 .contains(endpoint.definition().action())) return body;
+        // Aggregate retained-child reads require UPDATE permission, but are not mutation endpoints.
+        if (endpoint.definition().action() == PlatformAction.UPDATE &&
+                WebAnnotationSupport.hasMergedMethodOrTypeAnnotation(method.getMethod(), method.getBeanType(), BusinessMutation.class)) return body;
         var presentation = texts.getIfAvailable();
-        return presentation == null ? body : presentation.project(endpoint.definition().moduleAlias(), body);
+        return presentation == null ? body : presentation.projectCaptured(body);
     }
 
 }

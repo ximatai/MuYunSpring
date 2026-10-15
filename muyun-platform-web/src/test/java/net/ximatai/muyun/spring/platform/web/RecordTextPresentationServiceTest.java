@@ -17,6 +17,7 @@ import static org.mockito.Mockito.*;
 class RecordTextPresentationServiceTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicInteger reads = new AtomicInteger();
+    private ConfiguredRecordTextAbility<Application> sourceAbility;
     @SuppressWarnings("unchecked")
     private RecordTextPresentationService service() {
         var original = new Application(); original.setId("row"); original.setTitle("配置名称");
@@ -27,6 +28,7 @@ class RecordTextPresentationServiceTest {
             case "recordTextSources" -> invocation.callRealMethod();
             default -> org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation);
         });
+        sourceAbility = ability;
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("abilities", new StaticAbilityCatalog(List.of(ability)));
         beans.registerSingleton("languages", LanguageCatalog.load(getClass().getClassLoader(), "zh-CN"));
@@ -66,4 +68,63 @@ class RecordTextPresentationServiceTest {
         assertThat(output.tree().getFirst().record().subtitle()).isEqualTo("Original subtitle");
         assertThat(response.options().getFirst().titleText()).isNull();
     }
+    @Test void capturesAlreadyReadSourcesBeforeScopeClosesWithoutAnySupplementaryRead() {
+        var service = service();
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            var record = new Application(); record.setId("row"); record.setTitle("配置名称");
+            try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant")) {
+                try (var system = net.ximatai.muyun.spring.common.tenant.TenantContext.system("authorized global read")) {
+                    service.transformRecord(sourceAbility, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+                }
+                var output = mapper.valueToTree(service.projectCaptured(List.of(Map.of("id", "row", "title", "配置名称"))));
+                assertThat(output.at("/0/$texts/title/languages/en/text").asText()).isEqualTo("Configuration name");
+                assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId()).contains("tenant");
+            }
+            assertThat(reads).hasValue(0);
+            // A new request cannot reuse the previous response's sources.
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            assertThat(service.projectCaptured(Map.of("id", "row", "title", "配置名称")))
+                    .isEqualTo(Map.of("id", "row", "title", "配置名称"));
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test void retainedSqlProjectionUsesRetainedReadAndKeepsLifecycleEnvelope() {
+        var service = service();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            var original = new Application(); original.setId("row"); original.setTitle("配置名称"); original.setDeleted(true);
+            RetainedConfiguration ability = mock(RetainedConfiguration.class);
+            doReturn(Application.class).when(ability).modelClass();
+            when(ability.recordTextSources(original)).thenReturn(Map.of("title", TextReference.code("test.retained", "配置名称")));
+            when(ability.pageRecycleBin(any(), any())).thenReturn(net.ximatai.muyun.database.core.orm.PageResult.of(
+                    List.of(original), 1, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 1)));
+            service.captureProjected(ability, List.of(Map.of("id", "row", "title", "配置名称")), RecordReadVisibility.RETAINED);
+            var envelope = Map.of("records", List.of(Map.of("record", Map.of("id", "row", "title", "配置名称"), "sourceDeleteOperationId", "deletion")));
+            var output = mapper.valueToTree(service.projectCaptured(envelope));
+            assertThat(output.at("/records/0/record/$texts/title/languages/en/text").asText()).isEqualTo("Configuration name");
+            assertThat(output.at("/records/0/sourceDeleteOperationId").asText()).isEqualTo("deletion");
+            verify(ability, never()).list(any(), any(net.ximatai.muyun.database.core.orm.PageRequest.class));
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test void conflictingProducerSourcesAreNotAppliedToCoincidingRecordIds() {
+        var service = service();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            var record = new Application(); record.setId("row"); record.setTitle("配置名称");
+            service.transformRecord(sourceAbility, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+            doReturn(Map.of("title", TextReference.code("other.producer", "配置名称"))).when(sourceAbility).recordTextSources(record);
+            service.transformRecord(sourceAbility, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+            var output = mapper.valueToTree(service.projectCaptured(record));
+            assertThat(output.path("$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    private interface RetainedConfiguration extends ConfiguredRecordTextAbility<Application>, net.ximatai.muyun.spring.ability.RecycleBinAbility<Application> { }
+
 }

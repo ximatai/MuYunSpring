@@ -223,3 +223,57 @@ it('omits password controls from assistant projection and shares specialized dis
 function listView(fields: ResolvedViewDescriptor['fields']): ResolvedViewDescriptor {
   return { viewCode: 'list', viewKind: 'LIST', fields };
 }
+
+it('uses exact-source record labels for text and companion columns without changing facts or renderer precedence', async () => {
+  const { createLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const text = {
+    source: {
+      sourceKind: 'CONFIG',
+      sourceId: 'configuration/title',
+      sourceVersion: 'v1',
+      originalText: '配置名称',
+    },
+    languages: {
+      en: {
+        text: 'Configuration name',
+        requestedTag: 'en',
+        resourceTag: 'en',
+        missing: false,
+        fallback: false,
+      },
+    },
+  };
+  const record = {
+    id: 'configuration',
+    title: '配置名称',
+    category: 'category-id',
+    categoryTitle: '配置名称',
+    $texts: { title: text, categoryTitle: text },
+  };
+  const column = { key: 'title', title: 'Name' };
+  const context = { language };
+  expect(resolveRecordQueryListDisplayValue(record, column, {}, context)).toBe('Configuration name');
+  expect(
+    resolveRecordQueryListDisplayValue(
+      record,
+      { key: 'category', title: 'Category', titleField: 'categoryTitle' },
+      {},
+      context,
+    ),
+  ).toBe('Configuration name');
+  expect(
+    resolveRecordQueryListDisplayValue(record, { ...column, render: () => 'Custom label' }, {}, context),
+  ).toBe('Custom label');
+  expect(resolveRecordQueryListDisplayValue(record, column, { title: () => 'Legacy label' }, context)).toBe(
+    'Legacy label',
+  );
+  language.setLanguage('zh-CN');
+  expect(resolveRecordQueryListDisplayValue(record, column, {}, context)).toBe('配置名称');
+  language.setLanguage('en');
+  expect(
+    resolveRecordQueryListDisplayValue({ ...record, title: 'Edited literal' }, column, {}, context),
+  ).toBe('Edited literal');
+  expect(record.title).toBe('配置名称');
+  expect(record.category).toBe('category-id');
+});

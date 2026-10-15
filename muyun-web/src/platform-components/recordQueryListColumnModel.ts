@@ -11,7 +11,12 @@ import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { formatPlatformDateTime } from './platformDateTime';
 import { formatPlatformFileSize } from './platformFileSize';
-import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import {
+  presentationLabel,
+  recordPresentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
@@ -163,14 +168,17 @@ export function resolveRecordQueryListDisplayValue(
   );
   for (const candidate of titleFields) {
     const titleValue = record[candidate];
-    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+    if (typeof titleValue === 'string' && titleValue.trim())
+      return recordPresentationLabel(record, candidate, language);
   }
   const value = rawValue;
   const optionTitles = optionTitlesOf(value, column.optionItems, context.language);
   if (optionTitles.length > 0) return optionTitles.join('、');
   if (typeof value === 'boolean')
     return value ? language.t('platform.value.yes', '是') : language.t('platform.value.no', '否');
-  return String(value ?? '');
+  return typeof value === 'string'
+    ? recordPresentationLabel(record, column.key, language)
+    : String(value ?? '');
 }
 
 function optionTitlesOf(

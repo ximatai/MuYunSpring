@@ -46,6 +46,12 @@ public class StaticRecordReadProjectionService {
     private final ModuleExecutionPlanCatalog moduleExecutionPlanCatalog;
     private final RelationProjectionReadService relationProjectionReadService;
     private final OptionSourceRegistry optionSourceRegistry;
+    private RecordTextPresentationService recordTexts;
+
+    @Autowired(required = false)
+    public void setRecordTextPresentationService(RecordTextPresentationService recordTexts) {
+        this.recordTexts = recordTexts;
+    }
 
     public StaticRecordReadProjectionService(StaticModuleDefinitionCatalog staticModuleDefinitionCatalog) {
         this(staticModuleDefinitionCatalog, new ModuleExecutionPlanCatalog(staticModuleDefinitionCatalog),
@@ -173,10 +179,10 @@ public class StaticRecordReadProjectionService {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
             return dataScopeAbility.withDataScopeTenant(scope,
                     () -> queryDefaultList(moduleAlias, visibility.apply(recordService, scope.criteria()),
-                            pageRequest, recordService, sorts));
+                            pageRequest, recordService, visibility, sorts));
         }
         return queryDefaultList(moduleAlias, visibility.apply(recordService, criteria), pageRequest,
-                recordService, sorts);
+                recordService, visibility, sorts);
     }
 
     public Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
@@ -241,6 +247,11 @@ public class StaticRecordReadProjectionService {
                                                                            PageRequest pageRequest,
                                                                            Object recordService,
                                                                            Sort... sorts) {
+        return queryDefaultList(moduleAlias, criteria, pageRequest, recordService, RecordReadVisibility.ACTIVE, sorts);
+    }
+
+    Optional<WebPageResponse<Map<String, Object>>> queryDefaultList(String moduleAlias,
+            Criteria criteria, PageRequest pageRequest, Object recordService, RecordReadVisibility visibility, Sort... sorts) {
         StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
         if (definition == null) {
             return Optional.empty();
@@ -258,6 +269,9 @@ public class StaticRecordReadProjectionService {
         if (page == null) return Optional.empty();
         Class<?> modelClass = modelClass(moduleAlias, recordService);
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords());
+        if (recordTexts != null && recordService instanceof CrudAbility<?> ability) {
+            recordTexts.captureProjected(ability, records, visibility);
+        }
         return Optional.of(new WebPageResponse<>(records, page.getTotal(), page.getPageNum(), page.getPageSize(),
                 page.getPages(), page.isTotalKnown(), null));
     }
@@ -333,6 +347,9 @@ public class StaticRecordReadProjectionService {
         Class<?> modelClass = modelClass(moduleAlias, recordService);
         List<Map<String, Object>> records = postProcessStaticOutput(
                 modelClass, projection, page.getRecords());
+        if (recordTexts != null && recordService instanceof CrudAbility<?> ability) {
+            recordTexts.captureProjected(ability, records, RecordReadVisibility.ACTIVE);
+        }
         WebPageResponse<Map<String, Object>> response = new WebPageResponse<>(
                 records,
                 page.getTotal(),
