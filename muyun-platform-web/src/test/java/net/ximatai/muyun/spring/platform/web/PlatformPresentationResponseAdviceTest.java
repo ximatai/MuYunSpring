@@ -49,6 +49,37 @@ class PlatformPresentationResponseAdviceTest {
         }
     }
 
+    @Test void retainsCapabilityFactsAndProjectsOnlyProducerDeclaredGuidance() throws Exception {
+        var reason = TextReference.code("platform.metadata.capability.metadata-declaration", "能力由元数据声明驱动。");
+        var description = TextReference.code("platform.metadata.capability.tree-default", "未填写 parentId 时，运行态写入根节点。");
+        var declared = net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityFact.declared(
+                net.ximatai.muyun.spring.common.platform.EntityCapability.TREE, false, true,
+                reason, List.of("parentId"), "RUNTIME", description);
+        var literal = new net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityFact(
+                declared.capability(), true, false, reason.originalText(), List.of("parentId"), "RUNTIME", description.originalText());
+        var changed = new net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityFact(
+                declared.capability(), true, false, "扩展方自己的说明", List.of("parentId"), "RUNTIME", description.originalText(), declared.textSources());
+        var snapshot = new net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshot(
+                "test.module", "main", net.ximatai.muyun.spring.platform.metadata.RelationRole.MAIN, List.of(declared, literal, changed));
+        var projection = advice(Map.of(reason, "Capabilities follow metadata declarations.", description, "When parentId is empty, the runtime assigns the root node."));
+        var method = PlatformModuleMetadataRelationWebController.class.getMethod("capabilitySnapshot", jakarta.servlet.http.HttpServletRequest.class, String.class);
+        assertThat(projection.supports(new org.springframework.core.MethodParameter(method, -1), org.springframework.http.converter.json.MappingJackson2HttpMessageConverter.class)).isTrue();
+        try (var language = LanguageContext.use("en")) {
+            var output = mapper.valueToTree(projection.project(snapshot));
+            assertThat(output.at("/capabilities/0/reason").asText()).isEqualTo(reason.originalText());
+            assertThat(output.at("/capabilities/0/defaultDescriptionText/languages/en/text").asText()).contains("root node");
+            assertThat(output.at("/capabilities/0/defaultDescriptionText/source/sourceVersion").asText()).isEqualTo(description.sourceVersion());
+            assertThat(output.at("/capabilities/0/configurable").asBoolean()).isTrue();
+            assertThat(output.at("/capabilities/0/enabled").asBoolean()).isFalse();
+            assertThat(output.at("/capabilities/0/fieldContributions/0").asText()).isEqualTo("parentId");
+            assertThat(output.at("/capabilities/0/textSources").isMissingNode()).isTrue();
+            assertThat(output.at("/capabilities/1/reasonText").isMissingNode()).isTrue();
+            assertThat(output.at("/capabilities/2/reasonText").isMissingNode()).isTrue();
+            assertThat(output.at("/capabilities/2/reason").asText()).isEqualTo("扩展方自己的说明");
+        }
+        assertThat(snapshot.capabilities().getFirst()).isEqualTo(declared);
+    }
+
     @Test void projectsDeclaredAvailabilityReasonsWithoutChangingDecisionsOrLiteralBusinessReasons() {
         var code = TextReference.code("platform.managed-application.edit-unavailable", "平台托管应用不可编辑");
         var config = TextReference.configured("config/action/reason", "配置的限制");

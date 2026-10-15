@@ -121,9 +121,11 @@ it('shows translated workspace tab resources while preserving original tab title
     language.setLanguage('en');
     await nextTick();
     expect(tabs.props('tabs')[0].title).toBe('Low-code governance: 业务原名');
+    expect(wrapper.get('h1').text()).toBe('Low-code governance: 业务原名');
     language.setLanguage('zh-CN');
     await nextTick();
     expect(tabs.props('tabs')[0].title).toBe('低代码治理：业务原名');
+    expect(wrapper.get('h1').text()).toBe('低代码治理：业务原名');
     language.setLanguage('en');
     await nextTick();
     expect(tabs.props('tabs')[0].key).toBe(key);

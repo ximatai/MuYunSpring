@@ -1,3 +1,5 @@
+import type { TextPresentation } from '@muyun/web-contracts';
+import { presentationLabel } from '@muyun/web-core';
 import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
@@ -272,6 +274,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       fieldContributions: string[];
       defaultKind: string;
       defaultDescription: string;
+      reasonText?: TextPresentation;
+      defaultDescriptionText?: TextPresentation;
     };
     type ModuleMetadataRelationRecordCount = { relationId: string; recordCount: number };
     type ModuleMetadataCapabilitySnapshot = {
@@ -320,6 +324,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...fact,
         configurable: fact.changeSetConfigurable === true,
         title: capabilityTitleOf(fact.capability),
+        reason: presentationLabel(fact.reason, fact.reasonText, language),
+        defaultDescription: presentationLabel(fact.defaultDescription, fact.defaultDescriptionText, language),
         selected:
           fact.enabled ||
           Boolean(
@@ -3326,7 +3332,17 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             selectedRelation: relation && {
               ...relation,
               fields: relation.fields.map((field) => ({ ...field, governance: undefined })),
-              capabilities: relation.capabilities.map((fact) => ({ ...fact, title: undefined })),
+              capabilities: relation.capabilities.map((fact) => {
+                const original = capabilitySnapshot.value?.capabilities.find(
+                  (item) => item.capability === fact.capability,
+                );
+                return {
+                  ...fact,
+                  title: undefined,
+                  reason: original?.reason ?? fact.reason,
+                  defaultDescription: original?.defaultDescription ?? fact.defaultDescription,
+                };
+              }),
             },
           },
           governance: state.allFields.value.map((field) => [

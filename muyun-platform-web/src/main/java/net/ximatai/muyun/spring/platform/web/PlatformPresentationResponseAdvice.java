@@ -53,7 +53,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 WorkflowModuleTaskContinueResult.class.isAssignableFrom(parameter.getParameterType()) ||
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class ||
                 parameter.getContainingClass() == ApplicationConstructionPlanWebController.class ||
-                parameter.getContainingClass() == PlatformBusinessRuleGovernanceWebController.class;
+                parameter.getContainingClass() == PlatformBusinessRuleGovernanceWebController.class ||
+                ModuleMetadataCapabilitySnapshot.class.isAssignableFrom(parameter.getParameterType());
     }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
             Class<? extends HttpMessageConverter<?>> converter, ServerHttpRequest request, ServerHttpResponse response) { return project(body); }
@@ -117,6 +118,11 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         } else if (value instanceof OpenApiModuleCatalogItem item) {
             if (item.titleSource() != null && item.title().equals(item.titleSource().originalText()))
                 slots.add(new Slot(path, "title", item.titleSource()));
+        } else if (value instanceof ModuleMetadataCapabilitySnapshot snapshot) {
+            collect(snapshot.capabilities(), path + "/capabilities", slots);
+        } else if (value instanceof ModuleMetadataCapabilityFact fact) {
+            fact.textSources().forEach((property, source) ->
+                    slots.add(new Slot(path, property, source, Map.of(), false, true)));
         } else if (value instanceof BusinessRuleGovernanceSnapshot snapshot) {
             collect(snapshot.functions(), path + "/functions", slots);
         } else if (value instanceof BusinessRulePreview preview) {

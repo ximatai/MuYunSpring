@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import java.util.function.Predicate;
 
 /**
@@ -48,7 +49,7 @@ public class ModuleMetadataCapabilitySnapshotService {
                 catalogCapability(EntityCapability.SORT, relation, resolution, hasChildUsage),
                 fieldCapability(EntityCapability.REFERENCE, relation, fields, false,
                         field -> Boolean.TRUE.equals(field.getTitleField()),
-                        List.of(PlatformAbilityFields.TITLE_FIELD), "NONE", "标题字段用于引用显示；不自动写入初始值。"),
+                        List.of(PlatformAbilityFields.TITLE_FIELD), "NONE", text("reference-default", "标题字段用于引用显示；不自动写入初始值。")),
                 catalogCapability(EntityCapability.ENABLE, relation, resolution, hasChildUsage),
                 catalogCapability(EntityCapability.RECYCLE_BIN, relation, resolution,
                         relationService.count(Criteria.of().eq("metadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0),
@@ -67,46 +68,50 @@ public class ModuleMetadataCapabilitySnapshotService {
                 .map(ModuleMetadataCapabilityFieldContribution::fieldName).toList();
         String defaultKind = capability == EntityCapability.ENABLE ? "STATIC"
                 : capability == EntityCapability.APPROVAL ? "CONTEXT" : "RUNTIME";
-        String description = switch (capability) {
-            case TREE -> "未填写 parentId 时，运行态写入根节点。";
-            case SORT -> "未填写 sortOrder 时，运行态按分区分配下一个排序值。";
-            case ENABLE -> "未填写 enabled 时，默认写入 true。";
-            case RECYCLE_BIN -> "查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。";
-            case APPROVAL -> "审批摘要由流程运行态维护；启用后暂不支持关闭。";
-            default -> "";
+        TextReference description = switch (capability) {
+            case TREE -> text("tree-default", "未填写 parentId 时，运行态写入根节点。");
+            case SORT -> text("sort-default", "未填写 sortOrder 时，运行态按分区分配下一个排序值。");
+            case ENABLE -> text("enable-default", "未填写 enabled 时，默认写入 true。");
+            case RECYCLE_BIN -> text("recycle-bin-default", "查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。");
+            case APPROVAL -> text("approval-default", "审批摘要由流程运行态维护；启用后暂不支持关闭。");
+            default -> text("empty", "");
         };
         boolean configurable = !child && !blockedByChildUsage;
-        String reason = child ? "子元数据不能启用该模块保留能力。"
-                : blockedByChildUsage ? "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。"
-                : resolution.legacyFieldInference() ? "旧元数据暂由字段事实推导；首次治理后将写入能力声明。"
-                : "能力由元数据声明驱动。";
-        return new ModuleMetadataCapabilityFact(capability, resolution.capabilities().contains(capability), configurable,
+        TextReference reason = child ? text("child-unavailable", "子元数据不能启用该模块保留能力。")
+                : blockedByChildUsage ? text("child-usage-unavailable", "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。")
+                : resolution.legacyFieldInference() ? text("legacy-inference", "旧元数据暂由字段事实推导；首次治理后将写入能力声明。")
+                : text("metadata-declaration", "能力由元数据声明驱动。");
+        return ModuleMetadataCapabilityFact.declared(capability, resolution.capabilities().contains(capability), configurable,
                 reason, contributions, defaultKind, description);
     }
 
     private ModuleMetadataCapabilityFact dataScopeCapability(ModuleMetadataRelation relation, Metadata metadata) {
         boolean child = relation.getRelationRole() == RelationRole.CHILD;
-        return new ModuleMetadataCapabilityFact(EntityCapability.DATA_SCOPE, Boolean.TRUE.equals(metadata.getDataScopeEnabled()), !child,
-                child ? "子元数据不能启用模块数据权限范围。" : "数据权限范围由现有元数据配置声明。",
+        return ModuleMetadataCapabilityFact.declared(EntityCapability.DATA_SCOPE, Boolean.TRUE.equals(metadata.getDataScopeEnabled()), !child,
+                child ? text("data-scope-child-unavailable", "子元数据不能启用模块数据权限范围。") : text("data-scope-declaration", "数据权限范围由现有元数据配置声明。"),
                 PlatformDataScopeSchema.fieldNames(), "CONTEXT",
-                "权限字段由当前用户与组织上下文填充。 ");
+                text("data-scope-default", "权限字段由当前用户与组织上下文填充。 "));
     }
 
     private ModuleMetadataCapabilityFact fieldCapability(EntityCapability capability, ModuleMetadataRelation relation,
                                                           List<MetadataField> fields,
                                                           boolean blockedByChildUsage,
                                                           Predicate<MetadataField> enabled,
-                                                          List<String> contributions, String defaultKind, String defaultDescription) {
+                                                          List<String> contributions, String defaultKind, TextReference defaultDescription) {
         boolean child = relation.getRelationRole() == RelationRole.CHILD;
         boolean allowedForChild = capability == EntityCapability.REFERENCE;
         boolean configurable = (!child || allowedForChild) && !blockedByChildUsage;
-        String reason = child && !allowedForChild
-                ? "子元数据不能启用该模块保留能力。"
+        TextReference reason = child && !allowedForChild
+                ? text("child-unavailable", "子元数据不能启用该模块保留能力。")
                 : blockedByChildUsage
-                    ? "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。"
-                    : "能力由已保存的标准字段事实推导。";
-        return new ModuleMetadataCapabilityFact(capability, fields.stream().anyMatch(enabled), configurable, reason,
+                    ? text("child-usage-unavailable", "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。")
+                    : text("field-inference", "能力由已保存的标准字段事实推导。");
+        return ModuleMetadataCapabilityFact.declared(capability, fields.stream().anyMatch(enabled), configurable, reason,
                 contributions, defaultKind, defaultDescription);
+    }
+
+    private static TextReference text(String key, String original) {
+        return TextReference.code("platform.metadata.capability." + key, original);
     }
 
     private boolean hasChildUsage(String metadataId) {

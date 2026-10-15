@@ -616,7 +616,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             </Transition>
             <div class="topbar-title">
               <div class="topbar-title-heading">
-                <h1>{{ activeTab?.title ?? language.t('platform.screen.Workbench.console', '控制台') }}</h1>
+                <h1>
+                  {{
+                    activeTab
+                      ? toTabItem(activeTab).title
+                      : language.t('platform.screen.Workbench.console', '控制台')
+                  }}
+                </h1>
                 <UiButton
                   class="title-refresh-action"
                   :aria-label="language.t('platform.screen.Workbench.refresh-current-page', '刷新当前页')"

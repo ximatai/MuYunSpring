@@ -2742,3 +2742,79 @@ it('expires old assistant facts when a formal refresh changes relationship field
   await flushPromises();
   expect(registry.snapshot()!.token.contextRevision).toBe(current.contextRevision);
 });
+
+it('projects declared capability guidance in the workspace language without rereading or modifying candidates', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = '未填写 parentId 时，运行态写入根节点。';
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'TREE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '能力由元数据声明驱动。',
+              fieldContributions: ['parentId'],
+              defaultKind: 'RUNTIME',
+              defaultDescription: original,
+              defaultDescriptionText: {
+                source: {
+                  sourceKind: 'CODE',
+                  sourceId: 'platform.metadata.capability.tree-default',
+                  sourceVersion: 'v1',
+                  originalText: original,
+                },
+                languages: {
+                  en: {
+                    text: 'When parentId is empty, the runtime assigns the root node.',
+                    requestedTag: 'en',
+                    resourceTag: 'en',
+                    missing: false,
+                    fallback: false,
+                  },
+                },
+              },
+            },
+            {
+              capability: 'ENABLE',
+              enabled: false,
+              configurable: false,
+              reason: '业务自己的提示',
+              fieldContributions: ['enabled'],
+              defaultKind: 'STATIC',
+              defaultDescription: '业务自己的默认说明',
+            },
+          ],
+        }
+      : responseFor(options),
+  );
+  const workspace = createMetadataWorkspace(
+    { request } as HttpClient,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  try {
+    const shared = workspace.session('education.exam');
+    await shared.ensureLoaded();
+    const before = structuredClone(shared.adapter.proposal!());
+    const revision = shared.contextRevision.value;
+    const reads = request.mock.calls.length;
+    expect(shared.view.capabilityItems.value[0]!.defaultDescription).toContain('root node');
+    expect(shared.view.capabilityItems.value[1]!.reason).toBe('业务自己的提示');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(shared.view.capabilityItems.value[0]!.defaultDescription).toBe(original);
+    expect(shared.view.capabilityItems.value[1]!.reason).toBe('业务自己的提示');
+    expect(shared.adapter.proposal!()).toEqual(before);
+    expect(shared.contextRevision.value).toBe(revision);
+    expect(request).toHaveBeenCalledTimes(reads);
+  } finally {
+    workspace.dispose();
+  }
+});
