@@ -243,6 +243,7 @@ public class DynamicExportExecutor {
             if (!ids.isEmpty()) {
                 ReferenceTarget target = ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias());
                 var ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
+                        .or(() -> recordService.referenceAbility(target))
                         .orElseThrow(() -> new PlatformException(PlatformErrorCodes.CONFIG_MISSING, 409,
                                 "dynamic export reference target is unavailable: " + target.qualifiedName()));
                 titlesByField.put(column.fieldName(), ability.titles(ids));

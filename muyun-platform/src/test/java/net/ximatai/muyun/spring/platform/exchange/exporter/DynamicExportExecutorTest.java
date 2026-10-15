@@ -19,7 +19,6 @@ import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
 import net.ximatai.muyun.spring.platform.exchange.template.DynamicExchangeTemplatePlanBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
@@ -45,14 +44,10 @@ class DynamicExportExecutorTest {
     private final DynamicExportExecutor executor = new DynamicExportExecutor(
             recordService, new DynamicExchangeTemplatePlanBuilder());
 
-    @BeforeEach
-    void configureReferenceTargets() {
-        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> {
-            ReferenceAbility<StandardTitledEntity> ability = mock(ReferenceAbility.class);
-            when(ability.titles(any())).thenAnswer(invocation -> recordService.titles(
-                    target.moduleAlias(), target.entityAlias(), invocation.getArgument(0)));
-            return Optional.of(ability);
-        });
+    private void localReferenceTitles(ReferenceTarget target, Map<String, String> titles) {
+        ReferenceAbility<StandardTitledEntity> ability = mock(ReferenceAbility.class);
+        when(recordService.referenceAbility(target)).thenReturn(Optional.of(ability));
+        when(ability.titles(any())).thenReturn(titles);
     }
 
     @AfterEach
@@ -180,8 +175,7 @@ class DynamicExportExecutorTest {
         PageRequest pageRequest = PageRequest.of(1, 20);
         when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
         when(records.list("order", criteria, pageRequest)).thenReturn(List.of(first));
-        when(recordService.titles(MODULE, "customer", Set.of("customer-1")))
-                .thenReturn(Map.of("customer-1", "Acme"));
+        localReferenceTitles(ReferenceTarget.of(MODULE, "customer"), Map.of("customer-1", "Acme"));
 
         ExcelWorkbookPlan plan = executor.export(new DynamicExportCommand(
                 descriptor, criteria, pageRequest, List.of()));
@@ -212,8 +206,7 @@ class DynamicExportExecutorTest {
         PageRequest pageRequest = PageRequest.of(1, 20);
         when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
         when(records.list("order", criteria, pageRequest)).thenReturn(List.of(first));
-        when(recordService.titles(MODULE, "tag", Set.of("tag-1", "tag-2")))
-                .thenReturn(Map.of("tag-1", "Urgent", "tag-2", "Wholesale"));
+        localReferenceTitles(ReferenceTarget.of(MODULE, "tag"), Map.of("tag-1", "Urgent", "tag-2", "Wholesale"));
 
         ExcelWorkbookPlan plan = executor.export(new DynamicExportCommand(
                 descriptor, criteria, pageRequest, List.of()));
