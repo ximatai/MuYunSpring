@@ -111,7 +111,7 @@ export function useModuleContext<TRecord>(
     if (!options.language || options.language === contextLanguages.get(toRaw(context))) return context;
     // A language override is a display scope: retain the authorized runtime, transport and business session.
     const language = options.language;
-    const runtime = scopeModuleRuntimeLanguage(context.runtime, language);
+    const runtime = scopeModuleRuntimeLanguage(context.runtime, language, context);
     const localized = {
       ...context,
       runtime,

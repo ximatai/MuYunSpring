@@ -303,21 +303,46 @@ export function createModuleRuntimeContextState(
 export function scopeModuleRuntimeLanguage(
   context: ModuleRuntimeContextState,
   language: LanguageContext,
+  access: Pick<ModuleRuntimeContextState, 'action' | 'runtimeAction'> = context,
 ): ModuleRuntimeContextState {
   const presentation = computed(() => {
     const original = context.snapshot();
     return original && translatedPresentation(original, language);
   });
+  const displayAction = (definition: ModuleRuntimeAction | undefined) => {
+    if (!definition) return undefined;
+    const canonical = context.runtimeAction(definition.actionCode);
+    const display = runtimeAction(presentation.value, definition.actionCode);
+    return display &&
+      canonical &&
+      definition.title === canonical.title &&
+      JSON.stringify(definition.titleSource) === JSON.stringify(canonical.titleSource)
+      ? { ...definition, title: display.title }
+      : definition;
+  };
   return {
     ...context,
     presentationSnapshot: () => presentation.value,
-    runtimeAction: (code) => runtimeAction(presentation.value, code),
+    runtimeAction: (code) => displayAction(access.runtimeAction(code)),
     action: (code, recordId) => {
-      const id = recordId?.trim();
-      const decision = id ? context.recordActionsSnapshot(id) : undefined;
-      const records = new Map<string, ModuleRecordActionAvailability>();
-      if (id && decision) records.set(id, decision);
-      return actionState(presentation.value, records, code, id, language);
+      const state = access.action(code, recordId);
+      if (!state) return undefined;
+      const definition = displayAction(state.definition);
+      const canonical = context.action(state.actionCode, state.recordId);
+      const decision = state.recordId
+        ? context
+            .recordActionsSnapshot(state.recordId)
+            ?.actions.find((item) => item.actionCode === state.actionCode)
+        : undefined;
+      return {
+        ...state,
+        definition,
+        title: state.title === state.definition?.title ? definition?.title : state.title,
+        reason:
+          decision?.reasonText && state.reason === canonical?.reason
+            ? presentationLabel(decision.reason ?? '', decision.reasonText, language)
+            : state.reason,
+      };
     },
   };
 }

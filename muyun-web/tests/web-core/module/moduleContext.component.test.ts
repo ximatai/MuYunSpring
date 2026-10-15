@@ -1,6 +1,6 @@
 import { createLanguageContext } from '@/web-core/language';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h, ref, nextTick } from 'vue';
+import { defineComponent, h, ref, nextTick, toRaw } from 'vue';
 import { describe, expect, it } from 'vitest';
 import type { HttpClient, HttpRequestOptions } from '@/web-core/http';
 import {
@@ -260,6 +260,68 @@ it('honors an explicit language in an injected VIEW session without replacing it
     expect(child.runtimeAction('testConnection')?.title).toBe('测试连接');
     expect(wrapper.text()).toBe('原始标题');
     expect(requests).toBe(1);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('retains injected action-code adapters and caller-owned decisions in an explicit language scope', async () => {
+  const original = createModuleContext({
+    moduleAlias: 'test.adapted',
+    language: createLanguageContext({ languageTag: 'zh-CN' }),
+    http: {
+      request: async () => ({
+        moduleAlias: 'test.adapted',
+        capabilities: [],
+        actions: [{ actionCode: 'resource.sort', title: '调整排序', authorized: true }],
+        textBindings: {
+          '/actions/0/title': {
+            source: {
+              sourceKind: 'CODE',
+              sourceId: 'adapted.sort',
+              sourceVersion: 'v1',
+              originalText: '调整排序',
+            },
+            languages: {
+              en: { text: 'Reorder', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+            },
+          },
+        },
+      }),
+    } as unknown as HttpClient,
+  });
+  const adapted = {
+    ...original,
+    runtimeAction: (code: string) => original.runtimeAction(code === 'sort' ? 'resource.sort' : code),
+    action: (code: string) => {
+      const state = original.action(code === 'sort' ? 'resource.sort' : code);
+      return state && { ...state, available: false, reason: 'Caller-owned guard' };
+    },
+    can: () => false,
+  };
+  let scoped!: ModuleContext<unknown>;
+  const Consumer = defineComponent({
+    setup() {
+      scoped = useModuleContext({ language: createLanguageContext({ languageTag: 'en' }) });
+      return () => h('p', scoped.runtimeAction('sort')?.title);
+    },
+  });
+  const wrapper = mount(ModuleContextProvider, {
+    props: { context: adapted },
+    slots: { default: () => h(Consumer) },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toBe('Reorder');
+    expect(scoped.action('sort')).toMatchObject({
+      actionCode: 'resource.sort',
+      available: false,
+      reason: 'Caller-owned guard',
+      title: 'Reorder',
+    });
+    expect(scoped.can('sort')).toBe(false);
+    expect(scoped.runtime.snapshot()).toBe(original.runtime.snapshot());
+    expect(toRaw(scoped.http)).toBe(original.http);
   } finally {
     wrapper.unmount();
   }
