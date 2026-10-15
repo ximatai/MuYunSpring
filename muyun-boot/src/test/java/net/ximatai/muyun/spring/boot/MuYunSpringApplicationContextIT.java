@@ -326,6 +326,78 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void publishesTenantAndOrganizationPresetLabelsWithoutChangingRecordsOrMaintainedTranslations() {
+        var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var seeds = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfiguredTextSeedService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        var schemes = applicationContext.getBean(net.ximatai.muyun.spring.platform.menu.MenuSchemeService.class);
+        var organizations = applicationContext.getBean(OrganizationService.class);
+        String tenantId = "english_role_preset_it";
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("role-preset-test", "role-preset-test"));
+             var scope = TenantContext.system("official tenant and role translation integration test")) {
+            Tenant tenant = new Tenant(); tenant.setAlias(tenantId); tenant.setTitle("Preset tenant"); tenant.setEnabled(true);
+            tenantService.insert(tenant);
+            net.ximatai.muyun.spring.platform.menu.MenuScheme scheme;
+            net.ximatai.muyun.spring.iam.role.Role role;
+            try (var tenantScope = TenantContext.use(tenantId)) {
+                scheme = schemes.select(net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner.tenantAdminSchemeId(tenantId));
+                role = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.tenantAdminRoleId(tenantId));
+                var organization = new Organization(); organization.setCode("EN_PRESET"); organization.setTitle("Preset organization");
+                organizations.insert(organization);
+                var orgRole = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner.organizationAdminRoleId(tenantId, organization.getId()));
+                var orgSources = roleService.recordTextSources(orgRole);
+                assertThat(texts.resolve(orgSources.get("title"), java.util.Map.of(), "en").text()).isEqualTo("Organization administrator");
+                assertThat(texts.resolve(orgSources.get("description"), java.util.Map.of(), "en").text()).startsWith("Built-in administrator role");
+                assertThat(orgRole.getTitle()).isEqualTo("机构管理员");
+            }
+            var schemeSource = schemes.recordTextSources(scheme).get("title");
+            var roleSources = roleService.recordTextSources(role);
+            assertThat(texts.resolve(schemeSource, java.util.Map.of(), "en").text()).isEqualTo("Tenant administration");
+            assertThat(texts.resolve(roleSources.get("title"), java.util.Map.of(), "en").text()).isEqualTo("Tenant administrator");
+            assertThat(texts.resolve(roleSources.get("description"), java.util.Map.of(), "en").text()).startsWith("Built-in administrator role");
+            assertThat(scheme.getTitle()).isEqualTo("租户管理");
+            assertThat(role.getTitle()).isEqualTo("租户管理员");
+            assertThat(role.getSystemPurpose()).isEqualTo(net.ximatai.muyun.spring.iam.role.RoleSystemPurpose.TENANT_ADMIN);
+            for (var source : java.util.List.of(schemeSource, roleSources.get("title"), roleSources.get("description"))) {
+                String module = source == schemeSource ? "platform.menu_scheme" : "iam.role";
+                var row = translations.published(java.util.List.of(source)).getFirst();
+                var originalEnglish = texts.resolve(source, java.util.Map.of(), "en").text();
+                var draft = translations.saveDraft(module, source.sourceId(), source.sourceVersion(), "en", "Maintained " + module, row.getVersion());
+                tenantService.provisionTenant(tenantId);
+                assertThat(translations.select(row.getId()).getDraftText()).isEqualTo("Maintained " + module);
+                assertThat(texts.resolve(source, java.util.Map.of(), "en").text()).isEqualTo(originalEnglish);
+                translations.publish(row.getId(), source.sourceVersion(), draft.getVersion());
+                seeds.seedTenant(tenantId);
+                assertThat(texts.resolve(source, java.util.Map.of(), "en").text()).isEqualTo("Maintained " + module);
+            }
+            try (var tenantScope = TenantContext.use(tenantId)) {
+                var manual = new net.ximatai.muyun.spring.iam.role.Role(); manual.setTitle("租户管理员");
+                manual.setAssignmentType(net.ximatai.muyun.spring.iam.role.RoleAssignmentType.EMPLOYMENT);
+                roleService.insert(manual);
+                var customScheme = new net.ximatai.muyun.spring.platform.menu.MenuScheme();
+                customScheme.setAlias("manual_english"); customScheme.setTitle("租户管理"); customScheme.setEnabled(true);
+                schemes.insert(customScheme);
+                seeds.seedTenant(tenantId);
+                assertThat(translations.published(roleService.recordTextSources(manual).values())).isEmpty();
+                assertThat(translations.published(schemes.recordTextSources(customScheme).values())).isEmpty();
+                scheme.setTitle("User-managed navigation"); schemes.update(scheme);
+                seeds.seedTenant(tenantId);
+                var renamed = schemes.recordTextSources(scheme).get("title");
+                assertThat(texts.resolve(renamed, java.util.Map.of(), "en").text()).isEqualTo("User-managed navigation");
+                assertThat(renamed.sourceVersion()).isNotEqualTo(schemeSource.sourceVersion());
+            }
+            Tenant other = new Tenant(); other.setAlias("english_role_other_it"); other.setTitle("Other preset tenant"); other.setEnabled(true);
+            tenantService.insert(other);
+            try (var tenantScope = TenantContext.use(other.getId())) {
+                var otherRole = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.tenantAdminRoleId(other.getId()));
+                var otherSource = roleService.recordTextSources(otherRole).get("title");
+                assertThat(otherSource.sourceId()).isNotEqualTo(roleSources.get("title").sourceId());
+                assertThat(texts.resolve(otherSource, java.util.Map.of(), "en").text()).isEqualTo("Tenant administrator");
+            }
+        }
+    }
+
+    @Test
     void publishesOfficialConfigurationLabelsAndSeedsNewTenantMenuCopiesWithoutOverwritingMaintenance() {
         var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
         var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);

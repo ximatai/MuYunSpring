@@ -53,6 +53,18 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner, 
         }
     }
 
+    public static net.ximatai.muyun.spring.common.i18n.TextReference tenantAdminSchemeTitleBaseline() {
+        return net.ximatai.muyun.spring.common.i18n.TextReference.configured(
+                "config/preset/platform.menu_scheme/tenant_admin/title", TENANT_ADMIN_SCHEME_TITLE);
+    }
+
+    public static boolean isTenantAdminScheme(MenuScheme scheme) {
+        return scheme != null && scheme.getTenantId() != null && !scheme.getTenantId().isBlank()
+                && tenantAdminSchemeId(scheme.getTenantId()).equals(scheme.getId())
+                && TENANT_ADMIN_SCHEME_ALIAS.equals(scheme.getAlias())
+                && scheme.getScopeType() == MenuScopeType.TENANT && scheme.getOrganizationId() == null;
+    }
+
     public static String tenantAdminSchemeId(String tenantId) {
         return SCHEME_ID_PREFIX + shortHash(requireText(tenantId, "tenantId"));
     }

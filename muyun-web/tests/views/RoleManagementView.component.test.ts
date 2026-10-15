@@ -45,6 +45,25 @@ function mountRoleManagement(props: Record<string, string> = {}, language?: Lang
       return Response.json({
         id: url.pathname.split('/').at(-1),
         title: '租户管理员',
+        $texts: {
+          title: {
+            source: {
+              sourceKind: 'CONFIG',
+              sourceId: 'config/record/iam.role/preset/title',
+              sourceVersion: 'preset-title-version',
+              originalText: '租户管理员',
+            },
+            languages: {
+              en: {
+                text: 'Tenant administrator',
+                requestedTag: 'en',
+                resourceTag: 'en',
+                missing: false,
+                fallback: false,
+              },
+            },
+          },
+        },
         ownerScopeType: 'tenant',
         ownerScopeId: props.scopeId,
         enabled: true,
@@ -197,6 +216,31 @@ it('translates selected scope presentation while retaining its identity and the 
     await flushPromises();
     expect(drawer.props('subtitle')).toContain('Tenant level');
     expect(JSON.stringify(form.vm.$attrs.record)).toBe(before);
+  } finally {
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('shows a preset role title through its record resource without refetching on language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { wrapper, requests } = mountRoleManagement(
+    { recordId: 'preset', scopeKind: 'tenant', scopeId: 'tenant-1' },
+    language,
+  );
+  try {
+    await flushPromises();
+    await flushPromises();
+    const panel = wrapper.findComponent({ name: 'RecordDetailPanel' });
+    expect(panel.props('title')).toBe('Tenant administrator');
+    const calls = requests.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(panel.props('title')).toBe('租户管理员');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(panel.props('title')).toBe('Tenant administrator');
+    expect(requests.length).toBe(calls);
   } finally {
     wrapper.unmount();
     vi.unstubAllGlobals();

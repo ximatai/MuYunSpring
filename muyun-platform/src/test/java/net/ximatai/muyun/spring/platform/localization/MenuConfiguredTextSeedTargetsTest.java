@@ -11,6 +11,31 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class MenuConfiguredTextSeedTargetsTest {
+    @Test void recognizesSchemeIdentityRatherThanItsAliasOrLiteralTitle() {
+        var menus = mock(MenuService.class);
+        var schemes = mock(MenuSchemeService.class);
+        when(schemes.getModuleAlias()).thenReturn(MenuSchemeService.MODULE_ALIAS);
+        var preset = scheme("tenant-a", DefaultTenantMenuProvisioner.tenantAdminSchemeId("tenant-a"));
+        preset.setTitle(DefaultTenantMenuProvisioner.TENANT_ADMIN_SCHEME_TITLE);
+        var other = scheme("tenant-b", DefaultTenantMenuProvisioner.tenantAdminSchemeId("tenant-b"));
+        other.setTitle("用户自定义标题");
+        var manual = scheme("tenant-a", "manual-same-title"); manual.setTitle(preset.getTitle());
+        when(schemes.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(preset, other, manual));
+        when(schemes.recordTextSources(any())).thenCallRealMethod();
+        var originals = java.util.stream.Stream.of(preset, other, manual)
+                .map(row -> ConfigurationTextSources.recordText(MenuSchemeService.MODULE_ALIAS, row.getId(), "title", row.getTitle())).toList();
+        var provider = new MenuConfiguredTextSeedTargets(menus, schemes);
+        try (var scope = TenantContext.system("scheme preset targets")) {
+            assertThat(provider.derivedTargets(MenuSchemeService.MODULE_ALIAS, originals, "tenant-a"))
+                    .singleElement().satisfies(target -> {
+                        assertThat(target.baseline()).isEqualTo(DefaultTenantMenuProvisioner.tenantAdminSchemeTitleBaseline());
+                        assertThat(target.target()).isEqualTo(originals.getFirst());
+                    });
+            assertThat(provider.derivedTargets(MenuSchemeService.MODULE_ALIAS, originals, "tenant-b"))
+                    .singleElement().satisfies(target -> assertThat(target.target()).isEqualTo(originals.get(1)));
+        }
+    }
+
     @Test void recognizesOnlyManagedCopiesWithTheProducerIdentityAndRequestedTenant() {
         var menus = mock(MenuService.class);
         var schemes = mock(MenuSchemeService.class);

@@ -40,13 +40,19 @@ public class ConfiguredTextSeedService {
                 for (var entry : entries) {
                     if (!entry.moduleAlias().equals(alias)) continue;
                     var original = current.get(entry.sourceId());
+                    // Presets may have a producer-declared baseline without a persisted template record.
+                    if (original == null) original = derived.stream().map(ConfiguredTextSeedTargetProvider.Target::baseline)
+                            .filter(source -> source.sourceKind() == TextReference.SourceKind.CONFIG
+                                    && source.sourceId().equals(entry.sourceId()) && source.sourceVersion().equals(entry.sourceVersion()))
+                            .findFirst().orElse(null);
                     if (original == null || !original.sourceVersion().equals(entry.sourceVersion())) continue;
+                    final var baseline = original;
                     var destinations = new LinkedHashSet<TextReference>();
-                    if (tenantId == null) destinations.add(original);
-                    derived.stream().filter(target -> target.baseline().equals(original))
+                    if (tenantId == null && baseline.equals(current.get(baseline.sourceId()))) destinations.add(baseline);
+                    derived.stream().filter(target -> target.baseline().equals(baseline))
                             .map(ConfiguredTextSeedTargetProvider.Target::target)
                             .filter(target -> target.equals(current.get(target.sourceId())))
-                            .filter(target -> target.sourceVersion().equals(original.sourceVersion()) && target.originalText().equals(original.originalText()))
+                            .filter(target -> target.sourceVersion().equals(baseline.sourceVersion()) && target.originalText().equals(baseline.originalText()))
                             .forEach(destinations::add);
                     for (var destination : destinations) {
                         var identity = new SeedIdentity(destination.sourceId(), destination.sourceVersion(), entry.languageTag());

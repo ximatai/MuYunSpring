@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  recordPresentationLabel,
   createModuleCrudClient,
   useModuleContext,
   withHttpHeaders,
@@ -451,10 +452,10 @@ function receiveRoleDetailWorkspaceSession(session: RoleDetailWorkspaceSession) 
 }
 
 watch(
-  selectedRole,
-  (role) => {
-    if (!isWorkspaceView.value || !role) return;
-    workspaceViewHost?.setTitle(roleTitle(role));
+  () => roleTitle(selectedRole.value),
+  (title) => {
+    if (!isWorkspaceView.value || !selectedRole.value) return;
+    workspaceViewHost?.setTitle(title);
   },
   { immediate: true },
 );
@@ -1514,7 +1515,11 @@ function roleToggleTitle(record: Partial<Role> | QueryListRecord | undefined) {
 }
 
 function roleTitle(record: Partial<Role> | QueryListRecord | undefined) {
-  return String(record?.title ?? record?.id ?? language.t('platform.screen.RoleManagementView.role', '角色'));
+  return String(
+    (record && recordPresentationLabel(record, 'title', language)) ??
+      record?.id ??
+      language.t('platform.screen.RoleManagementView.role', '角色'),
+  );
 }
 
 function tenantTitle(record: Tenant | undefined) {

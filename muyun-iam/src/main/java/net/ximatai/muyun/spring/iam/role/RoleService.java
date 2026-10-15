@@ -55,6 +55,7 @@ import java.util.Set;
 
 @Service
 public class RoleService extends TenantActiveScopedService<Role> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<Role>,
         SoftDeleteAbility<Role>,
         EnableAbility<Role>,
         SortAbility<Role>,
@@ -65,6 +66,13 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     public static final String PLATFORM_SUPER_ADMIN_ROLE_ID = "platform.role.super_admin";
     public static final String PLATFORM_SUPER_ADMIN_ROLE_TITLE = "平台超级管理员";
     public static final String TENANT_ADMIN_ROLE_TITLE = "租户管理员";
+
+    @Override public Map<String, TextReference> recordTextSources(Role role) {
+        var result = new LinkedHashMap<>(net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility.super.recordTextSources(role));
+        if (role.getDescription() != null && !role.getDescription().isBlank()) result.put("description",
+                net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.recordText(MODULE_ALIAS, role.getId(), "description", role.getDescription()));
+        return Map.copyOf(result);
+    }
 
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
