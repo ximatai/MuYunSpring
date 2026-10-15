@@ -2081,6 +2081,23 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldKeepCrossSourceTitleReadsInTheExistingViewScope() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of());
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.restricted(invocation.getArgument(2)));
+        DynamicRecordService service = service(operations, referenceEntity(), RuntimeEventPublisher.noop(), dataScope);
+
+        assertThat(service.referenceAbility(ReferenceTarget.of(MODULE, "contract")).orElseThrow()
+                .titles(List.of("hidden"))).isEmpty();
+
+        ArgumentCaptor<ActionExecutionPolicy> policy = ArgumentCaptor.forClass(ActionExecutionPolicy.class);
+        verify(dataScope).resolveReadScope(eq(MODULE), policy.capture(), any(Criteria.class), any());
+        assertThat(policy.getValue().actionCode()).isEqualTo(PlatformAction.VIEW.code());
+    }
+
+    @Test
     void shouldExposeCrossSourceDynamicProjectionReadsThroughReferenceDataScope() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));

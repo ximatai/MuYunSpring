@@ -2,7 +2,11 @@ package net.ximatai.muyun.spring.platform.exchange.exporter;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
@@ -237,8 +241,11 @@ public class DynamicExportExecutor {
                     .flatMap(record -> referenceIds(reference, record.getValues().get(column.fieldName())).stream())
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             if (!ids.isEmpty()) {
-                titlesByField.put(column.fieldName(), recordService.titles(reference.targetModuleAlias(),
-                        reference.targetEntityAlias(), ids));
+                ReferenceTarget target = ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias());
+                var ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
+                        .orElseThrow(() -> new PlatformException(PlatformErrorCodes.CONFIG_MISSING, 409,
+                                "dynamic export reference target is unavailable: " + target.qualifiedName()));
+                titlesByField.put(column.fieldName(), ability.titles(ids));
             }
         }
         return titlesByField.isEmpty() ? emptyTitleLookup() : new ReferenceTitleLookup(entityReferences,

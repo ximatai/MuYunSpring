@@ -18,6 +18,13 @@ import net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
 import net.ximatai.muyun.spring.platform.exchange.template.DynamicExchangeTemplatePlanBuilder;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
+import java.util.Optional;
 
 import java.util.Arrays;
 import java.util.List;
@@ -37,6 +44,21 @@ class DynamicExportExecutorTest {
     private final DynamicRecordActionGateway records = mock(DynamicRecordActionGateway.class);
     private final DynamicExportExecutor executor = new DynamicExportExecutor(
             recordService, new DynamicExchangeTemplatePlanBuilder());
+
+    @BeforeEach
+    void configureReferenceTargets() {
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> {
+            ReferenceAbility<StandardTitledEntity> ability = mock(ReferenceAbility.class);
+            when(ability.titles(any())).thenAnswer(invocation -> recordService.titles(
+                    target.moduleAlias(), target.entityAlias(), invocation.getArgument(0)));
+            return Optional.of(ability);
+        });
+    }
+
+    @AfterEach
+    void resetReferenceTargets() {
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
+    }
 
     @Test
     void shouldExportMainRecordsThroughExportActionGateway() {
@@ -199,4 +221,37 @@ class DynamicExportExecutorTest {
         ExcelSheetPlan main = plan.sheets().getFirst();
         assertThat(main.rows()).containsExactly(List.of("order-1", "SO-001", "Urgent,Wholesale"));
     }
+    @Test
+    void shouldBatchStaticTargetTitlesAndKeepMissingIdsWithoutUsingDynamicReads() {
+        var entity = new EntityDefinition("order", "sales_order", "Order", List.of(
+                FieldDefinition.string("role", "Role")));
+        var descriptor = DynamicModuleDescriptor.from(ModuleDefinition.builder(MODULE, "Order")
+                .entities(List.of(entity))
+                .references(List.of(EntityReferenceDefinition.to("order", "role", "iam.role"))).build());
+        ReferenceAbility<StandardTitledEntity> roles = mock(ReferenceAbility.class);
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> {
+            assertThat(target).isEqualTo(ReferenceTarget.of("iam", "role"));
+            return Optional.of(roles);
+        });
+        var first = new DynamicRecord(entity).setValue("role", "role-1"); first.setId("order-1");
+        var second = new DynamicRecord(entity).setValue("role", "missing"); second.setId("order-2");
+        when(recordService.recordsForAction(MODULE, PlatformAction.EXPORT, "dynamic-export")).thenReturn(records);
+        when(records.list(org.mockito.ArgumentMatchers.eq("order"), any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(first, second));
+        when(roles.titles(Set.of("role-1", "missing"))).thenReturn(Map.of("role-1", "租户管理员"));
+
+        var plan = executor.export(new DynamicExportCommand(descriptor, Criteria.of(), PageRequest.of(1, 20), List.of()));
+
+        assertThat(plan.sheets().getFirst().rows()).containsExactly(
+                List.of("order-1", "租户管理员"), List.of("order-2", "missing"));
+        verify(roles).titles(Set.of("role-1", "missing"));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> Optional.empty());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor.export(new DynamicExportCommand(
+                descriptor, Criteria.of(), PageRequest.of(1, 20), List.of())))
+                .isInstanceOfSatisfying(net.ximatai.muyun.spring.common.exception.PlatformException.class,
+                        error -> assertThat(error.code()).isEqualTo(
+                                net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.CONFIG_MISSING));
+        verify(recordService, org.mockito.Mockito.never()).titles(any(), any(), any());
+    }
+
 }
