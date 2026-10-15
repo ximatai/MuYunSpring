@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import { UiButton, UiModal, UiSearchInput } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import DictionaryOptionDialogChoiceList from './DictionaryOptionDialogChoiceList.vue';
+import { optionItemsForDisplay } from './optionFieldOptions';
 import {
   dictionaryOptionCodes,
   dictionaryOptionItemsToTree,
@@ -63,10 +64,11 @@ const emit = defineEmits<{
 const keyword = ref('');
 const draftCodes = ref<string[]>([]);
 const externalCodes = computed(() => dictionaryOptionCodes(props.value, props.selectionMode));
-const treeData = computed(() => dictionaryOptionItemsToTree(props.items, keyword.value));
+const displayItems = computed(() => optionItemsForDisplay(props.items, language));
+const treeData = computed(() => dictionaryOptionItemsToTree(displayItems.value, keyword.value));
 const selectedText = computed(() => {
   if (!draftCodes.value.length) return language.t('platform.reference-picker.unselected', '尚未选择');
-  const titles = new Map(props.items.map((item) => [item.code, item.title]));
+  const titles = new Map(displayItems.value.map((item) => [item.code, item.title]));
   return draftCodes.value.map((code) => titles.get(code) ?? code).join('、');
 });
 

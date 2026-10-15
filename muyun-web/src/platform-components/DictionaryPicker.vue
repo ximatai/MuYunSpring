@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
+import { optionItemsForDisplay } from './optionFieldOptions';
 import { UiButton, UiSelect, UiTreeSelect } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import ObjectPickerInput from './ObjectPickerInput.vue';
@@ -109,9 +110,12 @@ const validity = computed<DictionaryPickerValidity>(() => {
 });
 
 const externalCodes = computed(() => dictionaryOptionCodes(props.value, props.selectionMode));
+const displayItems = computed(() => optionItemsForDisplay(props.items, language));
 const hasHierarchy = computed(() => props.items.some((item) => Boolean(item.parentCode)));
-const dropdownTreeData = computed(() => dictionaryOptionItemsToTree(props.items, dropdownDraft.value));
-const dropdownOptions = computed(() => dictionaryOptionItemsToOptions(props.items, dropdownDraft.value));
+const dropdownTreeData = computed(() => dictionaryOptionItemsToTree(displayItems.value, dropdownDraft.value));
+const dropdownOptions = computed(() =>
+  dictionaryOptionItemsToOptions(displayItems.value, dropdownDraft.value),
+);
 const invalidDropdownDraft = computed(() =>
   ['unmatched', 'ambiguous', 'disabled'].includes(validity.value.status) ? dropdownDraft.value : '',
 );
@@ -123,7 +127,7 @@ const pickerValue = computed(() =>
 const dropdownPickerValue = computed(() => (dropdownClearRequested.value ? undefined : pickerValue.value));
 const selectionSummary = computed(() => {
   if (!externalCodes.value.length) return '';
-  const titles = new Map(props.items.map((item) => [item.code, item.title]));
+  const titles = new Map(displayItems.value.map((item) => [item.code, item.title]));
   return externalCodes.value.map((code) => titles.get(code) ?? code).join('、');
 });
 // Ant Select switches its selected label to the search input while it has focus. Give that
@@ -222,7 +226,7 @@ function completeDropdownDraft() {
     openDialog(draft);
     return;
   }
-  const matches = dictionaryDraftMatches(draft, props.items);
+  const matches = dictionaryDraftMatches(draft, displayItems.value);
   if (matches.length === 1) {
     const item = matches[0]!;
     if (item.enabled) {

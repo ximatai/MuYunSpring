@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import { UiRadioGroup } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import { dictionaryOptionCodes } from './dictionaryOptionDialogModel';
+import { optionItemsForDisplay } from './optionFieldOptions';
 
 defineOptions({ name: 'DictionaryRadioGroup' });
+const language = useLanguageContext();
 
 const props = withDefaults(
   defineProps<{
@@ -29,7 +32,11 @@ const emit = defineEmits<{
 // UiRadioGroup is deliberately string-only. Dictionary codes satisfy that narrower contract,
 // unlike generic UiSelect options whose values may also be numeric.
 const options = computed(() =>
-  props.items.map((item) => ({ label: item.title, value: item.code, disabled: !item.enabled })),
+  optionItemsForDisplay(props.items, language).map((item) => ({
+    label: item.title,
+    value: item.code,
+    disabled: !item.enabled,
+  })),
 );
 
 function updateValue(value: string) {
