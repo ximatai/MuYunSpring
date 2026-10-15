@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
@@ -96,14 +97,16 @@ public class PageCompositionSaveService {
         PlatformPresentationRevision revision = revisions.select(revisionId);
         if (revision == null || revision.getStatus() != PlatformPresentationRevisionStatus.DRAFT
                 || !Objects.equals(revision.getVersion(), command.revision().getVersion())) {
-            throw BusinessExceptions.warning("platform.page-composition.stale", "页面已变化，请重新加载后保存");
+            throw BusinessExceptions.warningText("platform.page-composition.stale",
+                TextReference.code("platform.page-composition.stale.page", "页面已变化，请重新加载后保存"));
         }
         var variant = variants.requireVisibleVariant(revision.getVariantId());
         var page = pages.requireVisiblePage(variant.getPageId());
         var catalog = catalog(revisionId);
         if (!Objects.equals(catalog.relationId(), command.relationId())
                 || !Objects.equals(catalog.metadataVersion(), command.expectedMetadataVersion()))
-            throw BusinessExceptions.warning("platform.page-composition.stale", "元数据版本已变化，请重新加载后保存");
+            throw BusinessExceptions.warningText("platform.page-composition.stale",
+                TextReference.code("platform.page-composition.stale.metadata", "元数据版本已变化，请重新加载后保存"));
         var childDrafts = PageCompositionDraftCompiler.childDrafts(command.revision().getUiTreeJson(), command.newChildren());
         var drafts = PageCompositionDraftCompiler.fieldDrafts(command.revision().getUiTreeJson(), command.newFields());
         var mainNames = PageCompositionFieldNaming.assign(command.newFields(), drafts,

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -63,12 +64,14 @@ public class AssistantConversationService {
             requireOwner(row, scope);
             String boundPlan = snapshot(row).content().planId();
             if (boundPlan != null && !boundPlan.equals(command.content().planId()))
-                throw BusinessExceptions.warning("platform.assistant-conversation.plan-bound", "当前对话已关联一个建设目标，讨论其他独立目标请新建对话");
+                throw BusinessExceptions.warningText("platform.assistant-conversation.plan-bound",
+                TextReference.code("platform.assistant-conversation.plan-bound", "当前对话已关联一个建设目标，讨论其他独立目标请新建对话"));
             if (row.getContentJson().equals(json)) return snapshot(row);
         }
         int revision = row == null ? 0 : row.getVersion() + 1;
         if (revision != command.expectedRevision())
-            throw BusinessExceptions.warning("platform.assistant-conversation.stale", "会话已在其他窗口更新，请重新打开历史会话；当前内容保留");
+            throw BusinessExceptions.warningText("platform.assistant-conversation.stale",
+                TextReference.code("platform.assistant-conversation.stale", "会话已在其他窗口更新，请重新打开历史会话；当前内容保留"));
         try (var ignored = scope.tenant() == null ? TenantContext.system("personal assistant history") : TenantContext.use(scope.tenant())) {
             Instant now = Instant.now();
             if (row == null) {

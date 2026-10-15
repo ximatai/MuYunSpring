@@ -229,6 +229,10 @@ public class PlatformWebExceptionHandler {
     }
 
     private TextResolver textResolver;
+    private net.ximatai.muyun.spring.common.i18n.LanguageCatalog languageCatalog;
+
+    @Autowired(required = false)
+    void setLanguageCatalog(net.ximatai.muyun.spring.common.i18n.LanguageCatalog catalog) { this.languageCatalog = catalog; }
 
     @Autowired(required = false)
     void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
@@ -239,9 +243,12 @@ public class PlatformWebExceptionHandler {
         var source = original.textSource() != null ? original.textSource() : action == null ? null : action.textSource();
         if (source == null) return original;
         var args = original.textSource() != null || action == null ? original.messageArgs() : action.messageArgs();
-        String display = textResolver.resolve(source, args).text();
-        return original.withTextSource(source).withDisplayText(display, action == null ? null : new ActionMessage(action.code(), display,
+        var prepared = textResolver.prepare(java.util.List.of(source));
+        String display = prepared.resolve(source, args).text();
+        var result = original.withTextSource(source).withDisplayText(display, action == null ? null : new ActionMessage(action.code(), display,
                 action.type(), args, source));
+        return languageCatalog == null ? result : result.withMessageText(
+                net.ximatai.muyun.spring.common.i18n.TextPresentations.of(source, args, prepared, languageCatalog));
     }
 
     private ResponseEntity<PlatformWebError> recorded(ResponseEntity<PlatformWebError> response, Throwable exception) {

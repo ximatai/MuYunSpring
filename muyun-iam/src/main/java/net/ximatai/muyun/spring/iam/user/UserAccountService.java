@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
@@ -510,9 +511,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(userId))
                 .ifPresent(currentUser -> {
-                    throw BusinessExceptions.warning(
-                            "iam.user.password-admin-current-user",
-                            "不能由管理员重置当前登录用户的密码，请使用修改本人密码");
+                    throw BusinessExceptions.warningText("iam.user.password-admin-current-user",
+                TextReference.code("iam.user.password-admin-current-user", "不能由管理员重置当前登录用户的密码，请使用修改本人密码"));
                 });
     }
 
@@ -520,9 +520,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(userId))
                 .ifPresent(currentUser -> {
-                    throw BusinessExceptions.warning(
-                            "iam.user.force-logout-current-user",
-                            "不能强制当前登录用户下线");
+                    throw BusinessExceptions.warningText("iam.user.force-logout-current-user",
+                TextReference.code("iam.user.force-logout-current-user", "不能强制当前登录用户下线"));
                 });
     }
 
@@ -559,7 +558,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             return;
         }
         if (password == null || password.length() < 6) {
-            throw BusinessExceptions.warning("iam.user.password-policy-violated", "密码长度不能少于 6 位");
+            throw BusinessExceptions.warningText("iam.user.password-policy-violated",
+                TextReference.code("iam.user.password-policy-violated", "密码长度不能少于 6 位"));
         }
     }
 
@@ -617,8 +617,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 // Configured regex rules can reject random candidates; try another bounded candidate.
             }
         }
-        throw BusinessExceptions.warning("iam.user.temporary-password-unavailable",
-                "无法生成符合当前密码策略的临时密码");
+        throw BusinessExceptions.warningText("iam.user.temporary-password-unavailable",
+                TextReference.code("iam.user.temporary-password-unavailable", "无法生成符合当前密码策略的临时密码"));
     }
 
     private boolean passwordExpired(UserAccount user, Instant now) {

@@ -1,5 +1,6 @@
 import { platformLanguageContext, type LanguageContext } from './language';
-import type { WebActionMessage } from '@muyun/web-contracts';
+import { presentationLabel } from './presentationTexts';
+import type { TextPresentation, WebActionMessage } from '@muyun/web-contracts';
 
 export interface ErrorTarget {
   kind?: string;
@@ -56,6 +57,7 @@ export class AppError extends Error {
   readonly details?: Record<string, unknown>;
   readonly messageArgs?: Record<string, unknown>;
   readonly actionMessage?: WebActionMessage;
+  readonly messageText?: TextPresentation;
   globallyHandled = false;
 
   constructor(
@@ -69,6 +71,7 @@ export class AppError extends Error {
       details?: Record<string, unknown>;
       messageArgs?: Record<string, unknown>;
       actionMessage?: WebActionMessage;
+      messageText?: TextPresentation;
     } = {},
   ) {
     super(message);
@@ -81,6 +84,7 @@ export class AppError extends Error {
     this.details = options.details;
     this.messageArgs = options.messageArgs;
     this.actionMessage = options.actionMessage;
+    this.messageText = options.messageText;
   }
 }
 
@@ -144,6 +148,11 @@ export function userFacingErrorMessage(error: AppError, language: LanguageContex
   if (isUnexpectedPlatformError(error)) {
     return language.t('platform.error.INTERNAL_ERROR', '系统异常，操作未完成');
   }
+  if (
+    error.messageText &&
+    language.fallbackLanguageTags.value.some((tag) => Object.hasOwn(error.messageText!.languages, tag))
+  )
+    return presentationLabel(error.message, error.messageText, language);
   return error.message;
 }
 
