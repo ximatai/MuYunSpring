@@ -89,6 +89,17 @@ public class DictionaryItemService extends AbstractAbilityService<DictionaryItem
         return categoryService.requireDictionaryCategory(applicationAlias, categoryAlias);
     }
 
+    DictionaryCategory globalOptionCategory(String applicationAlias, String categoryAlias) {
+        DictionaryCategory category = categoryService.list(Criteria.of()
+                .eq("applicationAlias", PlatformNameRules.requireApplicationAlias(applicationAlias))
+                .eq("alias", PlatformNameRules.requireIdentifier(categoryAlias, "dictionaryCategoryAlias"))
+                .isNull("tenantId"), new PageRequest(0, 1)).stream().findFirst().orElse(null);
+        if (category == null) throw new PlatformException(DictionaryCategoryService.CATEGORY_NOT_FOUND, 404,
+                "Dictionary category requires existing global category: " + applicationAlias + "." + categoryAlias);
+        // Keep the existing category-kind validation before reading items.
+        return categoryService.requireDictionaryCategory(category.getId());
+    }
+
     public DictionaryItem resolveItem(String applicationAlias, String categoryAlias, String code) {
         DictionaryCategory category = categoryService.requireDictionaryCategory(applicationAlias, categoryAlias);
         return resolveItem(category.getId(), code);

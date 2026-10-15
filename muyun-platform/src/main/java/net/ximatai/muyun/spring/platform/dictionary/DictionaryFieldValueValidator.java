@@ -76,7 +76,7 @@ public class DictionaryFieldValueValidator implements DynamicFieldValueValidator
     }
 
     private void validateCode(FieldDictionaryBinding binding, String code) {
-        if (itemService.resolveEnabledItem(binding.applicationAlias(), binding.categoryAlias(), code) == null) {
+        if (!new DictionaryOptionSource(binding.applicationAlias(), binding.categoryAlias(), itemService).containsEnabledCode(code)) {
             throw new IllegalArgumentException("invalid dictionary code: " + code);
         }
     }
