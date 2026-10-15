@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
@@ -452,8 +453,8 @@ public class UserSessionService {
     private void rejectCurrentSessionRevoke(UserSession session, String currentToken) {
         String currentTokenHash = currentTokenHash(currentToken);
         if (currentTokenHash != null && currentTokenHash.equals(session.getTokenHash())) {
-            throw BusinessExceptions.warning("iam.user-session.revoke-current-denied",
-                    "不能在用户管理中下线当前登录会话");
+            throw BusinessExceptions.warningText("iam.user-session.revoke-current-denied",
+                TextReference.code("iam.user-session.revoke-current-denied", "不能在用户管理中下线当前登录会话"));
         }
     }
 

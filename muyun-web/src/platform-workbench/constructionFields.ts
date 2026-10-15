@@ -5,6 +5,9 @@ import {
 } from './constructionPlanGuard';
 import type { ConstructionFieldResult } from '@muyun/web-contracts';
 import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   pageAssistantCatalog,
   AssistantCapabilityUsageError,
   type AssistantCapability,
@@ -16,15 +19,28 @@ export function createConstructionFieldCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
   accept: (result: ConstructionFieldResult, invalidate?: boolean) => void,
+  language: LanguageContext = platformLanguageContext,
 ): AssistantCapability[] {
   function object(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value))
-      throw new AssistantCapabilityUsageError('字段参数无效');
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionFields.invalid-field-parameters',
+          '字段参数无效',
+        ),
+      );
     return value as Record<string, unknown>;
   }
   function text(value: unknown, max: number): string {
     if (typeof value !== 'string' || !value.trim() || value.length > max)
-      throw new AssistantCapabilityUsageError('字段参数为空或过长');
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionFields.field-parameters-are-empty-or-too-long',
+          '字段参数为空或过长',
+        ),
+      );
     return value.trim();
   }
   const schema = (properties: Record<string, unknown>) => ({
@@ -37,13 +53,27 @@ export function createConstructionFieldCapabilities(
   const objectKey = constructionObjectKeySchema(current);
   function resultPresentation(result: ConstructionFieldResult) {
     return {
-      title: '字段配置已提交',
+      title: language.t('platform.screen.constructionFields.field-configuration-submitted', '字段配置已提交'),
       lines: [
-        `${result.receipt.moduleAlias}：${result.receipt.fields.map((field) => field.title).join('、')}`,
+        language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
+          value1: result.receipt.moduleAlias,
+          value2: result.receipt.fields
+            .map((field) => field.title)
+            .join(language.t('platform.list.separator', '、')),
+        }),
         result.runtime
-          ? `运行态：${result.runtime.status}${result.runtime.failureMessage ? `（${result.runtime.failureMessage}）` : ''}`
-          : '运行态激活尚待核实，可查询字段建设结果。',
-        '本回执只证明字段提交；页面、入口和业务验收请查询实际建设进度。',
+          ? language.t('platform.screen.constructionFields.runtime-valuevalue', '运行态：{value1}{value2}', {
+              value1: result.runtime.status,
+              value2: result.runtime.failureMessage ? `（${result.runtime.failureMessage}）` : '',
+            })
+          : language.t(
+              'platform.screen.constructionFields.runtime-activation-needs-verification-query-the-field-construction-result',
+              '运行态激活尚待核实，可查询字段建设结果。',
+            ),
+        language.t(
+          'platform.screen.constructionFields.this-receipt-verifies-field-submission-query-actual-construction-progress-for',
+          '本回执只证明字段提交；页面、入口和业务验收请查询实际建设进度。',
+        ),
       ],
     };
   }
@@ -78,7 +108,13 @@ export function createConstructionFieldCapabilities(
             (offset) => Number.isSafeInteger(offset) && Number(offset) >= 0,
           )
         )
-          throw new AssistantCapabilityUsageError('目录分页位置无效');
+          throw new AssistantCapabilityUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.constructionFields.invalid-catalog-pagination-offset',
+              '目录分页位置无效',
+            ),
+          );
         return {
           objectKey: text(value.objectKey, 64),
           fieldOffset: Number(fieldOffset),
@@ -89,7 +125,7 @@ export function createConstructionFieldCapabilities(
         };
       },
       async execute(input) {
-        const before = requireConfirmedConstructionPlan(current);
+        const before = requireConfirmedConstructionPlan(current, language);
         const {
           objectKey: key,
           fieldOffset,
@@ -143,7 +179,14 @@ export function createConstructionFieldCapabilities(
       parseInput: (input) => ({ requestId: text(object(input).requestId, 80) }),
       async execute(input, context) {
         const plan = current().saved;
-        if (!plan) throw new AssistantCapabilityUsageError('请先恢复需求方案');
+        if (!plan)
+          throw new AssistantCapabilityUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.constructionFields.restore-the-requirements-plan-first',
+              '请先恢复需求方案',
+            ),
+          );
         const result = await client.fieldChange(plan.planId, (input as { requestId: string }).requestId);
         if (result) context.commitInternalState(() => accept(result, false));
         return result ?? { status: 'NOT_FOUND' };
@@ -151,7 +194,18 @@ export function createConstructionFieldCapabilities(
       present: (result) =>
         'receipt' in (result as object)
           ? resultPresentation(result as ConstructionFieldResult)
-          : { title: '尚未查到字段回执', lines: ['不能据此推定操作未提交。'] },
+          : {
+              title: language.t(
+                'platform.screen.constructionFields.the-field-receipt-is-not-available-yet',
+                '尚未查到字段回执',
+              ),
+              lines: [
+                language.t(
+                  'platform.screen.constructionFields.this-does-not-establish-that-the-operation-was-not-submitted',
+                  '不能据此推定操作未提交。',
+                ),
+              ],
+            },
     },
   ];
 }

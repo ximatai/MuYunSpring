@@ -1,3 +1,4 @@
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { WebTreeNode } from '@muyun/web-contracts';
 
 export interface TreeRecordBase {
@@ -9,9 +10,16 @@ export interface TreeRecordBase {
 
 export function defaultTreeRecordTitle<TRecord extends TreeRecordBase>(
   record: TRecord,
-  fallback = '未命名记录',
+  fallback?: string,
+  language: LanguageContext = platformLanguageContext,
 ) {
-  return record.title ?? record.code ?? record.id ?? fallback;
+  return (
+    recordPresentationLabel(record, 'title', language) ??
+    record.code ??
+    record.id ??
+    fallback ??
+    language.t('platform.record.unnamed', '未命名记录')
+  );
 }
 
 export function flattenTreeRecords<TRecord>(nodes: WebTreeNode<TRecord>[]): TRecord[] {

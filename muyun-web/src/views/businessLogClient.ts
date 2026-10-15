@@ -1,5 +1,10 @@
-import type { HttpClient } from '@muyun/web-core';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import {
+  platformCodeTextReference,
+  textReferenceMatchesOriginal,
+  type HttpClient,
+  type LanguageContext,
+} from '@muyun/web-core';
+import type { TextReference, WebQueryRequest } from '@muyun/web-contracts';
 
 export type BusinessLogSurface = 'activity' | 'request-error' | 'login';
 
@@ -38,6 +43,7 @@ export interface BusinessLogEventView {
 export interface BusinessLogStatisticItem {
   key: string;
   title: string;
+  titleSource?: TextReference;
   count: number;
   [key: string]: unknown;
 }
@@ -264,6 +270,9 @@ function normalizeStatistics(response: unknown): BusinessLogStatistics {
         return {
           key: stringOf(page.pageKey) ?? 'unknown-page',
           title: stringOf(page.pageKey) ?? '未知页面',
+          ...(!stringOf(page.pageKey)
+            ? { titleSource: platformCodeTextReference('platform.log.statistic.unknown-page') }
+            : {}),
           count: numberOf(page.accessCount),
         };
       }),
@@ -281,9 +290,24 @@ function normalizeStatistics(response: unknown): BusinessLogStatistics {
     ['totalAffectedRecordCount', '累计影响记录数'],
   ];
   return {
-    items: metrics.map(([key, title]) => ({ key, title, count: numberOf(record[key]) })),
+    items: metrics.map(([key, title]) => ({
+      key,
+      title,
+      titleSource: platformCodeTextReference(`platform.log.statistic.${key}`),
+      count: numberOf(record[key]),
+    })),
     complete: booleanOf(record.complete),
   };
+}
+
+/** Only labels explicitly produced by the statistics adapter are platform text. */
+export function businessLogStatisticTitle(item: BusinessLogStatisticItem, language: LanguageContext): string {
+  const source = item.titleSource;
+  return source?.sourceKind === 'CODE' &&
+    source.sourceId.startsWith('platform.log.statistic.') &&
+    textReferenceMatchesOriginal(source, item.title)
+    ? language.t(source.sourceId, source.originalText)
+    : item.title;
 }
 
 function logSummary(record: Record<string, unknown>, details: Record<string, unknown>) {

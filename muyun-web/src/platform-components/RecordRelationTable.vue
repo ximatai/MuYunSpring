@@ -1,5 +1,8 @@
 <script setup lang="ts" generic="Row extends Record<string, unknown>">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordRelationTable' });
 const props = withDefaults(
@@ -80,7 +83,9 @@ const tableMinWidth = computed(() =>
           </tr>
           <tr v-if="rows.length === 0">
             <td :colspan="columns.length + (selection ? 1 : 0)" class="managed-relation-inline__empty">
-              <slot name="empty">暂无关联记录</slot>
+              <slot name="empty">{{
+                language.t('platform.screen.RecordRelationTable.no-related-records', '暂无关联记录')
+              }}</slot>
             </td>
           </tr>
         </tbody>

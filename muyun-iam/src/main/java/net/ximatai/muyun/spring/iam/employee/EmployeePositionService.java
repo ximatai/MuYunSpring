@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -58,22 +59,23 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
                     .eq("employeeId", relation.getEmployeeId())
                             .eq("primaryPosition", Boolean.TRUE)
                             .eq("enabled", Boolean.TRUE),
-                    () -> BusinessExceptions.warning("iam.employee-position.primary-already-exists",
-                            "该职员已有主岗位"));
+                    () -> BusinessExceptions.warningText("iam.employee-position.primary-already-exists",
+                TextReference.code("iam.employee-position.primary-already-exists", "该职员已有主岗位")));
         }
         rejectDuplicate(relation, Criteria.of()
                         .eq("employeeId", relation.getEmployeeId())
                         .eq("organizationId", relation.getOrganizationId())
                         .eq("departmentId", relation.getDepartmentId())
                         .eq("positionId", relation.getPositionId()),
-                () -> BusinessExceptions.warning("iam.employee-position.already-exists",
-                        "该职员已存在相同任职"));
+                () -> BusinessExceptions.warningText("iam.employee-position.already-exists",
+                TextReference.code("iam.employee-position.already-exists", "该职员已存在相同任职")));
     }
 
     @Override
     public void beforeUpdate(EmployeePosition relation, EmployeePosition existing) {
         if (existing != null && !java.util.Objects.equals(existing.getEmployeeId(), relation.getEmployeeId())) {
-            throw BusinessExceptions.warning("iam.employee-position.owner-immutable", "任职不能转移至其他职员");
+            throw BusinessExceptions.warningText("iam.employee-position.owner-immutable",
+                TextReference.code("iam.employee-position.owner-immutable", "任职不能转移至其他职员"));
         }
         super.beforeUpdate(relation);
     }
@@ -199,8 +201,8 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
         String validRelationId = Preconditions.requireText(relationId, "relationId");
         EmployeePosition relation = select(validRelationId);
         if (relation == null || !SortAbility.sameValue(validEmployeeId, relation.getEmployeeId())) {
-            throw BusinessExceptions.warning("iam.employee-position.not-belong-to-employee",
-                    "该任职不属于当前职员");
+            throw BusinessExceptions.warningText("iam.employee-position.not-belong-to-employee",
+                TextReference.code("iam.employee-position.not-belong-to-employee", "该任职不属于当前职员"));
         }
         return relation;
     }
@@ -224,12 +226,12 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
     }
 
     private void validatePrimaryPositionOwner(EmployeePosition relation) {
-        Employee employee = employeeService.requireEnabledOrThrow(relation.getEmployeeId(), () -> BusinessExceptions.warning(
-                "iam.employee-position.employee-not-active", "职员不存在或已停用"));
+        Employee employee = employeeService.requireEnabledOrThrow(relation.getEmployeeId(), () -> BusinessExceptions.warningText("iam.employee-position.employee-not-active",
+                TextReference.code("iam.employee-position.employee-not-active", "职员不存在或已停用")));
         if (!SortAbility.sameValue(relation.getOrganizationId(), employee.getOrganizationId())
                 || !SortAbility.sameValue(relation.getDepartmentId(), employee.getDepartmentId())) {
-            throw BusinessExceptions.warning("iam.employee-position.primary-owner-mismatch",
-                    "主岗位的机构和部门必须与职员主机构、主部门一致");
+            throw BusinessExceptions.warningText("iam.employee-position.primary-owner-mismatch",
+                TextReference.code("iam.employee-position.primary-owner-mismatch", "主岗位的机构和部门必须与职员主机构、主部门一致"));
         }
     }
 }

@@ -1,8 +1,13 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
-import { defineComponent, ref } from 'vue';
+import { defineComponent, ref, h } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
-import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createHttpClient,
+  createLanguageContext,
+  provideLanguageContext,
+} from '@muyun/web-core';
 import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost.ts';
 
 function publishedRuntime(revision = '1') {
@@ -173,4 +178,39 @@ describe('ModuleBusinessPreview', () => {
     expect(wrapper.findComponent({ name: 'ModulePageHost' }).exists()).toBe(true);
     wrapper.unmount();
   });
+});
+
+it('refreshes preview labels without replacing an active dirty business form or reading the runtime again', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async () => publishedRuntime());
+  configureModuleContext({ http: { request } as never });
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ModuleBusinessPreview, { moduleAlias: 'education.exam', moduleTitle: '业务原名' });
+      },
+    }),
+    { global: { stubs: { ModuleBusinessPreview: false } } },
+  );
+  await flushPromises();
+  const preview = wrapper.findComponent(ModuleBusinessPreview);
+  const host = preview.findComponent({ name: 'ModulePageHost' });
+  const descriptor = host.props('descriptor');
+  const count = request.mock.calls.length;
+  await host.vm.$emit('interaction-state-change', { editing: true, busy: false, dirty: true });
+  const reload = preview.findComponent({ name: 'UiButton' });
+  expect(preview.text()).toContain('Published page');
+  expect(reload.props('disabled')).toBe(true);
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(preview.text()).toContain('已发布页面');
+  language.setLanguage('en');
+  await flushPromises();
+  expect(reload.attributes('title')).toBe('Save or cancel the current edit before reloading');
+  expect(host.props('descriptor')).toBe(descriptor);
+  expect(descriptor.title).toBe('业务原名');
+  expect(reload.props('disabled')).toBe(true);
+  expect(request).toHaveBeenCalledTimes(count);
+  wrapper.unmount();
 });

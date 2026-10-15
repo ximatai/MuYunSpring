@@ -34,7 +34,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
+import net.ximatai.muyun.spring.platform.localization.MetadataQuerySchemas;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
@@ -507,7 +507,7 @@ public class PlatformModuleRuntimeContextService {
                 .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
                 .filter(binding -> binding.source() != PageContextSource.SESSION)
                 .map(PageContextBindingDefinition::targetKey).distinct().toList();
-        QuerySchema querySchema = DynamicQuerySchemas.from(moduleAlias, mainEntity, quickSearchFields, externalCriteriaKeys);
+        QuerySchema querySchema = MetadataQuerySchemas.from(moduleAlias, mainEntity, quickSearchFields, externalCriteriaKeys);
         List<ModuleMutationFieldValidation> validations = formViewFields.stream()
                 .filter(field -> field.fieldRef().relationCode() == null)
                 .map(field -> new ModuleMutationFieldValidation(null, field.fieldRef().fieldName(),
@@ -909,7 +909,7 @@ public class PlatformModuleRuntimeContextService {
             var query = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract(
                     "/" + moduleAlias + "/view/{id}/associations/" + view.code() + "/query", null, null,
                     true, view.queryable(), projection,
-                    DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of()), false, null);
+                    MetadataQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of()), false, null);
             boolean aggregateChild = target.aggregateChild();
             var mutations = aggregateChild ? new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract(
                     true, true, true, PlatformAction.CREATE.code(), PlatformAction.UPDATE.code(), PlatformAction.DELETE.code()) : null;
@@ -972,7 +972,7 @@ public class PlatformModuleRuntimeContextService {
             contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
         }
         return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
-                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions());
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions(), definition.sourceTexts());
     }
 
     private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,

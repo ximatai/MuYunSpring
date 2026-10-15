@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.ability.child.AggregateChildFormulaDefinition;
 
 import java.util.List;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import java.util.function.Consumer;
 
 public record ModuleUiDefinition(String moduleAlias,
@@ -13,7 +15,16 @@ public record ModuleUiDefinition(String moduleAlias,
                                  List<EditorSurfaceDefinition> editorSurfaces,
                                  List<PageDetailEditorContribution> editorContributions,
                                  List<PageDetailRelationDefinition> detailRelations,
-                                 List<PageActionDefinition> pageActions, boolean managedActions) {
+                                 List<PageActionDefinition> pageActions, boolean managedActions,
+                                 Map<String, TextReference> sourceTexts) {
+    public ModuleUiDefinition(String moduleAlias, List<UiActionDefinition> actions, ModulePageDefinition page,
+            ViewDefinition defaultEditor, List<EditorSurfaceDefinition> editorSurfaces,
+            List<PageDetailEditorContribution> editorContributions, List<PageDetailRelationDefinition> detailRelations,
+            List<PageActionDefinition> pageActions, boolean managedActions) {
+        this(moduleAlias, actions, page, defaultEditor, editorSurfaces, editorContributions, detailRelations,
+                pageActions, managedActions, Map.of());
+    }
+
     public ModuleUiDefinition(String moduleAlias, List<UiActionDefinition> actions, ModulePageDefinition page,
             ViewDefinition defaultEditor, List<EditorSurfaceDefinition> editorSurfaces,
             List<PageDetailEditorContribution> editorContributions, List<PageDetailRelationDefinition> detailRelations,
@@ -33,6 +44,7 @@ public record ModuleUiDefinition(String moduleAlias,
     }
     public ModuleUiDefinition {
         moduleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        sourceTexts = sourceTexts == null ? Map.of() : Map.copyOf(sourceTexts);
         actions = actions == null ? List.of() : List.copyOf(actions);
         if (defaultEditor != null && defaultEditor.viewKind() != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("default editor must be a form view");

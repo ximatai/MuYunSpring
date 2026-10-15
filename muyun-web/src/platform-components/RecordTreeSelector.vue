@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiEmpty, UiTree, type UiTreeNode } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 export interface RecordTreeSelectorRecord {
   id: string;
@@ -18,7 +21,12 @@ const props = withDefaults(
     selectedId?: string;
     emptyDescription?: string;
   }>(),
-  { selectedId: undefined, emptyDescription: '暂无记录' },
+  { selectedId: undefined, emptyDescription: undefined },
+);
+
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ?? language.t('platform.screen.RecordTreeSelector.emptyDescription', '暂无记录'),
 );
 const emit = defineEmits<{ select: [record: RecordTreeSelectorRecord] }>();
 const expandedKeys = ref<string[]>([]);
@@ -54,7 +62,7 @@ function select(node: UiTreeNode) {
 
 <template>
   <div class="record-tree-selector">
-    <UiEmpty v-if="nodes.length === 0" :description="emptyDescription" />
+    <UiEmpty v-if="nodes.length === 0" :description="resolvedEmptyDescription" />
     <UiTree
       v-else
       :nodes="nodes"

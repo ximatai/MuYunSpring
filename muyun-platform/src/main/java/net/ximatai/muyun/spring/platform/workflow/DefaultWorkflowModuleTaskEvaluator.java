@@ -25,6 +25,7 @@ public class DefaultWorkflowModuleTaskEvaluator implements WorkflowModuleTaskEva
         for (var check : specification.checks()) {
             var result = new WorkflowTaskCheckResult();
             result.setTaskId(task.getId()); result.setTenantId(task.getTenantId());
+            result.setCheckTitle(check.getTitle());
             result.setCheckKey(check.getCheckKey()); result.setCheckKind(check.getCheckKind());
             result.setCheckRunId(net.ximatai.muyun.spring.common.id.Ids.newId()); result.setCheckedAt(Instant.now());
             boolean passed;
@@ -41,10 +42,11 @@ public class DefaultWorkflowModuleTaskEvaluator implements WorkflowModuleTaskEva
             result.setPassed(passed); result.setCheckStatus(passed ? WorkflowTaskCheckStatus.PASSED : WorkflowTaskCheckStatus.FAILED);
             result.setFailureMessage(passed ? null : check.getFailureMessage()); results.add(result);
         }
+        var texts = specification.checks().stream().map(WorkflowTaskCheckText::from).toList();
         var failed = results.stream().filter(result -> !Boolean.TRUE.equals(result.getPassed())).findFirst();
-        if (failed.isPresent()) return WorkflowModuleTaskEvaluation.failed(failed.get().getFailureMessage(), results, specification.guides());
+        if (failed.isPresent()) return WorkflowModuleTaskEvaluation.failedCheck(failed.get(), results, specification.guides()).withCheckTexts(texts);
         if (Boolean.TRUE.equals(specification.definition().getManualConfirm()) || results.isEmpty())
-            return new WorkflowModuleTaskEvaluation(WorkflowTaskCheckStatus.NO_CHECK, true, null, results, specification.guides());
-        return WorkflowModuleTaskEvaluation.passed(results, specification.guides());
+            return new WorkflowModuleTaskEvaluation(WorkflowTaskCheckStatus.NO_CHECK, true, null, results, specification.guides()).withCheckTexts(texts);
+        return WorkflowModuleTaskEvaluation.passed(results, specification.guides()).withCheckTexts(texts);
     }
 }

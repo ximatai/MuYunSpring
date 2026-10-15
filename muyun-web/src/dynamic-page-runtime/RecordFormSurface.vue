@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import {
   RecordFormFields,
@@ -20,6 +21,8 @@ import {
 import { useModulePageFormContributionRuntime } from './composables/useModulePageFormContributionRuntime';
 
 defineOptions({ name: 'RecordFormSurface' });
+
+const language = useLanguageContext();
 
 const props = defineProps<{
   record: RecordFormRecord;
@@ -89,11 +92,11 @@ const hiddenFields = computed(() =>
 );
 
 function imageUploadHintOf(fieldName: string) {
-  return policy(fieldName)?.imageUploadHint?.(stateSnapshot());
+  return policy(fieldName)?.imageUploadHint?.(stateSnapshot(), language);
 }
 
 function imageUploadAdvisoryOf(fieldName: string) {
-  return policy(fieldName)?.imageUploadAdvisory?.(stateSnapshot());
+  return policy(fieldName)?.imageUploadAdvisory?.(stateSnapshot(), language);
 }
 
 const descriptorValid = ref(true);

@@ -48,3 +48,43 @@ it('required confirmation text rejects mismatches and cancellation resolves fals
   options.onCancel?.();
   assert.equal(await confirming, false);
 });
+
+it('uses consumer language for prompts while retaining the exact business-title confirmation guard', async () => {
+  const { createLanguageContext } = await import('@/web-core');
+  const { nextTick } = await import('vue');
+  const language = createLanguageContext({ languageTag: 'en' });
+  let options!: Parameters<typeof Modal.confirm>[0];
+  const updates: Parameters<typeof Modal.confirm>[0][] = [];
+  const confirm = createConfirmAction((value) => {
+    options = value;
+    return {
+      destroy() {},
+      update(value) {
+        updates.push(value as Parameters<typeof Modal.confirm>[0]);
+      },
+    };
+  });
+  const result = confirm({ title: 'Delete record', requiredText: '原始记录甲', danger: true }, language);
+  assert.equal(options.okText, 'Confirm');
+  assert.equal(options.cancelText, 'Cancel');
+  const content = (options.content as () => VNode)();
+  const children = content.children as VNode[];
+  assert.equal(children[1].children, 'Type “原始记录甲” to confirm this action.');
+  const updateValue = children[2].props?.['onUpdate:value'] as (value: string) => void;
+  updateValue('原始记录甲 ');
+  assert.equal(updates.at(-1)?.okButtonProps?.disabled, true);
+  language.setLanguage('zh-CN');
+  await nextTick();
+  assert.equal(updates.at(-1)?.okText, '确认');
+  assert.equal(updates.at(-1)?.cancelText, '取消');
+  assert.equal(updates.at(-1)?.title, 'Delete record');
+  updateValue('原始记录甲');
+  assert.equal(updates.at(-1)?.okButtonProps?.disabled, false);
+  options.onOk?.();
+  assert.equal(await result, true);
+  options.afterClose?.();
+  const count = updates.length;
+  language.setLanguage('en');
+  await nextTick();
+  assert.equal(updates.length, count);
+});

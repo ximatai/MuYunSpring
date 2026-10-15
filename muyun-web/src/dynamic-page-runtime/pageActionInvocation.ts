@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { PageActionInvocation } from '@muyun/web-contracts';
 import type { HttpClient } from '@muyun/web-core';
 
@@ -6,16 +7,42 @@ export async function invokePageAction(
   http: HttpClient,
   invocation: PageActionInvocation | undefined,
   context: { recordId?: string; record?: Record<string, unknown> } = {},
+  language: LanguageContext = platformLanguageContext,
 ): Promise<unknown> {
-  if (!invocation) throw new Error('该动作尚未提供当前区域的执行入口');
+  if (!invocation)
+    throw new Error(language.t('platform.action.no-entry', '该动作尚未提供当前区域的执行入口'));
   let path = invocation.path;
-  if (!path.startsWith('/') || path.startsWith('//')) throw new Error('页面动作调用地址无效');
+  if (!path.startsWith('/') || path.startsWith('//'))
+    throw new Error(
+      language.t(
+        'platform.screen.pageActionInvocation.the-page-action-url-is-invalid',
+        '页面动作调用地址无效',
+      ),
+    );
   if (path.includes('{recordId}')) {
-    if (!context.recordId) throw new Error('页面动作需要当前记录');
+    if (!context.recordId)
+      throw new Error(
+        language.t(
+          'platform.screen.pageActionInvocation.the-page-action-requires-a-current-record',
+          '页面动作需要当前记录',
+        ),
+      );
     path = path.replaceAll('{recordId}', encodeURIComponent(context.recordId));
   }
-  if (/[{}]/.test(path)) throw new Error('页面动作存在未绑定参数');
-  if (invocation.input === 'FORM_RECORD' && !context.record) throw new Error('表单动作需要当前草稿');
+  if (/[{}]/.test(path))
+    throw new Error(
+      language.t(
+        'platform.screen.pageActionInvocation.the-page-action-has-unresolved-parameters',
+        '页面动作存在未绑定参数',
+      ),
+    );
+  if (invocation.input === 'FORM_RECORD' && !context.record)
+    throw new Error(
+      language.t(
+        'platform.screen.pageActionInvocation.the-form-action-requires-a-current-draft',
+        '表单动作需要当前草稿',
+      ),
+    );
   return http.request({
     method: invocation.method,
     path,

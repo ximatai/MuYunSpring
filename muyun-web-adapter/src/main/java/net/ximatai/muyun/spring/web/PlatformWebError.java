@@ -19,7 +19,17 @@ public record PlatformWebError(String traceId,
                                ErrorScope scope,
                                List<ErrorTarget> targets,
                                Map<String, Object> details,
-                               Map<String, Object> messageArgs, TextReference textSource) {
+                               Map<String, Object> messageArgs, TextReference textSource,
+                               net.ximatai.muyun.spring.common.i18n.TextPresentation messageText) {
+    public PlatformWebError(String traceId, String code, int status, String message, ActionMessage actionMessage,
+                            ErrorScope scope, List<ErrorTarget> targets, Map<String, Object> details,
+                            Map<String, Object> messageArgs, TextReference textSource) {
+        this(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, textSource, null);
+    }
+
+    public PlatformWebError withMessageText(net.ximatai.muyun.spring.common.i18n.TextPresentation text) {
+        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, textSource, text);
+    }
     public PlatformWebError(String traceId, String code, int status, String message, ActionMessage actionMessage,
                             ErrorScope scope, List<ErrorTarget> targets, Map<String, Object> details,
                             Map<String, Object> messageArgs) {
@@ -27,11 +37,26 @@ public record PlatformWebError(String traceId,
     }
 
     public PlatformWebError withTextSource(TextReference source) {
-        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, source);
+        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, source, java.util.Objects.equals(source, textSource) ? messageText : null);
     }
 
     public PlatformWebError withDisplayText(String value, ActionMessage action) {
-        return new PlatformWebError(traceId, code, status, value, action, scope, targets, details, messageArgs, textSource);
+        return new PlatformWebError(traceId, code, status, value, action, scope, targets, details, messageArgs, textSource, messageText);
+    }
+
+    /** Shared by MVC errors and failures rejected before a controller is reached. */
+    public PlatformWebError presented(net.ximatai.muyun.spring.common.i18n.TextResolver resolver,
+                                       net.ximatai.muyun.spring.common.i18n.LanguageCatalog catalog) {
+        if (resolver == null) return this;
+        var source = textSource != null ? textSource : actionMessage == null ? null : actionMessage.textSource();
+        if (source == null) return this;
+        var args = textSource != null || actionMessage == null ? messageArgs : actionMessage.messageArgs();
+        var prepared = resolver.prepare(List.of(source));
+        String display = prepared.resolve(source, args).text();
+        var result = withTextSource(source).withDisplayText(display, actionMessage == null ? null : new ActionMessage(
+                actionMessage.code(), display, actionMessage.type(), args, source));
+        return catalog == null ? result : result.withMessageText(
+                net.ximatai.muyun.spring.common.i18n.TextPresentations.of(source, args, prepared, catalog));
     }
 
     public static PlatformWebError of(PlatformException exception) {
@@ -63,7 +88,7 @@ public record PlatformWebError(String traceId,
     }
 
     public PlatformWebError withActionMessage(ActionMessage actionMessage) {
-        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, textSource);
+        return new PlatformWebError(traceId, code, status, message, actionMessage, scope, targets, details, messageArgs, textSource, messageText);
     }
 
     private static ErrorScope emptyScopeAsNull(ErrorScope scope) {

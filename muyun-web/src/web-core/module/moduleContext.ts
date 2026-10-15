@@ -3,6 +3,7 @@ import type { HttpClient } from '../http';
 import { createModuleAbilities, type ModuleAbilities } from './abilities';
 import {
   createModuleRuntimeContextState,
+  scopeModuleRuntimeLanguage,
   type ModuleActionState,
   type ModuleRecordActionAvailability,
   type ModuleRuntimeAction,
@@ -19,7 +20,6 @@ import {
   type ModuleTreeClient,
 } from './staticModuleClient';
 
-import { translatedPresentation } from '../presentationTexts';
 import { platformLanguageContext, useLanguageContext, type LanguageContext } from '../language';
 
 export interface ModuleContext<TRecord> {
@@ -111,13 +111,12 @@ export function useModuleContext<TRecord>(
     if (!options.language || options.language === contextLanguages.get(toRaw(context))) return context;
     // A language override is a display scope: retain the authorized runtime, transport and business session.
     const language = options.language;
-    const display = computed(() => {
-      const original = context.runtime.snapshot();
-      return original && translatedPresentation(original, language);
-    });
+    const runtime = scopeModuleRuntimeLanguage(context.runtime, language, context);
     const localized = {
       ...context,
-      runtime: { ...context.runtime, presentationSnapshot: () => display.value },
+      runtime,
+      action: runtime.action,
+      runtimeAction: runtime.runtimeAction,
     };
     contextLanguages.set(localized, language);
     return localized;

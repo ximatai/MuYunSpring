@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type {
   ResolvedDetailRelationDescriptor,
   ResolvedModuleUiDescriptor,
@@ -6,6 +7,8 @@ import type {
 import {
   evaluateUiFormula,
   referencePickerDisplayTitle,
+  readonlyReferenceNameProjection,
+  readonlyReferenceSummaryOf,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
   resolveRecordDetailDisplayValue,
@@ -19,18 +22,58 @@ export function recordFieldDisplay(
   record: RecordFormRecord,
   optionItems?: OptionItemDescriptor[],
   draft = false,
+  language: LanguageContext = platformLanguageContext,
 ): string {
   if (field.calculationPending || (draft && field.calculationTiming === 'IMMEDIATE'))
-    return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems, draft });
+    return resolveRecordDetailDisplayValue(field, record, {
+      emptyText: language.t('platform.screen.recordDisplayProjection.empty', '空'),
+      optionItems,
+      draft,
+      language,
+    });
   if (field.reference) {
-    const value = record[field.fieldName];
-    if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '未选择';
-    if (!field.referenceTitleField || record[field.referenceTitleField] == null)
-      return '已选择（名称暂不可用）';
-    const display = resolveRecordDetailDisplayValue(field, record, { emptyText: '未选择' });
-    return display === String(value) ? '已选择（名称暂不可用）' : display;
+    if (field.treeRootTitle && record[field.fieldName] === 'root')
+      return language.t('platform.screen.recordDisplayProjection.not-selected', '未选择');
+    const projection = readonlyReferenceNameProjection(
+      field.reference,
+      record[field.fieldName],
+      readonlyReferenceSummaryOf(record, field.referenceTitleField, language),
+      language,
+    );
+    if (!projection.selected)
+      return language.t('platform.screen.recordDisplayProjection.not-selected', '未选择');
+    return (
+      projection.display ??
+      language.t(
+        'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
+        '已选择（名称暂不可用）',
+      )
+    );
   }
-  return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems, draft });
+  return resolveRecordDetailDisplayValue(field, record, {
+    emptyText: language.t('platform.screen.recordDisplayProjection.empty', '空'),
+    optionItems,
+    draft,
+    language,
+  });
+}
+
+/** A missing authorized name is a state, never a comparison with a translated placeholder. */
+export function recordReferenceDisplay(
+  field: RecordFormFieldState,
+  record: RecordFormRecord,
+  draft = false,
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
+  if (!field.reference || field.calculationPending || (draft && field.calculationTiming === 'IMMEDIATE'))
+    return undefined;
+  if (field.treeRootTitle && record[field.fieldName] === 'root') return undefined;
+  return readonlyReferenceNameProjection(
+    field.reference,
+    record[field.fieldName],
+    readonlyReferenceSummaryOf(record, field.referenceTitleField, language),
+    language,
+  ).display;
 }
 
 /** Resolve display labels through the same authorized provider used by the picker. */
@@ -38,23 +81,31 @@ export async function resolvedRecordFieldDisplay(
   field: RecordFormFieldState,
   record: RecordFormRecord,
   optionItems?: OptionItemDescriptor[],
+  language: LanguageContext = platformLanguageContext,
 ) {
-  if (field.calculationPending) return recordFieldDisplay(field, record);
+  if (field.calculationPending) return recordFieldDisplay(field, record, undefined, false, language);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
-    return recordFieldDisplay(field, record, optionItems, true);
+    return recordFieldDisplay(field, record, optionItems, true, language);
   const ids = (Array.isArray(value) ? value : [value]).map(String);
-  if (!ids.length) return '未选择';
+  if (!ids.length) return language.t('platform.screen.recordDisplayProjection.not-selected', '未选择');
   const candidates = await field.pickerConfig.provider.resolve(ids);
   return ids
     .map((id) => {
       const candidate = candidates.find((item) => item.id === id);
-      if (!candidate || candidate.identifierFallback || !candidate.title || candidate.title === id)
-        return '已选择（名称暂不可用）';
-      const title = referencePickerDisplayTitle(candidate);
-      return candidate.unavailable ? `${title}（不可用）` : title;
+      if (!candidate || candidate.identifierFallback || !candidate.title)
+        return language.t(
+          'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
+          '已选择（名称暂不可用）',
+        );
+      const title = referencePickerDisplayTitle(candidate, language);
+      return candidate.unavailable
+        ? language.t('platform.screen.ScopedTreePicker.value-unavailable', '{value1}（不可用）', {
+            value1: title,
+          })
+        : title;
     })
-    .join('、');
+    .join(language.t('platform.list.separator', '、'));
 }
 
 export function assistantReadableField(field: RecordFormFieldState) {
@@ -73,6 +124,7 @@ export function recordRelationProjection(
   relations: ResolvedDetailRelationDescriptor[],
   record: RecordFormRecord,
   {
+    language = platformLanguageContext,
     baseline = {},
     purpose = 'context',
     draft = purpose === 'confirmation',
@@ -82,6 +134,7 @@ export function recordRelationProjection(
     includeDescribedValues = false,
     includeBaseline = false,
   }: {
+    language?: LanguageContext;
     draft?: boolean;
     editableRelations?: ReadonlySet<string>;
     /** Keys issued by mounted editors; never inferred from row position or record IDs. */
@@ -139,7 +192,7 @@ export function recordRelationProjection(
           )
         )
           return [];
-        const display = recordFieldDisplay(field, row, relationOptions[key]?.[name], pending);
+        const display = recordFieldDisplay(field, row, relationOptions[key]?.[name], pending, language);
         const truncated = !confirmation && display.length > 2000;
         valuesTruncated ||= truncated;
         return [

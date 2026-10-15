@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@muyun/web-core';
 import { expect, it } from 'vitest';
 import type { MetadataField, ModuleMetadataRelation } from '@/web-contracts';
 import {
@@ -435,3 +436,10 @@ it.each(['field', 'order'] as const)(
     expect(session.editing.value).toBe(false);
   },
 );
+
+it('uses metadata governance terminology for a relationship-owned field instead of query operators', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY', language)).toBe('Relation');
+  language.setLanguage('zh-CN');
+  expect(metadataFieldGovernanceLabel('RELATION_FOREIGN_KEY', language)).toBe('关系');
+});

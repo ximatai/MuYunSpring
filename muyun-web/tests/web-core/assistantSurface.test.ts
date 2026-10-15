@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createLanguageContext,
   createAssistantSurfaceRegistry,
   sameAssistantInvocationToken,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   StaleAssistantInvocationError,
   OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
   DraftUpdateRejectedError,
   type AssistantCapability,
   type AssistantSurface,
@@ -893,4 +896,79 @@ it('isolates both synchronous and asynchronous observation failures without chan
   expect(observe).toHaveBeenCalledWith(
     expect.objectContaining({ toolCallCount: 2, usage: { totalTokens: 3 } }),
   );
+});
+
+it('passes the registry owner language to prepared confirmations without changing invocation identity', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const registry = createAssistantSurfaceRegistry(() => 'same-owner', undefined, language);
+  const execute = vi.fn(async () => ({ title: '业务原始结果', lines: [] }));
+  registry.register({
+    pageInstanceKey: 'form',
+    contextRevision: () => 'same-draft',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn: async () => ({ toolCalls: [] }),
+      capabilities: () => [
+        {
+          effect: 'read' as const,
+          descriptor: { code: 'save.prepare', description: 'Prepare', inputSchema: {} },
+          parseInput: () => ({}),
+          execute: async () => ({}),
+          propose: () => ({
+            presentation: { title: '业务原始确认', lines: [] },
+            expiresAt: Date.now() + 60_000,
+            isCurrent: () => true,
+            execute,
+            lookup: async () => undefined,
+          }),
+        },
+      ],
+    },
+  });
+  registry.activate('form');
+  const token = registry.snapshot()!.token;
+  const result = await registry.invoke({ id: 'prepare', code: 'save.prepare', input: {} }, token);
+  expect(result.confirmation?.confirmLabel).toBe('Confirm save');
+  language.setLanguage('zh-CN');
+  expect(result.confirmation?.confirmLabel).toBe('确认保存');
+  expect(result.confirmation?.presentation.title).toBe('业务原始确认');
+  expect(registry.snapshot()!.token).toEqual(token);
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it('preserves declared local error facts when adapting a rejected invocation', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const registry = createAssistantSurfaceRegistry();
+  const failure = new OperationUsageError(
+    codeOperationErrorMessage(
+      language,
+      'platform.screen.businessRuleSession.read-only-rules-cannot-be-overwritten',
+      '不能覆盖只读规则',
+    ),
+  );
+  const execute = vi.fn(async () => {
+    throw failure;
+  });
+  registry.register(fixture({ pageInstanceKey: 'order', revision: () => '1', execute }));
+  registry.activate('order');
+  let adapted: unknown;
+  try {
+    await registry.invoke(
+      { id: 'read', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+    );
+  } catch (cause) {
+    adapted = cause;
+  }
+  expect(adapted).toMatchObject({
+    name: 'AssistantCapabilityUsageError',
+    code: 'CAPABILITY_USAGE_INVALID',
+    textMessage: failure.textMessage,
+  });
+  expect(resolveOperationErrorMessage(adapted as OperationUsageError, language)).toBe(
+    'Read-only rules cannot be overwritten.',
+  );
+  language.setLanguage('zh-CN');
+  expect(resolveOperationErrorMessage(adapted as OperationUsageError, language)).toBe('不能覆盖只读规则');
+  expect(execute).toHaveBeenCalledOnce();
 });

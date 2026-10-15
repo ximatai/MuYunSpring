@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { shallowMount } from '@vue/test-utils';
-import { expect, it } from 'vitest';
+import { flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
+import { expect, it, vi } from 'vitest';
 import { RecordQueryListPanel } from '@muyun/platform-components';
-import { configureModuleContext, type HttpClient } from '@/web-core';
+import {
+  configureModuleContext,
+  createLanguageContext,
+  provideLanguageContext,
+  AppError,
+  type HttpClient,
+} from '@/web-core';
 import BusinessLogListDrawer from '@/views/BusinessLogListDrawer.vue';
 
 const source = readFileSync(
@@ -61,4 +68,62 @@ it('keeps the list title and separates business operations from query controls',
   expect(source).not.toContain(':show-title="false"');
   expect(source).toContain('<template #operations>');
   expect(source).not.toContain('<template #toolbarActions>');
+});
+
+it('updates cached columns, picker labels and safe failure feedback without reloading log facts', async () => {
+  const request = vi.fn(async () => {
+    throw new AppError('内部数据库诊断', { status: 500, code: 'INTERNAL_ERROR' });
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const language = createLanguageContext({ languageTag: 'en' });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(BusinessLogListDrawer, {
+          surface: 'activity',
+          moduleAlias: 'platform.business_activity_log',
+          title: '业务原名',
+        });
+    },
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordQueryListPanel: {
+          name: 'RecordQueryListPanel',
+          props: ['columns', 'referencePickerOf'],
+          emits: ['record-activate'],
+          template: '<section />',
+        },
+        RecordDetailDrawer: { props: ['open'], template: '<section v-if="open"><slot /></section>' },
+        UiError: { props: ['message'], template: '<p>{{ message }}</p>' },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    const picker = list.props('referencePickerOf')({ name: 'operatorId' });
+    const provider = picker.provider;
+    expect(list.props('columns')[0].title).toBe('Outcome');
+    expect(picker.title).toBe('Select an operator');
+    list.vm.$emit('record-activate', { eventId: 'event-1', outcome: 'SUCCESS', summary: '业务日志原文' });
+    await flushPromises();
+    expect(wrapper.text()).toContain('A system error prevented the operation from completing');
+    expect(wrapper.text()).not.toContain('内部数据库诊断');
+    const calls = request.mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('columns')[0].title).toBe('结果');
+    expect(picker.title).toBe('选择操作用户');
+    expect(wrapper.text()).toContain('系统异常，操作未完成');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(list.props('columns')[0].title).toBe('Outcome');
+    expect(picker.provider).toBe(provider);
+    expect(request).toHaveBeenCalledTimes(calls);
+  } finally {
+    wrapper.unmount();
+  }
 });

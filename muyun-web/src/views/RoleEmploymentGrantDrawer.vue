@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
@@ -12,6 +13,8 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
 import EmployeeEmploymentTable from './EmployeeEmploymentTable.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleEmploymentGrantDrawer' });
 const props = defineProps<{
@@ -38,7 +41,11 @@ const total = ref(0);
 const keyword = ref('');
 const roleId = computed(() => props.role?.id);
 const client = computed(() => createRoleGrantClient(props.context.http));
-const title = computed(() => `绑定任职 - ${props.role?.title ?? props.role?.id ?? ''}`);
+const title = computed(() =>
+  language.t('platform.screen.RoleEmploymentGrantDrawer.assign-positions-value', '绑定任职 - {value1}', {
+    value1: props.role?.title ?? props.role?.id ?? '',
+  }),
+);
 const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
 const contentContainerProps = computed(() =>
   props.embedded
@@ -47,7 +54,7 @@ const contentContainerProps = computed(() =>
         open: props.open,
         title: title.value,
         renderMode: props.container ? 'inline' : 'portal',
-        closeTitle: '关闭',
+        closeTitle: language.t('platform.screen.workspaceViewDiscardGuard.close', '关闭'),
         onClose: () => !saving.value && emit('close'),
       },
 );
@@ -90,19 +97,39 @@ onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
 function configureDrawerPresentation() {
   const drawer = props.drawerContext;
   if (!props.embedded || !drawer) return;
-  drawer.setSubtitle(`角色：${props.role?.title ?? props.role?.id ?? '角色'} · ${scopeTitle(props.role)}`);
+  drawer.setSubtitle(
+    language.t('platform.screen.RoleAccountGrantDrawer.role-value-value', '角色：{value1} · {value2}', {
+      value1:
+        props.role?.title ?? props.role?.id ?? language.t('platform.screen.RoleManagementView.role', '角色'),
+      value2: scopeTitle(props.role),
+    }),
+  );
   drawer.setOperation({
-    summary: `已选 ${selected.value.size} 个任职${added.value.length || removed.value.length ? ` · 新增 ${added.value.length} · 移除 ${removed.value.length}` : ''}`,
+    summary: language.t(
+      'platform.screen.RoleEmploymentGrantDrawer.value-positions-selectedvalue',
+      '已选 {value1} 个任职{value2}',
+      {
+        value1: selected.value.size,
+        value2:
+          added.value.length || removed.value.length
+            ? language.t(
+                'platform.screen.RoleEmploymentGrantDrawer.value-added-value-removed',
+                ' · 新增 {value1} · 移除 {value2}',
+                { value1: added.value.length, value2: removed.value.length },
+              )
+            : '',
+      },
+    ),
     actions: [
       {
         key: 'cancel-employment-role-grants',
-        label: '取消',
+        label: language.t('platform.action.cancel', '取消'),
         disabled: saving.value,
         run: () => emit('close'),
       },
       {
         key: 'save-employment-role-grants',
-        label: '确定',
+        label: language.t('platform.screen.RoleAccountGrantDrawer.confirm', '确定'),
         emphasis: 'primary',
         disabled: loading.value || (added.value.length === 0 && removed.value.length === 0),
         loading: saving.value,
@@ -141,7 +168,7 @@ async function load(page = 1) {
     total.value = response.total;
   } catch (cause) {
     failed.value = true;
-    presentPlatformError(cause, { source: 'role-employment-grants', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-employment-grants', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -157,13 +184,19 @@ async function save() {
       if (grantId) await client.value.deleteEmploymentRoleGrant(id, grantId);
     }
     await handlePlatformActionSuccess(
-      { success: true, message: '任职角色授权已保存' },
-      { source: 'role-employment-grants', phase: 'action' },
+      {
+        success: true,
+        message: language.t(
+          'platform.screen.RoleEmploymentGrantDrawer.position-role-assignments-saved',
+          '任职角色授权已保存',
+        ),
+      },
+      { language, source: 'role-employment-grants', phase: 'action' },
     );
     emit('saved');
     emit('close');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-employment-grants', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'role-employment-grants', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -222,9 +255,11 @@ function selectedEmploymentDescription(employment: EmploymentSelectorItem) {
 }
 
 function scopeTitle(role: Role | undefined) {
-  if (role?.ownerScopeType === 'platform') return '平台范围';
-  if (role?.ownerScopeType === 'organization') return '机构范围';
-  return '租户范围';
+  if (role?.ownerScopeType === 'platform')
+    return language.t('platform.screen.RoleAuthorizationView.platform-scope', '平台范围');
+  if (role?.ownerScopeType === 'organization')
+    return language.t('platform.screen.RoleAuthorizationView.organization-scope', '机构范围');
+  return language.t('platform.screen.RoleAuthorizationView.tenant-scope', '租户范围');
 }
 </script>
 <template>
@@ -234,22 +269,48 @@ function scopeTitle(role: Role | undefined) {
     :class="{ 'role-employment-grant-drawer-surface': embedded }"
   >
     <template v-if="!embedded" #operation>
-      <UiButton :disabled="saving" @click="emit('close')">取消</UiButton>
+      <UiButton :disabled="saving" @click="emit('close')">{{
+        language.t('platform.action.cancel', '取消')
+      }}</UiButton>
       <UiButton
         type="primary"
         :loading="saving"
         :disabled="loading || (added.length === 0 && removed.length === 0)"
         @click="save"
       >
-        确定
+        {{ language.t('platform.screen.RoleAccountGrantDrawer.confirm', '确定') }}
       </UiButton>
     </template>
-    <UiSpin v-if="loading" tip="加载任职" />
+    <UiSpin
+      v-if="loading"
+      :tip="language.t('platform.screen.RoleEmploymentGrantDrawer.loading-positions', '加载任职')"
+    />
     <div v-else-if="failed">
-      <UiError title="任职加载失败" message="无法加载任职授权" /><UiButton @click="load()">重试</UiButton>
+      <UiError
+        :title="
+          language.t('platform.screen.RoleEmploymentGrantDrawer.failed-to-load-positions', '任职加载失败')
+        "
+        :message="
+          language.t(
+            'platform.screen.RoleEmploymentGrantDrawer.failed-to-load-position-assignments',
+            '无法加载任职授权',
+          )
+        "
+      /><UiButton @click="load()">{{
+        language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+      }}</UiButton>
     </div>
     <section v-else class="role-employment-grant-body">
-      <UiInput v-model:value="keyword" allow-clear placeholder="筛选职员、工号、机构、部门或岗位" />
+      <UiInput
+        v-model:value="keyword"
+        allow-clear
+        :placeholder="
+          language.t(
+            'platform.screen.RoleEmploymentGrantDrawer.filter-by-employee-employee-number-organization-department-or-position',
+            '筛选职员、工号、机构、部门或岗位',
+          )
+        "
+      />
       <EmployeeEmploymentTable
         v-model:selected-ids="selected"
         :rows="displayRows"
@@ -260,8 +321,10 @@ function scopeTitle(role: Role | undefined) {
       />
       <section v-if="selectedEmployments.length > 0" class="role-employment-grant-selected">
         <div class="role-employment-grant-selected-title">
-          <strong>已选任职</strong>
-          <span>{{ selectedEmployments.length }} 个</span>
+          <strong>{{
+            language.t('platform.screen.RoleEmploymentGrantDrawer.selected-positions', '已选任职')
+          }}</strong>
+          <span>{{ selectedEmployments.length }}</span>
         </div>
         <div class="role-employment-grant-selected-list">
           <button

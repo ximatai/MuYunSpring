@@ -2,7 +2,7 @@
 import { computed, nextTick, onActivated, ref, type Component } from 'vue';
 import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { UiSidePanelHost } from '@muyun/vue-ui-antdv';
-import { ModuleContextProvider } from '@muyun/web-core';
+import { ModuleContextProvider, useLanguageContext } from '@muyun/web-core';
 import { providePageLayout } from '@muyun/platform-components';
 import { provideModulePageNavigation, type ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
 import type { BusinessRoutePageDescriptor, PageDescriptor, PageLayoutMode } from '@muyun/web-contracts';
@@ -14,6 +14,8 @@ import {
   WorkspaceViewOutlet,
 } from '@muyun/platform-workbench';
 import { providePageDescriptor, providePageRoute } from './pageRouteContext';
+
+const language = useLanguageContext();
 
 const props = defineProps<{
   component: Component;
@@ -38,7 +40,7 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
   if (props.pageDescriptor?.pageType === 'business-route') {
     return props.pageDescriptor;
   }
-  return {
+  const descriptor: BusinessRoutePageDescriptor = {
     pageType: 'business-route',
     openMode: 'workbench-route',
     hostType: 'business-route-host',
@@ -52,6 +54,16 @@ const workspaceDescriptor = computed<BusinessRoutePageDescriptor>(() => {
     params: props.route.query,
     tabPolicy: { identity: 'by-params', closable: true, cacheable: true },
   };
+  const workspace = resolveWorkspaceView(descriptor);
+  if (!workspace) return descriptor;
+  const declared = createWorkspaceViewDescriptor(
+    workspace.view,
+    workspace.input,
+    workspace.presentation,
+    undefined,
+    language,
+  );
+  return { ...descriptor, title: declared.title, titleText: declared.titleText };
 });
 const workspaceView = computed(() => resolveWorkspaceView(workspaceDescriptor.value));
 // Route changes are handled by the workbench cache key. This inner key is only
@@ -79,7 +91,13 @@ provideModulePageNavigation(
     openPage: navigation.openPage,
     openWorkspaceTab(view, input, title) {
       navigation.openPage(
-        createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input, 'tab', title),
+        createWorkspaceViewDescriptor(
+          workspaceViewDefinitionForModulePage(view),
+          input,
+          'tab',
+          title,
+          language,
+        ),
       );
     },
   },

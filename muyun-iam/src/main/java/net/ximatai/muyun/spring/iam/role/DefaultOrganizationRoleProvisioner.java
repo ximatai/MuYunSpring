@@ -13,9 +13,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import java.util.Objects;
 
-public class DefaultOrganizationRoleProvisioner implements OrganizationCreationProvisioner {
+public class DefaultOrganizationRoleProvisioner implements OrganizationCreationProvisioner, org.springframework.core.Ordered {
     public static final String ORGANIZATION_ADMIN_ROLE_TITLE = "机构管理员";
     public static final String ORGANIZATION_ADMIN_ROLE_DESCRIPTION =
             "机构内置管理员角色，拥有当前机构及授权范围内的平台可授权动作和数据范围。";
@@ -31,6 +33,14 @@ public class DefaultOrganizationRoleProvisioner implements OrganizationCreationP
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
         this.rolePermissionTemplateService = Objects.requireNonNull(rolePermissionTemplateService,
                 "rolePermissionTemplateService must not be null");
+    }
+
+    @Override public int getOrder() { return 100; }
+
+    public static Map<String, TextReference> textBaselines() {
+        return Map.of(
+                "title", TextReference.configured("config/preset/iam.role/organization_admin/title", ORGANIZATION_ADMIN_ROLE_TITLE),
+                "description", TextReference.configured("config/preset/iam.role/organization_admin/description", ORGANIZATION_ADMIN_ROLE_DESCRIPTION));
     }
 
     @Override

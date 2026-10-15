@@ -1,3 +1,7 @@
+import type { TextPresentation } from '@muyun/web-contracts';
+import { recordPresentationLabel, presentationLabel } from '@muyun/web-core';
+import { codeOperationErrorMessage } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
 import { metadataFieldPropertyTitles } from './metadataGovernanceEditor';
 import { computed, effectScope, ref, watch } from 'vue';
@@ -8,7 +12,7 @@ import {
   isDynamicRecordReservedFieldName,
   isPlatformFieldName,
   physicalNameOf,
-  recordNameFieldProblem,
+  recordNameFieldProblemMessage,
 } from './metadataNaming';
 import {
   reconcileSelectedKey,
@@ -92,6 +96,7 @@ import {
 } from './metadataModelTree';
 
 export interface MetadataEditorSessionOptions {
+  language?: LanguageContext;
   moduleAlias: string;
   moduleTitle?: string;
   valid?: () => boolean;
@@ -102,11 +107,19 @@ export interface MetadataEditorSessionOptions {
 
 /** Shared editor state and commands; creating a session never mounts a governance page. */
 export function createMetadataEditorSession(source: HttpClient, options: MetadataEditorSessionOptions) {
+  const language = options.language ?? platformLanguageContext;
   const scope = effectScope(true);
   let disposed = false;
   const valid = () => !disposed && (options.valid?.() ?? true);
   function requireValid() {
-    if (!valid()) throw new OperationUsageError('身份或编辑会话已变化，请重新选择模块');
+    if (!valid())
+      throw new OperationUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.metadataEditorSession.the-identity-or-editing-session-changed-select-the-module-again',
+          '身份或编辑会话已变化，请重新选择模块',
+        ),
+      );
   }
   const http: HttpClient = {
     async request<T>(request: HttpRequestOptions): Promise<T> {
@@ -129,8 +142,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     const moduleContext = { http };
     const refreshActivation = options.refreshActivation;
     const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
-    const state = createMetadataOrchestrationState();
-    const editSession = createMetadataModelWorkspaceEditSession();
+    const state = createMetadataOrchestrationState(language);
+    const editSession = createMetadataModelWorkspaceEditSession(language);
     const submissionStatus = ref<'idle' | 'unknown' | 'current-read'>('idle');
     const committedNeedsReload = ref(false);
     const readingCurrent = ref(false);
@@ -139,9 +152,21 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function requireKnownSubmission() {
       requireValid();
       if (submissionStatus.value === 'unknown')
-        throw new OperationUsageError('原元数据提交结果未知，请先读取当前配置再重新审阅。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-previous-metadata-submission-result-is-unknown-read-the-current',
+            '原元数据提交结果未知，请先读取当前配置再重新审阅。',
+          ),
+        );
       if (committedNeedsReload.value)
-        throw new OperationUsageError('元数据已保存，状态待核实；请先读取当前配置，不要重复保存。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.metadata-was-saved-its-status-needs-verification-read-the-current',
+            '元数据已保存，状态待核实；请先读取当前配置，不要重复保存。',
+          ),
+        );
     }
     async function applyMetadataSubmission(
       submission: Awaited<ReturnType<typeof prepareMetadataChangeSetSubmission>>,
@@ -198,10 +223,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     const childNodeType = ref<'FIELD' | 'CHILD_METADATA'>('FIELD');
     const editorMode = ref<'SIMPLE' | 'ADVANCED'>('SIMPLE');
     const stagedNewFieldKey = ref<string>();
-    const editorModeOptions: UiRadioOption[] = [
-      { value: 'SIMPLE', label: '简单模式' },
-      { value: 'ADVANCED', label: '高级模式' },
-    ];
+    const editorModeOptions = computed<UiRadioOption[]>(() => [
+      { value: 'SIMPLE', label: language.t('platform.screen.metadataEditorSession.simple-mode', '简单模式') },
+      {
+        value: 'ADVANCED',
+        label: language.t('platform.screen.metadataEditorSession.advanced-mode', '高级模式'),
+      },
+    ]);
     const childMetadataDraft = ref<ChildMetadataDraft>({ alias: '', title: '' });
     const childAliasManuallyEdited = ref(false);
     const childValidationAttempted = ref(false);
@@ -224,9 +252,16 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
     const childAliasError = computed(() => {
       const alias = childMetadataDraft.value.alias.trim();
-      if (!alias) return '请填写子元数据标识';
+      if (!alias)
+        return language.t(
+          'platform.screen.metadataEditorSession.enter-a-child-metadata-alias',
+          '请填写子元数据标识',
+        );
       if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias))
-        return '标识须以小写字母开头，仅含小写字母、数字或下划线，最多 63 个字符';
+        return language.t(
+          'platform.screen.metadataEditorSession.start-with-a-lowercase-letter-use-lowercase-letters-digits-or',
+          '标识须以小写字母开头，仅含小写字母、数字或下划线，最多 63 个字符',
+        );
       return undefined;
     });
 
@@ -239,6 +274,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       fieldContributions: string[];
       defaultKind: string;
       defaultDescription: string;
+      reasonText?: TextPresentation;
+      defaultDescriptionText?: TextPresentation;
     };
     type ModuleMetadataRelationRecordCount = { relationId: string; recordCount: number };
     type ModuleMetadataCapabilitySnapshot = {
@@ -246,7 +283,20 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     };
     const referenceTargetFieldCatalog = ref<ReferenceTargetFieldCatalog>();
     const referenceTargetFieldCatalogLoading = ref(false);
-    const referenceTargetFieldCatalogError = ref<string>();
+    const unavailableReferenceTarget = ref<string>();
+    const referenceTargetFieldCatalogErrorMessage = computed(() =>
+      unavailableReferenceTarget.value
+        ? codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.unable-to-load-the-target-field-directory-for-value',
+            '无法加载“{value1}”的目标字段目录。',
+            { value1: unavailableReferenceTarget.value },
+          )
+        : undefined,
+    );
+    const referenceTargetFieldCatalogError = computed(
+      () => referenceTargetFieldCatalogErrorMessage.value?.message,
+    );
     let referenceTargetFieldCatalogRequestToken = 0;
     const selectedRelationId = computed(() => state.selectedRelation.value?.id);
     const sessionFields = computed(() =>
@@ -274,6 +324,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...fact,
         configurable: fact.changeSetConfigurable === true,
         title: capabilityTitleOf(fact.capability),
+        reason: presentationLabel(fact.reason, fact.reasonText, language),
+        defaultDescription: presentationLabel(fact.defaultDescription, fact.defaultDescriptionText, language),
         selected:
           fact.enabled ||
           Boolean(
@@ -311,6 +363,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         defaultValue: fieldDefaultValue(field, fieldPropertyOf(field)),
         governance: metadataFieldGovernanceLabel(
           metadataFieldGovernanceKind(field, relation, capabilityFieldNames.value),
+          language,
         ),
       }));
       return {
@@ -370,37 +423,40 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .slice(0, ASSISTANT_FIELD_SPEC_LIMIT)
           .flatMap((spec) => {
             const alias = spec.alias ?? spec.id;
-            return alias ? [{ alias, title: spec.title }] : [];
+            return alias ? [{ alias, title: recordPresentationLabel(spec, 'title', language) }] : [];
           }),
       };
     }
 
     const selectedNodeIsField = computed(() => Boolean(selectedField.value));
     const metadataTreeNodes = computed(() =>
-      buildMetadataModelTree({
-        relations: state.relations.value.map((relation) => {
-          const order = editSession.relationOrder.value[relation.parentMetadataId ?? ''];
-          const position = relation.id ? (order?.indexOf(relation.id) ?? -1) : -1;
-          return position >= 0 ? { ...relation, sortOrder: position } : relation;
-        }),
-        metadataById: state.metadataById.value,
-        fieldsByRelation: Object.fromEntries(
-          state.relations.value
-            .filter((relation): relation is ModuleMetadataRelation & { id: string } => Boolean(relation.id))
-            .map((relation) => [
-              relation.id,
-              // Preview ordering in the tree; field creation drafts stay in the editor until applied.
-              visibleFields(
-                sorting.value && !state.fieldEditorOpen.value
-                  ? editSession
-                      .fieldsForDisplay(relation.id, fieldsByRelation.value[relation.id] ?? [])
-                      .map((field, index) => ({ ...field, sortOrder: index }))
-                  : (fieldsByRelation.value[relation.id] ?? []),
-              ),
-            ]),
-        ),
-        fieldLocked: (relation, field) => fieldProtectionReasonFor(relation, field) !== undefined,
-      }),
+      buildMetadataModelTree(
+        {
+          relations: state.relations.value.map((relation) => {
+            const order = editSession.relationOrder.value[relation.parentMetadataId ?? ''];
+            const position = relation.id ? (order?.indexOf(relation.id) ?? -1) : -1;
+            return position >= 0 ? { ...relation, sortOrder: position } : relation;
+          }),
+          metadataById: state.metadataById.value,
+          fieldsByRelation: Object.fromEntries(
+            state.relations.value
+              .filter((relation): relation is ModuleMetadataRelation & { id: string } => Boolean(relation.id))
+              .map((relation) => [
+                relation.id,
+                // Preview ordering in the tree; field creation drafts stay in the editor until applied.
+                visibleFields(
+                  sorting.value && !state.fieldEditorOpen.value
+                    ? editSession
+                        .fieldsForDisplay(relation.id, fieldsByRelation.value[relation.id] ?? [])
+                        .map((field, index) => ({ ...field, sortOrder: index }))
+                    : (fieldsByRelation.value[relation.id] ?? []),
+                ),
+              ]),
+          ),
+          fieldLocked: (relation, field) => fieldProtectionReasonFor(relation, field) !== undefined,
+        },
+        language,
+      ),
     );
     const selectedRelationIsMain = computed(() => isMainRelation(state.selectedRelation.value?.relationRole));
     const fieldPropertyEditorKind = computed(() => state.fieldPropertyDraft.value.kind);
@@ -423,20 +479,34 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       editorMode.value === 'SIMPLE' &&
       Boolean(fieldDraft.value.id) &&
       selectedRelationHasBusinessRecords.value
-        ? dataSafeFieldSpecOptions(state.fieldSpecs.value, fieldDraft.value.fieldSpecAlias)
+        ? dataSafeFieldSpecOptions(state.fieldSpecs.value, fieldDraft.value.fieldSpecAlias, language)
         : state.fieldSpecOptions.value,
     );
-    const fieldCreationItems = [
-      { key: 'BASIC', title: '普通字段' },
-      { key: 'MODULE_REFERENCE', title: '模块引用' },
-      { key: 'DICTIONARY', title: '数据字典' },
-    ];
+    const fieldCreationItems = computed(() => [
+      { key: 'BASIC', title: language.t('platform.screen.metadataEditorSession.basic-field', '普通字段') },
+      {
+        key: 'MODULE_REFERENCE',
+        title: language.t('platform.screen.metadataEditorSession.module-reference', '模块引用'),
+      },
+      {
+        key: 'DICTIONARY',
+        title: language.t('platform.screen.metadataEditorSession.data-dictionary', '数据字典'),
+      },
+    ]);
     const referenceSearch = ref('');
     const dictionarySearch = ref('');
     const targetModules = ref<Array<{ alias: string; title?: string }>>([]);
     const dictionaries = ref<DictionaryCategory[]>([]);
     const choicesLoading = ref(false);
-    const choicesError = ref<string>();
+    const choicesFailed = ref(false);
+    const choicesError = computed(() =>
+      choicesFailed.value
+        ? language.t(
+            'platform.screen.metadataEditorSession.the-option-directory-failed-to-load-cancel-and-retry',
+            '选项目录加载失败，请取消后重试。',
+          )
+        : undefined,
+    );
     let choicesToken = 0;
     const referenceModuleOptions = computed(() => {
       const options: Option[] = targetModules.value.map((item) => ({
@@ -445,7 +515,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       }));
       const alias = fieldPropertyDraft.value.referenceConfig?.targetModuleAlias;
       if (alias && !options.some((item) => item.value === alias))
-        options.push({ value: alias, label: `${alias}（当前绑定）` });
+        options.push({
+          value: alias,
+          label: language.t(
+            'platform.screen.metadataEditorSession.value-current-binding',
+            '{value1}（当前绑定）',
+            { value1: alias },
+          ),
+        });
       return options.filter((item) => item.label.toLowerCase().includes(referenceSearch.value.toLowerCase()));
     });
     const dictionaryValue = computed(() => {
@@ -460,12 +537,25 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...new Map(
           dictionaries.value.map((item) => {
             const value = `${item.applicationAlias}.${item.alias}`;
-            return [value, { value, label: `${item.title || item.alias} · ${value}` }];
+            return [
+              value,
+              {
+                value,
+                label: `${recordPresentationLabel(item, 'title', language) || item.alias} · ${value}`,
+              },
+            ];
           }),
         ).values(),
       ];
       if (dictionaryValue.value && !options.some((item) => item.value === dictionaryValue.value))
-        options.push({ value: dictionaryValue.value, label: `${dictionaryValue.value}（当前绑定）` });
+        options.push({
+          value: dictionaryValue.value,
+          label: language.t(
+            'platform.screen.metadataEditorSession.value-current-binding',
+            '{value1}（当前绑定）',
+            { value1: dictionaryValue.value },
+          ),
+        });
       return options.filter((item) =>
         item.label.toLowerCase().includes(dictionarySearch.value.toLowerCase()),
       );
@@ -490,7 +580,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       () => [state.fieldEditorOpen.value, fieldPropertyEditorKind.value, selectedRelationId.value],
       async () => {
         const token = ++choicesToken;
-        choicesError.value = undefined;
+        choicesFailed.value = false;
         choicesLoading.value = false;
         if (!state.fieldEditorOpen.value || fieldPropertyEditorKind.value === 'BASIC') return;
         choicesLoading.value = true;
@@ -513,8 +603,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           }
         } catch (cause) {
           if (token === choicesToken) {
-            choicesError.value = '选项目录加载失败，请取消后重试。';
-            presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+            choicesFailed.value = true;
+            presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
           }
         } finally {
           if (token === choicesToken) choicesLoading.value = false;
@@ -610,21 +700,56 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         fieldPropertyDraft.value.referenceConfig?.targetLabelField,
       ),
     );
-    const referenceTargetFieldCatalogProblem = computed(() => {
+    const referenceTargetFieldCatalogProblemMessage = computed(() => {
       if (fieldPropertyEditorKind.value !== 'MODULE_REFERENCE') return undefined;
       const reference = fieldPropertyDraft.value.referenceConfig;
       if (!reference?.targetModuleAlias?.trim()) return undefined;
-      if (referenceTargetFieldCatalogError.value) return referenceTargetFieldCatalogError.value;
+      if (referenceTargetFieldCatalogErrorMessage.value) return referenceTargetFieldCatalogErrorMessage.value;
       const catalog = referenceTargetFieldCatalog.value;
-      if (!catalog) return '目标字段目录尚未加载完成。';
+      if (!catalog)
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.metadataEditorSession.the-target-field-directory-has-not-finished-loading',
+          '目标字段目录尚未加载完成。',
+        );
       if (reference.cardinality === 'MANY') {
-        return '本期仅支持单选模块引用；现有多选配置需迁移后才能发布。';
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.metadataEditorSession.only-single-module-references-are-supported-in-this-phase-existing',
+          '本期仅支持单选模块引用；现有多选配置需迁移后才能发布。',
+        );
       }
       if (!candidateIsSelectable(catalog.keyFields, reference.targetKeyField)) {
-        return `目标键字段“${reference.targetKeyField || '未选择'}”不在可选目录中，请调整。`;
+        if (!reference.targetKeyField)
+          return codeOperationErrorMessage(
+            language,
+            'platform.screen.MetadataGovernanceSurface.select-target-key-field',
+            '请选择目标键字段',
+          );
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.metadataEditorSession.target-key-field-value-is-not-selectable-in-the-directory',
+          '目标键字段“{value1}”不在可选目录中，请调整。',
+          {
+            value1: reference.targetKeyField,
+          },
+        );
       }
       if (!candidateIsSelectable(catalog.labelFields, reference.targetLabelField)) {
-        return `目标展示字段“${reference.targetLabelField || '未选择'}”不在可选目录中，请调整。`;
+        if (!reference.targetLabelField)
+          return codeOperationErrorMessage(
+            language,
+            'platform.screen.MetadataGovernanceSurface.select-target-display-field',
+            '请选择目标展示字段',
+          );
+        return codeOperationErrorMessage(
+          language,
+          'platform.screen.metadataEditorSession.target-display-field-value-is-not-selectable-in-the-directory',
+          '目标展示字段“{value1}”不在可选目录中，请调整。',
+          {
+            value1: reference.targetLabelField,
+          },
+        );
       }
       const destinations = new Set<string>();
       for (const mapping of reference.affectMappings ?? []) {
@@ -637,11 +762,19 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           !referenceAffectTargetOptions.value.some((field) => field.value === destination) ||
           destinations.has(destination)
         )
-          return '请为每项选择回填指定可读取的来源字段和不同的当前普通字段。目标字段需先保存。';
+          return codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.for-each-value-mapping-choose-a-readable-source-field-and',
+            '请为每项选择回填指定可读取的来源字段和不同的当前普通字段。目标字段需先保存。',
+          );
         destinations.add(destination);
       }
       return undefined;
     });
+
+    const referenceTargetFieldCatalogProblem = computed(
+      () => referenceTargetFieldCatalogProblemMessage.value?.message,
+    );
 
     function updateReferenceTargetModuleAlias(value: unknown) {
       const targetModuleAlias = typeof value === 'string' ? value : '';
@@ -654,7 +787,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         reference.targetKeyField = 'id';
         reference.targetLabelField = undefined;
         referenceTargetFieldCatalog.value = undefined;
-        referenceTargetFieldCatalogError.value = undefined;
+        unavailableReferenceTarget.value = undefined;
         referenceTargetFieldCatalogLoading.value = false;
       }
       reference.targetModuleAlias = targetModuleAlias;
@@ -680,7 +813,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         if (kind !== 'MODULE_REFERENCE' || !targetModuleAlias?.trim()) {
           referenceTargetFieldCatalogRequestToken += 1;
           referenceTargetFieldCatalog.value = undefined;
-          referenceTargetFieldCatalogError.value = undefined;
+          unavailableReferenceTarget.value = undefined;
           referenceTargetFieldCatalogLoading.value = false;
           return;
         }
@@ -698,9 +831,21 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         !recovering &&
         (submissionStatus.value === 'unknown' || (committedNeedsReload.value && !saving.value))
       )
-        throw new OperationUsageError('原元数据提交结果未知，请先读取当前配置再重新审阅。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-previous-metadata-submission-result-is-unknown-read-the-current',
+            '原元数据提交结果未知，请先读取当前配置再重新审阅。',
+          ),
+        );
       if (!recovering && (editSession.isDirty.value || state.mode.value !== 'view'))
-        throw new OperationUsageError('请先保存或取消当前元数据候选，再刷新基线');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.save-or-cancel-the-current-metadata-candidate-before-refreshing-the',
+            '请先保存或取消当前元数据候选，再刷新基线',
+          ),
+        );
       const requestRevision = ++workspaceLoadRevision;
       const selectionBeforeRefresh = selectedTreeKey.value;
       if (!commit) {
@@ -740,10 +885,24 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           }),
         );
         if (requestRevision !== workspaceLoadRevision || !valid() || moduleAlias !== props.moduleAlias) {
-          if (commit) throw new OperationUsageError('元数据读取已过期，请重新选择');
+          if (commit)
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.the-metadata-read-expired-select-again',
+                '元数据读取已过期，请重新选择',
+              ),
+            );
           return;
         }
-        if (signal?.aborted) throw new DOMException('元数据读取已取消', 'AbortError');
+        if (signal?.aborted)
+          throw new DOMException(
+            language.t(
+              'platform.screen.metadataEditorSession.the-metadata-read-was-cancelled',
+              '元数据读取已取消',
+            ),
+            'AbortError',
+          );
         const rebase = recovering
           ? editSession.prepareRebase(
               relations.flatMap((relation) => {
@@ -779,7 +938,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         const accept = () => {
           requireValid();
           if (requestRevision !== workspaceLoadRevision || signal?.aborted)
-            throw new OperationUsageError('元数据读取已过期，请重新读取。');
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.the-metadata-read-expired-read-again',
+                '元数据读取已过期，请重新读取。',
+              ),
+            );
           state.handleRelationsLoaded(relations);
           metadata.forEach((item) => {
             if (item) state.handleMetadataLoaded(item);
@@ -828,7 +993,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         if (commit) throw cause;
         if (requestRevision !== workspaceLoadRevision || !valid()) return;
         workspaceLoadFailed.value = true;
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
       } finally {
         if (!commit && requestRevision === workspaceLoadRevision) loading.value = false;
       }
@@ -866,7 +1031,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         state.handleFieldSpecsLoaded(await loadAllRecords('/platform.field_spec/query'));
         fieldSpecsReady.value = true;
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
       }
     }
 
@@ -882,17 +1047,36 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         readingCurrent.value ||
         !submittedCandidate
       )
-        throw new OperationUsageError('当前没有需要核实的元数据提交。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.no-metadata-submission-needs-verification',
+            '当前没有需要核实的元数据提交。',
+          ),
+        );
       const revision = metadataCandidateRevision.value;
       const scopeIsCurrent = options.confirmationScope ?? (() => true);
-      if (!scopeIsCurrent()) throw new OperationUsageError('编辑范围已变化，请重新选择模块。');
+      if (!scopeIsCurrent())
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-editing-scope-changed-select-the-module-again',
+            '编辑范围已变化，请重新选择模块。',
+          ),
+        );
       readingCurrent.value = true;
       try {
         await loadWorkspace(
           (accept) =>
             commit(() => {
               if (metadataCandidateRevision.value !== revision || !scopeIsCurrent() || signal?.aborted)
-                throw new OperationUsageError('候选或编辑范围已变化，原候选已保留；请重新读取。');
+                throw new OperationUsageError(
+                  codeOperationErrorMessage(
+                    language,
+                    'platform.screen.metadataEditorSession.the-candidate-or-editing-scope-changed-the-original-candidate-was',
+                    '候选或编辑范围已变化，原候选已保留；请重新读取。',
+                  ),
+                );
               accept();
             }),
           true,
@@ -916,10 +1100,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         state.fieldEditorOpen.value ||
         fieldPlanActive.value
       ) {
-        presentPlatformMessage('请先保存或取消当前字段候选，再切换元数据。', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
+        presentPlatformMessage(
+          language.t(
+            'platform.screen.metadataEditorSession.save-or-cancel-the-current-field-candidate-before-switching-metadata',
+            '请先保存或取消当前字段候选，再切换元数据。',
+          ),
+          { language, source: 'metadata-orchestration', phase: 'validation' },
+        );
         return;
       }
       const parsed = parseMetadataModelTreeKey(node.key);
@@ -975,7 +1162,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         state.fieldEditorOpen.value ||
         sorting.value
       )
-        throw new OperationUsageError('请先完成当前编辑，并选择可配置的基础能力；已启用能力不能在此关闭。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.finish-the-current-edit-and-select-a-configurable-core-capability',
+            '请先完成当前编辑，并选择可配置的基础能力；已启用能力不能在此关闭。',
+          ),
+        );
       return () => {
         requireValid();
         if (!editSession.editing.value) startNodeEditSession();
@@ -990,7 +1183,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       try {
         prepareCapabilityDraft({ capability, selected })();
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'validation' });
       }
     }
 
@@ -1115,7 +1308,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .filter(([key, value]) => value !== before[key])
           .map(([key, value]) => ({
             propertyKey: key,
-            property: metadataFieldPropertyTitles[key] ?? key,
+            property: metadataFieldPropertyTitles(language)[key] ?? key,
             before: before[key],
             after: value,
           })),
@@ -1178,7 +1371,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         throw new OperationUsageError('The selected metadata field is unavailable for editing');
       if (input.fieldSpecAlias) {
         const options = selectedRelationHasBusinessRecords.value
-          ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
+          ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias, language)
           : state.fieldSpecOptions.value;
         if (!options.some((option) => option.value === input.fieldSpecAlias))
           throw new OperationUsageError(
@@ -1203,7 +1396,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       const previousProperty = JSON.stringify(property);
       if (input.defaultValue !== undefined) {
         const fact = fieldProperties.value.find((item) => item.fieldId === field.id)?.fixedDefault;
-        if (fact?.editable === false) throw new OperationUsageError('该字段的初值只能读取，不能在此修改。');
+        if (fact?.editable === false)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.this-field-s-initial-value-is-read-only-here',
+              '该字段的初值只能读取，不能在此修改。',
+            ),
+          );
         property.fixedDefault = { ...property.fixedDefault, value: input.defaultValue };
       }
       if (JSON.stringify(updated) === JSON.stringify(field) && JSON.stringify(property) === previousProperty)
@@ -1277,7 +1477,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireValid();
       const relationId = selectedRelationId.value;
       if (!relationId || !assistantEditableReferenceFieldNames().includes(input.fieldName))
-        throw new OperationUsageError('请选择当前可编辑的模块引用字段。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.select-a-currently-editable-module-reference-field',
+            '请选择当前可编辑的模块引用字段。',
+          ),
+        );
       const revising = state.fieldEditorOpen.value;
       const currentField = () =>
         revising
@@ -1310,14 +1516,26 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             !savedReferenceAffectTargetOptions.value.some((item) => item.value === destination) ||
             destinations.has(destination!)
           )
-            throw new OperationUsageError('请选择目录中的来源字段和不同的已保存普通字段。');
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.choose-source-fields-from-the-directory-and-different-saved-basic',
+                '请选择目录中的来源字段和不同的已保存普通字段。',
+              ),
+            );
           destinations.add(destination!);
         }
         updated.referenceConfig!.affectMappings = [...input.affectMappings];
       }
       if (input.requireEnabled !== undefined) updated.referenceConfig!.requireEnabled = input.requireEnabled;
       if (JSON.stringify(updated) === JSON.stringify(property))
-        throw new OperationUsageError('引用设置与当前内容一致，无需修改。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-reference-settings-match-the-current-configuration-no-change-is',
+            '引用设置与当前内容一致，无需修改。',
+          ),
+        );
       return () => {
         requireValid();
         if (
@@ -1326,7 +1544,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           !assistantEditableReferenceFieldNames().includes(input.fieldName) ||
           JSON.stringify({ field: currentField(), property: currentProperty() }) !== before
         )
-          throw new OperationUsageError('引用草稿已变化，请重新审阅后修改。');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.the-reference-draft-changed-review-it-again-before-changing-it',
+              '引用草稿已变化，请重新审阅后修改。',
+            ),
+          );
         if (fieldPlanActive.value && !revising) {
           editSession.stageField(relationId, field, updated, field.fieldName);
           return { relationId, fieldName: input.fieldName, reference: updated.referenceConfig, saved: false };
@@ -1376,9 +1600,23 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
 
     async function referenceAffectDirectory(target: string, signal: AbortSignal) {
       const relationId = selectedRelationId.value;
-      if (!relationId) throw new OperationUsageError('请先选择元数据节点。');
+      if (!relationId)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.select-a-metadata-node-first',
+            '请先选择元数据节点。',
+          ),
+        );
       const targets = await loadAssistantReferenceTargets(relationId, signal);
-      if (!targets.some((item) => item.target === target)) throw new OperationUsageError('引用目标不可用。');
+      if (!targets.some((item) => item.target === target))
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-reference-target-is-unavailable',
+            '引用目标不可用。',
+          ),
+        );
       const catalog = await requestReferenceTargetFieldCatalog(relationId, target, undefined, signal);
       return {
         sources: catalog.labelFields
@@ -1419,7 +1657,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             !savedReferenceAffectTargetOptions.value.some((field) => field.value === destination) ||
             destinations.has(destination!)
           )
-            throw new OperationUsageError('请选择目录中的来源字段和不同的已保存普通字段。');
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.choose-source-fields-from-the-directory-and-different-saved-basic',
+                '请选择目录中的来源字段和不同的已保存普通字段。',
+              ),
+            );
           destinations.add(destination!);
         }
         requireEnabledFieldSpec('string');
@@ -1545,7 +1789,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       entries.forEach(({ field }) => requireRecordNameField(field));
       const columns = entries.map(({ field }) => field.columnName!.toLowerCase());
       if (new Set(names).size !== names.length || new Set(columns).size !== columns.length)
-        throw new Error('方案包含重复字段名或物理列名，请调整后重新生成。');
+        throw new Error(
+          language.t(
+            'platform.screen.metadataEditorSession.the-plan-contains-duplicate-field-or-physical-column-names-adjust',
+            '方案包含重复字段名或物理列名，请调整后重新生成。',
+          ),
+        );
       return () => {
         if (
           signal.aborted ||
@@ -1586,7 +1835,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       try {
         prepareRemoveNewFieldDraft({ fieldName: field.fieldName ?? '' })();
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'validation' });
       }
     }
 
@@ -1606,11 +1855,23 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireValid();
       const relationId = selectedRelationId.value;
       if (!relationId || !removableNewFieldNames().includes(input.fieldName))
-        throw new OperationUsageError('只能移除本次方案中未保存的新增字段，请先完成当前字段编辑。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.only-unsaved-fields-added-in-this-plan-can-be-removed',
+            '只能移除本次方案中未保存的新增字段，请先完成当前字段编辑。',
+          ),
+        );
       return () => {
         requireValid();
         if (relationId !== selectedRelationId.value || !removableNewFieldNames().includes(input.fieldName))
-          throw new OperationUsageError('字段方案已经变化，请核对当前草稿。');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.the-field-plan-changed-check-the-current-draft',
+              '字段方案已经变化，请核对当前草稿。',
+            ),
+          );
         editSession.discardNewField(relationId, input.fieldName);
         return { relationId, fieldName: input.fieldName, removed: true, saved: false };
       };
@@ -1664,7 +1925,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (!isPlatformFieldName(fieldName))
         throw new OperationUsageError('The metadata field name is invalid');
       if ([...capabilityFieldNames.value].some((name) => name.toLowerCase() === fieldName.toLowerCase()))
-        throw new OperationUsageError('该字段由基础能力管理，请选择对应能力，不要创建同名业务字段。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.this-field-is-managed-by-a-core-capability-select-that',
+            '该字段由基础能力管理，请选择对应能力，不要创建同名业务字段。',
+          ),
+        );
       if (isDynamicRecordReservedFieldName(fieldName))
         throw new OperationUsageError('The metadata field name is reserved by the dynamic record protocol');
       if (
@@ -1678,7 +1945,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function requireRecordNameField(field: MetadataField) {
-      const problem = recordNameFieldProblem(field);
+      const problem = recordNameFieldProblemMessage(field, language);
       if (problem) throw new OperationUsageError(problem);
     }
 
@@ -1695,7 +1962,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     function startCreateChildNode(kind = 'BASIC') {
-      if (saving.value || loading.value || !fieldCreationItems.some((item) => item.key === kind)) return;
+      if (saving.value || loading.value || !fieldCreationItems.value.some((item) => item.key === kind))
+        return;
       childNodeType.value = 'FIELD';
       childAliasManuallyEdited.value = false;
       childValidationAttempted.value = false;
@@ -1746,23 +2014,26 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     async function previewAndApply(
-      operationName = '保存元数据',
+      operationName = language.t('platform.screen.metadataEditorSession.save-metadata', '保存元数据'),
       mode: 'confirm' | 'immediate-order' = 'confirm',
     ) {
       if (saving.value) return;
       try {
         requireKnownSubmission();
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'action' });
         return;
       }
       const moduleAlias = props.moduleAlias;
       const proposal = editSession.buildProposal();
       if (!proposal) {
-        presentPlatformMessage('当前草稿包含首批不支持的删除操作；请取消编辑后重新调整。', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
+        presentPlatformMessage(
+          language.t(
+            'platform.screen.metadataEditorSession.the-current-draft-includes-deletions-unsupported-in-this-phase-cancel',
+            '当前草稿包含首批不支持的删除操作；请取消编辑后重新调整。',
+          ),
+          { language, source: 'metadata-orchestration', phase: 'validation' },
+        );
         return;
       }
       const requireUnchangedCandidate = captureMetadataCandidate();
@@ -1776,18 +2047,38 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           requireUnchangedCandidate,
           undefined,
           Object.fromEntries(
-            state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
+            state.fieldSpecs.value.map((spec) => [
+              spec.alias ?? '',
+              recordPresentationLabel(spec, 'title', language) || spec.alias || '',
+            ]),
           ),
           Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
+          language,
         );
         if (
           mode === 'confirm' &&
-          !(await confirmAction({
-            title: `确认${operationName}`,
-            content: submission.lines.join('\n') || '将保存当前配置。',
-            details: { title: '查看详细配置和影响', lines: submission.details },
-            okText: '保存',
-          }))
+          !(await confirmAction(
+            {
+              title: language.t('platform.screen.metadataEditorSession.confirm-value', '确认{value1}', {
+                value1: operationName,
+              }),
+              content:
+                submission.lines.join('\n') ||
+                language.t(
+                  'platform.screen.metadataEditorSession.save-the-current-configuration',
+                  '将保存当前配置。',
+                ),
+              details: {
+                title: language.t(
+                  'platform.screen.metadataEditorSession.view-configuration-details-and-impacts',
+                  '查看详细配置和影响',
+                ),
+                lines: submission.details,
+              },
+              okText: language.t('platform.action.save', '保存'),
+            },
+            language,
+          ))
         )
           return;
         await applyMetadataSubmission(submission, proposal);
@@ -1795,20 +2086,26 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         await completeMetadataChange(proposal, moduleAlias, operationName, mode, requireUnchangedCandidate);
       } catch (cause) {
         if (cause instanceof MetadataChangeSetPrecheckError) {
-          presentPlatformMessage(cause.message, { source: 'metadata-orchestration', phase: 'validation' });
+          presentPlatformMessage(cause.message, {
+            language,
+            source: 'metadata-orchestration',
+            phase: 'validation',
+          });
           return;
         }
         presentPlatformError(cause, {
+          language,
           source: 'metadata-orchestration',
           phase: committed ? 'load' : 'action',
         });
         if (committed)
           presentPlatformMessage(
-            `${operationName}已保存，但生效状态或页面同步失败；请刷新核实，不要重复保存。`,
-            {
-              source: 'metadata-orchestration',
-              phase: 'load',
-            },
+            language.t(
+              'platform.screen.metadataEditorSession.value-was-saved-but-activation-or-page-synchronization-failed-refresh',
+              '{value1}已保存，但生效状态或页面同步失败；请刷新核实，不要重复保存。',
+              { value1: operationName },
+            ),
+            { language, source: 'metadata-orchestration', phase: 'load' },
           );
       } finally {
         if (mode === 'immediate-order' && submissionStatus.value !== 'unknown' && !committedNeedsReload.value)
@@ -1825,7 +2122,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireUnchangedCandidate: () => boolean,
     ) {
       if (valid()) options.onCommitted?.(moduleAlias);
-      if (!requireUnchangedCandidate()) throw new Error('配置候选或基线已变化，请刷新核实。');
+      if (!requireUnchangedCandidate())
+        throw new Error(
+          language.t(
+            'platform.screen.metadataEditorSession.the-configuration-candidate-or-baseline-changed-refresh-to-verify',
+            '配置候选或基线已变化，请刷新核实。',
+          ),
+        );
       if (mode === 'immediate-order') retainCommittedOrder(proposal);
       else {
         fieldPlanActive.value = false;
@@ -1838,20 +2141,38 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         try {
           await synchronizeOrder(proposal);
         } catch (cause) {
-          presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
-          presentPlatformMessage('排序已保存，但最新数据同步失败；请使用元数据的刷新操作重试。', {
-            source: 'metadata-orchestration',
-            phase: 'load',
-          });
+          presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
+          presentPlatformMessage(
+            language.t(
+              'platform.screen.metadataEditorSession.the-order-was-saved-but-the-latest-data-could-not',
+              '排序已保存，但最新数据同步失败；请使用元数据的刷新操作重试。',
+            ),
+            { language, source: 'metadata-orchestration', phase: 'load' },
+          );
           return;
         }
       } else {
         await loadWorkspace();
-        if (workspaceLoadFailed.value) throw new Error('最新元数据读取失败');
+        if (workspaceLoadFailed.value)
+          throw new Error(
+            language.t(
+              'platform.screen.metadataEditorSession.failed-to-read-the-latest-metadata',
+              '最新元数据读取失败',
+            ),
+          );
       }
       await handlePlatformActionSuccess(
-        activationFeedback ?? { message: { text: `${operationName}已保存，生效状态待确认`, type: 'INFO' } },
-        { source: 'metadata-orchestration' },
+        activationFeedback ?? {
+          message: {
+            text: language.t(
+              'platform.screen.metadataEditorSession.value-was-saved-activation-needs-verification',
+              '{value1}已保存，生效状态待确认',
+              { value1: operationName },
+            ),
+            type: 'INFO',
+          },
+        },
+        { language, source: 'metadata-orchestration' },
       );
       committedNeedsReload.value = false;
       submittedCandidate = undefined;
@@ -1892,10 +2213,24 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
 
     async function prepareAssistantMetadataConfirmation(signal: AbortSignal): Promise<OperationProposal> {
       requireKnownSubmission();
-      if (saving.value || loading.value) throw new OperationUsageError('请等待元数据加载或保存完成');
+      if (saving.value || loading.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.wait-for-metadata-loading-or-saving-to-finish',
+            '请等待元数据加载或保存完成',
+          ),
+        );
       if (creatingChildMetadata.value) return prepareChildConfirmation(options.confirmationScope);
       const proposal = assistantProposal();
-      if (!proposal) throw new OperationUsageError('请先完成有效的字段候选');
+      if (!proposal)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.complete-a-valid-field-candidate-first',
+            '请先完成有效的字段候选',
+          ),
+        );
       const moduleAlias = props.moduleAlias;
       const captured = captureMetadataCandidate();
       const current = () => captured() && (options.confirmationScope?.() ?? true);
@@ -1906,28 +2241,54 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         current,
         signal,
         Object.fromEntries(
-          state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
+          state.fieldSpecs.value.map((spec) => [
+            spec.alias ?? '',
+            recordPresentationLabel(spec, 'title', language) || spec.alias || '',
+          ]),
         ),
         Object.fromEntries(capabilityItems.value.map((fact) => [fact.capability, fact.title])),
+        language,
       ).catch((cause: unknown) => {
-        if (cause instanceof MetadataChangeSetPrecheckError) throw new OperationUsageError(cause.message);
+        if (cause instanceof MetadataChangeSetPrecheckError)
+          throw new OperationUsageError(cause.textMessage ?? cause.message);
         throw cause;
       });
       return {
         presentation: {
-          title: '确认保存配置',
+          title: language.t(
+            'platform.screen.metadataEditorSession.confirm-configuration-save',
+            '确认保存配置',
+          ),
           lines: [
             title.value,
             ...submission.lines,
-            '保存以上整组更改（含页面中修改的内容），不会创建业务记录。保存后会核实是否生效。',
+            language.t(
+              'platform.screen.metadataEditorSession.save-this-entire-set-of-changes-including-edits-on-the',
+              '保存以上整组更改（含页面中修改的内容），不会创建业务记录。保存后会核实是否生效。',
+            ),
           ],
-          details: { title: '查看详细配置和影响', lines: submission.details },
+          details: {
+            title: language.t(
+              'platform.screen.metadataEditorSession.view-configuration-details-and-impacts',
+              '查看详细配置和影响',
+            ),
+            lines: submission.details,
+          },
         },
-        confirmLabel: '确认保存配置',
+        confirmLabel: language.t(
+          'platform.screen.metadataEditorSession.confirm-configuration-save',
+          '确认保存配置',
+        ),
         expiresAt: Date.now() + 10 * 60_000,
         isCurrent: () => current() && !saving.value,
         async execute() {
-          if (!current() || saving.value) throw new OperationRejectedError('配置候选已变化，请重新预检。');
+          if (!current() || saving.value)
+            throw new OperationRejectedError(
+              language.t(
+                'platform.screen.metadataEditorSession.the-configuration-candidate-changed-precheck-again',
+                '配置候选已变化，请重新预检。',
+              ),
+            );
           saving.value = true;
           try {
             await applyMetadataSubmission(submission, proposal);
@@ -1935,22 +2296,37 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
               const feedback = await completeMetadataChange(
                 proposal,
                 moduleAlias,
-                '元数据',
+                language.t('platform.governance.tab.metadata', '元数据'),
                 'confirm',
                 current,
               );
               return {
-                title: '元数据已保存',
+                title: language.t('platform.screen.metadataEditorSession.metadata-saved', '元数据已保存'),
                 lines: [
-                  feedback?.message.text || '配置已保存，运行态生效状态待核实。',
-                  '本次保存不发布页面布局；如需展示或录入新增字段，请继续到页面配置中编排并保存生效。',
+                  feedback?.message.text ||
+                    language.t(
+                      'platform.screen.metadataEditorSession.configuration-saved-runtime-activation-needs-verification',
+                      '配置已保存，运行态生效状态待核实。',
+                    ),
+                  language.t(
+                    'platform.screen.metadataEditorSession.this-save-does-not-publish-the-page-layout-arrange-and',
+                    '本次保存不发布页面布局；如需展示或录入新增字段，请继续到页面配置中编排并保存生效。',
+                  ),
                 ],
               };
             } catch (cause) {
-              presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+              presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
               return {
-                title: '元数据已保存，状态待核实',
-                lines: ['保存已完成，但生效状态或页面同步失败；请刷新核实，不要重复保存。'],
+                title: language.t(
+                  'platform.screen.metadataEditorSession.metadata-saved-status-needs-verification',
+                  '元数据已保存，状态待核实',
+                ),
+                lines: [
+                  language.t(
+                    'platform.screen.metadataEditorSession.saving-completed-but-activation-or-page-synchronization-failed-refresh-to',
+                    '保存已完成，但生效状态或页面同步失败；请刷新核实，不要重复保存。',
+                  ),
+                ],
               };
             }
           } finally {
@@ -1993,7 +2369,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         Promise.all(
           proposal.fieldOrders.map(async ({ relationId }) => {
             const relation = state.relations.value.find((item) => item.id === relationId);
-            if (!relation?.metadataId) throw new Error('排序节点已失效，请刷新元数据。');
+            if (!relation?.metadataId)
+              throw new Error(
+                language.t(
+                  'platform.screen.metadataEditorSession.the-ordering-node-is-no-longer-valid-refresh-metadata',
+                  '排序节点已失效，请刷新元数据。',
+                ),
+              );
             const records = await loadAllRecords<MetadataField>(
               `/platform.metadata/${encodeURIComponent(relation.metadataId)}/fields/query`,
             );
@@ -2027,13 +2409,19 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       try {
         prepareFieldDraftCommit()();
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'validation' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'validation' });
       }
     }
 
     function prepareRetainFieldDraft() {
       if (!fieldPlanActive.value || sorting.value)
-        throw new OperationUsageError('请在共享字段方案中保留修改；单个字段保存仍需正式确认。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.keep-changes-in-the-shared-field-plan-saving-a-single',
+            '请在共享字段方案中保留修改；单个字段保存仍需正式确认。',
+          ),
+        );
       return prepareFieldDraftCommit();
     }
 
@@ -2045,9 +2433,21 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         saving.value ||
         loading.value
       )
-        throw new OperationUsageError('当前字段不可编辑，请核对当前页面状态。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-current-field-is-not-editable-check-the-page-state',
+            '当前字段不可编辑，请核对当前页面状态。',
+          ),
+        );
       if (!fieldDraft.value.title?.trim() && !fieldDraft.value.fieldName?.trim()) {
-        throw new OperationUsageError('请填写显示名称');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.enter-a-display-name',
+            '请填写显示名称',
+          ),
+        );
       }
       const fieldName =
         state.fieldDraft.value.fieldName?.trim() ||
@@ -2064,23 +2464,58 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
       requireRecordNameField(draft);
       if (draft.fieldName && isDynamicRecordReservedFieldName(draft.fieldName)) {
-        throw new OperationUsageError('字段名称与动态记录协议保留字段冲突，请调整。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-field-name-conflicts-with-a-reserved-dynamic-record-protocol',
+            '字段名称与动态记录协议保留字段冲突，请调整。',
+          ),
+        );
       }
       if (!isValidFieldDraft(draft)) {
-        throw new OperationUsageError('请填写字段名、物理列名和字段规格');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.enter-the-field-name-physical-column-name-and-field-specification',
+            '请填写字段名、物理列名和字段规格',
+          ),
+        );
       }
       if (!isValidFieldPropertyDraft(property)) {
         throw new OperationUsageError(
-          property.kind === 'MODULE_REFERENCE' ? '请配置目标模块。' : '请配置字典应用和类别。',
+          property.kind === 'MODULE_REFERENCE'
+            ? codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.configure-a-target-module',
+                '请配置目标模块。',
+              )
+            : codeOperationErrorMessage(
+                language,
+                'platform.screen.metadataEditorSession.configure-the-dictionary-application-and-category',
+                '请配置字典应用和类别。',
+              ),
         );
       }
-      if (property.kind === 'MODULE_REFERENCE' && referenceTargetFieldCatalogProblem.value) {
-        throw new OperationUsageError(referenceTargetFieldCatalogProblem.value);
+      if (property.kind === 'MODULE_REFERENCE' && referenceTargetFieldCatalogProblemMessage.value) {
+        throw new OperationUsageError(referenceTargetFieldCatalogProblemMessage.value);
       }
       const relationId = selectedRelationId.value;
-      if (!relationId) throw new OperationUsageError('请先选择元数据节点。');
+      if (!relationId)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.select-a-metadata-node-first',
+            '请先选择元数据节点。',
+          ),
+        );
       if (planFieldConflicts(draft)) {
-        throw new OperationUsageError('字段名称或物理列与方案中的其他字段冲突。');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-field-or-physical-column-name-conflicts-with-another-field',
+            '字段名称或物理列与方案中的其他字段冲突。',
+          ),
+        );
       }
       const snapshot = JSON.stringify([
         state.fieldDraft.value,
@@ -2097,7 +2532,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           snapshot !==
             JSON.stringify([state.fieldDraft.value, state.fieldPropertyDraft.value, stagedNewFieldKey.value])
         )
-          throw new OperationUsageError('字段编辑已经变化，请核对当前草稿。');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.the-field-edit-changed-check-the-current-draft',
+              '字段编辑已经变化，请核对当前草稿。',
+            ),
+          );
         editSession.stageField(
           relationId,
           { ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
@@ -2109,7 +2550,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           state.cancelEditor();
           stagedNewFieldKey.value = undefined;
         } else {
-          void previewAndApply('保存字段');
+          void previewAndApply(language.t('platform.screen.metadataEditorSession.save-field', '保存字段'));
         }
         return { relationId, fieldName: draft.fieldName, retained: true, saved: false };
       };
@@ -2118,10 +2559,29 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantMainDraft(input: { title: string }) {
       requireValid();
       if (saving.value || loading.value || !workspaceReady.value)
-        throw new OperationUsageError('请先读取模块元数据');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.read-module-metadata-first',
+            '请先读取模块元数据',
+          ),
+        );
       if (state.relations.value.length > 0)
-        throw new OperationUsageError('模块已有元数据，请选择现有节点继续配置');
-      if (dirty.value && !state.mainEditorOpen.value) throw new OperationUsageError('请先保存或放弃当前候选');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.this-module-already-has-metadata-select-an-existing-node-to',
+            '模块已有元数据，请选择现有节点继续配置',
+          ),
+        );
+      if (dirty.value && !state.mainEditorOpen.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.save-or-discard-the-current-candidate-first',
+            '请先保存或放弃当前候选',
+          ),
+        );
       return () => {
         if (!state.mainEditorOpen.value) startCreateMainMetadata();
         state.mainMetadataDraft.value.title = input.title;
@@ -2132,11 +2592,29 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantChildDraft(input: { alias: string; title: string }) {
       requireValid();
       if (saving.value || loading.value || !workspaceReady.value || !selectedRelationId.value)
-        throw new OperationUsageError('请先选择并读取父元数据');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.select-and-read-the-parent-metadata-first',
+            '请先选择并读取父元数据',
+          ),
+        );
       if (dirty.value && !creatingChildMetadata.value)
-        throw new OperationUsageError('请先保存或放弃当前字段候选，再建设明细');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.save-or-discard-the-current-field-candidate-before-creating-details',
+            '请先保存或放弃当前字段候选，再建设明细',
+          ),
+        );
       if (state.relations.value.some((relation) => relation.relationAlias === input.alias))
-        throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.this-detail-alias-already-exists-select-the-existing-detail-to',
+            '此明细标识已存在，请选择现有明细继续配置',
+          ),
+        );
       return () => {
         if (!creatingChildMetadata.value) startCreateChildMetadataNode();
         childAliasManuallyEdited.value = true;
@@ -2162,9 +2640,22 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         !draft.title ||
         draft.title.length > 120
       )
-        throw new OperationUsageError(childAliasError.value ?? '请填写不超过 120 字的明细名称');
+        throw new OperationUsageError(
+          childAliasError.value ??
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.enter-a-detail-name-of-at-most-120-characters',
+              '请填写不超过 120 字的明细名称',
+            ),
+        );
       if (state.relations.value.some((relation) => relation.relationAlias === draft.alias))
-        throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.this-detail-alias-already-exists-select-the-existing-detail-to',
+            '此明细标识已存在，请选择现有明细继续配置',
+          ),
+        );
       const requestId = createUuid();
       const parentTreeKey = metadataNodeKey(relationId);
       const captured = captureMetadataCandidate();
@@ -2172,13 +2663,31 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       async function completeCreation(createdRelationId: string | undefined) {
         if (valid()) options.onCommitted?.(props.moduleAlias);
         try {
-          if (!current()) throw new Error('编辑上下文已变化');
+          if (!current())
+            throw new Error(
+              language.t(
+                'platform.screen.metadataEditorSession.the-editing-context-changed',
+                '编辑上下文已变化',
+              ),
+            );
           state.cancelEditor();
           childNodeType.value = 'FIELD';
           editSession.cancel();
           await loadWorkspace();
-          if (!valid() || workspaceLoadFailed.value) throw new Error('最新元数据读取失败或上下文已失效');
-          if (!scopeIsCurrent()) throw new Error('编辑上下文已变化');
+          if (!valid() || workspaceLoadFailed.value)
+            throw new Error(
+              language.t(
+                'platform.screen.metadataEditorSession.the-latest-metadata-read-failed-or-the-context-is-no',
+                '最新元数据读取失败或上下文已失效',
+              ),
+            );
+          if (!scopeIsCurrent())
+            throw new Error(
+              language.t(
+                'platform.screen.metadataEditorSession.the-editing-context-changed',
+                '编辑上下文已变化',
+              ),
+            );
           state.focusRelation(createdRelationId);
           if (createdRelationId) {
             hydrateSelectedRelation(createdRelationId);
@@ -2187,44 +2696,105 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           }
           const feedback = await refreshActivation?.(props.moduleAlias);
           return {
-            title: '明细已建立',
+            title: language.t('platform.screen.metadataEditorSession.detail-created', '明细已建立'),
             lines: [
-              feedback?.message.text ?? '配置已保存，运行态生效状态待核实。',
-              '接下来配置明细字段、引用、计算规则和页面。',
+              feedback?.message.text ??
+                language.t(
+                  'platform.screen.metadataEditorSession.configuration-saved-runtime-activation-needs-verification',
+                  '配置已保存，运行态生效状态待核实。',
+                ),
+              language.t(
+                'platform.screen.metadataEditorSession.configure-detail-fields-references-calculation-rules-and-pages-next',
+                '接下来配置明细字段、引用、计算规则和页面。',
+              ),
             ],
           };
         } catch {
           return {
-            title: '明细已建立，状态待核实',
-            lines: ['保存已完成，但页面或生效状态未同步；请重新读取元数据，不要重复创建。'],
+            title: language.t(
+              'platform.screen.metadataEditorSession.detail-created-status-needs-verification',
+              '明细已建立，状态待核实',
+            ),
+            lines: [
+              language.t(
+                'platform.screen.metadataEditorSession.saving-completed-but-page-synchronization-or-activation-is-pending-read',
+                '保存已完成，但页面或生效状态未同步；请重新读取元数据，不要重复创建。',
+              ),
+            ],
           };
         }
       }
       return {
         receiptReference: { kind: 'child-metadata', moduleAlias: props.moduleAlias, relationId, requestId },
         presentation: {
-          title: `确认建立明细：${draft.title}`,
+          title: language.t(
+            'platform.screen.metadataEditorSession.confirm-detail-creation-value',
+            '确认建立明细：{value1}',
+            { value1: draft.title },
+          ),
           lines: [
-            `所属登记表：${state.selectedMetadata.value?.title ?? title.value}`,
-            '一张记录可以填写多行明细，明细随所属记录一起保存。',
-            '本次只建立空明细及其关联；要填的内容、关联对象、计算规则和页面仍需继续配置。',
+            language.t('platform.screen.metadataEditorSession.owner-record-value', '所属登记表：{value1}', {
+              value1: state.selectedMetadata.value?.title ?? title.value,
+            }),
+            language.t(
+              'platform.screen.metadataEditorSession.each-record-can-have-multiple-detail-rows-details-are-saved',
+              '一张记录可以填写多行明细，明细随所属记录一起保存。',
+            ),
+            language.t(
+              'platform.screen.metadataEditorSession.this-creates-only-an-empty-detail-structure-and-its-relationship',
+              '本次只建立空明细及其关联；要填的内容、关联对象、计算规则和页面仍需继续配置。',
+            ),
           ],
           details: {
-            title: '查看配置影响',
+            title: language.t(
+              'platform.screen.metadataEditorSession.view-configuration-impacts',
+              '查看配置影响',
+            ),
             lines: [
-              `模块：${props.moduleAlias}；明细标识：${draft.alias}`,
-              '通过标准元数据入口创建物理表和父关联字段，不录入业务数据。',
-              ...(draft.schemaName ? [`存储 schema：${draft.schemaName}`] : []),
-              ...(draft.tableName ? [`存储表：${draft.tableName}`] : []),
+              language.t(
+                'platform.screen.metadataEditorSession.module-value-detail-alias-value',
+                '模块：{value1}；明细标识：{value2}',
+                { value1: props.moduleAlias, value2: draft.alias },
+              ),
+              language.t(
+                'platform.screen.metadataEditorSession.create-the-physical-table-and-parent-relationship-field-through-the',
+                '通过标准元数据入口创建物理表和父关联字段，不录入业务数据。',
+              ),
+              ...(draft.schemaName
+                ? [
+                    language.t(
+                      'platform.screen.metadataEditorSession.storage-schema-value',
+                      '存储 schema：{value1}',
+                      { value1: draft.schemaName },
+                    ),
+                  ]
+                : []),
+              ...(draft.tableName
+                ? [
+                    language.t(
+                      'platform.screen.metadataEditorSession.storage-table-value',
+                      '存储表：{value1}',
+                      { value1: draft.tableName },
+                    ),
+                  ]
+                : []),
             ],
           },
         },
-        confirmLabel: '确认建立明细',
+        confirmLabel: language.t(
+          'platform.screen.metadataEditorSession.confirm-detail-creation',
+          '确认建立明细',
+        ),
         expiresAt: Date.now() + 10 * 60_000,
         isCurrent: () => current() && !saving.value && !loading.value,
         async execute() {
           if (!current() || saving.value || loading.value)
-            throw new OperationRejectedError('明细候选或编辑上下文已变化，请重新确认');
+            throw new OperationRejectedError(
+              language.t(
+                'platform.screen.metadataEditorSession.the-detail-candidate-or-editing-context-changed-confirm-again',
+                '明细候选或编辑上下文已变化，请重新确认',
+              ),
+            );
           saving.value = true;
           try {
             const result = await moduleContext.http
@@ -2245,7 +2815,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         },
         async lookup() {
           requireValid();
-          if (saving.value || loading.value) throw new Error('请等待当前元数据操作完成再查询结果');
+          if (saving.value || loading.value)
+            throw new Error(
+              language.t(
+                'platform.screen.metadataEditorSession.wait-for-the-current-metadata-operation-to-finish-before-querying',
+                '请等待当前元数据操作完成再查询结果',
+              ),
+            );
           saving.value = true;
           try {
             const receipt = await moduleContext.http.request<
@@ -2273,16 +2849,28 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         if (manualChildCreation?.state === 'unknown') {
           await manualChildCreation.check();
         } else {
-          manualChildCreation = createOperationConfirmation(prepareChildConfirmation(), valid);
+          manualChildCreation = createOperationConfirmation(
+            prepareChildConfirmation(),
+            valid,
+            Date.now,
+            language,
+          );
           await manualChildCreation.confirm();
         }
         if (!valid()) return;
         if (manualChildCreation.state !== 'succeeded') {
           presentPlatformMessage(
             manualChildCreation.state === 'unknown'
-              ? '明细创建结果尚未确定。再次点击保存只查询本次结果，不会重复创建；请勿重新提交同一明细。'
-              : manualChildCreation.result?.lines.join('；') || '明细候选已变化，请重新检查后保存。',
-            { source: 'metadata-orchestration', phase: 'action' },
+              ? language.t(
+                  'platform.screen.metadataEditorSession.the-detail-creation-result-is-unknown-saving-again-only-queries',
+                  '明细创建结果尚未确定。再次点击保存只查询本次结果，不会重复创建；请勿重新提交同一明细。',
+                )
+              : manualChildCreation.result?.lines.join('；') ||
+                  language.t(
+                    'platform.screen.metadataEditorSession.the-detail-candidate-changed-check-it-again-before-saving',
+                    '明细候选已变化，请重新检查后保存。',
+                  ),
+            { language, source: 'metadata-orchestration', phase: 'action' },
           );
           return;
         }
@@ -2290,10 +2878,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         manualChildCreation = undefined;
         await handlePlatformActionSuccess(
           { success: true, message: { text: [result.title, ...result.lines].join('；'), type: 'INFO' } },
-          { source: 'metadata-orchestration' },
+          { language, source: 'metadata-orchestration' },
         );
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'action' });
       }
     }
 
@@ -2303,21 +2891,37 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       const field = selectedField.value;
       const deletingField = Boolean(field);
       if (field && !fieldEditableInSession(field)) {
-        presentPlatformMessage(fieldProtectionReason(field) ?? '该字段不能删除。', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
+        presentPlatformMessage(
+          fieldProtectionReason(field) ??
+            language.t(
+              'platform.screen.metadataEditorSession.this-field-cannot-be-deleted',
+              '该字段不能删除。',
+            ),
+          { language, source: 'metadata-orchestration', phase: 'validation' },
+        );
         return;
       }
       if (
-        !(await confirmAction({
-          title: deletingField ? '删除字段' : '删除元数据',
-          content: deletingField
-            ? `将删除字段“${field!.title}”及其物理列。仅在未被配置引用且没有业务数据时可以继续。`
-            : `将删除元数据及其物理表。仅在没有业务字段、子元数据和业务数据时可以继续。`,
-          okText: '确认删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            title: deletingField
+              ? language.t('platform.screen.metadataEditorSession.delete-field', '删除字段')
+              : language.t('platform.screen.metadataEditorSession.delete-metadata', '删除元数据'),
+            content: deletingField
+              ? language.t(
+                  'platform.screen.metadataEditorSession.delete-field-value-and-its-physical-column-continue-only-if',
+                  '将删除字段“{value1}”及其物理列。仅在未被配置引用且没有业务数据时可以继续。',
+                  { value1: field!.title },
+                )
+              : language.t(
+                  'platform.screen.metadataEditorSession.delete-the-metadata-and-its-physical-table-continue-only-if',
+                  '将删除元数据及其物理表。仅在没有业务字段、子元数据和业务数据时可以继续。',
+                ),
+            okText: language.t('platform.screen.metadataEditorSession.confirm-deletion', '确认删除'),
+            danger: true,
+          },
+          language,
+        ))
       )
         return;
       saving.value = true;
@@ -2356,11 +2960,22 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           await loadWorkspace();
         }
         await handlePlatformActionSuccess(
-          { success: true, message: deletingField ? '字段及物理列已删除' : '元数据及物理表已删除' },
-          { source: 'metadata-orchestration' },
+          {
+            success: true,
+            message: deletingField
+              ? language.t(
+                  'platform.screen.metadataEditorSession.field-and-physical-column-deleted',
+                  '字段及物理列已删除',
+                )
+              : language.t(
+                  'platform.screen.metadataEditorSession.metadata-and-physical-table-deleted',
+                  '元数据及物理表已删除',
+                ),
+          },
+          { language, source: 'metadata-orchestration' },
         );
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'action' });
       } finally {
         saving.value = false;
       }
@@ -2375,7 +2990,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       const requestedTarget = targetModuleAlias.trim();
       const requestToken = ++referenceTargetFieldCatalogRequestToken;
       referenceTargetFieldCatalogLoading.value = true;
-      referenceTargetFieldCatalogError.value = undefined;
+      unavailableReferenceTarget.value = undefined;
       try {
         const catalog = await requestReferenceTargetFieldCatalog(
           relationId,
@@ -2407,8 +3022,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       } catch (cause) {
         if (requestToken !== referenceTargetFieldCatalogRequestToken) return;
         referenceTargetFieldCatalog.value = undefined;
-        referenceTargetFieldCatalogError.value = `无法加载“${requestedTarget}”的目标字段目录。`;
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+        unavailableReferenceTarget.value = requestedTarget;
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'load' });
       } finally {
         if (requestToken === referenceTargetFieldCatalogRequestToken) {
           referenceTargetFieldCatalogLoading.value = false;
@@ -2441,7 +3056,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         .filter((candidate) => candidate.selectable !== false)
         .map((candidate) => ({ value: candidate.fieldName, label: candidateLabel(candidate) }));
       if (selectedField && !options.some((option) => option.value === selectedField)) {
-        options.unshift({ value: selectedField, label: `${selectedField}（当前值不在候选中，需调整）` });
+        options.unshift({
+          value: selectedField,
+          label: language.t(
+            'platform.screen.metadataEditorSession.value-current-value-is-outside-the-candidates-adjustment-required',
+            '{value1}（当前值不在候选中，需调整）',
+            { value1: selectedField },
+          ),
+        });
       }
       return options;
     }
@@ -2468,10 +3090,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     async function createMainMetadata() {
       const draft = normalizeMainMetadataDraft(state.mainMetadataDraft.value);
       if (!isValidMainMetadataDraft(draft)) {
-        presentPlatformMessage('请填写元数据标识（alias）和名称', {
-          source: 'metadata-orchestration',
-          phase: 'validation',
-        });
+        presentPlatformMessage(
+          language.t(
+            'platform.screen.metadataEditorSession.enter-the-metadata-alias-and-name',
+            '请填写元数据标识（alias）和名称',
+          ),
+          { language, source: 'metadata-orchestration', phase: 'validation' },
+        );
         return;
       }
       saving.value = true;
@@ -2489,11 +3114,17 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           selectedTreeKey.value = metadataNodeKey(result.relation.id);
         }
         await handlePlatformActionSuccess(
-          { success: true, message: '主元数据已创建' },
-          { source: 'metadata-orchestration' },
+          {
+            success: true,
+            message: language.t(
+              'platform.screen.metadataEditorSession.main-metadata-created',
+              '主元数据已创建',
+            ),
+          },
+          { language, source: 'metadata-orchestration' },
         );
       } catch (cause) {
-        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+        presentPlatformError(cause, { language, source: 'metadata-orchestration', phase: 'action' });
       } finally {
         saving.value = false;
       }
@@ -2543,6 +3174,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function fieldSourceOf(field: MetadataField): string {
       return metadataFieldGovernanceLabel(
         metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value),
+        language,
       );
     }
 
@@ -2563,15 +3195,27 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     ): string | undefined {
       const capabilityFields = capabilityFieldNamesFor(relation);
       if (relation && propertyForRelationField(relation, field).kind === 'LEGACY_LOCKED') {
-        return '该字段仍由旧配置链路维护，已锁定，不能改为新的字段属性。';
+        return language.t(
+          'platform.screen.metadataEditorSession.this-field-remains-managed-by-the-legacy-configuration-path-it',
+          '该字段仍由旧配置链路维护，已锁定，不能改为新的字段属性。',
+        );
       }
       const kind = metadataFieldGovernanceKind(field, relation, capabilityFields);
       return (
         {
           BUSINESS: undefined,
-          CAPABILITY_DERIVED: '由已启用能力维护，不能作为业务字段编辑。',
-          PLATFORM_SYSTEM: '平台系统字段，不能在元数据会话中修改。',
-          RELATION_FOREIGN_KEY: '由元数据关系维护，不能作为独立字段修改。',
+          CAPABILITY_DERIVED: language.t(
+            'platform.screen.metadataEditorSession.managed-by-an-enabled-capability-cannot-be-edited-as-a',
+            '由已启用能力维护，不能作为业务字段编辑。',
+          ),
+          PLATFORM_SYSTEM: language.t(
+            'platform.screen.metadataEditorSession.platform-system-field-cannot-be-changed-in-a-metadata-session',
+            '平台系统字段，不能在元数据会话中修改。',
+          ),
+          RELATION_FOREIGN_KEY: language.t(
+            'platform.screen.metadataEditorSession.managed-by-a-metadata-relationship-cannot-be-changed-as-an',
+            '由元数据关系维护，不能作为独立字段修改。',
+          ),
         }[kind] ?? undefined
       );
     }
@@ -2645,7 +3289,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           relationId,
           fields.map((field) => (visibleIds.has(field.id!) ? order[position++]! : field.id!)),
         );
-        if (editSession.isDirty.value) void previewAndApply('排序', 'immediate-order');
+        if (editSession.isDirty.value)
+          void previewAndApply(
+            language.t('platform.screen.metadataEditorSession.sort', '排序'),
+            'immediate-order',
+          );
         return;
       }
       const relation = state.relations.value.find((item) => item.id === drag.relationId);
@@ -2662,41 +3310,85 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         event.target.position === 'before' ? -1 : 1,
       );
       editSession.stageRelationOrder(relation?.parentMetadataId, order);
-      if (editSession.isDirty.value) void previewAndApply('排序', 'immediate-order');
+      if (editSession.isDirty.value)
+        void previewAndApply(
+          language.t('platform.screen.metadataEditorSession.sort', '排序'),
+          'immediate-order',
+        );
     }
 
     function capabilityTitleOf(capability: string): string {
       return (
         {
-          TREE: '树结构',
-          SORT: '排序',
-          REFERENCE: '引用标题',
-          ENABLE: '启停',
-          RECYCLE_BIN: '回收站',
-          DATA_SCOPE: '数据权限',
-          APPROVAL: '审批',
+          TREE: language.t('platform.screen.metadataEditorSession.tree-structure', '树结构'),
+          SORT: language.t('platform.screen.metadataEditorSession.sort', '排序'),
+          REFERENCE: language.t('platform.screen.metadataEditorSession.reference-titles', '引用标题'),
+          ENABLE: language.t('platform.screen.metadataEditorSession.enable-disable', '启停'),
+          RECYCLE_BIN: language.t('platform.screen.ModulePageHostRuntime.recycle-bin', '回收站'),
+          DATA_SCOPE: language.t('platform.screen.metadataEditorSession.data-permissions', '数据权限'),
+          APPROVAL: language.t('platform.workflow.approval', '审批'),
         }[capability] ?? capability
       );
     }
 
     const contextRevision = ref(0);
     watch(
-      () => ({
-        summary: assistantSummary(),
-        proposal: assistantProposal(),
-        candidate: assistantCandidate(),
-        field: state.fieldDraft.value,
-        property: state.fieldPropertyDraft.value,
-      }),
+      () => {
+        const summary = assistantSummary();
+        const relation = summary.selectedRelation;
+        const candidate = assistantCandidate();
+        // Display labels can change with locale; only business facts invalidate an invocation.
+        return JSON.stringify({
+          summary: {
+            ...summary,
+            selectedRelation: relation && {
+              ...relation,
+              fields: relation.fields.map((field) => ({ ...field, governance: undefined })),
+              capabilities: relation.capabilities.map((fact) => {
+                const original = capabilitySnapshot.value?.capabilities.find(
+                  (item) => item.capability === fact.capability,
+                );
+                return {
+                  ...fact,
+                  title: undefined,
+                  reason: original?.reason ?? fact.reason,
+                  defaultDescription: original?.defaultDescription ?? fact.defaultDescription,
+                };
+              }),
+            },
+          },
+          governance: state.allFields.value.map((field) => [
+            field.id,
+            field.fieldOwnership,
+            field.systemManaged,
+            metadataFieldGovernanceKind(field, state.selectedRelation.value, capabilityFieldNames.value),
+          ]),
+          proposal: assistantProposal(),
+          candidate: candidate && {
+            ...candidate,
+            changes: candidate.changes.map((change) => ({ ...change, property: undefined })),
+          },
+          field: state.fieldDraft.value,
+          property: state.fieldPropertyDraft.value,
+        });
+      },
       () => contextRevision.value++,
-      { deep: true, flush: 'sync' },
+      { flush: 'sync' },
     );
     const adapter: MetadataGovernanceEditor = {
+      language,
       prepareMainDraft: prepareAssistantMainDraft,
       prepareChildDraft: prepareAssistantChildDraft,
       discardCandidate() {
         requireKnownSubmission();
-        if (saving.value) throw new OperationUsageError('配置正在保存，请等待完成');
+        if (saving.value)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.configuration-is-being-saved-wait-for-completion',
+              '配置正在保存，请等待完成',
+            ),
+          );
         sorting.value = false;
         cancelFieldPlan();
       },
@@ -2737,7 +3429,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     async function ensureLoaded(refresh = false, commit?: (accept: () => void) => void) {
       requireValid();
       if (commit && (loading.value || saving.value))
-        throw new OperationUsageError('元数据正在读取或保存，请稍后再选择');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.metadata-is-loading-or-saving-select-again-later',
+            '元数据正在读取或保存，请稍后再选择',
+          ),
+        );
       if (submissionStatus.value === 'unknown' || committedNeedsReload.value) {
         commit?.(() => {});
         return;
@@ -2748,7 +3446,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       }
       if (commit) {
         if (!fieldSpecsReady.value) await loadFieldSpecs();
-        if (!fieldSpecsReady.value) throw new OperationUsageError('字段规格加载未完成，请重新选择模块');
+        if (!fieldSpecsReady.value)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.metadataEditorSession.field-specifications-have-not-finished-loading-select-the-module-again',
+              '字段规格加载未完成，请重新选择模块',
+            ),
+          );
         await loadWorkspace(commit);
         return;
       }
@@ -2757,7 +3462,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .then(() => {
             requireValid();
             if (!workspaceReady.value || workspaceLoadFailed.value || !fieldSpecsReady.value)
-              throw new OperationUsageError('元数据加载未完成，请重新选择模块');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataEditorSession.metadata-has-not-finished-loading-select-the-module-again',
+                  '元数据加载未完成，请重新选择模块',
+                ),
+              );
           })
           .finally(() => {
             pendingLoad = undefined;
@@ -2768,15 +3479,29 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireValid();
       if (selectedRelationId.value === relationId) return;
       if (state.mode.value !== 'view' || editSession.isDirty.value || fieldPlanActive.value)
-        throw new OperationUsageError('请先保存或取消当前字段候选，再切换元数据');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.save-or-cancel-the-current-field-candidate-before-switching-metadata-label',
+            '请先保存或取消当前字段候选，再切换元数据',
+          ),
+        );
       const relation = state.relations.value.find((item) => item.id === relationId);
-      if (!relation) throw new OperationUsageError('元数据节点不存在，请读取实际节点目录');
+      if (!relation)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.the-metadata-node-does-not-exist-read-the-actual-node',
+            '元数据节点不存在，请读取实际节点目录',
+          ),
+        );
       state.selectRelation(relation);
       hydrateSelectedRelation(relationId);
       selectedTreeKey.value = metadataNodeKey(relationId);
     }
     const dirty = computed(() => editSession.isDirty.value || state.mode.value !== 'view');
     return {
+      language,
       moduleAlias: props.moduleAlias,
       title,
       adapter,
@@ -2880,7 +3605,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         canDragMetadataNode,
         allowMetadataModelDrop,
         handleMetadataModelDrop,
-        metadataFieldPropertyLabel,
+        metadataFieldPropertyLabel: (kind: Parameters<typeof metadataFieldPropertyLabel>[0]) =>
+          metadataFieldPropertyLabel(kind, language),
         fieldSpecDisplayLabel,
       },
     };

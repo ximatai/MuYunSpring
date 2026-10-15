@@ -14,7 +14,7 @@ public interface ApprovalAbility<T extends EntityContract & ApprovalCapable> ext
     /** Projects ordinary editor availability; trusted workflow commands retain their own authorization. */
     default Optional<RecordActionAvailabilityDecision> ordinaryApprovalRecordActionAvailability(String actionCode, T record) {
         return supportsApproval() && PlatformAction.UPDATE.matches(actionCode) && ApprovalMutationSupport.blocksOrdinaryUpdate(record)
-                ? Optional.of(RecordActionAvailabilityDecision.unavailable(ApprovalMutationSupport.ORDINARY_UPDATE_BLOCKED))
+                ? Optional.of(RecordActionAvailabilityDecision.unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.approval.update-unavailable", ApprovalMutationSupport.ORDINARY_UPDATE_BLOCKED)))
                 : Optional.empty();
     }
 

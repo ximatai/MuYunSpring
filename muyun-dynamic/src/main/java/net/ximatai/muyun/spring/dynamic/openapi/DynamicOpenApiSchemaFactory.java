@@ -1020,6 +1020,10 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("scope", objectProperty("ErrorScope"));
         properties.put("targets", arrayProperty("ErrorTarget"));
         properties.put("details", objectProperty("object"));
+        properties.put("actionMessage", objectProperty("object"));
+        properties.put("messageArgs", objectProperty("object"));
+        properties.put("textSource", objectProperty("object"));
+        properties.put("messageText", objectProperty("object"));
         return new DynamicOpenApiDocument.Schema("PlatformWebError", "object", null,
                 List.of("traceId", "code", "status", "message", "targets", "details"),
                 properties, null);

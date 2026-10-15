@@ -190,6 +190,35 @@ it('binds delegation loading and saving to its tenant and discards a closed tena
   await flushPromises();
 });
 
+it('creates the delegation name in the current language and preserves the draft when that language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(
+    async (options: HttpRequestOptions): Promise<unknown> =>
+      options.path.endsWith('/page') ? page('task') : { records: [], modules: {} },
+  );
+  const wrapper = mountWorkbench(request, language);
+  try {
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Personal delegation settings')!
+      .trigger('click');
+    await flushPromises();
+    const titleInput = wrapper.findAllComponents({ name: 'UiInput' }).at(-1)!;
+    expect(titleInput.props('value')).toBe('Approval delegation');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(titleInput.props('value')).toBe('Approval delegation');
+    titleInput.vm.$emit('update:value', 'My literal delegation');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(titleInput.props('value')).toBe('My literal delegation');
+    expect(request.mock.calls.some(([options]) => options.path.endsWith('/insert'))).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('switches and refreshes module labels without replacing workflow facts, selection or filters', async () => {
   const language = createLanguageContext({ languageTag: 'en' });
   let translated = 'Examinations';

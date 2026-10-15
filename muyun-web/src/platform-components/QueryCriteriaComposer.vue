@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import type {
@@ -8,7 +9,7 @@ import type {
   QueryCriteriaNode,
   QuerySchemaField,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+
 import QueryCriteriaGroupEditor from './QueryCriteriaGroupEditor.vue';
 import type {
   QueryCriteriaConditionDraft,
@@ -23,6 +24,8 @@ import {
 } from './queryCriteriaDraft';
 import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 import type { RecordPickerRecord } from './recordPickerConstraints';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'QueryCriteriaComposer' });
 
@@ -51,30 +54,47 @@ const selectableFields = computed(() =>
   props.fields.filter((field) => !props.excludedFieldNames?.includes(field.name)),
 );
 const root = ref<QueryCriteriaGroupDraft>(createRoot());
-const validationErrors = ref<Record<number, string>>({});
+const validationErrorFacts = ref<Record<number, () => string>>({});
+const validationErrors = computed(() =>
+  Object.fromEntries(Object.entries(validationErrorFacts.value).map(([id, text]) => [id, text()])),
+);
 const referenceValidityByNode = ref<Record<number, ReferencePickerValidity>>({});
 const referenceDraftValid = computed(() =>
   Object.values(referenceValidityByNode.value).every((item) => item.valid),
 );
 
 function apply() {
-  const errors: Record<number, string> = {};
+  const errors: Record<number, () => string> = {};
   for (const [id, validity] of Object.entries(referenceValidityByNode.value)) {
-    if (!validity.valid) errors[Number(id)] = validity.message ?? '请完成引用选择';
+    if (!validity.valid)
+      errors[Number(id)] = () =>
+        validity.message ?? language.t('platform.reference-picker.complete', '请完成引用选择');
   }
   if (Object.keys(errors).length > 0) {
-    validationErrors.value = errors;
-    emit('validation', '请完成引用选择后再应用');
+    validationErrorFacts.value = errors;
+    emit(
+      'validation',
+      language.t(
+        'platform.screen.QueryCriteriaComposer.complete-the-reference-selection-before-applying',
+        '请完成引用选择后再应用',
+      ),
+    );
     return;
   }
   validateDraftComplexity(root.value, 1, errors, { count: 0 });
   const result = resolveGroup(root.value, true, errors);
   if (Object.keys(errors).length > 0 || !result) {
-    validationErrors.value = errors;
-    emit('validation', '请修正标记的筛选条件后再应用');
+    validationErrorFacts.value = errors;
+    emit(
+      'validation',
+      language.t(
+        'platform.screen.QueryCriteriaComposer.correct-the-marked-filters-before-applying',
+        '请修正标记的筛选条件后再应用',
+      ),
+    );
     return;
   }
-  validationErrors.value = {};
+  validationErrorFacts.value = {};
   emit('draftChange', false);
   emit('apply', result);
 }
@@ -82,20 +102,35 @@ function apply() {
 function validateDraftComplexity(
   group: QueryCriteriaGroupDraft,
   depth: number,
-  errors: Record<number, string>,
+  errors: Record<number, () => string>,
   state: { count: number },
 ) {
   state.count += 1;
   if (depth > QUERY_CRITERIA_MAXIMUM_DEPTH) {
-    errors[group.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_DEPTH} 层括号组`;
+    errors[group.id] = () =>
+      language.t(
+        'platform.screen.QueryCriteriaComposer.at-most-value-group-levels-are-supported',
+        '最多支持 {value1} 层括号组',
+        { value1: QUERY_CRITERIA_MAXIMUM_DEPTH },
+      );
   }
   if (state.count > QUERY_CRITERIA_MAXIMUM_NODES) {
-    errors[group.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_NODES} 个条件和括号组`;
+    errors[group.id] = () =>
+      language.t(
+        'platform.screen.QueryCriteriaComposer.at-most-value-conditions-and-groups-are-supported',
+        '最多支持 {value1} 个条件和括号组',
+        { value1: QUERY_CRITERIA_MAXIMUM_NODES },
+      );
   }
   for (const child of group.children) {
     state.count += 1;
     if (state.count > QUERY_CRITERIA_MAXIMUM_NODES) {
-      errors[child.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_NODES} 个条件和括号组`;
+      errors[child.id] = () =>
+        language.t(
+          'platform.screen.QueryCriteriaComposer.at-most-value-conditions-and-groups-are-supported',
+          '最多支持 {value1} 个条件和括号组',
+          { value1: QUERY_CRITERIA_MAXIMUM_NODES },
+        );
     }
     if (child.kind === 'GROUP') {
       // The recursive call accounts for the nested group itself, so undo the
@@ -103,14 +138,19 @@ function validateDraftComplexity(
       state.count -= 1;
       validateDraftComplexity(child, depth + 1, errors, state);
     } else if (child.values.length > QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES) {
-      errors[child.id] = `一个条件最多支持 ${QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES} 个值`;
+      errors[child.id] = () =>
+        language.t(
+          'platform.screen.QueryCriteriaComposer.a-condition-supports-at-most-value-values',
+          '一个条件最多支持 {value1} 个值',
+          { value1: QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES },
+        );
     }
   }
 }
 
 function clear() {
   root.value = createRoot();
-  validationErrors.value = {};
+  validationErrorFacts.value = {};
   updateReferenceValidity(undefined, undefined);
   emit('draftChange', false);
   emit('clear');
@@ -119,7 +159,7 @@ function clear() {
 function updateRoot(group: QueryCriteriaGroupDraft) {
   root.value = group;
   pruneReferenceValidity(group);
-  validationErrors.value = {};
+  validationErrorFacts.value = {};
   emit('draftChange', true);
 }
 
@@ -181,10 +221,14 @@ function nextId() {
 function resolveGroup(
   group: QueryCriteriaGroupDraft,
   rootGroup: boolean,
-  errors: Record<number, string>,
+  errors: Record<number, () => string>,
 ): QueryCriteriaGroup | undefined {
   if (props.composition === 'FLAT_AND' && (group.operator !== 'AND' || !rootGroup)) {
-    errors[group.id] = '更多筛选只支持单层 AND 条件';
+    errors[group.id] = () =>
+      language.t(
+        'platform.screen.QueryCriteriaComposer.more-filters-only-supports-a-single-level-of-and-conditions',
+        '更多筛选只支持单层 AND 条件',
+      );
     return undefined;
   }
   const children: QueryCriteriaNode[] = [];
@@ -194,7 +238,11 @@ function resolveGroup(
   }
   if (children.length === 0) {
     if (group.children.length === 0) {
-      errors[group.id] = '请至少保留一个完整条件';
+      errors[group.id] = () =>
+        language.t(
+          'platform.screen.QueryCriteriaComposer.keep-at-least-one-complete-condition',
+          '请至少保留一个完整条件',
+        );
     }
     return undefined;
   }
@@ -203,35 +251,53 @@ function resolveGroup(
 
 function resolveNode(
   node: QueryCriteriaDraftNode,
-  errors: Record<number, string>,
+  errors: Record<number, () => string>,
 ): QueryCriteriaNode | undefined {
   if (node.kind === 'GROUP') {
     if (props.composition === 'FLAT_AND') {
-      errors[node.id] = '更多筛选不支持括号组';
+      errors[node.id] = () =>
+        language.t(
+          'platform.screen.QueryCriteriaComposer.more-filters-does-not-support-nested-groups',
+          '更多筛选不支持括号组',
+        );
       return undefined;
     }
     return resolveGroup(node, false, errors);
   }
   const field = props.fields.find((item) => item.name === node.fieldName);
   if (!field) {
-    errors[node.id] = '请选择字段';
+    errors[node.id] = () => language.t('platform.screen.QueryCriteriaComposer.select-a-field', '请选择字段');
     return undefined;
   }
   const operator = node.operator;
   if (!operator) {
-    errors[node.id] = '请选择关系';
+    errors[node.id] = () =>
+      language.t('platform.screen.QueryCriteriaComposer.select-an-operator', '请选择关系');
     return undefined;
   }
   if (!field.operators.includes(operator)) {
-    errors[node.id] = `${field.title ?? field.name} 不支持该关系`;
+    errors[node.id] = () =>
+      language.t(
+        'platform.screen.QueryCriteriaComposer.value-does-not-support-this-operator',
+        '{value1} 不支持该关系',
+        { value1: field.title ?? field.name },
+      );
     return undefined;
   }
   if (operator === 'BETWEEN' && node.values.length !== 2) {
-    errors[node.id] = `${field.title ?? field.name} 需要填写起始和结束两个值`;
+    errors[node.id] = () =>
+      language.t(
+        'platform.screen.QueryCriteriaComposer.enter-both-the-start-and-end-values-for-value',
+        '{value1} 需要填写起始和结束两个值',
+        { value1: field.title ?? field.name },
+      );
     return undefined;
   }
   if (!isValueLessQueryOperator(operator) && node.values.length === 0) {
-    errors[node.id] = `${field.title ?? field.name} 需要填写条件值`;
+    errors[node.id] = () =>
+      language.t('platform.screen.QueryCriteriaComposer.enter-a-value-for-value', '{value1} 需要填写条件值', {
+        value1: field.title ?? field.name,
+      });
     return undefined;
   }
   const condition: QueryCriteriaCondition = {
@@ -267,8 +333,12 @@ function resolveNode(
       @submit="apply"
     />
     <footer class="query-criteria-composer-actions">
-      <UiButton type="primary" :disabled="disabled || !referenceDraftValid" @click="apply">应用条件</UiButton>
-      <UiButton type="text" :disabled="disabled" @click="clear">重置</UiButton>
+      <UiButton type="primary" :disabled="disabled || !referenceDraftValid" @click="apply">{{
+        language.t('platform.screen.QueryCriteriaComposer.apply-conditions', '应用条件')
+      }}</UiButton>
+      <UiButton type="text" :disabled="disabled" @click="clear">{{
+        language.t('platform.screen.QueryCriteriaComposer.reset', '重置')
+      }}</UiButton>
     </footer>
   </section>
 </template>

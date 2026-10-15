@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, getCurrentInstance, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
@@ -7,6 +8,8 @@ import {
 } from './managementExplorerContext';
 import { MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT } from './managementWorkspaceLayout';
 import { MANAGEMENT_WORKSPACE_CONTEXT, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ManagementExplorerColumn' });
 
@@ -277,8 +280,16 @@ watch(collapsed, (isCollapsed) => {
             icon-only
             size="small"
             type="text"
-            :title="`展开${title}`"
-            :aria-label="`展开${title}`"
+            :title="
+              language.t('platform.screen.ManagementExplorerColumn.expand-value', '展开{value1}', {
+                value1: title,
+              })
+            "
+            :aria-label="
+              language.t('platform.screen.ManagementExplorerColumn.expand-value', '展开{value1}', {
+                value1: title,
+              })
+            "
             @click="restore"
           />
         </div>

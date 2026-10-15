@@ -5,6 +5,9 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
+import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedSheet;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedWorkbook;
 import net.ximatai.muyun.spring.platform.exchange.reader.ExcelWorkbookParser;
@@ -29,8 +32,16 @@ public class DynamicImportFacade {
     private final DynamicImportExecutor executor;
     private final DynamicImportErrorWorkbookBuilder errorWorkbookBuilder;
     private final ExcelWorkbookPlanWriter workbookWriter;
+    private final ExcelWorkbookPresentation presentation;
 
     @Autowired
+    public DynamicImportFacade(DynamicRecordService recordService, ExcelWorkbookPresentation presentation,
+                               ObjectProvider<TextResolver> resolvers) {
+        this(new ExcelWorkbookParser(), new DynamicImportPlanBuilder(), new ImportWorkbookGrouper(),
+                new DynamicImportExecutor(recordService), new DynamicImportErrorWorkbookBuilder(resolvers.getIfAvailable()),
+                new ExcelWorkbookPlanWriter(), presentation);
+    }
+
     public DynamicImportFacade(DynamicRecordService recordService) {
         this(new ExcelWorkbookParser(),
                 new DynamicImportPlanBuilder(),
@@ -46,12 +57,20 @@ public class DynamicImportFacade {
                         DynamicImportExecutor executor,
                         DynamicImportErrorWorkbookBuilder errorWorkbookBuilder,
                         ExcelWorkbookPlanWriter workbookWriter) {
+        this(parser, planBuilder, grouper, executor, errorWorkbookBuilder, workbookWriter, null);
+    }
+
+    DynamicImportFacade(ExcelWorkbookParser parser, DynamicImportPlanBuilder planBuilder,
+                        ImportWorkbookGrouper grouper, DynamicImportExecutor executor,
+                        DynamicImportErrorWorkbookBuilder errorWorkbookBuilder, ExcelWorkbookPlanWriter workbookWriter,
+                        ExcelWorkbookPresentation presentation) {
         this.parser = Objects.requireNonNull(parser, "parser must not be null");
         this.planBuilder = Objects.requireNonNull(planBuilder, "planBuilder must not be null");
         this.grouper = Objects.requireNonNull(grouper, "grouper must not be null");
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         this.errorWorkbookBuilder = Objects.requireNonNull(errorWorkbookBuilder, "errorWorkbookBuilder must not be null");
         this.workbookWriter = Objects.requireNonNull(workbookWriter, "workbookWriter must not be null");
+        this.presentation = presentation;
     }
 
     public DynamicImportParseResult parse(DynamicModuleDescriptor descriptor, byte[] excelBytes) {
@@ -76,7 +95,7 @@ public class DynamicImportFacade {
         GroupedWorkbook groupedWorkbook = grouper.group(plan, workbook);
         DynamicImportExecutionResult executionResult =
                 executor.execute(new ExecuteDynamicImportCommand(plan, groupedWorkbook));
-        byte[] errorWorkbookBytes = buildErrorWorkbookBytes(plan, executionResult, workbook);
+        byte[] errorWorkbookBytes = buildErrorWorkbookBytes(plan, executionResult, workbook, command.descriptor());
         return new DynamicImportResult(plan, groupedWorkbook, executionResult, errorWorkbookBytes);
     }
 
@@ -194,11 +213,12 @@ public class DynamicImportFacade {
 
     private byte[] buildErrorWorkbookBytes(DynamicImportPlan plan,
                                            DynamicImportExecutionResult executionResult,
-                                           ParsedWorkbook workbook) {
+                                           ParsedWorkbook workbook, DynamicModuleDescriptor descriptor) {
         if (executionResult.errorRows().isEmpty()) {
             return null;
         }
         ExcelWorkbookPlan errorWorkbook = errorWorkbookBuilder.buildRetryWorkbook(plan, executionResult.errorRows(), workbook);
+        if (presentation != null) errorWorkbook = presentation.project(errorWorkbook, descriptor);
         return workbookWriter.writeToBytes(errorWorkbook);
     }
 }

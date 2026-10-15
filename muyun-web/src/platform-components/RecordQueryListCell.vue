@@ -6,6 +6,7 @@ import FileSizeText from './FileSizeText.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordTagList from './RecordTagList.vue';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
+import { readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import { useReferenceRecordDetailBrowser } from './referenceRecordDetailBrowser';
 import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
 import {
@@ -87,7 +88,7 @@ function fileSizePresentationValue(value: unknown) {
     ><ReadonlyReferenceValue
       :reference="column.reference"
       :value="record[column.key]"
-      :summary="column.titleField ? record[column.titleField] : record[`${column.key}Title`]"
+      :summary="readonlyReferenceSummaryOf(record, column.titleField ?? `${column.key}Title`, language)"
   /></span>
   <span
     v-else

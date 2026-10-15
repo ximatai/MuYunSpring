@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { displayModuleRuntime, useLanguageContext } from '@muyun/web-core';
+import {
+  displayModuleRuntime,
+  useLanguageContext,
+  useModuleContext,
+  createWorkflowDefinitionClient,
+  createModuleContext,
+} from '@muyun/web-core';
 import {
   workflowParticipantRules,
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
 import { computed, onMounted, ref, watch } from 'vue';
-import { useModuleContext, createWorkflowDefinitionClient, createModuleContext } from '@muyun/web-core';
+
 import type {
   WorkflowConfigurationCatalog,
   WorkflowDefinition,
@@ -237,7 +243,7 @@ function branchConvergenceSummary(branch: WorkflowNode) {
   return `${labels[mode]}${mode === 'ratio' ? ` ${convergence?.convergeRatio ?? 100}%` : ''}`;
 }
 useWorkspaceViewUnsavedState(
-  workflowLanguage.t('platform.workflow-config.configuration', '流程配置'),
+  () => workflowLanguage.t('platform.workflow-config.configuration', '流程配置'),
   () => dirty.value || selectionDirty.value,
   () => busy.value,
 );
@@ -334,11 +340,14 @@ async function createDefinition() {
 async function discardSettings() {
   if (
     selectionDirty.value &&
-    !(await confirmAction({
-      title: workflowLanguage.t('platform.workflow-config.discard-confirm', '放弃未保存的流程设置？'),
-      danger: true,
-      okText: workflowLanguage.t('platform.workflow-config.discard', '放弃修改'),
-    }))
+    !(await confirmAction(
+      {
+        title: workflowLanguage.t('platform.workflow-config.discard-confirm', '放弃未保存的流程设置？'),
+        danger: true,
+        okText: workflowLanguage.t('platform.workflow-config.discard', '放弃修改'),
+      },
+      workflowLanguage,
+    ))
   )
     return;
   creating.value = false;
@@ -457,17 +466,20 @@ async function upgrade() {
 async function statusAction(action: 'disable' | 'archive') {
   if (!selected.value) return;
   if (
-    !(await confirmAction({
-      title:
-        action === 'archive'
-          ? workflowLanguage.t('platform.workflow-config.archive-confirm', '归档此流程？')
-          : workflowLanguage.t('platform.workflow-config.disable-confirm', '停用此流程？'),
-      content: workflowLanguage.t(
-        'platform.workflow-config.future-only',
-        '此操作影响后续新申请，已有实例继续使用冻结版本。',
-      ),
-      danger: true,
-    }))
+    !(await confirmAction(
+      {
+        title:
+          action === 'archive'
+            ? workflowLanguage.t('platform.workflow-config.archive-confirm', '归档此流程？')
+            : workflowLanguage.t('platform.workflow-config.disable-confirm', '停用此流程？'),
+        content: workflowLanguage.t(
+          'platform.workflow-config.future-only',
+          '此操作影响后续新申请，已有实例继续使用冻结版本。',
+        ),
+        danger: true,
+      },
+      workflowLanguage,
+    ))
   )
     return;
   await run(async () => {
@@ -536,16 +548,19 @@ async function deleteBranch() {
   try {
     const next = removeWorkflowBranch(design.value, selectedNodeKey.value);
     if (
-      !(await confirmAction({
-        title: workflowLanguage.t('platform.workflow-config.delete-branch-confirm', '删除整个分支？'),
-        content: workflowLanguage.t(
-          'platform.workflow-config.delete-branch-detail',
-          '将删除分支、配对汇聚及其中 {count} 个节点，并连接前后路径。',
-          { count: design.value.nodes.length - next.nodes.length - 2 },
-        ),
-        danger: true,
-        okText: workflowLanguage.t('platform.workflow-config.delete-branch', '删除分支'),
-      }))
+      !(await confirmAction(
+        {
+          title: workflowLanguage.t('platform.workflow-config.delete-branch-confirm', '删除整个分支？'),
+          content: workflowLanguage.t(
+            'platform.workflow-config.delete-branch-detail',
+            '将删除分支、配对汇聚及其中 {count} 个节点，并连接前后路径。',
+            { count: design.value.nodes.length - next.nodes.length - 2 },
+          ),
+          danger: true,
+          okText: workflowLanguage.t('platform.workflow-config.delete-branch', '删除分支'),
+        },
+        workflowLanguage,
+      ))
     )
       return;
     design.value = next;
@@ -732,7 +747,11 @@ function addRoute() {
               :options="
                 versions.map((item) => ({
                   value: item.id,
-                  label: `版本 ${item.versionNo} · ${workflowTitle(item.publishStatus)}`,
+                  label: workflowLanguage.t(
+                    'platform.screen.WorkflowConfigurationView.version-value-value',
+                    '版本 {value1} · {value2}',
+                    { value1: item.versionNo, value2: workflowTitle(item.publishStatus) },
+                  ),
                 }))
               "
               :disabled="busy || dirty"
@@ -1052,7 +1071,15 @@ function addRoute() {
             }}
           </li>
         </ul>
-        <p>汇聚：{{ branchConvergenceSummary(branch) }}，只计算有效出口。</p>
+        <p>
+          {{
+            workflowLanguage.t(
+              'platform.workflow-config.convergence-counting',
+              '汇聚：{summary}，只计算有效出口。',
+              { summary: branchConvergenceSummary(branch) },
+            )
+          }}
+        </p>
       </div>
       <details>
         <summary>

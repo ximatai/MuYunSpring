@@ -1,4 +1,6 @@
-import type { WebActionMessage } from '@muyun/web-contracts';
+import { platformLanguageContext, type LanguageContext } from './language';
+import { presentationLabel } from './presentationTexts';
+import type { TextPresentation, WebActionMessage } from '@muyun/web-contracts';
 
 export interface ErrorTarget {
   kind?: string;
@@ -55,6 +57,7 @@ export class AppError extends Error {
   readonly details?: Record<string, unknown>;
   readonly messageArgs?: Record<string, unknown>;
   readonly actionMessage?: WebActionMessage;
+  readonly messageText?: TextPresentation;
   globallyHandled = false;
 
   constructor(
@@ -68,6 +71,7 @@ export class AppError extends Error {
       details?: Record<string, unknown>;
       messageArgs?: Record<string, unknown>;
       actionMessage?: WebActionMessage;
+      messageText?: TextPresentation;
     } = {},
   ) {
     super(message);
@@ -80,6 +84,7 @@ export class AppError extends Error {
     this.details = options.details;
     this.messageArgs = options.messageArgs;
     this.actionMessage = options.actionMessage;
+    this.messageText = options.messageText;
   }
 }
 
@@ -96,50 +101,66 @@ export function normalizeError(error: unknown): AppError {
 export function resolveGlobalErrorPresentation(
   error: AppError,
   context: ErrorUiContext = { phase: 'action', surface: 'unknown' },
+  language: LanguageContext = platformLanguageContext,
 ): GlobalErrorPresentation {
   if (error.status === 401) {
     if (error.code === platformErrorCodes.loginBadCredentials) {
-      return presentation('global-toast', error);
+      return presentation('global-toast', error, language);
     }
-    return presentation('redirect-login', error);
+    return presentation('redirect-login', error, language);
   }
   if (context.phase === 'background') {
-    return presentation('silent', error);
+    return presentation('silent', error, language);
   }
   if ((error.status === 403 || error.status === 404) && context.phase === 'page-load') {
-    return presentation('page-error', error);
+    return presentation('page-error', error, language);
   }
   if (error.status !== undefined && error.status >= 500 && context.phase === 'page-load') {
-    return presentation('page-error', error);
+    return presentation('page-error', error, language);
   }
   if (error.status === 409 && context.phase === 'action') {
-    return presentation('global-modal', error);
+    return presentation('global-modal', error, language);
   }
-  return presentation('global-toast', error);
+  return presentation('global-toast', error, language);
 }
 
-function presentation(slot: GlobalErrorSlot, error: AppError): GlobalErrorPresentation {
+function presentation(
+  slot: GlobalErrorSlot,
+  error: AppError,
+  language: LanguageContext,
+): GlobalErrorPresentation {
   return {
     slot,
-    message: userFacingErrorMessage(error),
+    message: userFacingErrorMessage(error, language),
     traceId: error.traceId,
   };
 }
 
-export function userFacingErrorMessage(error: AppError) {
+export function userFacingErrorMessage(error: AppError, language: LanguageContext = platformLanguageContext) {
   if (error.code === platformErrorCodes.networkError) {
-    return '暂时无法连接服务，请稍后重试；持续失败时请联系管理员检查连接。';
+    return language.t(
+      'platform.error.NETWORK_ERROR',
+      '暂时无法连接服务，请稍后重试；持续失败时请联系管理员检查连接。',
+    );
   }
-  const modelMessage = modelFailureMessage(error);
+  const modelMessage = modelFailureMessage(error, language);
   if (modelMessage) return modelMessage;
   if (isUnexpectedPlatformError(error)) {
-    return '系统异常，操作未完成';
+    return language.t('platform.error.INTERNAL_ERROR', '系统异常，操作未完成');
   }
+  if (
+    error.messageText &&
+    language.fallbackLanguageTags.value.some((tag) => Object.hasOwn(error.messageText!.languages, tag))
+  )
+    return presentationLabel(error.message, error.messageText, language);
   return error.message;
 }
 
 /** Fixed explanations for known model failures; never expose arbitrary upstream 5xx text. */
-export function modelFailureMessage(error: AppError): string | undefined {
+export function modelFailureMessage(
+  error: AppError,
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
   const messages: Record<string, string> = {
     AI_PROVIDER_AUTHENTICATION_FAILED: '模型连接鉴权失败。请联系管理员检查凭据及模型访问权限。',
     AI_PROVIDER_RATE_LIMITED: '模型服务限制了本次请求。请稍后重试；持续失败时请管理员检查额度。',
@@ -156,7 +177,9 @@ export function modelFailureMessage(error: AppError): string | undefined {
     AI_MODEL_INTERRUPTED: '模型请求已中断。',
     AI_MODEL_CALL_FAILED: '模型调用未能完成，请联系管理员检查模型服务状态。',
   };
-  return Object.hasOwn(messages, error.code) ? messages[error.code] : undefined;
+  return Object.hasOwn(messages, error.code)
+    ? language.t(`platform.error.${error.code}`, messages[error.code])
+    : undefined;
 }
 
 export function isUnexpectedPlatformError(error: AppError) {

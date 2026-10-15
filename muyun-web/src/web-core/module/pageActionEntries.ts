@@ -44,21 +44,37 @@ export function pageActionEntryVisible(
   }
   return true;
 }
-export function pageActionEntryDescription(entry: { actionCode: string; anchor: string }) {
+export function pageActionEntryDescription(
+  entry: { actionCode: string; anchor: string },
+  language: LanguageContext = platformLanguageContext,
+) {
   const operation = pageActionIntent(entry.actionCode, entry.anchor)?.operation;
   return (
     (
       {
-        OPEN_CREATE: '打开空白表单',
-        OPEN_EDIT: '编辑当前记录',
-        SUBMIT_CREATE: '校验表单并创建记录',
-        SUBMIT_UPDATE: '校验表单并保存修改',
-        REFRESH: '重新加载列表',
-        DELETE: '确认后删除当前记录',
-        ENABLE: '启用当前记录',
-        DISABLE: '停用当前记录',
-        MANAGE_PERMISSIONS: '移交归属，维护负责人和相关人',
+        OPEN_CREATE: language.t('platform.screen.pageActionEntries.open-an-empty-form', '打开空白表单'),
+        OPEN_EDIT: language.t('platform.screen.pageActionEntries.edit-the-current-record', '编辑当前记录'),
+        SUBMIT_CREATE: language.t(
+          'platform.screen.pageActionEntries.validate-the-form-and-create-a-record',
+          '校验表单并创建记录',
+        ),
+        SUBMIT_UPDATE: language.t(
+          'platform.screen.pageActionEntries.validate-the-form-and-save-changes',
+          '校验表单并保存修改',
+        ),
+        REFRESH: language.t('platform.screen.pageActionEntries.reload-the-list', '重新加载列表'),
+        DELETE: language.t(
+          'platform.screen.pageActionEntries.delete-the-current-record-after-confirmation',
+          '确认后删除当前记录',
+        ),
+        ENABLE: language.t('platform.screen.pageActionEntries.enable-the-current-record', '启用当前记录'),
+        DISABLE: language.t('platform.screen.pageActionEntries.disable-the-current-record', '停用当前记录'),
+        MANAGE_PERMISSIONS: language.t(
+          'platform.screen.pageActionEntries.transfer-ownership-and-maintain-responsible-and-related-users',
+          '移交归属，维护负责人和相关人',
+        ),
       } as Record<string, string>
-    )[operation ?? ''] ?? '暂不支持页面按钮'
+    )[operation ?? ''] ??
+    language.t('platform.screen.pageActionEntries.page-buttons-are-not-supported-yet', '暂不支持页面按钮')
   );
 }

@@ -1,8 +1,23 @@
+import {
+  platformLanguageContext,
+  createLanguageContext,
+  presentationLabel,
+  type LanguageContext,
+  type OperationErrorMessage,
+  OperationUsageError,
+  resolveOperationErrorMessage,
+} from '@muyun/web-core';
+import type { TextPresentation } from '@muyun/web-contracts';
+
 export type BusinessRuleKind = 'CALCULATION' | 'VALIDATION' | 'UI_CONTROL';
 
 /** Save-validation behavior shared by manual editing and assistant rule inputs. */
 export const businessRuleValidationHelp =
   '公式为真时允许保存，为假时阻止保存并显示失败提示；当前编辑器不支持只提醒而仍允许保存的规则。';
+
+export function businessRuleValidationHelpText(language: LanguageContext = platformLanguageContext): string {
+  return language.t('platform.rules.validation-help', businessRuleValidationHelp);
+}
 
 export interface BusinessRuleEditableField {
   fieldName: string;
@@ -38,6 +53,7 @@ export interface BusinessRuleReferenceField {
 export interface BusinessRuleFormulaParameter {
   name: string;
   description: string;
+  descriptionText?: TextPresentation;
 }
 
 /** A portable formula capability. A server catalogue can replace this list without changing the surface. */
@@ -61,35 +77,105 @@ export interface BusinessRuleFormulaCatalogEntry {
   name: string;
   category?: string;
   title?: string;
+  titleText?: TextPresentation;
   description?: string;
+  descriptionText?: TextPresentation;
+  categoryText?: TextPresentation;
   parameters?: BusinessRuleFormulaParameter[];
   returnType?: string;
   example?: string;
 }
 
-function formulaHelp(id: string, fallback: string): string {
+function formulaHelp(
+  id: string,
+  fallback: string,
+  language: LanguageContext = platformLanguageContext,
+): string {
   const descriptions: Record<string, string> = {
-    PRESENT: '判断字段是否已经填写，可用于必填校验或决定后续计算是否执行。',
-    ISNULL: '判断字段是否为空，可用于为空时给出提示或补默认处理。',
-    IN: '判断字段是否匹配给定候选项，可用于状态、类型等有限枚举的判断。',
-    TODAY: '取得当前日期，适合计算当天生效、截止日期等规则。',
-    NOW: '取得当前 UTC 时间，适合记录当前时刻或比较时效。',
-    YEAR: '从日期或时间中提取年份，适合按年度计算或校验。',
-    MONTH: '从日期或时间中提取月份，适合按月判断或分组计算。',
-    DAY: '从日期或时间中提取日，适合按具体日期触发规则。',
-    DATE_ADD: '在日期基础上增加天数，适合推算到期日、提醒日。',
-    DATE_SUB: '在日期基础上减少天数，适合推算提前提醒日、最早日期。',
-    DATETIME_ADD: '在时间基础上增加指定间隔，适合计算精确的截止时间。',
-    DATETIME_SUB: '在时间基础上减少指定间隔，适合计算提前触发时间。',
-    DATE_DIFF_DAYS: '计算两个日期或时间相差的天数，适合期限与逾期判断。',
-    DATE_DIFF_HOURS: '计算两个时间相差的小时数，适合时效与工时判断。',
-    COUNT: '统计子表字段中已填写的记录数，适合检查明细是否达到最低数量。',
-    SUM: '汇总子表中的数值，适合计算明细总金额、总数量。',
-    AVG: '计算子表数值的平均值，适合得到平均单价、平均分等指标。',
-    MAX: '取得子表数值中的最大值，适合识别最高金额、最大数量。',
-    MIN: '取得子表数值中的最小值，适合识别最低金额、最小数量。',
-    ROUND: '对数值四舍五入，适合把计算结果收敛到指定的小数位。',
-    FORMAT_DECIMAL: '把数值格式化为固定小数位文本，适合展示或拼接时保留末尾零。',
+    PRESENT: language.t(
+      'platform.screen.businessRuleGovernance.check-whether-a-field-has-a-value-for-required-validation',
+      '判断字段是否已经填写，可用于必填校验或决定后续计算是否执行。',
+    ),
+    ISNULL: language.t(
+      'platform.screen.businessRuleGovernance.check-whether-a-field-is-empty-for-displaying-a-message',
+      '判断字段是否为空，可用于为空时给出提示或补默认处理。',
+    ),
+    IN: language.t(
+      'platform.screen.businessRuleGovernance.check-whether-a-field-matches-one-of-the-supplied-candidates',
+      '判断字段是否匹配给定候选项，可用于状态、类型等有限枚举的判断。',
+    ),
+    TODAY: language.t(
+      'platform.screen.businessRuleGovernance.get-the-current-date-for-rules-involving-effective-dates-or',
+      '取得当前日期，适合计算当天生效、截止日期等规则。',
+    ),
+    NOW: language.t(
+      'platform.screen.businessRuleGovernance.get-the-current-utc-time-for-recording-a-timestamp-or',
+      '取得当前 UTC 时间，适合记录当前时刻或比较时效。',
+    ),
+    YEAR: language.t(
+      'platform.screen.businessRuleGovernance.extract-the-year-from-a-date-or-timestamp-for-yearly',
+      '从日期或时间中提取年份，适合按年度计算或校验。',
+    ),
+    MONTH: language.t(
+      'platform.screen.businessRuleGovernance.extract-the-month-from-a-date-or-timestamp-for-monthly',
+      '从日期或时间中提取月份，适合按月判断或分组计算。',
+    ),
+    DAY: language.t(
+      'platform.screen.businessRuleGovernance.extract-the-day-from-a-date-or-timestamp-for-rules',
+      '从日期或时间中提取日，适合按具体日期触发规则。',
+    ),
+    DATE_ADD: language.t(
+      'platform.screen.businessRuleGovernance.add-days-to-a-date-for-calculating-due-dates-or',
+      '在日期基础上增加天数，适合推算到期日、提醒日。',
+    ),
+    DATE_SUB: language.t(
+      'platform.screen.businessRuleGovernance.subtract-days-from-a-date-for-calculating-early-reminders-or',
+      '在日期基础上减少天数，适合推算提前提醒日、最早日期。',
+    ),
+    DATETIME_ADD: language.t(
+      'platform.screen.businessRuleGovernance.add-a-specified-interval-to-a-timestamp-for-calculating-precise',
+      '在时间基础上增加指定间隔，适合计算精确的截止时间。',
+    ),
+    DATETIME_SUB: language.t(
+      'platform.screen.businessRuleGovernance.subtract-a-specified-interval-from-a-timestamp-for-calculating-earlier',
+      '在时间基础上减少指定间隔，适合计算提前触发时间。',
+    ),
+    DATE_DIFF_DAYS: language.t(
+      'platform.screen.businessRuleGovernance.calculate-the-difference-in-days-between-two-dates-or-timestamps',
+      '计算两个日期或时间相差的天数，适合期限与逾期判断。',
+    ),
+    DATE_DIFF_HOURS: language.t(
+      'platform.screen.businessRuleGovernance.calculate-the-difference-in-hours-between-two-timestamps-for-time',
+      '计算两个时间相差的小时数，适合时效与工时判断。',
+    ),
+    COUNT: language.t(
+      'platform.screen.businessRuleGovernance.count-nonempty-values-in-a-child-table-field-for-checking',
+      '统计子表字段中已填写的记录数，适合检查明细是否达到最低数量。',
+    ),
+    SUM: language.t(
+      'platform.screen.businessRuleGovernance.sum-child-table-values-for-total-detail-amounts-or-quantities',
+      '汇总子表中的数值，适合计算明细总金额、总数量。',
+    ),
+    AVG: language.t(
+      'platform.screen.businessRuleGovernance.average-child-table-values-for-measures-such-as-average-unit',
+      '计算子表数值的平均值，适合得到平均单价、平均分等指标。',
+    ),
+    MAX: language.t(
+      'platform.screen.businessRuleGovernance.get-the-maximum-child-table-value-for-the-highest-amount',
+      '取得子表数值中的最大值，适合识别最高金额、最大数量。',
+    ),
+    MIN: language.t(
+      'platform.screen.businessRuleGovernance.get-the-minimum-child-table-value-for-the-lowest-amount',
+      '取得子表数值中的最小值，适合识别最低金额、最小数量。',
+    ),
+    ROUND: language.t(
+      'platform.screen.businessRuleGovernance.round-a-number-to-the-specified-number-of-decimal-places',
+      '对数值四舍五入，适合把计算结果收敛到指定的小数位。',
+    ),
+    FORMAT_DECIMAL: language.t(
+      'platform.screen.businessRuleGovernance.format-a-number-as-text-with-a-fixed-number-of',
+      '把数值格式化为固定小数位文本，适合展示或拼接时保留末尾零。',
+    ),
   };
   return descriptions[id] || fallback;
 }
@@ -103,13 +189,14 @@ function portableFormulaCapability(
   returnType: string,
   example: string,
   insertion = `${id}()`,
+  language: LanguageContext = platformLanguageContext,
 ): BusinessRuleFormulaCapability {
   const cursor = insertion.indexOf('(') + 1;
   return {
     id,
     label: id,
     purpose,
-    description: formulaHelp(id, purpose),
+    description: formulaHelp(id, purpose, language),
     category,
     signature,
     parameters,
@@ -120,241 +207,487 @@ function portableFormulaCapability(
   };
 }
 
-const extendedPortableFormulaCapabilities: readonly BusinessRuleFormulaCapability[] = [
-  portableFormulaCapability('TODAY', '今天', '日期时间', 'TODAY()', [], '日期', 'TODAY()'),
-  portableFormulaCapability('NOW', '当前时间', '日期时间', 'NOW()', [], '时间', 'NOW()'),
-  portableFormulaCapability(
-    'YEAR',
-    '年份',
-    '日期时间',
-    'YEAR(value)',
-    [{ name: 'value', description: '日期或时间字段' }],
-    '整数',
-    'YEAR({signedAt})',
-  ),
-  portableFormulaCapability(
-    'MONTH',
-    '月份',
-    '日期时间',
-    'MONTH(value)',
-    [{ name: 'value', description: '日期或时间字段' }],
-    '整数',
-    'MONTH({signedAt})',
-  ),
-  portableFormulaCapability(
-    'DAY',
-    '日',
-    '日期时间',
-    'DAY(value)',
-    [{ name: 'value', description: '日期或时间字段' }],
-    '整数',
-    'DAY({signedAt})',
-  ),
-  portableFormulaCapability(
-    'DATE_ADD',
-    '日期加天数',
-    '日期时间',
-    'DATE_ADD(date, days)',
-    [
-      { name: 'date', description: 'yyyy-MM-dd 日期' },
-      { name: 'days', description: '整数天数' },
-    ],
-    '日期',
-    'DATE_ADD({signedDate}, 7)',
-    'DATE_ADD(, 0)',
-  ),
-  portableFormulaCapability(
-    'DATE_SUB',
-    '日期减天数',
-    '日期时间',
-    'DATE_SUB(date, days)',
-    [
-      { name: 'date', description: 'yyyy-MM-dd 日期' },
-      { name: 'days', description: '整数天数' },
-    ],
-    '日期',
-    'DATE_SUB({signedDate}, 7)',
-    'DATE_SUB(, 0)',
-  ),
-  portableFormulaCapability(
-    'DATETIME_ADD',
-    '时间加间隔',
-    '日期时间',
-    'DATETIME_ADD(dateTime, amount, unit)',
-    [
-      { name: 'dateTime', description: 'UTC 时间' },
-      { name: 'amount', description: '整数间隔' },
-      { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
-    ],
-    '时间',
-    "DATETIME_ADD({signedAt}, 2, 'HOUR')",
-    "DATETIME_ADD(, 0, 'DAY')",
-  ),
-  portableFormulaCapability(
-    'DATETIME_SUB',
-    '时间减间隔',
-    '日期时间',
-    'DATETIME_SUB(dateTime, amount, unit)',
-    [
-      { name: 'dateTime', description: 'UTC 时间' },
-      { name: 'amount', description: '整数间隔' },
-      { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
-    ],
-    '时间',
-    "DATETIME_SUB({signedAt}, 2, 'HOUR')",
-    "DATETIME_SUB(, 0, 'DAY')",
-  ),
-  portableFormulaCapability(
-    'DATE_DIFF_DAYS',
-    '相差天数',
-    '日期时间',
-    'DATE_DIFF_DAYS(start, end)',
-    [
-      { name: 'start', description: '开始日期或时间' },
-      { name: 'end', description: '结束日期或时间' },
-    ],
-    '小数',
-    'DATE_DIFF_DAYS({startDate}, {endDate})',
-    'DATE_DIFF_DAYS(, )',
-  ),
-  portableFormulaCapability(
-    'DATE_DIFF_HOURS',
-    '相差小时',
-    '日期时间',
-    'DATE_DIFF_HOURS(start, end)',
-    [
-      { name: 'start', description: '开始时间' },
-      { name: 'end', description: '结束时间' },
-    ],
-    '小数',
-    'DATE_DIFF_HOURS({startAt}, {endAt})',
-    'DATE_DIFF_HOURS(, )',
-  ),
-  portableFormulaCapability(
-    'COUNT',
-    '计数',
-    '子表汇总',
-    'COUNT(childField)',
-    [{ name: 'field', description: '子表字段，例如 {lines.amount}' }],
-    '整数',
-    'COUNT({lines.amount})',
-  ),
-  portableFormulaCapability(
-    'SUM',
-    '求和',
-    '子表汇总',
-    'SUM(childField)',
-    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
-    '小数',
-    'SUM({lines.amount})',
-  ),
-  portableFormulaCapability(
-    'AVG',
-    '平均值',
-    '子表汇总',
-    'AVG(childField)',
-    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
-    '小数',
-    'AVG({lines.amount})',
-  ),
-  portableFormulaCapability(
-    'MAX',
-    '最大值',
-    '子表汇总',
-    'MAX(childField)',
-    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
-    '小数',
-    'MAX({lines.amount})',
-  ),
-  portableFormulaCapability(
-    'MIN',
-    '最小值',
-    '子表汇总',
-    'MIN(childField)',
-    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
-    '小数',
-    'MIN({lines.amount})',
-  ),
-  portableFormulaCapability(
-    'ROUND',
-    '四舍五入',
-    '数值',
-    'ROUND(value, scale)',
-    [
-      { name: 'value', description: '数值或表达式' },
-      { name: 'scale', description: '保留 0–12 位小数' },
-    ],
-    '小数',
-    'ROUND({amount}, 2)',
-    'ROUND(, 2)',
-  ),
-  portableFormulaCapability(
-    'FORMAT_DECIMAL',
-    '格式化小数',
-    '数值',
-    'FORMAT_DECIMAL(value, scale)',
-    [
-      { name: 'value', description: '数值或表达式' },
-      { name: 'scale', description: '保留 0–12 位小数' },
-    ],
-    '文本',
-    'FORMAT_DECIMAL({amount}, 2)',
-    'FORMAT_DECIMAL(, 2)',
-  ),
-];
+function extendedPortableFormulaCapabilities(
+  language: LanguageContext,
+): readonly BusinessRuleFormulaCapability[] {
+  return [
+    portableFormulaCapability(
+      'TODAY',
+      language.t('platform.screen.businessRuleGovernance.today', '今天'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'TODAY()',
+      [],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date', '日期'),
+      'TODAY()',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'NOW',
+      language.t('platform.screen.businessRuleGovernance.current-time', '当前时间'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'NOW()',
+      [],
+      language.t('platform.screen.WorkflowAdministrationView.time', '时间'),
+      'NOW()',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'YEAR',
+      language.t('platform.screen.businessRuleGovernance.year', '年份'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'YEAR(value)',
+      [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.date-or-timestamp-field',
+            '日期或时间字段',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.integer', '整数'),
+      'YEAR({signedAt})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'MONTH',
+      language.t('platform.screen.businessRuleGovernance.month', '月份'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'MONTH(value)',
+      [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.date-or-timestamp-field',
+            '日期或时间字段',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.integer', '整数'),
+      'MONTH({signedAt})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'DAY',
+      language.t('platform.screen.businessRuleGovernance.day', '日'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DAY(value)',
+      [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.date-or-timestamp-field',
+            '日期或时间字段',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.integer', '整数'),
+      'DAY({signedAt})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'DATE_ADD',
+      language.t('platform.screen.businessRuleGovernance.add-days-to-date', '日期加天数'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATE_ADD(date, days)',
+      [
+        {
+          name: 'date',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.date-in-yyyy-mm-dd-format',
+            'yyyy-MM-dd 日期',
+          ),
+        },
+        {
+          name: 'days',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.integer-number-of-days',
+            '整数天数',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date', '日期'),
+      'DATE_ADD({signedDate}, 7)',
+      'DATE_ADD(, 0)',
+      language,
+    ),
+    portableFormulaCapability(
+      'DATE_SUB',
+      language.t('platform.screen.businessRuleGovernance.subtract-days-from-date', '日期减天数'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATE_SUB(date, days)',
+      [
+        {
+          name: 'date',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.date-in-yyyy-mm-dd-format',
+            'yyyy-MM-dd 日期',
+          ),
+        },
+        {
+          name: 'days',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.integer-number-of-days',
+            '整数天数',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date', '日期'),
+      'DATE_SUB({signedDate}, 7)',
+      'DATE_SUB(, 0)',
+      language,
+    ),
+    portableFormulaCapability(
+      'DATETIME_ADD',
+      language.t('platform.screen.businessRuleGovernance.add-interval-to-timestamp', '时间加间隔'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATETIME_ADD(dateTime, amount, unit)',
+      [
+        {
+          name: 'dateTime',
+          description: language.t('platform.screen.businessRuleGovernance.utc-timestamp', 'UTC 时间'),
+        },
+        {
+          name: 'amount',
+          description: language.t('platform.screen.businessRuleGovernance.integer-interval', '整数间隔'),
+        },
+        { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
+      ],
+      language.t('platform.screen.WorkflowAdministrationView.time', '时间'),
+      "DATETIME_ADD({signedAt}, 2, 'HOUR')",
+      "DATETIME_ADD(, 0, 'DAY')",
+      language,
+    ),
+    portableFormulaCapability(
+      'DATETIME_SUB',
+      language.t('platform.screen.businessRuleGovernance.subtract-interval-from-timestamp', '时间减间隔'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATETIME_SUB(dateTime, amount, unit)',
+      [
+        {
+          name: 'dateTime',
+          description: language.t('platform.screen.businessRuleGovernance.utc-timestamp', 'UTC 时间'),
+        },
+        {
+          name: 'amount',
+          description: language.t('platform.screen.businessRuleGovernance.integer-interval', '整数间隔'),
+        },
+        { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
+      ],
+      language.t('platform.screen.WorkflowAdministrationView.time', '时间'),
+      "DATETIME_SUB({signedAt}, 2, 'HOUR')",
+      "DATETIME_SUB(, 0, 'DAY')",
+      language,
+    ),
+    portableFormulaCapability(
+      'DATE_DIFF_DAYS',
+      language.t('platform.screen.businessRuleGovernance.difference-in-days', '相差天数'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATE_DIFF_DAYS(start, end)',
+      [
+        {
+          name: 'start',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.start-date-or-timestamp',
+            '开始日期或时间',
+          ),
+        },
+        {
+          name: 'end',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.end-date-or-timestamp',
+            '结束日期或时间',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'DATE_DIFF_DAYS({startDate}, {endDate})',
+      'DATE_DIFF_DAYS(, )',
+      language,
+    ),
+    portableFormulaCapability(
+      'DATE_DIFF_HOURS',
+      language.t('platform.screen.businessRuleGovernance.difference-in-hours', '相差小时'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      'DATE_DIFF_HOURS(start, end)',
+      [
+        {
+          name: 'start',
+          description: language.t('platform.screen.businessRuleGovernance.start-timestamp', '开始时间'),
+        },
+        {
+          name: 'end',
+          description: language.t('platform.screen.businessRuleGovernance.end-timestamp', '结束时间'),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'DATE_DIFF_HOURS({startAt}, {endAt})',
+      'DATE_DIFF_HOURS(, )',
+      language,
+    ),
+    portableFormulaCapability(
+      'COUNT',
+      language.t('platform.screen.businessRuleGovernance.count', '计数'),
+      language.t('platform.screen.businessRuleGovernance.child-table-aggregates', '子表汇总'),
+      'COUNT(childField)',
+      [
+        {
+          name: 'field',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.child-table-field-for-example-lines-amount',
+            '子表字段，例如 {lines.amount}',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.integer', '整数'),
+      'COUNT({lines.amount})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'SUM',
+      language.t('platform.screen.businessRuleGovernance.sum', '求和'),
+      language.t('platform.screen.businessRuleGovernance.child-table-aggregates', '子表汇总'),
+      'SUM(childField)',
+      [
+        {
+          name: 'field',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.numeric-child-table-field-for-example-lines-amount',
+            '子表数值字段，例如 {lines.amount}',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'SUM({lines.amount})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'AVG',
+      language.t('platform.screen.businessRuleGovernance.average', '平均值'),
+      language.t('platform.screen.businessRuleGovernance.child-table-aggregates', '子表汇总'),
+      'AVG(childField)',
+      [
+        {
+          name: 'field',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.numeric-child-table-field-for-example-lines-amount',
+            '子表数值字段，例如 {lines.amount}',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'AVG({lines.amount})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'MAX',
+      language.t('platform.screen.businessRuleGovernance.maximum', '最大值'),
+      language.t('platform.screen.businessRuleGovernance.child-table-aggregates', '子表汇总'),
+      'MAX(childField)',
+      [
+        {
+          name: 'field',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.numeric-child-table-field-for-example-lines-amount',
+            '子表数值字段，例如 {lines.amount}',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'MAX({lines.amount})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'MIN',
+      language.t('platform.screen.businessRuleGovernance.minimum', '最小值'),
+      language.t('platform.screen.businessRuleGovernance.child-table-aggregates', '子表汇总'),
+      'MIN(childField)',
+      [
+        {
+          name: 'field',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.numeric-child-table-field-for-example-lines-amount',
+            '子表数值字段，例如 {lines.amount}',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'MIN({lines.amount})',
+      undefined,
+      language,
+    ),
+    portableFormulaCapability(
+      'ROUND',
+      language.t('platform.screen.businessRuleGovernance.round', '四舍五入'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.number', '数值'),
+      'ROUND(value, scale)',
+      [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.number-or-expression',
+            '数值或表达式',
+          ),
+        },
+        {
+          name: 'scale',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.keep-0-12-decimal-places',
+            '保留 0–12 位小数',
+          ),
+        },
+      ],
+      language.t('platform.screen.businessRuleGovernance.decimal', '小数'),
+      'ROUND({amount}, 2)',
+      'ROUND(, 2)',
+      language,
+    ),
+    portableFormulaCapability(
+      'FORMAT_DECIMAL',
+      language.t('platform.screen.businessRuleGovernance.format-decimal', '格式化小数'),
+      language.t('platform.screen.BusinessRuleGovernanceSurface.number', '数值'),
+      'FORMAT_DECIMAL(value, scale)',
+      [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.number-or-expression',
+            '数值或表达式',
+          ),
+        },
+        {
+          name: 'scale',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.keep-0-12-decimal-places',
+            '保留 0–12 位小数',
+          ),
+        },
+      ],
+      language.t('platform.screen.BusinessRuleGovernanceSurface.text', '文本'),
+      'FORMAT_DECIMAL({amount}, 2)',
+      'FORMAT_DECIMAL(, 2)',
+      language,
+    ),
+  ];
+}
 
-export const portableFormulaCapabilities: readonly BusinessRuleFormulaCapability[] = [
-  {
-    id: 'PRESENT',
-    label: 'PRESENT',
-    purpose: '判断字段有值',
-    description: formulaHelp('PRESENT', ''),
-    category: '空值判断',
-    signature: 'PRESENT(value)',
-    parameters: [{ name: 'value', description: '需要判断的字段或表达式' }],
-    returnType: '布尔值',
-    example: 'PRESENT({quantity})',
-    insertion: 'PRESENT()',
-    firstParameterSelection: { start: 8, end: 8 },
-  },
-  {
-    id: 'ISNULL',
-    label: 'ISNULL',
-    purpose: '判断字段为空',
-    description: formulaHelp('ISNULL', ''),
-    category: '空值判断',
-    signature: 'ISNULL(value)',
-    parameters: [{ name: 'value', description: '需要判断的字段或表达式' }],
-    returnType: '布尔值',
-    example: 'ISNULL({effectiveDate})',
-    insertion: 'ISNULL()',
-    firstParameterSelection: { start: 7, end: 7 },
-  },
-  {
-    id: 'IN',
-    label: 'IN',
-    purpose: '匹配候选项',
-    description: formulaHelp('IN', ''),
-    category: '集合判断',
-    signature: "IN(value, 'candidate', ...)",
-    parameters: [
-      { name: 'value', description: '需要匹配的字段或表达式' },
-      { name: 'candidate', description: '1–20 个字面量候选值' },
-    ],
-    returnType: '布尔值',
-    example: "IN({status}, 'DRAFT', 'ACTIVE')",
-    insertion: "IN(, '候选值')",
-    firstParameterSelection: { start: 3, end: 3 },
-  },
-  ...extendedPortableFormulaCapabilities,
-];
+export function localizedPortableFormulaCapabilities(
+  language: LanguageContext = platformLanguageContext,
+): readonly BusinessRuleFormulaCapability[] {
+  return [
+    {
+      id: 'PRESENT',
+      label: 'PRESENT',
+      purpose: language.t('platform.screen.businessRuleGovernance.check-for-a-value', '判断字段有值'),
+      description: formulaHelp('PRESENT', '', language),
+      category: language.t('platform.screen.businessRuleGovernance.empty-value-checks', '空值判断'),
+      signature: 'PRESENT(value)',
+      parameters: [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.field-or-expression-to-check',
+            '需要判断的字段或表达式',
+          ),
+        },
+      ],
+      returnType: language.t('platform.screen.BusinessRuleGovernanceSurface.boolean', '布尔值'),
+      example: 'PRESENT({quantity})',
+      insertion: 'PRESENT()',
+      firstParameterSelection: { start: 8, end: 8 },
+    },
+    {
+      id: 'ISNULL',
+      label: 'ISNULL',
+      purpose: language.t('platform.screen.businessRuleGovernance.check-for-an-empty-value', '判断字段为空'),
+      description: formulaHelp('ISNULL', '', language),
+      category: language.t('platform.screen.businessRuleGovernance.empty-value-checks', '空值判断'),
+      signature: 'ISNULL(value)',
+      parameters: [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.field-or-expression-to-check',
+            '需要判断的字段或表达式',
+          ),
+        },
+      ],
+      returnType: language.t('platform.screen.BusinessRuleGovernanceSurface.boolean', '布尔值'),
+      example: 'ISNULL({effectiveDate})',
+      insertion: 'ISNULL()',
+      firstParameterSelection: { start: 7, end: 7 },
+    },
+    {
+      id: 'IN',
+      label: 'IN',
+      purpose: language.t('platform.screen.businessRuleGovernance.match-candidates', '匹配候选项'),
+      description: formulaHelp('IN', '', language),
+      category: language.t('platform.screen.businessRuleGovernance.set-membership', '集合判断'),
+      signature: "IN(value, 'candidate', ...)",
+      parameters: [
+        {
+          name: 'value',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.field-or-expression-to-match',
+            '需要匹配的字段或表达式',
+          ),
+        },
+        {
+          name: 'candidate',
+          description: language.t(
+            'platform.screen.businessRuleGovernance.1-20-literal-candidate-values',
+            '1–20 个字面量候选值',
+          ),
+        },
+      ],
+      returnType: language.t('platform.screen.BusinessRuleGovernanceSurface.boolean', '布尔值'),
+      example: "IN({status}, 'DRAFT', 'ACTIVE')",
+      insertion: "IN(, '候选值')",
+      firstParameterSelection: { start: 3, end: 3 },
+    },
+    ...extendedPortableFormulaCapabilities(language),
+  ];
+}
+
+export const portableFormulaCapabilities = localizedPortableFormulaCapabilities(
+  createLanguageContext({ languageTag: 'zh-CN' }),
+);
 
 export function normalizeFormulaCapabilities(
   entries: readonly (BusinessRuleFormulaCapability | BusinessRuleFormulaCatalogEntry)[] | undefined,
+  language: LanguageContext = platformLanguageContext,
 ): BusinessRuleFormulaCapability[] {
-  if (entries === undefined) return [...portableFormulaCapabilities];
-  const portable = new Map(portableFormulaCapabilities.map((capability) => [capability.id, capability]));
-  return entries.flatMap((entry) => {
+  if (entries === undefined) return [...localizedPortableFormulaCapabilities(language)];
+  const portable = new Map(
+    localizedPortableFormulaCapabilities(language).map((capability) => [capability.id, capability]),
+  );
+  return entries.flatMap((originalEntry) => {
+    const entry =
+      'id' in originalEntry
+        ? originalEntry
+        : {
+            ...originalEntry,
+            title: presentationLabel(originalEntry.title ?? '', originalEntry.titleText, language),
+            description: presentationLabel(
+              originalEntry.description ?? '',
+              originalEntry.descriptionText,
+              language,
+            ),
+            category: presentationLabel(originalEntry.category ?? '', originalEntry.categoryText, language),
+            parameters: originalEntry.parameters?.map((parameter) => ({
+              ...parameter,
+              description: presentationLabel(parameter.description, parameter.descriptionText, language),
+            })),
+          };
     const id = 'id' in entry ? entry.id : entry.name;
     const base = portable.get(id);
     if ('id' in entry) return [entry];
@@ -364,16 +697,20 @@ export function normalizeFormulaCapabilities(
           id,
           label: id,
           purpose: entry.title || id,
-          description: entry.description || formulaHelp(id, entry.title || id),
-          category: entry.category || '其他',
+          description: entry.description || formulaHelp(id, entry.title || id, language),
+          category: entry.category || language.t('platform.screen.businessRuleGovernance.other', '其他'),
           signature: `${id}(${entry.parameters?.map((parameter) => parameter.name).join(', ') ?? ''})`,
           parameters: entry.parameters ?? [],
-          returnType: entry.returnType || '由服务端定义',
+          returnType:
+            entry.returnType ||
+            language.t('platform.screen.businessRuleGovernance.defined-by-the-server', '由服务端定义'),
           example: entry.example || `${id}()`,
-          insertion: portableFormulaCapability(id, '', '', '', [], '', '').insertion,
+          insertion: portableFormulaCapability(id, '', '', '', [], '', '', undefined, language).insertion,
           firstParameterSelection: {
-            start: portableFormulaCapability(id, '', '', '', [], '', '').firstParameterSelection.start,
-            end: portableFormulaCapability(id, '', '', '', [], '', '').firstParameterSelection.end,
+            start: portableFormulaCapability(id, '', '', '', [], '', '', undefined, language)
+              .firstParameterSelection.start,
+            end: portableFormulaCapability(id, '', '', '', [], '', '', undefined, language)
+              .firstParameterSelection.end,
           },
         },
       ];
@@ -409,15 +746,41 @@ export function searchableFormulaCapabilities(
 }
 
 /** Root fields that cannot safely become scalar formula input have a visible, deterministic reason. */
-export function formulaFieldUnusableReason(field: BusinessRuleReferenceField): string | undefined {
-  if (field.formulaReadable === false) return field.formulaDisabledReason || '该字段不能用于公式。';
+export function formulaFieldUnusableReason(
+  field: BusinessRuleReferenceField,
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
+  if (field.formulaReadable === false)
+    return (
+      field.formulaDisabledReason ||
+      language.t(
+        'platform.screen.businessRuleGovernance.this-field-cannot-be-used-in-a-formula',
+        '该字段不能用于公式。',
+      )
+    );
   // The server owns whether every catalogue path is formula-readable. A readable
   // descendant is a read-only value, but must still retain a server-supplied denial.
   if (field.name.includes('.')) return undefined;
-  if (field.systemManaged) return '系统管理字段不能用于业务规则。';
-  if (field.readOnly) return '受保护字段不能用于业务规则。';
-  if (field.referenceCardinality === 'MANY') return '集合引用不能作为标量公式字段。';
-  if (field.valueType === 'JSON') return 'JSON 字段不能作为首期公式输入。';
+  if (field.systemManaged)
+    return language.t(
+      'platform.screen.businessRuleGovernance.system-managed-fields-cannot-be-used-in-business-rules',
+      '系统管理字段不能用于业务规则。',
+    );
+  if (field.readOnly)
+    return language.t(
+      'platform.screen.businessRuleGovernance.protected-fields-cannot-be-used-in-business-rules',
+      '受保护字段不能用于业务规则。',
+    );
+  if (field.referenceCardinality === 'MANY')
+    return language.t(
+      'platform.screen.businessRuleGovernance.collection-references-cannot-be-used-as-scalar-formula-fields',
+      '集合引用不能作为标量公式字段。',
+    );
+  if (field.valueType === 'JSON')
+    return language.t(
+      'platform.screen.businessRuleGovernance.json-fields-are-outside-the-current-formula-input-scope',
+      'JSON 字段不能作为首期公式输入。',
+    );
   return undefined;
 }
 
@@ -433,6 +796,7 @@ export function aggregateFieldInsertionReason(
   expression: string,
   selectionStart: number,
   childTargets: readonly string[] = [],
+  language: LanguageContext = platformLanguageContext,
 ): string | undefined {
   const assignment = /^\s*\{([^{}]+)\}\s*=(?!=)/.exec(expression);
   const target = assignment?.[1]?.trim();
@@ -443,9 +807,17 @@ export function aggregateFieldInsertionReason(
   const allowed = field.aggregateFunctions;
   if (!allowed?.length) return undefined;
   const aggregate = enclosingAggregateFunction(expression, selectionStart);
-  if (!aggregate) return '子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数。';
+  if (!aggregate)
+    return language.t(
+      'platform.screen.businessRuleGovernance.child-table-fields-can-only-be-aggregate-arguments-to-count',
+      '子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数。',
+    );
   if (allowed.includes(aggregate)) return undefined;
-  return `${field.label || field.name}不能用于 ${aggregate}；该字段仅支持 ${allowed.join('、')}。`;
+  return language.t(
+    'platform.screen.businessRuleGovernance.value-cannot-be-used-with-value-this-field-only-supports',
+    '{value1}不能用于 {value2}；该字段仅支持 {value3}。',
+    { value1: field.label || field.name, value2: aggregate, value3: allowed.join('、') },
+  );
 }
 
 function enclosingAggregateFunction(expression: string, selectionStart: number): string | undefined {
@@ -543,10 +915,22 @@ export interface BusinessRuleProposal {
 }
 
 export interface BusinessRuleIssue {
+  readonly messageSources?: readonly OperationErrorMessage[];
   code: string;
   ruleCode?: string;
   field?: string;
   message: string;
+}
+
+export function businessRuleIssueMessage(
+  issue: BusinessRuleIssue,
+  language: LanguageContext = platformLanguageContext,
+): string {
+  return issue.messageSources?.length
+    ? issue.messageSources
+        .map((source) => resolveOperationErrorMessage(new OperationUsageError(source), language))
+        .join(language.t('platform.rules.issue-separator', '；'))
+    : issue.message;
 }
 
 export interface BusinessRulePreview {
@@ -779,6 +1163,7 @@ export function formulaTemplates(
   kind: BusinessRuleKind,
   fields: readonly BusinessRuleEditableField[],
   targetField?: string,
+  language: LanguageContext = platformLanguageContext,
 ): BusinessRuleFormulaTemplate[] {
   const eligible = fields.filter((field) => kind !== 'CALCULATION' || field.fieldName !== targetField);
   const numeric = eligible.filter((field) => ['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType));
@@ -786,27 +1171,42 @@ export function formulaTemplates(
   if (numeric.length >= 2) {
     templates.push({
       id: 'multiply-fields',
-      label: '两字段相乘',
+      label: language.t('platform.screen.businessRuleGovernance.multiply-two-fields', '两字段相乘'),
       expression: `{${numeric[0]!.fieldName}} * {${numeric[1]!.fieldName}}`,
-      help: `用${numeric[0]!.title || numeric[0]!.fieldName}乘以${numeric[1]!.title || numeric[1]!.fieldName}`,
+      help: language.t(
+        'platform.screen.businessRuleGovernance.multiply-value-by-value',
+        '用{value1}乘以{value2}',
+        {
+          value1: numeric[0]!.title || numeric[0]!.fieldName,
+          value2: numeric[1]!.title || numeric[1]!.fieldName,
+        },
+      ),
     });
   }
   const first = eligible[0];
   if (first) {
     templates.push({
       id: 'present-field',
-      label: '字段有值',
+      label: language.t('platform.screen.businessRuleGovernance.field-has-a-value', '字段有值'),
       expression: `PRESENT({${first.fieldName}})`,
-      help: `${first.title || first.fieldName}已填写时为真`,
+      help: language.t(
+        'platform.screen.businessRuleGovernance.true-when-value-has-a-value',
+        '{value1}已填写时为真',
+        { value1: first.title || first.fieldName },
+      ),
     });
   }
   const comparison = numeric[0];
   if (comparison) {
     templates.push({
       id: 'compare-field',
-      label: '大于零',
+      label: language.t('platform.screen.businessRuleGovernance.greater-than-zero', '大于零'),
       expression: `{${comparison.fieldName}} > 0`,
-      help: `${comparison.title || comparison.fieldName}大于零时为真`,
+      help: language.t(
+        'platform.screen.businessRuleGovernance.true-when-value-is-greater-than-zero',
+        '{value1}大于零时为真',
+        { value1: comparison.title || comparison.fieldName },
+      ),
     });
   }
   return kind === 'CALCULATION'

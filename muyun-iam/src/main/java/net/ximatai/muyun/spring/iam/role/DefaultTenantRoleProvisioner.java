@@ -13,9 +13,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import java.util.Objects;
 
-public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner {
+public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner, org.springframework.core.Ordered {
     public static final String TENANT_ADMIN_ROLE_DESCRIPTION =
             "租户内置管理员角色，拥有当前租户内平台可授权动作和全部数据范围。";
     private static final String SYSTEM_OPERATOR_ID = "tenant-provisioner";
@@ -25,6 +27,14 @@ public class DefaultTenantRoleProvisioner implements TenantCreationProvisioner {
     private final RoleService roleService;
     public DefaultTenantRoleProvisioner(RoleService roleService) {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
+    }
+
+    @Override public int getOrder() { return 100; }
+
+    public static Map<String, TextReference> textBaselines() {
+        return Map.of(
+                "title", TextReference.configured("config/preset/iam.role/tenant_admin/title", RoleService.TENANT_ADMIN_ROLE_TITLE),
+                "description", TextReference.configured("config/preset/iam.role/tenant_admin/description", TENANT_ADMIN_ROLE_DESCRIPTION));
     }
 
     @Override

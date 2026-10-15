@@ -1,17 +1,21 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  type AssistantSurfaceRegistry,
+  type AssistantConversationClient,
+  type AssistantConfigurationEditor,
+} from '@muyun/web-core';
 import { computed, nextTick, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
-import type {
-  AssistantSurfaceRegistry,
-  AssistantConversationClient,
-  AssistantConfigurationEditor,
-} from '@muyun/web-core';
+
 import ConstructionPlanCard from './ConstructionPlanCard.vue';
 import type { ConstructionPlanSession } from './constructionPlanSession';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
 import AssistantSelectionCard from './AssistantSelectionCard.vue';
 import type { ConfigurationCollaboration } from './configurationCollaboration';
 import { useAssistantConversation } from './useAssistantConversation';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'WorkbenchAssistantPanel' });
 const props = defineProps<{
@@ -34,6 +38,7 @@ const {
   adjustRequest,
   continueConversation,
   items,
+  itemText,
   busy,
   activityText,
   operationPending,
@@ -60,11 +65,16 @@ const {
 const archiveStatusText = computed(
   () =>
     ({
-      idle: '尚未开始',
-      saving: '正在保存对话…',
-      saved: busy.value ? '输入已保存，回复完成后保存记录' : '对话已保存',
-      unsaved: '对话尚未保存',
-      restored: '历史对话已恢复',
+      idle: language.t('platform.screen.WorkbenchAssistantPanel.not-started', '尚未开始'),
+      saving: language.t('platform.screen.WorkbenchAssistantPanel.saving-conversation', '正在保存对话…'),
+      saved: busy.value
+        ? language.t(
+            'platform.screen.WorkbenchAssistantPanel.input-saved-the-reply-will-be-saved-when-complete',
+            '输入已保存，回复完成后保存记录',
+          )
+        : language.t('platform.screen.WorkbenchAssistantPanel.conversation-saved', '对话已保存'),
+      unsaved: language.t('platform.screen.WorkbenchAssistantPanel.conversation-not-saved', '对话尚未保存'),
+      restored: language.t('platform.screen.WorkbenchAssistantPanel.conversation-restored', '历史对话已恢复'),
     })[archiveStatus.value],
 );
 const showEarlierMessages = ref(false);
@@ -104,13 +114,26 @@ function close() {
 </script>
 
 <template>
-  <aside v-if="open" class="assistant-panel" aria-label="智能助手">
+  <aside
+    v-if="open"
+    class="assistant-panel"
+    :aria-label="language.t('platform.screen.WorkbenchAssistantPanel.ai-assistant', '智能助手')"
+  >
     <header class="assistant-panel__header">
       <div>
-        <strong>智能助手</strong>
-        <span>基于当前页面提供帮助</span>
+        <strong>{{ language.t('platform.screen.WorkbenchAssistantPanel.ai-assistant', '智能助手') }}</strong>
+        <span>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.help-with-the-current-page',
+            '基于当前页面提供帮助',
+          )
+        }}</span>
       </div>
-      <UiButton type="text" aria-label="关闭智能助手" @click="close">
+      <UiButton
+        type="text"
+        :aria-label="language.t('platform.screen.WorkbenchAssistantPanel.close-ai-assistant', '关闭智能助手')"
+        @click="close"
+      >
         <UiIcon name="close" />
       </UiButton>
     </header>
@@ -118,18 +141,29 @@ function close() {
     <section
       v-if="archive.enabled || configurationCollaboration?.task.value"
       class="assistant-panel__archive"
-      aria-label="会话记录"
+      :aria-label="language.t('platform.screen.WorkbenchAssistantPanel.conversation-history', '会话记录')"
     >
       <div
         v-if="configurationCollaboration?.task.value"
         class="assistant-panel__configuration"
-        aria-label="本次配置协作方式"
+        :aria-label="
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.configuration-collaboration',
+            '本次配置协作方式',
+          )
+        "
       >
         <strong>{{ configurationCollaboration.task.value.goal }}</strong>
         <span>{{
           configurationCollaboration.task.value.mode === 'conversation'
-            ? '在对话中准备和确认'
-            : '边看配置页面，边在对话中确认'
+            ? language.t(
+                'platform.screen.WorkbenchAssistantPanel.prepare-and-confirm-in-the-conversation',
+                '在对话中准备和确认',
+              )
+            : language.t(
+                'platform.screen.WorkbenchAssistantPanel.review-the-configuration-page-and-confirm-in-the-conversation',
+                '边看配置页面，边在对话中确认',
+              )
         }}</span>
         <UiButton
           v-if="
@@ -139,51 +173,86 @@ function close() {
           "
           :disabled="busy || archiveLoading"
           @click="configurationEditor.open()"
-          >返回配置页</UiButton
+          >{{
+            language.t('platform.screen.WorkbenchAssistantPanel.return-to-configuration', '返回配置页')
+          }}</UiButton
         >
       </div>
       <template v-if="archive.enabled">
         <strong v-if="!configurationCollaboration?.task.value">{{ conversationTitle }}</strong>
         <span role="status"
-          >{{ archiveLoading ? '正在加载会话…' : archiveStatusText
-          }}<template v-if="configurationEditor?.hasUnsavedChanges"> · 配置尚未保存</template></span
+          >{{
+            archiveLoading
+              ? language.t('platform.screen.WorkbenchAssistantPanel.loading-conversation', '正在加载会话…')
+              : archiveStatusText
+          }}<template v-if="configurationEditor?.hasUnsavedChanges">
+            {{
+              language.t('platform.screen.WorkbenchAssistantPanel.configuration-not-saved', '· 配置尚未保存')
+            }}</template
+          ></span
         >
-        <small>聊天记录保存不代表配置或业务已保存。</small>
+        <small>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.saving-a-conversation-does-not-save-configuration-or-business-data',
+            '聊天记录保存不代表配置或业务已保存。',
+          )
+        }}</small>
         <div class="assistant-panel__archive-actions">
-          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.list()"
-            >历史会话</UiButton
-          >
-          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.startNew()"
-            >新对话</UiButton
-          >
+          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.list()">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.conversation-history-label', '历史会话')
+          }}</UiButton>
+          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.startNew()">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.new-conversation', '新对话')
+          }}</UiButton>
         </div>
         <div v-if="saveError" role="alert">
           {{ saveError }}
-          <UiButton :disabled="busy || archiveLoading" @click="archive.save()">重试保存</UiButton>
-          <UiButton :disabled="busy || archiveLoading" @click="archive.saveCopy()"
-            >将当前内容另存为新对话</UiButton
-          >
+          <UiButton :disabled="busy || archiveLoading" @click="archive.save()">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.retry-save', '重试保存')
+          }}</UiButton>
+          <UiButton :disabled="busy || archiveLoading" @click="archive.saveCopy()">{{
+            language.t(
+              'platform.screen.WorkbenchAssistantPanel.save-a-copy-as-a-new-conversation',
+              '将当前内容另存为新对话',
+            )
+          }}</UiButton>
         </div>
-        <UiButton v-if="saveError" :disabled="busy || archiveLoading" @click="archive.discardAndStartNew()"
-          >放弃未保存的聊天内容并新建</UiButton
-        >
+        <UiButton v-if="saveError" :disabled="busy || archiveLoading" @click="archive.discardAndStartNew()">{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.discard-unsaved-conversation-and-start-new',
+            '放弃未保存的聊天内容并新建',
+          )
+        }}</UiButton>
         <div v-if="readError" role="alert">
           {{ readError.message }}
-          <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
+          <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.retry-loading-conversation', '重试读取会话')
+          }}</UiButton>
         </div>
         <div v-if="historyOpen" class="assistant-panel__history">
-          <span>当前登录身份的历史会话；切换页面可以继续同一个目标。</span>
-          <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
-          <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
+          <span>{{
+            language.t(
+              'platform.screen.WorkbenchAssistantPanel.conversations-for-the-current-signed-in-identity-continue-the-same',
+              '当前登录身份的历史会话；切换页面可以继续同一个目标。',
+            )
+          }}</span>
+          <UiButton :disabled="archiveLoading" @click="historyOpen = false">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.hide-history', '收起历史')
+          }}</UiButton>
+          <span v-if="!archiveLoading && !historyEntries.length">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.no-saved-conversations', '暂无已保存会话')
+          }}</span>
           <UiButton
             v-for="entry in historyEntries"
             :key="entry.id"
             :disabled="busy || archiveLoading"
             @click="archive.open(entry.id)"
           >
-            {{ entry.title }} · {{ new Date(entry.updatedAt).toLocaleString() }}
+            {{ entry.title }} · {{ new Date(entry.updatedAt).toLocaleString(language.languageTag.value) }}
           </UiButton>
-          <UiButton v-if="hasMore" :disabled="archiveLoading" @click="archive.list(true)">更多会话</UiButton>
+          <UiButton v-if="hasMore" :disabled="archiveLoading" @click="archive.list(true)">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.more-conversations', '更多会话')
+          }}</UiButton>
         </div>
       </template>
     </section>
@@ -197,7 +266,11 @@ function close() {
         v-if="restoredThroughId"
         :aria-expanded="showEarlierMessages"
         @click="showEarlierMessages = !showEarlierMessages"
-        >{{ showEarlierMessages ? '收起之前的对话' : '查看之前的对话' }}</UiButton
+        >{{
+          showEarlierMessages
+            ? language.t('platform.screen.WorkbenchAssistantPanel.hide-earlier-messages', '收起之前的对话')
+            : language.t('platform.screen.WorkbenchAssistantPanel.show-earlier-messages', '查看之前的对话')
+        }}</UiButton
       >
       <ConstructionPlanCard
         v-if="
@@ -208,8 +281,18 @@ function close() {
         :disabled="busy"
       />
       <div v-if="items.length === 0" class="assistant-panel__welcome">
-        <strong>我可以帮你操作当前工作区</strong>
-        <span>例如：梳理订单管理的本期范围，或填写当前表单。</span>
+        <strong>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.i-can-help-you-work-in-the-current-workspace',
+            '我可以帮你操作当前工作区',
+          )
+        }}</strong>
+        <span>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.for-example-define-the-scope-of-order-management-or-fill',
+            '例如：梳理订单管理的本期范围，或填写当前表单。',
+          )
+        }}</span>
       </div>
       <article
         v-for="item in items"
@@ -219,7 +302,7 @@ function close() {
         :class="`assistant-message--${item.role}`"
       >
         <template v-if="item.role === 'assistant'">
-          <AssistantMarkdownContent v-if="item.text" :content="item.text" />
+          <AssistantMarkdownContent v-if="itemText(item)" :content="itemText(item)" />
           <section
             v-if="item.confirmation"
             class="assistant-panel__welcome"
@@ -237,30 +320,68 @@ function close() {
               <UiButton type="primary" :disabled="busy" @click="confirmOperation(item)">{{
                 item.confirmation.confirmLabel
               }}</UiButton>
-              <UiButton :disabled="busy" @click="cancelOperation(item)">继续修改或取消</UiButton>
+              <UiButton :disabled="busy" @click="cancelOperation(item)">{{
+                language.t(
+                  'platform.screen.WorkbenchAssistantPanel.continue-editing-or-cancel',
+                  '继续修改或取消',
+                )
+              }}</UiButton>
             </template>
             <template v-else-if="item.confirmationState === 'unknown'">
-              <span>操作结果尚不确定，请先查询结果；不会自动重复提交。</span>
-              <UiButton :disabled="busy" @click="confirmOperation(item, true)">查询操作结果</UiButton>
+              <span>{{
+                language.t(
+                  'platform.screen.WorkbenchAssistantPanel.the-result-is-not-yet-known-check-it-first-the',
+                  '操作结果尚不确定，请先查询结果；不会自动重复提交。',
+                )
+              }}</span>
+              <UiButton :disabled="busy" @click="confirmOperation(item, true)">{{
+                language.t('platform.screen.WorkbenchAssistantPanel.check-operation-result', '查询操作结果')
+              }}</UiButton>
             </template>
-            <span v-else-if="item.confirmationState === 'executing' || item.confirmationState === 'checking'"
-              >正在核实操作结果…</span
+            <span
+              v-else-if="item.confirmationState === 'executing' || item.confirmationState === 'checking'"
+              >{{
+                language.t(
+                  'platform.screen.WorkbenchAssistantPanel.checking-operation-result',
+                  '正在核实操作结果…',
+                )
+              }}</span
             >
-            <span v-else-if="item.confirmationState === 'succeeded'">已完成</span>
+            <span v-else-if="item.confirmationState === 'succeeded'">{{
+              language.t('platform.workflow.completed', '已完成')
+            }}</span>
             <template v-else-if="item.confirmationState === 'rejected'">
               <div role="alert">
-                <strong>操作未提交，已准备的内容保留。</strong>
+                <strong>{{
+                  language.t(
+                    'platform.screen.WorkbenchAssistantPanel.the-operation-was-not-submitted-prepared-content-is-retained',
+                    '操作未提交，已准备的内容保留。',
+                  )
+                }}</strong>
                 <p v-for="(line, index) in item.confirmation.result?.lines" :key="index">{{ line }}</p>
               </div>
-              <UiButton type="primary" :disabled="busy" @click="confirmOperation(item)"
-                >重试本次确认</UiButton
-              >
-              <UiButton :disabled="busy" @click="cancelOperation(item)">继续修改或取消</UiButton>
+              <UiButton type="primary" :disabled="busy" @click="confirmOperation(item)">{{
+                language.t('platform.screen.WorkbenchAssistantPanel.retry-this-confirmation', '重试本次确认')
+              }}</UiButton>
+              <UiButton :disabled="busy" @click="cancelOperation(item)">{{
+                language.t(
+                  'platform.screen.WorkbenchAssistantPanel.continue-editing-or-cancel',
+                  '继续修改或取消',
+                )
+              }}</UiButton>
             </template>
-            <span v-else-if="item.confirmationState === 'expired'"
-              >内容或操作对象已变化，请重新核对并确认最新内容。</span
-            >
-            <span v-else>已取消本次确认，草稿保留。</span>
+            <span v-else-if="item.confirmationState === 'expired'">{{
+              language.t(
+                'platform.screen.WorkbenchAssistantPanel.the-content-or-target-has-changed-review-and-confirm-the',
+                '内容或操作对象已变化，请重新核对并确认最新内容。',
+              )
+            }}</span>
+            <span v-else>{{
+              language.t(
+                'platform.screen.WorkbenchAssistantPanel.confirmation-cancelled-the-draft-is-retained',
+                '已取消本次确认，草稿保留。',
+              )
+            }}</span>
           </section>
           <AssistantSelectionCard
             v-if="item.selection"
@@ -272,14 +393,16 @@ function close() {
           />
         </template>
         <template v-else>
-          {{ item.text }}
+          {{ itemText(item) }}
           <details v-if="item.details">
             <summary>{{ item.details.title }}</summary>
             <p v-for="(line, index) in item.details.lines" :key="index">{{ line }}</p>
           </details>
         </template>
         <details v-if="item.diagnostic">
-          <summary>查看诊断信息</summary>
+          <summary>
+            {{ language.t('platform.screen.WorkbenchAssistantPanel.show-diagnostics', '查看诊断信息') }}
+          </summary>
           {{ item.diagnostic }}
         </details>
       </article>
@@ -287,57 +410,111 @@ function close() {
     </section>
 
     <footer class="assistant-panel__composer">
-      <div v-if="restored" class="assistant-panel__welcome" aria-label="继续会话">
-        <strong>讨论已保留，可以继续描述要做的事。</strong>
+      <div
+        v-if="restored"
+        class="assistant-panel__welcome"
+        :aria-label="language.t('platform.screen.WorkbenchAssistantPanel.continue-conversation', '继续会话')"
+      >
+        <strong>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.the-discussion-is-retained-continue-describing-what-you-want-to',
+            '讨论已保留，可以继续描述要做的事。',
+          )
+        }}</strong>
         <span v-if="restoredRequest" class="assistant-panel__last-request"
-          >上次提出的需求：{{ restoredRequest }}</span
+          >{{ language.t('platform.screen.WorkbenchAssistantPanel.previous-request', '上次提出的需求：')
+          }}{{ restoredRequest }}</span
         >
-        <span v-if="configurationEditor?.hasUnsavedChanges"
-          >当前工作区仍有「{{
-            configurationEditor.title
-          }}」的未保存配置。继续处理时会核实是否属于这次任务。</span
-        >
-        <span>已完成事项会先核实结果；未完成目标会核实后接续。历史记录不会恢复旧确认授权。</span>
+        <span v-if="configurationEditor?.hasUnsavedChanges">{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.the-workspace-still-has-unsaved-configuration-for-value-continuing-checks',
+            '当前工作区仍有「{value1}」的未保存配置。继续处理时会核实是否属于这次任务。',
+            { value1: configurationEditor.title },
+          )
+        }}</span>
+        <span>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.completed-results-are-checked-first-then-unfinished-work-can-continue',
+            '已完成事项会先核实结果；未完成目标会核实后接续。历史记录不会恢复旧确认授权。',
+          )
+        }}</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
             :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
             @click="continueConversation"
-            >继续处理</UiButton
+            >{{ language.t('platform.screen.WorkbenchAssistantPanel.continue', '继续处理') }}</UiButton
           >
-          <UiButton :disabled="busy || archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
-            >调整需求</UiButton
-          >
+          <UiButton :disabled="busy || archiveLoading || Boolean(draft.trim())" @click="adjustRequest">{{
+            language.t('platform.screen.WorkbenchAssistantPanel.revise-request', '调整需求')
+          }}</UiButton>
         </div>
-        <small>继续处理会先核实进度并建议下一步，保存仍需重新确认。</small>
+        <small>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.continuing-first-checks-progress-and-suggests-the-next-step-saving',
+            '继续处理会先核实进度并建议下一步，保存仍需重新确认。',
+          )
+        }}</small>
       </div>
       <div v-if="recoveryRequest && !busy" class="assistant-panel__welcome">
-        <span
-          >本轮已暂停。可点击下方“{{
-            recoveryReadOnly ? '继续核实' : '继续处理'
-          }}”核对当前状态和剩余事项，或从页面接手操作。</span
-        >
+        <span>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.this-turn-is-paused-select-value-below-to-check-current',
+            '本轮已暂停。可点击下方“{value1}”核对当前状态和剩余事项，或从页面接手操作。',
+            {
+              value1: recoveryReadOnly
+                ? language.t('platform.screen.WorkbenchAssistantPanel.continue-checking', '继续核实')
+                : language.t('platform.screen.WorkbenchAssistantPanel.continue', '继续处理'),
+            },
+          )
+        }}</span>
         <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="continueConversation">{{
-          recoveryReadOnly ? '继续核实' : '继续处理'
+          recoveryReadOnly
+            ? language.t('platform.screen.WorkbenchAssistantPanel.continue-checking', '继续核实')
+            : language.t('platform.screen.WorkbenchAssistantPanel.continue', '继续处理')
         }}</UiButton>
-        <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
-          >调整需求</UiButton
-        >
+        <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="adjustRequest">{{
+          language.t('platform.screen.WorkbenchAssistantPanel.revise-request', '调整需求')
+        }}</UiButton>
       </div>
-      <UiButton v-if="hasNewReply && !followLatest" @click="showLatest">查看最新回复</UiButton>
+      <UiButton v-if="hasNewReply && !followLatest" @click="showLatest">{{
+        language.t('platform.screen.WorkbenchAssistantPanel.show-latest-reply', '查看最新回复')
+      }}</UiButton>
       <UiTextArea
         v-model:value="draft"
         :rows="3"
         :maxlength="4000"
         :disabled="busy || archiveLoading"
-        :placeholder="activeRequiredSelection ? '可以选择上方选项，也可以补充说明' : '描述你想完成的事情'"
+        :placeholder="
+          activeRequiredSelection
+            ? language.t(
+                'platform.screen.WorkbenchAssistantPanel.select-an-option-above-or-add-more-information',
+                '可以选择上方选项，也可以补充说明',
+              )
+            : language.t(
+                'platform.screen.WorkbenchAssistantPanel.describe-what-you-want-to-accomplish',
+                '描述你想完成的事情',
+              )
+        "
         @keydown="handleKeydown"
       />
       <div class="assistant-panel__actions">
-        <span>Enter 发送，Shift + Enter 换行</span>
-        <span v-if="operationPending">正在核实操作结果</span>
-        <UiButton v-else-if="busy" @click="cancel">停止</UiButton>
+        <span>{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.enter-to-send-shift-enter-for-a-new-line',
+            'Enter 发送，Shift + Enter 换行',
+          )
+        }}</span>
+        <span v-if="operationPending">{{
+          language.t(
+            'platform.screen.WorkbenchAssistantPanel.checking-operation-result-label',
+            '正在核实操作结果',
+          )
+        }}</span>
+        <UiButton v-else-if="busy" @click="cancel">{{
+          language.t('platform.screen.WorkbenchAssistantPanel.stop', '停止')
+        }}</UiButton>
         <UiButton v-else type="primary" :disabled="!draft.trim() || !registry.snapshot()" @click="submit">
-          发送
+          {{ language.t('platform.screen.WorkbenchAssistantPanel.send', '发送') }}
         </UiButton>
       </div>
     </footer>

@@ -61,7 +61,7 @@ public class DynamicImportExecutor {
                     for (ParsedImportRow child : children) {
                         DynamicImportPlan.SheetPlan childSheet = sheetPlansByKey.get(child.sheetKey());
                         addError(childSheet.entityAlias(), summaries, errorRows,
-                                ImportErrorRow.of(child, "主表未成功处理，子表未执行", group.groupKey()));
+                                ImportErrorRow.code(child, "child-not-executed", "主表未成功处理，子表未执行", Map.of(), group.groupKey()));
                     }
                 }
                 continue;
@@ -75,8 +75,8 @@ public class DynamicImportExecutor {
                 if (relation == null) {
                     for (ParsedImportRow childRow : entry.getValue()) {
                         addError(childSheet.entityAlias(), summaries, errorRows,
-                                ImportErrorRow.of(childRow, "子表未找到主子关系: " + childSheet.entityAlias(),
-                                        group.groupKey()));
+                                ImportErrorRow.code(childRow, "child-relation-missing", "子表未找到主子关系: {entity}",
+                                        Map.of("entity", childSheet.entityAlias()), group.groupKey()));
                     }
                     continue;
                 }
@@ -110,7 +110,7 @@ public class DynamicImportExecutor {
         List<DynamicRecord> existing = records.list(sheet.entityAlias(), criteria, MATCH_PAGE);
         if (existing.size() > 1) {
             addError(sheet.entityAlias(), summaries, errorRows,
-                    ImportErrorRow.of(row, "导入匹配到多条已有记录: " + sheet.matchFieldName(), groupIdentity));
+                    ImportErrorRow.code(row, "multiple-existing", "导入匹配到多条已有记录: {field}", Map.of("field", sheet.matchFieldName()), groupIdentity));
             return WriteDecision.failed();
         }
         if (existing.size() == 1) {
@@ -118,7 +118,7 @@ public class DynamicImportExecutor {
             return switch (sheet.duplicateStrategy()) {
                 case ERROR -> {
                     addError(sheet.entityAlias(), summaries, errorRows,
-                            ImportErrorRow.of(row, "导入匹配到已有记录: " + sheet.matchFieldName(), groupIdentity));
+                            ImportErrorRow.code(row, "existing", "导入匹配到已有记录: {field}", Map.of("field", sheet.matchFieldName()), groupIdentity));
                     yield WriteDecision.failed();
                 }
                 case SKIP -> {
@@ -161,16 +161,11 @@ public class DynamicImportExecutor {
             return true;
         } catch (DynamicFormulaException exception) {
             addError(sheet.entityAlias(), summaries, errorRows,
-                    ImportErrorRow.of(row, importValidationMessage(exception), groupIdentity));
+                    exception.firstError() == null || exception.firstError().message() == null
+                            ? ImportErrorRow.code(row, "formula-failed", "导入公式校验未通过", Map.of(), groupIdentity)
+                            : ImportErrorRow.of(row, exception.firstError().message(), groupIdentity));
             return false;
         }
-    }
-
-    private String importValidationMessage(DynamicFormulaException exception) {
-        if (exception == null || exception.firstError() == null || exception.firstError().message() == null) {
-            return "导入公式校验未通过";
-        }
-        return exception.firstError().message();
     }
 
     private boolean resolveReferenceValues(String moduleAlias,
@@ -200,8 +195,7 @@ public class DynamicImportExecutor {
                 row.convertedValues().put(field.fieldName(), referenceResolvedValue(field, response.results()));
                 continue;
             }
-            String message = referenceResolveErrorMessage(field, failed);
-            addError(sheet.entityAlias(), summaries, errorRows, ImportErrorRow.of(row, message, groupIdentity));
+            addError(sheet.entityAlias(), summaries, errorRows, referenceResolveError(row, field, failed, groupIdentity));
             success = false;
         }
         return success;
@@ -238,16 +232,18 @@ public class DynamicImportExecutor {
         return ids.getFirst();
     }
 
-    private String referenceResolveErrorMessage(DynamicImportPlan.FieldPlan field,
-                                                DynamicReferenceResolveResult result) {
-        String prefix = "引用字段无法反推: " + field.title();
+    private ImportErrorRow referenceResolveError(ParsedImportRow row, DynamicImportPlan.FieldPlan field,
+                                                DynamicReferenceResolveResult result, String groupIdentity) {
         if (result == null || result.status() == DynamicReferenceResolveStatus.NOT_FOUND) {
-            return prefix + " 未找到";
+            return ImportErrorRow.code(row, "reference-not-found", "引用字段无法反推: {field} 未找到",
+                    Map.of("field", field.title()), groupIdentity);
         }
         if (result.status() == DynamicReferenceResolveStatus.AMBIGUOUS) {
-            return prefix + " 匹配多条";
+            return ImportErrorRow.code(row, "reference-ambiguous", "引用字段无法反推: {field} 匹配多条",
+                    Map.of("field", field.title()), groupIdentity);
         }
-        return prefix + " " + result.status();
+        return ImportErrorRow.code(row, "reference-unresolved", "引用字段无法反推: {field} {status}",
+                Map.of("field", field.title(), "status", result.status()), groupIdentity);
     }
 
     private DynamicRecord buildRecord(DynamicRecordActionGateway records,

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+
+const language = useLanguageContext();
 defineOptions({ name: 'RecordStatusTag' });
 
 defineProps<{
@@ -19,9 +22,9 @@ defineProps<{
     <span class="record-status-tag-dot" />
     <span>{{
       enabled === true
-        ? (enabledLabel ?? '启用')
+        ? (enabledLabel ?? language.t('platform.value.enabled', '启用'))
         : enabled === false
-          ? (disabledLabel ?? '停用')
+          ? (disabledLabel ?? language.t('platform.value.disabled', '停用'))
           : (unknownLabel ?? '-')
     }}</span>
   </span>

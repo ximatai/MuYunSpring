@@ -113,6 +113,7 @@ import {
   restoreSessionWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
+  withWorkbenchTabTitle,
 } from './app/workbenchStartup';
 import { getMenuNavigationTarget, withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
@@ -143,6 +144,7 @@ import {
 import {
   restoreThemeSkinPreference,
   saveThemeSkinPreference,
+  type ThemeSkinPreferenceFailure,
   themeSkinPreferenceKey,
 } from './app/themeSkinPreference';
 
@@ -250,6 +252,7 @@ const businessRuleWorkspace = createBusinessRuleWorkspace(
     pageCompositionWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const metadataWorkspace = createMetadataWorkspace(
   createBackendHttpClient(),
@@ -262,6 +265,7 @@ const metadataWorkspace = createMetadataWorkspace(
     moduleMenuWorkspace.clearFocus();
   },
   (alias, title) => openConfigurationEditor(alias, 'ui', title),
+  platformLanguageContext,
 );
 const pageCompositionWorkspace = createPageCompositionWorkspace(
   createBackendHttpClient(),
@@ -273,6 +277,7 @@ const pageCompositionWorkspace = createPageCompositionWorkspace(
     businessRuleWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const moduleMenuWorkspace = createModuleMenuWorkspace(
   createBackendHttpClient(),
@@ -285,6 +290,9 @@ const moduleMenuWorkspace = createModuleMenuWorkspace(
     pageCompositionWorkspace.clearFocus();
   },
   () => refreshWorkbenchMenus(),
+  undefined,
+  undefined,
+  platformLanguageContext,
 );
 provideModuleMenuWorkspace(moduleMenuWorkspace);
 providePageCompositionWorkspace(pageCompositionWorkspace);
@@ -390,15 +398,15 @@ const loginLoading = ref(false);
 const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
-const changePasswordError = ref<string>();
+const changePasswordError = ref<() => string>();
 const profileOpen = ref(false);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
-const profileError = ref<string>();
+const profileError = ref<() => string>();
 const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
-const themeSkinError = ref<string>();
+const themeSkinFailure = ref<ThemeSkinPreferenceFailure>();
 const themeSkinId = ref<UiThemeSkinId>(
   uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
 );
@@ -623,7 +631,7 @@ async function handleUserCommand(command: string) {
 }
 
 function openThemeSkinPreferences() {
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   themeSkinPreferencesOpen.value = true;
 }
 
@@ -651,7 +659,7 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   const previousSkinId = themeSkinId.value;
   themeSkinId.value = skinId;
   themeSkinSaving.value = true;
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   if (usesMockStartup()) {
     await userPreferences.set(themeSkinPreferenceKey, skinId, { persistence: 'local' });
     themeSkinSaving.value = false;
@@ -659,12 +667,12 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   }
   try {
     const result = await saveThemeSkinPreference(userPreferences, skinId, previousSkinId);
-    if (result.error) {
+    if (result.failure) {
       if (revision !== themeSkinPreferenceRevision) {
         return;
       }
       themeSkinId.value = result.skinId;
-      themeSkinError.value = result.error;
+      themeSkinFailure.value = result.failure;
     }
   } finally {
     themeSkinSaving.value = false;
@@ -696,10 +704,11 @@ async function openCurrentUserProfile() {
   try {
     profile.value = await authClient.currentProfile(token);
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'load',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileLoading.value = false;
   }
@@ -720,12 +729,16 @@ async function submitCurrentUserProfile(value: { mobile: string; email: string; 
   try {
     profile.value = await authClient.updateCurrentProfile(value, token);
     profileOpen.value = false;
-    presentPlatformSuccess('个人资料已保存', { source: 'current-user-profile', phase: 'action' });
+    presentPlatformSuccess(
+      platformLanguageContext.t('platform.screen.App.your-profile-has-been-saved', '个人资料已保存'),
+      { source: 'current-user-profile', phase: 'action' },
+    );
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'action',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileSaving.value = false;
   }
@@ -750,7 +763,11 @@ async function submitChangeOwnPassword() {
   }
   const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
   if (!token) {
-    changePasswordError.value = '登录已失效，请重新登录';
+    changePasswordError.value = () =>
+      platformLanguageContext.t(
+        'platform.screen.App.your-session-is-no-longer-valid-please-sign',
+        '登录已失效，请重新登录',
+      );
     return;
   }
   changePasswordSaving.value = true;
@@ -769,12 +786,15 @@ async function submitChangeOwnPassword() {
     confirmPassword.value = '';
     handleSecurityNotification({
       code: 'platform.security.password-changed',
-      message: '你的密码已修改，请重新登录',
+      message: platformLanguageContext.t(
+        'platform.screen.App.your-password-has-changed-please-sign-in-again',
+        '你的密码已修改，请重新登录',
+      ),
       logoutRequired: true,
     });
   } catch (cause) {
     const error = presentPlatformError(cause, { source: 'change-own-password-dialog', phase: 'action' });
-    changePasswordError.value = error.message;
+    changePasswordError.value = () => userFacingErrorMessage(error);
   } finally {
     changePasswordSaving.value = false;
   }
@@ -782,16 +802,25 @@ async function submitChangeOwnPassword() {
 
 function validateChangeOwnPassword() {
   if (!currentPassword.value.trim()) {
-    return '请输入当前密码';
+    return () =>
+      platformLanguageContext.t('platform.screen.App.enter-your-current-password', '请输入当前密码');
   }
   if (!newPassword.value.trim()) {
-    return '请输入新密码';
+    return () => platformLanguageContext.t('platform.screen.App.enter-your-new-password', '请输入新密码');
   }
   if (newPassword.value !== confirmPassword.value) {
-    return '两次输入的新密码不一致';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-passwords-do-not-match',
+        '两次输入的新密码不一致',
+      );
   }
   if (currentPassword.value === newPassword.value) {
-    return '新密码不能与当前密码相同';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-password-must-differ-from-the-current',
+        '新密码不能与当前密码相同',
+      );
   }
   return undefined;
 }
@@ -903,15 +932,21 @@ async function executeBusinessNotificationAction(
       );
     } else {
       if (action.confirmation) {
-        const confirmed = await confirmAction({
-          title: action.label,
-          content: action.confirmation,
-          danger: action.danger,
-        });
+        const confirmed = await confirmAction(
+          {
+            title: action.label,
+            content: action.confirmation,
+            danger: action.danger,
+          },
+          platformLanguageContext,
+        );
         if (!confirmed) return;
       }
       await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
-      presentPlatformSuccess('操作完成', { source: 'business-notification', phase: 'action' });
+      presentPlatformSuccess(
+        platformLanguageContext.t('platform.screen.App.operation-completed', '操作完成'),
+        { source: 'business-notification', phase: 'action' },
+      );
     }
     if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
   } catch (cause) {
@@ -1048,7 +1083,7 @@ function handleCloseCurrentTab(fallbackPath: string) {
 }
 
 async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([currentTabKey]))) return;
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey], 'close', platformLanguageContext))) return;
   return closeCurrentTabNow(fallbackPath, currentTabKey);
 }
 
@@ -1088,7 +1123,12 @@ function navigateWorkbenchRoute(
 ) {
   if (!state) return { created: false };
   const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions, newInstance);
+  let next = restoreWorkbenchStartupStateFromUrl(
+    state,
+    url,
+    { ...platformAdminRouteResolveOptions, title: tabTitle },
+    newInstance,
+  );
   const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
   if (replaceCurrent && state.activeTabKey && replacement) {
     const currentTab = state.tabs?.find((tab) => tab.key === state.activeTabKey);
@@ -1123,7 +1163,7 @@ function navigateWorkbenchRoute(
     next = {
       ...next,
       tabs: (next.tabs ?? []).map((tab) =>
-        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+        tab.key === next.activeTabKey ? withWorkbenchTabTitle(tab, tabTitle) : tab,
       ),
     };
   }
@@ -1163,7 +1203,9 @@ function handleSetTabName(instanceKey: string, name: string) {
   if (!current || !instanceKey || !title) return;
   startup.value = {
     ...current,
-    tabs: (current.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+    tabs: (current.tabs ?? []).map((tab) =>
+      tab.instanceKey === instanceKey ? withWorkbenchTabTitle(tab, title) : tab,
+    ),
   };
 }
 
@@ -1224,7 +1266,8 @@ function handleToggleTabLock(key: string) {
 }
 
 async function handleCloseTab(key: string) {
-  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key]))) return;
+  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key], 'close', platformLanguageContext)))
+    return;
   const current = startup.value;
   if (!current) return;
 
@@ -1243,7 +1286,12 @@ async function handleCloseTab(key: string) {
 }
 
 async function handleCloseTabs(keys: string[]) {
-  if (!startup.value || keys.length === 0 || !(await confirmDiscardWorkspaceViewState(keys))) return;
+  if (
+    !startup.value ||
+    keys.length === 0 ||
+    !(await confirmDiscardWorkspaceViewState(keys, 'close', platformLanguageContext))
+  )
+    return;
   const current = startup.value;
   if (!current) return;
   const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
@@ -1381,7 +1429,7 @@ function pageRefreshRevisionFor(tabKey: string | undefined) {
 
 /** Rebuilds exactly the requested page instance without touching other cached tabs. */
 async function refreshPage(tabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh'))) return;
+  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh', platformLanguageContext))) return;
   if (!(startup.value?.tabs ?? []).some((tab) => tab.key === tabKey)) return;
   pageRefreshRevisions.value = {
     ...pageRefreshRevisions.value,
@@ -1521,7 +1569,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         v-model:confirm-password="confirmPassword"
         :open="changePasswordOpen"
         :saving="changePasswordSaving"
-        :error="changePasswordError"
+        :error="changePasswordError?.()"
         @close="closeChangeOwnPasswordDialog"
         @submit="submitChangeOwnPassword"
       />
@@ -1530,7 +1578,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :profile="profile"
         :loading="profileLoading"
         :saving="profileSaving"
-        :error="profileError"
+        :error="profileError?.()"
         @close="closeCurrentUserProfile"
         @submit="submitCurrentUserProfile"
       />
@@ -1539,7 +1587,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         :skins="uiThemeSkins"
         :active-skin-id="themeSkinId"
         :saving="themeSkinSaving"
-        :error="themeSkinError"
+        :failure="themeSkinFailure"
         @close="closeThemeSkinPreferences"
         @select="selectThemeSkin"
       />
@@ -1550,10 +1598,20 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       />
       <div v-if="securityNotification" class="security-notification-mask" role="presentation">
         <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-          <h2>需要重新登录</h2>
-          <p>{{ securityNotification.message }}</p>
-          <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-          <button type="button" @click="forceLocalLogout">立即重新登录</button>
+          <h2>{{ platformLanguageContext.t('platform.screen.App.sign-in-required', '需要重新登录') }}</h2>
+          <p>{{ platformLanguageContext.t(securityNotification.code, securityNotification.message) }}</p>
+          <p class="security-notification-countdown">
+            {{
+              platformLanguageContext.t(
+                'platform.security.logout-countdown',
+                '{seconds} 秒后自动返回登录页',
+                { seconds: securityLogoutCountdown },
+              )
+            }}
+          </p>
+          <button type="button" @click="forceLocalLogout">
+            {{ platformLanguageContext.t('platform.screen.App.sign-in-now', '立即重新登录') }}
+          </button>
         </section>
       </div>
     </UiThemeProvider>

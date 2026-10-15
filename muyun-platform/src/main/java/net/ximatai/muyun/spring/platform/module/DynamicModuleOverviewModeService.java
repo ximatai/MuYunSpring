@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
@@ -74,8 +75,8 @@ public class DynamicModuleOverviewModeService {
         PlatformModule module = requireDynamicModule(moduleAlias);
         if (effectiveMode(module) != command.overviewMode() && revisions != null
                 && revisions.getObject().hasLegacyPublishedPage(module.getAlias())) {
-            throw BusinessExceptions.warning(
-                    "platform.page.mode-upgrade-required", "请先在页面配置中保存并发布新版骨架，再切换呈现方式；当前已发布页面仍使用旧模板。");
+            throw BusinessExceptions.warningText("platform.page.mode-upgrade-required",
+                TextReference.code("platform.page.mode-upgrade-required", "请先在页面配置中保存并发布新版骨架，再切换呈现方式；当前已发布页面仍使用旧模板。"));
         }
         if (revisions != null) {
             Map<EntityCapability, Boolean> selections = new java.util.LinkedHashMap<>();

@@ -33,6 +33,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 @Service
 public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<MenuScheme>,
         SoftDeleteAbility<MenuScheme>,
         EnableAbility<MenuScheme>,
         SortAbility<MenuScheme>,
@@ -308,4 +309,5 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
                 Sort.asc("sortOrder"));
         return schemes.isEmpty() ? null : schemes.getFirst();
     }
+
 }

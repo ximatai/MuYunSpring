@@ -22,12 +22,17 @@ public class ExcelWorkbookPresentation {
         for (var entity : descriptor.entities()) for (var field : entity.fields())
             if (field.title() != null && !field.title().isBlank()) sources.put(entity.entityAlias() + "/" + field.fieldName(),
                     ConfigurationTextSources.metadataFieldTitle(descriptor.moduleAlias(), entity.entityAlias(), field.fieldName(), field.title()));
-        var prepared = resolver.prepare(sources.values());
+        var declaredSources = new java.util.ArrayList<>(sources.values());
+        plan.sheets().forEach(sheet -> sheet.columns().forEach(column -> {
+            if (column.titleSource() != null) declaredSources.add(column.titleSource());
+        }));
+        var prepared = resolver.prepare(declaredSources);
         return new ExcelWorkbookPlan(plan.meta(), plan.sheets().stream().map(sheet -> new ExcelSheetPlan(sheet.sheetName(), sheet.entityAlias(), sheet.main(),
                 sheet.columns().stream().map(column -> {
-                    var source = sources.get(sheet.entityAlias() + "/" + column.fieldName());
-                    if (source == null) return column;
-                    return new ExcelColumnPlan(column.fieldName(), prepared.resolve(source, Map.of()).text(), column.required(), column.valueType(), column.dropdownOptions());
+                    var source = column.titleSource() != null ? column.titleSource()
+                            : sources.get(sheet.entityAlias() + "/" + column.fieldName());
+                    if (source == null || (column.titleSource() == null && !source.originalText().equals(column.title()))) return column;
+                    return new ExcelColumnPlan(column.fieldName(), prepared.resolve(source, Map.of()).text(), column.required(), column.valueType(), column.dropdownOptions(), source);
                 }).toList(), sheet.rows())).toList());
     }
 }

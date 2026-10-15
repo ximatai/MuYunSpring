@@ -4,12 +4,13 @@ import {
   createHttpClient,
   resolveWebActionResult,
   type HttpRequestOptions,
+  type LanguageContext,
 } from '@muyun/web-core';
 import { effectiveAuthToken } from './authSession';
 import { recoverAuthentication } from './sessionRecovery';
 import { appDataChangeDispatcher } from './realtime';
 
-export function createBackendHttpClient(options: { withAuth?: boolean } = {}) {
+export function createBackendHttpClient(options: { withAuth?: boolean; language?: LanguageContext } = {}) {
   const currentClient = () =>
     withLanguageContext(
       createHttpClient({
@@ -20,7 +21,7 @@ export function createBackendHttpClient(options: { withAuth?: boolean } = {}) {
         onAuthenticationRequired:
           options.withAuth === false ? undefined : (error, token) => recoverAuthentication(error, token),
       }),
-      platformLanguageContext,
+      options.language ?? platformLanguageContext,
     );
   // Resolve authentication once per request, including streams. Long-lived clients
   // survive login, while a late 401 must still identify the token it actually used.

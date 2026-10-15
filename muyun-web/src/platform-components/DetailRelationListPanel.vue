@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, normalizeModulePageResponse, type ModuleContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type {
   ResolvedDetailRelationDescriptor,
@@ -6,11 +7,13 @@ import type {
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import { normalizeModulePageResponse, type ModuleContext } from '@muyun/web-core';
+
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from './RecordQueryListPanel.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'DetailRelationListPanel' });
 
@@ -105,6 +108,8 @@ function normalizeAlign(value: string | undefined): RecordQueryListColumn['align
     :ready="ready"
     :queryable="queryContract.queryable"
     :pageable="queryContract.pageable"
-    empty-description="暂无关联记录"
+    :empty-description="
+      language.t('platform.screen.DetailRelationListPanel.no-related-records', '暂无关联记录')
+    "
   />
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import {
   CrudRecordListExplorer,
   RecordExplorerPanel,
@@ -14,6 +15,8 @@ import NavigatorPanelActions from './NavigatorPanelActions.vue';
 import type { NavigatorLevelRuntime, NavigatorSortViewState } from './composables/useNavigatorRuntime';
 import type { ModulePageNavigatorTreeParentPolicy } from './modulePageEnhancements';
 import { navigatorItemOf, type NavigatorItemRecord } from './pageNavigatorItemModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PageNavigatorExplorer' });
 
@@ -59,6 +62,7 @@ function itemOf(record: NavigatorItemRecord) {
     props.level.descriptor.secondaryField,
     managementAvailable.value,
     props.actionsOf,
+    language,
   );
 }
 </script>
@@ -68,7 +72,14 @@ function itemOf(record: NavigatorItemRecord) {
     :class="{ 'page-navigator-explorer--readonly': !managementAvailable }"
     :title="level.descriptor.title"
     :subtitle="scopeSubtitle"
-    :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
+    :refresh-title="
+      language.t('platform.screen.PageNavigatorExplorer.refresh-value-value', '刷新{value1}{value2}', {
+        value1: level.descriptor.title,
+        value2: level.tree
+          ? language.t('platform.screen.PageNavigatorExplorer.tree', '树')
+          : language.t('platform.screen.PageNavigatorExplorer.list', '列表'),
+      })
+    "
     :search-keyword="keyword"
     :search-placeholder="level.descriptor.searchPlaceholder"
     @update:search-keyword="emit('update:keyword', $event)"
@@ -97,7 +108,11 @@ function itemOf(record: NavigatorItemRecord) {
       :navigator-target-level-key="level.descriptor.key"
       :sort-partition-fields="level.context.runtime?.snapshot?.()?.sortPartitionFields"
       search-mode="none"
-      :empty-description="`暂无${level.descriptor.title}`"
+      :empty-description="
+        language.t('platform.screen.PageNavigatorExplorer.no-value', '暂无{value1}', {
+          value1: level.descriptor.title,
+        })
+      "
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
       :can-drop-inside="treeParentPolicy?.canUseAsParent"
@@ -117,7 +132,11 @@ function itemOf(record: NavigatorItemRecord) {
       :external-query-values="externalQueryValues"
       :navigator-host-module-alias="navigatorHostModuleAlias"
       :navigator-target-level-key="level.descriptor.key"
-      :empty-description="`暂无${level.descriptor.title}`"
+      :empty-description="
+        language.t('platform.screen.PageNavigatorExplorer.no-value', '暂无{value1}', {
+          value1: level.descriptor.title,
+        })
+      "
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
       :sorting="sort.active"
@@ -130,7 +149,15 @@ function itemOf(record: NavigatorItemRecord) {
       @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
     />
-    <RecordPanelState v-else description="请先选择导航范围" />
+    <RecordPanelState
+      v-else
+      :description="
+        language.t(
+          'platform.screen.PageNavigatorExplorer.select-a-navigation-scope-first',
+          '请先选择导航范围',
+        )
+      "
+    />
     <template #editor><slot name="editor" /></template>
   </RecordExplorerPanel>
 </template>

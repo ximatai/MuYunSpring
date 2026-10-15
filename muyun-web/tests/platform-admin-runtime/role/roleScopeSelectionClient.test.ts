@@ -1,5 +1,10 @@
 import { expect, it, vi } from 'vitest';
-import type { HttpClient } from '@/web-core';
+import {
+  createLanguageContext,
+  codeOperationErrorMessage,
+  presentationLabel,
+  type HttpClient,
+} from '@/web-core';
 import { createRoleScopeSelectionClient } from '@/platform-admin-runtime/role/roleScopeSelectionClient';
 
 it('uses the role-owned descriptor and candidates facade without reading tenant or organization modules', async () => {
@@ -75,4 +80,51 @@ it('accepts an empty descriptor without inferring a tenant navigation client-sid
   const client = createRoleScopeSelectionClient({ request: vi.fn().mockResolvedValue({}) } as HttpClient);
 
   await expect(client.descriptor()).resolves.toEqual({ directSelections: [], navigations: [] });
+});
+
+it('keeps originals and verifies scope label resources without deriving translations from keys or prose', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const source = codeOperationErrorMessage(language, 'iam.role.scope.platform', '平台角色').source;
+  const titleText = {
+    source,
+    languages: {
+      en: { text: 'Platform roles', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+    },
+  };
+  const payload = {
+    directSelections: [
+      { selectionKey: 'platform', title: '平台角色', titleText },
+      {
+        selectionKey: 'wrong-version',
+        title: '平台角色',
+        titleText: { ...titleText, source: { ...source, sourceVersion: 'invalid' } },
+      },
+      { selectionKey: 'changed', title: '客户名称', titleText },
+      { selectionKey: 'legacy', title: '业务范围' },
+      {
+        selectionKey: 'bad-resource',
+        title: '平台角色',
+        titleText: { ...titleText, languages: { en: { text: 42 } } },
+      },
+    ],
+    navigations: [],
+  };
+  const before = structuredClone(payload);
+  const request = vi.fn().mockResolvedValue(payload);
+  const descriptor = await createRoleScopeSelectionClient({ request } as HttpClient).descriptor();
+  expect(descriptor.directSelections.map((selection) => selection.selectionKey)).toEqual([
+    'platform',
+    'wrong-version',
+    'changed',
+    'legacy',
+    'bad-resource',
+  ]);
+  expect(descriptor.directSelections.slice(1).every((selection) => !selection.labelText)).toBe(true);
+  const first = descriptor.directSelections[0]!;
+  expect(first.label).toBe('平台角色');
+  expect(presentationLabel(first.label, first.labelText, language)).toBe('Platform roles');
+  language.setLanguage('zh-CN');
+  expect(presentationLabel(first.label, first.labelText, language)).toBe('平台角色');
+  expect(payload).toEqual(before);
+  expect(request).toHaveBeenCalledOnce();
 });

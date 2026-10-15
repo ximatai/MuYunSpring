@@ -1,5 +1,6 @@
 import { presentPlatformSuccess, type PlatformErrorFeedbackContext } from './platformErrorFeedback';
 import { showErrorMessage, showInfoMessage, showWarningMessage } from '@muyun/vue-ui-antdv';
+import { platformLanguageContext } from '@muyun/web-core';
 import {
   resolvePlatformActionResult,
   type PlatformActionResultReactionHandler,
@@ -36,7 +37,9 @@ export async function handlePlatformActionSuccess(
   context: PlatformActionResultHandlingContext = {},
 ) {
   const actionResult = resolvePlatformActionResult(result, {
-    fallbackMessage: context.fallbackMessage,
+    fallbackMessage:
+      context.fallbackMessage ??
+      (context.language ?? platformLanguageContext).t('platform.action.success', '操作成功'),
   });
   presentActionMessage(actionResult.message, actionResult.messageType, context);
   for (const reaction of actionResult.reactions) {
@@ -49,7 +52,11 @@ export function presentPlatformActionSuccess(
   result: unknown,
   context: PlatformActionResultFeedbackContext = {},
 ) {
-  const actionResult = resolvePlatformActionResult(result, context);
+  const actionResult = resolvePlatformActionResult(result, {
+    fallbackMessage:
+      context.fallbackMessage ??
+      (context.language ?? platformLanguageContext).t('platform.action.success', '操作成功'),
+  });
   presentActionMessage(actionResult.message, actionResult.messageType, context);
 }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, getCurrentInstance } from 'vue';
 import ReferencePicker from './ReferencePicker.vue';
 import {
@@ -17,6 +18,8 @@ import type {
   UserPickerPageSearch,
   UserPickerResolver,
 } from './userPickerModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UserPicker' });
 
@@ -43,17 +46,36 @@ const props = withDefaults(
     value: undefined,
     multiple: false,
     maxSelection: undefined,
-    placeholder: '搜索并选择用户',
+    placeholder: undefined,
     disabled: false,
     allowClear: true,
     pageSize: 20,
-    title: '选择用户',
-    searchPlaceholder: '按账号或用户 ID 搜索',
-    emptyDescription: '没有可选择的用户',
-    selectionNoun: '用户',
+    title: undefined,
+    searchPlaceholder: undefined,
+    emptyDescription: undefined,
+    selectionNoun: undefined,
     reloadKey: undefined,
     sourceIdentity: undefined,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.screen.UserPicker.placeholder', '搜索并选择用户'),
+);
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.UserPicker.title', '选择用户'),
+);
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.UserPicker.searchPlaceholder', '按账号或用户 ID 搜索'),
+);
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ?? language.t('platform.screen.UserPicker.emptyDescription', '没有可选择的用户'),
+);
+const resolvedSelectionNoun = computed(
+  () => props.selectionNoun ?? language.t('platform.screen.UserPicker.selectionNoun', '用户'),
 );
 
 const emit = defineEmits<{
@@ -105,14 +127,14 @@ function validityChanged(validity: ReferencePickerValidity) {
     :provider="provider"
     :reload-key="reloadKey"
     :columns="userReferencePickerColumns"
-    :placeholder="placeholder"
+    :placeholder="resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :page-size="pageSize"
-    :title="title"
-    :search-placeholder="searchPlaceholder"
-    :empty-description="emptyDescription"
-    :selection-noun="selectionNoun"
+    :title="resolvedTitle"
+    :search-placeholder="resolvedSearchPlaceholder"
+    :empty-description="resolvedEmptyDescription"
+    :selection-noun="resolvedSelectionNoun"
     @update:value="updateValue"
     @select="select"
     @selection-resolved="resolved"

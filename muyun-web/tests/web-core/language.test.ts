@@ -186,3 +186,52 @@ it('keeps three concurrent consumer request scopes independent through completio
   pending[3].complete(undefined);
   await next;
 });
+
+it('resolves disabled resources without changing selection or its revisions', () => {
+  const context = createLanguageContext({ languageTag: 'en' });
+  const key = 'test.disabled-label';
+  context.registerResources('fr', { [key]: 'Valeur {name}' });
+  const revision = context.revision.value;
+  const selectionRevision = context.selectionRevision.value;
+  expect(context.resolveForLanguage('fr', key, 'unused', { name: 'Ada' })).toMatchObject({
+    text: 'Valeur Ada',
+    requestedTag: 'fr',
+    resourceTag: 'fr',
+    fallback: false,
+    missing: false,
+  });
+  expect(
+    context.resolveForLanguage('fr', 'platform.screen.WorkflowAdministrationView.reset-approval'),
+  ).toMatchObject({
+    text: 'Reset business approval',
+    resourceTag: 'en',
+    fallback: true,
+  });
+  expect(() => context.resolveForLanguage('de', key)).toThrow('Unregistered fallback language');
+  expect(context.languageTag.value).toBe('en');
+  expect(context.revision.value).toBe(revision);
+  expect(context.selectionRevision.value).toBe(selectionRevision);
+});
+
+it('keeps English quantity labels grammatical for zero, one and multiple results', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  for (const count of [0, 1, 2]) {
+    expect(language.t('platform.query.applied-filters', '', { count })).toBe(`Filters applied: ${count}`);
+    expect(language.t('platform.form.max-length', '', { label: 'Name', count })).toBe(
+      `Character limit for Name: ${count}`,
+    );
+    expect(language.t('platform.workflow-config.target-count', '', { count })).toBe(` (targets: ${count})`);
+    expect(language.t('platform.security.logout-countdown', '', { seconds: count })).toBe(
+      `Returning to sign-in (seconds remaining: ${count})`,
+    );
+    expect(language.t('platform.rules.trial-detail-count', '', { count })).toBe(
+      `· Details after trial (rows: ${count})`,
+    );
+    expect(
+      language.t('platform.screen.ConstructionPlanCard.value-value-items', '', {
+        value1: 'Plan',
+        value2: count,
+      }),
+    ).toBe(`Plan · Items: ${count}`);
+  }
+});

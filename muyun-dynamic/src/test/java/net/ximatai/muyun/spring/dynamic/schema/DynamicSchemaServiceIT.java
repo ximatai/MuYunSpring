@@ -142,10 +142,14 @@ class DynamicSchemaServiceIT {
             DynamicRecord saved = records.select(module, "entry", id);
             // A client draft (even a stale pre-submission draft) cannot fake the stored approval boundary.
             assertThat(records.actionAvailability(module, "update", stale).available()).isFalse();
+            assertThat(records.actionAvailability(module, "update", stale).messageSource().sourceId())
+                    .isEqualTo("platform.approval.update-unavailable");
             assertThat(records.recordActionAvailability(module, "entry", List.of("update", "delete"), List.of(id)))
                     .singleElement().satisfies(availability -> {
                         assertThat(availability.actions().get("update").available()).isFalse();
                         assertThat(availability.actions().get("update").message()).contains("不可直接修改");
+                        assertThat(availability.actions().get("update").messageSource().sourceId())
+                                .isEqualTo("platform.approval.update-unavailable");
                         assertThat(availability.actions().get("delete").available()).isTrue();
                     });
             assertThat(saved.getApprovalStatus()).isEqualTo("processing");

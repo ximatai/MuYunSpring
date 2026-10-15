@@ -7,6 +7,8 @@ import {
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   createUuid,
+  platformLanguageContext,
+  type LanguageContext,
   AssistantCapabilityUsageError,
   type AssistantCapability,
   emptyAssistantCapabilityInputSchema,
@@ -27,10 +29,12 @@ import {
 export function createRecordFormAssistantCapabilities(
   view: RecordFormDraftAccess,
   {
+    language = view.language ?? platformLanguageContext,
     resolveReferenceNames = true,
     canReadDetail,
     schemaDiscovery,
   }: {
+    language?: LanguageContext;
     resolveReferenceNames?: boolean;
     canReadDetail?: () => boolean;
     schemaDiscovery?: AssistantCapability['schemaDiscovery'];
@@ -42,7 +46,7 @@ export function createRecordFormAssistantCapabilities(
     ...(canDescribe()
       ? [
           {
-            ...formDescribeCapability(view, resolveReferenceNames, canDescribe),
+            ...formDescribeCapability(view, resolveReferenceNames, canDescribe, language),
             schemaDiscovery: hasEditableDraft(view) ? undefined : schemaDiscovery,
           },
         ]
@@ -430,6 +434,7 @@ function formDescribeCapability(
   view: RecordFormDraftAccess,
   resolveReferenceNames: boolean,
   canDescribe: () => boolean,
+  language: LanguageContext,
 ): AssistantCapability<Record<string, never>> {
   return {
     effect: 'read',
@@ -467,24 +472,32 @@ function formDescribeCapability(
           if (field.pickerConfig?.provider && count > remainingReferences) {
             referencesTruncated = true;
             resolved.set(field.fieldName, {
-              display: '已选择（名称读取已截断，请在页面核实）',
+              display: language.t(
+                'platform.reference.names-truncated',
+                '已选择（名称读取已截断，请在页面核实）',
+              ),
               unavailable: true,
             });
             return;
           }
           if (field.pickerConfig?.provider) remainingReferences -= count;
           try {
-            resolved.set(field.fieldName, { display: await resolvedRecordFieldDisplay(field, record) });
+            resolved.set(field.fieldName, {
+              display: await resolvedRecordFieldDisplay(field, record, undefined, language),
+            });
           } catch {
             // Display failure is not permission to reselect, reveal IDs or forward transport details.
-            resolved.set(field.fieldName, { display: '已选择（名称暂不可用）', unavailable: true });
+            resolved.set(field.fieldName, {
+              display: language.t('platform.reference.selected-name-unavailable', '已选择（名称暂不可用）'),
+              unavailable: true,
+            });
           }
         }),
       );
       if (!context.isCurrent() || !canDescribe() || revision !== view.contextRevision())
         throw new AssistantCapabilityUsageError('表单或范围已变化，请重新读取');
       return {
-        ...recordFormAssistantFacts(view, resolved, referencesTruncated),
+        ...recordFormAssistantFacts(view, resolved, referencesTruncated, language),
         relations: view.relations?.() ?? [],
       };
     },
@@ -496,6 +509,7 @@ export function recordFormAssistantFacts(
   view: RecordFormDraftAccess,
   resolved = new Map<string, { display: string; unavailable?: boolean }>(),
   referencesTruncated = false,
+  language: LanguageContext = view.language ?? platformLanguageContext,
 ) {
   const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: referencesTruncated };
   const fields = formFieldStates(view)
@@ -517,7 +531,10 @@ export function recordFormAssistantFacts(
         view,
         field,
         fieldBudget,
-        referenceNeedsRead ? '已选择（名称按需核实）' : reference?.display,
+        referenceNeedsRead
+          ? language.t('platform.reference.name-needs-verification', '已选择（名称按需核实）')
+          : reference?.display,
+        language,
       );
       valueBudget.remaining = fieldBudget.remaining;
       valueBudget.truncated ||= fieldBudget.truncated;
@@ -740,14 +757,21 @@ function assistantCurrentValue(
   field: RecordFormFieldState,
   budget: { remaining: number; truncated: boolean },
   resolvedReferenceDisplay?: string,
+  language: LanguageContext = view.language ?? platformLanguageContext,
 ) {
   if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
   const value = field.calculationPending
-    ? recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
+    ? recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}, undefined, false, language)
     : field.reference
       ? (resolvedReferenceDisplay ??
-        recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}))
+        recordFieldDisplay(
+          field,
+          view.editingRecord ?? view.selectedRecord ?? {},
+          undefined,
+          false,
+          language,
+        ))
       : field.controlType === 'enabledStatus' && hasEditableDraft(view)
         ? resolveRecordEnabledStatusValue(view.editingRecord?.[field.fieldName])
         : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];

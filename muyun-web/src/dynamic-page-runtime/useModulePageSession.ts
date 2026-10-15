@@ -1,3 +1,4 @@
+import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
@@ -49,6 +50,7 @@ import {
   type RecordPickerRecord,
   type ReferencePickerProvider,
   type ScopedTreePickerCandidate,
+  type ScopedTreePickerProvider,
   type CrudRecordListBase,
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
@@ -283,7 +285,9 @@ export function useModulePageSession(
   const tenantScopeSubtitle = computed(() => {
     if (tenantScopeFixedByIdentity.value) return undefined;
     const title = props.tenantScope?.title ?? props.tenantScope?.name ?? tenantScopeId.value;
-    return tenantScopeReady.value && title ? `租户：${title}` : undefined;
+    return tenantScopeReady.value && title
+      ? language.t('platform.screen.useModulePageSession.tenant-value', '租户：{value1}', { value1: title })
+      : undefined;
   });
 
   const context: ModuleContext<QueryListRecord> = {
@@ -502,7 +506,20 @@ export function useModulePageSession(
   const inputValidationStatus = useInputValidationActionStatus();
   const detailEnhancementRunning = ref(false);
   const unresolvedRecordSave = shallowRef<Extract<OperationReceiptReference, { kind: 'record-save' }>>();
-  const recordSaveRecoveryError = ref('');
+  const recordSaveRecoveryFailure = ref<'restore' | 'clear'>();
+  const recordSaveRecoveryError = computed(() =>
+    recordSaveRecoveryFailure.value === 'restore'
+      ? language.t(
+          'platform.screen.useModulePageSession.the-previous-save-result-cannot-be-restored-check-it-before',
+          '原保存结果暂时无法恢复，请先核实后再保存',
+        )
+      : recordSaveRecoveryFailure.value === 'clear'
+        ? language.t(
+            'platform.screen.useModulePageSession.the-save-status-was-received-but-its-recovery-reference-could',
+            '保存状态已返回，但恢复记录暂未清理，请核实后继续',
+          )
+        : '',
+  );
   let unresolvedRecordSaveIsCurrent: (() => boolean) | undefined;
   let unresolvedRecordSaveRejected = false;
   const detailActionBusy = computed(
@@ -591,10 +608,8 @@ export function useModulePageSession(
       relationDraftValid.value = true;
     }
   });
-  const { pageBootstrap, pageBootstrapError, loadPageBootstrap } = useModulePageBootstrap(
-    context,
-    () => props.descriptor.menuId,
-  );
+  const { pageBootstrap, pageBootstrapError, setPageBootstrapFailure, loadPageBootstrap } =
+    useModulePageBootstrap(context, () => props.descriptor.menuId, language);
   const {
     formFields,
     detailDisplayFields,
@@ -773,6 +788,13 @@ export function useModulePageSession(
 
   const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
   const targetReferencePickerProviders = new Map<string, ReferencePickerProvider>();
+  const scopedTreeProviders = new Map<
+    ReferencePickerProvider,
+    {
+      provider: ScopedTreePickerProvider;
+      live: { options: Parameters<typeof sourceReferencePickerConfigFor>[0] };
+    }
+  >();
 
   /**
    * Target-navigator references normally retain the compact legacy picker. A descriptor may
@@ -821,7 +843,7 @@ export function useModulePageSession(
     RecordFormFieldPickerConfig,
     'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
   > {
-    const { reference, pickerFieldName, referenceResolver, formValues, source } = options;
+    const { reference, pickerFieldName } = options;
     const scopedTree = scopedTreeScopeOf(reference);
     const config: Pick<
       RecordFormFieldPickerConfig,
@@ -829,8 +851,12 @@ export function useModulePageSession(
     > = sourceReferencePickerConfigFor({ ...options, legacyTreeLoaders: Boolean(scopedTree) });
     if (!scopedTree) return config;
 
+    const baseProvider = config.provider!;
+    let entry = scopedTreeProviders.get(baseProvider);
+    const live = entry?.live ?? { options };
+    live.options = options;
     const scopeReady = () => {
-      const sourceValue = formValues()[scopedTree.sourceField];
+      const sourceValue = live.options.formValues()[scopedTree.sourceField];
       return typeof sourceValue === 'string' && sourceValue.trim() !== '';
     };
     const candidate = (item: {
@@ -860,54 +886,59 @@ export function useModulePageSession(
       const parsed = Number(cursor);
       return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
     };
-    config.scopedTree = {
-      title: scopedTree.title,
-      disabled: !scopeReady(),
-      unavailableMessage: scopeReady() ? undefined : scopedTree.unavailableMessage,
-      provider: {
+    if (!entry) {
+      const provider: ScopedTreePickerProvider = {
         loadRoot: async ({ keyword }) => {
           if (!scopeReady()) return { records: [] };
           if (keyword) {
-            const response = await referenceResolver().resolve(pickerFieldName, {
+            const response = await live.options.referenceResolver().resolve(pickerFieldName, {
               mode: 'QUERY',
               fuzzy: keyword,
               page: { pageNum: 1, pageSize: 50 },
-              formValues: formValues(),
-              source: source(),
+              formValues: live.options.formValues(),
+              source: live.options.source(),
             });
             return { records: response.options.map((item) => ({ ...candidate(item), isLeaf: true })) };
           }
-          const response = await referenceResolver().resolve(pickerFieldName, {
+          const response = await live.options.referenceResolver().resolve(pickerFieldName, {
             mode: 'TREE_CHILDREN',
             page: { pageNum: 1, pageSize: 50 },
-            formValues: formValues(),
-            source: source(),
+            formValues: live.options.formValues(),
+            source: live.options.source(),
           });
           return page(response, 1);
         },
         loadChildren: async ({ parent, cursor }) => {
           if (!scopeReady()) return { records: [] };
           const pageNum = pageNumber(cursor);
-          const response = await referenceResolver().resolve(pickerFieldName, {
+          const response = await live.options.referenceResolver().resolve(pickerFieldName, {
             mode: 'TREE_CHILDREN',
             parentId: parent.id,
             page: { pageNum, pageSize: 50 },
-            formValues: formValues(),
-            source: source(),
+            formValues: live.options.formValues(),
+            source: live.options.source(),
           });
           return page(response, pageNum);
         },
         resolve: async (ids) => {
           if (!scopeReady()) return [];
-          const response = await referenceResolver().resolve(pickerFieldName, {
+          const response = await live.options.referenceResolver().resolve(pickerFieldName, {
             mode: 'TRANSLATE',
             values: ids,
-            formValues: formValues(),
-            source: source(),
+            formValues: live.options.formValues(),
+            source: live.options.source(),
           });
           return response.results.flatMap((result) => (result.item ? [candidate(result.item)] : []));
         },
-      },
+      };
+      entry = { provider, live };
+      scopedTreeProviders.set(baseProvider, entry);
+    }
+    config.scopedTree = {
+      title: scopedTree.title,
+      disabled: !scopeReady(),
+      unavailableMessage: scopeReady() ? undefined : scopedTree.unavailableMessage,
+      provider: entry.provider,
     };
     return config;
   }
@@ -916,13 +947,19 @@ export function useModulePageSession(
     const scopes = {
       'iam.department': {
         sourceField: 'organizationId',
-        title: '选择所属部门',
-        unavailableMessage: '请先选择所属机构，再展开选择部门',
+        title: language.t('platform.screen.useModulePageSession.select-department', '选择所属部门'),
+        unavailableMessage: language.t(
+          'platform.screen.useModulePageSession.select-the-organization-before-choosing-a-department',
+          '请先选择所属机构，再展开选择部门',
+        ),
       },
       'iam.organization': {
         sourceField: 'tenantId',
-        title: '选择适用机构',
-        unavailableMessage: '请先选择适用租户，再展开选择机构',
+        title: language.t('platform.screen.useModulePageSession.select-organization', '选择适用机构'),
+        unavailableMessage: language.t(
+          'platform.screen.useModulePageSession.select-the-tenant-before-choosing-an-organization',
+          '请先选择适用租户，再展开选择机构',
+        ),
       },
     } as const;
     const scope = scopes[reference.targetModuleAlias as keyof typeof scopes];
@@ -1002,7 +1039,10 @@ export function useModulePageSession(
       configs.parentId = {
         context: level.context,
         mode: 'tree',
-        placeholder: '根目录留空',
+        placeholder: language.t(
+          'platform.screen.useModulePageSession.leave-blank-for-the-root',
+          '根目录留空',
+        ),
         allowClear: true,
         // The navigator source itself may be constrained by an upstream selection.
         // Its reference-tree endpoint receives that scope in the query body, so the
@@ -1028,10 +1068,14 @@ export function useModulePageSession(
   });
   const navigatorManagementTitle = computed(() => {
     const level = navigatorManagementLevel.value;
-    if (!level) return '管理范围';
+    if (!level) return language.t('platform.screen.useModulePageSession.management-scope', '管理范围');
     return navigatorManagementDetail.mode.value === 'create'
-      ? `新建${level.descriptor.title}`
-      : `编辑${level.descriptor.title}`;
+      ? language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
+          value1: level.descriptor.title,
+        })
+      : language.t('platform.screen.ManagedDetailRelationSurface.edit-value', '编辑{value1}', {
+          value1: level.descriptor.title,
+        });
   });
 
   const title = computed(
@@ -1040,10 +1084,18 @@ export function useModulePageSession(
   const detailTitle = computed(() => {
     if (editorMode.value === 'create') {
       return flatManagementPage.value
-        ? (flatManagementContent.value?.createTitle ?? `新建${title.value}`)
-        : `新建${title.value}`;
+        ? (flatManagementContent.value?.createTitle ??
+            language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
+              value1: title.value,
+            }))
+        : language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
+            value1: title.value,
+          });
     }
-    return recordTitle(editingRecord.value ?? selectedRecord.value) ?? '记录详情';
+    return (
+      recordTitle(editingRecord.value ?? selectedRecord.value) ??
+      language.t('platform.screen.useModulePageSession.record-details', '记录详情')
+    );
   });
   const {
     detailPageActions,
@@ -1065,7 +1117,7 @@ export function useModulePageSession(
     refreshList,
     localEditValid: localEditFormValid,
     presentSuccess: presentModuleActionSuccess,
-    presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action' }),
+    presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action', language }),
     reportRefreshFailure: (cause, source) => reportDetailRefreshFailure(cause, source),
     recordChanged: (record) => {
       if (props.recordOnly) emit('record-only-change', { type: 'saved', record });
@@ -1111,7 +1163,7 @@ export function useModulePageSession(
         return true;
       }
       await refreshWorkflowRecordActions(context, id).catch((cause) =>
-        presentPlatformError(cause, { source: 'module-data-change', phase: 'authorization' }),
+        presentPlatformError(cause, { source: 'module-data-change', phase: 'authorization', language }),
       );
       if (!isCurrent()) return false;
       await loadRecord({ id }, 'view', {}, false, (cause) =>
@@ -1121,7 +1173,8 @@ export function useModulePageSession(
         selectedTreeRecord.value = selectedRecord.value;
       return true;
     },
-    onError: (cause) => presentPlatformError(cause, { source: 'module-data-change', phase: 'load' }),
+    onError: (cause) =>
+      presentPlatformError(cause, { source: 'module-data-change', phase: 'load', language }),
   });
   const sessionDirty = computed(
     () =>
@@ -1173,7 +1226,7 @@ export function useModulePageSession(
           try {
             await target?.runtime.refreshTexts?.();
           } catch (cause) {
-            presentPlatformError(cause, { source: 'module-translation-refresh', phase: 'load' });
+            presentPlatformError(cause, { source: 'module-translation-refresh', phase: 'load', language });
           }
         }),
     );
@@ -1310,7 +1363,12 @@ export function useModulePageSession(
     const selection = navigatorExtension.value?.selection;
     const normalizedKey = key.trim();
     if (!selection || !normalizedKey) {
-      throw new Error('导航扩展未声明可信选择或选择键为空');
+      throw new Error(
+        language.t(
+          'platform.screen.useModulePageSession.the-navigation-extension-has-no-trusted-selection-or-selection-key',
+          '导航扩展未声明可信选择或选择键为空',
+        ),
+      );
     }
     const current = navigatorExtensionSelection.value;
     if (current?.kind === selection.kind && current.key === normalizedKey) {
@@ -1352,7 +1410,11 @@ export function useModulePageSession(
     if (!descriptor) return undefined;
     if (descriptor.text != null) return descriptor.text;
     return new FormulaRuntime().evaluatePageText(descriptor.program, {
-      'selection.label': navigatorExtensionPresentation.value?.label ?? '',
+      'selection.label': presentationLabel(
+        navigatorExtensionPresentation.value?.label ?? '',
+        navigatorExtensionPresentation.value?.labelText,
+        language,
+      ),
       'selection.secondaryLabel': navigatorExtensionPresentation.value?.secondaryLabel ?? '',
     });
   }
@@ -1372,6 +1434,7 @@ export function useModulePageSession(
       constraints.push({
         code: 'tree-parent-policy',
         message: policy.rejectionMessage,
+        messageKey: policy.rejectionMessageKey,
         test: (record) => policy.canUseAsParent(record as Readonly<Record<string, unknown>>),
       });
     }
@@ -1381,7 +1444,14 @@ export function useModulePageSession(
     return navigatorEntryPolicy.value.lockedEntry?.navigatorKey === levelKey;
   }
   const navigatorScopeUnavailableDescription = computed(
-    () => navigatorEntryPolicy.value.lockedEntry?.unavailableDescription ?? '请选择模块',
+    () =>
+      (navigatorEntryPolicy.value.lockedEntry?.unavailableDescriptionKey
+        ? language.t(
+            navigatorEntryPolicy.value.lockedEntry.unavailableDescriptionKey,
+            navigatorEntryPolicy.value.lockedEntry.unavailableDescription,
+          )
+        : navigatorEntryPolicy.value.lockedEntry?.unavailableDescription) ??
+      language.t('platform.screen.useModulePageSession.select-a-module', '请选择模块'),
   );
   // A hidden locked navigator has no visual explorer to emit `loaded`. Resolve
   // its addressed record directly through the same REFERENCE query contract so
@@ -1454,9 +1524,20 @@ export function useModulePageSession(
   );
   const mainTreeScopeDescription = computed(() => {
     const resource = treeResource.value;
-    if (!resource || !treeResourceScopeRecord.value?.id) return '请先选择导航范围';
-    if (resource.scopeRecordField) return '当前导航范围不支持维护此资源';
-    return '请先选择导航范围';
+    if (!resource || !treeResourceScopeRecord.value?.id)
+      return language.t(
+        'platform.screen.PageNavigatorExplorer.select-a-navigation-scope-first',
+        '请先选择导航范围',
+      );
+    if (resource.scopeRecordField)
+      return language.t(
+        'platform.screen.useModulePageSession.this-resource-cannot-be-managed-in-the-current-navigation-scope',
+        '当前导航范围不支持维护此资源',
+      );
+    return language.t(
+      'platform.screen.PageNavigatorExplorer.select-a-navigation-scope-first',
+      '请先选择导航范围',
+    );
   });
   const treeResourceScopeContext = computed(() => {
     const resource = treeResource.value;
@@ -1470,9 +1551,14 @@ export function useModulePageSession(
       const title = recordTitle(record);
       if (!record || !title) return [];
       const secondaryField = level.descriptor.secondaryField;
-      const secondary = secondaryField == null ? undefined : record[secondaryField];
+      const secondary = explorerRecordText(record, secondaryField);
       const displayTitle = secondary && String(secondary) !== title ? `${title}（${secondary}）` : title;
-      return [`${level.descriptor.title}：${displayTitle}`];
+      return [
+        language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
+          value1: level.descriptor.title,
+          value2: displayTitle,
+        }),
+      ];
     });
     return values.length === 0 ? undefined : values.join(' · ');
   }
@@ -1510,7 +1596,11 @@ export function useModulePageSession(
     );
   });
   const treeRootTitle = computed(
-    () => formFields.value.get('parentId')?.treeRootTitle ?? `根${recordLabel.value}`,
+    () =>
+      formFields.value.get('parentId')?.treeRootTitle ??
+      language.t('platform.screen.useModulePageSession.root-value', '根{value1}', {
+        value1: recordLabel.value,
+      }),
   );
   const pageEnhancement = computed(() =>
     resolveModulePageEnhancement(
@@ -1750,7 +1840,13 @@ export function useModulePageSession(
       (!pageBootstrapRequired.value || pageBootstrap.value !== undefined) &&
       (!isListPage.value || runtimePageResolved.value),
   );
-  const unsupportedPageModeText = computed(() => `${pageMode.value}入口暂未接入模块页面运行器`);
+  const unsupportedPageModeText = computed(() =>
+    language.t(
+      'platform.screen.useModulePageSession.the-value-entry-is-not-supported-by-the-module-page',
+      '{value1}入口暂未接入模块页面运行器',
+      { value1: pageMode.value },
+    ),
+  );
   // Management templates own the workbench's available height. Their explorer
   // and detail panes scroll internally instead of leaving a content-sized panel
   // in the tab's document flow.
@@ -1865,7 +1961,9 @@ export function useModulePageSession(
       if (visible && id != null) {
         void context
           .recordActions(String(id))
-          .catch((cause) => presentPlatformError(cause, { source: 'module-status', phase: 'authorization' }));
+          .catch((cause) =>
+            presentPlatformError(cause, { source: 'module-status', phase: 'authorization', language }),
+          );
       }
     },
   );
@@ -1897,9 +1995,11 @@ export function useModulePageSession(
     if (statusSwitchAction.value?.disabled) return statusSwitchAction.value.disabledReason;
     const actionCode = record.enabled === false ? 'enable' : 'disable';
     return (
-      context
-        .recordActionsSnapshot(String(record.id))
-        ?.actions.find((action) => action.actionCode === actionCode)?.reason ?? '当前记录不允许执行此操作'
+      context.action(actionCode, String(record.id))?.reason ??
+      language.t(
+        'platform.screen.useModulePageSession.this-action-is-unavailable-for-the-current-record',
+        '当前记录不允许执行此操作',
+      )
     );
   });
 
@@ -2028,7 +2128,9 @@ export function useModulePageSession(
               })
             : context,
         mode: 'tree',
-        placeholder: `${treeRootTitle.value}留空`,
+        placeholder: language.t('platform.screen.useModulePageSession.leave-value-blank', '{value1}留空', {
+          value1: treeRootTitle.value,
+        }),
         allowClear: true,
         constraints: parentRecordConstraints(
           editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
@@ -2101,7 +2203,15 @@ export function useModulePageSession(
         await loadRuntimeDescriptor();
         await openRecord({ id: props.recordOnly.recordId }, 'view');
       } catch (cause) {
-        pageBootstrapError.value = cause instanceof Error ? cause.message : '页面运行时加载失败';
+        setPageBootstrapFailure(
+          cause instanceof Error
+            ? cause
+            : () =>
+                language.t(
+                  'platform.screen.useModulePageSession.unable-to-load-the-page-runtime',
+                  '页面运行时加载失败',
+                ),
+        );
       }
       if (!disposed) initialized();
       return;
@@ -2115,12 +2225,26 @@ export function useModulePageSession(
         isListPage,
         () => Boolean(pageEnhancement.value?.recordView),
         () => {
-          pageBootstrapError.value = `模块页面增强 ${pageEnhancement.value?.id ?? 'unknown'} 的业务查看呈现仅支持普通列表模块，不支持树模块`;
+          setPageBootstrapFailure(() =>
+            language.t(
+              'platform.screen.useModulePageSession.the-record-view-of-page-enhancement-value-supports-list-modules',
+              '模块页面增强 {value1} 的业务查看呈现仅支持普通列表模块，不支持树模块',
+              { value1: pageEnhancement.value?.id ?? 'unknown' },
+            ),
+          );
         },
       );
       resolvedTenantRequirement = rawContext.runtime.snapshot()?.tenantRequired === true;
     } catch (cause) {
-      pageBootstrapError.value = cause instanceof Error ? cause.message : '页面运行时加载失败';
+      setPageBootstrapFailure(
+        cause instanceof Error
+          ? cause
+          : () =>
+              language.t(
+                'platform.screen.useModulePageSession.unable-to-load-the-page-runtime',
+                '页面运行时加载失败',
+              ),
+      );
     }
     if (disposed) return;
     if (resolvedTenantRequirement !== undefined)
@@ -2229,7 +2353,9 @@ export function useModulePageSession(
   function explorerRecordText(record: object, field: string | undefined): string | undefined {
     if (!field) return undefined;
     const value = (record as Record<string, unknown>)[field];
-    return value == null || String(value).trim() === '' ? undefined : String(value);
+    return value == null || String(value).trim() === ''
+      ? undefined
+      : recordPresentationLabel(record, field, language);
   }
   function matchesPageQuickSearch(record: object, keyword: string): boolean {
     const fields = runtimePage.value?.quickSearchFields;
@@ -2242,7 +2368,10 @@ export function useModulePageSession(
     );
   }
   function mainTreeTitle(record: object): string {
-    return explorerRecordText(record, runtimePage.value?.explorer?.titleField ?? 'title') ?? '未命名记录';
+    return (
+      explorerRecordText(record, runtimePage.value?.explorer?.titleField ?? 'title') ??
+      language.t('platform.record.unnamed', '未命名记录')
+    );
   }
   function mainTreeSecondary(record: object): string | undefined {
     return explorerRecordText(record, runtimePage.value?.explorer?.secondaryField);
@@ -2250,17 +2379,16 @@ export function useModulePageSession(
 
   function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
     const secondaryField = flatManagementContent.value?.secondaryField;
-    const secondaryValue =
-      secondaryField == null ? undefined : (record as unknown as Record<string, unknown>)[secondaryField];
+    const secondaryValue = explorerRecordText(record, secondaryField);
     return {
       title:
         explorerRecordText(record, runtimePage.value?.explorer?.titleField) ??
-        record.title ??
+        recordPresentationLabel(record, 'title', language) ??
         record.alias ??
         record.code ??
         record.id ??
         flatManagementContent.value?.fallbackTitle ??
-        '未命名记录',
+        language.t('platform.record.unnamed', '未命名记录'),
       // The descriptor deliberately controls whether a compact explorer has a
       // subtitle. Do not fall back to the record ID: it turns an omitted
       // secondary field into accidental technical noise for business pages.
@@ -2536,7 +2664,10 @@ export function useModulePageSession(
   function navigatorSortState(level: NavigatorLevelRuntime): NavigatorSortViewState {
     const active = navigatorSorting(level);
     const disabledReason = scopeSearchKeyword.value.trim()
-      ? '清空搜索后可调整排序'
+      ? language.t(
+          'platform.screen.ModulePageHostRuntime.clear-the-search-to-reorder-records',
+          '清空搜索后可调整排序',
+        )
       : navigatorManagementScopeDisabledReason(level);
     return {
       ...level.sort,
@@ -2630,8 +2761,17 @@ export function useModulePageSession(
   }
 
   function navigatorManagementScopeDisabledReason(level: NavigatorLevelRuntime): string | undefined {
-    if (!tenantScopeReady.value) return '请先选择业务租户';
-    return navigatorManagementScopeReady(level) ? undefined : '请先完成上游范围选择';
+    if (!tenantScopeReady.value)
+      return language.t(
+        'platform.screen.useModulePageSession.select-a-business-tenant-first',
+        '请先选择业务租户',
+      );
+    return navigatorManagementScopeReady(level)
+      ? undefined
+      : language.t(
+          'platform.screen.useModulePageSession.select-the-upstream-scope-first',
+          '请先完成上游范围选择',
+        );
   }
 
   function navigatorManagementAvailable(level: NavigatorLevelRuntime) {
@@ -2648,7 +2788,7 @@ export function useModulePageSession(
       const readiness = navigatorRecordCreationState(level);
       actions.push({
         key: 'create-child',
-        title: '新建子项',
+        title: language.t('platform.screen.ModuleRecordDetailActions.create-child', '新建子项'),
         iconName: 'plus',
         disabled: !readiness.ready,
         disabledReason: readiness.message,
@@ -2656,12 +2796,30 @@ export function useModulePageSession(
     }
     if (level.context.can('update') === true) {
       actions.push(
-        navigatorRecordAction(level, record, 'edit', 'update', `编辑${level.descriptor.title}`, 'edit'),
+        navigatorRecordAction(
+          level,
+          record,
+          'edit',
+          'update',
+          language.t('platform.screen.ManagedDetailRelationSurface.edit-value', '编辑{value1}', {
+            value1: level.descriptor.title,
+          }),
+          'edit',
+        ),
       );
     }
     if (level.context.can('delete') === true) {
       actions.push(
-        navigatorRecordAction(level, record, 'delete', 'delete', `删除${level.descriptor.title}`, 'delete'),
+        navigatorRecordAction(
+          level,
+          record,
+          'delete',
+          'delete',
+          language.t('platform.screen.ManagedDetailRelationSurface.delete-value', '删除{value1}', {
+            value1: level.descriptor.title,
+          }),
+          'delete',
+        ),
       );
     }
     return actions;
@@ -2684,7 +2842,10 @@ export function useModulePageSession(
         iconName,
         danger: key === 'delete',
         disabled: true,
-        disabledReason: '记录标识缺失',
+        disabledReason: language.t(
+          'platform.screen.useModulePageSession.the-record-id-is-missing',
+          '记录标识缺失',
+        ),
       };
     }
     const decision = level.context
@@ -2697,7 +2858,10 @@ export function useModulePageSession(
         title,
         iconName,
         disabled: true,
-        disabledReason: '请先处理当前编辑会话或等待操作完成',
+        disabledReason: language.t(
+          'platform.screen.useModulePageSession.finish-the-current-editing-session-or-wait-for-the-operation',
+          '请先处理当前编辑会话或等待操作完成',
+        ),
       };
     if (!decision) {
       return {
@@ -2707,7 +2871,10 @@ export function useModulePageSession(
         iconName,
         danger: key === 'delete',
         disabled: true,
-        disabledReason: '正在校验操作可用性',
+        disabledReason: language.t(
+          'platform.screen.ModuleActionButton.checking-action-availability',
+          '正在校验操作可用性',
+        ),
       };
     }
     return {
@@ -2717,19 +2884,25 @@ export function useModulePageSession(
       iconName,
       danger: key === 'delete',
       disabled: !decision.available,
-      disabledReason: decision.reason,
+      disabledReason:
+        decision.reason == null
+          ? undefined
+          : presentationLabel(decision.reason, decision.reasonText, language),
     };
   }
 
   function navigatorRecordCreationState(level: NavigatorLevelRuntime) {
-    const readiness = recordCreationReadiness({
-      tenantReady: tenantScopeReady.value,
-      pageReady: pageReady.value && level.context.runtime.snapshot() != null,
-      permitted: navigatorManagementAvailable(level) && level.context.can('create') === true,
-      editing: interactionEditing.value,
-      busy: interactionBusy.value,
-      scopeReady: navigatorManagementScopeReady(level),
-    });
+    const readiness = recordCreationReadiness(
+      {
+        tenantReady: tenantScopeReady.value,
+        pageReady: pageReady.value && level.context.runtime.snapshot() != null,
+        permitted: navigatorManagementAvailable(level) && level.context.can('create') === true,
+        editing: interactionEditing.value,
+        busy: interactionBusy.value,
+        scopeReady: navigatorManagementScopeReady(level),
+      },
+      language,
+    );
     return readiness.reason === 'SCOPE_REQUIRED'
       ? { ...readiness, message: navigatorManagementScopeDisabledReason(level) }
       : readiness;
@@ -2816,9 +2989,7 @@ export function useModulePageSession(
     const record = navigatorManagementDetail.draft.value;
     if (!record?.id || !navigatorManagementEnabledDisabled.value) return undefined;
     const actionCode = record.enabled === false ? 'enable' : 'disable';
-    return navigatorManagementLevel.value?.context
-      .recordActionsSnapshot(String(record.id))
-      ?.actions.find((action) => action.actionCode === actionCode)?.reason;
+    return navigatorManagementLevel.value?.context.action(actionCode, String(record.id))?.reason;
   });
 
   async function toggleNavigatorManagementEnabled(enabled: boolean) {
@@ -2859,9 +3030,14 @@ export function useModulePageSession(
       };
       navigatorManagementDetail.formSessionKey.value += 1;
       scopeReloadKey.value += 1;
-      await presentModuleActionSuccess(result, enabled ? '已启用' : '已停用');
+      await presentModuleActionSuccess(
+        result,
+        enabled
+          ? language.t('platform.screen.DynamicModuleWorkspaceDetailView.enabled', '已启用')
+          : language.t('platform.workflow.disabled', '已停用'),
+      );
     } catch (cause) {
-      presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
+      presentPlatformError(cause, { source: 'navigator-management', phase: 'action', language });
     } finally {
       if (session === navigatorManagementSession) navigatorManagementTogglingEnabled.value = false;
     }
@@ -2881,7 +3057,13 @@ export function useModulePageSession(
   ) {
     const draft = navigatorManagementDetail.draft.value;
     if (!draft || interactionBusy.value) {
-      if (source === 'assistant') throw new Error('导航表单尚未就绪，请等待或重新打开编辑器');
+      if (source === 'assistant')
+        throw new Error(
+          language.t(
+            'platform.screen.useModulePageSession.the-navigation-form-is-not-ready-wait-or-reopen-the',
+            '导航表单尚未就绪，请等待或重新打开编辑器',
+          ),
+        );
       return;
     }
     if (changes.length === 0) return;
@@ -2984,7 +3166,11 @@ export function useModulePageSession(
     markAssistantUserInteraction();
     navigatorManagementDetail.saving.value = true;
     try {
-      const record = recordMutationPayload(draft, navigatorManagementFormFields.value.values());
+      const record = recordMutationPayload(
+        draft,
+        navigatorManagementFormFields.value.values(),
+        level.context.runtime.snapshot()?.capabilities,
+      );
       const id = record.id == null ? undefined : String(record.id);
       const result =
         !creating && id
@@ -3006,15 +3192,18 @@ export function useModulePageSession(
       }
       navigatorManagementDetail.applySaved(persistedRecord);
       scopeReloadKey.value += 1;
-      await presentModuleActionSuccess(result, '保存成功');
+      await presentModuleActionSuccess(
+        result,
+        language.t('platform.screen.DynamicModuleWorkspaceDetailView.saved-successfully', '保存成功'),
+      );
       // This is an in-panel, single-record editing session. Once persistence succeeds,
       // returning to the navigator keeps the workspace focused and avoids stale drafts.
       closeNavigatorManagementEditor('background');
       if (refreshFailure) {
-        presentPlatformError(refreshFailure, { source: 'navigator-management', phase: 'load' });
+        presentPlatformError(refreshFailure, { source: 'navigator-management', phase: 'load', language });
       }
     } catch (cause) {
-      presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
+      presentPlatformError(cause, { source: 'navigator-management', phase: 'action', language });
     } finally {
       navigatorManagementDetail.saving.value = false;
     }
@@ -3032,12 +3221,24 @@ export function useModulePageSession(
       return;
     try {
       if (
-        !(await confirmAction({
-          title: `删除${level.descriptor.title}`,
-          content: `确认删除该${level.descriptor.title}？`,
-          okText: '删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            presentation: () => ({
+              title: language.t('platform.screen.ManagedDetailRelationSurface.delete-value', '删除{value1}', {
+                value1: level.descriptor.title,
+              }),
+              content: language.t(
+                'platform.screen.useModulePageSession.delete-this-value',
+                '确认删除该{value1}？',
+                { value1: level.descriptor.title },
+              ),
+              okText: language.t('platform.action.delete', '删除'),
+            }),
+            title: language.t('platform.action.delete', '删除'),
+            danger: true,
+          },
+          language,
+        ))
       )
         return;
       markAssistantUserInteraction();
@@ -3047,9 +3248,12 @@ export function useModulePageSession(
         selectNavigatorRecord(level.descriptor.key, { id });
       }
       scopeReloadKey.value += 1;
-      await presentModuleActionSuccess(result, '删除成功');
+      await presentModuleActionSuccess(
+        result,
+        language.t('platform.screen.DynamicModuleWorkspaceDetailView.deleted-successfully', '删除成功'),
+      );
     } catch (cause) {
-      presentPlatformError(cause, { source: 'navigator-management', phase: 'action' });
+      presentPlatformError(cause, { source: 'navigator-management', phase: 'action', language });
     }
   }
 
@@ -3110,6 +3314,7 @@ export function useModulePageSession(
 
   const draftReferenceDisplay = createRecordReferenceDisplay(
     {
+      language,
       get editingRecord() {
         return editingRecord.value;
       },
@@ -3218,7 +3423,11 @@ export function useModulePageSession(
     const failure = new FormValidationCoordinator(rules).validate(draft, displayRules);
     if (!failure) return true;
     if (presentFailure)
-      presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
+      presentPlatformMessage(failure.message, {
+        source: 'module-formula-validation',
+        phase: 'validation',
+        language,
+      });
     return false;
   }
 
@@ -3292,14 +3501,17 @@ export function useModulePageSession(
   }
 
   function recordCreationState() {
-    return recordCreationReadiness({
-      tenantReady: tenantScopeReady.value,
-      pageReady: pageReady.value,
-      permitted: context.can('create') === true,
-      editing: interactionEditing.value,
-      busy: interactionBusy.value,
-      scopeReady: treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value,
-    });
+    return recordCreationReadiness(
+      {
+        tenantReady: tenantScopeReady.value,
+        pageReady: pageReady.value,
+        permitted: context.can('create') === true,
+        editing: interactionEditing.value,
+        busy: interactionBusy.value,
+        scopeReady: treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value,
+      },
+      language,
+    );
   }
 
   function recordCreationContextRevision() {
@@ -3359,7 +3571,12 @@ export function useModulePageSession(
   async function prepareAssistantNavigatorCreate(levelKey: string) {
     const level = visibleNavigatorLevels.value.find((candidate) => candidate.descriptor.key === levelKey);
     if (!level || !navigatorRecordCreationState(level).ready)
-      throw new Error('当前导航区不支持新建，或已有未保存草稿');
+      throw new Error(
+        language.t(
+          'platform.screen.useModulePageSession.creation-is-unavailable-in-this-navigator-or-an-unsaved-draft',
+          '当前导航区不支持新建，或已有未保存草稿',
+        ),
+      );
     const revision = assistantNavigatorScopeRevision(levelKey);
     return () => {
       if (
@@ -3367,7 +3584,12 @@ export function useModulePageSession(
         revision !== assistantNavigatorScopeRevision(levelKey) ||
         !navigatorRecordCreationState(level).ready
       )
-        throw new Error('导航范围或编辑状态已变化，请重新准备新建');
+        throw new Error(
+          language.t(
+            'platform.screen.useModulePageSession.the-navigation-scope-or-editing-state-has-changed-prepare-creation',
+            '导航范围或编辑状态已变化，请重新准备新建',
+          ),
+        );
       createNavigatorRecord(level, undefined, 'assistant');
       return { scopeKey: levelKey, moduleAlias: level.context.moduleAlias, saved: false };
     };
@@ -3377,6 +3599,7 @@ export function useModulePageSession(
     const level = navigatorManagementLevel.value;
     if (!level || !navigatorManagementDetail.open.value) return undefined;
     const form: RecordFormDraftAccess = {
+      language,
       get editorMode() {
         return navigatorManagementDetail.mode.value;
       },
@@ -3558,7 +3781,7 @@ export function useModulePageSession(
       );
     } catch (cause) {
       if (revision === assistantContextRevision.value && session === recordOnlySession) {
-        presentPlatformError(cause, { source: 'module-record-action', phase: 'authorization' });
+        presentPlatformError(cause, { source: 'module-record-action', phase: 'authorization', language });
       }
       return false;
     } finally {
@@ -3632,7 +3855,12 @@ export function useModulePageSession(
           normalizedId,
         )
       )
-        throw new Error('编辑状态或范围已变化，请重新准备操作');
+        throw new Error(
+          language.t(
+            'platform.screen.useModulePageSession.the-editing-state-or-scope-has-changed-prepare-the-action',
+            '编辑状态或范围已变化，请重新准备操作',
+          ),
+        );
       commitLoadedRecord(loaded, mode, {
         cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
       });
@@ -3645,7 +3873,7 @@ export function useModulePageSession(
       const availability = await context.recordActions(recordId);
       return hasAvailableRecordAction(availability, actionCode);
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
+      presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization', language });
       return false;
     }
   }
@@ -3685,7 +3913,12 @@ export function useModulePageSession(
             !Array.isArray(draft[relation.embeddedField]),
         ))
     )
-      throw new OperationUsageError('明细未完整加载，无法安全保存；请重新打开记录后再修改');
+      throw new OperationUsageError(
+        language.t(
+          'platform.screen.useModulePageSession.some-details-have-not-loaded-reopen-the-record-before-editing',
+          '明细未完整加载，无法安全保存；请重新打开记录后再修改',
+        ),
+      );
     if (!mainFormValid.value || !relationDraftValid.value) {
       if (presentValidation) formValidationRequestKey.value += 1;
       return;
@@ -3717,7 +3950,7 @@ export function useModulePageSession(
     ) {
       return;
     }
-    return recordMutationPayload(draft, formFields.value.values());
+    return recordMutationPayload(draft, formFields.value.values(), context.runtime.snapshot()?.capabilities);
   }
 
   const reliableRecordSaveAvailable = computed(
@@ -3753,7 +3986,7 @@ export function useModulePageSession(
   function recordSaveRecovery() {
     // A standalone host without identity context retains only in-memory protection.
     return currentUser?.value?.userId
-      ? createRecordSaveRecovery(recordSaveScope.value, window.sessionStorage)
+      ? createRecordSaveRecovery(recordSaveScope.value, window.sessionStorage, language)
       : undefined;
   }
   watch(
@@ -3762,11 +3995,11 @@ export function useModulePageSession(
       unresolvedRecordSave.value = undefined;
       unresolvedRecordSaveIsCurrent = undefined;
       unresolvedRecordSaveRejected = false;
-      recordSaveRecoveryError.value = '';
+      recordSaveRecoveryFailure.value = undefined;
       try {
         unresolvedRecordSave.value = recordSaveRecovery()?.restore();
       } catch {
-        recordSaveRecoveryError.value = '原保存结果暂时无法恢复，请先核实后再保存';
+        recordSaveRecoveryFailure.value = 'restore';
       }
     },
     { immediate: true, flush: 'sync' },
@@ -3782,9 +4015,9 @@ export function useModulePageSession(
         unresolvedRecordSaveIsCurrent = undefined;
         unresolvedRecordSaveRejected = false;
       }
-      recordSaveRecoveryError.value = '';
+      recordSaveRecoveryFailure.value = undefined;
     } catch {
-      recordSaveRecoveryError.value = '保存状态已返回，但恢复记录暂未清理，请核实后继续';
+      recordSaveRecoveryFailure.value = 'clear';
     }
   }
   async function readSavedRecord(recordId: string, isCurrent: () => boolean) {
@@ -3810,27 +4043,67 @@ export function useModulePageSession(
   }
   function recordSavePresentation(recordId: string, viewRefreshed: boolean): OperationPresentation {
     return {
-      title: '保存成功',
+      title: language.t('platform.screen.DynamicModuleWorkspaceDetailView.saved-successfully', '保存成功'),
       lines: [
-        `${modulePageTitle.value}已保存`,
-        ...(!viewRefreshed ? ['提交已确认，当前详情尚未核实；请重新读取详情，不要重复保存。'] : []),
+        language.t('platform.screen.useModulePageSession.value-saved', '{value1}已保存', {
+          value1: modulePageTitle.value,
+        }),
+        ...(!viewRefreshed
+          ? [
+              language.t(
+                'platform.screen.useModulePageSession.submission-is-confirmed-but-the-current-details-have-not-been',
+                '提交已确认，当前详情尚未核实；请重新读取详情，不要重复保存。',
+              ),
+            ]
+          : []),
       ],
-      details: { title: '保存详情', lines: [`记录标识：${recordId}`] },
+      details: {
+        title: language.t('platform.screen.useModulePageSession.save-details', '保存详情'),
+        lines: [
+          language.t('platform.screen.useModulePageSession.record-id-value', '记录标识：{value1}', {
+            value1: recordId,
+          }),
+        ],
+      },
     };
   }
   async function lookupRecordSave(requestId: string, scope: string) {
-    if (saving.value) throw new OperationUsageError('已有保存核实正在执行');
+    if (saving.value)
+      throw new OperationUsageError(
+        language.t(
+          'platform.screen.useModulePageSession.a-save-result-check-is-already-in-progress',
+          '已有保存核实正在执行',
+        ),
+      );
     saving.value = true;
     try {
       if (disposed || scope !== recordSaveScope.value)
-        throw new OperationUsageError('保存范围已变化，请返回原范围核实');
+        throw new OperationUsageError(
+          language.t(
+            'platform.screen.useModulePageSession.the-save-scope-has-changed-return-to-the-original-scope',
+            '保存范围已变化，请返回原范围核实',
+          ),
+        );
       if (unresolvedRecordSaveRejected && unresolvedRecordSave.value?.requestId === requestId) {
         clearRecordSaveReference(requestId);
-        return { title: '操作未提交', lines: ['原保存已被明确拒绝，可以重新审阅后保存。'] };
+        return {
+          title: language.t('platform.screen.useModulePageSession.action-not-submitted', '操作未提交'),
+          lines: [
+            language.t(
+              'platform.screen.useModulePageSession.the-previous-save-was-rejected-review-the-draft-before-saving',
+              '原保存已被明确拒绝，可以重新审阅后保存。',
+            ),
+          ],
+        };
       }
       const receipt = await context.crud.saveReceipt!(requestId);
       if (disposed || scope !== recordSaveScope.value)
-        throw new OperationUsageError('保存范围已变化，请返回原范围核实');
+        throw new OperationUsageError(
+          language.t(
+            'platform.screen.useModulePageSession.the-save-scope-has-changed-return-to-the-original-scope',
+            '保存范围已变化，请返回原范围核实',
+          ),
+        );
       if (!receipt.committed || !receipt.recordId) return undefined;
       const targetIsCurrent =
         unresolvedRecordSave.value?.requestId === requestId ? unresolvedRecordSaveIsCurrent : undefined;
@@ -3849,17 +4122,22 @@ export function useModulePageSession(
     try {
       if (recordSaveRecoveryError.value && !unresolvedRecordSave.value) {
         unresolvedRecordSave.value = recordSaveRecovery()?.restore();
-        recordSaveRecoveryError.value = '';
+        recordSaveRecoveryFailure.value = undefined;
       }
       const reference = unresolvedRecordSave.value;
       if (!reference) return;
       const result = await lookupRecordSave(reference.requestId, recordSaveScope.value);
       presentPlatformMessage(
-        result ? result.lines.join('；') : '原保存结果仍未确定，请稍后再核实，不要重复提交',
+        result
+          ? result.lines.join(language.t('platform.list.clause-separator', '；'))
+          : language.t(
+              'platform.screen.useModulePageSession.the-previous-save-result-is-still-unknown-check-again-later',
+              '原保存结果仍未确定，请稍后再核实，不要重复提交',
+            ),
         result ? { tone: 'success' } : {},
       );
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-save-recovery', phase: 'action' });
+      presentPlatformError(cause, { source: 'module-save-recovery', phase: 'action', language });
     }
   }
 
@@ -3869,7 +4147,7 @@ export function useModulePageSession(
       const record = await prepareRecordSave();
       if (record) await submitPreparedRecord(record, editorMode.value, actionKey);
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+      presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
     }
   }
 
@@ -3879,7 +4157,13 @@ export function useModulePageSession(
     actionKey: string,
     requestId = reliableRecordSaveAvailable.value ? createUuid() : undefined,
   ) {
-    if (detailActionBusy.value) throw new OperationRejectedError('已有保存尚未核实，请先查询结果');
+    if (detailActionBusy.value)
+      throw new OperationRejectedError(
+        language.t(
+          'platform.screen.useModulePageSession.a-previous-save-is-unverified-check-its-result-first',
+          '已有保存尚未核实，请先查询结果',
+        ),
+      );
     const scope = recordSaveScope.value;
     const snapshot = JSON.stringify(record);
     const session = formSessionKey.value;
@@ -3892,7 +4176,14 @@ export function useModulePageSession(
       interaction === assistantInteractionRevision.value &&
       mode === editorMode.value &&
       Boolean(editingRecord.value) &&
-      snapshot === JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values()));
+      snapshot ===
+        JSON.stringify(
+          recordMutationPayload(
+            editingRecord.value!,
+            formFields.value.values(),
+            context.runtime.snapshot()?.capabilities,
+          ),
+        );
     saving.value = true;
     activeDetailActionKey.value = actionKey;
     try {
@@ -3901,7 +4192,12 @@ export function useModulePageSession(
         try {
           recordSaveRecovery()?.save(reference);
         } catch {
-          throw new OperationRejectedError('无法保留保存查询引用，本次未提交，请稍后重试');
+          throw new OperationRejectedError(
+            language.t(
+              'platform.screen.useModulePageSession.the-save-query-reference-could-not-be-retained-nothing-was',
+              '无法保留保存查询引用，本次未提交，请稍后重试',
+            ),
+          );
         }
         unresolvedRecordSave.value = reference;
         unresolvedRecordSaveIsCurrent = isCurrent;
@@ -3929,7 +4225,13 @@ export function useModulePageSession(
       // Commit is known before any display or notification request is attempted.
       if (scope !== recordSaveScope.value || disposed) return { result, viewRefreshed: false };
       const savedId = result.record.id == null ? undefined : String(result.record.id);
-      if (!savedId) throw new Error('保存响应缺少记录身份，请先核实原保存结果');
+      if (!savedId)
+        throw new Error(
+          language.t(
+            'platform.screen.useModulePageSession.the-save-response-has-no-record-id-check-the-previous',
+            '保存响应缺少记录身份，请先核实原保存结果',
+          ),
+        );
       if (requestId) clearRecordSaveReference(requestId);
       const viewRefreshed = await readSavedRecord(savedId, isCurrent);
       if (savedId) {
@@ -3938,7 +4240,10 @@ export function useModulePageSession(
         void context.recordActions(savedId).catch(() => undefined);
       }
       refreshList();
-      await presentModuleActionSuccess(result, '保存成功').catch(() => undefined);
+      await presentModuleActionSuccess(
+        result,
+        language.t('platform.screen.DynamicModuleWorkspaceDetailView.saved-successfully', '保存成功'),
+      ).catch(() => undefined);
       return { result, viewRefreshed };
     } finally {
       activeDetailActionKey.value = undefined;
@@ -3989,7 +4294,13 @@ export function useModulePageSession(
 
   /** Whole-draft review is a read operation, independent of validation and submission. */
   async function reviewRecordDraft() {
-    if (!canReviewRecordDraft()) throw new OperationUsageError('当前没有可审阅的记录草稿');
+    if (!canReviewRecordDraft())
+      throw new OperationUsageError(
+        language.t(
+          'platform.screen.useModulePageSession.there-is-no-record-draft-to-review',
+          '当前没有可审阅的记录草稿',
+        ),
+      );
     const fingerprint = recordDraftReviewFingerprint();
     const isCurrent = () => canReviewRecordDraft() && fingerprint === recordDraftReviewFingerprint();
     const mode = editorMode.value;
@@ -4017,7 +4328,15 @@ export function useModulePageSession(
           field.hasOption && field.calculationTiming === 'IMMEDIATE' && !field.optionItems
             ? await loadOptionFieldItems(context, field.fieldName).catch(() => [])
             : field.optionItems,
-        ).catch(() => (field.reference ? '已选择（名称暂不可用）' : '显示值暂不可用')),
+          language,
+        ).catch(() =>
+          field.reference
+            ? language.t(
+                'platform.screen.ManagedDetailRelationInlineSurface.selected-name-unavailable',
+                '已选择（名称暂不可用）',
+              )
+            : language.t('platform.screen.useModulePageSession.display-value-unavailable', '显示值暂不可用'),
+        ),
         ...(mode === 'edit'
           ? {
               before: recordFieldDisplay(
@@ -4027,6 +4346,9 @@ export function useModulePageSession(
                   mode: 'view',
                 }),
                 selectedRecord.value ?? {},
+                undefined,
+                false,
+                language,
               ),
             }
           : {}),
@@ -4037,6 +4359,7 @@ export function useModulePageSession(
       executableDetailRelations.value,
       recordDisplayRecord.value,
       {
+        language,
         baseline: selectedRecord.value,
         purpose: 'confirmation',
         includeDescribedValues: true,
@@ -4044,7 +4367,13 @@ export function useModulePageSession(
         relationOptions: recordRelationOptions.value,
       },
     );
-    if (!isCurrent()) throw new OperationUsageError('草稿或范围已变化，请重新审阅');
+    if (!isCurrent())
+      throw new OperationUsageError(
+        language.t(
+          'platform.screen.useModulePageSession.the-draft-or-scope-has-changed-review-it-again',
+          '草稿或范围已变化，请重新审阅',
+        ),
+      );
     return {
       mode,
       values,
@@ -4052,31 +4381,87 @@ export function useModulePageSession(
       complete: relations.every((relation) => relation.loaded),
       isCurrent,
       inputValid: mainFormValid.value && relationDraftValid.value,
-      fieldLines: values.map(
-        ({ field, value, before }) =>
-          `${field.label}：${value}${before !== undefined ? `（原保存值：${before}）` : ''}`,
+      fieldLines: values.map(({ field, value, before }) =>
+        language.t('platform.screen.useModulePageSession.value-valuevalue', '{value1}：{value2}{value3}', {
+          value1: field.label,
+          value2: value,
+          value3:
+            before !== undefined
+              ? language.t(
+                  'platform.screen.useModulePageSession.previous-saved-value-value',
+                  '（原保存值：{value1}）',
+                  { value1: before },
+                )
+              : '',
+        }),
       ),
       relationLines: relations.flatMap((relation) => [
         relation.loaded
-          ? `${relation.title}：当前 ${relation.count} 行，移除 ${relation.removedCount} 行`
-          : `${relation.title}：明细未完整加载，内容暂不能核对`,
+          ? language.t(
+              'platform.screen.useModulePageSession.value-value-current-rows-value-removed-rows',
+              '{value1}：当前 {value2} 行，移除 {value3} 行',
+              { value1: relation.title, value2: relation.count, value3: relation.removedCount },
+            )
+          : language.t(
+              'platform.screen.useModulePageSession.value-details-are-not-fully-loaded-and-cannot-be-checked',
+              '{value1}：明细未完整加载，内容暂不能核对',
+              { value1: relation.title },
+            ),
         ...(relation.savedRows
           ? [
               relation.savedCount === null
-                ? '原保存明细未完整加载，暂不能比较'
-                : `原保存明细：${relation.savedCount} 行`,
-              ...relation.savedRows.map(
-                (row) =>
-                  `原保存第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+                ? language.t(
+                    'platform.screen.useModulePageSession.the-previous-saved-details-are-not-fully-loaded-and-cannot',
+                    '原保存明细未完整加载，暂不能比较',
+                  )
+                : language.t(
+                    'platform.screen.useModulePageSession.previous-saved-details-value-rows',
+                    '原保存明细：{value1} 行',
+                    { value1: relation.savedCount },
+                  ),
+              ...relation.savedRows.map((row) =>
+                language.t(
+                  'platform.screen.useModulePageSession.previous-saved-row-value-value',
+                  '原保存第 {value1} 行：{value2}',
+                  {
+                    value1: row.row,
+                    value2: row.values
+                      .map((value) =>
+                        language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
+                          value1: value.label,
+                          value2: value.value,
+                        }),
+                      )
+                      .join(language.t('platform.list.clause-separator', '；')),
+                  },
+                ),
               ),
             ]
           : []),
-        ...relation.rows.map(
-          (row) =>
-            `第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+        ...relation.rows.map((row) =>
+          language.t('platform.screen.useModulePageSession.row-value-value', '第 {value1} 行：{value2}', {
+            value1: row.row,
+            value2: row.values
+              .map((value) =>
+                language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
+                  value1: value.label,
+                  value2: value.value,
+                }),
+              )
+              .join(language.t('platform.list.clause-separator', '；')),
+          }),
         ),
-        ...relation.removedRows.map(
-          (row) => `移除：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+        ...relation.removedRows.map((row) =>
+          language.t('platform.screen.useModulePageSession.removed-value', '移除：{value1}', {
+            value1: row.values
+              .map((value) =>
+                language.t('platform.screen.useModulePageSession.value-value', '{value1}：{value2}', {
+                  value1: value.label,
+                  value2: value.value,
+                }),
+              )
+              .join(language.t('platform.list.clause-separator', '；')),
+          }),
         ),
       ]),
     };
@@ -4089,7 +4474,13 @@ export function useModulePageSession(
       review,
       isCurrent: review.isCurrent,
       async execute() {
-        if (!review.isCurrent()) throw new OperationRejectedError('草稿或范围已变化，请重新审阅放弃内容');
+        if (!review.isCurrent())
+          throw new OperationRejectedError(
+            language.t(
+              'platform.screen.useModulePageSession.the-draft-or-scope-has-changed-review-the-changes-to',
+              '草稿或范围已变化，请重新审阅放弃内容',
+            ),
+          );
         const expectedInteraction = assistantInteractionRevision.value + 1;
         await cancelDetailEditing();
         await nextTick();
@@ -4114,13 +4505,24 @@ export function useModulePageSession(
   }
 
   async function prepareAssistantSave(): Promise<AssistantOperationProposal> {
-    if (!assistantSaveAvailable.value) throw new Error('当前表单不支持对话内保存');
+    if (!assistantSaveAvailable.value)
+      throw new Error(
+        language.t(
+          'platform.screen.useModulePageSession.this-form-does-not-support-saving-from-the-conversation',
+          '当前表单不支持对话内保存',
+        ),
+      );
     const revision = assistantContextRevision.value;
     const identity = JSON.stringify([currentUser?.value, tenantScopeId.value]);
     const mode = editorMode.value;
     const record = await prepareRecordSave(false);
     if (!record || revision !== assistantContextRevision.value)
-      throw new Error('请完成表单校验后重新准备保存');
+      throw new Error(
+        language.t(
+          'platform.screen.useModulePageSession.complete-form-validation-before-preparing-the-save-again',
+          '请完成表单校验后重新准备保存',
+        ),
+      );
     const review = await reviewRecordDraft();
     const relationFacts = review.relations.filter((relation) => relation.loaded);
     const relationLines = review.relationLines;
@@ -4137,22 +4539,55 @@ export function useModulePageSession(
       review.isCurrent() &&
       !detailActionBusy.value &&
       Boolean(editingRecord.value) &&
-      JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
+      JSON.stringify(
+        recordMutationPayload(
+          editingRecord.value!,
+          formFields.value.values(),
+          context.runtime.snapshot()?.capabilities,
+        ),
+      ) === snapshot;
     const fieldLines = review.fieldLines;
-    if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
+    if (!isCurrent())
+      throw new AssistantOperationRejectedError(
+        language.t(
+          'platform.screen.useModulePageSession.the-draft-has-changed-confirm-it-again',
+          '草稿已变化，请重新确认',
+        ),
+      );
     return {
       receiptReference: recordSaveReference(requestId),
-      modelSummary:
+      modelSummary: language.t(
+        'platform.screen.useModulePageSession.save-the-current-form-and-its-embedded-details-after-user',
         '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
+      ),
       presentation: {
-        title: `确认保存${modulePageTitle.value}`,
+        title: language.t('platform.screen.useModulePageSession.confirm-saving-value', '确认保存{value1}', {
+          value1: modulePageTitle.value,
+        }),
         ...(relationLines.length
-          ? { details: { title: '查看全部明细与移除内容', lines: relationLines } }
+          ? {
+              details: {
+                title: language.t(
+                  'platform.screen.useModulePageSession.view-all-details-and-removed-rows',
+                  '查看全部明细与移除内容',
+                ),
+                lines: relationLines,
+              },
+            }
           : {}),
         lines: [
-          mode === 'create' ? '新增一条记录' : '保存当前记录的修改',
-          ...relationFacts.map(
-            (relation) => `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
+          mode === 'create'
+            ? language.t('platform.screen.useModulePageSession.create-one-record', '新增一条记录')
+            : language.t(
+                'platform.screen.useModulePageSession.save-changes-to-the-current-record',
+                '保存当前记录的修改',
+              ),
+          ...relationFacts.map((relation) =>
+            language.t(
+              'platform.screen.useModulePageSession.value-save-value-rows-remove-value-rows',
+              '{value1}：保存 {value2} 行，移除 {value3} 行',
+              { value1: relation.title, value2: relation.count, value3: relation.removedCount },
+            ),
           ),
           ...fieldLines,
         ],
@@ -4160,8 +4595,10 @@ export function useModulePageSession(
       expiresAt: Date.now() + 5 * 60_000,
       isCurrent,
       continuation: {
-        message:
+        message: language.t(
+          'platform.screen.useModulePageSession.this-record-has-been-saved-and-read-back-the-current',
           '本次记录已保存并读回，正式值见当前页面事实，无需重复打开或查询本记录。结合这些事实核对原始需求，只继续尚未完成的部分；不得重建已保存记录。有后续变化或用户要求重新核实时才重新读取。用户要求仅审阅、暂缓或取消的事项不得执行；新的保存仍须另行确认。目标已完成时说明结果并停止。',
+        ),
         isCurrent: () =>
           savedContinuation !== undefined &&
           identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
@@ -4171,10 +4608,21 @@ export function useModulePageSession(
           !detailActionBusy.value,
       },
       async execute() {
-        if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
+        if (!isCurrent())
+          throw new AssistantOperationRejectedError(
+            language.t(
+              'platform.screen.useModulePageSession.the-draft-has-changed-confirm-it-again',
+              '草稿已变化，请重新确认',
+            ),
+          );
         const validated = await prepareRecordSave();
         if (!validated || !isCurrent())
-          throw new AssistantOperationRejectedError('保存条件已变化，请重新确认');
+          throw new AssistantOperationRejectedError(
+            language.t(
+              'platform.screen.useModulePageSession.the-save-conditions-have-changed-confirm-them-again',
+              '保存条件已变化，请重新确认',
+            ),
+          );
         const expectedInteraction = assistantInteractionRevision.value + 1;
         const { result, viewRefreshed } = await submitPreparedRecord(
           JSON.parse(snapshot),
@@ -4210,12 +4658,24 @@ export function useModulePageSession(
     deleting.value = true;
     try {
       if (
-        !(await confirmAction({
-          title: `删除${recordLabel.value}`,
-          content: `确认删除「${recordTitle(record) ?? id}」？`,
-          okText: '删除',
-          danger: true,
-        }))
+        !(await confirmAction(
+          {
+            presentation: () => ({
+              title: language.t('platform.screen.ManagedDetailRelationSurface.delete-value', '删除{value1}', {
+                value1: recordLabel.value,
+              }),
+              content: language.t(
+                'platform.screen.DynamicModuleWorkspaceDetailView.delete-value',
+                '确认删除「{value1}」？',
+                { value1: recordTitle(record) ?? id },
+              ),
+              okText: language.t('platform.action.delete', '删除'),
+            }),
+            title: language.t('platform.action.delete', '删除'),
+            danger: true,
+          },
+          language,
+        ))
       ) {
         return;
       }
@@ -4229,9 +4689,12 @@ export function useModulePageSession(
       }
       if (props.recordOnly) emit('record-only-change', { type: 'deleted' });
       refreshList();
-      await presentModuleActionSuccess(result, '删除成功');
+      await presentModuleActionSuccess(
+        result,
+        language.t('platform.screen.DynamicModuleWorkspaceDetailView.deleted-successfully', '删除成功'),
+      );
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+      presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
     } finally {
       activeDetailActionKey.value = undefined;
       deleting.value = false;
@@ -4258,10 +4721,15 @@ export function useModulePageSession(
       context.invalidateRecordActions?.([id]);
       const refresh = await reloadDetailAfterMutation(id);
       refreshList();
-      await presentModuleActionSuccess(result, enabling ? '已启用' : '已停用');
+      await presentModuleActionSuccess(
+        result,
+        enabling
+          ? language.t('platform.screen.DynamicModuleWorkspaceDetailView.enabled', '已启用')
+          : language.t('platform.workflow.disabled', '已停用'),
+      );
       if (refresh.failure) reportDetailRefreshFailure(refresh.failure, 'module-action');
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+      presentPlatformError(cause, { source: 'module-action', phase: 'action', language });
     } finally {
       togglingEnabled.value = false;
     }
@@ -4290,7 +4758,7 @@ export function useModulePageSession(
       emit('record-only-change', { type: 'unavailable' });
       return;
     }
-    presentPlatformError(cause, { source, phase: 'load' });
+    presentPlatformError(cause, { source, phase: 'load', language });
   }
 
   function presentModuleActionSuccess(result: unknown, fallbackMessage: string, source = 'module-action') {
@@ -4381,7 +4849,7 @@ export function useModulePageSession(
           return;
         }
       } catch (cause) {
-        presentPlatformError(cause, { source: 'module-page-view', phase: 'authorization' });
+        presentPlatformError(cause, { source: 'module-page-view', phase: 'authorization', language });
         return;
       }
     }
@@ -4412,7 +4880,7 @@ export function useModulePageSession(
       ) {
         clearSelectionForScopeChange();
       } else {
-        presentPlatformError(cause, { source: 'record-permissions', phase: 'load' });
+        presentPlatformError(cause, { source: 'record-permissions', phase: 'load', language });
       }
     });
   }
@@ -4501,7 +4969,12 @@ export function useModulePageSession(
               ? inputValidationStatus.begin(key, { kind: 'draft', fingerprint: draftFingerprint })
               : undefined
           : undefined;
-      const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
+      const result = await invokePageAction(
+        context.http,
+        placement?.invocation,
+        { recordId, record: draft },
+        language,
+      );
       let refreshFailure: unknown;
       if (recordId) {
         const refresh = await reloadDetailAfterMutation(recordId);
@@ -4513,7 +4986,7 @@ export function useModulePageSession(
         // Form actions may either calculate fields or run a read-only draft diagnostic.
         // Only the former declares the record-patch protocol.
         if (hasFormActionRecordPatch(result)) {
-          const { recordPatch } = formActionResult(result);
+          const { recordPatch } = formActionResult(result, language);
           editingRecord.value = { ...editingRecord.value, ...recordPatch };
         }
         if (validationAttempt?.target.kind === 'draft') {
@@ -4521,10 +4994,13 @@ export function useModulePageSession(
         }
       }
       if (!formContext) refreshList();
-      await presentModuleActionSuccess(result, '操作成功');
+      await presentModuleActionSuccess(
+        result,
+        language.t('platform.screen.useModulePageSession.action-completed', '操作成功'),
+      );
       if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-page-action');
     } catch (cause) {
-      presentPlatformError(cause, { source: 'module-page-action', phase: 'action' });
+      presentPlatformError(cause, { source: 'module-page-action', phase: 'action', language });
     } finally {
       activeDetailActionKey.value = undefined;
       saving.value = false;
@@ -4589,13 +5065,23 @@ export function useModulePageSession(
       openDrawer: (definition: ModulePageDrawer) => openEnhancementDrawer(definition, record),
       openWorkspaceTab: (view, input) => {
         if (!modulePageNavigation) {
-          throw new Error('模块页面工作视图需要 Workbench 导航承载');
+          throw new Error(
+            language.t(
+              'platform.screen.DynamicModuleWorkspaceDetailView.a-module-page-work-view-requires-workbench-navigation',
+              '模块页面工作视图需要 Workbench 导航承载',
+            ),
+          );
         }
         modulePageNavigation.openWorkspaceTab(view, input);
       },
       openPage: (descriptor) => {
         if (!modulePageNavigation) {
-          throw new Error('模块页面跳转需要 Workbench 导航承载');
+          throw new Error(
+            language.t(
+              'platform.screen.DynamicModuleWorkspaceDetailView.module-page-navigation-requires-workbench-navigation',
+              '模块页面跳转需要 Workbench 导航承载',
+            ),
+          );
         }
         modulePageNavigation.openPage(descriptor);
       },
@@ -4677,12 +5163,21 @@ export function useModulePageSession(
     if (workflowLeaveGuard && !(await workflowLeaveGuard())) return false;
     if (detailActionBusy.value) return false;
     if (!detailDirty.value) return true;
-    return confirmAction({
-      title: '放弃未保存更改',
-      content: '当前记录存在未保存的更改，关闭后将丢失。是否继续？',
-      okText: '放弃更改',
-      danger: true,
-    });
+    return confirmAction(
+      {
+        presentation: () => ({
+          title: language.t('platform.screen.useModulePageSession.discard-unsaved-changes', '放弃未保存更改'),
+          content: language.t(
+            'platform.screen.useModulePageSession.this-record-has-unsaved-changes-that-will-be-lost-when',
+            '当前记录存在未保存的更改，关闭后将丢失。是否继续？',
+          ),
+          okText: language.t('platform.screen.useModulePageSession.discard-changes', '放弃更改'),
+        }),
+        title: language.t('platform.screen.useModulePageSession.discard-unsaved-changes', '放弃未保存更改'),
+        danger: true,
+      },
+      language,
+    );
   }
 
   function confirmDetailDrawerClose() {
@@ -4733,7 +5228,13 @@ export function useModulePageSession(
   }
 
   function leaveUnchangedEditor() {
-    if (!canLeaveUnchangedEditor()) throw new OperationUsageError('编辑状态已变化，请先审阅当前草稿');
+    if (!canLeaveUnchangedEditor())
+      throw new OperationUsageError(
+        language.t(
+          'platform.screen.useModulePageSession.the-editing-state-has-changed-review-the-current-draft-first',
+          '编辑状态已变化，请先审阅当前草稿',
+        ),
+      );
     return cancelDetailEditing();
   }
 
@@ -4769,7 +5270,7 @@ export function useModulePageSession(
     const recordId = selectedRecord.value?.id;
     if (recordId != null) {
       void refreshWorkflowRecordActions(context, String(recordId)).catch((cause) =>
-        presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization' }),
+        presentPlatformError(cause, { source: 'module-workflow-change', phase: 'authorization', language }),
       );
     }
     refreshList();
@@ -4777,11 +5278,17 @@ export function useModulePageSession(
   }
 
   function recordTitle(record: QueryListRecord | undefined) {
-    const titleValue = record?.title ?? record?.name ?? record?.code ?? record?.id;
+    const titleValue =
+      record &&
+      (recordPresentationLabel(record, 'title', language) ??
+        recordPresentationLabel(record, 'name', language) ??
+        record.code ??
+        record.id);
     return titleValue == null ? undefined : String(titleValue);
   }
 
   return {
+    language,
     props,
     runtimePageResolved,
     runtimePage,

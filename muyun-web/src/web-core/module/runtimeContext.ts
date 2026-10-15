@@ -1,6 +1,6 @@
 import { shallowRef, computed } from 'vue';
 import { platformLanguageContext, type LanguageContext } from '../language';
-import { originalPresentation, translatedPresentation } from '../presentationTexts';
+import { originalPresentation, translatedPresentation, presentationLabel } from '../presentationTexts';
 import type { TextPresentationDocument } from '@muyun/web-contracts';
 import type { PageActionInvocation, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { normalizeError, type AppError } from '../errors';
@@ -47,6 +47,7 @@ export interface ModuleRecordActionDecision {
   actionCode: string;
   available: boolean;
   reason?: string;
+  reasonText?: import('@muyun/web-contracts').TextPresentation;
 }
 
 export interface ModuleRuntimeContext extends TextPresentationDocument {
@@ -78,6 +79,7 @@ export interface ModuleRuntimeContextState {
   error(): AppError | undefined;
   hasAbility(ability: ModuleAbilityCode | string): boolean | undefined;
   action(actionCode: string, recordId?: string): ModuleActionState | undefined;
+  /** Action titles follow this display scope; snapshot() retains producer originals. */
   runtimeAction(actionCode: string): ModuleRuntimeAction | undefined;
   can(actionCode: string, recordId?: string): boolean | undefined;
   recordActions(recordId: string): Promise<ModuleRecordActionAvailability>;
@@ -283,16 +285,65 @@ export function createModuleRuntimeContextState(
       return runtimeAbilityCodes(context).includes(ability);
     },
     action: (actionCode, recordId) =>
-      actionState(current.value, recordActionSnapshots.value, actionCode, recordId),
-    runtimeAction: (actionCode) => runtimeAction(current.value, actionCode),
+      actionState(presentation.value, recordActionSnapshots.value, actionCode, recordId, language),
+    runtimeAction: (actionCode) => runtimeAction(presentation.value, actionCode),
     can: (actionCode, recordId) => {
-      return actionState(current.value, recordActionSnapshots.value, actionCode, recordId)?.available;
+      return actionState(current.value, recordActionSnapshots.value, actionCode, recordId, language)
+        ?.available;
     },
     recordActions,
     recordActionsBatch,
     recordActionsSnapshot: (recordId) =>
       recordId == null || !recordId.trim() ? undefined : recordActionSnapshots.value.get(recordId.trim()),
     invalidateRecordActions,
+  };
+}
+
+/** A language view shares transport, authorization and retained record decisions with its owner. */
+export function scopeModuleRuntimeLanguage(
+  context: ModuleRuntimeContextState,
+  language: LanguageContext,
+  access: Pick<ModuleRuntimeContextState, 'action' | 'runtimeAction'> = context,
+): ModuleRuntimeContextState {
+  const presentation = computed(() => {
+    const original = context.snapshot();
+    return original && translatedPresentation(original, language);
+  });
+  const displayAction = (definition: ModuleRuntimeAction | undefined) => {
+    if (!definition) return undefined;
+    const canonical = context.runtimeAction(definition.actionCode);
+    const display = runtimeAction(presentation.value, definition.actionCode);
+    return display &&
+      canonical &&
+      definition.title === canonical.title &&
+      JSON.stringify(definition.titleSource) === JSON.stringify(canonical.titleSource)
+      ? { ...definition, title: display.title }
+      : definition;
+  };
+  return {
+    ...context,
+    presentationSnapshot: () => presentation.value,
+    runtimeAction: (code) => displayAction(access.runtimeAction(code)),
+    action: (code, recordId) => {
+      const state = access.action(code, recordId);
+      if (!state) return undefined;
+      const definition = displayAction(state.definition);
+      const canonical = context.action(state.actionCode, state.recordId);
+      const decision = state.recordId
+        ? context
+            .recordActionsSnapshot(state.recordId)
+            ?.actions.find((item) => item.actionCode === state.actionCode)
+        : undefined;
+      return {
+        ...state,
+        definition,
+        title: state.title === state.definition?.title ? definition?.title : state.title,
+        reason:
+          decision?.reasonText && state.reason === canonical?.reason
+            ? presentationLabel(decision.reason ?? '', decision.reasonText, language)
+            : state.reason,
+      };
+    },
   };
 }
 
@@ -329,6 +380,7 @@ function actionState(
   records: Map<string, ModuleRecordActionAvailability>,
   actionCode: string,
   recordId?: string,
+  language: LanguageContext = platformLanguageContext,
 ): ModuleActionState | undefined {
   const normalizedActionCode = requireActionCode(actionCode);
   const definition = runtimeAction(context, normalizedActionCode);
@@ -346,7 +398,10 @@ function actionState(
     return {
       actionCode: normalizedActionCode,
       available: recordDecision.available,
-      reason: recordDecision.reason,
+      reason:
+        recordDecision.reason == null
+          ? undefined
+          : presentationLabel(recordDecision.reason, recordDecision.reasonText, language),
       authorized: definition?.authorized,
       recordId: normalizedRecordId,
       definition,

@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.ability.query;
 
 import java.util.List;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 /**
  * A query-field condition rendered by default in a list's persistent query area.
@@ -9,12 +10,16 @@ import java.util.List;
  * presentation intent, allowing standard static and dynamic list renderers to compose the same
  * root-AND condition without page-specific frontend code.</p>
  */
-public record QueryPersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues) {
+public record QueryPersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues, TextReference titleSource) {
     public QueryPersistentControl {
         if (id == null || id.isBlank()) throw new IllegalArgumentException("persistent query id must not be blank");
         title = title == null || title.isBlank() ? id : title.trim();
         if (operator == null) throw new IllegalArgumentException("persistent query operator must not be null");
         defaultValues = defaultValues == null ? List.of() : List.copyOf(defaultValues);
+    }
+
+    public QueryPersistentControl(String id, String title, QueryOperator operator, List<Object> defaultValues) {
+        this(id, title, operator, defaultValues, null);
     }
 
     public static QueryPersistentControl of(String id, String title, QueryOperator operator) {

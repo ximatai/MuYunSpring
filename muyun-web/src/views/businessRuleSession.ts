@@ -1,5 +1,8 @@
 import { computed, effectScope, ref, watch } from 'vue';
 import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   AppError,
   OperationUsageError,
   OperationRejectedError,
@@ -9,6 +12,8 @@ import {
 } from '@muyun/web-core';
 import {
   businessRuleChangeImpact,
+  normalizeFormulaCapabilities,
+  businessRuleIssueMessage,
   editableProposals,
   readonlyRules,
   proposalFingerprintOf,
@@ -25,8 +30,15 @@ import {
 import type { BusinessRuleEditor, BusinessRuleTrialInput } from './businessRuleEditor';
 
 export class BusinessRulePrecheckError extends OperationUsageError {
-  constructor(readonly issues: BusinessRuleIssue[]) {
-    super(issues.map((issue) => issue.message).join('；'));
+  constructor(
+    readonly issues: BusinessRuleIssue[],
+    language: LanguageContext = platformLanguageContext,
+  ) {
+    super(
+      issues
+        .map((issue) => businessRuleIssueMessage(issue, language))
+        .join(language.t('platform.rules.issue-separator', '；')),
+    );
   }
 }
 
@@ -36,6 +48,7 @@ export function createBusinessRuleSession(
   moduleAlias: string,
   ownerValid: () => boolean = () => true,
   confirmationScope: () => boolean = () => true,
+  language: LanguageContext = platformLanguageContext,
 ) {
   const scope = effectScope(true);
   let disposed = false;
@@ -73,13 +86,33 @@ export function createBusinessRuleSession(
       flush: 'sync',
     });
     function requireValid() {
-      if (!valid()) throw new OperationUsageError('身份已变化，请重新读取规则');
+      if (!valid())
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.identity-has-changed-read-the-rules-again',
+            '身份已变化，请重新读取规则',
+          ),
+        );
     }
     function requireReady() {
       requireValid();
       if (submissionStatus.value === 'unknown')
-        throw new OperationUsageError('原规则提交结果未知，请先读取当前配置再重新审阅');
-      if (!ready.value) throw new OperationUsageError('请等待规则加载或应用完成');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.the-previous-rule-submission-outcome-is-unknown-read-the-current',
+            '原规则提交结果未知，请先读取当前配置再重新审阅',
+          ),
+        );
+      if (!ready.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.wait-for-rule-loading-or-application-to-finish',
+            '请等待规则加载或应用完成',
+          ),
+        );
     }
     async function merge(loaded: BusinessRuleSnapshot) {
       const controls = await http.request<UiControlSnapshot>({ path: path + '/ui-controls' });
@@ -104,7 +137,14 @@ export function createBusinessRuleSession(
     // Publish the loaded baseline through the caller's guarded commit when selecting from the assistant.
     async function load(force = false, commit: (accept: () => void) => void = (accept) => accept()) {
       requireValid();
-      if (applying.value) throw new OperationUsageError('规则正在应用');
+      if (applying.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.rules-are-being-applied',
+            '规则正在应用',
+          ),
+        );
       if (submissionStatus.value === 'unknown') {
         commit(() => {});
         return;
@@ -113,14 +153,27 @@ export function createBusinessRuleSession(
         commit(() => {});
         return;
       }
-      if (dirty.value) throw new OperationUsageError('请先应用或放弃当前未保存更改');
+      if (dirty.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.apply-or-discard-the-current-unsaved-changes-first',
+            '请先应用或放弃当前未保存更改',
+          ),
+        );
       const epoch = ++loadEpoch;
       loading.value = true;
       loadFailed.value = false;
       try {
         const loaded = await http.request<BusinessRuleSnapshot>({ path });
         if (epoch !== loadEpoch || !valid()) return;
-        if (loaded.moduleAlias !== moduleAlias) throw new Error('规则模块与请求不一致');
+        if (loaded.moduleAlias !== moduleAlias)
+          throw new Error(
+            language.t(
+              'platform.screen.businessRuleSession.the-rule-module-does-not-match-the-request',
+              '规则模块与请求不一致',
+            ),
+          );
         const result = await merge(loaded);
         if (epoch !== loadEpoch || !valid()) return;
         commit(() => accept(result));
@@ -138,13 +191,25 @@ export function createBusinessRuleSession(
     ) {
       requireValid();
       if (submissionStatus.value !== 'unknown' || applying.value || loading.value)
-        throw new OperationUsageError('当前没有需要核实的规则提交');
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.there-is-no-rule-submission-to-verify',
+            '当前没有需要核实的规则提交',
+          ),
+        );
       const epoch = ++loadEpoch;
       const candidate = rules.value.map(toProposal);
       loading.value = true;
       try {
         const loaded = await http.request<BusinessRuleSnapshot>({ path, signal });
-        if (loaded.moduleAlias !== moduleAlias) throw new Error('规则模块与请求不一致');
+        if (loaded.moduleAlias !== moduleAlias)
+          throw new Error(
+            language.t(
+              'platform.screen.businessRuleSession.the-rule-module-does-not-match-the-request',
+              '规则模块与请求不一致',
+            ),
+          );
         if (signal?.aborted || epoch !== loadEpoch || !valid()) return;
         const result = await merge(loaded);
         if (signal?.aborted || epoch !== loadEpoch || !valid()) return;
@@ -197,7 +262,14 @@ export function createBusinessRuleSession(
     ) {
       requireReady();
       if (!dirty.value) return;
-      if (editing.value) throw new OperationUsageError('请先完成当前规则编辑');
+      if (editing.value)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.businessRuleSession.finish-editing-the-current-rule-first',
+            '请先完成当前规则编辑',
+          ),
+        );
       const captured = capture();
       const current = () => captured() && stillCurrent();
       const proposed = rules.value.map(toProposal);
@@ -206,7 +278,13 @@ export function createBusinessRuleSession(
       applying.value = true;
       try {
         if (reviewed && reviewed.revision !== revision.value)
-          throw new OperationRejectedError('已审阅候选已变化，尚未提交；请重新检查');
+          throw new OperationRejectedError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.the-reviewed-candidate-has-changed-and-was-not-submitted-check',
+              '已审阅候选已变化，尚未提交；请重新检查',
+            ),
+          );
         const checked =
           reviewed?.checked ??
           (await http
@@ -216,12 +294,31 @@ export function createBusinessRuleSession(
               body: { rules: proposed.filter((rule) => rule.kind !== 'UI_CONTROL') },
             })
             .catch(() => {
-              throw new OperationRejectedError('规则预检失败，尚未提交；请重新检查后再应用');
+              throw new OperationRejectedError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.businessRuleSession.rule-prechecks-failed-and-nothing-was-submitted-check-the-rules',
+                  '规则预检失败，尚未提交；请重新检查后再应用',
+                ),
+              );
             }));
-        if (!current()) throw new OperationRejectedError('规则候选已变化，尚未提交；请重新检查');
-        if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
+        if (!current())
+          throw new OperationRejectedError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.the-rule-candidate-has-changed-and-was-not-submitted-check',
+              '规则候选已变化，尚未提交；请重新检查',
+            ),
+          );
+        if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors, language);
         if (!checked.proposalFingerprint)
-          throw new OperationRejectedError('检查结果无效，尚未提交；请重新加载后再应用');
+          throw new OperationRejectedError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.the-check-result-is-invalid-and-nothing-was-submitted-reload',
+              '检查结果无效，尚未提交；请重新加载后再应用',
+            ),
+          );
         const result = await http
           .request<BusinessRuleApplyResult>({
             method: 'POST',
@@ -251,9 +348,21 @@ export function createBusinessRuleSession(
         // The apply response proves commitment. A subsequent read or context change cannot
         // turn that fact into an unknown write or leave the old baseline available for retry.
         try {
-          if (!current()) throw new Error('提交期间上下文已变化');
+          if (!current())
+            throw new Error(
+              language.t(
+                'platform.screen.businessRuleSession.the-context-changed-during-submission',
+                '提交期间上下文已变化',
+              ),
+            );
           const merged = await merge(result.snapshot);
-          if (!current()) throw new Error('同步期间上下文已变化');
+          if (!current())
+            throw new Error(
+              language.t(
+                'platform.screen.businessRuleSession.the-context-changed-during-synchronization',
+                '同步期间上下文已变化',
+              ),
+            );
           accept(merged);
           return { synchronized: true };
         } catch {
@@ -271,6 +380,7 @@ export function createBusinessRuleSession(
       }
     }
     const adapter: BusinessRuleEditor = {
+      language,
       summary: () => ({
         moduleAlias,
         editable: valid() && ready.value && !editing.value,
@@ -286,7 +396,7 @@ export function createBusinessRuleSession(
             : section === 'aggregateFields'
               ? (snapshot.value?.aggregateFields ?? [])
               : section === 'functions'
-                ? (snapshot.value?.functions ?? [])
+                ? normalizeFormulaCapabilities(snapshot.value?.functions, language)
                 : section === 'forms'
                   ? (ui.value?.forms ?? [])
                   : [
@@ -306,16 +416,35 @@ export function createBusinessRuleSession(
                     ],
       revise(rule) {
         requireReady();
-        if (editing.value) throw new OperationUsageError('请先完成页面中的规则编辑');
+        if (editing.value)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.finish-editing-the-rule-on-the-page-first',
+              '请先完成页面中的规则编辑',
+            ),
+          );
         if (snapshot.value!.rules.some((item) => item.code === rule.code && !item.editable))
-          throw new OperationUsageError('不能覆盖只读规则');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.read-only-rules-cannot-be-overwritten',
+              '不能覆盖只读规则',
+            ),
+          );
         if (
           rule.kind === 'CALCULATION' &&
           ![...snapshot.value!.editableFields, ...(snapshot.value!.childFields ?? [])].some(
             (field) => field.fieldName === rule.targetField,
           )
         )
-          throw new OperationUsageError('计算目标必须来自主表或直接子表的可写字段目录');
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.calculation-targets-must-come-from-the-writable-main-or-direct',
+              '计算目标必须来自主表或直接子表的可写字段目录',
+            ),
+          );
         if (rule.kind === 'UI_CONTROL') {
           const form = ui.value?.forms.find((form) => form.key === rule.formKey);
           if (
@@ -323,7 +452,13 @@ export function createBusinessRuleSession(
             !rule.targets?.length ||
             rule.targets.some((target) => !form.elements.some((element) => element.key === target.elementKey))
           )
-            throw new OperationUsageError('界面目标必须来自表单目录');
+            throw new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.businessRuleSession.ui-targets-must-come-from-the-form-directory',
+                '界面目标必须来自表单目录',
+              ),
+            );
         }
         const index = rules.value.findIndex((item) => item.code === rule.code);
         const next = rules.value.slice();
@@ -336,14 +471,42 @@ export function createBusinessRuleSession(
       readCurrent,
       async prepareConfirmation(signal): Promise<OperationProposal> {
         requireReady();
-        if (!dirty.value) throw new OperationUsageError('当前没有待应用的规则更改');
-        if (editing.value) throw new OperationUsageError('请先完成页面中的规则编辑');
+        if (!dirty.value)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.there-are-no-rule-changes-to-apply',
+              '当前没有待应用的规则更改',
+            ),
+          );
+        if (editing.value)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.finish-editing-the-rule-on-the-page-first',
+              '请先完成页面中的规则编辑',
+            ),
+          );
         const captured = capture();
         const current = () => captured() && confirmationScope();
         const checked = await preview(signal);
-        if (!current()) throw new OperationUsageError('规则候选已变化，请重新检查');
-        if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
-        if (!checked.proposalFingerprint) throw new OperationUsageError('检查结果无效，请重新预检');
+        if (!current())
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.the-rule-candidate-has-changed-check-it-again',
+              '规则候选已变化，请重新检查',
+            ),
+          );
+        if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors, language);
+        if (!checked.proposalFingerprint)
+          throw new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.businessRuleSession.the-check-result-is-invalid-run-the-prechecks-again',
+              '检查结果无效，请重新预检',
+            ),
+          );
         const reviewed = { revision: revision.value, checked: structuredClone(checked) };
         const impact = businessRuleChangeImpact(snapshot.value!, rules.value);
         const describe = (rule: BusinessRuleProposal) => {
@@ -354,43 +517,106 @@ export function createBusinessRuleSession(
           ];
           const target = fields.find((field) => field.fieldName === rule.targetField);
           const details = [
-            `${{ CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[rule.kind]} ${rule.kind === 'CALCULATION' ? (target?.title || rule.targetField) + ' = ' : ''}${presentableFormulaExpression(rule.expression, fields)}（应用后${rule.enabled ? '启用' : '停用'}）`,
+            language.t(
+              'platform.screen.businessRuleSession.value-valuevalue-value-after-applying',
+              '{value1} {value2}{value3}（应用后{value4}）',
+              {
+                value1: {
+                  CALCULATION: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.field-calculation',
+                    '字段计算',
+                  ),
+                  VALIDATION: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.save-validation',
+                    '保存校验',
+                  ),
+                  UI_CONTROL: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.ui-control',
+                    '界面控制',
+                  ),
+                }[rule.kind],
+                value2: rule.kind === 'CALCULATION' ? (target?.title || rule.targetField) + ' = ' : '',
+                value3: presentableFormulaExpression(rule.expression, fields),
+                value4: rule.enabled
+                  ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+                  : language.t('platform.screen.WorkflowWorkbenchView.disabled', '停用'),
+              },
+            ),
           ];
-          if (rule.messageTemplate) details.push('失败提示：' + rule.messageTemplate);
+          if (rule.messageTemplate)
+            details.push(
+              language.t('platform.screen.businessRuleSession.failure-message', '失败提示：') +
+                rule.messageTemplate,
+            );
           if (rule.kind === 'UI_CONTROL') {
             const form = ui.value?.forms.find((form) => form.key === rule.formKey);
-            details.push('表单：' + (form?.title || rule.formKey));
+            details.push(
+              language.t('platform.screen.businessRuleSession.form', '表单：') +
+                (form?.title || rule.formKey),
+            );
             for (const target of rule.targets ?? [])
               details.push(
-                `${form?.elements.find((item) => item.key === target.elementKey)?.label || target.elementKey}：${target.hide ? '隐藏' : '显示'}、${target.readOnly ? '只读' : '可编辑'}`,
+                `${form?.elements.find((item) => item.key === target.elementKey)?.label || target.elementKey}：${target.hide ? language.t('platform.screen.PageCompositionTree.hide', '隐藏') : language.t('platform.screen.PageCompositionTree.show', '显示')}、${target.readOnly ? language.t('platform.screen.metadataSourceTree.read-only', '只读') : language.t('platform.screen.businessRuleSession.editable', '可编辑')}`,
               );
           }
           return details.join('；');
         };
         return {
           presentation: {
-            title: '确认应用业务规则',
+            title: language.t(
+              'platform.screen.businessRuleSession.confirm-business-rule-changes',
+              '确认应用业务规则',
+            ),
             lines: [
               moduleAlias,
-              ...impact.added.map((rule) => '新增：' + describe(rule)),
-              ...impact.modified.map((rule) => '修改：' + describe(rule)),
-              ...impact.deleted.map((rule) => '删除：' + describe(rule)),
-              '应用当前整组更改，包含页面已有人工编辑；影响后续业务操作，不回算历史记录。草稿仅保留在当前工作区，刷新后不会恢复。',
+              ...impact.added.map(
+                (rule) => language.t('platform.screen.businessRuleSession.added', '新增：') + describe(rule),
+              ),
+              ...impact.modified.map(
+                (rule) =>
+                  language.t('platform.screen.businessRuleSession.modified', '修改：') + describe(rule),
+              ),
+              ...impact.deleted.map(
+                (rule) =>
+                  language.t('platform.screen.businessRuleSession.deleted', '删除：') + describe(rule),
+              ),
+              language.t(
+                'platform.screen.businessRuleSession.apply-all-current-changes-including-manual-edits-on-the-page',
+                '应用当前整组更改，包含页面已有人工编辑；影响后续业务操作，不回算历史记录。草稿仅保留在当前工作区，刷新后不会恢复。',
+              ),
             ],
           },
-          confirmLabel: '确认应用规则',
+          confirmLabel: language.t(
+            'platform.screen.businessRuleSession.confirm-rule-changes',
+            '确认应用规则',
+          ),
           expiresAt: Date.now() + 10 * 60_000,
           isCurrent: () => current() && !editing.value && !applying.value,
           async execute() {
-            if (!current() || editing.value) throw new OperationRejectedError('规则候选已变化，尚未提交');
+            if (!current() || editing.value)
+              throw new OperationRejectedError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.businessRuleSession.the-rule-candidate-has-changed-and-was-not-submitted',
+                  '规则候选已变化，尚未提交',
+                ),
+              );
             try {
               const outcome = await apply(current, reviewed);
               return {
-                title: '业务规则已应用',
+                title: language.t(
+                  'platform.screen.businessRuleSession.business-rules-applied',
+                  '业务规则已应用',
+                ),
                 lines: [
                   moduleAlias,
                   ...(outcome?.synchronized === false
-                    ? ['规则已提交，但界面尚未同步；请重新加载后继续编辑，不要重复提交。']
+                    ? [
+                        language.t(
+                          'platform.screen.businessRuleSession.rules-were-submitted-but-the-view-has-not-synchronized-reload',
+                          '规则已提交，但界面尚未同步；请重新加载后继续编辑，不要重复提交。',
+                        ),
+                      ]
                     : []),
                 ],
               };
@@ -407,6 +633,7 @@ export function createBusinessRuleSession(
       },
     };
     return {
+      language,
       moduleAlias,
       dispose() {
         disposed = true;

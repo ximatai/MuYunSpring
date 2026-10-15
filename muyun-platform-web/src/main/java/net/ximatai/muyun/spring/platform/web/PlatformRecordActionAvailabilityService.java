@@ -133,19 +133,20 @@ public class PlatformRecordActionAvailabilityService {
             for (String recordId : recordIds) {
                 PlatformRecordActionAvailability.Action decision;
                 if (!action.authorized()) {
-                    decision = unavailable(action.actionCode(), "没有此操作的权限");
+                    decision = unavailable(action.actionCode(), RecordActionAvailabilityDecision.unavailableText(
+                            net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.action.permission-denied", "没有此操作的权限")));
                 } else if (!dataScopedIds.contains(recordId)) {
                     decision = unavailable(action.actionCode(), "no data auth");
                 } else {
                     Optional<RecordActionAvailabilityDecision> business = businessDecisions.getOrDefault(recordId,
                             Optional.empty());
                     if (business.isPresent() && !business.get().available()) {
-                        decision = unavailable(action.actionCode(), business.get().reason());
+                        decision = unavailable(action.actionCode(), business.get());
                     } else {
                         Optional<RecordActionAvailabilityDecision> protection = ordinaryMutationAvailability(moduleAlias,
                                 action.actionCode(), records.get(recordId));
                         decision = protection.filter(value -> !value.available())
-                                .map(value -> unavailable(action.actionCode(), value.reason()))
+                                .map(value -> unavailable(action.actionCode(), value))
                                 .orElseGet(() -> new PlatformRecordActionAvailability.Action(action.actionCode(), true, null));
                     }
                 }
@@ -225,7 +226,8 @@ public class PlatformRecordActionAvailabilityService {
             }
             List<PlatformRecordActionAvailability.Action> resolved = actions.stream().map(action -> {
                 if (!action.authorized()) {
-                    return unavailable(action.actionCode(), "没有此操作的权限");
+                    return unavailable(action.actionCode(), RecordActionAvailabilityDecision.unavailableText(
+                            net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.action.permission-denied", "没有此操作的权限")));
                 }
                 DynamicActionAvailability decision = availability.actions().get(action.actionCode());
                 if (decision == null) {
@@ -233,7 +235,7 @@ public class PlatformRecordActionAvailabilityService {
                 }
                 return decision.available()
                         ? new PlatformRecordActionAvailability.Action(action.actionCode(), true, null)
-                        : unavailable(action.actionCode(), normalizeReason(decision.message(), "record action is unavailable"));
+                        : unavailable(action.actionCode(), decision, "record action is unavailable");
             }).toList();
             return new PlatformRecordActionAvailability(recordId, resolved);
         }).toList();
@@ -245,12 +247,13 @@ public class PlatformRecordActionAvailabilityService {
                                                                         DynamicRecordHolder recordHolder,
                                                                         PlatformModuleRuntimeAction action) {
         if (!action.authorized()) {
-            return unavailable(action.actionCode(), "没有此操作的权限");
+            return unavailable(action.actionCode(), RecordActionAvailabilityDecision.unavailableText(
+                            net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.action.permission-denied", "没有此操作的权限")));
         }
         DynamicActionAvailability authorization = dynamicRecordService.actionAuthorizationAvailability(
                 moduleAlias, entityAlias, action.actionCode(), Set.of(recordId));
         if (!authorization.available()) {
-            return unavailable(action.actionCode(), normalizeReason(authorization.message(), "no data auth"));
+            return unavailable(action.actionCode(), authorization, "no data auth");
         }
         DynamicRecord record = recordHolder.record();
         if (record == null) {
@@ -263,7 +266,7 @@ public class PlatformRecordActionAvailabilityService {
         DynamicActionAvailability availability = dynamicRecordService.actionAvailability(moduleAlias,
                 action.actionCode(), record);
         if (!availability.available()) {
-            return unavailable(action.actionCode(), availability.message());
+            return unavailable(action.actionCode(), availability, "record action is unavailable");
         }
         return new PlatformRecordActionAvailability.Action(action.actionCode(), true, null);
     }
@@ -272,7 +275,8 @@ public class PlatformRecordActionAvailabilityService {
                                                                        String recordId,
                                                                        PlatformModuleRuntimeAction action) {
         if (!action.authorized()) {
-            return unavailable(action.actionCode(), "没有此操作的权限");
+            return unavailable(action.actionCode(), RecordActionAvailabilityDecision.unavailableText(
+                            net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.action.permission-denied", "没有此操作的权限")));
         }
         ActionExecutionPolicy policy = policy(action);
         if (policy.requiresDataScope() && !hasRecordDataScope(moduleAlias, recordId, policy)) {
@@ -281,12 +285,12 @@ public class PlatformRecordActionAvailabilityService {
         Optional<RecordActionAvailabilityDecision> businessDecision = businessAvailability(moduleAlias,
                 action.actionCode(), recordId);
         if (businessDecision.isPresent() && !businessDecision.get().available()) {
-            return unavailable(action.actionCode(), businessDecision.get().reason());
+            return unavailable(action.actionCode(), businessDecision.get());
         }
         Optional<RecordActionAvailabilityDecision> protectionDecision = ordinaryMutationAvailability(moduleAlias,
                 action.actionCode(), recordId);
         if (protectionDecision.isPresent() && !protectionDecision.get().available()) {
-            return unavailable(action.actionCode(), protectionDecision.get().reason());
+            return unavailable(action.actionCode(), protectionDecision.get());
         }
         return new PlatformRecordActionAvailability.Action(action.actionCode(), true, null);
     }
@@ -431,6 +435,14 @@ public class PlatformRecordActionAvailabilityService {
                 PlatformModuleRuntimeContextService.inheritActionCode(action.actionCode(),
                         action.permissionActionCode(), action.actionAuth())
         );
+    }
+
+    private PlatformRecordActionAvailability.Action unavailable(String actionCode, DynamicActionAvailability decision, String fallback) {
+        return new PlatformRecordActionAvailability.Action(actionCode, false, normalizeReason(decision.message(), fallback), decision.messageSource());
+    }
+
+    private PlatformRecordActionAvailability.Action unavailable(String actionCode, RecordActionAvailabilityDecision decision) {
+        return new PlatformRecordActionAvailability.Action(actionCode, false, decision.reason(), decision.reasonSource());
     }
 
     private PlatformRecordActionAvailability.Action unavailable(String actionCode, String reason) {

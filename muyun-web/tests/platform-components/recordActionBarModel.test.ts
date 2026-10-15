@@ -227,3 +227,30 @@ it('mergeRecordActions inserts extension actions around standard anchors', () =>
     ['view', 'edit', 'bind', 'toggle', 'delete', 'audit'],
   );
 });
+
+it('resolves only declared action headings in the owner language while preserving identities and permission facts', async () => {
+  const { createLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const raw = [
+    {
+      key: 'configure',
+      actionCode: 'custom',
+      title: '配置应用',
+      titleKey: 'platform.entry.configure-applications',
+    },
+    { key: 'business', title: '配置应用' },
+  ];
+  const context = {
+    action: (actionCode: string) => ({ actionCode, available: false, reason: '业务限制原文' }),
+  };
+  const resolved = () => resolveRecordActions(context, raw, false, 'record-original', language);
+  assert.equal(resolved()[0].title, 'Configure applications');
+  assert.equal(resolved()[1].title, '配置应用');
+  assert.isTrue(resolved()[0].disabled);
+  assert.equal(resolved()[0].reason, '业务限制原文');
+  language.setLanguage('zh-CN');
+  assert.equal(resolved()[0].title, '配置应用');
+  language.setLanguage('en');
+  assert.equal(resolved()[0].key, 'configure');
+  assert.equal(raw[0].title, '配置应用');
+});

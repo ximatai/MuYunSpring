@@ -1,4 +1,5 @@
-import type { HttpClient } from '@muyun/web-core';
+import { isTextReference, textReferenceMatchesOriginal, type HttpClient } from '@muyun/web-core';
+import type { TextPresentation } from '@muyun/web-contracts';
 
 export type RoleScopeSelectionLevel = 'TENANT' | 'ORGANIZATION';
 
@@ -16,11 +17,13 @@ export interface RoleScopeSelectionCandidate {
 }
 
 export interface RoleScopeSelectionDirectSelection {
+  labelText?: TextPresentation;
   selectionKey: string;
   label: string;
 }
 
 export interface RoleScopeSelectionNavigation {
+  labelText?: TextPresentation;
   navigationKey: string;
   level: RoleScopeSelectionLevel;
   label: string;
@@ -113,7 +116,9 @@ function normalizeDirectSelection(value: unknown): RoleScopeSelectionDirectSelec
   const source = recordOf(value);
   const selectionKey = textOf(source.selectionKey);
   if (!selectionKey) return [];
-  return [{ selectionKey, label: textOf(source.title ?? source.label) ?? selectionKey }];
+  const label = textOf(source.title ?? source.label) ?? selectionKey;
+  const labelText = normalizeLabelText(source.titleText, label);
+  return [{ selectionKey, label, ...(labelText ? { labelText } : {}) }];
 }
 
 function normalizeNavigation(value: unknown): RoleScopeSelectionNavigation[] {
@@ -121,7 +126,9 @@ function normalizeNavigation(value: unknown): RoleScopeSelectionNavigation[] {
   const navigationKey = textOf(source.navigationKey);
   const level = levelOf(source.level);
   if (!navigationKey || !level) return [];
-  return [{ navigationKey, level, label: textOf(source.title ?? source.label) ?? navigationKey }];
+  const label = textOf(source.title ?? source.label) ?? navigationKey;
+  const labelText = normalizeLabelText(source.titleText, label);
+  return [{ navigationKey, level, label, ...(labelText ? { labelText } : {}) }];
 }
 
 function normalizeCandidate(value: unknown): RoleScopeSelectionCandidate[] {
@@ -142,6 +149,37 @@ function normalizeCandidate(value: unknown): RoleScopeSelectionCandidate[] {
       expandable: booleanOf(source.expandable, false),
     },
   ];
+}
+
+function normalizeLabelText(value: unknown, original: string): TextPresentation | undefined {
+  const payload = recordOf(value);
+  const source = payload.source;
+  if (
+    !isTextReference(source) ||
+    source.sourceKind !== 'CODE' ||
+    !source.sourceId.startsWith('iam.role.scope.') ||
+    !textReferenceMatchesOriginal(source, original)
+  )
+    return;
+  const languages: TextPresentation['languages'] = {};
+  for (const [tag, candidate] of Object.entries(recordOf(payload.languages))) {
+    const resolution = recordOf(candidate);
+    if (
+      typeof resolution.text !== 'string' ||
+      resolution.requestedTag !== tag ||
+      typeof resolution.missing !== 'boolean' ||
+      typeof resolution.fallback !== 'boolean'
+    )
+      continue;
+    languages[tag] = {
+      text: resolution.text,
+      requestedTag: tag,
+      ...(typeof resolution.resourceTag === 'string' ? { resourceTag: resolution.resourceTag } : {}),
+      missing: resolution.missing,
+      fallback: resolution.fallback,
+    };
+  }
+  return Object.keys(languages).length ? { source: { ...source }, languages } : undefined;
 }
 
 function levelOf(value: unknown): RoleScopeSelectionLevel | undefined {

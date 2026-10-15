@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
 import {
+  useLanguageContext,
   presentationLabel,
   displayModuleRuntime,
   createModuleContext,
@@ -10,6 +8,9 @@ import {
   useModuleContext,
   withHttpHeaders,
 } from '@muyun/web-core';
+import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+
 import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
 import { refreshModulePageList } from '@muyun/dynamic-page-runtime';
 import {
@@ -456,7 +457,7 @@ const policies = ref<Delegation[]>([]),
   delegationBusy = ref(false),
   policyError = ref('');
 const policyDraft = ref<Partial<Delegation>>({
-    title: '审批代办',
+    title: workflowLanguage.t('platform.workflow.delegation.default-title', '审批代办'),
     moduleScopeType: 'all',
     moduleAliases: [],
     principalCanProcess: false,
@@ -466,7 +467,7 @@ const policyDirty = computed(
   () => delegationOpen.value && JSON.stringify(policyDraft.value) !== policyInitial.value,
 );
 useWorkspaceViewUnsavedState(
-  '个人委托',
+  () => workflowLanguage.t('platform.unsaved-source.WorkflowWorkbenchView', '个人委托'),
   () => policyDirty.value,
   () => delegationBusy.value,
 );
@@ -497,7 +498,7 @@ async function openDelegations() {
 }
 function newPolicy() {
   policyDraft.value = {
-    title: '审批代办',
+    title: workflowLanguage.t('platform.workflow.delegation.default-title', '审批代办'),
     moduleScopeType: 'all',
     moduleAliases: [],
     principalCanProcess: false,
@@ -536,14 +537,17 @@ async function mayClosePolicy() {
     tenant = tenantId.value;
   const permitted =
     !policyDirty.value ||
-    (await confirmAction({
-      title: workflowLanguage.t(
-        'platform.screen.WorkflowWorkbenchView.discard-delegation-changes',
-        '放弃未保存的委托设置？',
-      ),
-      okText: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
-      danger: true,
-    }));
+    (await confirmAction(
+      {
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowWorkbenchView.discard-delegation-changes',
+          '放弃未保存的委托设置？',
+        ),
+        okText: workflowLanguage.t('platform.screen.WorkflowWorkbenchView.discard-changes', '放弃修改'),
+        danger: true,
+      },
+      workflowLanguage,
+    ));
   return permitted && delegationIsCurrent(current, tenant);
 }
 async function savePolicy() {
@@ -832,7 +836,10 @@ async function togglePolicy(policy: Delegation) {
               'platform.screen.WorkflowWorkbenchView.edit-personal-delegation',
               '编辑个人委托',
             )
-          : '个人代办设置'
+          : workflowLanguage.t(
+              'platform.screen.WorkflowWorkbenchView.personal-delegation-settings',
+              '个人代办设置',
+            )
       "
       :before-close="mayClosePolicy"
       @close="delegationOpen = false"

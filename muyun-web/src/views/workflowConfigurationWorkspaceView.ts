@@ -11,7 +11,10 @@ export const workflowConfigurationWorkspaceView = defineWorkspaceView<WorkflowCo
   component: defineAsyncComponent(() => import('./WorkflowConfigurationView.vue')),
   layout: 'workspace',
   routeTitle: '模块管理',
+  routeTitleKey: 'platform.workspace-view.modules.route-title',
   presentations: ['tab'],
+  titleArgsOf: (input) => ({ module: input.moduleTitle ?? input.moduleAlias }),
+  titleKey: 'platform.workspace-view.workflow.title',
   titleOf: (input) => `审批流程：${input.moduleTitle ?? input.moduleAlias}`,
   parentRouteQueryOf: () => ({}),
   parse(query) {

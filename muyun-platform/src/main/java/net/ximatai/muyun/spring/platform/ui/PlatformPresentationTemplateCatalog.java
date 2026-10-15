@@ -37,19 +37,27 @@ public class PlatformPresentationTemplateCatalog {
             MANAGEMENT_ALIAS, List.of(MANAGEMENT, new PlatformPresentationTemplate(
                     MANAGEMENT_ALIAS, MODE_AWARE_VERSION, PlatformPresentationClientType.WEB,
                     java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                    "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                    "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MODE_AWARE_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MANAGED_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, SEPARATE_DETAIL_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":5,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
+                            "{\"template\":\"management\",\"templateVersion\":5,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}")));
 
     public record ManagementSkeleton(String mode, String title, String navigationTitle,
-                                     String fieldGroupTitle, boolean columns, int maxIdentityFields) {}
+                                     String fieldGroupTitle, boolean columns, int maxIdentityFields) {
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String titleKey() { return textKey("title"); }
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String navigationTitleKey() { return textKey("navigationTitle"); }
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String fieldGroupTitleKey() { return textKey("fieldGroupTitle"); }
+        private String textKey(String property) { return "platform.presentation.management." + mode + "." + property; }
+    }
 
     public static List<ManagementSkeleton> managementSkeletons() {
         return List.of(
@@ -203,7 +211,7 @@ public class PlatformPresentationTemplateCatalog {
         for (JsonNode node : root.path("nodes")) {
             String slot = node.path("slot").asText();
             if (!(Set.of("list", "form").contains(slot) || (separateDetail && "detail".equals(slot))) || !slots.add(slot)
-                    || !node.path("title").isTextual() || node.path("title").asText().isBlank()
+                    || (node.has("title") && (!node.path("title").isTextual() || node.path("title").asText().isBlank()))
                     || !node.path("fields").isArray()) {
                 throw invalidManagementTree();
             }

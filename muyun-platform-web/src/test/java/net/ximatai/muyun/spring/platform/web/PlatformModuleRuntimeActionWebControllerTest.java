@@ -18,6 +18,34 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class PlatformModuleRuntimeActionWebControllerTest {
     @Test
+    void serializesSingleAndTypedBatchReasonProjectionsThroughTheHttpConverter() throws Exception {
+        var source = net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-record.edit-unavailable", "平台托管记录不可编辑");
+        var availability = new PlatformRecordActionAvailability("record", List.of(
+                new PlatformRecordActionAvailability.Action("update", false, source.originalText(), source)));
+        var service = mock(PlatformRecordActionAvailabilityService.class);
+        when(service.recordActions("platform.module", "record")).thenReturn(availability);
+        when(service.recordActions("platform.module", List.of("record"))).thenReturn(List.of(availability));
+        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        beans.registerSingleton("languages", catalog);
+        beans.registerSingleton("texts", net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog));
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var advice = new PlatformPresentationResponseAdvice(mapper,
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.i18n.TextResolver.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.class));
+        var mvc = MockMvcBuilders.standaloneSetup(new PlatformModuleRuntimeActionWebController(service))
+                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(mapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), advice).build();
+        mvc.perform(get("/platform.module/actions/record")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.actions[0].reason").value(source.originalText()))
+                .andExpect(jsonPath("$.actions[0].reasonText.languages.en.text").value("Platform-managed records cannot be edited"));
+        mvc.perform(post("/platform.module/actions/availability").contentType("application/json").content("{\"recordIds\":[\"record\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].recordId").value("record"))
+                .andExpect(jsonPath("$[0].actions[0].available").value(false))
+                .andExpect(jsonPath("$[0].actions[0].reasonText.languages.en.text").value("Platform-managed records cannot be edited"));
+    }
+
+    @Test
     void shouldExposeRecordActionAvailabilityByModuleAliasAndRecordId() throws Exception {
         PlatformRecordActionAvailabilityService service = mock(PlatformRecordActionAvailabilityService.class);
         when(service.recordActions("iam.user", "platform.user.super_admin"))

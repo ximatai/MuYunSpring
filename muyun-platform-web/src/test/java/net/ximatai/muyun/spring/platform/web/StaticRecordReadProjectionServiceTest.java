@@ -192,7 +192,7 @@ class StaticRecordReadProjectionServiceTest {
                 .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get());
         when(recordService.recycleBinReadCriteria(scoped)).thenReturn(retained);
         doReturn(Optional.of(expected)).when(service).queryDefaultList(
-                eq("iam.sample"), eq(retained), eq(pageRequest), eq(recordService), any(Sort[].class));
+                eq("iam.sample"), eq(retained), eq(pageRequest), eq(recordService), eq(RecordReadVisibility.RETAINED), any(Sort[].class));
 
         Optional<WebPageResponse<Map<String, Object>>> result = service.queryDefaultList(
                 "iam.sample", request, pageRequest, recordService, policy, RecordReadVisibility.RETAINED);

@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { createHttpClient, createLanguageContext } from '@muyun/web-core';
+import { expect, it, vi } from 'vitest';
 import { AppError, userFacingErrorMessage, resolveGlobalErrorPresentation } from '@/web-core/errors';
 
 it.each([
@@ -31,4 +32,88 @@ it('keeps unrecognized server failures masked and describes network failures wit
   const network = userFacingErrorMessage(new AppError('Network request failed', { code: 'NETWORK_ERROR' }));
   expect(network).toContain('暂时无法连接服务');
   expect(network).not.toContain('未启动');
+});
+
+it('resolves English and Chinese safe failures through the caller language while retaining diagnostic facts', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const failure = new AppError('private provider body', {
+    code: 'AI_PROVIDER_AUTHENTICATION_FAILED',
+    status: 502,
+    traceId: 'original-trace',
+  });
+  const english = resolveGlobalErrorPresentation(failure, { phase: 'action', surface: 'dialog' }, language);
+  expect(english.message).toContain('Model authentication failed');
+  expect(english.message).not.toContain('private provider body');
+  expect(english.slot).toBe('global-toast');
+  expect(english.traceId).toBe('original-trace');
+  language.setLanguage('zh-CN');
+  expect(userFacingErrorMessage(failure, language)).toContain('模型连接鉴权失败');
+  expect(failure.message).toBe('private provider body');
+  expect(failure.code).toBe('AI_PROVIDER_AUTHENTICATION_FAILED');
+  expect(
+    userFacingErrorMessage(
+      new AppError('private failure', { status: 503 }),
+      createLanguageContext({ languageTag: 'en' }),
+    ),
+  ).toBe('A system error prevented the operation from completing');
+});
+
+it('retains server-owned error presentations across language changes without altering error identity or business arguments', async () => {
+  const reason = '不能修改{recordLabel}';
+  const body = {
+    code: 'BUSINESS_BLOCKED',
+    status: 422,
+    message: 'Cannot change Business {literal}',
+    traceId: 'trace',
+    targets: [{ kind: 'RECORD', recordId: 'r' }],
+    messageArgs: { recordLabel: 'Business {literal}' },
+    messageText: {
+      source: {
+        sourceKind: 'CODE' as const,
+        sourceId: 'business.blocked',
+        sourceVersion: 'v1',
+        originalText: reason,
+      },
+      languages: {
+        en: {
+          text: 'Cannot change Business {literal}',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+        'zh-CN': {
+          text: '不能修改Business {literal}',
+          requestedTag: 'zh-CN',
+          resourceTag: 'zh-CN',
+          missing: false,
+          fallback: false,
+        },
+      },
+    },
+  };
+  vi.stubGlobal('fetch', async () => Response.json(body, { status: 422 }));
+  try {
+    const http = createHttpClient({ baseUrl: 'http://api.local' });
+    const error = await http.request({ path: '/test' }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(AppError);
+    const failure = error as AppError;
+    const language = createLanguageContext({ languageTag: 'en' });
+    expect(userFacingErrorMessage(failure, language)).toBe(body.message);
+    language.setLanguage('zh-CN');
+    expect(userFacingErrorMessage(failure, language)).toBe('不能修改Business {literal}');
+    expect(failure.message).toBe(body.message);
+    expect(failure.code).toBe('BUSINESS_BLOCKED');
+    expect(failure.traceId).toBe('trace');
+    expect(failure.targets).toEqual(body.targets);
+    expect(failure.messageArgs).toEqual(body.messageArgs);
+    expect(
+      userFacingErrorMessage(
+        new AppError(body.message, { messageText: { ...body.messageText, languages: {} } }),
+        language,
+      ),
+    ).toBe(body.message);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

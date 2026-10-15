@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type {
   BusinessRoutePageDescriptor,
@@ -23,6 +24,8 @@ import { useWorkbenchNavigation } from './workbenchNavigation';
 import { createWorkspaceViewDescriptor } from './workspaceViews';
 import { syncModulePageWorkspaceViewContributions } from './modulePageWorkspaceViews';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'WorkbenchOutlet' });
 
 const props = defineProps<{
@@ -35,7 +38,13 @@ provideModulePageNavigation(
     openPage: navigation.openPage,
     openWorkspaceTab(view, input, title) {
       navigation.openPage(
-        createWorkspaceViewDescriptor(workspaceViewDefinitionForModulePage(view), input, 'tab', title),
+        createWorkspaceViewDescriptor(
+          workspaceViewDefinitionForModulePage(view),
+          input,
+          'tab',
+          title,
+          language,
+        ),
       );
     },
   },
@@ -79,5 +88,8 @@ const externalDescriptor = computed(() =>
   <BusinessRouteHost v-else-if="businessRouteDescriptor" :descriptor="businessRouteDescriptor" />
   <ModulePageHost v-else-if="dynamicDescriptor" :descriptor="dynamicDescriptor" />
   <ExternalPageHost v-else-if="externalDescriptor" :descriptor="externalDescriptor" />
-  <UiEmpty v-else description="暂无页面" />
+  <UiEmpty
+    v-else
+    :description="language.t('platform.screen.WorkbenchOutlet.no-page-available', '暂无页面')"
+  />
 </template>

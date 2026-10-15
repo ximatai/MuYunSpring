@@ -1,3 +1,5 @@
+import { createLanguageContext } from '@muyun/web-core';
+import { metadataSourceFieldNode, metadataSourceRoot } from '@/views/metadataSourceTree';
 import { expect, it } from 'vitest';
 import type { MetadataField, ModuleMetadataRelation } from '@/web-contracts';
 import {
@@ -89,4 +91,40 @@ it('moves an identifier only within its semantic sibling sequence', () => {
   const fields: MetadataField[] = [{ id: 'first' }, { id: 'second' }, { id: 'third' }];
   expect(reorderedIds(fields, 'third', 'first', -1)).toEqual(['third', 'first', 'second']);
   expect(reorderedIds(fields, 'first', 'third', 1)).toEqual(['second', 'third', 'first']);
+});
+
+it('localizes owned tree tags while retaining metadata, field and reference identities and business names', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const input = {
+    relations: [main, child],
+    metadataById: { 'metadata-main': { title: '业务名称' }, 'metadata-child': { title: '业务明细' } },
+    fieldsByRelation: { main: [{ id: 'title', fieldName: 'title', title: '业务字段' }] },
+    fieldLocked: () => true,
+  };
+  const original = structuredClone({
+    relations: input.relations,
+    metadataById: input.metadataById,
+    fieldsByRelation: input.fieldsByRelation,
+  });
+  const tree = buildMetadataModelTree(input, language);
+  expect(tree[0]).toMatchObject({ title: '业务名称', tag: 'Main metadata', relationId: 'main' });
+  expect(tree[0]!.children?.[0]).toMatchObject({ title: '业务字段', tag: 'Protected', fieldId: 'title' });
+  const source = {
+    title: '业务引用',
+    fieldName: 'customerId',
+    platformReadOnly: true,
+    referenceModuleAlias: 'crm.customer',
+  };
+  expect(metadataSourceFieldNode(source, { key: 'field' }, language).secondary).toBe(
+    'customerId · Read-only · Module reference',
+  );
+  expect(metadataSourceRoot('业务名称', [], language).secondary).toBe('Main metadata');
+  language.setLanguage('zh-CN');
+  expect(buildMetadataModelTree(input, language)[0]!.tag).toBe('主元数据');
+  expect(tree[0]!.tag).toBe('Main metadata');
+  expect({
+    relations: input.relations,
+    metadataById: input.metadataById,
+    fieldsByRelation: input.fieldsByRelation,
+  }).toEqual(original);
 });

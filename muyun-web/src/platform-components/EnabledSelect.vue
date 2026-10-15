@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiSelect } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'EnabledSelect' });
 
@@ -19,10 +22,10 @@ const emit = defineEmits<{
   'update:value': [value: boolean];
 }>();
 
-const enabledOptions = [
-  { label: '启用', value: 'true' },
-  { label: '停用', value: 'false' },
-];
+const enabledOptions = computed(() => [
+  { label: language.t('platform.value.enabled', '启用'), value: 'true' },
+  { label: language.t('platform.value.disabled', '停用'), value: 'false' },
+]);
 
 const enabledValue = computed({
   get: () => (props.value === false ? 'false' : 'true'),

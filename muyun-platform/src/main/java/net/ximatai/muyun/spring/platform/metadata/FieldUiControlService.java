@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldUiControlService extends AbstractAbilityService<FieldUiControl> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<FieldUiControl>,
         RecycleBinAbility<FieldUiControl>,
         EnableAbility<FieldUiControl>,
         SortAbility<FieldUiControl>,
@@ -142,4 +143,5 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
                     + existing.getAlias());
         }
     }
+
 }

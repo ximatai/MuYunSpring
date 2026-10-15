@@ -1,6 +1,31 @@
 import { toRaw } from 'vue';
 import type { TextReference, TextPresentation, TextPresentationDocument } from '@muyun/web-contracts';
 import type { LanguageContext, TextResolution } from './language';
+import { sha256Hex } from './sha256';
+
+/** Snapshot a producer's concrete CODE original; arguments format deployed resources, never business values in the fallback. */
+export function createCodeTextPresentation(
+  key: string,
+  originalText: string,
+  context: LanguageContext,
+  args?: Record<string, unknown>,
+): TextPresentation {
+  if (!key.trim()) throw new Error('CODE text key must not be blank');
+  return {
+    source: {
+      sourceKind: 'CODE',
+      sourceId: key,
+      sourceVersion: `sha256-${sha256Hex(originalText)}`,
+      originalText,
+    },
+    languages: Object.fromEntries(
+      context.catalog.value.languages.map(({ tag }) => {
+        const resolution = context.resolveForLanguage(tag, key, undefined, args);
+        return [tag, resolution.missing ? { ...resolution, text: originalText } : resolution];
+      }),
+    ),
+  };
+}
 
 export function resolvePresentationText(text: TextPresentation, context: LanguageContext): TextResolution {
   const requestedTag = context.languageTag.value;
@@ -115,4 +140,41 @@ export function isTextReference(value: unknown): value is TextReference {
     Boolean(source.sourceVersion.trim()) &&
     typeof source.originalText === 'string'
   );
+}
+
+/** A label is valid only while its explicitly declared source still matches the raw record value. */
+export function recordPresentationText(
+  record: object | undefined,
+  field: string,
+): TextPresentation | undefined {
+  if (!record) return undefined;
+  const values = record as Record<string, unknown>;
+  const texts = values.$texts;
+  if (!Object.hasOwn(values, field) || !texts || typeof texts !== 'object') return undefined;
+  const text = (texts as Record<string, TextPresentation>)[field];
+  return text &&
+    isTextReference(text.source) &&
+    text.languages &&
+    typeof values[field] === 'string' &&
+    text.source.originalText === values[field]
+    ? text
+    : undefined;
+}
+
+export function recordPresentationLabel(
+  record: object,
+  field: string,
+  context: LanguageContext,
+): string | undefined {
+  const original = (record as Record<string, unknown>)[field];
+  if (original == null) return undefined;
+  return presentationLabel(String(original), recordPresentationText(record, field), context);
+}
+
+/** Removes only the record's read metadata; arbitrary nested JSON business values are preserved. */
+export function withoutRecordPresentation<T>(record: T): T {
+  if (!record || typeof record !== 'object' || !Object.hasOwn(record, '$texts')) return record;
+  const values = { ...(record as Record<string, unknown>) };
+  delete values.$texts;
+  return values as T;
 }

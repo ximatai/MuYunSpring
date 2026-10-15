@@ -1,6 +1,13 @@
-import { ref } from 'vue';
+import { computed, shallowRef, ref } from 'vue';
 import type { PageBootstrap } from '@muyun/web-contracts';
-import { createPageBootstrapClient, type ModuleContext } from '@muyun/web-core';
+import {
+  createPageBootstrapClient,
+  platformLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  type LanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
 import type { QueryListRecord } from '@muyun/platform-components';
 
 /**
@@ -15,9 +22,19 @@ import type { QueryListRecord } from '@muyun/platform-components';
 export function useModulePageBootstrap(
   context: ModuleContext<QueryListRecord>,
   menuId: () => string | undefined,
+  language: LanguageContext = platformLanguageContext,
 ) {
   const pageBootstrap = ref<PageBootstrap>();
-  const pageBootstrapError = ref<string>();
+  const failure = shallowRef<{ cause: unknown } | { display: () => string }>();
+  const pageBootstrapError = computed(() => {
+    if (!failure.value) return undefined;
+    return 'display' in failure.value
+      ? failure.value.display()
+      : userFacingErrorMessage(normalizeError(failure.value.cause), language);
+  });
+  function setPageBootstrapFailure(cause: unknown) {
+    failure.value = typeof cause === 'function' ? { display: cause as () => string } : { cause };
+  }
 
   async function loadPageBootstrap() {
     const entryMenuId = menuId();
@@ -30,15 +47,24 @@ export function useModulePageBootstrap(
         );
       }
       pageBootstrap.value = bootstrap;
-      pageBootstrapError.value = undefined;
+      failure.value = undefined;
     } catch (cause) {
-      pageBootstrapError.value = cause instanceof Error ? cause.message : '页面入口加载失败';
+      setPageBootstrapFailure(
+        cause instanceof Error
+          ? cause
+          : () =>
+              language.t(
+                'platform.screen.useModulePageBootstrap.unable-to-load-the-page-entry',
+                '页面入口加载失败',
+              ),
+      );
     }
   }
 
   return {
     pageBootstrap,
     pageBootstrapError,
+    setPageBootstrapFailure,
     loadPageBootstrap,
   };
 }

@@ -1,8 +1,17 @@
 <script setup lang="ts">
+import {
+  normalizeError,
+  userFacingErrorMessage,
+  useLanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import { computed, ref, watch } from 'vue';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import { fileReferenceIds, issueFileReferenceAccess } from './fileReferenceTransfer';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordImageFileReferencePreview' });
 
@@ -16,7 +25,7 @@ const props = defineProps<{
 const fileId = computed(() => fileReferenceIds(props.value)[0]);
 const previewUrl = ref<string>();
 const loading = ref(false);
-const error = ref<string>();
+const error = ref<() => string>();
 let previewRevision = 0;
 
 watch(
@@ -52,7 +61,13 @@ async function loadPreview(
     if (revision === previewRevision) previewUrl.value = url;
   } catch (cause) {
     if (revision === previewRevision) {
-      error.value = cause instanceof Error ? cause.message : '图片预览加载失败。';
+      error.value = () =>
+        cause instanceof Error
+          ? userFacingErrorMessage(normalizeError(cause), language)
+          : language.t(
+              'platform.screen.RecordImageFileReferencePreview.could-not-load-the-image-preview',
+              '图片预览加载失败。',
+            );
     }
   } finally {
     if (revision === previewRevision) loading.value = false;
@@ -62,8 +77,22 @@ async function loadPreview(
 
 <template>
   <div class="record-image-file-reference-preview">
-    <img v-if="previewUrl" :src="previewUrl" alt="已上传图片预览" />
-    <span v-else>{{ loading ? '正在加载预览' : (error ?? '图片预览不可用') }}</span>
+    <img
+      v-if="previewUrl"
+      :src="previewUrl"
+      :alt="
+        language.t('platform.screen.RecordImageFileReferencePreview.uploaded-image-preview', '已上传图片预览')
+      "
+    />
+    <span v-else>{{
+      loading
+        ? language.t('platform.screen.RecordImageFileReferencePreview.loading-preview', '正在加载预览')
+        : (error?.() ??
+          language.t(
+            'platform.screen.RecordImageFileReferencePreview.image-preview-unavailable',
+            '图片预览不可用',
+          ))
+    }}</span>
   </div>
 </template>
 

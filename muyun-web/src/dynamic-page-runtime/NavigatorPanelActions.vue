@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { ModuleActionButton, RecordPanelButton } from '@muyun/platform-components';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { NavigatorSortViewState } from './composables/useNavigatorRuntime';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'NavigatorPanelActions' });
 
@@ -35,8 +38,17 @@ const emit = defineEmits<{
     type="text"
     :selected="sort.active"
     :disabled="!sort.enabled"
-    :title="sort.disabledReason ?? (sort.active ? '结束排序' : '调整排序')"
-    :aria-label="sort.active ? '结束排序' : '调整排序'"
+    :title="
+      sort.disabledReason ??
+      (sort.active
+        ? language.t('platform.screen.NavigatorPanelActions.finish-reordering', '结束排序')
+        : language.t('platform.screen.NavigatorPanelActions.reorder', '调整排序'))
+    "
+    :aria-label="
+      sort.active
+        ? language.t('platform.screen.NavigatorPanelActions.finish-reordering', '结束排序')
+        : language.t('platform.screen.NavigatorPanelActions.reorder', '调整排序')
+    "
     @click="emit('toggle-sorting')"
   />
   <ModuleActionButton
@@ -45,7 +57,11 @@ const emit = defineEmits<{
     action-code="create"
     icon-only
     :disabled="createDisabled"
-    :title="createDisabled ? createDisabledReason : `新建${title}`"
+    :title="
+      createDisabled
+        ? createDisabledReason
+        : language.t('platform.screen.NavigatorPanelActions.create-value', '新建{value1}', { value1: title })
+    "
     @click="emit('create')"
   />
 </template>

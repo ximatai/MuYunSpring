@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiBadge, UiButton } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecycleBinModeButton' });
 
@@ -41,7 +44,7 @@ const visualState = computed<'standard' | 'expression' | 'selected'>(() => {
       icon-name="delete"
       @click="emit('click', $event)"
     >
-      回收站
+      {{ language.t('platform.screen.RecycleBinModeButton.recycle-bin', '回收站') }}
     </UiButton>
   </UiBadge>
   <UiButton
@@ -53,7 +56,11 @@ const visualState = computed<'standard' | 'expression' | 'selected'>(() => {
     :icon-name="visualState === 'selected' ? 'reload' : 'delete'"
     @click="emit('click', $event)"
   >
-    {{ visualState === 'selected' ? '离开回收站' : '回收站' }}
+    {{
+      visualState === 'selected'
+        ? language.t('platform.screen.RecycleBinModeButton.leave-recycle-bin', '离开回收站')
+        : language.t('platform.screen.RecycleBinModeButton.recycle-bin', '回收站')
+    }}
   </UiButton>
 </template>
 

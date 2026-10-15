@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldSpecService extends AbstractAbilityService<FieldSpec> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<FieldSpec>,
         SoftDeleteAbility<FieldSpec>,
         EnableAbility<FieldSpec>,
         SortAbility<FieldSpec>,
@@ -155,4 +156,5 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
             throw new PlatformException("Field spec UI alias requires existing UI type: " + alias);
         }
     }
+
 }

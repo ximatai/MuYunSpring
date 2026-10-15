@@ -33,8 +33,15 @@ class DefaultWorkflowModuleTaskEvaluatorTest {
         var passed = evaluate();
         assertThat(failed.passed()).isFalse();
         assertThat(failed.failureMessage()).isEqualTo("missing contract");
+        assertThat(failed.failureCheckKey()).isEqualTo("contract");
+        assertThat(failed.checkResults().getFirst().getCheckTitle()).isEqualTo("合同条件原名");
         assertThat(failed.checkResults().getFirst().getCheckStatus()).isEqualTo(WorkflowTaskCheckStatus.FAILED);
         assertThat(passed.passed()).isTrue();
+        assertThat(passed.failureCheckKey()).isNull();
+        assertThat(passed.failureMessage()).isNull();
+        assertThat(passed.checkResults().getFirst().getFailureMessage()).isNull();
+        assertThat(passed.checkTexts()).containsExactly(WorkflowTaskCheckText.from(check));
+        assertThat(passed.checkTexts().getFirst().failureMessage()).isEqualTo("missing contract");
         var evidence = passed.checkResults().getFirst();
         assertThat(evidence.getCheckStatus()).isEqualTo(WorkflowTaskCheckStatus.PASSED);
         assertThat(evidence.getTaskId()).isEqualTo("task-1");
@@ -71,6 +78,7 @@ class DefaultWorkflowModuleTaskEvaluatorTest {
     }
     private WorkflowTaskCheck formula() {
         var check = new WorkflowTaskCheck(); check.setCheckKey("contract"); check.setCheckKind(WorkflowTaskCheckKind.FORMULA);
+        check.setTitle("合同条件原名");
         check.setExpression("{ready} == true"); check.setFailureMessage("missing contract"); return check;
     }
 }

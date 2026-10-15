@@ -40,6 +40,8 @@ final class ModuleUiTextLocations {
                 sources.put(location.bindingKey(), location.declaredSource());
                 continue;
             }
+            // Explicit producer-owned defaults survive the dynamic configuration root. A view override still owns its text.
+            if (!location.configured() && sources.containsKey(location.bindingKey())) continue;
             if (configurationRoot || location.configured()) {
                 var reference = TextReference.configured("config/" + location.bindingKey(), location.originalText());
                 var previous = configuredSources.putIfAbsent(location.bindingKey(), reference);

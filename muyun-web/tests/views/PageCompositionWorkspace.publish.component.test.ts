@@ -1,3 +1,4 @@
+import { platformLanguageContext, createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
 import {
   createPageCompositionWorkspace,
@@ -12,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppError, configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import { ManagementTabs } from '@muyun/platform-components';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
+import PageCompositionEditor from '@/views/PageCompositionEditor.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
 import { confirmAction, UiSwitch } from '@muyun/vue-ui-antdv';
@@ -845,7 +847,10 @@ describe('PageCompositionWorkspace publication flow', () => {
     vi.mocked(confirmAction).mockResolvedValueOnce(false);
     wrapper.findComponent(PageCompositionTree).vm.$emit('node-action', 'split-layout', 'ui:slot:form');
     await flushPromises();
-    expect(confirmAction).toHaveBeenCalledWith(expect.objectContaining({ title: '分别编排详情和表单' }));
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '分别编排详情和表单' }),
+      platformLanguageContext,
+    );
     expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
     expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toHaveLength(1);
     const confirmation = deferred<boolean>();
@@ -3815,3 +3820,108 @@ function compositionProfile() {
     ],
   };
 }
+
+it('uses the editor session language and keeps its shared candidate and prepared publication across language changes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const otherLanguage = createLanguageContext({ languageTag: 'zh-CN' });
+  const requests: HttpRequestOptions[] = [];
+  const http = publicationFlowHttp(requests);
+  configureModuleContext({ http });
+  const workspace = createPageCompositionWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    language,
+  );
+  const other = createPageCompositionWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    otherLanguage,
+  );
+  const session = workspace.session('education.exam');
+  const otherSession = other.session('education.exam');
+  workspace.focus(session);
+  await flushPromises();
+  session.adapter.prepare({ list: [{ fieldName: 'title', properties: { label: '业务填写标题' } }] })();
+  const prepared = await session.adapter.prepareConfirmation(new AbortController().signal);
+  const before = session.adapter.describe();
+  const revision = session.contextRevision.value;
+  const presentation = structuredClone(prepared.presentation);
+  const Host = defineComponent({
+    setup() {
+      // A session-owned editor must not borrow the unrelated outer language.
+      provideLanguageContext(otherLanguage);
+      return () => h(PageCompositionEditor, { session });
+    },
+  });
+  const wrapper = mount(Host, { global: { stubs: workspaceStubs() } });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('Save and activate');
+    expect(wrapper.text()).not.toContain('保存并生效');
+    expect(session.editorModeOptions.value[0]!.label).toBe('Field mode');
+    expect(otherSession.editorModeOptions.value[0]!.label).toBe('字段模式');
+    const count = requests.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('保存并生效');
+    expect(session.contextRevision.value).toBe(revision);
+    expect(session.adapter.describe().list).toEqual(before.list);
+    expect(prepared.presentation).toEqual(presentation);
+    expect(prepared.isCurrent()).toBe(true);
+    expect(requests).toHaveLength(count);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Save and activate');
+    expect(session.adapter.describe().list).toMatchObject([{ properties: { label: '业务填写标题' } }]);
+    session.adapter.prepare({ list: [{ fieldName: 'title', properties: { label: '后续修改' } }] })();
+    expect(prepared.isCurrent()).toBe(false);
+  } finally {
+    wrapper.unmount();
+    session.dispose();
+    otherSession.dispose();
+  }
+});
+
+it('relocalizes a failed summary catalog safely without another request or a candidate change', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requests: HttpRequestOptions[] = [];
+  const base = publicationFlowHttp(requests);
+  const http: HttpClient = {
+    request: async (options) => {
+      if (options.path.endsWith('/page-query-summary-catalog')) {
+        requests.push(options);
+        throw new AppError('SECRET DATABASE DETAIL', { code: 'INTERNAL_ERROR', status: 500 });
+      }
+      return base.request(options);
+    },
+  };
+  const workspace = createPageCompositionWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    language,
+  );
+  const session = workspace.session('education.exam');
+  try {
+    await flushPromises();
+    await session.loadSummaryCatalog(true);
+    const original = session.adapter.describe().list;
+    const count = requests.length;
+    expect(session.summaryCatalogError.value).not.toContain('SECRET');
+    expect(session.summaryCatalogError.value).toBe('A system error prevented the operation from completing');
+    language.setLanguage('zh-CN');
+    expect(session.summaryCatalogError.value).toBe('系统异常，操作未完成');
+    expect(requests).toHaveLength(count);
+    expect(session.adapter.describe().list).toEqual(original);
+  } finally {
+    session.dispose();
+  }
+});

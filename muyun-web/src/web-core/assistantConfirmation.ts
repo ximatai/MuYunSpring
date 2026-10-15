@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from './language';
 import type { OperationReceiptReference, OperationPresentation } from '@muyun/web-contracts';
 import {
   createOperationConfirmation,
@@ -24,8 +25,10 @@ export function createAssistantOperationConfirmation(
   proposal: AssistantOperationProposal,
   scopeIsCurrent: () => boolean,
   now: () => number = Date.now,
+  language: LanguageContext = platformLanguageContext,
 ): AssistantOperationConfirmation {
-  const confirmation = createOperationConfirmation(proposal, scopeIsCurrent, now);
+  const confirmation = createOperationConfirmation(proposal, scopeIsCurrent, now, language);
+  const modelSummary = proposal.modelSummary;
   const continuation = proposal.continuation && { ...proposal.continuation };
   const continuationIsCurrent = () =>
     confirmation.state === 'succeeded' && scopeIsCurrent() && continuation?.isCurrent() === true;
@@ -47,7 +50,15 @@ export function createAssistantOperationConfirmation(
     confirm: confirmation.confirm,
     check: confirmation.check,
     cancel: confirmation.cancel,
-    modelSummary: proposal.modelSummary ?? '有一项操作等待用户确认，尚未执行。',
+    get modelSummary() {
+      return (
+        modelSummary ??
+        language.t(
+          'platform.screen.assistantConfirmation.an-operation-is-awaiting-user-confirmation-and-has-not-been',
+          '有一项操作等待用户确认，尚未执行。',
+        )
+      );
+    },
     continuationReadOnly: continuation?.readOnly === true,
     continuationIsCurrent,
     takeContinuation() {
@@ -63,17 +74,33 @@ export function restoreAssistantOperationReceipt(
   reference: OperationReceiptReference,
   lookup: () => Promise<OperationPresentation | undefined>,
   scopeIsCurrent: () => boolean,
+  language: LanguageContext = platformLanguageContext,
 ): AssistantOperationConfirmation {
   let state: OperationConfirmationState = 'unknown';
   let result: OperationPresentation | undefined;
   let pending: Promise<void> | undefined;
   return {
     receiptReference: structuredClone(reference),
-    modelSummary: '历史操作结果待核实，只能查询，不能重新提交。',
+    get modelSummary() {
+      return language.t(
+        'platform.screen.assistantConfirmation.the-historical-result-needs-verification-it-can-only-be-queried',
+        '历史操作结果待核实，只能查询，不能重新提交。',
+      );
+    },
     confirmLabel: '',
-    presentation: {
-      title: '核实历史操作',
-      lines: ['请在原身份与业务范围内查询；重新校验当前权限。未查询到不表示操作未提交。'],
+    get presentation() {
+      return {
+        title: language.t(
+          'platform.screen.assistantConfirmation.verify-historical-operation',
+          '核实历史操作',
+        ),
+        lines: [
+          language.t(
+            'platform.screen.assistantConfirmation.query-within-the-original-identity-and-business-scope-checking-current',
+            '请在原身份与业务范围内查询；重新校验当前权限。未查询到不表示操作未提交。',
+          ),
+        ],
+      };
     },
     get state() {
       return state;

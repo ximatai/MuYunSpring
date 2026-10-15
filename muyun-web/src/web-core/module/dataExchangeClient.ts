@@ -1,5 +1,5 @@
 import type { HttpClient } from '../http';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import type { TextPresentation, WebQueryRequest } from '@muyun/web-contracts';
 
 export type ImportDuplicateStrategy = 'ERROR' | 'SKIP' | 'OVERWRITE';
 export interface ImportSheet {
@@ -31,6 +31,7 @@ export interface ImportExecutionResult {
   >;
   partialSuccess: boolean;
   message: string;
+  messageText?: TextPresentation;
   errorFileName?: string;
   errorFileToken?: string;
 }

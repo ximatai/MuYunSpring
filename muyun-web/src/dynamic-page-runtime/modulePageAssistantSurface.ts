@@ -7,6 +7,7 @@ import {
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
+  platformLanguageContext,
   type AssistantCapability,
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
@@ -84,6 +85,9 @@ export function createModulePageAssistantSurface(
 ): AssistantSurface {
   const activeForm = () => view.assistantNavigatorEditor?.form ?? view;
   const formView: RecordFormDraftAccess = {
+    get language() {
+      return activeForm().language ?? view.language ?? platformLanguageContext;
+    },
     get editorMode() {
       return activeForm().editorMode;
     },
@@ -112,8 +116,10 @@ export function createModulePageAssistantSurface(
     schemaDiscovery: 'eager',
   });
   const relationCapabilities = view.relationDrafts
-    ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
-        modulePageAssistantContextRevision(view),
+    ? createRelationDraftAssistantCapabilities(
+        view.relationDrafts,
+        () => modulePageAssistantContextRevision(view),
+        view.language,
       )
     : Object.assign(() => [], { selection: () => undefined, form: () => undefined });
   const scopeCandidates = new Map<string, AssistantScopeCandidate>();
@@ -158,7 +164,12 @@ export function createModulePageAssistantSurface(
       const omissionSize = JSON.stringify(omitted).length;
       let remaining = 12_000 - (selectedForm ? omissionSize : 0);
       const readForm = (access: RecordFormDraftAccess) => {
-        const form = recordFormAssistantFacts(access);
+        const form = recordFormAssistantFacts(
+          access,
+          undefined,
+          false,
+          access.language ?? view.language ?? platformLanguageContext,
+        );
         const facts = { ...form, source: form.editable ? 'unsaved-draft' : 'saved-record' };
         const size = JSON.stringify(facts).length;
         if (size > remaining) {
@@ -215,7 +226,9 @@ function modulePageObservationSummary(view: ModulePageSessionView): string | und
         mode: 'view',
       });
       if (assistantReadableField(field))
-        append(`${field.label}：${displayValue(recordFieldDisplay(field, view.selectedRecord))}`);
+        append(
+          `${field.label}：${displayValue(recordFieldDisplay(field, view.selectedRecord, undefined, false, view.language ?? platformLanguageContext))}`,
+        );
     }
     for (const relation of assistantRelationFacts(view, 'observation')) {
       append(
@@ -726,6 +739,7 @@ function assistantRelationFacts(view: ModulePageSessionView, purpose: 'context' 
     view.executableDetailRelations ?? [],
     view.recordDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
     {
+      language: view.language ?? platformLanguageContext,
       baseline: view.selectedRecord,
       purpose,
       draft: view.editorMode !== 'view',

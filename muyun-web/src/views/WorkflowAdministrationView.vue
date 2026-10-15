@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
 import {
+  useLanguageContext,
   useModuleContext,
   presentationLabel,
   createModuleContext,
@@ -9,6 +8,8 @@ import {
   createWorkflowClient,
   createWorkflowAdminClient,
 } from '@muyun/web-core';
+import { computed, ref, watch } from 'vue';
+
 import type {
   ModuleTitleView,
   WorkflowRenderBundle,
@@ -270,20 +271,26 @@ async function execute() {
   busy.value = true;
   try {
     if (
-      !(await confirmAction({
-        title: workflowLanguage.t(
-          'platform.screen.WorkflowAdministrationView.confirm-action-title',
-          '确认{operation}？',
-          { operation: operationTitle(pending.value.code) },
-        ),
-        content: workflowLanguage.t(
-          'platform.screen.WorkflowAdministrationView.confirm-action-content',
-          '{impact} 原因：{reason}',
-          { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
-        ),
-        danger: true,
-        okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.confirm-execute', '确认执行'),
-      }))
+      !(await confirmAction(
+        {
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-action-title',
+            '确认{operation}？',
+            { operation: operationTitle(pending.value.code) },
+          ),
+          content: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-action-content',
+            '{impact} 原因：{reason}',
+            { impact: operationImpact(pending.value.code), reason: reason.value.trim() },
+          ),
+          danger: true,
+          okText: workflowLanguage.t(
+            'platform.screen.WorkflowAdministrationView.confirm-execute',
+            '确认执行',
+          ),
+        },
+        workflowLanguage,
+      ))
     )
       return;
     await client.value.execute(selectedId.value, pending.value.code, reason.value, pending.value.taskId);
@@ -452,7 +459,8 @@ function chooseOperation(code: string, taskId?: string) {
   reason.value = '';
 }
 useWorkspaceViewUnsavedState(
-  '工作流运维',
+  () =>
+    workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-administration', '工作流运维'),
   () => Boolean(pending.value && reason.value.trim()),
   () => busy.value,
 );
@@ -462,14 +470,17 @@ async function mayCloseOperation() {
   const current = revision;
   const accepted =
     !reason.value.trim() ||
-    (await confirmAction({
-      title: workflowLanguage.t(
-        'platform.screen.WorkflowAdministrationView.discard-operation',
-        '放弃未执行的运维操作？',
-      ),
-      danger: true,
-      okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.discard', '放弃填写'),
-    }));
+    (await confirmAction(
+      {
+        title: workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.discard-operation',
+          '放弃未执行的运维操作？',
+        ),
+        danger: true,
+        okText: workflowLanguage.t('platform.screen.WorkflowAdministrationView.discard', '放弃填写'),
+      },
+      workflowLanguage,
+    ));
   return accepted && !busy.value && current === revision && operation === pending.value;
 }
 async function mayCloseDetail() {
@@ -530,7 +541,12 @@ function title(record: { id?: string; title?: string }) {
       :title="
         workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-administration', '工作流运维')
       "
-      subtitle="异常处理需要明确原因，所有操作记录审计"
+      :subtitle="
+        workflowLanguage.t(
+          'platform.screen.WorkflowAdministrationView.a-reason-is-required-for-exception-handling-all-operations-are',
+          '异常处理需要明确原因，所有操作记录审计',
+        )
+      "
       :columns="columns"
       :rows="rows"
       clickable-rows
@@ -572,7 +588,17 @@ function title(record: { id?: string; title?: string }) {
               :disabled="busy || Boolean(pending)"
               show-search
               :options="Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))"
-              :placeholder="historyMode ? '请选择业务模块' : '全部业务模块'" /></label
+              :placeholder="
+                historyMode
+                  ? workflowLanguage.t(
+                      'platform.screen.WorkflowAdministrationView.select-a-business-module',
+                      '请选择业务模块',
+                    )
+                  : workflowLanguage.t(
+                      'platform.screen.WorkflowWorkbenchView.all-business-modules',
+                      '全部业务模块',
+                    )
+              " /></label
           ><label class="workflow-field" v-if="!historyMode"
             ><RecordFieldLabel>{{
               workflowLanguage.t('platform.screen.WorkflowAdministrationView.workflow-status', '流程状态')
@@ -581,11 +607,11 @@ function title(record: { id?: string; title?: string }) {
               v-model:value="instanceStatus"
               :disabled="busy || Boolean(pending)"
               :options="[
-                { value: 'running', label: '进行中' },
-                { value: 'completed', label: '已完成' },
-                { value: 'rejected', label: '已驳回' },
-                { value: 'revoked', label: '已撤回' },
-                { value: 'terminated', label: '已终止' },
+                { value: 'running', label: workflowLanguage.t('platform.workflow.running', '进行中') },
+                { value: 'completed', label: workflowLanguage.t('platform.workflow.completed', '已完成') },
+                { value: 'rejected', label: workflowLanguage.t('platform.workflow.rejected', '已驳回') },
+                { value: 'revoked', label: workflowLanguage.t('platform.workflow.revoked', '已撤回') },
+                { value: 'terminated', label: workflowLanguage.t('platform.workflow.terminated', '已终止') },
               ]" /></label
           ><label class="workflow-field"
             >{{

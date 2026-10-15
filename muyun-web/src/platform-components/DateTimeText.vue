@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { formatPlatformDateTime, type PlatformDateTimePrecision } from './platformDateTime';
 import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
@@ -20,9 +21,11 @@ const props = withDefaults(
   },
 );
 
+const language = useLanguageContext();
 const injectedTimeZone = usePlatformTimeZoneContext();
 const display = computed(() =>
   formatPlatformDateTime(props.value, {
+    language,
     emptyText: props.emptyText,
     precision: props.precision,
     timeZone: props.timeZone ?? injectedTimeZone?.value,

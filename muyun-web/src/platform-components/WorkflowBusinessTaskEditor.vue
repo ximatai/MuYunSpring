@@ -68,7 +68,7 @@ const checkOptions = computed(() => [
 const guideOptions = computed(() => [
   {
     value: 'OPEN_FORM',
-    label: language.t('platform.workflow-task-editor.edit-complete', '填写当前业务并完成任务'),
+    label: language.t('platform.workflow-record.fill-complete', '填写业务数据并完成任务'),
   },
   {
     value: 'EXECUTE_ACTION',
@@ -104,21 +104,22 @@ watch(
 function save() {
   if (!props.disabled && !error.value) emit('update:value', JSON.stringify({ task: spec.value }));
 }
+/** New authored defaults follow the current language once; existing source drafts never change on switching. */
 function addCheck() {
   spec.value.checks.push({
     checkKey: `check_${Date.now().toString(36)}`,
-    title: '业务完成条件',
+    title: language.t('platform.workflow-task-editor.new-check-title', '业务完成条件'),
     enabled: true,
     checkKind: 'FORMULA',
     expression: '',
-    failureMessage: '业务数据尚未满足完成条件',
+    failureMessage: language.t('platform.workflow-task-editor.new-check-failure', '业务数据尚未满足完成条件'),
   });
   save();
 }
 function addGuide() {
   spec.value.guides.push({
     guideKey: `guide_${Date.now().toString(36)}`,
-    title: '填写业务数据并完成任务',
+    title: language.t('platform.workflow-record.fill-complete', '填写业务数据并完成任务'),
     enabled: true,
     guideKind: 'OPEN_FORM',
     targetModuleAlias: props.moduleAlias,

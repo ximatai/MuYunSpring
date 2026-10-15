@@ -1,7 +1,15 @@
 import { expect, it, vi } from 'vitest';
 import { prepareMetadataChangeSetSubmission } from '@/views/metadataChangeSetSubmission';
 import type { MetadataModelChangeSetProposal } from '@/views/metadataModelEditSession';
-import { AppError, OperationRejectedError, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import {
+  createLanguageContext,
+  resolveOperationErrorMessage,
+  OperationUsageError,
+  AppError,
+  OperationRejectedError,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@/web-core';
 
 function fixture() {
   const proposal: MetadataModelChangeSetProposal = {
@@ -203,4 +211,64 @@ it('captures and explains fixed initial values in the shared reviewed submission
       ],
     },
   });
+});
+
+it('localizes the reviewed change set while preserving raw configuration values and the reviewed fingerprint', async () => {
+  const { http, request, proposal } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  proposal.relationDrafts[0]!.fieldDrafts[0]!.property = {
+    kind: 'BASIC',
+    fixedDefault: { value: '业务默认 $1\\path' },
+  };
+  const original = structuredClone(proposal);
+  const submission = await prepareMetadataChangeSetSubmission(
+    http,
+    'demo.order',
+    proposal,
+    () => true,
+    undefined,
+    { string: 'Text' },
+    {},
+    language,
+  );
+  expect(submission.lines.join('\n')).toContain(
+    'Add “备注”: Text, Optional, Fixed default value: 业务默认 $1\\path',
+  );
+  expect(submission.details.join('\n')).toContain('备注 (note): type string; Required: No');
+  expect(submission.details.join('\n')).toContain('Fixed default value: 业务默认 $1\\path');
+  const presentation = structuredClone({ lines: submission.lines, details: submission.details });
+  language.setLanguage('zh-CN');
+  expect({ lines: submission.lines, details: submission.details }).toEqual(presentation);
+  expect(proposal).toEqual(original);
+  await submission.apply();
+  expect(request).toHaveBeenLastCalledWith(
+    expect.objectContaining({ body: { proposal: original, proposalFingerprint: 'checked' } }),
+  );
+});
+
+it('retains a fixed precheck rejection source without rerunning precheck on language changes', async () => {
+  const { http, request, proposal } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  let failure: unknown;
+  try {
+    await prepareMetadataChangeSetSubmission(
+      http,
+      'demo.order',
+      proposal,
+      () => false,
+      undefined,
+      {},
+      {},
+      language,
+    );
+  } catch (cause) {
+    failure = cause;
+  }
+  expect(failure).toBeInstanceOf(OperationUsageError);
+  expect((failure as Error).message).toContain('precheck and confirm again');
+  language.setLanguage('zh-CN');
+  expect(resolveOperationErrorMessage(failure as OperationUsageError, language)).toBe(
+    '配置候选或基线已变化，请重新预检并确认。',
+  );
+  expect(request).not.toHaveBeenCalled();
 });

@@ -1,10 +1,14 @@
+import * as controlTexts from '@/platform-workbench/assistantControlText';
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnInput, AssistantTurnOutput } from '@muyun/web-contracts';
 import {
+  createLanguageContext,
+  provideLanguageContext,
+  platformLanguageContext,
   AppError,
   createAssistantSurfaceRegistry,
   AssistantCapabilityUsageError,
@@ -1498,7 +1502,7 @@ it('restores persisted text after remount without reactivating old confirmation 
     .find((button) => button.text() === '新对话')!
     .trigger('click');
   await flushPromises();
-  expect(configurationCollaboration.task.value).toBeUndefined();
+  await vi.waitFor(() => expect(configurationCollaboration.task.value).toBeUndefined());
   expect(wrapper.find('[aria-label="本次配置协作方式"]').exists()).toBe(false);
   wrapper.unmount();
 });
@@ -1642,7 +1646,7 @@ it.each([false, true, 'denied'])(
     expect(JSON.stringify(requestTurn.mock.calls)).toContain('暂不修改或保存');
     expect(wrapper.text()).not.toContain('查看关联的已保存建设方案');
     await click('新对话');
-    expect(plan.current().planId).toBeUndefined();
+    await vi.waitFor(() => expect(plan.current().planId).toBeUndefined());
     expect(plan.current().candidate).toBeUndefined();
     wrapper.unmount();
   },
@@ -2523,6 +2527,7 @@ it('keeps display observations for later messages but clears them on new convers
     await wrapper.get('textarea').setValue(message);
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.find('.assistant-panel__working').exists()).toBe(false));
   };
   try {
     await submit('核实应用后继续');
@@ -2548,6 +2553,7 @@ it('keeps display observations for later messages but clears them on new convers
       .find((button) => button.text() === '新对话')!
       .trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.findAll('.assistant-message')).toHaveLength(0));
     await submit('查看当前页面');
     expect(JSON.stringify(requests.at(-1)!.history)).not.toContain('正式应用名称');
   } finally {
@@ -2614,4 +2620,217 @@ it('includes the final summary request in complete-round usage', async () => {
   expect(diagnostic).toContain('结果整理请求');
   expect(diagnostic).toContain('22 tokens（总量覆盖 13/13）');
   wrapper.unmount();
+});
+
+it('uses its own English scope and refreshes fixed failure text without replaying or translating the user draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private upstream diagnostic', { code: 'AI_MODEL_TIMEOUT', status: 504 });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    expect(wrapper.get('aside').attributes('aria-label')).toBe('AI assistant');
+    expect(wrapper.get('textarea').attributes('placeholder')).toBe('Describe what you want to accomplish');
+    await wrapper.get('textarea').setValue('原始用户需求');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(wrapper.text()).toContain('原始用户需求');
+    expect(wrapper.text()).not.toContain('private upstream diagnostic');
+    await wrapper.get('textarea').setValue('未发送草稿');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.get('textarea').element.value).toBe('未发送草稿');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(platformLanguageContext.languageTag.value).toBe('zh-CN');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('localizes selection controls while retaining model prompts, option names and messages', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => ({
+    text: '模型原始回复',
+    toolCalls: [],
+    selection: {
+      interactionId: 'choose',
+      prompt: '原始选择问题',
+      presentation: 'options' as const,
+      inputPolicy: 'free_text_allowed' as const,
+      options: [{ id: 'a', label: '原始业务名称' }],
+    },
+  }));
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    await wrapper.get('textarea').setValue('业务输入');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('模型原始回复');
+    expect(wrapper.text()).toContain('原始选择问题');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(wrapper.text()).toContain('You can also type something else');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('也可以继续输入其他内容');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(requestTurn).toHaveBeenCalledOnce();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('saves, continues and restores fixed failure sources on LAN HTTP while preserving raw history', async () => {
+  const originalCrypto = globalThis.crypto;
+  vi.stubGlobal('crypto', { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved = JSON.parse(JSON.stringify({ id, revision: revision + 1, content, updatedAt: '2026-10-14' }));
+      return saved!;
+    }),
+    list: vi.fn(async () =>
+      saved ? [{ id: saved.id, title: saved.content.title, updatedAt: saved.updatedAt }] : [],
+    ),
+    read: vi.fn(async () => JSON.parse(JSON.stringify(saved))),
+  };
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry, conversationClient: client });
+    },
+  });
+  const wrapper = mount(Host);
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === label)!
+      .trigger('click');
+    await flushPromises();
+  };
+  try {
+    await wrapper.get('textarea').setValue('用户需求原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(saved?.content.messages.some((message) => message.controlText)).toBe(true));
+    const rawFailure = saved!.content.messages.find((message) => message.controlText)!;
+    expect(rawFailure.text).toContain('等待模型回复超时');
+    expect(JSON.stringify(saved!.content.history)).not.toContain('controlText');
+    expect(JSON.stringify(rawFailure.controlText)).not.toContain('private diagnostic');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).not.toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
+    expect(wrapper.text()).toContain('用户需求原文');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮用户原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(saved!.content.messages.some((message) => message.text === '第二轮用户原文')).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    expect(saved!.content.messages.find((message) => message.controlText)!.text).toBe(rawFailure.text);
+    // A valid reference from an unknown version cannot partially relocalize the old control fact.
+    const packet = saved!.content.messages.find((message) => message.controlText)!.controlText!;
+    if (!('parts' in packet)) throw new Error('Missing failure parts');
+    const first = packet.parts[0];
+    if (!first || typeof first === 'string' || !('source' in first))
+      throw new Error('Missing failure source');
+    first.source.sourceId = 'platform.error.AI_FUTURE_UNKNOWN';
+    language.setLanguage('en');
+    await flushPromises();
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.findAll('.assistant-message--status').map((message) => message.text())).toContain(
+      rawFailure.text,
+    );
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+  } finally {
+    wrapper.unmount();
+    vi.stubGlobal('crypto', originalCrypto);
+  }
+});
+
+it('keeps raw conversation save and later model turns available when optional source materialization fails', async () => {
+  const encoder = vi
+    .spyOn(controlTexts, 'archiveControlText')
+    .mockRejectedValueOnce(new Error('Invalid source'));
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const saved: import('@muyun/web-core').AssistantConversationContent[] = [];
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved.push(JSON.parse(JSON.stringify(content)));
+      return { id, revision: revision + 1, content, updatedAt: '2026-10-14' };
+    }),
+    list: vi.fn(async () => []),
+    read: vi.fn(),
+  };
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+  });
+  try {
+    await wrapper.get('textarea').setValue('第一轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() =>
+      expect(
+        saved.some((content) =>
+          content.messages.some(
+            (message) => message.text.includes('等待模型回复超时') && !message.controlText,
+          ),
+        ),
+      ).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    expect(JSON.stringify(saved)).not.toContain('private diagnostic');
+  } finally {
+    wrapper.unmount();
+    encoder.mockRestore();
+  }
 });

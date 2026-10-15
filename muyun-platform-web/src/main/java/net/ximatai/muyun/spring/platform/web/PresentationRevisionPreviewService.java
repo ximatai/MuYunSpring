@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
@@ -58,7 +59,8 @@ public class PresentationRevisionPreviewService {
             var tree = OBJECT_MAPPER.readTree(request.uiTreeJson());
             previewVersion = tree == null ? -1 : tree.path("templateVersion").asInt(-1);
         } catch (JsonProcessingException exception) {
-            throw BusinessExceptions.warning("platform.presentation-preview.ui-tree-invalid", "页面草稿必须为有效 JSON");
+            throw BusinessExceptions.warningText("platform.presentation-preview.ui-tree-invalid",
+                TextReference.code("platform.presentation-preview.ui-tree-invalid", "页面草稿必须为有效 JSON"));
         }
         PlatformPresentationTemplate template = templateCatalog.require(revision.getTemplateAlias(),
                 previewVersion, variant.getClientType(), page.getContractType());

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import type { UserSessionView } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
@@ -9,6 +10,8 @@ import {
   userSessionPresenceTitle,
   userSessionTerminalTitle,
 } from './userSessionPresentation';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UserSessionExpandedSubtable' });
 
@@ -41,15 +44,24 @@ const emit = defineEmits<{
 
 <template>
   <RecordExpandedSubtable
-    title="在线会话"
+    :title="language.t('platform.screen.UserSessionExpandedSubtable.online-sessions', '在线会话')"
     :loading="loading"
     :error="error"
     :embedded="embedded"
-    loading-tip="加载在线会话"
-    error-title="在线会话加载失败"
+    :loading-tip="
+      language.t('platform.screen.UserSessionExpandedSubtable.loading-online-sessions', '加载在线会话')
+    "
+    :error-title="
+      language.t(
+        'platform.screen.UserSessionExpandedSubtable.unable-to-load-online-sessions',
+        '在线会话加载失败',
+      )
+    "
   >
     <template #actions>
-      <UiButton type="text" icon-name="reload" :disabled="loading" @click="emit('refresh')">刷新</UiButton>
+      <UiButton type="text" icon-name="reload" :disabled="loading" @click="emit('refresh')">{{
+        language.t('platform.page-action.REFRESH.title', '刷新')
+      }}</UiButton>
       <UiButton
         v-if="canRevokeAll"
         danger
@@ -57,13 +69,21 @@ const emit = defineEmits<{
         :disabled="actionsDisabled || loading"
         @click="emit('revokeAll')"
       >
-        全部下线
+        {{ language.t('platform.screen.UserSessionExpandedSubtable.sign-out-all-sessions', '全部下线') }}
       </UiButton>
     </template>
-    <p v-if="props.sessions.length === 0" class="user-session-expanded-empty">当前无在线会话</p>
+    <p v-if="props.sessions.length === 0" class="user-session-expanded-empty">
+      {{ language.t('platform.screen.UserSessionExpandedSubtable.no-online-sessions', '当前无在线会话') }}
+    </p>
     <div v-else class="user-session-expanded-list">
       <header class="user-session-expanded-header">
-        <span>浏览器信息</span><span>登录与活动</span><span>操作</span>
+        <span>{{
+          language.t('platform.screen.UserSessionExpandedSubtable.browser-information', '浏览器信息')
+        }}</span
+        ><span>{{
+          language.t('platform.screen.UserSessionExpandedSubtable.sign-in-and-activity', '登录与活动')
+        }}</span
+        ><span>{{ language.t('platform.screen.RecordPermissionDialog.operation', '操作') }}</span>
       </header>
       <article v-for="session in props.sessions" :key="session.id" class="user-session-expanded-item">
         <div class="user-session-expanded-main">
@@ -71,32 +91,38 @@ const emit = defineEmits<{
           <span
             class="user-session-expanded-presence"
             :class="{ 'is-present': session.present, 'is-idle': session.presenceStatus === 'idle' }"
-            :title="userSessionPresenceDescription(session)"
+            :title="userSessionPresenceDescription(session, language)"
           >
-            {{ userSessionPresenceTitle(session) }}
+            {{ userSessionPresenceTitle(session, language) }}
           </span>
-          <span v-if="session.current" class="user-session-expanded-badge">当前会话</span>
+          <span v-if="session.current" class="user-session-expanded-badge">{{
+            language.t('platform.screen.UserSessionExpandedSubtable.current-session', '当前会话')
+          }}</span>
         </div>
         <dl class="user-session-expanded-meta">
           <div>
-            <dt>登录</dt>
+            <dt>{{ language.t('platform.screen.LoginView.sign-in', '登录') }}</dt>
             <dd><DateTimeText :value="session.issuedAt" /></dd>
           </div>
           <div>
-            <dt>最近请求</dt>
+            <dt>{{ language.t('platform.screen.UserSessionExpandedSubtable.last-request', '最近请求') }}</dt>
             <dd><DateTimeText :value="session.lastSeenAt" /></dd>
           </div>
           <div>
-            <dt>连接</dt>
-            <dd :title="userSessionPresenceDescription(session)">{{ session.connectionCount ?? 0 }}</dd>
+            <dt>{{ language.t('platform.screen.UserSessionExpandedSubtable.connections', '连接') }}</dt>
+            <dd :title="userSessionPresenceDescription(session, language)">
+              {{ session.connectionCount ?? 0 }}
+            </dd>
           </div>
           <div>
             <dt>IP</dt>
             <dd :title="session.loginIp || '-'">{{ session.loginIp || '-' }}</dd>
           </div>
           <div>
-            <dt>终端</dt>
-            <dd :title="userSessionTerminalTitle(session)">{{ userSessionTerminalTitle(session) }}</dd>
+            <dt>{{ language.t('platform.screen.UserSessionExpandedSubtable.terminal', '终端') }}</dt>
+            <dd :title="userSessionTerminalTitle(session, language)">
+              {{ userSessionTerminalTitle(session, language) }}
+            </dd>
           </div>
         </dl>
         <UiButton
@@ -105,7 +131,7 @@ const emit = defineEmits<{
           :disabled="actionsDisabled || !canRevoke(session)"
           @click="emit('revoke', session)"
         >
-          下线
+          {{ language.t('platform.screen.UserSessionExpandedSubtable.sign-out-session', '下线') }}
         </UiButton>
       </article>
     </div>

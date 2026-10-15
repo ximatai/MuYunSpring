@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
 import { computed } from 'vue';
 import { ModuleContextProvider } from '@muyun/web-core';
 import WorkspaceViewOutlet from '../WorkspaceViewOutlet.vue';
 import { resolveWorkspaceView } from '../workspaceViews';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'BusinessRouteHost' });
 
@@ -27,7 +30,7 @@ const workspaceView = computed(() => resolveWorkspaceView(props.descriptor));
   </ModuleContextProvider>
   <section v-else class="page-host">
     <header>
-      <span class="host-badge">业务页面</span>
+      <span class="host-badge">{{ language.t('platform.screen.Workbench.business-page', '业务页面') }}</span>
       <h2>{{ title }}</h2>
     </header>
     <p>{{ descriptor.target.route ?? descriptor.target.routeName ?? descriptor.target.pageKey }}</p>

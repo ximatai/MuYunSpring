@@ -87,7 +87,7 @@ it('resolves multiple option identities before raw title companions and preserve
   for (const status of [['ATTENDED', 'ABSENT'], '["ATTENDED","ABSENT"]']) {
     const record = { status, statusTitle: ['已参加', '缺考'] };
     expect(resolveRecordDetailDisplayValue(field, record, { optionItems: items, language })).toBe(
-      'Attended、Absent',
+      'Attended, Absent',
     );
     expect(record.status).toEqual(status);
     expect(record.statusTitle).toEqual(['已参加', '缺考']);
@@ -99,5 +99,5 @@ it('resolves multiple option identities before raw title companions and preserve
       { status: ['ABSENT', 'UNKNOWN'] },
       { optionItems: items, language },
     ),
-  ).toBe('Absent、UNKNOWN');
+  ).toBe('Absent, UNKNOWN');
 });

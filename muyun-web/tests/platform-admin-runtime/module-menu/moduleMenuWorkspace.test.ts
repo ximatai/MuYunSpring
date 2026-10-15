@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createModuleMenuWorkspace } from '@/platform-admin-runtime/module-menu/moduleMenuWorkspace';
-import type { AssistantCapabilityExecutionContext } from '@/web-core';
+import {
+  createLanguageContext,
+  type LanguageContext,
+  type AssistantCapabilityExecutionContext,
+} from '@/web-core';
 
-function setup(authorized = true) {
+function setup(authorized = true, language?: LanguageContext) {
   let identity = 'ordinary-user';
   const request = vi.fn(async ({ path }: { path: string }) => {
     if (path.endsWith('/context'))
@@ -33,6 +37,7 @@ function setup(authorized = true) {
       remove: async () => {},
     },
     { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    language,
   );
   const context: AssistantCapabilityExecutionContext = {
     signal: new AbortController().signal,
@@ -127,4 +132,29 @@ describe('thin menu assistant adapter', () => {
     t.workspace.current();
     await expect(proposal.execute()).rejects.toThrow('已变化');
   });
+});
+
+it('changes assistant audience labels without invalidating issued candidate keys or replaying reads', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const t = setup(true, language);
+  const session = await openCandidate(t);
+  const describe = t.capability('menu.describe');
+  const before = (await describe.execute(describe.parseInput({}), t.context)) as {
+    schemes: { selectionKey: string }[];
+    audience: string;
+  };
+  expect(before.audience).toBe('Users in tenant demo');
+  const key = before.schemes[0]!.selectionKey;
+  const revision = t.workspace.current().revision;
+  const calls = t.request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  const current = t.capability('menu.describe');
+  const after = (await current.execute(current.parseInput({}), t.context)) as typeof before;
+  expect(after.audience).toBe('租户 demo 的用户');
+  expect(after.schemes[0]!.selectionKey).toBe(key);
+  expect(t.workspace.current().revision).toBe(revision);
+  expect(t.request).toHaveBeenCalledTimes(calls);
+  const revise = t.capability('menu.revise-draft');
+  expect(() => revise.parseInput({ schemeKey: key, title: '人工菜单名' })).not.toThrow();
+  expect(session.title.value).toBe('报名登记');
 });

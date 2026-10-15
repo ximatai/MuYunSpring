@@ -38,6 +38,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class PlatformModuleActionService extends AbstractAbilityService<PlatformModuleAction> implements
+        net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility<PlatformModuleAction>,
         SoftDeleteAbility<PlatformModuleAction>,
         EnableAbility<PlatformModuleAction>,
         SortAbility<PlatformModuleAction>,
@@ -342,5 +343,12 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         action.setBindingType(ModuleActionBindingType.DYNAMIC_ACTION_EXECUTOR);
         action.setBindingId(definition.executorKey());
         action.setBindingAlias(definition.executorKey());
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(PlatformModuleAction record) {
+        if (record.getTitle() == null || record.getTitle().isBlank()) return java.util.Map.of();
+        var source = record.titleSource();
+        return source == null ? java.util.Map.of() : java.util.Map.of("title", source);
     }
 }

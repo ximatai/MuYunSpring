@@ -7,11 +7,16 @@ import type {
   ResolvedReferenceFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { Component } from 'vue';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { formatPlatformDateTime } from './platformDateTime';
 import { formatPlatformFileSize } from './platformFileSize';
-import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import {
+  presentationLabel,
+  recordPresentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
@@ -24,6 +29,8 @@ export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
 export interface RecordQueryListColumn {
   key: string;
   title: string;
+  /** Declared CODE resource for a contributed column heading. */
+  titleKey?: string;
   type?: 'text' | 'enabledStatus' | 'booleanStatus' | 'tagList' | 'datetime' | 'fileSize' | 'colorPicker';
   booleanStatus?: ResolvedViewFieldDescriptor['booleanStatus'];
   width?: string;
@@ -102,6 +109,7 @@ export function resolveRecordQueryListDisplayValue(
   cellRenderers: Record<string, (record: QueryListRecord) => string> = {},
   context: RecordQueryListDisplayContext = {},
 ) {
+  const language = context.language ?? platformLanguageContext;
   const rendered = column.render?.(record) ?? cellRenderers[column.key]?.(record);
   const rawValue = record[column.key];
   const presentationValue = rendered ?? rawValue;
@@ -110,8 +118,10 @@ export function resolveRecordQueryListDisplayValue(
       column.type === 'booleanStatus'
         ? resolveRecordBooleanStatusValue(record[column.key])
         : record[column.key] !== false;
-    if (enabled === true) return column.booleanStatus?.trueLabel ?? '启用';
-    if (enabled === false) return column.booleanStatus?.falseLabel ?? '停用';
+    if (enabled === true)
+      return column.booleanStatus?.trueLabel ?? language.t('platform.value.enabled', '启用');
+    if (enabled === false)
+      return column.booleanStatus?.falseLabel ?? language.t('platform.value.disabled', '停用');
     return '-';
   }
   if (column.type === 'tagList') {
@@ -127,7 +137,7 @@ export function resolveRecordQueryListDisplayValue(
       typeof presentationValue === 'number' ||
       rawValue instanceof Date)
   ) {
-    return formatPlatformDateTime(presentationValue, { timeZone: context.timeZone }).text;
+    return formatPlatformDateTime(presentationValue, { language, timeZone: context.timeZone }).text;
   }
   if (
     column.type === 'fileSize' &&
@@ -142,7 +152,8 @@ export function resolveRecordQueryListDisplayValue(
     const display = readonlyReferenceDisplay(
       column.reference,
       record[column.key],
-      column.titleField ? record[column.titleField] : record[`${column.key}Title`],
+      readonlyReferenceSummaryOf(record, column.titleField ?? `${column.key}Title`, language),
+      language,
     );
     if (display !== undefined) return display;
   }
@@ -157,13 +168,17 @@ export function resolveRecordQueryListDisplayValue(
   );
   for (const candidate of titleFields) {
     const titleValue = record[candidate];
-    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+    if (typeof titleValue === 'string' && titleValue.trim())
+      return recordPresentationLabel(record, candidate, language);
   }
   const value = rawValue;
   const optionTitles = optionTitlesOf(value, column.optionItems, context.language);
   if (optionTitles.length > 0) return optionTitles.join('、');
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value ?? '');
+  if (typeof value === 'boolean')
+    return value ? language.t('platform.value.yes', '是') : language.t('platform.value.no', '否');
+  return typeof value === 'string'
+    ? recordPresentationLabel(record, column.key, language)
+    : String(value ?? '');
 }
 
 function optionTitlesOf(

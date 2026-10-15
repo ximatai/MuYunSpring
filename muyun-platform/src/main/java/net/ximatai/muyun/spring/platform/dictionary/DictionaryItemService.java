@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 @Service
 public class DictionaryItemService extends AbstractAbilityService<DictionaryItem> implements
+        net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility<DictionaryItem>,
         SoftDeleteAbility<DictionaryItem>,
         EnableAbility<DictionaryItem>,
         TreeAbility<DictionaryItem>,
@@ -86,6 +87,17 @@ public class DictionaryItemService extends AbstractAbilityService<DictionaryItem
 
     public DictionaryCategory category(String applicationAlias, String categoryAlias) {
         return categoryService.requireDictionaryCategory(applicationAlias, categoryAlias);
+    }
+
+    DictionaryCategory globalOptionCategory(String applicationAlias, String categoryAlias) {
+        DictionaryCategory category = categoryService.list(Criteria.of()
+                .eq("applicationAlias", PlatformNameRules.requireApplicationAlias(applicationAlias))
+                .eq("alias", PlatformNameRules.requireIdentifier(categoryAlias, "dictionaryCategoryAlias"))
+                .isNull("tenantId"), new PageRequest(0, 1)).stream().findFirst().orElse(null);
+        if (category == null) throw new PlatformException(DictionaryCategoryService.CATEGORY_NOT_FOUND, 404,
+                "Dictionary category requires existing global category: " + applicationAlias + "." + categoryAlias);
+        // Keep the existing category-kind validation before reading items.
+        return categoryService.requireDictionaryCategory(category.getId());
     }
 
     public DictionaryItem resolveItem(String applicationAlias, String categoryAlias, String code) {
@@ -190,5 +202,12 @@ public class DictionaryItemService extends AbstractAbilityService<DictionaryItem
 
     private Criteria categoryScope(String categoryId) {
         return Criteria.of().eq("categoryId", categoryId);
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(DictionaryItem record) {
+        if (record.getTitle() == null || record.getTitle().isBlank()) return java.util.Map.of();
+        var source = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.dictionaryTitle(record.getId(), record.getTitle());
+        return source == null ? java.util.Map.of() : java.util.Map.of("title", source);
     }
 }

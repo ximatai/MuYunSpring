@@ -45,24 +45,35 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
 
     @Override
     public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return PlatformModuleRuntimeContext.class.isAssignableFrom(returnType.getParameterType());
+        return PlatformModuleRuntimeContext.class.isAssignableFrom(returnType.getParameterType())
+                || PresentationRevisionPreview.class.isAssignableFrom(returnType.getParameterType());
     }
 
     @Override
     public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType contentType,
                                   Class<? extends HttpMessageConverter<?>> converterType,
                                   ServerHttpRequest request, ServerHttpResponse response) {
-        if (!(body instanceof PlatformModuleRuntimeContext context)) return body;
-        return project(context);
+        if (body instanceof PlatformModuleRuntimeContext context) return project(context);
+        if (body instanceof PresentationRevisionPreview preview) return project(preview);
+        return body;
     }
 
     Object project(PlatformModuleRuntimeContext context) {
+        return project(context, context.uiDescriptor(), context.actions(), context.titleSource(), context.title());
+    }
+
+    Object project(PresentationRevisionPreview preview) {
+        return project(preview, preview.uiDescriptor(), java.util.List.of(), null, null);
+    }
+
+    private Object project(Object document, ResolvedModuleUiDescriptor descriptor,
+                           java.util.List<PlatformModuleRuntimeAction> actions,
+                           net.ximatai.muyun.spring.common.i18n.TextReference titleSource, String title) {
         TextResolver texts = textProvider.get();
         LanguageCatalog catalog = catalogProvider.get();
-        ObjectNode output = mapper.valueToTree(context);
+        ObjectNode output = mapper.valueToTree(document);
         Map<String, TextPresentation> bindings = new LinkedHashMap<>();
         Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> visibleSources = new LinkedHashMap<>();
-        var descriptor = context.uiDescriptor();
         var locations = descriptor == null ? java.util.List.<ModuleUiTextLocations.Location>of() : ModuleUiTextLocations.of(descriptor).stream().filter(location -> {
             var source = descriptor.sourceTexts().get(location.bindingKey());
             return source != null && source.originalText().equals(location.originalText()) &&
@@ -70,9 +81,9 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
         }).toList();
         var sources = new java.util.ArrayList<net.ximatai.muyun.spring.common.i18n.TextReference>();
         locations.stream().map(location -> descriptor.sourceTexts().get(location.bindingKey())).forEach(sources::add);
-        context.actions().stream().filter(action -> action.titleSource() != null &&
+        actions.stream().filter(action -> action.titleSource() != null &&
                 action.titleSource().originalText().equals(action.title())).map(PlatformModuleRuntimeAction::titleSource).forEach(sources::add);
-        if (context.titleSource() != null && context.titleSource().originalText().equals(context.title())) sources.add(context.titleSource());
+        if (titleSource != null && titleSource.originalText().equals(title)) sources.add(titleSource);
         if (texts != null) texts = texts.prepare(sources);
         for (var location : locations) {
             var source = descriptor.sourceTexts().get(location.bindingKey());
@@ -88,8 +99,8 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
             visibleSources.put(location.bindingKey(), source);
             if (texts != null) replaceText(output, path, texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
         }
-        for (int index = 0; index < context.actions().size(); index++) {
-            var action = context.actions().get(index);
+        for (int index = 0; index < actions.size(); index++) {
+            var action = actions.get(index);
             var source = action.titleSource();
             if (source == null || !source.originalText().equals(action.title())) continue;
             Map<String, TextResources.Resolution> languages = new LinkedHashMap<>();
@@ -100,8 +111,8 @@ public class ModulePresentationResponseAdvice implements ResponseBodyAdvice<Obje
             bindings.put(path, new TextPresentation(source, languages));
             if (texts != null) replaceText(output, path, texts.resolve(source, Map.of(), LanguageContext.currentTag()).text());
         }
-        if (context.titleSource() != null && context.titleSource().originalText().equals(context.title())) {
-            var source = context.titleSource();
+        if (titleSource != null && titleSource.originalText().equals(title)) {
+            var source = titleSource;
             var languages = new LinkedHashMap<String, TextResources.Resolution>();
             if (texts != null && catalog != null) for (var language : catalog.languages()) if (language.enabled())
                 languages.put(language.tag(), texts.resolve(source, Map.of(), language.tag()));

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, getCurrentInstance } from 'vue';
 import ReferencePicker from './ReferencePicker.vue';
 import type {
@@ -12,6 +13,8 @@ import type {
   EmployeePickerPageSearch,
   EmployeePickerResolver,
 } from './employeePickerModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'EmployeePicker' });
 
@@ -34,14 +37,21 @@ const props = withDefaults(
     value: undefined,
     multiple: false,
     maxSelection: undefined,
-    placeholder: '搜索并选择职员',
+    placeholder: undefined,
     disabled: false,
     allowClear: true,
     pageSize: 20,
-    title: '选择职员',
+    title: undefined,
     reloadKey: undefined,
     sourceIdentity: undefined,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.screen.EmployeePicker.placeholder', '搜索并选择职员'),
+);
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.EmployeePicker.title', '选择职员'),
 );
 
 const emit = defineEmits<{
@@ -64,10 +74,10 @@ const provider = computed<ReferencePickerProvider>(() => ({
   resolve: props.resolveEmployees,
 }));
 
-const columns = [
-  { key: 'title', title: '职员' },
-  { key: 'subtitle', title: '摘要', width: 220 },
-];
+const columns = computed(() => [
+  { key: 'title', title: language.t('platform.screen.EmployeePicker.employee', '职员') },
+  { key: 'subtitle', title: language.t('platform.screen.EmployeePicker.summary', '摘要'), width: 220 },
+]);
 
 function updateValue(value: string | string[] | undefined) {
   emit('update:value', value);
@@ -82,14 +92,21 @@ function updateValue(value: string | string[] | undefined) {
     :provider="provider"
     :reload-key="reloadKey"
     :columns="columns"
-    :placeholder="placeholder"
+    :placeholder="resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :page-size="pageSize"
-    :title="title"
-    search-placeholder="按工号、姓名或职员 ID 搜索"
-    empty-description="没有可选择的职员"
-    selection-noun="职员"
+    :title="resolvedTitle"
+    :search-placeholder="
+      language.t(
+        'platform.screen.EmployeePicker.search-by-employee-number-name-or-id',
+        '按工号、姓名或职员 ID 搜索',
+      )
+    "
+    :empty-description="
+      language.t('platform.screen.EmployeePicker.no-employees-available', '没有可选择的职员')
+    "
+    :selection-noun="language.t('platform.screen.EmployeePicker.employee', '职员')"
     @update:value="updateValue"
     @select="emit('select', $event)"
     @selection-resolved="emit('selection-resolved', $event)"

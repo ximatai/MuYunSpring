@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, ref, shallowRef, useId, watch, type Ref } from 'vue';
 import {
   useUiDragSource,
@@ -46,6 +47,7 @@ export function usePageCompositionPreviewDrag(
   enabled: Ref<boolean>,
   onDrop: (source: CompositionPlacementSource, target: CompositionPlacementTarget) => void,
 ) {
+  const language = useLanguageContext();
   const instanceId = useId();
   const indicator = ref<{ left: number; top: number; width: number; height: number }>();
   const transientPlacement = shallowRef<PageCompositionPreviewPlacement>();
@@ -933,9 +935,15 @@ export function usePageCompositionPreviewDrag(
     return {
       role: 'button',
       tabindex: enabled.value ? 0 : -1,
-      'aria-label': `拖动${title}`,
+      'aria-label': language.t('platform.screen.usePageCompositionPreviewDrag.drag-value', '拖动{value1}', {
+        value1: title,
+      }),
       'aria-disabled': !enabled.value,
-      title: `拖动${title}；空格开始，方向键定位，回车放置，Esc 取消`,
+      title: language.t(
+        'platform.screen.usePageCompositionPreviewDrag.drag-value-space-to-start-arrow-keys-to-position-enter',
+        '拖动{value1}；空格开始，方向键定位，回车放置，Esc 取消',
+        { value1: title },
+      ),
       'data-composer-drag': key,
       class: 'page-composer-drag-handle',
       onMousedown: (event: MouseEvent) => {
@@ -969,9 +977,22 @@ export function usePageCompositionPreviewDrag(
             ...indicator.value,
             rejected: rejected.value,
             title: rejected.value
-              ? '不能放置在此处'
+              ? language.t(
+                  'platform.screen.usePageCompositionPreviewDrag.cannot-place-here',
+                  '不能放置在此处',
+                )
               : hovered.value.kind === 'node'
-                ? `放置：${hovered.value.node.title}${hovered.value.position === 'before' ? '之前' : hovered.value.position === 'after' ? '之后' : '内部'}`
+                ? hovered.value.position === 'before'
+                  ? language.t('platform.page.drag.place-before', '放置：{title}之前', {
+                      title: hovered.value.node.title,
+                    })
+                  : hovered.value.position === 'after'
+                    ? language.t('platform.page.drag.place-after', '放置：{title}之后', {
+                        title: hovered.value.node.title,
+                      })
+                    : language.t('platform.page.drag.place-inside', '放置：{title}内部', {
+                        title: hovered.value.node.title,
+                      })
                 : '',
           }
         : undefined,

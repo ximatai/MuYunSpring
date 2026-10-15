@@ -2,10 +2,17 @@ package net.ximatai.muyun.spring.common.platform;
 
 public record RecordActionAvailabilityDecision(
         boolean available,
-        String reason
+        String reason,
+        net.ximatai.muyun.spring.common.i18n.TextReference reasonSource
 ) {
     public RecordActionAvailabilityDecision {
         reason = normalize(reason);
+    }
+
+    public RecordActionAvailabilityDecision(boolean available, String reason) { this(available, reason, null); }
+
+    public static RecordActionAvailabilityDecision unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference source) {
+        return new RecordActionAvailabilityDecision(false, source.originalText(), source);
     }
 
     public static RecordActionAvailabilityDecision allow() {

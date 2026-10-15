@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type {
   PageComposerField,
   PageComposerFieldProperties,
@@ -117,13 +118,19 @@ export function pageCompositionChangeLines(
   before: string | undefined,
   after: string,
   fieldTitle: (name: string) => string = (name) => name,
+  language: LanguageContext = platformLanguageContext,
 ): string[] {
   if (!before || before === after) return [];
   try {
     const previous = JSON.parse(before);
     const current = JSON.parse(after);
     const lines: string[] = [];
-    const labels: Record<string, string> = { list: '列表', form: '表单', detail: '详情', explorer: '导航' };
+    const labels: Record<string, string> = {
+      list: language.t('platform.page.composition.list', '列表'),
+      form: language.t('platform.screen.PageCompositionEditor.form', '表单'),
+      detail: language.t('platform.screen.PageCompositionEditor.details', '详情'),
+      explorer: language.t('platform.screen.pageCompositionComponents.navigation', '导航'),
+    };
     for (const slot of ['list', 'form', 'detail', 'explorer']) {
       const oldNode = previous.nodes?.find((node: { slot: string }) => node.slot === slot);
       const newNode = current.nodes?.find((node: { slot: string }) => node.slot === slot);
@@ -139,20 +146,33 @@ export function pageCompositionChangeLines(
               : `${fieldTitle(prefix + field.field)}（${Object.entries(field.props ?? {})
                   .map(
                     ([key, value]) =>
-                      `${({ label: '标题', width: '列宽', align: '对齐', columnSpan: '占列', readOnly: '只读', fieldUiControlAlias: '控件' } as Record<string, string>)[key] ?? key}：${String(value)}`,
+                      `${({ label: language.t('platform.screen.CrudRecordListExplorer.title', '标题'), width: language.t('platform.screen.PageCompositionEditor.column-width', '列宽'), align: language.t('platform.screen.PageCompositionEditor.alignment', '对齐'), columnSpan: language.t('platform.screen.pageCompositionCandidate.column-span', '占列'), readOnly: language.t('platform.screen.metadataSourceTree.read-only', '只读'), fieldUiControlAlias: language.t('platform.screen.pageCompositionCandidate.control', '控件') } as Record<string, string>)[key] ?? key}：${String(value)}`,
                   )
                   .join('；')}）`,
           )
-          .join('、') || '无根字段';
+          .join('、') || language.t('platform.screen.pageCompositionCandidate.no-root-fields', '无根字段');
       lines.push(`${labels[slot]}：${display(oldNode)} → ${display(newNode)}`);
       if (JSON.stringify(oldNode?.groups) !== JSON.stringify(newNode?.groups))
-        lines.push(`${labels[slot]}分组已调整。`);
+        lines.push(
+          language.t(
+            'platform.screen.pageCompositionCandidate.value-groups-changed',
+            '{value1}分组已调整。',
+            { value1: labels[slot] },
+          ),
+        );
       if (JSON.stringify(oldNode?.relations) !== JSON.stringify(newNode?.relations)) {
         const order = (node: typeof oldNode) =>
           (node?.relations ?? [])
             .map((relation: { relation: string; title?: string }) => relation.title ?? relation.relation)
-            .join('、') || '无';
-        if (order(oldNode) !== order(newNode)) lines.push(`明细排列：${order(oldNode)} → ${order(newNode)}`);
+            .join('、') || language.t('platform.screen.metadataChangeSetSubmission.none', '无');
+        if (order(oldNode) !== order(newNode))
+          lines.push(
+            language.t(
+              'platform.screen.pageCompositionCandidate.detail-order-value-value',
+              '明细排列：{value1} → {value2}',
+              { value1: order(oldNode), value2: order(newNode) },
+            ),
+          );
         for (const code of new Set<string>(
           [...(oldNode?.relations ?? []), ...(newNode?.relations ?? [])].map((relation) => relation.relation),
         )) {
@@ -164,22 +184,66 @@ export function pageCompositionChangeLines(
           );
           if (JSON.stringify(oldRelation) !== JSON.stringify(newRelation))
             lines.push(
-              `明细“${newRelation?.title ?? oldRelation?.title ?? code}”：${oldRelation ? display(oldRelation, code + '.') : '未展示'} → ${newRelation ? display(newRelation, code + '.') : '移除展示（不删除数据）'}`,
+              language.t(
+                'platform.screen.pageCompositionCandidate.detail-value-value-value',
+                '明细“{value1}”：{value2} → {value3}',
+                {
+                  value1: newRelation?.title ?? oldRelation?.title ?? code,
+                  value2: oldRelation
+                    ? display(oldRelation, code + '.')
+                    : language.t('platform.screen.pageCompositionCandidate.not-displayed', '未展示'),
+                  value3: newRelation
+                    ? display(newRelation, code + '.')
+                    : language.t(
+                        'platform.screen.pageCompositionCandidate.remove-display-without-deleting-data',
+                        '移除展示（不删除数据）',
+                      ),
+                },
+              ),
             );
         }
       }
     }
     if (JSON.stringify(previous.quickSearchFields) !== JSON.stringify(current.quickSearchFields))
       lines.push(
-        `快速查询：${(previous.quickSearchFields ?? []).map(fieldTitle).join('、') || '无'} → ${(current.quickSearchFields ?? []).map(fieldTitle).join('、') || '无'}`,
+        language.t(
+          'platform.screen.pageCompositionCandidate.quick-search-value-value',
+          '快速查询：{value1} → {value2}',
+          {
+            value1:
+              (previous.quickSearchFields ?? []).map(fieldTitle).join('、') ||
+              language.t('platform.screen.metadataChangeSetSubmission.none', '无'),
+            value2:
+              (current.quickSearchFields ?? []).map(fieldTitle).join('、') ||
+              language.t('platform.screen.metadataChangeSetSubmission.none', '无'),
+          },
+        ),
       );
     if (JSON.stringify(previous.actions) !== JSON.stringify(current.actions))
-      lines.push('页面动作展示已调整。');
+      lines.push(
+        language.t(
+          'platform.screen.pageCompositionCandidate.page-action-presentation-changed',
+          '页面动作展示已调整。',
+        ),
+      );
     if (JSON.stringify(previous.querySummaries) !== JSON.stringify(current.querySummaries))
-      lines.push('查询统计已调整。');
-    if (!lines.length) lines.push('页面模板或展示配置已调整。');
+      lines.push(
+        language.t('platform.screen.pageCompositionCandidate.query-summaries-changed', '查询统计已调整。'),
+      );
+    if (!lines.length)
+      lines.push(
+        language.t(
+          'platform.screen.pageCompositionCandidate.page-template-or-presentation-configuration-changed',
+          '页面模板或展示配置已调整。',
+        ),
+      );
     return lines;
   } catch {
-    return ['页面配置存在无法解析的内容，请修正后预检。'];
+    return [
+      language.t(
+        'platform.screen.pageCompositionCandidate.the-page-configuration-contains-unparseable-content-correct-it-before-prechecking',
+        '页面配置存在无法解析的内容，请修正后预检。',
+      ),
+    ];
   }
 }

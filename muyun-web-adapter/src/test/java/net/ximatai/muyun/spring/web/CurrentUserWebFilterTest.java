@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.web;
 
 import jakarta.servlet.DispatcherType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -27,6 +29,45 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CurrentUserWebFilterTest {
+    @Test
+    void localizesPreControllerDenialsWhileKeepingStatusCodesAndFailClosedScopes() throws Exception {
+        var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var resources = TextResources.load(getClass().getClassLoader(), catalog);
+        var mapper = new ObjectMapper();
+        for (String tag : java.util.List.of("en", "zh-CN", "en")) {
+            for (String kind : java.util.List.of("tenant", "anonymous", "password")) {
+                CurrentUser user = kind.equals("anonymous") ? null : CurrentUser.tenantUser(
+                        "user", "User", "a", null, kind.equals("password"));
+                var filter = new CurrentUserWebFilter(() -> Optional.ofNullable(user),
+                        tenant -> { throw new AssertionError("denial must happen before tenant verification"); });
+                filter.setTextResolver(resources);
+                filter.setLanguageCatalog(catalog);
+                MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business");
+                request.addHeader("Accept-Language", tag);
+                request.addHeader(CurrentUserWebFilter.TENANT_HEADER, "forged");
+                var response = new MockHttpServletResponse();
+                new LanguageWebFilter(catalog).doFilter(request, response, (req, res) -> filter.doFilter(req, res,
+                        (ignoredRequest, ignoredResponse) -> { throw new AssertionError("denial must not reach business"); }));
+                var body = mapper.readTree(response.getContentAsString());
+                String key = kind.equals("tenant") ? "tenant-access-denied" : kind.equals("anonymous")
+                        ? "authentication-required" : "password-change-required";
+                String code = kind.equals("tenant") ? "TENANT_ACCESS_DENIED" : kind.equals("anonymous")
+                        ? "AUTH_REQUIRED" : "PASSWORD_CHANGE_REQUIRED";
+                assertThat(response.getStatus()).isEqualTo(kind.equals("anonymous") ? 401 : 403);
+                assertThat(body.path("code").asText()).isEqualTo(code);
+                assertThat(body.path("textSource").path("sourceId").asText()).isEqualTo("platform.error." + key);
+                assertThat(body.path("message").asText()).isEqualTo(body.path("messageText").path("languages").path(tag).path("text").asText());
+                assertThat(body.path("messageText").path("languages").path("en").path("missing").asBoolean()).isFalse();
+                if (kind.equals("tenant")) assertThat(body.path("message").asText()).isEqualTo(tag.equals("en")
+                        ? "The business tenant is unavailable or access is denied" : "业务租户不可用或无权访问");
+                assertThat(response.getHeader("Content-Language")).isEqualTo(tag);
+                assertThat(CurrentUserContext.currentUser()).isEmpty();
+                assertThat(TenantContext.hasContext()).isFalse();
+                assertThat(LanguageContext.currentTag()).isNull();
+            }
+        }
+    }
+
     @Test
     void shouldBindOnlyVerifiedBusinessTenantAndRestoreIdentityAfterEveryDispatch() throws Exception {
         CurrentUser system = CurrentUser.systemUser("admin", "admin");

@@ -15,7 +15,10 @@ it('keeps management quick search as a constrained template component', () => {
   assert.ok(!/VueDraggable|SortableEvent|vue-draggable-plus/.test(treeSource));
   assert.match(treeSource, /快速查询/);
   assert.match(treeSource, /双击编辑占位提示/);
-  assert.match(workspaceSource, /selectedQuickSearch\.value\s*\? '配置：快速查询占位提示'/);
+  assert.match(
+    workspaceSource,
+    /selectedQuickSearch\.value\s*\? language\.t\([\s\S]*?'配置：快速查询占位提示'/,
+  );
   assert.match(
     workspaceSource,
     /if \(key === 'ui:template:list:quick-search'\) return \{ kind: 'template' \}/,
@@ -80,7 +83,7 @@ it('preflights dictionary radio eligibility in composition instead of deferring 
   );
   assert.match(
     workspaceSource,
-    /function invalidateDictionaryRadioFacts\(\) \{[\s\S]*?dictionaryRadioFacts\.value = \{};[\s\S]*?dictionaryRadioFactErrors\.value = \{};[\s\S]*?dictionaryRadioFactLoading\.value = new Set\(\);/,
+    /function invalidateDictionaryRadioFacts\(\) \{[\s\S]*?dictionaryRadioFacts\.value = \{};[\s\S]*?dictionaryRadioFactFailures\.value = \{};[\s\S]*?dictionaryRadioFactLoading\.value = new Set\(\);/,
   );
   assert.match(
     workspaceSource,
@@ -88,7 +91,7 @@ it('preflights dictionary radio eligibility in composition instead of deferring 
   );
   assert.match(
     workspaceSource,
-    /if \(dictionaryRadioIssues\.value\.length\) \{\s*previewError\.value = undefined;/,
+    /if \(dictionaryRadioIssues\.value\.length\) \{\s*previewFailure\.value = undefined;/,
   );
 });
 

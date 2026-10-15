@@ -108,6 +108,22 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
         });
     }
 
+    /** Install a deployed baseline only when this original version has never been maintained. */
+    public boolean seedPublished(String moduleAlias, TextReference source, String languageTag, String text) {
+        requireSystem();
+        return inMutationTransaction(() -> {
+            var current = currentSource(moduleAlias, source.sourceId(), source.sourceVersion());
+            if (!current.equals(source)) throw staleSource();
+            String tag = requireLanguage(languageTag);
+            requireText(text);
+            lockMutation("translation", hash(source.sourceId()) + "/" + source.sourceVersion() + "/" + tag);
+            if (findOne(identity(source, tag)) != null) return false;
+            var draft = saveDraft(moduleAlias, source.sourceId(), source.sourceVersion(), tag, text, null);
+            publish(draft.getId(), source.sourceVersion(), draft.getVersion());
+            return true;
+        });
+    }
+
     /** One read for a presentation batch; drafts and other original versions are never visible. */
     public List<ConfigurationTranslation> published(Collection<TextReference> references) {
         var configured = references.stream().filter(source -> source.sourceKind() == TextReference.SourceKind.CONFIG).toList();
@@ -152,8 +168,20 @@ public class ConfigurationTranslationService extends AbstractAbilityService<Conf
         requireText(row.getDraftText());
     }
     private TextReference currentSource(String moduleAlias, String sourceId, String version) {
-        return currentSources(moduleAlias).stream().filter(source -> source.sourceId().equals(sourceId) && source.sourceVersion().equals(version))
-                .findFirst().orElseThrow(ConfigurationTranslationService::staleSource);
+        requireSystem();
+        String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        TextReference result = null;
+        for (var provider : sources.orderedStream().toList()) {
+            var candidate = provider.findCurrentSource(alias, sourceId).orElse(null);
+            if (candidate == null) continue;
+            if (candidate.sourceKind() != TextReference.SourceKind.CONFIG || !candidate.sourceId().equals(sourceId))
+                throw new IllegalStateException("Invalid configured text source: " + sourceId);
+            if (result != null && !result.equals(candidate))
+                throw new IllegalStateException("Conflicting configured text source: " + sourceId);
+            result = candidate;
+        }
+        if (result == null || !result.sourceVersion().equals(version)) throw staleSource();
+        return result;
     }
     private String requireLanguage(String tag) {
         String canonical;

@@ -101,7 +101,7 @@ it('changes reference picker default operations and retains selected business ti
     language.setLanguage('en');
     await flushPromises();
     expect(wrapper.get('h2').text()).toBe('Select reference records');
-    expect(wrapper.text()).toContain('Selected 1 records');
+    expect(wrapper.text()).toContain('Selected: 1');
     expect(wrapper.text()).toContain('Clear selection');
     expect(
       wrapper.findAllComponents(UiSearchInput).some((item) => item.props('searchText') === 'Search'),

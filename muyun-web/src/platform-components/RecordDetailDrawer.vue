@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, inject, watch } from 'vue';
 import {
   UiActionButton,
@@ -13,6 +14,8 @@ import {
 import { sidePanelHostKey } from '../vue-ui-antdv/components/sidePanelHost';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import type { DrawerPromotion } from './drawerPromotion';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordDetailDrawer' });
 
@@ -40,9 +43,13 @@ const props = withDefaults(
     dismissal: undefined,
     closeOnOutside: false,
     beforeClose: undefined,
-    closeTitle: '关闭',
+    closeTitle: undefined,
     promotion: undefined,
   },
+);
+
+const resolvedCloseTitle = computed(
+  () => props.closeTitle ?? language.t('platform.screen.RecordDetailDrawer.close', '关闭'),
 );
 
 defineSlots<{
@@ -78,7 +85,12 @@ watch(
   () => [props.open, props.renderMode, hasDrawerContainer.value] as const,
   ([open, renderMode, hasContainer]) => {
     if (open && renderMode === 'portal' && !hasContainer && import.meta.env.DEV) {
-      console.error('[RecordDetailDrawer] portal 模式打开抽屉前必须存在活动侧栏宿主。');
+      console.error(
+        language.t(
+          'platform.screen.RecordDetailDrawer.recorddetaildrawer-portal-drawers-require-an-active-sidebar-host',
+          '[RecordDetailDrawer] portal 模式打开抽屉前必须存在活动侧栏宿主。',
+        ),
+      );
     }
   },
   { immediate: true },
@@ -111,7 +123,9 @@ watch(
           v-if="promotion"
           emphasis="quiet"
           icon-name="export"
-          :title="promotion.title ?? '固定为页签'"
+          :title="
+            promotion.title ?? language.t('platform.screen.RecordDetailDrawer.pin-as-tab', '固定为页签')
+          "
           @click="promotion.promote()"
         />
       </template>
@@ -120,7 +134,7 @@ watch(
         <UiActionButton
           emphasis="quiet"
           icon-name="close"
-          :title="closeTitle"
+          :title="resolvedCloseTitle"
           @click="requestClose('close-button')"
         />
       </template>

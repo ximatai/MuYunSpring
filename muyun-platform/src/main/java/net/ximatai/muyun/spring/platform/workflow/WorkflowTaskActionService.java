@@ -4,6 +4,11 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.ability.action.BusinessException;
+import net.ximatai.muyun.spring.ability.action.ActionMessageType;
+import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
@@ -474,7 +479,19 @@ public class WorkflowTaskActionService {
                 operatorId, null, null, request.reason());
         var specification = taskSpecifications.resolve(node);
         var evaluation = taskEvaluator.evaluate(instance, node, task, specification.definition());
-        if (!evaluation.passed()) throw new PlatformException(evaluation.failureMessage() == null ? "业务任务尚未满足完成条件" : evaluation.failureMessage());
+        if (!evaluation.passed()) {
+            var message = evaluation.failureMessage() == null ? "业务任务尚未满足完成条件" : evaluation.failureMessage();
+            TextReference source = null;
+            if (evaluation.failureMessage() == null)
+                source = TextReference.code("platform.workflow.task.completion-not-met", message);
+            else if (evaluation.failureCheckKey() != null && !evaluation.failureCheckKey().isBlank()
+                    && instance.getWorkflowVersionId() != null && !instance.getWorkflowVersionId().isBlank()
+                    && node.getNodeKey() != null && !node.getNodeKey().isBlank())
+                source = ConfigurationTextSources.workflowCheckText(instance.getWorkflowVersionId(), node.getNodeKey(),
+                        evaluation.failureCheckKey(), "failureMessage", message);
+            throw new BusinessException("VALIDATION_FAILED", 400, message, ActionMessageType.ERROR,
+                    ErrorScope.empty(), List.of(), Map.of(), Map.of(), source);
+        }
         for (var check : evaluation.checkResults()) {
             EntityLifecycle.prepareInsert(check, now); taskCheckResults.insert(check);
         }

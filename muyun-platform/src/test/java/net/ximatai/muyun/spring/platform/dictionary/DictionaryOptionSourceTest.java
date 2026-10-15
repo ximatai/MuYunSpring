@@ -11,17 +11,21 @@ import static org.mockito.Mockito.*;
 class DictionaryOptionSourceTest {
     @Test void globalFallbackUsesMissingCategoryCodeRatherThanItsText() {
         var items = mock(DictionaryItemService.class);
-        when(items.listItems("sales", "status", true)).thenAnswer(invocation -> {
-            if (!TenantContext.tenantFilterBypassed()) {
-                throw new PlatformException(DictionaryCategoryService.CATEGORY_NOT_FOUND, 404, "未找到字典类别");
-            }
-            return List.of();
+        when(items.listItems("sales", "status", true)).thenThrow(
+                new PlatformException(DictionaryCategoryService.CATEGORY_NOT_FOUND, 404, "未找到字典类别"));
+        var global = new DictionaryCategory(); global.setId("global");
+        when(items.globalOptionCategory("sales", "status")).thenAnswer(invocation -> {
+            assertThat(TenantContext.tenantFilterBypassed()).isTrue();
+            return global;
         });
+        when(items.listItems("global", true)).thenReturn(List.of());
         try (var scope = TenantContext.use("tenant")) {
             assertThat(new DictionaryOptionSource("sales", "status", items).options(OptionQuery.enabledOnly())).isEmpty();
             assertThat(TenantContext.currentTenantId()).contains("tenant");
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
         }
-        verify(items, times(2)).listItems("sales", "status", true);
+        verify(items).listItems("sales", "status", true);
+        verify(items).listItems("global", true);
     }
 
     @Test void unrelatedFailureWithTheOldTextNeverFallsBack() {

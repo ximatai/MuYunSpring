@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -18,6 +19,7 @@ import net.ximatai.muyun.spring.platform.exchange.protocol.ExcelExchangeProtocol
 import net.ximatai.muyun.spring.platform.exchange.reader.ExcelWorkbookParser;
 import net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,34 @@ import static org.mockito.Mockito.mock;
 
 class DynamicImportFacadeTest {
     private static final String MODULE = "sales.order";
+
+    @Test
+    void localizesRealWorkbookGroupingDiagnosticsAndReservedLabelsWithoutChangingRawCells() {
+        var texts = TextResources.load(getClass().getClassLoader(), LanguageCatalog.load(getClass().getClassLoader(), "zh-CN"));
+        var beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("texts", texts);
+        var presentation = new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation(beans.getBeanProvider(TextResolver.class));
+        var facade = new DynamicImportFacade(mock(DynamicRecordService.class), presentation, beans.getBeanProvider(TextResolver.class));
+        byte[] bytes = new ExcelWorkbookPlanWriter().writeToBytes(new ExcelWorkbookPlan(meta(), List.of(
+                new ExcelSheetPlan("Order", "order", true, List.of(
+                        new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("orderNo", "Custom 中文 {title}")
+                ), List.of(List.of("R-中文{value}", "原文A"), List.of("R-中文{value}", "原文B"))))));
+        try (var language = LanguageContext.use("en")) {
+            var result = facade.importWorkbook(command(bytes));
+            assertThat(result.executionResult().created()).isZero();
+            assertThat(result.executionResult().errorRows()).hasSize(2).allSatisfy(error -> {
+                assertThat(error.message()).isEqualTo("主表关联标识重复: R-中文{value}");
+                assertThat(error.messageSource().sourceKind()).isEqualTo(TextReference.SourceKind.CODE);
+            });
+            var reparsed = new ExcelWorkbookParser().parse(result.errorWorkbookBytes());
+            assertThat(reparsed.meta()).isEqualTo(meta());
+            assertThat(reparsed.sheets().getFirst().columns()).extracting(ParsedColumn::fieldName, ParsedColumn::title)
+                    .containsExactly(tuple("relateId", "Relation ID"), tuple("orderNo", "Custom 中文 {title}"), tuple("errorReason", "Error reason"));
+            assertThat(reparsed.sheets().getFirst().rows()).containsExactly(
+                    List.of("R-中文{value}", "原文A", "Duplicate main-row relation ID: R-中文{value}"),
+                    List.of("R-中文{value}", "原文B", "Duplicate main-row relation ID: R-中文{value}"));
+        }
+    }
 
     @Test
     void shouldExposeTransactionalServiceFacade() throws NoSuchMethodException {

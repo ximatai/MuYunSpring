@@ -38,8 +38,9 @@ public final class DictionaryOptionSource implements OptionSource {
     @Override
     public List<OptionItem> options(OptionQuery query) {
         OptionQuery effectiveQuery = query == null ? OptionQuery.enabledOnly() : query;
-        List<DictionaryItem> items = readWithGlobalFallback(() ->
-                itemService.listItems(applicationAlias, categoryAlias, effectiveQuery.onlyEnabled()));
+        List<DictionaryItem> items = readWithGlobalFallback(
+                () -> itemService.listItems(applicationAlias, categoryAlias, effectiveQuery.onlyEnabled()),
+                categoryId -> itemService.listItems(categoryId, effectiveQuery.onlyEnabled()));
         Map<String, DictionaryItem> itemById = items.stream()
                 .collect(Collectors.toMap(DictionaryItem::getId, Function.identity()));
         return items.stream()
@@ -51,37 +52,37 @@ public final class DictionaryOptionSource implements OptionSource {
 
     @Override
     public OptionItem resolve(String code) {
-        return readWithGlobalFallback(() -> {
-            DictionaryItem item = itemService.resolveItem(applicationAlias, categoryAlias, code);
-            if (item == null) {
-                return null;
-            }
-            DictionaryItem parent = itemService.select(item.getParentId());
-            String parentCode = parent == null ? null : parent.getCode();
-            return new OptionItem(item.getCode(), item.getTitle(), Boolean.TRUE.equals(item.getEnabled()),
-                    item.getSortOrder(), parentCode, ConfigurationTextSources.dictionaryTitle(item.getId(), item.getTitle()));
-        });
+        return readWithGlobalFallback(
+                () -> resolvedOption(itemService.resolveItem(applicationAlias, categoryAlias, code)),
+                categoryId -> resolvedOption(itemService.resolveItem(categoryId, code)));
     }
 
-    private <T> T readWithGlobalFallback(Supplier<T> reader) {
-        if (TenantContext.currentTenantId().isEmpty()) {
-            return reader.get();
-        }
+    /** Uses the same tenant/global dictionary selection as displayed candidates. */
+    public boolean containsEnabledCode(String code) {
+        return readWithGlobalFallback(
+                () -> itemService.resolveEnabledItem(applicationAlias, categoryAlias, code) != null,
+                categoryId -> itemService.resolveEnabledItem(categoryId, code) != null);
+    }
+
+    private OptionItem resolvedOption(DictionaryItem item) {
+        if (item == null) return null;
+        DictionaryItem parent = itemService.select(item.getParentId());
+        String parentCode = parent == null ? null : parent.getCode();
+        return new OptionItem(item.getCode(), item.getTitle(), Boolean.TRUE.equals(item.getEnabled()),
+                item.getSortOrder(), parentCode, ConfigurationTextSources.dictionaryTitle(item.getId(), item.getTitle()));
+    }
+
+    private <T> T readWithGlobalFallback(Supplier<T> reader, Function<String, T> globalReader) {
         try {
             return reader.get();
         } catch (PlatformException ex) {
-            if (!isMissingCategory(ex)) {
-                throw ex;
-            }
+            if (TenantContext.currentTenantId().isEmpty()
+                    || !DictionaryCategoryService.CATEGORY_NOT_FOUND.equals(ex.code())) throw ex;
             try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter(
                     "read global dictionary option source: " + applicationAlias + "." + categoryAlias)) {
-                return reader.get();
+                return globalReader.apply(itemService.globalOptionCategory(applicationAlias, categoryAlias).getId());
             }
         }
-    }
-
-    private boolean isMissingCategory(PlatformException ex) {
-        return DictionaryCategoryService.CATEGORY_NOT_FOUND.equals(ex.code());
     }
 
     private OptionItem toOption(DictionaryItem item, Map<String, DictionaryItem> itemById) {

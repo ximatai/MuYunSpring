@@ -1,4 +1,9 @@
-import { AssistantCapabilityUsageError, pageAssistantCatalog } from '@muyun/web-core';
+import {
+  platformLanguageContext,
+  type LanguageContext,
+  AssistantCapabilityUsageError,
+  pageAssistantCatalog,
+} from '@muyun/web-core';
 import type { MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { getMenuNavigationTarget } from './menuNavigation';
@@ -7,15 +12,22 @@ export function createWorkbenchAssistantCapabilities(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
   settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken> = async () => {},
+  language: LanguageContext = platformLanguageContext,
 ): AssistantCapability[] {
-  return [findMenuCapability(menus), openMenuCapability(menus, openMenu, settleNavigation)];
+  return [findMenuCapability(menus), openMenuCapability(menus, openMenu, settleNavigation, language)];
 }
 
 /** Current visible navigation, projected on demand; no cross-page permission cache. */
-export function workbenchAssistantMenuCatalog(menus: readonly MenuTreeNode[]) {
+export function workbenchAssistantMenuCatalog(
+  menus: readonly MenuTreeNode[],
+  language: LanguageContext = platformLanguageContext,
+) {
   const catalog = pageAssistantCatalog(openableMenus(menus).map(menuFacts), 0, 4_000);
   if (catalog.page.oversizedIndexes.length)
-    catalog.page.note = '部分入口信息超过读取预算，请按名称查找；未将其当作不存在。';
+    catalog.page.note = language.t(
+      'platform.screen.workbenchAssistantCapabilities.some-entry-information-exceeds-the-reading-budget-search-by-name',
+      '部分入口信息超过读取预算，请按名称查找；未将其当作不存在。',
+    );
   return catalog;
 }
 
@@ -57,6 +69,7 @@ function openMenuCapability(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
   settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
+  language: LanguageContext,
 ): AssistantCapability<{ menuId: string }, { openedMenuId?: string; title?: string }> {
   return {
     effect: 'page',
@@ -77,8 +90,20 @@ function openMenuCapability(
       return { menuId };
     },
     present: ({ title }) => ({
-      title: `已打开${title || '所选业务入口'}`,
-      lines: ['仅切换页面，未修改或保存业务数据。'],
+      title: language.t('platform.screen.workbenchAssistantCapabilities.opened-value', '已打开{value1}', {
+        value1:
+          title ||
+          language.t(
+            'platform.screen.workbenchAssistantCapabilities.the-selected-business-entry',
+            '所选业务入口',
+          ),
+      }),
+      lines: [
+        language.t(
+          'platform.screen.workbenchAssistantCapabilities.only-the-page-changed-business-data-was-not-modified-or',
+          '仅切换页面，未修改或保存业务数据。',
+        ),
+      ],
     }),
     async execute({ menuId }, context) {
       const { signal } = context;

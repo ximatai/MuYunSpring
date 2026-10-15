@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { Tabs as ATabs, TabPane as ATabPane } from 'ant-design-vue';
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { UiTabItem } from '../types';
 import UiIcon from './UiIcon.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiTabs', inheritAttrs: false });
 
@@ -417,7 +420,7 @@ onUnmounted(() => {
               v-if="tab.pinned"
               class="ui-tabs-pin-button"
               type="button"
-              aria-label="取消锁定标签"
+              :aria-label="language.t('platform.screen.UiTabs.unpin-tab', '取消锁定标签')"
               @pointerdown.stop
               @click.stop="emit('togglePin', tab.key)"
             >
@@ -433,11 +436,13 @@ onUnmounted(() => {
       class="ui-tabs-tab-menu"
       :style="{ left: `${tabActionMenu.left}px`, top: `${tabActionMenu.top}px` }"
       role="menu"
-      aria-label="页签操作"
+      :aria-label="language.t('platform.screen.UiTabs.tab-actions', '页签操作')"
     >
       <button type="button" role="menuitem" @click="togglePinFromMenu">
         {{
-          displayTabs.find((tab) => tab.key === tabActionMenu?.tabKey)?.pinned ? '取消锁定标签' : '锁定标签'
+          displayTabs.find((tab) => tab.key === tabActionMenu?.tabKey)?.pinned
+            ? language.t('platform.screen.UiTabs.unpin-tab', '取消锁定标签')
+            : language.t('platform.screen.UiTabs.pin-tab', '锁定标签')
         }}
       </button>
       <span class="ui-tabs-tab-menu-divider" role="separator" />
@@ -447,7 +452,7 @@ onUnmounted(() => {
         :disabled="!tabKeysForAction('close').length"
         @click="performTabAction('close')"
       >
-        关闭标签
+        {{ language.t('platform.screen.UiTabs.close-tab', '关闭标签') }}
       </button>
       <button
         type="button"
@@ -455,7 +460,7 @@ onUnmounted(() => {
         :disabled="!tabKeysForAction('close-left').length"
         @click="performTabAction('close-left')"
       >
-        关闭左侧
+        {{ language.t('platform.screen.UiTabs.close-tabs-to-the-left', '关闭左侧') }}
       </button>
       <button
         type="button"
@@ -463,7 +468,7 @@ onUnmounted(() => {
         :disabled="!tabKeysForAction('close-right').length"
         @click="performTabAction('close-right')"
       >
-        关闭右侧
+        {{ language.t('platform.screen.UiTabs.close-tabs-to-the-right', '关闭右侧') }}
       </button>
       <button
         type="button"
@@ -471,7 +476,7 @@ onUnmounted(() => {
         :disabled="!tabKeysForAction('close-others').length"
         @click="performTabAction('close-others')"
       >
-        关闭其他
+        {{ language.t('platform.screen.UiTabs.close-other-tabs', '关闭其他') }}
       </button>
       <span class="ui-tabs-tab-menu-divider" role="separator" />
       <button
@@ -480,7 +485,7 @@ onUnmounted(() => {
         :disabled="!tabKeysForAction('close-all').length"
         @click="performTabAction('close-all')"
       >
-        关闭所有
+        {{ language.t('platform.screen.UiTabs.close-all-tabs', '关闭所有') }}
       </button>
     </div>
     <div

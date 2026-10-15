@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
-const language = useLanguageContext();
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
-import type { ModuleContext } from '@muyun/web-core';
+
 import RecordFormGrid from './RecordFormGrid.vue';
 import RecordDetailFields from './RecordDetailFields.vue';
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import { handlePlatformActionSuccess } from './platformActionResultFeedback';
 import { presentPlatformError } from './platformErrorFeedback';
 import { UiModal, UiSelect, UiCheckbox, UiSpin } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 const props = defineProps<{
   open: boolean;
@@ -56,7 +57,7 @@ const valid = computed(
   () => !!state.value && selected.value.length > 0 && (operation.value !== 'REPLACE' || !!previous.value),
 );
 const summary = computed(() => {
-  const target = selected.value.map((id) => label(id)).join('、');
+  const target = selected.value.map((id) => label(id)).join(language.t('platform.list.separator', '、'));
   if (!target) return '';
   if (operation.value === 'TRANSFER')
     return language.t(
@@ -77,8 +78,20 @@ const summary = computed(() => {
     relation.value === 'ASSIGNEE'
       ? language.t('platform.screen.RecordPermissionDialog.assignees', '负责人')
       : language.t('platform.screen.RecordPermissionDialog.related-people', '相关人');
-  if (operation.value === 'REPLACE') return `${kind}：${label(previous.value)} → ${target}`;
-  return `${operation.value === 'ADD' ? language.t('platform.screen.RecordPermissionDialog.add', '追加') : language.t('platform.screen.RecordPermissionDialog.remove', '移除')}${kind}：${target}`;
+  if (operation.value === 'REPLACE')
+    return language.t('platform.permissions.replace-summary', '{kind}：{previous} → {target}', {
+      kind,
+      previous: label(previous.value),
+      target,
+    });
+  return language.t('platform.permissions.people-summary', '{operation}{kind}：{target}', {
+    operation:
+      operation.value === 'ADD'
+        ? language.t('platform.screen.RecordPermissionDialog.add', '追加')
+        : language.t('platform.screen.RecordPermissionDialog.remove', '移除'),
+    kind,
+    target,
+  });
 });
 async function search(keyword = '') {
   const version = ++searchVersion;
@@ -96,7 +109,7 @@ async function search(keyword = '') {
       };
     }
   } catch (cause) {
-    presentPlatformError(cause, { source: 'record-permissions', phase: 'action' });
+    presentPlatformError(cause, { source: 'record-permissions', phase: 'action', language });
   }
 }
 watch([operation, relation], () => {
@@ -118,7 +131,7 @@ watch(
       state.value = await props.context.http.request<State>({ method: 'GET', path: path.value });
       await search();
     } catch (cause) {
-      presentPlatformError(cause, { source: 'record-permissions', phase: 'action' });
+      presentPlatformError(cause, { source: 'record-permissions', phase: 'action', language });
     } finally {
       loading.value = false;
     }
@@ -142,6 +155,7 @@ async function submit() {
       },
     });
     await handlePlatformActionSuccess(result, {
+      language,
       source: 'record-permissions',
       phase: 'action',
       fallbackMessage: language.t(
@@ -152,7 +166,7 @@ async function submit() {
     emit('changed');
     emit('close');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'record-permissions', phase: 'action' });
+    presentPlatformError(cause, { source: 'record-permissions', phase: 'action', language });
   } finally {
     saving.value = false;
   }
@@ -175,15 +189,17 @@ async function submit() {
           class="permission-current"
           :record="{
             owner: label(state.ownerId),
-            assignees: state.assigneeIds.map((id) => label(id)).join('、'),
-            members: state.memberIds.map((id) => label(id)).join('、'),
+            assignees: state.assigneeIds
+              .map((id) => label(id))
+              .join(language.t('platform.list.separator', '、')),
+            members: state.memberIds.map((id) => label(id)).join(language.t('platform.list.separator', '、')),
           }"
           :fallback="{
             owner: { label: language.t('platform.screen.RecordPermissionDialog.owner', '归属人') },
             assignees: { label: language.t('platform.screen.RecordPermissionDialog.assignees', '负责人') },
             members: { label: language.t('platform.screen.RecordPermissionDialog.related-people', '相关人') },
           }"
-          empty-text="未设置"
+          :empty-text="language.t('platform.screen.RecordPermissionDialog.not-set', '未设置')"
         />
         <RecordFormGrid as="div">
           <label
@@ -254,16 +270,25 @@ async function submit() {
             ><RecordFieldLabel required>{{
               operation === 'REMOVE'
                 ? language.t('platform.screen.RecordPermissionDialog.remove-people', '移除人员')
-                : '目标人员'
+                : language.t('platform.screen.RecordPermissionDialog.target-people', '目标人员')
             }}</RecordFieldLabel
             ><UiSelect
               :key="operation"
               :placeholder="
                 operation === 'REMOVE'
                   ? currentIds.length
-                    ? '请选择移除人员'
-                    : '暂无可移除人员'
-                  : '搜索并选择人员'
+                    ? language.t(
+                        'platform.screen.RecordPermissionDialog.select-people-to-remove',
+                        '请选择移除人员',
+                      )
+                    : language.t(
+                        'platform.screen.RecordPermissionDialog.no-people-available-to-remove',
+                        '暂无可移除人员',
+                      )
+                  : language.t(
+                      'platform.screen.RecordPermissionDialog.search-and-select-people',
+                      '搜索并选择人员',
+                    )
               "
               :value="['ADD', 'REMOVE'].includes(operation) ? selected : selected[0]"
               :mode="['ADD', 'REMOVE'].includes(operation) ? 'multiple' : undefined"

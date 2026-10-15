@@ -1,3 +1,5 @@
+import { createLanguageContext } from '@/web-core/language';
+import { createCodeTextPresentation } from '@/web-core/presentationTexts';
 import { expect, it } from 'vitest';
 import { createRecordReferenceDisplay } from '@/dynamic-page-runtime/recordReferenceDisplay';
 import type { RecordFormDraftAccess } from '@/dynamic-page-runtime/recordFormDraftAccess';
@@ -59,7 +61,6 @@ it.each(
   [
     [],
     [{ id: 'other', title: '无关客户' }],
-    [{ id: 'private-id', title: 'private-id' }],
     [{ id: 'private-id', title: ' ' }],
     [{ id: 'private-id', title: '失效客户', unavailable: true }],
     [{ id: 'private-id', title: '标识符', identifierFallback: true }],
@@ -82,4 +83,27 @@ it('requires every selected reference to resolve and follows the current selecti
     { id: 'private-id', title: '客户甲' },
   ]);
   expect(display.current('customer')).toBe('客户甲、客户乙');
+});
+
+it('retains an authorized delivered name even when it equals the technical identifier', () => {
+  const { display } = fixture();
+  display.observe('customer', [{ id: 'private-id', title: 'private-id' }]);
+  expect(display.current('customer')).toBe('private-id');
+});
+
+it('reprojects retained configuration names without querying, replacing IDs or applying reference effects', () => {
+  const { form, record } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.registerResources('en', { 'test.config': 'Configuration' });
+  const titleText = createCodeTextPresentation('test.config', '配置', language);
+  const display = createRecordReferenceDisplay({ ...form, language }, () => 'same');
+  display.observe('customer', [
+    { id: 'private-id', title: '配置', titleText, affectPatch: { quantity: 999 } },
+  ]);
+  expect(display.current('customer')).toBe('Configuration');
+  titleText.languages.en!.text = 'Mutated externally';
+  expect(display.current('customer')).toBe('Configuration');
+  language.setLanguage('zh-CN');
+  expect(display.current('customer')).toBe('配置');
+  expect(record).toEqual({ customer: 'private-id', quantity: 1 });
 });

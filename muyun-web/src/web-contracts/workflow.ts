@@ -229,7 +229,24 @@ export interface WorkflowTaskPreparation {
   evaluation: {
     passed: boolean;
     failureMessage?: string;
-    checkResults: Array<{ checkKey: string; passed: boolean; failureMessage?: string }>;
+    failureCheckKey?: string;
+    failureMessageText?: TextPresentation;
+    /** Frozen configuration declarations remain available even when a check currently passes. */
+    checkTexts?: Array<{
+      checkKey: string;
+      title?: string;
+      titleText?: TextPresentation;
+      failureMessage?: string;
+      failureMessageText?: TextPresentation;
+    }>;
+    checkResults: Array<{
+      checkKey: string;
+      checkTitle?: string;
+      checkTitleText?: TextPresentation;
+      passed: boolean;
+      failureMessage?: string;
+      failureMessageText?: TextPresentation;
+    }>;
     guides: Array<{
       guideKey: string;
       title?: string;

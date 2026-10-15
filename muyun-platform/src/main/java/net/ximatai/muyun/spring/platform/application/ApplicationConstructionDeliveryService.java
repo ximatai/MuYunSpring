@@ -72,7 +72,11 @@ public class ApplicationConstructionDeliveryService {
     public record Receipt(String requestId, String objectKey, int planRevision, Kind kind, String moduleAlias,
                           String pageId, String variantId, String revisionId, String menuId, int metadataVersion) {}
     public record Progress(String objectKey, String moduleAlias, String runtimeStatus, boolean pagePublished,
-                           boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork, List<Receipt> receipts, List<ApplicationConstructionRequirements.Evidence> requirements) {
+                           boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork, List<Receipt> receipts, List<ApplicationConstructionRequirements.Evidence> requirements,
+                           @com.fasterxml.jackson.annotation.JsonIgnore List<ApplicationConstructionText> remainingWorkSources) {
+        public Progress(String objectKey, String moduleAlias, String runtimeStatus, boolean pagePublished, boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork, List<Receipt> receipts, List<ApplicationConstructionRequirements.Evidence> requirements) {
+            this(objectKey, moduleAlias, runtimeStatus, pagePublished, entryVisible, menuId, needsReview, acceptanceConfirmed, remainingWork, receipts, requirements, List.of());
+        }
         /** Configuration progress never queries tenant business records or proves their absence. */
         @com.fasterxml.jackson.annotation.JsonProperty
         public String businessDataStatus() { return "NOT_QUERIED"; }
@@ -107,35 +111,45 @@ public class ApplicationConstructionDeliveryService {
             boolean visible = menu != null && menu.getModuleAlias().equals(description.moduleAlias());
             boolean stale = page != null && !pageCoversRequirements(plan.content(), objectKey, page.revision());
             String runtime = activation.status(description.moduleAlias()).status();
-            var remaining = new ArrayList<String>();
-            if (!published) remaining.add("当前正式页面尚未发布或不可用");
-            if (!visible) remaining.add("工作台入口尚不可见");
-            if (stale) remaining.add("当前页面未覆盖已确认需求，请核对页面与验收范围");
-            if (!"ACTIVE".equals(runtime)) remaining.add("模块运行态尚未激活");
+            var remaining = new ArrayList<ApplicationConstructionText>();
+            if (!published) remaining.add(ApplicationConstructionText.code("progress.page-unavailable", "当前正式页面尚未发布或不可用"));
+            if (!visible) remaining.add(ApplicationConstructionText.code("progress.entry-unavailable", "工作台入口尚不可见"));
+            if (stale) remaining.add(ApplicationConstructionText.code("progress.page-needs-review", "当前页面未覆盖已确认需求，请核对页面与验收范围"));
+            if (!"ACTIVE".equals(runtime)) remaining.add(ApplicationConstructionText.code("progress.runtime-inactive", "模块运行态尚未激活"));
             String baseline = acceptanceBaseline(plan, description, page, menu);
             var evidence = fields.evidence(plan, objectKey, description);
             boolean requirementsReady = !ApplicationConstructionRequirements.blocked(evidence) && !ApplicationConstructionRequirements.missingConfiguration(evidence);
-            if (!requirementsReady) remaining.add("本期要求尚有未兑现项，请逐项核对，不能以页面发布代替完成");
+            if (!requirementsReady) remaining.add(ApplicationConstructionText.code("progress.requirements-incomplete", "本期要求尚有未兑现项，请逐项核对，不能以页面发布代替完成"));
             boolean accepted = requirementsReady && published && visible && !stale && "ACTIVE".equals(runtime) &&
                     !acceptances.list(Criteria.of().eq("planId", planId).eq("objectKey", objectKey).eq("baseline", baseline)).isEmpty();
-            if (!accepted) remaining.add("按已确认验收例子实际录入、查询和查看详情；发布回执不等于业务验收");
+            if (!accepted) remaining.add(ApplicationConstructionText.code("progress.business-verification", "按已确认验收例子实际录入、查询和查看详情；发布回执不等于业务验收"));
             return new Progress(objectKey, description.moduleAlias(), runtime, published, visible, visible ? menu.getId() : null, stale, accepted,
-                    List.copyOf(remaining), receipts.list(Criteria.of().eq("planId", planId).eq("objectKey", objectKey)).stream().map(ApplicationConstructionDeliveryService::receipt).toList(), evidence);
+                    remaining.stream().map(ApplicationConstructionText::original).toList(), receipts.list(Criteria.of().eq("planId", planId).eq("objectKey", objectKey)).stream().map(ApplicationConstructionDeliveryService::receipt).toList(), evidence, List.copyOf(remaining));
         }
     }
     /** Planning choices are not execution grants; every proposal is still preflighted and confirmed. */
     public enum TaskAction { REVIEW_CURRENT_CONFIGURATION, REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS }
-    public record TaskOption(TaskAction action, String explanation) {}
+    public record TaskOption(TaskAction action, String explanation, @com.fasterxml.jackson.annotation.JsonIgnore ApplicationConstructionText explanationSource) {
+        public TaskOption(TaskAction action, String explanation) { this(action, explanation, null); }
+    }
+    private static TaskOption option(TaskAction action, String key, String original) {
+        var text = ApplicationConstructionText.code("task." + key, original);
+        return new TaskOption(action, text.original(), text);
+    }
     /** Task evidence belongs to TaskObject; do not repeat it inside its progress summary. */
     public record TaskProgress(String moduleAlias, String runtimeStatus, boolean pagePublished,
                                boolean entryVisible, String menuId, boolean needsReview,
-                               boolean acceptanceConfirmed, List<String> remainingWork) {
+                               boolean acceptanceConfirmed, List<String> remainingWork,
+                               @com.fasterxml.jackson.annotation.JsonIgnore List<ApplicationConstructionText> remainingWorkSources) {
+        public TaskProgress(String moduleAlias, String runtimeStatus, boolean pagePublished, boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork) {
+            this(moduleAlias, runtimeStatus, pagePublished, entryVisible, menuId, needsReview, acceptanceConfirmed, remainingWork, List.of());
+        }
         @com.fasterxml.jackson.annotation.JsonProperty
         public String businessDataStatus() { return "NOT_QUERIED"; }
         static TaskProgress from(Progress progress) {
             return progress == null ? null : new TaskProgress(progress.moduleAlias(), progress.runtimeStatus(),
                     progress.pagePublished(), progress.entryVisible(), progress.menuId(), progress.needsReview(),
-                    progress.acceptanceConfirmed(), progress.remainingWork());
+                    progress.acceptanceConfirmed(), progress.remainingWork(), progress.remainingWorkSources());
         }
     }
     public record TaskObject(String objectKey, String title, boolean complete, List<TaskOption> options,
@@ -156,7 +170,7 @@ public class ApplicationConstructionDeliveryService {
         for (var object : plan.content().objects()) {
             if (plan.deliveredObjectKeys().contains(object.key())) {
                 objects.add(new TaskObject(object.key(), object.name(), true,
-                        List.of(new TaskOption(TaskAction.REVIEW_CURRENT_CONFIGURATION, "已交付；后续改进读取当前低代码治理配置，历史方案仅供参考")), List.of(), null));
+                        List.of(option(TaskAction.REVIEW_CURRENT_CONFIGURATION, "delivered", "已交付；后续改进读取当前低代码治理配置，历史方案仅供参考")), List.of(), null));
                 continue;
             }
             boolean associated = plan.moduleBindings().stream().anyMatch(item -> item.objectKey().equals(object.key()));
@@ -172,14 +186,14 @@ public class ApplicationConstructionDeliveryService {
             }
             if (progress != null) evidence = progress.requirements();
             if (!associated) {
-                options.add(new TaskOption(TaskAction.INITIALIZE, "先核对当前标准应用与模块目录；缺少时逐页准备可见表单并分别确认，已有对象直接进入标准治理，并将实际标准模块关联到方案对象；关联不要求完整需求映射"));
+                options.add(option(TaskAction.INITIALIZE, "discover-objects", "先核对当前标准应用与模块目录；缺少时逐页准备可见表单并分别确认，已有对象直接进入标准治理，并将实际标准模块关联到方案对象；关联不要求完整需求映射"));
             } else if (ApplicationConstructionRequirements.blocked(evidence)) {
-                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "此对象仍有未兑现要求，请说明阻断项；不能承诺下一步自动完成"));
-                options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, "已有配置保留，可核对当前成果；不要重复初始化或将局部成果视为完整交付"));
+                options.add(option(TaskAction.REVIEW_REQUIREMENTS, "blocked-requirements", "此对象仍有未兑现要求，请说明阻断项；不能承诺下一步自动完成"));
+                options.add(option(TaskAction.REVIEW_CONFIGURATION, "preserve-configuration", "已有配置保留，可核对当前成果；不要重复初始化或将局部成果视为完整交付"));
             } else {
                 complete = progress.acceptanceConfirmed();
                 if (!"ACTIVE".equals(progress.runtimeStatus())) {
-                    options.add(new TaskOption(TaskAction.VERIFY_RUNTIME, "先核实已提交配置的可用状态，不重复创建"));
+                    options.add(option(TaskAction.VERIFY_RUNTIME, "verify-runtime", "先核实已提交配置的可用状态，不重复创建"));
                 } else if (!complete) {
                     boolean missing = ApplicationConstructionRequirements.missingConfiguration(evidence);
                     boolean sharedGovernance = evidence.stream().filter(item -> item.status() == ApplicationConstructionRequirements.Status.CONFIGURATION_MISSING)
@@ -189,18 +203,18 @@ public class ApplicationConstructionDeliveryService {
                                     && (requirement.mode() == ApplicationConstructionRequirement.Mode.CHILD
                                     || requirement.mode() == ApplicationConstructionRequirement.Mode.CALCULATION || requirement.fieldName().contains("."))));
                     if (missing && !sharedGovernance)
-                        options.add(new TaskOption(TaskAction.CONFIGURE_FIELDS, "通过标准元数据候选补齐登记内容，保留已有配置"));
+                        options.add(option(TaskAction.CONFIGURE_FIELDS, "complete-fields", "通过标准元数据候选补齐登记内容，保留已有配置"));
                     if (progress.needsReview() || sharedGovernance)
-                        options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, sharedGovernance ? "通过标准元数据与规则治理补齐明细、引用和计算，保留已有配置" : "核对需求与配置变化，保留已生效成果"));
+                        options.add(sharedGovernance ? option(TaskAction.REVIEW_CONFIGURATION, "complete-governance", "通过标准元数据与规则治理补齐明细、引用和计算，保留已有配置") : option(TaskAction.REVIEW_CONFIGURATION, "review-changes", "核对需求与配置变化，保留已生效成果"));
                     if (!missing) {
                         if (!progress.pagePublished())
-                            options.add(new TaskOption(TaskAction.PUBLISH_PAGE, "依据实际字段准备录入和查询页面"));
+                            options.add(option(TaskAction.PUBLISH_PAGE, "publish-page", "依据实际字段准备录入和查询页面"));
                         if (progress.pagePublished() && !progress.needsReview()) {
                             if (!progress.entryVisible())
-                                options.add(new TaskOption(TaskAction.CREATE_ENTRY, "核实已有入口后通过共享菜单治理选择方案、位置并审阅候选，不自动授权"));
+                                options.add(option(TaskAction.CREATE_ENTRY, "create-entry", "核实已有入口后通过共享菜单治理选择方案、位置并审阅候选，不自动授权"));
                             else if (!plan.content().questions().isEmpty())
-                                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "页面和入口已可用；最终验收前请收口方案未决问题，无需重复建设"));
-                            else options.add(new TaskOption(TaskAction.VERIFY_BUSINESS, "页面和入口已可用，可以开始试用；核对实际效果后确认验收，无需重复建设"));
+                                options.add(option(TaskAction.REVIEW_REQUIREMENTS, "close-questions", "页面和入口已可用；最终验收前请收口方案未决问题，无需重复建设"));
+                            else options.add(option(TaskAction.VERIFY_BUSINESS, "verify-business", "页面和入口已可用，可以开始试用；核对实际效果后确认验收，无需重复建设"));
                         }
                     }
                 }
@@ -212,7 +226,10 @@ public class ApplicationConstructionDeliveryService {
         return new Task(plan.revision(), List.copyOf(objects), unmapped);
     }
 
-    public record AcceptancePreview(String objectKey, int planRevision, List<String> checks, String fingerprint) {}
+    public record AcceptancePreview(String objectKey, int planRevision, List<String> checks, String fingerprint,
+                                    @com.fasterxml.jackson.annotation.JsonIgnore List<ApplicationConstructionText> checkSources) {
+        public AcceptancePreview(String objectKey, int planRevision, List<String> checks, String fingerprint) { this(objectKey, planRevision, checks, fingerprint, List.of()); }
+    }
     public record AcceptanceCommand(String requestId, String objectKey, String fingerprint) {}
     public record AcceptanceReceipt(String requestId, String objectKey, int planRevision, String baseline) {}
 
@@ -229,17 +246,24 @@ public class ApplicationConstructionDeliveryService {
             var description = fields.describe(planId, objectKey);
             var page = currentPage(plan, objectKey);
             var menu = menus.currentUserVisibleMenu(progress.menuId());
-            var checks = new ArrayList<String>();
-            checks.add("请实际验证以下需求，而非仅根据配置发布成功确认；未支持的要求应先修订方案。");
-            for (var evidence : progress.requirements())
-                checks.add((evidence.status() == ApplicationConstructionRequirements.Status.MANUAL_RESPONSIBILITY ? "已约定由人处理，验收时核对实际执行：" : "配置证据匹配，仍须业务试用：")
-                        + evidence.statement() + " — " + evidence.explanation());
-            checks.addAll(plan.content().rules().stream().map(rule -> "业务规则：" + rule).toList());
-            checks.addAll(plan.content().acceptanceExamples().stream().map(example -> "验收例子：" + example).toList());
-            checks.add("已在选定业务租户内实际验证录入、查询和详情；系统配置身份不替代业务租户范围。");
-            checks.add("已核对需求与实际字段必填、唯一、数值范围及查询行为一致。");
-            return new AcceptancePreview(objectKey, plan.revision(), List.copyOf(checks), acceptanceBaseline(plan, description, page, menu));
+            var checks = acceptanceChecks(plan.content(), progress.requirements());
+            return new AcceptancePreview(objectKey, plan.revision(), checks.stream().map(ApplicationConstructionText::original).toList(), acceptanceBaseline(plan, description, page, menu), checks);
         }
+    }
+    static List<ApplicationConstructionText> acceptanceChecks(ApplicationConstructionPlanContent content, List<ApplicationConstructionRequirements.Evidence> evidence) {
+        var checks = new ArrayList<ApplicationConstructionText>();
+        checks.add(ApplicationConstructionText.code("acceptance.verify-requirements", "请实际验证以下需求，而非仅根据配置发布成功确认；未支持的要求应先修订方案。"));
+        for (var item : evidence) {
+            boolean manual = item.status() == ApplicationConstructionRequirements.Status.MANUAL_RESPONSIBILITY;
+            checks.add(ApplicationConstructionText.code(manual ? "acceptance.manual-item" : "acceptance.configured-item",
+                    manual ? "已约定由人处理，验收时核对实际执行：{statement} — {explanation}" : "配置证据匹配，仍须业务试用：{statement} — {explanation}",
+                    Map.of("statement", item.statement(), "explanation", item.explanation())));
+        }
+        content.rules().forEach(rule -> checks.add(ApplicationConstructionText.code("acceptance.rule", "业务规则：{statement}", Map.of("statement", rule))));
+        content.acceptanceExamples().forEach(example -> checks.add(ApplicationConstructionText.code("acceptance.example", "验收例子：{statement}", Map.of("statement", example))));
+        checks.add(ApplicationConstructionText.code("acceptance.verify-tenant", "已在选定业务租户内实际验证录入、查询和详情；系统配置身份不替代业务租户范围。"));
+        checks.add(ApplicationConstructionText.code("acceptance.verify-fields", "已核对需求与实际字段必填、唯一、数值范围及查询行为一致。"));
+        return List.copyOf(checks);
     }
     @Transactional
     public AcceptanceReceipt confirmAcceptance(String planId, AcceptanceCommand command) {

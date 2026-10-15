@@ -156,6 +156,22 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
+import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.RelationProjectionReadService;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.ability.reference.ReferencePath;
+import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
+import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
+import net.ximatai.muyun.spring.platform.web.RecordTextPresentationService;
+import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -323,6 +339,317 @@ class MuYunSpringApplicationContextIT {
         assertThat(response.getHeaders().getVary()).contains("Accept-Language");
         assertThat(response.getBody().path("defaultTag").asText()).isEqualTo("zh-CN");
         assertThat(response.getBody().path("languages").toString()).contains("English", "简体中文");
+    }
+
+    @Test
+    void publishesTenantAndOrganizationPresetLabelsWithoutChangingRecordsOrMaintainedTranslations() {
+        var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var seeds = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfiguredTextSeedService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        var schemes = applicationContext.getBean(net.ximatai.muyun.spring.platform.menu.MenuSchemeService.class);
+        var organizations = applicationContext.getBean(OrganizationService.class);
+        String tenantId = "english_role_preset_it";
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("role-preset-test", "role-preset-test"));
+             var scope = TenantContext.system("official tenant and role translation integration test")) {
+            Tenant tenant = new Tenant(); tenant.setAlias(tenantId); tenant.setTitle("Preset tenant"); tenant.setEnabled(true);
+            tenantService.insert(tenant);
+            net.ximatai.muyun.spring.platform.menu.MenuScheme scheme;
+            net.ximatai.muyun.spring.iam.role.Role role;
+            try (var tenantScope = TenantContext.use(tenantId)) {
+                scheme = schemes.select(net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner.tenantAdminSchemeId(tenantId));
+                role = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.tenantAdminRoleId(tenantId));
+                var organization = new Organization(); organization.setCode("EN_PRESET"); organization.setTitle("Preset organization");
+                organizations.insert(organization);
+                var orgRole = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner.organizationAdminRoleId(tenantId, organization.getId()));
+                var orgSources = roleService.recordTextSources(orgRole);
+                assertThat(texts.resolve(orgSources.get("title"), java.util.Map.of(), "en").text()).isEqualTo("Organization administrator");
+                assertThat(texts.resolve(orgSources.get("description"), java.util.Map.of(), "en").text()).startsWith("Built-in administrator role");
+                assertThat(orgRole.getTitle()).isEqualTo("机构管理员");
+            }
+            var schemeSource = schemes.recordTextSources(scheme).get("title");
+            var roleSources = roleService.recordTextSources(role);
+            assertThat(texts.resolve(schemeSource, java.util.Map.of(), "en").text()).isEqualTo("Tenant administration");
+            assertThat(texts.resolve(roleSources.get("title"), java.util.Map.of(), "en").text()).isEqualTo("Tenant administrator");
+            assertThat(texts.resolve(roleSources.get("description"), java.util.Map.of(), "en").text()).startsWith("Built-in administrator role");
+            assertThat(scheme.getTitle()).isEqualTo("租户管理");
+            assertThat(role.getTitle()).isEqualTo("租户管理员");
+            assertThat(role.getSystemPurpose()).isEqualTo(net.ximatai.muyun.spring.iam.role.RoleSystemPurpose.TENANT_ADMIN);
+            for (var source : java.util.List.of(schemeSource, roleSources.get("title"), roleSources.get("description"))) {
+                String module = source == schemeSource ? "platform.menu_scheme" : "iam.role";
+                var row = translations.published(java.util.List.of(source)).getFirst();
+                var originalEnglish = texts.resolve(source, java.util.Map.of(), "en").text();
+                var draft = translations.saveDraft(module, source.sourceId(), source.sourceVersion(), "en", "Maintained " + module, row.getVersion());
+                tenantService.provisionTenant(tenantId);
+                assertThat(translations.select(row.getId()).getDraftText()).isEqualTo("Maintained " + module);
+                assertThat(texts.resolve(source, java.util.Map.of(), "en").text()).isEqualTo(originalEnglish);
+                translations.publish(row.getId(), source.sourceVersion(), draft.getVersion());
+                seeds.seedTenant(tenantId);
+                assertThat(texts.resolve(source, java.util.Map.of(), "en").text()).isEqualTo("Maintained " + module);
+            }
+            try (var tenantScope = TenantContext.use(tenantId)) {
+                var manual = new net.ximatai.muyun.spring.iam.role.Role(); manual.setTitle("租户管理员");
+                manual.setAssignmentType(net.ximatai.muyun.spring.iam.role.RoleAssignmentType.EMPLOYMENT);
+                roleService.insert(manual);
+                var customScheme = new net.ximatai.muyun.spring.platform.menu.MenuScheme();
+                customScheme.setAlias("manual_english"); customScheme.setTitle("租户管理"); customScheme.setEnabled(true);
+                schemes.insert(customScheme);
+                seeds.seedTenant(tenantId);
+                assertThat(translations.published(roleService.recordTextSources(manual).values())).isEmpty();
+                assertThat(translations.published(schemes.recordTextSources(customScheme).values())).isEmpty();
+                scheme.setTitle("User-managed navigation"); schemes.update(scheme);
+                seeds.seedTenant(tenantId);
+                var renamed = schemes.recordTextSources(scheme).get("title");
+                assertThat(texts.resolve(renamed, java.util.Map.of(), "en").text()).isEqualTo("User-managed navigation");
+                assertThat(renamed.sourceVersion()).isNotEqualTo(schemeSource.sourceVersion());
+            }
+            Tenant other = new Tenant(); other.setAlias("english_role_other_it"); other.setTitle("Other preset tenant"); other.setEnabled(true);
+            tenantService.insert(other);
+            try (var tenantScope = TenantContext.use(other.getId())) {
+                var otherRole = roleService.select(net.ximatai.muyun.spring.iam.role.DefaultTenantRoleProvisioner.tenantAdminRoleId(other.getId()));
+                var otherSource = roleService.recordTextSources(otherRole).get("title");
+                assertThat(otherSource.sourceId()).isNotEqualTo(roleSources.get("title").sourceId());
+                assertThat(texts.resolve(otherSource, java.util.Map.of(), "en").text()).isEqualTo("Tenant administrator");
+            }
+        }
+    }
+
+    @Test
+    void publishesOfficialConfigurationLabelsAndSeedsNewTenantMenuCopiesWithoutOverwritingMaintenance() {
+        var translations = applicationContext.getBean(net.ximatai.muyun.spring.platform.localization.ConfigurationTranslationService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        var menus = applicationContext.getBean(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+        String tenantId = "english_preset_it";
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("preset-test", "preset-test"));
+             var scope = TenantContext.system("official configuration translations integration test")) {
+            var menu = menus.select("platform.menu.module.iam.user");
+            var original = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(menu.getId(), menu.getTitle());
+            assertThat(texts.resolve(original, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            Tenant tenant = new Tenant(); tenant.setAlias(tenantId); tenant.setTitle("English acceptance tenant"); tenant.setEnabled(true);
+            tenantService.insert(tenant);
+            String copyId = net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner.tenantMenuId(tenantId, menu.getId());
+            net.ximatai.muyun.spring.platform.menu.Menu copy;
+            try (var tenantScope = TenantContext.use(tenantId)) { copy = menus.select(copyId); }
+            assertThat(copy).isNotNull();
+            var target = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(copyId, copy.getTitle());
+            assertThat(target.sourceId()).isNotEqualTo(original.sourceId());
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            var row = translations.published(java.util.List.of(target)).getFirst();
+            tenantService.provisionTenant(tenantId);
+            assertThat(translations.published(java.util.List.of(target)).getFirst().getVersion()).isEqualTo(row.getVersion());
+            var draft = translations.saveDraft("platform.menu", target.sourceId(), target.sourceVersion(), "en", "Maintained users", row.getVersion());
+            tenantService.provisionTenant(tenantId);
+            assertThat(translations.select(row.getId()).getDraftText()).isEqualTo("Maintained users");
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Users");
+            translations.publish(row.getId(), target.sourceVersion(), draft.getVersion());
+            tenantService.provisionTenant(tenantId);
+            assertThat(texts.resolve(target, java.util.Map.of(), "en").text()).isEqualTo("Maintained users");
+        }
+        String token = issueSuperAdminSessionToken();
+        try {
+            var headers = bearerHeaders(token); headers.set("Accept-Language", "en");
+            var response = restTemplate.exchange("/platform.menu/mine", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            assertThat(response.getBody().toString()).contains("Platform administration", "Users", "titleText");
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
+    void projectsPublishedConfigurationSourcesForDeclaredReferenceSummaries() {
+        var fields = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldSpecService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var system = CurrentUserContext.use(CurrentUser.systemUser("reference-text-test", "Reference text test"));
+             var scope = TenantContext.system("configuration reference text contract")) {
+            var controls = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+            var record = fields.select("string");
+            var summary = new java.util.LinkedHashMap<String, Object>(controls.projections(List.of("text"), List.of("title", "alias")).get("text"));
+            summary.put("id", "text");
+            record.setDefaultUiControlSummary(summary);
+            texts.transformRecord(fields, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+            var raw = mapper.valueToTree(record);
+            var projected = mapper.valueToTree(texts.projectCaptured(record));
+            assertThat(projected.at("/defaultUiControlSummary/id").asText()).isEqualTo("text");
+            assertThat(projected.at("/defaultUiControlSummary/title").asText()).isEqualTo(raw.at("/defaultUiControlSummary/title").asText());
+            assertThat(projected.at("/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text input");
+            assertThat(raw.at("/defaultUiControlSummary/$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
+    void dynamicReferenceEnvelopesUsePublishedTargetSourcesWithoutChangingStoredTitles() {
+        var texts = applicationContext.getBean(RecordTextPresentationService.class);
+        var fields = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+        var entity = new EntityDefinition("entry", "english_reference_contract", "Entry",
+                List.of(FieldDefinition.string("control", "Control")));
+        var module = net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition.builder("test.entry", "Entries")
+                .entities(List.of(entity)).references(List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition(
+                        "entry", "control", "platform.field_ui_control",
+                        net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                        List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "controlTitle")),
+                        null, null, null, null, Set.of(), List.of(), List.of(), null,
+                        net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope.GLOBAL))).build();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("dynamic-reference-test", "Dynamic reference test"));
+             var scope = TenantContext.system("dynamic reference configuration contract")) {
+            String original = fields.select("text").getTitle();
+            var record = new DynamicRecord(entity); record.setId("owner"); record.setTenantId("tenant-a");
+            record.setValue("control", "text"); record.putProjectedValue("controlTitle", original);
+            texts.captureDynamicReferences(module, List.of(record));
+            var wire = java.util.Map.of("id", "owner", "version", 3, "values", record.getValues(), "children", java.util.Map.of());
+            var output = mapper.valueToTree(texts.projectCaptured(wire));
+            assertThat(output.at("/$texts/controlTitle/languages/en/text").asText()).isEqualTo("Text input");
+            assertThat(output.at("/values/controlTitle").asText()).isEqualTo(original);
+            assertThat(output.at("/values/control").asText()).isEqualTo("text");
+            assertThat(fields.select("text").getTitle()).isEqualTo(original);
+            assertThat(mapper.valueToTree(wire).path("$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
+    void keepsReferenceSummaryTranslationsWhenTheSourceReferenceIsInternalOnly() {
+        var definition = StaticModuleDefinition.builder("platform", "platform.field_spec", "Field specifications")
+                .capabilities(Set.of(EntityCapability.CRUD))
+                .entities(List.of(new EntityDefinition("field_spec", "platform_field_spec", "Field specification",
+                        List.of(FieldDefinition.string("defaultUiControlAlias", "Default control").column("default_ui_control_alias")))))
+                .uiDefinition(ModuleUiDefinition.builder("platform.field_spec")
+                        .page(PageTemplates.listDetailCard(page -> page.list(list -> list.fields(values -> values.field("defaultUiControlAlias")))
+                                .detail(detail -> detail.display(form -> form.field("defaultUiControlAlias")))))
+                        .build())
+                .references(List.of(new StaticReferenceDefinition("control", "defaultUiControlAlias", "platform.field_ui_control")))
+                .readProjections(List.of(new StaticModuleReadProjectionDefinition(
+                        ReferencePath.from(FieldSpec::getDefaultUiControlAlias)
+                                .select(FieldUiControl::getTitle), "controlTitle")))
+                .modelClass(FieldSpec.class).build();
+        var target = StaticModuleDefinition.builder("platform", "platform.field_ui_control", "Controls")
+                .entities(List.of(new EntityDefinition("field_ui_control", "platform_field_ui_control", "Control",
+                        List.of(FieldDefinition.string("title", "Title")))))
+                .modelClass(FieldUiControl.class).build();
+        var catalog = new StaticModuleDefinitionCatalog(List.of(definition, target));
+        var projection = new StaticRecordReadProjectionService(catalog,
+                applicationContext.getBeanProvider(RelationProjectionReadService.class),
+                applicationContext.getBeanProvider(OptionSourceRegistry.class),
+                new ModuleExecutionPlanCatalog(catalog));
+        var texts = applicationContext.getBean(RecordTextPresentationService.class);
+        projection.setRecordTextPresentationService(texts);
+        var fields = applicationContext.getBean(FieldSpecService.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var system = CurrentUserContext.use(CurrentUser.systemUser("summary-only-test", "Summary only test"));
+             var scope = TenantContext.system("summary-only SQL contract")) {
+            var response = projection.queryExplicitList("platform.field_spec", "summary-only", List.of("controlTitle", "defaultUiControlSummary"),
+                    Criteria.of().eq("id", "string"), ALL, fields).orElseThrow();
+            var output = mapper.valueToTree(texts.projectCaptured(response));
+            assertThat(output.at("/records/0/defaultUiControlAlias").isMissingNode()).isTrue();
+            assertThat(output.at("/records/0/defaultUiControlSummary/id").asText()).isEqualTo("text");
+            assertThat(output.at("/records/0/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text input");
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
+    void translatesTheActualConfiguredPasswordPolicyFailureWithoutChangingItsMachineCode() {
+        var policies = applicationContext.getBean(net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService.class);
+        var texts = applicationContext.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+        try (var scope = TenantContext.system("configured password policy localization test")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> policies.validatePassword("short"))
+                    .isInstanceOfSatisfying(net.ximatai.muyun.spring.ability.action.BusinessException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("iam.user.password-policy-violated");
+                        var source = failure.actionMessage().textSource();
+                        assertThat(source.sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+                        assertThat(texts.resolve(source, java.util.Map.of(), "en").text())
+                                .isEqualTo("The password must contain at least 6 characters");
+                        assertThat(failure.getMessage()).isEqualTo("密码长度不能少于 6 位");
+                    });
+        }
+    }
+
+    @Test
+    void deliversConfigurationRecordLabelsWithoutReplacingEditableOriginals() {
+        String token = issueSuperAdminSessionToken();
+        try {
+            var headers = bearerHeaders(token); headers.set("Accept-Language", "en");
+            var query = restTemplate.exchange("/platform.field_spec/query", org.springframework.http.HttpMethod.POST,
+                    new org.springframework.http.HttpEntity<>(java.util.Map.of(), headers), JsonNode.class);
+            assertThat(query.getStatusCode().value()).isEqualTo(200);
+            var stringSpec = java.util.stream.StreamSupport.stream(query.getBody().path("records").spliterator(), false)
+                    .filter(row -> "string".equals(row.path("alias").asText())).findFirst().orElseThrow();
+            assertThat(stringSpec.path("title").asText()).isEqualTo("短文本");
+            assertThat(stringSpec.at("/$texts/title/languages/en/text").asText()).isEqualTo("Short text");
+            assertThat(stringSpec.at("/$texts/title/source/sourceKind").asText()).isEqualTo("CONFIG");
+            var app = restTemplate.exchange("/platform.application/view/platform", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(app.getStatusCode().value()).isEqualTo(200);
+            assertThat(app.getBody().path("title").asText()).isEqualTo("平台能力");
+            assertThat(app.getBody().at("/$texts/title/languages/en/text").asText()).isEqualTo("Platform capabilities");
+            var policies = restTemplate.exchange("/iam.password_policy_rule/active-global-rules", org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+            assertThat(policies.getStatusCode().value()).isEqualTo(200);
+            assertThat(policies.getBody().at("/0/message").asText()).isEqualTo("密码长度不能少于 6 位");
+            assertThat(policies.getBody().at("/0/$texts/message/languages/en/text").asText()).isEqualTo("The password must contain at least 6 characters");
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
+    void configurationLabelsFollowGlobalReadScopeForTenantUsersAndActualRelationProducers() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenant = insertActiveTenant("label_" + suffix), user = "labeluser_" + suffix;
+        insertUser(tenant, user, user);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", user);
+        grantTenantScopedEmploymentAction(tenant, user, suffix, "iam.password_policy_rule", PlatformAction.QUERY);
+        String token = issueActiveSessionToken(tenant, user, user);
+        String adminToken = issueSuperAdminSessionToken();
+        String childId = "labelchild" + suffix;
+        jdbcTemplate.update("insert into platform_field_ui_control_attribute (id, title, field_ui_control_alias, attribute_alias, deleted) values (?, ?, 'text', ?, true)",
+                childId, "明细配置名称", childId);
+        try {
+            var policies = restTemplate.exchange("/iam.password_policy_rule/active-global-rules", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(token)), JsonNode.class);
+            assertThat(policies.getStatusCode()).withFailMessage("tenant global read: %s", policies.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(policies.getBody().at("/0/message").asText()).isEqualTo("密码长度不能少于 6 位");
+            assertThat(policies.getBody().at("/0/$texts/message/languages/en/text").asText()).isEqualTo("The password must contain at least 6 characters");
+            var headers = bearerHeaders(adminToken);
+            String control = jdbcTemplate.queryForObject("select id from platform_field_ui_control where alias = 'text'", String.class);
+            var properties = restTemplate.exchange("/platform.field_ui_control/view/" + control + "/relations/properties/recycle-bin/query", HttpMethod.POST,
+                    new HttpEntity<>(Map.of(), headers), JsonNode.class);
+            assertThat(properties.getStatusCode()).withFailMessage("relation read: %s", properties.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(properties.getBody().path("records")).isNotEmpty();
+            var child = java.util.stream.StreamSupport.stream(properties.getBody().path("records").spliterator(), false)
+                    .filter(row -> childId.equals(row.path("id").asText())).findFirst().orElseThrow();
+            assertThat(child.at("/$texts/title/source/sourceId").asText())
+                    .isEqualTo("config/record/platform.field_ui_control_property/" + childId + "/title");
+            assertThat(child.at("/$texts/title/source/originalText").asText()).isEqualTo("明细配置名称");
+        } finally {
+            userSessionService.logout(token); userSessionService.logout(adminToken);
+            jdbcTemplate.update("delete from platform_field_ui_control_attribute where id = ?", childId);
+        }
+    }
+
+    @Test
+    void retainedConfigurationLabelsKeepTheirOriginalsAndDeletionEnvelope() {
+        String id = "labelretained" + Long.toUnsignedString(System.nanoTime(), 36);
+        String token = issueSuperAdminSessionToken();
+        jdbcTemplate.update("insert into platform_application (id, title, deleted, deleted_at) values (?, ?, true, current_timestamp)", id, "保留的配置名称");
+        try {
+            var headers = bearerHeaders(token);
+            var response = restTemplate.exchange("/platform.application/recycle-bin/query", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("conditions", List.of(Map.of("fieldName", "id", "operator", "EQ", "values", List.of(id)))), headers), JsonNode.class);
+            assertThat(response.getStatusCode()).withFailMessage("retained read: %s", response.getBody()).isEqualTo(HttpStatus.OK);
+            var item = java.util.stream.StreamSupport.stream(response.getBody().path("records").spliterator(), false)
+                    .filter(row -> id.equals(row.at("/record/id").asText())).findFirst().orElseThrow();
+            assertThat(item.at("/record/title").asText()).isEqualTo("保留的配置名称");
+            assertThat(item.at("/record/$texts/title/source/sourceKind").asText()).isEqualTo("CONFIG");
+            assertThat(item.at("/record/$texts/title/source/originalText").asText()).isEqualTo("保留的配置名称");
+            assertThat(item.has("restorable")).isTrue();
+            var detail = restTemplate.exchange("/platform.application/recycle-bin/view/" + id, HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class);
+            assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(detail.getBody().at("/$texts/title/source/originalText").asText()).isEqualTo("保留的配置名称");
+        } finally { userSessionService.logout(token); jdbcTemplate.update("delete from platform_application where id = ?", id); }
     }
 
     @Test
@@ -903,7 +1230,19 @@ class MuYunSpringApplicationContextIT {
         assertThat(menus.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(menus.getBody()).isNotNull();
         assertThat(menus.getBody().path("code").asText()).isEqualTo("PASSWORD_CHANGE_REQUIRED");
-        assertThat(menus.getBody().path("message").asText()).isEqualTo("password change required");
+        assertThat(menus.getBody().path("message").asText()).isEqualTo("请先修改密码后再继续");
+        for (String language : List.of("en", "zh-CN", "en")) {
+            HttpHeaders localizedHeaders = bearerHeaders(token);
+            localizedHeaders.set("Accept-Language", language);
+            ResponseEntity<JsonNode> localized = restTemplate.exchange("/platform.menu/mine", HttpMethod.GET,
+                    new HttpEntity<>(localizedHeaders), JsonNode.class);
+            assertThat(localized.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(localized.getBody().path("code").asText()).isEqualTo("PASSWORD_CHANGE_REQUIRED");
+            assertThat(localized.getBody().path("message").asText()).isEqualTo(language.equals("en")
+                    ? "Change your password before continuing" : "请先修改密码后再继续");
+            assertThat(localized.getBody().path("textSource").path("sourceId").asText())
+                    .isEqualTo("platform.error.password-change-required");
+        }
 
         ResponseEntity<Void> logout = restTemplate.exchange(
                 "/iam.auth/logout", HttpMethod.POST, bearerRequest, Void.class);

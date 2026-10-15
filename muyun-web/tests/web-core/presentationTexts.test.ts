@@ -1,7 +1,13 @@
 import { computed, reactive } from 'vue';
 import { expect, it } from 'vitest';
 import { createLanguageContext } from '@/web-core/language';
-import { originalPresentation, translatedPresentation } from '@/web-core/presentationTexts';
+import {
+  createCodeTextPresentation,
+  originalPresentation,
+  recordPresentationLabel,
+  withoutRecordPresentation,
+  translatedPresentation,
+} from '@/web-core/presentationTexts';
 import type { TextPresentation } from '@/web-contracts';
 
 const label: TextPresentation = {
@@ -82,4 +88,68 @@ it('projects only formal action titles while preserving codes, authorization, in
   });
   expect(original.actions[0]?.title).toBe('接收订单');
   expect(original.textBindings['/actions/0/title'].source.originalText).toBe('接收订单');
+});
+
+it('snapshots owned extension resources and disabled fallbacks without switching the consumer context', async () => {
+  const { createHash } = await import('node:crypto');
+  const context = createLanguageContext({ languageTag: 'en' });
+  context.setCatalog({
+    ...context.catalog.value,
+    languages: [
+      ...context.catalog.value.languages,
+      { tag: 'de', nativeName: 'Deutsch', direction: 'ltr', fallbackTag: 'en', enabled: false },
+    ],
+  });
+  context.registerResources('en', { 'consumer.heading': 'Heading: {name}' });
+  context.registerResources('de', { 'consumer.heading': 'Titel: {name}' });
+  const revision = context.revision.value,
+    selection = context.selectionRevision.value;
+  const original = '原文：业务{module}';
+  const snapshot = createCodeTextPresentation('consumer.heading', original, context, {
+    name: '业务{module}',
+  });
+  expect(snapshot.source).toEqual({
+    sourceKind: 'CODE',
+    sourceId: 'consumer.heading',
+    originalText: original,
+    sourceVersion: `sha256-${createHash('sha256').update(original, 'utf8').digest('hex')}`,
+  });
+  expect(snapshot.languages.en!.text).toBe('Heading: 业务{module}');
+  expect(snapshot.languages.de!.text).toBe('Titel: 业务{module}');
+  expect(snapshot.languages.fr!.text).toBe('Heading: 业务{module}');
+  expect(context.languageTag.value).toBe('en');
+  expect(context.revision.value).toBe(revision);
+  expect(context.selectionRevision.value).toBe(selection);
+  const missing = createCodeTextPresentation('consumer.missing', original, context, {
+    module: 'must not interpolate business values',
+  });
+  expect(missing.languages.en!.text).toBe(original);
+  expect(missing.languages.en!.missing).toBe(true);
+  expect(() => createCodeTextPresentation(' ', original, context)).toThrow('must not be blank');
+});
+
+it('uses only matching configuration record labels and omits read metadata from writes without touching nested JSON', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = {
+    id: 'one',
+    version: 3,
+    title: '姓名',
+    $texts: { title: label },
+    business: { $texts: { literal: '{value}' }, title: '业务原值' },
+  };
+  expect(recordPresentationLabel(record, 'title', language)).toBe('Name');
+  expect(recordPresentationLabel({ id: 'two', title: '姓名' }, 'title', language)).toBe('姓名');
+  language.setLanguage('zh-CN');
+  expect(recordPresentationLabel(record, 'title', language)).toBe('姓名');
+  language.setLanguage('en');
+  record.title = '人工修改 {value}';
+  expect(recordPresentationLabel(record, 'title', language)).toBe('人工修改 {value}');
+  expect(withoutRecordPresentation(record)).toEqual({
+    id: 'one',
+    version: 3,
+    title: '人工修改 {value}',
+    business: record.business,
+  });
+  expect(record.$texts).toBeDefined();
+  expect(withoutRecordPresentation(record).business).toBe(record.business);
 });

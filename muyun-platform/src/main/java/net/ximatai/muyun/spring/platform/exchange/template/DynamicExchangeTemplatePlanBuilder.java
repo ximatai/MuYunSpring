@@ -143,7 +143,7 @@ public class DynamicExchangeTemplatePlanBuilder {
                 false,
                 ExcelValueType.TEXT,
                 List.of()
-        ));
+        ).withTitle(ExcelExchangeProtocol.RELATE_ID_TITLE_SOURCE));
         for (DynamicFieldDescriptor field : entity.fields()) {
             if (field == null || isBlank(field.fieldName()) || hiddenCompanionFieldNames.contains(field.fieldName())
                     || PlatformFieldPolicy.isAudit(field.fieldName())) {

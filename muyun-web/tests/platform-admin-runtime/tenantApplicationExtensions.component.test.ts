@@ -1,4 +1,6 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import TenantApplicationsDetailSection from '@/platform-admin-runtime/tenant/TenantApplicationsDetailSection.vue';
 import TenantApplicationConfigurationDrawer from '@/platform-admin-runtime/tenant/TenantApplicationConfigurationDrawer.vue';
@@ -103,4 +105,73 @@ describe('tenant detail extensions', () => {
     expect(context.close).toHaveBeenCalledOnce();
     expect(setCloseBlocked).toHaveBeenLastCalledWith(false);
   });
+});
+
+it('refreshes translated tenant application columns and title actions while preserving selection and writes', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn().mockImplementation(({ path }) =>
+    Promise.resolve(
+      path === '/platform.application/query'
+        ? {
+            records: [
+              { alias: 'iam', title: '身份权限', enabled: true },
+              { alias: 'custom', title: '业务应用', enabled: true },
+            ],
+          }
+        : { records: [] },
+    ),
+  );
+  let actions: Array<{ key: string; label: string; run: () => unknown }> = [];
+  const context = {
+    module: { http: { request } },
+    record: { id: 'tenant-raw' },
+    refreshList: vi.fn(),
+    refreshDetailExtensions: vi.fn(),
+    close: vi.fn(),
+    setCloseBlocked: vi.fn(),
+    setTitleActions(next: typeof actions) {
+      actions = next;
+    },
+  };
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(TenantApplicationConfigurationDrawer, { context: context as never });
+      },
+    }),
+    { global: { stubs: { TenantApplicationConfigurationDrawer: false } } },
+  );
+  await flushPromises();
+  const drawer = wrapper.findComponent(TenantApplicationConfigurationDrawer);
+  const table = drawer.findComponent({ name: 'UiDataTable' });
+  expect(table.props('columns').map((column: { title: string }) => column.title)).toEqual([
+    'Application name',
+    'Application alias',
+  ]);
+  table.props('selection').onChange(['iam', 'custom']);
+  await flushPromises();
+  const rows = table.props('rows');
+  expect(actions.map((action) => action.label)).toEqual(['Cancel', 'Confirm']);
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(table.props('columns').map((column: { title: string }) => column.title)).toEqual([
+    '应用名称',
+    '应用 alias',
+  ]);
+  expect(actions.map((action) => action.label)).toEqual(['取消', '确认']);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(table.props('rows')).toBe(rows);
+  expect(table.props('selection').selectedRowKeys).toEqual(['iam', 'custom']);
+  expect(table.props('selection').disabledOf(rows[0])).toBe(true);
+  expect(request).toHaveBeenCalledTimes(2);
+  await actions.find((action) => action.key === 'confirm')!.run();
+  expect(request).toHaveBeenLastCalledWith({
+    method: 'POST',
+    path: '/iam.tenant/tenant-raw/applications/configure',
+    body: { applicationAliases: ['iam', 'custom'] },
+  });
+  expect(request).toHaveBeenCalledTimes(3);
+  wrapper.unmount();
 });

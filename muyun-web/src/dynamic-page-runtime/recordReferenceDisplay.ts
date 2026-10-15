@@ -1,13 +1,17 @@
+import { toRaw } from 'vue';
+import { platformLanguageContext } from '@muyun/web-core';
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import type { ReferencePickerCandidate } from '@muyun/platform-components';
 import { referencePickerDisplayTitle } from '@muyun/platform-components';
 
 /** Editor-owned display observations; never candidates, write inputs or permission. */
 export function createRecordReferenceDisplay(
-  form: Pick<RecordFormDraftAccess, 'editingRecord' | 'referencePickerConfigs'>,
+  form: Pick<RecordFormDraftAccess, 'editingRecord' | 'referencePickerConfigs' | 'language'>,
   sessionKey: () => unknown,
 ) {
-  const displays = new Map<string, { key: string; display: string }>();
+  const language = form.language ?? platformLanguageContext;
+  const displays = new Map<string, { key: string; candidates: readonly ReferencePickerCandidate[] }>();
+  const format = (names: readonly string[]) => names.join(language.t('platform.list.separator', '、'));
   const key = (fieldName: string) =>
     JSON.stringify([
       sessionKey(),
@@ -27,26 +31,35 @@ export function createRecordReferenceDisplay(
         !ids.length ||
         selected.some(
           (candidate) =>
-            !candidate ||
-            !candidate.title.trim() ||
-            candidate.identifierFallback ||
-            candidate.unavailable ||
-            candidate.title === candidate.id,
+            !candidate || !candidate.title.trim() || candidate.identifierFallback || candidate.unavailable,
         )
       ) {
         displays.delete(fieldName);
         return;
       }
-      const display = selected.map((candidate) => referencePickerDisplayTitle(candidate!)).join('、');
-      if (display.length > 2000) {
+      const names = selected.map((candidate) => referencePickerDisplayTitle(candidate!, language));
+      if (format(names).length > 2000) {
         displays.delete(fieldName);
         return;
       }
-      displays.set(fieldName, { key: key(fieldName), display });
+      displays.set(fieldName, {
+        key: key(fieldName),
+        candidates: selected.map((candidate) => ({
+          id: candidate!.id,
+          title: candidate!.title,
+          subtitle: candidate!.subtitle,
+          titleText: candidate!.titleText && structuredClone(toRaw(candidate!.titleText)),
+        })),
+      });
     },
     current(fieldName: string): string | undefined {
       const observed = displays.get(fieldName);
-      if (observed?.key === key(fieldName)) return observed.display;
+      if (observed?.key === key(fieldName)) {
+        const display = format(
+          observed.candidates.map((candidate) => referencePickerDisplayTitle(candidate, language)),
+        );
+        return display.length <= 2000 ? display : undefined;
+      }
       displays.delete(fieldName);
       return undefined;
     },

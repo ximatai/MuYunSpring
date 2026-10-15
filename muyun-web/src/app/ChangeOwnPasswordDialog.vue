@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { UiInput, UiModal } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ChangeOwnPasswordDialog' });
 
@@ -31,8 +34,8 @@ const emit = defineEmits<{
 <template>
   <UiModal
     :open="open"
-    title="修改密码"
-    confirm-text="保存"
+    :title="language.t('platform.screen.ChangeOwnPasswordDialog.change-password', '修改密码')"
+    :confirm-text="language.t('platform.screen.ChangeOwnPasswordDialog.save', '保存')"
     :confirm-loading="saving"
     :confirm-disabled="!currentPassword || !newPassword || !confirmPassword"
     @confirm="emit('submit')"
@@ -40,35 +43,49 @@ const emit = defineEmits<{
   >
     <div class="change-own-password-fields">
       <label>
-        <span>当前密码</span>
+        <span>{{ language.t('platform.screen.ChangeOwnPasswordDialog.current-password', '当前密码') }}</span>
         <UiInput
           :value="currentPassword"
           type="password"
           autocomplete="current-password"
           :disabled="saving"
-          placeholder="请输入当前密码"
+          :placeholder="
+            language.t(
+              'platform.screen.ChangeOwnPasswordDialog.enter-your-current-password',
+              '请输入当前密码',
+            )
+          "
           @update:value="emit('update:currentPassword', $event)"
         />
       </label>
       <label>
-        <span>新密码</span>
+        <span>{{ language.t('platform.screen.ChangeOwnPasswordDialog.new-password', '新密码') }}</span>
         <UiInput
           :value="newPassword"
           type="password"
           autocomplete="new-password"
           :disabled="saving"
-          placeholder="请输入新密码"
+          :placeholder="
+            language.t('platform.screen.ChangeOwnPasswordDialog.enter-your-new-password', '请输入新密码')
+          "
           @update:value="emit('update:newPassword', $event)"
         />
       </label>
       <label>
-        <span>确认新密码</span>
+        <span>{{
+          language.t('platform.screen.ChangeOwnPasswordDialog.confirm-new-password', '确认新密码')
+        }}</span>
         <UiInput
           :value="confirmPassword"
           type="password"
           autocomplete="new-password"
           :disabled="saving"
-          placeholder="请再次输入新密码"
+          :placeholder="
+            language.t(
+              'platform.screen.ChangeOwnPasswordDialog.enter-your-new-password-again',
+              '请再次输入新密码',
+            )
+          "
           @update:value="emit('update:confirmPassword', $event)"
         />
       </label>

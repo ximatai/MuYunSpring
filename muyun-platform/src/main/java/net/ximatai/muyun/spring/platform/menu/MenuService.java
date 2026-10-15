@@ -43,6 +43,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 
 @Service
 public class MenuService extends AbstractAbilityService<Menu> implements
+        net.ximatai.muyun.spring.platform.localization.RecordTextSourceAbility<Menu>,
         SoftDeleteAbility<Menu>,
         EnableAbility<Menu>,
         TreeAbility<Menu>,
@@ -528,5 +529,12 @@ public class MenuService extends AbstractAbilityService<Menu> implements
             MenuScheme scheme = schemeService.select(schemeId);
             return scheme != null && scheme.getScopeType() == MenuScopeType.SYSTEM;
         }
+    }
+
+    @Override
+    public java.util.Map<String, net.ximatai.muyun.spring.common.i18n.TextReference> recordTextSources(Menu record) {
+        if (record.getTitle() == null || record.getTitle().isBlank()) return java.util.Map.of();
+        var source = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.menuTitle(record.getId(), record.getTitle());
+        return source == null ? java.util.Map.of() : java.util.Map.of("title", source);
     }
 }

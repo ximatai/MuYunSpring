@@ -8,12 +8,20 @@ export interface UiTreeSelectNode {
   children?: UiTreeSelectNode[];
 }
 
+/** Disposable labels for UI search/selection; the source items and persisted codes stay intact. */
+export function optionItemsForDisplay(
+  items: readonly OptionItemDescriptor[],
+  language: LanguageContext,
+): OptionItemDescriptor[] {
+  return items.map((item) => ({ ...item, title: presentationLabel(item.title, item.titleText, language) }));
+}
+
 export function optionItemsToOptions(
   items: OptionItemDescriptor[],
   language: LanguageContext = platformLanguageContext,
 ): Option[] {
-  return items.map((item) => ({
-    label: presentationLabel(item.title, item.titleText, language),
+  return optionItemsForDisplay(items, language).map((item) => ({
+    label: item.title,
     value: item.code,
     disabled: !item.enabled,
   }));
@@ -29,10 +37,10 @@ export function optionItemsToTree(
 ): UiTreeSelectNode[] {
   const nodes = new Map<string, UiTreeSelectNode>();
   const roots: UiTreeSelectNode[] = [];
-  items.forEach((item) =>
+  optionItemsForDisplay(items, language).forEach((item) =>
     nodes.set(item.code, {
       value: item.code,
-      title: presentationLabel(item.title, item.titleText, language),
+      title: item.title,
       disabled: !item.enabled,
       children: [],
     }),

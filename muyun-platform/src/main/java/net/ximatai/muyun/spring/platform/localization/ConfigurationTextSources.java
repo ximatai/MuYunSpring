@@ -21,8 +21,15 @@ public final class ConfigurationTextSources {
         return TextReference.configured("config/workflow/version/" + segment(versionId) + "/node/" + segment(nodeKey)
                 + "/guide/" + segment(guideKey) + "/" + segment(property), original);
     }
+    public static TextReference workflowCheckText(String versionId, String nodeKey, String checkKey, String property, String original) {
+        return TextReference.configured("config/workflow/version/" + segment(versionId) + "/node/" + segment(nodeKey)
+                + "/check/" + segment(checkKey) + "/" + segment(property), original);
+    }
     public static TextReference metadataFieldTitle(String module, String entity, String field, String original) {
         return TextReference.configured("config/metadata/" + segment(module) + "/entity/" + segment(entity) + "/field/" + segment(field) + "/title", original);
+    }
+    public static TextReference recordText(String moduleAlias, String recordId, String property, String original) {
+        return TextReference.configured("config/record/" + segment(moduleAlias) + "/" + segment(recordId) + "/" + segment(property), original);
     }
     private static String segment(String value) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException("Configuration source identity is required");

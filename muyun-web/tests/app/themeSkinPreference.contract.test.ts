@@ -35,7 +35,7 @@ it('rolls back the local skin when account persistence fails', async () => {
 
   await expect(saveThemeSkinPreference(store, 'dark-navy', 'light-blue')).resolves.toEqual({
     skinId: 'light-blue',
-    error: '皮肤保存失败，已恢复为之前的设置。',
+    failure: 'save-failed',
   });
   expect(store.set).toHaveBeenNthCalledWith(1, themeSkinPreferenceKey, 'dark-navy', { persistence: 'local' });
   expect(store.set).toHaveBeenNthCalledWith(2, themeSkinPreferenceKey, 'dark-navy', {

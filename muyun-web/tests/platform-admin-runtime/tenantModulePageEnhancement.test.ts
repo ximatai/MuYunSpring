@@ -52,3 +52,25 @@ describe('tenant module page enhancement', () => {
     expect(drawers[0]).toMatchObject({ title: '配置应用', width: 'wide' });
   });
 });
+
+it('uses the host language for branding hints and upload advice without changing the draft', async () => {
+  const { createLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const policy = tenantModulePageEnhancement.form!.fieldPolicies!.find(
+    (item) => item.fieldName === 'lightLogoAssetId',
+  )!;
+  const state = {
+    mode: 'edit' as const,
+    draft: { workbenchBrandMode: 'logoWithTitle' },
+    fields: [],
+    formSessionKey: 1,
+  };
+  expect(policy.imageUploadHint!(state, language)).toContain('Logo and title mode requires square images');
+  const advisory = policy.imageUploadAdvisory!(state, language)!;
+  const file = new File(['raw'], '业务名称.txt', { type: 'text/plain' });
+  expect(await advisory(file)).toBe('Logo and title mode requires a readable square image.');
+  language.setLanguage('zh-CN');
+  expect(await advisory(file)).toBe('Logo + 标题模式需要可读取的正方形图片。');
+  expect(state.draft).toEqual({ workbenchBrandMode: 'logoWithTitle' });
+  expect(state.formSessionKey).toBe(1);
+});

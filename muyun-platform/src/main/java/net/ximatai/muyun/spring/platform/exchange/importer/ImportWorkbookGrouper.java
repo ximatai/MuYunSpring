@@ -82,17 +82,17 @@ public class ImportWorkbookGrouper {
             }
             String relateId = normalizeKey(parsedRow.valuesByFieldName().get(ExcelExchangeProtocol.RELATE_ID_FIELD));
             if (isBlank(relateId)) {
-                errorRows.add(ImportErrorRow.of(parsedRow, "主表关联标识不能为空", null));
+                errorRows.add(ImportErrorRow.code(parsedRow, "main-relate-required", "主表关联标识不能为空", Map.of(), null));
                 continue;
             }
             if (invalidRelateIds.contains(relateId)) {
-                errorRows.add(ImportErrorRow.of(parsedRow, "主表关联标识重复: " + relateId, relateId));
+                errorRows.add(ImportErrorRow.code(parsedRow, "main-relate-duplicate", "主表关联标识重复: {value}", Map.of("value", relateId), relateId));
                 continue;
             }
             ImportGroup existing = groups.get(relateId);
             if (existing != null) {
-                errorRows.add(ImportErrorRow.of(parsedRow, "主表关联标识重复: " + relateId, relateId));
-                errorRows.add(ImportErrorRow.of(existing.mainRow(), "主表关联标识重复: " + relateId, relateId));
+                errorRows.add(ImportErrorRow.code(parsedRow, "main-relate-duplicate", "主表关联标识重复: {value}", Map.of("value", relateId), relateId));
+                errorRows.add(ImportErrorRow.code(existing.mainRow(), "main-relate-duplicate", "主表关联标识重复: {value}", Map.of("value", relateId), relateId));
                 groups.remove(relateId);
                 invalidRelateIds.add(relateId);
                 continue;
@@ -110,19 +110,19 @@ public class ImportWorkbookGrouper {
         for (ImportGroup group : new ArrayList<>(groups.values())) {
             String matchValue = normalizeKey(valueForMatch(group.mainRow(), mainSheetPlan.matchFieldName()));
             if (isBlank(matchValue)) {
-                errorRows.add(ImportErrorRow.of(group.mainRow(), "主表匹配字段不能为空", group.groupKey()));
+                errorRows.add(ImportErrorRow.code(group.mainRow(), "main-match-required", "主表匹配字段不能为空", Map.of(), group.groupKey()));
                 groups.remove(group.groupKey());
                 continue;
             }
             if (invalidMatchValues.contains(matchValue)) {
-                errorRows.add(ImportErrorRow.of(group.mainRow(), "主表 Excel 内匹配键重复: " + matchValue, group.groupKey()));
+                errorRows.add(ImportErrorRow.code(group.mainRow(), "main-match-duplicate", "主表 Excel 内匹配键重复: {value}", Map.of("value", matchValue), group.groupKey()));
                 groups.remove(group.groupKey());
                 continue;
             }
             ImportGroup existing = groupsByMatch.putIfAbsent(matchValue, group);
             if (existing != null) {
-                errorRows.add(ImportErrorRow.of(group.mainRow(), "主表 Excel 内匹配键重复: " + matchValue, group.groupKey()));
-                errorRows.add(ImportErrorRow.of(existing.mainRow(), "主表 Excel 内匹配键重复: " + matchValue, existing.groupKey()));
+                errorRows.add(ImportErrorRow.code(group.mainRow(), "main-match-duplicate", "主表 Excel 内匹配键重复: {value}", Map.of("value", matchValue), group.groupKey()));
+                errorRows.add(ImportErrorRow.code(existing.mainRow(), "main-match-duplicate", "主表 Excel 内匹配键重复: {value}", Map.of("value", matchValue), existing.groupKey()));
                 groups.remove(group.groupKey());
                 groups.remove(existing.groupKey());
                 groupsByMatch.remove(matchValue);
@@ -158,12 +158,12 @@ public class ImportWorkbookGrouper {
                 }
                 String relateId = normalizeKey(parsedRow.valuesByFieldName().get(ExcelExchangeProtocol.RELATE_ID_FIELD));
                 if (isBlank(relateId)) {
-                    errorRows.add(ImportErrorRow.of(parsedRow, "子表关联标识不能为空", null));
+                    errorRows.add(ImportErrorRow.code(parsedRow, "child-relate-required", "子表关联标识不能为空", Map.of(), null));
                     continue;
                 }
                 ImportGroup group = groups.get(relateId);
                 if (group == null) {
-                    errorRows.add(ImportErrorRow.of(parsedRow, "子表未找到对应主表关联标识: " + relateId, relateId));
+                    errorRows.add(ImportErrorRow.code(parsedRow, "child-parent-not-found", "子表未找到对应主表关联标识: {value}", Map.of("value", relateId), relateId));
                     continue;
                 }
                 if (isCoverageOnlyChildRow(sheetPlan, parsedRow)) {
@@ -178,8 +178,8 @@ public class ImportWorkbookGrouper {
             }
             for (ImportGroup group : groups.values()) {
                 if (!group.isChildSheetCovered(sheetPlan.sheetKey())) {
-                    errorRows.add(ImportErrorRow.of(group.mainRow(),
-                            "子表未覆盖全部主表记录: " + sheetPlan.sheetName(), group.groupKey()));
+                    errorRows.add(ImportErrorRow.code(group.mainRow(), "child-coverage",
+                            "子表未覆盖全部主表记录: {sheet}", Map.of("sheet", sheetPlan.sheetName()), group.groupKey()));
                 }
             }
         }
@@ -192,7 +192,7 @@ public class ImportWorkbookGrouper {
                                           List<ImportErrorRow> errorRows) {
         String matchValue = normalizeKey(valueForMatch(parsedRow, sheetPlan.matchFieldName()));
         if (isBlank(matchValue)) {
-            errorRows.add(ImportErrorRow.of(parsedRow, "子表匹配字段不能为空", relateId));
+            errorRows.add(ImportErrorRow.code(parsedRow, "child-match-required", "子表匹配字段不能为空", Map.of(), relateId));
             return false;
         }
         if (sheetPlan.duplicateStrategy() != ImportDuplicateStrategy.ERROR) {
@@ -200,7 +200,7 @@ public class ImportWorkbookGrouper {
         }
         Set<String> values = matchValuesByGroup.computeIfAbsent(relateId, key -> new LinkedHashSet<>());
         if (!values.add(matchValue)) {
-            errorRows.add(ImportErrorRow.of(parsedRow, "子表 Excel 内匹配键重复: " + matchValue, relateId));
+            errorRows.add(ImportErrorRow.code(parsedRow, "child-match-duplicate", "子表 Excel 内匹配键重复: {value}", Map.of("value", matchValue), relateId));
             return false;
         }
         return true;

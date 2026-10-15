@@ -1,3 +1,8 @@
+import { saveThemeSkinPreference } from '@/app/themeSkinPreference';
+import type { UserPreferenceStore } from '@muyun/web-core';
+import { vi } from 'vitest';
+import { defineComponent, h, nextTick } from 'vue';
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import ThemeSkinPreferencesDialog from '@/app/ThemeSkinPreferencesDialog.vue';
@@ -33,4 +38,77 @@ describe('ThemeSkinPreferencesDialog', () => {
     expect(document.activeElement).toBe(cards[1].element);
     wrapper.unmount();
   });
+});
+
+it('uses the consumer language for skin labels without changing selection, IDs or theme facts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = JSON.stringify(uiThemeSkins);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(ThemeSkinPreferencesDialog, { open: true, skins: uiThemeSkins, activeSkinId: 'light-blue' });
+    },
+  });
+  const wrapper = mount(Host, { global: { stubs: { UiModal: { template: '<div><slot /></div>' } } } });
+  try {
+    expect(wrapper.text()).toContain('Engineering blue');
+    expect(wrapper.text()).not.toContain('工程蓝');
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.text()).toContain('工程蓝');
+    const cards = wrapper.findAll('[role="radio"]');
+    expect(cards[0].attributes('aria-checked')).toBe('true');
+    await cards[2].trigger('click');
+    expect(wrapper.findComponent(ThemeSkinPreferencesDialog).emitted('select')).toEqual([['dark-navy']]);
+    expect(JSON.stringify(uiThemeSkins)).toBe(original);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('renders a persistence failure in its own language and updates it without replaying storage', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const writes: Array<{ skin: string; persistence: string }> = [];
+  const set = vi.fn(async (_: string, skin: string, options: { persistence: string }) => {
+    writes.push({ skin, persistence: options.persistence });
+    if (options.persistence === 'backend') throw new Error('private storage failure');
+  });
+  const result = await saveThemeSkinPreference(
+    { set } as unknown as UserPreferenceStore,
+    'dark-navy',
+    'light-blue',
+  );
+  expect(result).toEqual({ skinId: 'light-blue', failure: 'save-failed' });
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(ThemeSkinPreferencesDialog, {
+          open: true,
+          skins: uiThemeSkins,
+          activeSkinId: result.skinId,
+          failure: result.failure,
+        });
+    },
+  });
+  const wrapper = mount(Host, { global: { stubs: { UiModal: { template: '<div><slot /></div>' } } } });
+  try {
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      'Could not save the appearance preference. The previous setting has been restored.',
+    );
+    language.setLanguage('zh-CN');
+    await nextTick();
+    expect(wrapper.get('[role="alert"]').text()).toBe('皮肤保存失败，已恢复为之前的设置。');
+    expect(wrapper.findAll('[role="radio"]')[0].attributes('aria-checked')).toBe('true');
+    expect(writes).toEqual([
+      { skin: 'dark-navy', persistence: 'local' },
+      { skin: 'dark-navy', persistence: 'backend' },
+      { skin: 'light-blue', persistence: 'local' },
+    ]);
+    expect(set).toHaveBeenCalledTimes(3);
+    expect(wrapper.text()).not.toContain('private storage failure');
+  } finally {
+    wrapper.unmount();
+  }
 });

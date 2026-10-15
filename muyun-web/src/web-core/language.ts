@@ -1,4 +1,14 @@
-import { computed, inject, provide, ref, type ComputedRef, type InjectionKey } from 'vue';
+import type { TextReference } from '@muyun/web-contracts';
+import { sha256Hex } from './sha256';
+import {
+  computed,
+  hasInjectionContext,
+  inject,
+  provide,
+  ref,
+  type ComputedRef,
+  type InjectionKey,
+} from 'vue';
 import packs from './locales/languagePacks.json';
 import { withHttpHeaders, type HttpClient, type StreamingHttpClient } from './http';
 
@@ -32,7 +42,33 @@ export interface LanguageContext {
   setCatalog(catalog: LanguageCatalog): void;
   registerResources(tag: string, messages: Record<string, string>): void;
   resolve(key: string, defaultText?: string, args?: Record<string, unknown>): TextResolution;
+  /** Resolve registered resources without changing selection, including disabled fallback locales. */
+  resolveForLanguage(
+    tag: string,
+    key: string,
+    defaultText?: string,
+    args?: Record<string, unknown>,
+  ): TextResolution;
   t(key: string, defaultText?: string, args?: Record<string, unknown>): string;
+}
+
+/** Platform-owned CODE originals, independent of the selected or deployed default language. */
+export function platformCodeTextOriginal(key: string): string | undefined {
+  const originals: Record<string, string> = packs['zh-CN'].messages;
+  return Object.hasOwn(originals, key) ? originals[key] : undefined;
+}
+
+/** Immutable CODE source facts belong to the platform resource producer, never to a consumer locale. */
+export function platformCodeTextReference(key: string): TextReference | undefined {
+  const originalText = platformCodeTextOriginal(key);
+  return originalText === undefined
+    ? undefined
+    : { sourceKind: 'CODE', sourceId: key, sourceVersion: `sha256-${sha256Hex(originalText)}`, originalText };
+}
+
+/** Compare a declared source with the actual original, including its content version. */
+export function textReferenceMatchesOriginal(source: TextReference, original: string): boolean {
+  return source.originalText === original && source.sourceVersion === `sha256-${sha256Hex(original)}`;
 }
 
 const initialCatalog: LanguageCatalog = {
@@ -75,27 +111,30 @@ export function createLanguageContext(
   const catalog = computed(() => catalogState.value);
   const languageTag = computed(() => active.value);
   const language = computed(() => catalog.value.languages.find((entry) => entry.tag === active.value)!);
-  const resolve: LanguageContext['resolve'] = (key, defaultText, args) => {
+  const resolveForLanguage: LanguageContext['resolveForLanguage'] = (requested, key, defaultText, args) => {
+    const requestedTag = canonicalTag(requested);
     // Track resource publication as well as selection in Vue consumers of t().
     void revisionState.value;
-    for (const tag of fallbackTags(catalog.value, active.value)) {
+    for (const tag of fallbackTags(catalog.value, requestedTag)) {
       const messages = resources.get(tag);
       if (messages && Object.hasOwn(messages, key))
         return {
           text: interpolate(messages[key]!, args),
-          requestedTag: active.value,
+          requestedTag,
           resourceTag: tag,
           missing: false,
-          fallback: tag !== active.value,
+          fallback: tag !== requestedTag,
         };
     }
     return {
       text: interpolate(defaultText ?? key, args),
-      requestedTag: active.value,
+      requestedTag,
       missing: true,
       fallback: true,
     };
   };
+  const resolve: LanguageContext['resolve'] = (key, defaultText, args) =>
+    resolveForLanguage(active.value, key, defaultText, args);
   return {
     catalog,
     languageTag,
@@ -105,6 +144,7 @@ export function createLanguageContext(
     revision: computed(() => revisionState.value),
     selectionRevision: computed(() => selectionRevision.value),
     resolve,
+    resolveForLanguage,
     t: (...args) => resolve(...args).text,
     setLanguage(tag) {
       selectionRevision.value++;
@@ -198,7 +238,7 @@ export function provideLanguageContext(context: LanguageContext) {
   provide(LANGUAGE_CONTEXT, context);
 }
 export function useLanguageContext() {
-  return inject(LANGUAGE_CONTEXT, platformLanguageContext);
+  return hasInjectionContext() ? inject(LANGUAGE_CONTEXT, platformLanguageContext) : platformLanguageContext;
 }
 export function withLanguageContext(
   client: StreamingHttpClient,

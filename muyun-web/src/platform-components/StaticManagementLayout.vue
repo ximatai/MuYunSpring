@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import RecordDetailPanel from './RecordDetailPanel.vue';
 import RecordExplorerPanel from './RecordExplorerPanel.vue';
 import ManagementExplorerColumn from './ManagementExplorerColumn.vue';
 import ManagementWorkspace from './ManagementWorkspace.vue';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'StaticManagementLayout' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     explorerTitle: string;
     refreshTitle: string;
@@ -25,10 +29,16 @@ withDefaults(
     detailSubtitle: undefined,
     refreshable: true,
     explorerSearchKeyword: '',
-    explorerSearchPlaceholder: '搜索名称、编码或 ID',
+    explorerSearchPlaceholder: undefined,
     explorerSearchable: true,
     navigatorCount: 0,
   },
+);
+
+const resolvedExplorerSearchPlaceholder = computed(
+  () =>
+    props.explorerSearchPlaceholder ??
+    language.t('platform.screen.StaticManagementLayout.searchPlaceholder', '搜索名称、编码或 ID'),
 );
 const emit = defineEmits<{
   refresh: [];
@@ -52,7 +62,7 @@ const emit = defineEmits<{
         :refresh-title="refreshTitle"
         :refreshable="refreshable"
         :search-keyword="explorerSearchKeyword"
-        :search-placeholder="explorerSearchPlaceholder"
+        :search-placeholder="resolvedExplorerSearchPlaceholder"
         :searchable="explorerSearchable"
         @update:search-keyword="emit('update:explorerSearchKeyword', $event)"
         @refresh="emit('refresh')"

@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
+import { computed, ref } from 'vue';
 import { UiIcon } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'WorkbenchBrandControl' });
 
@@ -25,7 +28,7 @@ const props = withDefaults(
   }>(),
   {
     compactOpen: false,
-    tenantLabel: '系统工作区',
+    tenantLabel: undefined,
     logoSrc: undefined,
     showTitleArea: true,
     brandTitle: 'MuYun',
@@ -33,6 +36,11 @@ const props = withDefaults(
     expandedMenuDepth: 1,
     presentationToggleVisible: true,
   },
+);
+
+const effectiveTenantLabel = computed(
+  () =>
+    props.tenantLabel ?? language.t('platform.screen.WorkbenchBrandControl.system-workspace', '系统工作区'),
 );
 
 const emit = defineEmits<{
@@ -100,7 +108,11 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
         'workbench-brand-identity--with-title': showTitleArea,
       }"
       :type="presentation === 'compact' ? 'button' : undefined"
-      :aria-label="presentation === 'compact' ? '系统菜单' : undefined"
+      :aria-label="
+        presentation === 'compact'
+          ? language.t('platform.screen.WorkbenchBrandControl.system-menu', '系统菜单')
+          : undefined
+      "
       :aria-expanded="presentation === 'compact' ? compactOpen : undefined"
       :aria-controls="presentation === 'compact' ? 'workbench-compact-menu' : undefined"
       @mouseenter="requestCompactMenuOpen('pointer', $event)"
@@ -111,14 +123,22 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
       @keydown="handleIdentityKeydown"
     >
       <template v-if="logoSrc">
-        <img class="workbench-brand-logo" :src="logoSrc" :alt="`${tenantLabel} 标志`" />
+        <img
+          class="workbench-brand-logo"
+          :src="logoSrc"
+          :alt="
+            language.t('platform.screen.WorkbenchBrandControl.logo-label', '{tenant} 标志', {
+              tenant: effectiveTenantLabel,
+            })
+          "
+        />
       </template>
       <template v-else>
         <span class="workbench-brand-mark"><UiIcon name="app" /></span>
       </template>
       <span v-if="showTitleArea" class="workbench-brand-copy">
         <strong>{{ brandTitle }}</strong>
-        <small v-if="presentation === 'expanded'">{{ brandSubtitle ?? tenantLabel }}</small>
+        <small v-if="presentation === 'expanded'">{{ brandSubtitle ?? effectiveTenantLabel }}</small>
       </span>
     </component>
     <div class="workbench-brand-actions">
@@ -126,7 +146,7 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
         v-if="presentation === 'expanded'"
         class="workbench-menu-depth"
         role="group"
-        aria-label="侧栏菜单层级"
+        :aria-label="language.t('platform.screen.WorkbenchBrandControl.sidebar-menu-depth', '侧栏菜单层级')"
       >
         <button
           v-for="depth in [1, 2, 3] as const"
@@ -135,7 +155,11 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
           :class="{ selected: expandedMenuDepth === depth }"
           type="button"
           :aria-pressed="expandedMenuDepth === depth"
-          :title="`侧栏显示至第 ${depth} 级菜单`"
+          :title="
+            language.t('platform.screen.WorkbenchBrandControl.menu-depth', '侧栏显示至第 {depth} 级菜单', {
+              depth,
+            })
+          "
           @click="changeExpandedMenuDepth(depth)"
         >
           {{ depth }}
@@ -146,8 +170,16 @@ function changeExpandedMenuDepth(depth: 1 | 2 | 3) {
         class="workbench-brand-presentation-toggle"
         data-testid="workbench-menu-presentation-toggle"
         type="button"
-        :aria-label="presentation === 'compact' ? '展开侧栏菜单' : '收敛侧栏菜单'"
-        :title="presentation === 'compact' ? '展开侧栏菜单' : '收敛侧栏菜单'"
+        :aria-label="
+          presentation === 'compact'
+            ? language.t('platform.screen.WorkbenchBrandControl.expand-sidebar-menu', '展开侧栏菜单')
+            : language.t('platform.screen.WorkbenchBrandControl.collapse-sidebar-menu', '收敛侧栏菜单')
+        "
+        :title="
+          presentation === 'compact'
+            ? language.t('platform.screen.WorkbenchBrandControl.expand-sidebar-menu', '展开侧栏菜单')
+            : language.t('platform.screen.WorkbenchBrandControl.collapse-sidebar-menu', '收敛侧栏菜单')
+        "
         @click="togglePresentation"
       >
         <UiIcon :name="presentation === 'compact' ? 'menu-expand' : 'menu-collapse'" />

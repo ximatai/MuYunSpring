@@ -1,5 +1,6 @@
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { mount } from '@vue/test-utils';
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, nextTick, h } from 'vue';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -79,4 +80,55 @@ describe('record form surface', () => {
     await nextTick();
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true }]);
   });
+});
+
+it('passes the host language to image presentation policies while retaining the raw form state', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { tenantModulePageEnhancement } =
+    await import('@/platform-admin-runtime/tenantModulePageEnhancement');
+  const record = { workbenchBrandMode: 'logoOnly', lightLogoAssetId: 'raw-asset' };
+  const fields = new Map([
+    ['lightLogoAssetId', { fieldRef: { fieldName: 'lightLogoAssetId' }, uiType: 'input' }],
+  ]);
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(RecordFormSurface, {
+            record,
+            fields,
+            mode: 'edit',
+            formSessionKey: 1,
+            optionContext: {} as never,
+            fileTransferContext: {} as never,
+            pickerConfigs: {},
+            disabled: false,
+            fieldPolicies: tenantModulePageEnhancement.form!.fieldPolicies,
+          });
+      },
+    }),
+    {
+      global: {
+        stubs: {
+          RecordFormFields: {
+            name: 'RecordFormFields',
+            props: ['imageUploadHintOf', 'imageUploadAdvisoryOf'],
+            template: '<section />',
+          },
+        },
+      },
+    },
+  );
+  const form = wrapper.findComponent({ name: 'RecordFormFields' });
+  expect(form.props('imageUploadHintOf')('lightLogoAssetId')).toContain('Logo-only mode supports');
+  language.setLanguage('zh-CN');
+  await nextTick();
+  expect(form.props('imageUploadHintOf')('lightLogoAssetId')).toContain('纯 Logo 模式支持');
+  language.setLanguage('en');
+  await nextTick();
+  expect(form.props('imageUploadHintOf')('lightLogoAssetId')).toContain('Logo-only mode supports');
+  expect(record).toEqual({ workbenchBrandMode: 'logoOnly', lightLogoAssetId: 'raw-asset' });
+  expect(wrapper.findComponent(RecordFormSurface).props('record')).toBe(record);
+  wrapper.unmount();
 });

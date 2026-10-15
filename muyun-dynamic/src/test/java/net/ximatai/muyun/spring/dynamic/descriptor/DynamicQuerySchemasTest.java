@@ -16,6 +16,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicQuerySchemasTest {
     @Test
+    void dynamicAuditFieldsShareCodeSourcesWithoutClaimingIdenticalBusinessTitles() {
+        var entity = DynamicEntityDescriptor.from(new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition(
+                "entry", "test_entry", "Entry", List.of(
+                net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("note", "创建人").queryable())));
+        var schema = DynamicQuerySchemas.from("test.entry", entity, List.of("createdBy", "note"));
+        for (var policy : net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.auditFields()) {
+            assertThat(schema.fields()).filteredOn(field -> field.name().equals(policy.fieldName()))
+                    .singleElement().satisfies(field -> assertThat(field.titleSource()).isEqualTo(policy.titleSource()));
+        }
+        assertThat(schema.quickSearch().fieldSchemas()).filteredOn(field -> field.name().equals("createdBy"))
+                .singleElement().satisfies(field -> assertThat(field.titleSource()).isEqualTo(
+                        net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.find("createdBy").titleSource()));
+        assertThat(schema.fields()).filteredOn(field -> field.name().equals("note"))
+                .singleElement().satisfies(field -> { assertThat(field.title()).isEqualTo("创建人"); assertThat(field.titleSource()).isNull(); });
+    }
+
+    @Test
     void shouldExposeDeclaredExternalCriteriaKeys() {
         QuerySchema schema = DynamicQuerySchemas.from("iam.employee", new DynamicEntityDescriptor(
                 "employee", "职员", Set.of(), List.of(), List.of(), List.of(), List.of(), List.of()),

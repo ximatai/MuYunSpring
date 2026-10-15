@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 
 export type PageComposerSlot = 'list' | 'form';
@@ -69,62 +70,83 @@ function summaryCatalogTitle(
 export function pageQuerySummaryDescription(
   summary: PageQuerySummary,
   catalog: PageQuerySummaryCatalogTitles = {},
+  language: LanguageContext = platformLanguageContext,
 ) {
-  if (summary.source === 'MATCHED_COUNT') return '记录数';
+  if (summary.source === 'MATCHED_COUNT')
+    return language.t('platform.screen.QueryGroupedSummary.record-count', '记录数');
   if (summary.source === 'SUM')
-    return `合计 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '未选择数值字段')}`;
+    return language.t('platform.screen.PageCompositionTree.total-value', '合计 · {value1}', {
+      value1: summaryCatalogTitle(
+        catalog.fields,
+        summary.fieldName,
+        language.t('platform.screen.PageCompositionTree.no-numeric-field-selected', '未选择数值字段'),
+      ),
+    });
   if (summary.source === 'GROUPED') {
-    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '未选择分组字段');
+    const groupTitle = summaryCatalogTitle(
+      catalog.groupFields,
+      summary.groupByField,
+      language.t('platform.screen.PageCompositionTree.no-grouping-field-selected', '未选择分组字段'),
+    );
     const sumTitle = summary.fieldName
-      ? ` · 记录数 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`
-      : ' · 记录数';
-    return `按${groupTitle}分组${sumTitle}`;
+      ? language.t(
+          'platform.screen.pageCompositionDraftState.record-count-value-total',
+          ' · 记录数 · {value1}合计',
+          {
+            value1: summaryCatalogTitle(
+              catalog.fields,
+              summary.fieldName,
+              language.t('platform.screen.pageCompositionDraftState.numeric-field', '数值字段'),
+            ),
+          },
+        )
+      : language.t('platform.screen.PageCompositionTree.record-count', ' · 记录数');
+    return language.t('platform.screen.PageCompositionTree.group-by-valuevalue', '按{value1}分组{value2}', {
+      value1: groupTitle,
+      value2: sumTitle,
+    });
   }
   const title = catalog.contributors?.find((entry) => entry.contributorKey === summary.contributorKey)?.title;
-  return `业务指标 · ${title ?? summary.contributorKey ?? '未选择'}`;
+  return language.t('platform.screen.PageCompositionTree.business-metric-value', '业务指标 · {value1}', {
+    value1:
+      title ??
+      summary.contributorKey ??
+      language.t('platform.screen.recordDisplayProjection.not-selected', '未选择'),
+  });
 }
 
 /** Default titles follow a user-selected source while a custom title remains the user's intent. */
 export function defaultPageQuerySummaryLabel(
   summary: PageQuerySummary,
   catalog: PageQuerySummaryCatalogTitles = {},
+  language: LanguageContext = platformLanguageContext,
 ) {
-  if (summary.source === 'MATCHED_COUNT') return '记录数';
+  if (summary.source === 'MATCHED_COUNT')
+    return language.t('platform.screen.QueryGroupedSummary.record-count', '记录数');
+  const field = summaryCatalogTitle(
+    catalog.fields,
+    summary.fieldName,
+    language.t('platform.screen.pageCompositionDraftState.numeric-field', '数值字段'),
+  );
   if (summary.source === 'SUM')
-    return `${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`;
+    return language.t('platform.page.composition.summary-total', '{field}合计', { field });
   if (summary.source === 'GROUPED') {
-    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '字段');
+    const group = summaryCatalogTitle(
+      catalog.groupFields,
+      summary.groupByField,
+      language.t('platform.page.composition.summary-field', '字段'),
+    );
     return summary.fieldName
-      ? `按${groupTitle}分组${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`
-      : `按${groupTitle}分组统计`;
+      ? language.t('platform.page.composition.summary-group-total', '按{group}分组{field}合计', {
+          group,
+          field,
+        })
+      : language.t('platform.page.composition.summary-group', '按{group}分组统计', { group });
   }
   return (
     catalog.contributors?.find((entry) => entry.contributorKey === summary.contributorKey)?.title ??
-    '业务指标'
+    language.t('platform.page.composition.summary-metric', '业务指标')
   );
-}
-
-export function hasDefaultPageQuerySummaryLabel(
-  summary: PageQuerySummary,
-  catalog: PageQuerySummaryCatalogTitles = {},
-) {
-  const label = summary.label.trim();
-  if (label === defaultPageQuerySummaryLabel(summary, catalog)) return true;
-  // Drafts created before the terminology consolidation remain generated titles until users edit them.
-  if (summary.source === 'MATCHED_COUNT') return label === '匹配记录数';
-  if (summary.source === 'SUM') {
-    const fieldTitle = summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段');
-    return label === `${fieldTitle}求和` || label === `${fieldTitle}合计`;
-  }
-  if (summary.source === 'GROUPED') {
-    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '字段');
-    const fieldTitle = summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段');
-    return (
-      label === `按${groupTitle}统计` ||
-      (summary.fieldName != null && label === `按${groupTitle}统计${fieldTitle}合计`)
-    );
-  }
-  return false;
 }
 
 /** A direct child relation placed as an association-list component in the detail slot. */
@@ -193,7 +215,8 @@ export interface ManagementUiTree {
   querySummaries?: PageQuerySummary[];
   nodes: Array<{
     slot: PageComposerSlot | 'detail';
-    title: string;
+    /** Omitted titles use platform template defaults; explicit titles are configuration originals. */
+    title?: string;
     fields: Array<string | { field: string; props: PageComposerFieldProperties }>;
     order?: ManagementFormOrder;
     relations?: Array<{
@@ -215,7 +238,7 @@ export interface ManagementUiTree {
  * PageDefinition / PresentationRevision editing model rather than a
  * projection of another configuration aggregate.
  */
-export function createPageCompositionDraftState() {
+export function createPageCompositionDraftState(language: LanguageContext = platformLanguageContext) {
   const listFields = ref<PageComposerField[]>([]);
   const separateDetail = ref(false);
   const activeLayout = ref<'form' | 'detail'>('form');
@@ -258,6 +281,7 @@ export function createPageCompositionDraftState() {
   }
   /** management v1 only: a template-owned quick-search prompt, not a generic JSON node. */
   const quickSearchPlaceholder = ref<string>();
+  const slotTitles = ref<Partial<Record<PageComposerSlot | 'detail', string>>>({});
   const selectedNodeId = ref<string>();
   const previewMode = ref<PageComposerPreviewMode>('list');
 
@@ -269,8 +293,18 @@ export function createPageCompositionDraftState() {
   }
 
   const nodes = computed<PageComposerNode[]>(() => [
-    { id: 'slot:list', kind: 'slot', title: '列表', slot: 'list' },
-    { id: 'template:list:quick-search', kind: 'template', title: '快速查询', slot: 'list' },
+    {
+      id: 'slot:list',
+      kind: 'slot',
+      title: language.t('platform.page.composition.list', '列表'),
+      slot: 'list',
+    },
+    {
+      id: 'template:list:quick-search',
+      kind: 'template',
+      title: language.t('platform.screen.PageCompositionTree.quick-search', '快速查询'),
+      slot: 'list',
+    },
     ...listFields.value.map((field) => ({
       id: `list:${field.id}`,
       kind: 'field' as const,
@@ -278,7 +312,12 @@ export function createPageCompositionDraftState() {
       slot: 'list' as const,
       field,
     })),
-    { id: 'slot:form', kind: 'slot', title: '详情 / 表单', slot: 'form' },
+    {
+      id: 'slot:form',
+      kind: 'slot',
+      title: language.t('platform.screen.PageCompositionTree.details-form', '详情 / 表单'),
+      slot: 'form',
+    },
     ...orderedForm.value.flatMap<PageComposerNode>((item) => {
       if (item.kind === 'field') {
         const field = formFields.value.find((field) => field.id === item.id)!;
@@ -369,7 +408,7 @@ export function createPageCompositionDraftState() {
     const group = {
       id: `group_${number}`,
       groupCode: `group_${number}`,
-      title: `分组 ${number}`,
+      title: language.t('platform.page.composition.generated-group', '分组 {number}', { number }),
       fields: [],
     };
     formGroups.value = [...formGroups.value, group];
@@ -706,12 +745,12 @@ export function createPageCompositionDraftState() {
   function layoutNode(
     layout: PageComposerLayout,
     slot: 'form' | 'detail',
-    title: string,
+    title?: string,
   ): ManagementUiTree['nodes'][number] {
     const ordered = orderedFormItems(layout.fields, layout.groups, layout.order);
     return {
       slot,
-      title,
+      ...(title ? { title } : {}),
       fields: ordered
         .filter((item) => item.kind === 'field')
         .map((item) => toPersistedField(layout.fields.find((field) => field.id === item.id)!)),
@@ -757,7 +796,7 @@ export function createPageCompositionDraftState() {
     selectLayout('form');
   }
 
-  function toManagementUiTree(titles?: Partial<Record<PageComposerSlot, string>>): ManagementUiTree {
+  function toManagementUiTree(titles = slotTitles.value): ManagementUiTree {
     const props = quickSearchPlaceholder.value
       ? { list: { searchPlaceholder: quickSearchPlaceholder.value } }
       : undefined;
@@ -769,15 +808,11 @@ export function createPageCompositionDraftState() {
       nodes: [
         {
           slot: 'list',
-          title: titles?.list ?? '列表',
+          ...(titles.list ? { title: titles.list } : {}),
           fields: listFields.value.map((field) => toPersistedField(field, false)),
         },
         {
-          ...layoutNode(
-            layouts.value.form,
-            'form',
-            titles?.form ?? (separateDetail.value ? '表单' : '详情 / 表单'),
-          ),
+          ...layoutNode(layouts.value.form, 'form', titles.form),
           ...(formRelations.value.length
             ? {
                 relations: formRelations.value.map((relation) => ({
@@ -792,7 +827,8 @@ export function createPageCompositionDraftState() {
         },
       ],
     };
-    if (separateDetail.value) tree.nodes.push(layoutNode(layouts.value.detail, 'detail', '详情'));
+    if (separateDetail.value)
+      tree.nodes.push(layoutNode(layouts.value.detail, 'detail', slotTitles.value.detail));
     return tree;
   }
 
@@ -811,6 +847,7 @@ export function createPageCompositionDraftState() {
     querySummaries,
     orderedForm,
     quickSearchPlaceholder,
+    slotTitles,
     nodes,
     selectedNodeId,
     selectedNode,

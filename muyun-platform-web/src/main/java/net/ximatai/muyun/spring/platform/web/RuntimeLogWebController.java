@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -42,6 +43,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequestMapping("/platform.runtime_log")
 public class RuntimeLogWebController {
     public static final String MODULE_ALIAS = "platform.runtime_log";
+    private static final TextReference STREAM_INTERRUPTED = TextReference.code(
+            "platform.runtime-log.stream-interrupted", "程序日志流已中断");
     private static final int MAX_STREAMS = 4;
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private final RuntimeLogFileService logs;
@@ -144,7 +147,10 @@ public class RuntimeLogWebController {
             }
         } catch (Exception error) {
             if (!closed.get()) {
-                if (sendToClient(emitter, "error", Map.of("message", "程序日志流已中断"))) emitter.complete();
+                if (sendToClient(emitter, "error", Map.of(
+                        "code", "RUNTIME_LOG_STREAM_INTERRUPTED",
+                        "message", STREAM_INTERRUPTED.originalText(),
+                        "messageSource", STREAM_INTERRUPTED))) emitter.complete();
             }
         } finally {
             activeFileStreams.remove(emitter);
@@ -153,7 +159,7 @@ public class RuntimeLogWebController {
     }
 
     /** A client closing its browser tab is a normal end of a long-lived log stream. */
-    private static boolean sendToClient(SseEmitter emitter, String name, Map<String, String> data) {
+    private static boolean sendToClient(SseEmitter emitter, String name, Map<String, ?> data) {
         try {
             send(emitter, name, data);
             return true;
@@ -162,7 +168,7 @@ public class RuntimeLogWebController {
         }
     }
 
-    private static void send(SseEmitter emitter, String name, Map<String, String> data) throws IOException {
+    private static void send(SseEmitter emitter, String name, Map<String, ?> data) throws IOException {
         emitter.send(SseEmitter.event().name(name).data(data));
     }
 

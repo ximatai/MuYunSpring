@@ -19,6 +19,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldUiControlPropertyService extends AbstractAbilityService<FieldUiControlProperty> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<FieldUiControlProperty>,
         SoftDeleteAbility<FieldUiControlProperty>,
         SortAbility<FieldUiControlProperty>,
         ChildAbility<FieldUiControlProperty>,
@@ -117,4 +118,5 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
             throw new PlatformException("dictionary radio maxOptions must be a positive integer");
         }
     }
+
 }

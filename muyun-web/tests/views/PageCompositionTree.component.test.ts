@@ -1,3 +1,7 @@
+import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
+import { defineComponent, h, nextTick } from 'vue';
+import { createPageCompositionDraftState } from '@/views/pageCompositionDraftState';
+import { modeAwareTree } from '@/views/pageCompositionMode';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import type { UiTreeNode } from '@muyun/vue-ui-antdv';
@@ -763,5 +767,52 @@ it('accepts a component inside an empty form and emits its component payload', (
   expect(tree.props('allowDrop')(event)).toBe(true);
   tree.vm.$emit('drop', event);
   expect(wrapper.emitted('source-drop')).toEqual([[{ kind: 'form', index: 0 }, event.source.payload]]);
+  wrapper.unmount();
+});
+
+it('resolves skeleton labels without changing configuration originals or draft state', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const skeleton = {
+    mode: 'LIST_CARD' as const,
+    title: '列表 + 卡片',
+    navigationTitle: '记录列表',
+    navigationTitleKey: 'platform.presentation.management.LIST_CARD.navigationTitle',
+    fieldGroupTitle: '列表展示字段',
+    fieldGroupTitleKey: 'platform.presentation.management.LIST_CARD.fieldGroupTitle',
+    columns: true,
+    maxIdentityFields: 0,
+  };
+  const state = createPageCompositionDraftState(language);
+  state.slotTitles.value = { list: '用户自定义原文' };
+  const treeJson = () =>
+    JSON.stringify(modeAwareTree(state.toManagementUiTree(), skeleton, { titleField: 'title' }, []));
+  const before = treeJson();
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(PageCompositionTree, {
+          listFields: [],
+          formFields: [],
+          formGroups: [],
+          formRelations: [],
+          skeleton,
+        });
+    },
+  });
+  const wrapper = mount(Harness, { global: { stubs: { UiTree: UiTreeStub } } });
+  const nodes = () => wrapper.findComponent({ name: 'UiTree' }).props('nodes') as TestNode[];
+  expect(findNode(nodes(), 'ui:slot:list')?.title).toBe('Records');
+  expect(findNode(nodes(), 'ui:slot:list:fields')?.title).toBe('List display fields');
+  language.setLanguage('zh-CN');
+  await nextTick();
+  expect(findNode(nodes(), 'ui:slot:list')?.title).toBe('记录列表');
+  expect(treeJson()).toBe(before);
+  language.setLanguage('en');
+  await nextTick();
+  expect(findNode(nodes(), 'ui:slot:list')?.title).toBe('Records');
+  expect(treeJson()).toBe(before);
+  expect(JSON.parse(before).nodes[0].title).toBe('用户自定义原文');
+  expect(JSON.parse(before).nodes[1]).not.toHaveProperty('title');
   wrapper.unmount();
 });

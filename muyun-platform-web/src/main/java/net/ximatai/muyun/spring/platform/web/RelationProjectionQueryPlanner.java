@@ -159,7 +159,7 @@ public final class RelationProjectionQueryPlanner {
                 params,
                 queryableFields,
                 sortableFields,
-                responseFields,
+                sqlResponseFields(definition, responseFields),
                 List.copyOf(relationFields),
                 dbType,
                 projectionGraph
@@ -297,7 +297,7 @@ public final class RelationProjectionQueryPlanner {
                 params,
                 queryableFields,
                 sortableFields,
-                responseFields,
+                sqlResponseFields(definition, responseFields),
                 List.copyOf(relationFields),
                 dbType,
                 projectionGraph
@@ -442,6 +442,14 @@ public final class RelationProjectionQueryPlanner {
         return new RelationProjectionSqlPlan("select * from " + qualifiedTable(definition.entities().getFirst(), databaseType),
                 Map.of(), java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), List.of(), databaseType,
                 projectionGraph);
+    }
+
+    private static java.util.Set<String> sqlResponseFields(StaticModuleDefinition definition, java.util.Set<String> fields) {
+        var sqlFields = new LinkedHashSet<>(fields);
+        // Structured summaries are produced after target authorization, never selected as physical SQL columns.
+        net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver.summaryPlans(definition.modelClass())
+                .forEach(summary -> sqlFields.remove(summary.outputField()));
+        return sqlFields;
     }
 
     private static void addMainProjectionFields(LinkedHashMap<String, SelectField> selectFields,

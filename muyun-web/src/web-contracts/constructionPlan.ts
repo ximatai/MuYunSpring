@@ -1,3 +1,5 @@
+import type { TextPresentationDocument } from './index';
+
 /** Bounded business clauses; grouping must not force the loss of explicit requirements. */
 export const constructionPlanLimits = {
   textItems: 64,
@@ -137,7 +139,7 @@ export interface ConstructionDeliveryReceipt {
   menuId: string | null;
   metadataVersion: number;
 }
-export interface ConstructionProgress {
+export interface ConstructionProgress extends TextPresentationDocument {
   objectKey: string;
   moduleAlias: string;
   runtimeStatus: string;
@@ -153,7 +155,7 @@ export interface ConstructionProgress {
   requirements?: ConstructionRequirementEvidence[];
 }
 
-export interface ConstructionAcceptancePreview {
+export interface ConstructionAcceptancePreview extends TextPresentationDocument {
   objectKey: string;
   planRevision: number;
   checks: string[];
@@ -189,7 +191,7 @@ export interface ConstructionRequirementEvidence {
     | 'MANUAL_RESPONSIBILITY';
   explanation: string;
 }
-export interface ConstructionTask {
+export interface ConstructionTask extends TextPresentationDocument {
   planRevision: number;
   /** Requirements whose object ownership has not been confirmed, reported once for the plan. */
   unmappedRequirements: ConstructionRequirementEvidence[];

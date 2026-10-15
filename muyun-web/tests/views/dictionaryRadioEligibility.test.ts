@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@muyun/web-core';
 import { describe, expect, it } from 'vitest';
 import { dictionaryRadioEligibilityIssue } from '@/views/dictionaryRadioEligibility';
 
@@ -26,4 +27,27 @@ describe('dictionaryRadioEligibilityIssue', () => {
   ])('rejects an ineligible presentation: %s', (input, expected) => {
     expect(dictionaryRadioEligibilityIssue(input)).toBe(expected);
   });
+});
+
+it('uses the owning language for radio feedback while retaining the candidate facts and legacy error text', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const facts = { enabledCandidateCount: 5, hasHierarchy: false };
+  const input = {
+    optionSourceType: 'dictionary',
+    optionSelectionMode: 'SINGLE' as const,
+    maxOptions: 3,
+    facts,
+  };
+  expect(dictionaryRadioEligibilityIssue(input, language)).toBe(
+    'There are 5 enabled options; radio supports at most 3',
+  );
+  language.setLanguage('zh-CN');
+  expect(dictionaryRadioEligibilityIssue(input, language)).toBe('当前有 5 个启用候选，radio 最多支持 3 个');
+  expect(facts).toEqual({ enabledCandidateCount: 5, hasHierarchy: false });
+  expect(
+    dictionaryRadioEligibilityIssue(
+      { ...input, loadError: '业务失败原文' },
+      createLanguageContext({ languageTag: 'en' }),
+    ),
+  ).toBe('Unable to read dictionary options: 业务失败原文');
 });

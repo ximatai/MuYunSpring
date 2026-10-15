@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { recordPresentationLabel, useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   RecordDetailDrawer,
@@ -20,6 +21,8 @@ import type {
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import { createRoleGrantClient } from './roleGrantClient';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleAccountGrantDrawer' });
 
@@ -67,7 +70,13 @@ const selectedTargetTenant = ref<Tenant>();
 const client = computed(() => createRoleGrantClient(props.context.http));
 const tenantContext = useModuleContext<Tenant>({ moduleAlias: 'iam.tenant' });
 const roleId = computed(() => props.role?.id);
-const title = computed(() => (props.role ? `绑定用户 - ${roleTitle(props.role)}` : '绑定用户'));
+const title = computed(() =>
+  props.role
+    ? language.t('platform.screen.RoleAccountGrantDrawer.assign-users-value', '绑定用户 - {value1}', {
+        value1: roleTitle(props.role),
+      })
+    : language.t('platform.screen.RoleManagementView.assign-to-users', '绑定用户'),
+);
 const contentContainer = computed(() => (props.embedded ? 'section' : RecordDetailDrawer));
 const contentContainerProps = computed(() =>
   props.embedded
@@ -76,7 +85,7 @@ const contentContainerProps = computed(() =>
         open: props.open,
         title: title.value,
         renderMode: props.container ? 'inline' : 'portal',
-        closeTitle: '关闭',
+        closeTitle: language.t('platform.screen.workspaceViewDiscardGuard.close', '关闭'),
         onClose: handleClose,
       },
 );
@@ -103,7 +112,9 @@ const rows = computed<UserRow[]>(() =>
       employeeTitle: user.employeeTitle ?? '',
       organizationTitle: user.organizationTitle ?? user.organizationId ?? '',
       departmentTitle: user.departmentTitle ?? user.departmentId ?? '',
-      boundTitle: originalUserIds.value.has(user.id) ? '已绑定' : '未绑定',
+      boundTitle: originalUserIds.value.has(user.id)
+        ? language.t('platform.screen.RoleAccountGrantDrawer.assigned', '已绑定')
+        : language.t('platform.screen.MetadataGovernanceSurface.unbound', '未绑定'),
     })),
 );
 const selectedUsers = computed(() =>
@@ -119,12 +130,32 @@ const changed = computed(() => addedUserIds.value.length > 0 || removedUserIds.v
 const userTableContract: TableContract = {
   rowKey: 'id',
   columns: [
-    { title: '用户账号', key: 'username', width: 140 },
-    { title: '职员姓名', key: 'employeeTitle', width: 120 },
-    { title: '职员工号', key: 'employeeNo', width: 120 },
-    { title: '所属机构', key: 'organizationTitle', width: 140 },
-    { title: '所属部门', key: 'departmentTitle', width: 140 },
-    { title: '状态', key: 'boundTitle', width: 90 },
+    { title: language.t('platform.user-picker.column.account', '用户账号'), key: 'username', width: 140 },
+    {
+      title: language.t('platform.user-picker.column.employee-name', '职员姓名'),
+      key: 'employeeTitle',
+      width: 120,
+    },
+    {
+      title: language.t('platform.screen.RoleAccountGrantDrawer.employee-number', '职员工号'),
+      key: 'employeeNo',
+      width: 120,
+    },
+    {
+      title: language.t('platform.user-picker.column.organization-name', '所属机构'),
+      key: 'organizationTitle',
+      width: 140,
+    },
+    {
+      title: language.t('platform.user-picker.column.department-name', '所属部门'),
+      key: 'departmentTitle',
+      width: 140,
+    },
+    {
+      title: language.t('platform.screen.WorkflowWorkbenchView.status', '状态'),
+      key: 'boundTitle',
+      width: 90,
+    },
   ],
 };
 const rowSelection = computed(() => ({
@@ -177,19 +208,24 @@ onBeforeUnmount(() => props.drawerContext?.setOperation(undefined));
 function configureDrawerPresentation() {
   const drawer = props.drawerContext;
   if (!props.embedded || !drawer) return;
-  drawer.setSubtitle(`角色：${roleTitle(props.role ?? {})} · ${scopeTitle(props.role)}`);
+  drawer.setSubtitle(
+    language.t('platform.screen.RoleAccountGrantDrawer.role-value-value', '角色：{value1} · {value2}', {
+      value1: roleTitle(props.role ?? {}),
+      value2: scopeTitle(props.role),
+    }),
+  );
   drawer.setOperation({
     summary: selectionSummary(),
     actions: [
       {
         key: 'cancel-account-role-grants',
-        label: '取消',
+        label: language.t('platform.action.cancel', '取消'),
         disabled: saving.value || loading.value,
         run: handleClose,
       },
       {
         key: 'save-account-role-grants',
-        label: '确定',
+        label: language.t('platform.screen.RoleAccountGrantDrawer.confirm', '确定'),
         emphasis: 'primary',
         disabled: loading.value || !bindingReady.value || !changed.value,
         loading: saving.value,
@@ -200,9 +236,21 @@ function configureDrawerPresentation() {
 }
 
 function selectionSummary() {
-  if (!bindingReady.value) return '请选择目标租户';
-  if (!changed.value) return `已选 ${checkedUserIds.value.size} 个用户`;
-  return `已选 ${checkedUserIds.value.size} 个用户 · 新增 ${addedUserIds.value.length} · 移除 ${removedUserIds.value.length}`;
+  if (!bindingReady.value)
+    return language.t('platform.screen.RoleAccountGrantDrawer.select-a-target-tenant', '请选择目标租户');
+  if (!changed.value)
+    return language.t('platform.screen.RoleAccountGrantDrawer.value-users-selected', '已选 {value1} 个用户', {
+      value1: checkedUserIds.value.size,
+    });
+  return language.t(
+    'platform.screen.RoleAccountGrantDrawer.value-users-selected-value-added-value-removed',
+    '已选 {value1} 个用户 · 新增 {value2} · 移除 {value3}',
+    {
+      value1: checkedUserIds.value.size,
+      value2: addedUserIds.value.length,
+      value3: removedUserIds.value.length,
+    },
+  );
 }
 
 async function load() {
@@ -233,7 +281,7 @@ async function load() {
     await loadUsersPage(1);
   } catch (cause) {
     loadFailed.value = true;
-    presentPlatformError(cause, { source: 'role-account-grants', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-account-grants', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -255,7 +303,7 @@ async function loadUsersPage(nextPage: number) {
     pageNum.value = response.pageNum;
     total.value = response.total;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-account-grants', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'role-account-grants', phase: 'load' });
   } finally {
     loadingUsers.value = false;
   }
@@ -300,13 +348,27 @@ async function save() {
       }
     }
     await handlePlatformActionSuccess(
-      { success: true, message: '用户绑定已保存' },
-      { source: 'role-account-grants', phase: 'action', fallbackMessage: '用户绑定已保存' },
+      {
+        success: true,
+        message: language.t(
+          'platform.screen.RoleAccountGrantDrawer.user-assignments-saved',
+          '用户绑定已保存',
+        ),
+      },
+      {
+        language,
+        source: 'role-account-grants',
+        phase: 'action',
+        fallbackMessage: language.t(
+          'platform.screen.RoleAccountGrantDrawer.user-assignments-saved',
+          '用户绑定已保存',
+        ),
+      },
     );
     emit('saved');
     emit('close');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'role-account-grants', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'role-account-grants', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -369,7 +431,11 @@ function userFallback(userId: string | undefined): UserSelectorItem | undefined 
 }
 
 function userTitle(user: UserSelectorItem | undefined) {
-  return String(user?.username ?? user?.id ?? '未知用户');
+  return String(
+    user?.username ??
+      user?.id ??
+      language.t('platform.screen.RoleAccountGrantDrawer.unknown-user', '未知用户'),
+  );
 }
 
 function selectedUserDescription(user: UserSelectorItem) {
@@ -380,13 +446,19 @@ function selectedUserDescription(user: UserSelectorItem) {
 }
 
 function roleTitle(record: Partial<Role>) {
-  return String(record.title ?? record.id ?? '角色');
+  return String(
+    recordPresentationLabel(record, 'title', language) ??
+      record.id ??
+      language.t('platform.screen.RoleManagementView.role', '角色'),
+  );
 }
 
 function scopeTitle(role: Role | undefined) {
-  if (role?.ownerScopeType === 'platform') return '平台范围';
-  if (role?.ownerScopeType === 'organization') return '机构范围';
-  return '租户范围';
+  if (role?.ownerScopeType === 'platform')
+    return language.t('platform.screen.RoleAuthorizationView.platform-scope', '平台范围');
+  if (role?.ownerScopeType === 'organization')
+    return language.t('platform.screen.RoleAuthorizationView.organization-scope', '机构范围');
+  return language.t('platform.screen.RoleAuthorizationView.tenant-scope', '租户范围');
 }
 </script>
 
@@ -397,16 +469,32 @@ function scopeTitle(role: Role | undefined) {
     :class="{ 'role-account-grant-drawer-surface': embedded }"
   >
     <template v-if="!embedded" #operation>
-      <UiButton :disabled="saving || loading" @click="handleClose">取消</UiButton>
+      <UiButton :disabled="saving || loading" @click="handleClose">{{
+        language.t('platform.action.cancel', '取消')
+      }}</UiButton>
       <UiButton type="primary" :loading="saving" :disabled="loading || !changed" @click="save">
-        确定
+        {{ language.t('platform.screen.RoleAccountGrantDrawer.confirm', '确定') }}
       </UiButton>
     </template>
 
-    <UiSpin v-if="loading" class="role-account-grant-drawer-state" tip="加载用户" />
+    <UiSpin
+      v-if="loading"
+      class="role-account-grant-drawer-state"
+      :tip="language.t('platform.screen.RoleAccountGrantDrawer.loading-users', '加载用户')"
+    />
     <div v-else-if="loadFailed" class="role-account-grant-drawer-state">
-      <UiError title="用户加载失败" message="无法加载当前角色的用户绑定" />
-      <UiButton type="primary" icon-name="reload" @click="load">重试</UiButton>
+      <UiError
+        :title="language.t('platform.screen.RoleAccountGrantDrawer.failed-to-load-users', '用户加载失败')"
+        :message="
+          language.t(
+            'platform.screen.RoleAccountGrantDrawer.failed-to-load-user-assignments-for-this-role',
+            '无法加载当前角色的用户绑定',
+          )
+        "
+      />
+      <UiButton type="primary" icon-name="reload" @click="load">{{
+        language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+      }}</UiButton>
     </div>
     <section
       v-else
@@ -414,19 +502,29 @@ function scopeTitle(role: Role | undefined) {
       :class="{ 'role-account-grant-drawer-body--target-tenant': needsTargetTenant }"
     >
       <label v-if="needsTargetTenant" class="role-account-grant-target-tenant">
-        <span>目标租户</span>
+        <span>{{ language.t('platform.screen.RoleAccountGrantDrawer.target-tenant', '目标租户') }}</span>
         <RecordPicker
           :context="tenantPickerContext"
           :value="targetTenantId"
           mode="list"
-          placeholder="请选择角色下发的目标租户"
+          :placeholder="
+            language.t(
+              'platform.screen.RoleAccountGrantDrawer.select-the-target-tenant-for-this-role-assignment',
+              '请选择角色下发的目标租户',
+            )
+          "
           :disabled="saving || loading"
           @update:value="selectTargetTenant"
         />
       </label>
 
       <div v-if="!bindingReady" class="role-account-grant-target-hint">
-        平台共享角色需要先选择目标租户，再加载可绑定账号。
+        {{
+          language.t(
+            'platform.screen.RoleAccountGrantDrawer.select-a-target-tenant-for-a-platform-shared-role-before',
+            '平台共享角色需要先选择目标租户，再加载可绑定账号。',
+          )
+        }}
       </div>
 
       <template v-else>
@@ -435,11 +533,15 @@ function scopeTitle(role: Role | undefined) {
             :value="keyword"
             allow-clear
             :disabled="saving"
-            placeholder="搜索用户账号"
+            :placeholder="
+              language.t('platform.screen.RoleAccountGrantDrawer.search-user-accounts', '搜索用户账号')
+            "
             @update:value="keyword = $event"
             @keydown.enter="submitSearch"
           />
-          <UiButton icon-name="search" :disabled="saving" @click="submitSearch">查询</UiButton>
+          <UiButton icon-name="search" :disabled="saving" @click="submitSearch">{{
+            language.t('platform.screen.WorkflowWorkbenchView.search', '查询')
+          }}</UiButton>
         </div>
 
         <UiTable
@@ -455,8 +557,10 @@ function scopeTitle(role: Role | undefined) {
 
         <section v-if="selectedUsers.length > 0" class="role-account-grant-selected">
           <div class="role-account-grant-selected-title">
-            <strong>已选用户</strong>
-            <span>{{ selectedUsers.length }} 个</span>
+            <strong>{{
+              language.t('platform.screen.RoleAccountGrantDrawer.selected-users', '已选用户')
+            }}</strong>
+            <span>{{ selectedUsers.length }}</span>
           </div>
           <div class="role-account-grant-selected-list">
             <button
