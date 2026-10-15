@@ -457,7 +457,7 @@ const policies = ref<Delegation[]>([]),
   delegationBusy = ref(false),
   policyError = ref('');
 const policyDraft = ref<Partial<Delegation>>({
-    title: '审批代办',
+    title: workflowLanguage.t('platform.workflow.delegation.default-title', '审批代办'),
     moduleScopeType: 'all',
     moduleAliases: [],
     principalCanProcess: false,
@@ -498,7 +498,7 @@ async function openDelegations() {
 }
 function newPolicy() {
   policyDraft.value = {
-    title: '审批代办',
+    title: workflowLanguage.t('platform.workflow.delegation.default-title', '审批代办'),
     moduleScopeType: 'all',
     moduleAliases: [],
     principalCanProcess: false,

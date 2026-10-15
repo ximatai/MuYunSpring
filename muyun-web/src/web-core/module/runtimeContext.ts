@@ -79,6 +79,7 @@ export interface ModuleRuntimeContextState {
   error(): AppError | undefined;
   hasAbility(ability: ModuleAbilityCode | string): boolean | undefined;
   action(actionCode: string, recordId?: string): ModuleActionState | undefined;
+  /** Action titles follow this display scope; snapshot() retains producer originals. */
   runtimeAction(actionCode: string): ModuleRuntimeAction | undefined;
   can(actionCode: string, recordId?: string): boolean | undefined;
   recordActions(recordId: string): Promise<ModuleRecordActionAvailability>;
@@ -284,8 +285,8 @@ export function createModuleRuntimeContextState(
       return runtimeAbilityCodes(context).includes(ability);
     },
     action: (actionCode, recordId) =>
-      actionState(current.value, recordActionSnapshots.value, actionCode, recordId, language),
-    runtimeAction: (actionCode) => runtimeAction(current.value, actionCode),
+      actionState(presentation.value, recordActionSnapshots.value, actionCode, recordId, language),
+    runtimeAction: (actionCode) => runtimeAction(presentation.value, actionCode),
     can: (actionCode, recordId) => {
       return actionState(current.value, recordActionSnapshots.value, actionCode, recordId, language)
         ?.available;
@@ -295,6 +296,29 @@ export function createModuleRuntimeContextState(
     recordActionsSnapshot: (recordId) =>
       recordId == null || !recordId.trim() ? undefined : recordActionSnapshots.value.get(recordId.trim()),
     invalidateRecordActions,
+  };
+}
+
+/** A language view shares transport, authorization and retained record decisions with its owner. */
+export function scopeModuleRuntimeLanguage(
+  context: ModuleRuntimeContextState,
+  language: LanguageContext,
+): ModuleRuntimeContextState {
+  const presentation = computed(() => {
+    const original = context.snapshot();
+    return original && translatedPresentation(original, language);
+  });
+  return {
+    ...context,
+    presentationSnapshot: () => presentation.value,
+    runtimeAction: (code) => runtimeAction(presentation.value, code),
+    action: (code, recordId) => {
+      const id = recordId?.trim();
+      const decision = id ? context.recordActionsSnapshot(id) : undefined;
+      const records = new Map<string, ModuleRecordActionAvailability>();
+      if (id && decision) records.set(id, decision);
+      return actionState(presentation.value, records, code, id, language);
+    },
   };
 }
 

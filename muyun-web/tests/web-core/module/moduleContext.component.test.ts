@@ -157,10 +157,27 @@ it('honors an explicit language in an injected VIEW session without replacing it
       return {
         moduleAlias: 'test.language',
         title: '原始模块名称',
-        actions: [],
+        actions: [{ actionCode: 'testConnection', title: '测试连接', authorized: true }],
         capabilities: [],
         uiDescriptor: { moduleAlias: 'test.language', title: '原始标题' },
         textBindings: {
+          '/actions/0/title': {
+            source: {
+              sourceKind: 'CODE',
+              sourceId: 'action/test.language/testConnection/title',
+              sourceVersion: 'v1',
+              originalText: '测试连接',
+            },
+            languages: {
+              en: {
+                text: 'Test connection',
+                requestedTag: 'en',
+                resourceTag: 'en',
+                missing: false,
+                fallback: false,
+              },
+            },
+          },
           '/title': {
             source: {
               sourceKind: 'CODE',
@@ -222,6 +239,10 @@ it('honors an explicit language in an injected VIEW session without replacing it
   try {
     await flushPromises();
     expect(wrapper.text()).toBe('English title');
+    expect(child.runtimeAction('testConnection')?.title).toBe('Test connection');
+    expect(child.action('testConnection')?.title).toBe('Test connection');
+    expect(child.runtime.snapshot()?.actions[0]?.title).toBe('测试连接');
+    expect(parent.runtimeAction('testConnection')?.title).toBe('测试连接');
     expect(child.runtime.presentationSnapshot?.()?.title).toBe('English module');
     expect(child.runtime.snapshot()?.title).toBe('原始模块名称');
     expect(child.http).toBe(inherited.http);
@@ -231,9 +252,12 @@ it('honors an explicit language in an injected VIEW session without replacing it
     expect(parent.runtime.presentationSnapshot?.()?.uiDescriptor?.title).toBe('原始标题');
     childLanguage.setLanguage('zh-CN');
     await nextTick();
+    expect(child.runtimeAction('testConnection')?.title).toBe('测试连接');
     expect(wrapper.text()).toBe('原始标题');
     parentLanguage.setLanguage('en');
     await nextTick();
+    expect(parent.runtimeAction('testConnection')?.title).toBe('Test connection');
+    expect(child.runtimeAction('testConnection')?.title).toBe('测试连接');
     expect(wrapper.text()).toBe('原始标题');
     expect(requests).toBe(1);
   } finally {
