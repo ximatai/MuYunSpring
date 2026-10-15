@@ -319,6 +319,7 @@ public class DynamicRecordWebController implements
             List<DynamicRecord> children = retained
                     ? recordService.aggregateChildrenForRecycleBin(moduleAlias, parentId, relationCode)
                     : recordService.aggregateChildrenForView(moduleAlias, parentId, relationCode);
+            captureReadTexts(children, true);
             return new WebListResponse<>(children.stream().map(record -> projectAggregateExpansion(record, outputFields)).toList());
         });
     }
@@ -673,10 +674,17 @@ public class DynamicRecordWebController implements
     }
 
     private void captureReadTexts(List<DynamicRecord> records) {
+        captureReadTexts(records, false);
+    }
+
+    private void captureReadTexts(List<DynamicRecord> records, boolean expansion) {
         if (recordTexts == null) return;
         recordService.moduleDefinitions().stream()
                 .filter(module -> DynamicWebRequest.moduleAlias().equals(module.moduleAlias()))
-                .findFirst().ifPresent(module -> recordTexts.captureDynamicReferences(module, records));
+                .findFirst().ifPresent(module -> {
+                    if (expansion) recordTexts.captureDynamicExpansionReferences(module, records);
+                    else recordTexts.captureDynamicReferences(module, records);
+                });
     }
 
     private void enrichEmbeddedRelation(DynamicRecord parent,

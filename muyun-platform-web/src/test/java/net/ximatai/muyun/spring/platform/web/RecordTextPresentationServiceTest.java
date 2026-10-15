@@ -209,6 +209,16 @@ class RecordTextPresentationServiceTest {
             assertThat(mapper.valueToTree(input).path("$texts").isMissingNode()).isTrue();
             var masked = Map.of("id", "owner", "values", Map.of("configurationTitle", "masked"));
             assertThat(mapper.valueToTree(service.projectCaptured(masked)).path("$texts").isMissingNode()).isTrue();
+            service.captureDynamicExpansionReferences(module, List.of(child));
+            var expansion = new WebListResponse<>(List.of(Map.of("id", "child", "version", 7,
+                    "configurationTitle", "配置名称", "values", business,
+                    "children", Map.of("business", List.of(Map.of("id", "owner", "values", Map.of("configurationTitle", "配置名称")))))));
+            var flat = mapper.valueToTree(service.projectCaptured(expansion));
+            assertThat(flat.at("/records/0/$texts/configurationTitle/languages/en/text").asText()).isEqualTo("Configuration name");
+            assertThat(flat.at("/records/0/configuration").isMissingNode()).isTrue();
+            assertThat(flat.at("/records/0/configurationTitle").asText()).isEqualTo("配置名称");
+            assertThat(flat.at("/records/0/values/$texts").isMissingNode()).isTrue();
+            assertThat(flat.at("/records/0/children/business/0/$texts").isMissingNode()).isTrue();
             when(sourceAbility.list(any(), any(PageRequest.class))).thenReturn(List.of());
             service.captureDynamicReferences(module, List.of(record));
             assertThat(mapper.valueToTree(service.projectCaptured(input)).path("$texts").isMissingNode()).isTrue();

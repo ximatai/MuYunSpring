@@ -90,7 +90,7 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     public Object projectCaptured(Object body) {
         var attributes = RequestContextHolder.getRequestAttributes();
         var sources = attributes == null ? null : (ResponseSources) attributes.getAttribute(SOURCES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
-        return sources == null ? body : render(body, sources.fields, sources.summaries, sources.dynamicFields);
+        return sources == null ? body : render(body, sources.fields, sources.summaries, sources.dynamicFields, sources.dynamicEnvelopeIds);
     }
 
     private static void capture(Map<String, Map<String, TextReference>> sources) {
@@ -110,11 +110,18 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
         private final Map<String, Set<String>> ambiguous = new HashMap<>();
         private final Map<String, Map<String, TextReference>> dynamicFields = new LinkedHashMap<>();
         private final Set<String> ambiguousDynamicIds = new HashSet<>();
+        private final Set<String> dynamicEnvelopeIds = new HashSet<>();
+        void addFlatDynamic(Map<String, Map<String, TextReference>> sources) {
+            sources.keySet().forEach(id -> { dynamicFields.remove(id); dynamicEnvelopeIds.remove(id); ambiguousDynamicIds.add(id); });
+            add(sources);
+        }
         void addDynamic(String id, Map<String, TextReference> sources) {
-            if (ambiguousDynamicIds.contains(id) || sources.isEmpty() && !dynamicFields.containsKey(id)) return;
+            if (ambiguousDynamicIds.contains(id)) return;
+            dynamicEnvelopeIds.add(id);
+            if (sources.isEmpty() && !dynamicFields.containsKey(id)) return;
             var previous = dynamicFields.putIfAbsent(id, Map.copyOf(sources));
             if (previous != null && !previous.equals(sources)) {
-                dynamicFields.remove(id); ambiguousDynamicIds.add(id);
+                dynamicFields.remove(id); dynamicEnvelopeIds.remove(id); ambiguousDynamicIds.add(id);
             }
         }
         private final Map<SummarySourceKey, Map<String, TextReference>> summaries = new LinkedHashMap<>();
@@ -232,9 +239,17 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     }
 
     /** Dynamic read envelopes use the same target-owned sources as static configuration records. */
+    public void captureDynamicReferences(ModuleDefinition module, List<DynamicRecord> records) {
+        captureDynamicReferences(module, records, false);
+    }
+
+    /** List-row expansions deliberately deliver flat records, including any business field named values. */
+    public void captureDynamicExpansionReferences(ModuleDefinition module, List<DynamicRecord> records) {
+        captureDynamicReferences(module, records, true);
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public void captureDynamicReferences(ModuleDefinition module,
-            List<DynamicRecord> records) {
+    private void captureDynamicReferences(ModuleDefinition module, List<DynamicRecord> records, boolean flat) {
         var registry = abilities.getIfAvailable();
         var attributes = RequestContextHolder.getRequestAttributes();
         if (registry == null || attributes == null || records == null || records.isEmpty()) return;
@@ -290,7 +305,8 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
                 }
             });
         }
-        captured.forEach(snapshot::addDynamic);
+        if (flat) snapshot.addFlatDynamic(captured);
+        else captured.forEach(snapshot::addDynamic);
         records.stream().flatMap(record -> record.getChildren().values().stream())
                 .forEach(children -> captureDynamicReferences(module, children));
     }
@@ -303,11 +319,11 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     }
 
     private Object render(Object body, Map<String, Map<String, TextReference>> sources, Map<SummarySourceKey, Map<String, TextReference>> summaries) {
-        return render(body, sources, summaries, Map.of());
+        return render(body, sources, summaries, Map.of(), Set.of());
     }
 
     private Object render(Object body, Map<String, Map<String, TextReference>> sources, Map<SummarySourceKey, Map<String, TextReference>> summaries,
-            Map<String, Map<String, TextReference>> dynamicSources) {
+            Map<String, Map<String, TextReference>> dynamicSources, Set<String> dynamicEnvelopeIds) {
         var resolver = resolvers.getIfAvailable(); var catalog = catalogs.getIfAvailable();
         if (body == null || resolver == null || catalog == null || sources.isEmpty() && summaries.isEmpty() && dynamicSources.isEmpty()) return body;
         JsonNode output = mapper.valueToTree(body);
@@ -322,7 +338,7 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
                     if (key.targetId().equals(item.path("id").asText())) presentations.add(new PresentationRecord(item, fields));
             });
         }
-        collectDynamicPresentations(output, dynamicSources, presentations);
+        collectDynamicPresentations(output, dynamicSources, dynamicEnvelopeIds, presentations);
         var prepared = resolver.prepare(presentations.stream().flatMap(item -> item.fields().entrySet().stream()
                 .filter(entry -> item.values().path(entry.getKey()).isTextual() && item.values().path(entry.getKey()).asText().equals(entry.getValue().originalText()))
                 .map(Map.Entry::getValue)).distinct().toList());
@@ -340,21 +356,22 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
     }
 
     private static void collectDynamicPresentations(JsonNode node, Map<String, Map<String, TextReference>> sources,
-            List<PresentationRecord> output) {
+            Set<String> envelopeIds, List<PresentationRecord> output) {
         if (node == null) return;
-        if (node.isArray()) { node.forEach(item -> collectDynamicPresentations(item, sources, output)); return; }
+        if (node.isArray()) { node.forEach(item -> collectDynamicPresentations(item, sources, envelopeIds, output)); return; }
         if (!(node instanceof ObjectNode record)) return;
         if (record.path("id").isTextual()) {
+            if (!envelopeIds.contains(record.path("id").asText())) return;
             if (record.get("values") instanceof ObjectNode values) {
                 output.add(new PresentationRecord(record, values, sources.getOrDefault(record.path("id").asText(), Map.of())));
                 var children = record.get("children");
-                if (children != null && children.isObject()) children.forEach(items -> collectDynamicPresentations(items, sources, output));
+                if (children != null && children.isObject()) children.forEach(items -> collectDynamicPresentations(items, sources, envelopeIds, output));
             }
             return;
         }
-        collectDynamicPresentations(record.get("records"), sources, output);
-        collectDynamicPresentations(record.get("record"), sources, output);
-        collectDynamicPresentations(record.get("children"), sources, output);
+        collectDynamicPresentations(record.get("records"), sources, envelopeIds, output);
+        collectDynamicPresentations(record.get("record"), sources, envelopeIds, output);
+        collectDynamicPresentations(record.get("children"), sources, envelopeIds, output);
     }
 
     public WebReferenceResolveResponse projectReference(String moduleAlias, String labelField,
