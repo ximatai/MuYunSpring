@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayDeque;
@@ -9,6 +11,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 
 @Service
 public class WorkflowRuntimeActivationService {
@@ -48,7 +51,9 @@ public class WorkflowRuntimeActivationService {
 
         while (!queue.isEmpty()) {
             if (++steps > request.maxSteps()) {
-                throw new PlatformException("workflow activation exceeded max steps: " + request.maxSteps());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-runtime-activation.workflow-progression-exceeded-the-step-limit-review-the-workflow",
+                        "workflow activation exceeded max steps: {value1}"), Map.of("value1", String.valueOf(request.maxSteps())));
             }
             WorkflowActivationTarget target = queue.removeFirst();
             String nodeKey = target.nodeKey();
@@ -105,11 +110,15 @@ public class WorkflowRuntimeActivationService {
         List<WorkflowLinkDefinition> matched;
         if (selected != null && !selected.isEmpty()) {
             if (node.getRouteMode() != WorkflowRouteMode.MANUAL) {
-                throw new PlatformException("workflow manual route selection requires MANUAL branch: " + nodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-runtime-activation.route-selection-is-only-available-for-manual-branches",
+                        "workflow manual route selection requires MANUAL branch: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
             }
             matched = outgoing.stream().filter(link -> selected.contains(link.getRouteKey())).toList();
         } else if (node.getRouteMode() == WorkflowRouteMode.MANUAL) {
-            throw new PlatformException("请选择手工分支: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-activation.select-a-manual-branch-route",
+                    "请选择手工分支: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         } else {
             matched = outgoing.stream().filter(link -> !Boolean.TRUE.equals(link.getDefaultRoute()))
                     .filter(link -> link.getConditionExpression() == null || link.getConditionExpression().isBlank()
@@ -119,7 +128,9 @@ public class WorkflowRuntimeActivationService {
             if (matched.isEmpty()) matched = outgoing.stream().filter(link -> Boolean.TRUE.equals(link.getDefaultRoute())).toList();
         }
         if (matched.isEmpty()) {
-            throw new PlatformException("workflow branch has no selected route: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-activation.select-a-route-for-this-branch",
+                    "workflow branch has no selected route: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         }
         enqueueLinks(matched, queue, traversedRouteKeys);
     }

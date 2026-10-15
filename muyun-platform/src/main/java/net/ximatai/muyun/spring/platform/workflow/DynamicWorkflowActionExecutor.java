@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
@@ -12,6 +13,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionResultBody;
 import net.ximatai.muyun.spring.platform.module.ModuleActionBindingType;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -51,18 +53,23 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
 
     @Override
     public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
-        String workflowAction = requireText(context == null ? null : context.actionCode(),
-                "workflow action code must not be blank");
+        String workflowAction = requireText(context == null ? null : context.actionCode(), TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.enter-a-workflow-action-code",
+                "workflow action code must not be blank"));
         return switch (workflowAction) {
             case ACTION_SUBMIT_APPROVAL -> DynamicActionResultBody.refreshed(
                     submitApproval(context, request));
             case ACTION_SUBMIT_WORKFLOW -> DynamicActionResultBody.refreshed(
                     submitWorkflow(context, request, workflowDefinitionAlias(context, request)));
             case ACTION_TASK_ACTION -> DynamicActionResultBody.refreshed(taskActionFacade.execute(
-                    requireText(payload(request, "taskActionCode"), "workflow task action code must not be blank"),
+                    requireText(payload(request, "taskActionCode"), TextReference.code(
+                            "platform.rejection.dynamic-workflow-action-executor.enter-a-task-action-code",
+                            "workflow task action code must not be blank")),
                     taskRequest(context, request)));
             case ACTION_AVAILABLE_TASK_ACTIONS -> DynamicActionResultBody.of(taskActionFacade.availableActions(
-                    requireText(payload(request, "taskId"), "workflow task id must not be blank"),
+                    requireText(payload(request, "taskId"), TextReference.code(
+                            "platform.rejection.dynamic-workflow-action-executor.select-an-approval-task",
+                            "workflow task id must not be blank")),
                     operatorId(context)));
             default -> executeBoundWorkflowAction(context, request, workflowAction);
         };
@@ -77,7 +84,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                     submitWorkflow(context, request, definitionAlias));
         }
         if (!WorkflowActionPolicyService.RUNTIME_RECORD_ACTION_CODES.contains(workflowAction)) {
-            throw new PlatformException("unsupported dynamic workflow action: " + workflowAction);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-workflow-action-executor.unsupported-workflow-action",
+                    "unsupported dynamic workflow action: {value1}"), Map.of("value1", String.valueOf(workflowAction)));
         }
         if (INSTANCE_ACTION_CODES.contains(workflowAction)) {
             return DynamicActionResultBody.refreshed(instanceActionFacade.execute(workflowAction,
@@ -114,7 +123,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         if (definitionAlias != null) {
             return definitionAlias;
         }
-        return requireText(boundWorkflowDefinitionAlias(context), "workflow definition alias must not be blank");
+        return requireText(boundWorkflowDefinitionAlias(context), TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-definition",
+                "workflow definition alias must not be blank"));
     }
 
     private String boundWorkflowDefinitionAlias(DynamicActionExecutionContext context) {
@@ -132,7 +143,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
 
     private WorkflowTaskActionRequest taskRequest(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
         return WorkflowTaskActionRequest.builder(
-                        requireText(payload(request, "taskId"), "workflow task id must not be blank"),
+                        requireText(payload(request, "taskId"), TextReference.code(
+                                "platform.rejection.dynamic-workflow-action-executor.select-an-approval-task",
+                                "workflow task id must not be blank")),
                         operatorId(context))
                 .targetAssigneeId(text(payload(request, "targetAssigneeId"), null))
                 .addSignSegment(addSignSegment(payload(request, "addSignSegment")))
@@ -149,7 +162,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
     private WorkflowInstanceActionRequest instanceRequest(DynamicActionExecutionContext context,
                                                           DynamicActionExecutionRequest request) {
         return new WorkflowInstanceActionRequest(
-                requireText(payload(request, "instanceId"), "workflow instance id must not be blank"),
+                requireText(payload(request, "instanceId"), TextReference.code(
+                        "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-instance",
+                        "workflow instance id must not be blank")),
                 operatorId(context),
                 text(payload(request, "reason"), null),
                 operatedAt(payload(request, "operatedAt")));
@@ -198,7 +213,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
             return selection;
         }
         if (!(value instanceof Map<?, ?> map)) {
-            throw new PlatformException("workflow manual route selection must be object");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-workflow-action-executor.manual-route-selections-must-be-an-object",
+                    "workflow manual route selection must be object"));
         }
         return new WorkflowManualRouteSelection(
                 text(((Map<String, Object>) map).get("branchNodeKey"), null),
@@ -222,7 +239,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                 return candidate;
             }
         }
-        throw new PlatformException("unsupported workflow reject resubmit mode: " + mode);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.unsupported-resubmission-mode",
+                "unsupported workflow reject resubmit mode: {value1}"), Map.of("value1", String.valueOf(mode)));
     }
 
     private Instant operatedAt(Object value) {
@@ -232,11 +251,15 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         if (value instanceof Instant instant) {
             return instant;
         }
-        return Instant.parse(requireText(value, "workflow operatedAt must not be blank"));
+        return Instant.parse(requireText(value, TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.provide-the-workflow-action-time",
+                "workflow operatedAt must not be blank")));
     }
 
     private String moduleAlias(DynamicActionExecutionContext context) {
-        return requireText(context == null ? null : context.moduleAlias(), "workflow module alias must not be blank");
+        return requireText(context == null ? null : context.moduleAlias(), TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-business-module",
+                "workflow module alias must not be blank"));
     }
 
     private String recordId(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
@@ -247,7 +270,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         if (recordId == null && context != null) {
             recordId = text(context.recordId(), null);
         }
-        return requireText(recordId, "workflow record id must not be blank");
+        return requireText(recordId, TextReference.code(
+                "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-business-record",
+                "workflow record id must not be blank"));
     }
 
     private String operatorId(DynamicActionExecutionContext context) {
@@ -256,7 +281,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         }
         return CurrentUserContext.currentUser()
                 .map(user -> user.userId())
-                .orElseThrow(() -> new PlatformException("authenticated workflow operator is required"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-workflow-action-executor.sign-in-before-processing-the-workflow",
+                        "authenticated workflow operator is required")));
     }
 
     private Object payload(DynamicActionExecutionRequest request, String key) {
@@ -264,10 +291,10 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
         return payload.get(key);
     }
 
-    private String requireText(Object value, String message) {
+    private String requireText(Object value, TextReference source) {
         String text = text(value, null);
         if (text == null) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return text;
     }

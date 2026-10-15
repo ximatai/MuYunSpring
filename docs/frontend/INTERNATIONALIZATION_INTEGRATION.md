@@ -100,6 +100,8 @@ Excel 模板及导出仅投影明确声明的列标签。工作表名称、实�
 
 页面编排编辑器及其子组件继承编辑会话语言。动作说明、使用位置、差异摘要和发布回执只调整展示，原始 UI Tree、生成配置名称、候选指纹和已准备的发布确认保持原值。预览、目录读取与草稿解析失败保留错误事实，展示时解析当前语言；服务端异常沿用统一安全提示，切换语言不重新解析草稿或查询目录。
 
+领域拒绝通过 `PlatformException` 保留原始消息、错误码、状态、参数、cause 与可选 `TextReference`。固定提示在产生拒绝事实的领域位置声明 CODE 来源，`PlatformErrors.badRequestText(source, args)` 只格式化原文，不在领域层解析用户语言；Web 错误输出复用统一解析器交付当前语言与 `messageText`。未声明来源的扩展异常保留原文，不按文本内容推测译文。捕获异常后形成流程提交状态时，也保留来源与参数；共享面板消费展示快照，切换语言不重新匹配、提交或改变 `canSubmit`。
+
 ## 本地操作校验提示
 
 固定校验可用 `codeOperationErrorMessage(language, key, original, args)` 声明原文模板和参数，再交给 `OperationUsageError`、`OperationRejectedError` 或助手适配异常。错误码和发生时的 `message` 保留为事实，`resolveOperationErrorMessage(error, language)` 按消费者当前语言解析展示；参数保留快照，展示更新不重复验证、编辑或提交。`DraftUpdateRejectedError` 保留原错误的文本来源。`OperationRejectedError` 继续表达未提交证明；公共确认按当前语言展示该拒绝事实，保留审阅快照及原有状态机。原有字符串错误继续按原文展示，在线配置与无法核实版本的来源不借用代码资源。

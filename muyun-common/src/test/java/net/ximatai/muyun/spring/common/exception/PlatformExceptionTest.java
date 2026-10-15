@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.common.exception;
 
+import net.ximatai.muyun.spring.common.i18n.LanguageContext;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -18,6 +20,9 @@ class PlatformExceptionTest {
         assertThat(exception.scope().isEmpty()).isTrue();
         assertThat(exception.targets()).isEmpty();
         assertThat(exception.details()).isEmpty();
+        var cause = new IllegalStateException("late cause");
+        exception.initCause(cause);
+        assertThat(exception.getCause()).isSameAs(cause);
     }
 
     @Test
@@ -28,6 +33,29 @@ class PlatformExceptionTest {
         assertThat(exception.code()).isEqualTo(PlatformErrorCodes.VALIDATION_FAILED);
         assertThat(exception.httpStatus()).isEqualTo(400);
         assertThat(exception.getCause()).isSameAs(cause);
+    }
+
+    @Test
+    void sourcedRejectionsKeepOriginalFactsAndDoNotTranslateOrInterpolateBusinessArgumentsAgain() {
+        var source = TextReference.code("test.rejection.blocked", "不能修改{record}");
+        var cause = new IllegalStateException("original cause");
+        var args = new java.util.LinkedHashMap<String, Object>();
+        args.put("record", "原始 {record}");
+        try (var ignored = LanguageContext.use("en")) {
+            var exception = PlatformErrors.badRequestText(source, args, cause);
+            args.put("record", "changed");
+
+            assertThat(exception.getMessage()).isEqualTo("不能修改原始 {record}");
+            assertThat(exception.textSource()).isEqualTo(source);
+            assertThat(exception.messageArgs()).containsExactlyEntriesOf(Map.of("record", "原始 {record}"));
+            assertThat(exception.code()).isEqualTo(PlatformErrorCodes.VALIDATION_FAILED);
+            assertThat(exception.httpStatus()).isEqualTo(400);
+            assertThat(exception.getCause()).isSameAs(cause);
+            assertThat(exception.scope().isEmpty()).isTrue();
+            assertThat(exception.targets()).isEmpty();
+            assertThat(exception.details()).isEmpty();
+        }
+        assertThat(new PlatformException("unowned message").textSource()).isNull();
     }
 
     @Test

@@ -4,10 +4,13 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class WorkflowDefinitionSelector {
@@ -47,7 +50,9 @@ public class WorkflowDefinitionSelector {
         if (hasDefinitionAlias) {
             criteria.eq("alias", PlatformNameRules.requireIdentifier(request.definitionAlias(), "workflowAlias"));
         } else if (!request.approvalRequired()) {
-            throw new PlatformException("workflow definition alias is required for non-approval workflow");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition-selector.enter-a-definition-alias-for-a-workflow-without-approval",
+                    "workflow definition alias is required for non-approval workflow"));
         }
         String tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse(null);
         List<WorkflowDefinition> definitions;
@@ -82,10 +87,17 @@ public class WorkflowDefinitionSelector {
             if (matched.isEmpty()) continue;
             int priority = matched.stream().mapToInt(item -> item.getMatchPriority() == null ? 0 : item.getMatchPriority()).max().orElse(0);
             var winners = matched.stream().filter(item -> (item.getMatchPriority() == null ? 0 : item.getMatchPriority()) == priority).toList();
-            if (winners.size() != 1) throw new PlatformException("multiple approval workflow definitions matched: " + request.moduleAlias());
+            if (winners.size() != 1) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition-selector.multiple-approval-workflows-match-review-their-matching-rules",
+                    "multiple approval workflow definitions matched: {value1}"), Map.of("value1", String.valueOf(request.moduleAlias())));
             return winners.getFirst();
         }
-        throw new PlatformException(NO_PUBLISHED_DEFINITION, 404, "published workflow definition not found: " + request.moduleAlias());
+        throw new PlatformException(NO_PUBLISHED_DEFINITION, 404,
+                "published workflow definition not found: " + request.moduleAlias(), null,
+                net.ximatai.muyun.spring.common.exception.ErrorScope.empty(), List.of(), Map.of(),
+                Map.of("moduleAlias", request.moduleAlias()), TextReference.code(
+                        "platform.rejection.workflow.no-published-definition",
+                        "published workflow definition not found: {moduleAlias}"));
     }
 
     private WorkflowVersion publishedVersion(WorkflowDefinition definition) {
@@ -100,14 +112,18 @@ public class WorkflowDefinitionSelector {
             versions = versionService.list(criteria, ALL, Sort.desc("versionNo"));
         }
         if (versions.isEmpty()) {
-            throw new PlatformException("published workflow version not found: " + definition.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition-selector.published-workflow-version-not-found",
+                    "published workflow version not found: {value1}"), Map.of("value1", String.valueOf(definition.getAlias())));
         }
         return versions.getFirst();
     }
 
     private String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(name + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow.required-field",
+                    "{name} must not be blank"), Map.of("name", name));
         }
         return value;
     }

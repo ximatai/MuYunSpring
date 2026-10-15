@@ -4,6 +4,8 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -68,10 +70,10 @@ public class WorkflowSubmitReadFacade {
         } catch (PlatformException exception) {
             if (WorkflowDefinitionSelector.NO_PUBLISHED_DEFINITION.equals(exception.code())) {
                 return WorkflowSubmitStatusView.noWorkflow(normalized.moduleAlias(), normalized.recordId(),
-                        exception.getMessage());
+                        exception.getMessage()).withErrorSource(exception.textSource(), exception.messageArgs());
             }
             return WorkflowSubmitStatusView.matchError(normalized.moduleAlias(), normalized.recordId(),
-                    exception.getMessage());
+                    exception.getMessage()).withErrorSource(exception.textSource(), exception.messageArgs());
         }
     }
 
@@ -139,7 +141,9 @@ public class WorkflowSubmitReadFacade {
 
     private WorkflowSubmitRequest normalizeApprovalRequest(WorkflowSubmitRequest request) {
         if (request == null) {
-            throw new PlatformException("workflow submit request must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-submit-read.provide-a-workflow-submission-request",
+                    "workflow submit request must not be null"));
         }
         return WorkflowSubmitRequest.approval(request.moduleAlias(), request.recordId())
                 .withAuthOrgId(request.authOrgId() == null ? net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser().map(user -> user.organizationId()).orElse(null) : request.authOrgId())

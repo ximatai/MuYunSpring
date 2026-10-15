@@ -7,8 +7,10 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -98,12 +100,18 @@ public class WorkflowRuntimeReadFacade {
         WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireRecordView(instance);
         String operator = requireOperator(operatorId);
-        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(requireText(taskId, "workflow task id must not be blank")));
+        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(requireText(taskId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-an-approval-task",
+                "workflow task id must not be blank"))));
         if (task == null || !instance.getId().equals(task.getInstanceId()))
-            throw new PlatformException("workflow task does not belong to instance: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.the-task-does-not-belong-to-this-workflow-instance",
+                    "workflow task does not belong to instance: {value1}"), Map.of("value1", String.valueOf(taskId)));
         if (task.getTaskStatus() != WorkflowTaskStatus.TODO || task.getTaskKind() == null || !Set.of(WorkflowTaskKind.APPROVAL,
                 WorkflowTaskKind.BUSINESS, WorkflowTaskKind.RESUBMIT).contains(task.getTaskKind()))
-            throw new PlatformException("workflow task is not pending continuation: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.this-task-is-not-awaiting-continuation",
+                    "workflow task is not pending continuation: {value1}"), Map.of("value1", String.valueOf(taskId)));
         String action = task.getTaskKind() == WorkflowTaskKind.APPROVAL ? "approve"
                 : task.getTaskKind() == WorkflowTaskKind.BUSINESS ? "complete" : "resubmit";
         actionPolicyService.requireRuntimeAction(instance, action);
@@ -112,9 +120,13 @@ public class WorkflowRuntimeReadFacade {
         var nodes = safeNodes(instance.getId());
         var routes = runtimeRoutes(instance.getId());
         var source = nodes.stream().filter(node -> task.getNodeInstanceId().equals(node.getId())).findFirst()
-                .orElseThrow(() -> new PlatformException("workflow task node not found: " + taskId));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-runtime-read.task-node-not-found",
+                        "workflow task node not found: {value1}"), Map.of("value1", String.valueOf(taskId))));
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || source.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
-            throw new PlatformException("workflow task node is not active: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.the-task-node-is-not-active",
+                    "workflow task node is not active: {value1}"), Map.of("value1", String.valueOf(taskId)));
         if (!finishesNode(task, source)) return List.of();
         var graph = WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
         var selected = new WorkflowManualRouteSelectionPolicy().selectedRoutesForPlanning(graph, selections, null);
@@ -308,7 +320,9 @@ public class WorkflowRuntimeReadFacade {
             case "NOTICE" -> noticeCards(operator, ALL, request);
             case "TRACKING" -> trackingCards(operator, ALL, request);
             case "DELEGATION" -> delegationCards(operator, ALL, request);
-            default -> throw new PlatformException("unsupported workflow workbench board: " + board);
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.unsupported-workbench-view",
+                    "unsupported workflow workbench board: {value1}"), Map.of("value1", String.valueOf(board)));
         };
         Map<String, WorkflowRecordSummary> summaries = new LinkedHashMap<>();
         var moduleTitles = new LinkedHashMap<>(recordSummaryResolver.moduleTitles().modules());
@@ -358,7 +372,9 @@ public class WorkflowRuntimeReadFacade {
 
     public List<WorkflowWorkbenchCard> todoCards(String assigneeId, PageRequest pageRequest,
                                                  WorkflowWorkbenchQueryRequest request) {
-        String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
+        String validAssigneeId = requireText(assigneeId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-task-assignee",
+                "workflow assignee id must not be blank"));
         List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("taskStatus", WorkflowTaskStatus.TODO)
                         .in("taskKind", List.of(WorkflowTaskKind.APPROVAL, WorkflowTaskKind.BUSINESS,
@@ -375,7 +391,9 @@ public class WorkflowRuntimeReadFacade {
 
     public List<WorkflowWorkbenchCard> doneCards(String processorId, PageRequest pageRequest,
                                                  WorkflowWorkbenchQueryRequest request) {
-        String validProcessorId = requireText(processorId, "workflow processor id must not be blank");
+        String validProcessorId = requireText(processorId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-task-processor",
+                "workflow processor id must not be blank"));
         List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .in("taskStatus", List.of(WorkflowTaskStatus.DONE, WorkflowTaskStatus.REJECTED,
                                 WorkflowTaskStatus.ROLLED_BACK, WorkflowTaskStatus.TRANSFERRED)),
@@ -392,7 +410,9 @@ public class WorkflowRuntimeReadFacade {
 
     public List<WorkflowWorkbenchCard> noticeCards(String assigneeId, PageRequest pageRequest,
                                                    WorkflowWorkbenchQueryRequest request) {
-        String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
+        String validAssigneeId = requireText(assigneeId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-task-assignee",
+                "workflow assignee id must not be blank"));
         List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("assigneeId", validAssigneeId)
                         .eq("taskKind", WorkflowTaskKind.NOTICE)
@@ -407,9 +427,13 @@ public class WorkflowRuntimeReadFacade {
 
     public WorkflowWorkbenchStats workbenchStats(String boardType, String operatorId,
                                                  WorkflowWorkbenchQueryRequest request) {
-        String normalizedBoard = requireText(boardType, "workflow workbench board type must not be blank")
+        String normalizedBoard = requireText(boardType, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-workbench-view",
+                "workflow workbench board type must not be blank"))
                 .toUpperCase();
-        String validOperatorId = requireText(operatorId, "workflow operator id must not be blank");
+        String validOperatorId = requireText(operatorId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-workflow-operator",
+                "workflow operator id must not be blank"));
         WorkflowWorkbenchQueryRequest filters = filtersOnly(request);
         return switch (normalizedBoard) {
             case "TRACKING" -> trackingStats(validOperatorId, filters);
@@ -417,7 +441,9 @@ public class WorkflowRuntimeReadFacade {
             case "DONE" -> doneStats(validOperatorId, filters);
             case "NOTICE" -> noticeStats(validOperatorId, filters);
             case "DELEGATION" -> delegationStats(validOperatorId, filters);
-            default -> throw new PlatformException("unsupported workflow workbench board type: " + boardType);
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.unsupported-workbench-view-type",
+                    "unsupported workflow workbench board type: {value1}"), Map.of("value1", String.valueOf(boardType)));
         };
     }
 
@@ -671,7 +697,9 @@ public class WorkflowRuntimeReadFacade {
 
     public List<WorkflowWorkbenchCard> trackingCards(String starterId, PageRequest pageRequest,
                                                      WorkflowWorkbenchQueryRequest request) {
-        String validStarterId = requireText(starterId, "workflow starter id must not be blank");
+        String validStarterId = requireText(starterId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-workflow-initiator",
+                "workflow starter id must not be blank"));
         List<WorkflowInstance> instances = instanceDao.query(WorkflowTenantScope.criteria().eq("startedBy", validStarterId),
                 ALL, Sort.desc("startedAt"), Sort.desc("updatedAt"));
         Map<String, String> userTitles = userTitles(List.of(), instances);
@@ -690,7 +718,9 @@ public class WorkflowRuntimeReadFacade {
 
     public List<WorkflowWorkbenchCard> delegationCards(String principalId, PageRequest pageRequest,
                                                        WorkflowWorkbenchQueryRequest request) {
-        String validPrincipalId = requireText(principalId, "workflow delegation principal id must not be blank");
+        String validPrincipalId = requireText(principalId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-an-approval-principal",
+                "workflow delegation principal id must not be blank"));
         List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("assignmentKind", WorkflowAssignmentKind.DELEGATED)
                         .eq("delegatedFromUserId", validPrincipalId)
@@ -758,7 +788,9 @@ public class WorkflowRuntimeReadFacade {
                 .sorted(Comparator.comparing(WorkflowTask::getCreatedAt,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("workflow delegation task must not be empty"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-runtime-read.select-a-task-to-delegate",
+                        "workflow delegation task must not be empty")));
         WorkflowInstance instance = instanceDao.findById(representative.getInstanceId());
         WorkflowNodeInstance node = representative.getNodeInstanceId() == null
                 ? null
@@ -798,7 +830,9 @@ public class WorkflowRuntimeReadFacade {
                                        Map<String, String> userTitles,
                                        Integer delegationTaskCount) {
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + (task == null ? null : task.getInstanceId()));
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf((task == null ? null : task.getInstanceId()))));
         }
         return new WorkflowWorkbenchCard(boardType, instance.getId(), instance.getModuleAlias(), instance.getRecordId(),
                 instance.getDefinitionId(), instance.getWorkflowVersionId(),
@@ -981,10 +1015,14 @@ public class WorkflowRuntimeReadFacade {
     }
 
     private WorkflowInstance requireInstance(String instanceId) {
-        String validInstanceId = requireText(instanceId, "workflow instance id must not be blank");
+        String validInstanceId = requireText(instanceId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-workflow-instance",
+                "workflow instance id must not be blank"));
         WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(validInstanceId));
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + validInstanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(validInstanceId)));
         }
         return instance;
     }
@@ -996,7 +1034,9 @@ public class WorkflowRuntimeReadFacade {
         return CurrentUserContext.currentUser()
                 .map(user -> user.userId())
                 .filter(userId -> !userId.isBlank())
-                .orElseThrow(() -> new PlatformException("workflow operator id must not be blank"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-runtime-read.select-a-workflow-operator",
+                        "workflow operator id must not be blank")));
     }
 
     private PageRequest page(PageRequest pageRequest) {
@@ -1063,8 +1103,9 @@ public class WorkflowRuntimeReadFacade {
         List<WorkflowWorkbenchSort> sorts = normalized.sorts().isEmpty() ? defaultSorts(boardType) : normalized.sorts();
         Comparator<WorkflowWorkbenchCard> comparator = null;
         for (WorkflowWorkbenchSort sort : sorts) {
-            String field = requireText(sort == null ? null : sort.field(),
-                    "workflow workbench sort field must not be blank");
+            String field = requireText(sort == null ? null : sort.field(), TextReference.code(
+                    "platform.rejection.workflow-runtime-read.select-a-workbench-sort-field",
+                    "workflow workbench sort field must not be blank"));
             validateSortField(field);
             WorkflowSortDirection direction = sort.direction() == null ? WorkflowSortDirection.DESC : sort.direction();
             Comparator<WorkflowWorkbenchCard> fieldComparator = (left, right) ->
@@ -1086,7 +1127,9 @@ public class WorkflowRuntimeReadFacade {
                     "principalCanProcess",
                     "delegationTaskCount", "submitterUserId" -> {
             }
-            default -> throw new PlatformException("unsupported workflow workbench sort field: " + field);
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.sorting-by-this-field-is-not-supported",
+                    "unsupported workflow workbench sort field: {value1}"), Map.of("value1", String.valueOf(field)));
         }
     }
 
@@ -1135,7 +1178,9 @@ public class WorkflowRuntimeReadFacade {
             case "principalCanProcess" -> card.principalCanProcess();
             case "delegationTaskCount" -> card.delegationTaskCount();
             case "submitterUserId" -> card.submitterUserId();
-            default -> throw new PlatformException("unsupported workflow workbench sort field: " + field);
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-read.sorting-by-this-field-is-not-supported",
+                    "unsupported workflow workbench sort field: {value1}"), Map.of("value1", String.valueOf(field)));
         };
     }
 
@@ -1278,9 +1323,9 @@ public class WorkflowRuntimeReadFacade {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

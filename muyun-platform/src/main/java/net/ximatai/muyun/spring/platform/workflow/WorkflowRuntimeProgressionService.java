@@ -5,8 +5,9 @@ import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -107,7 +108,9 @@ public class WorkflowRuntimeProgressionService {
                                                      List<WorkflowManualRouteSelection> manualRouteSelections) {
         WorkflowInstance instance = requireInstance(instanceId);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING) {
-            throw new PlatformException("workflow instance is not running: " + instanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-progression.the-workflow-is-not-running",
+                    "workflow instance is not running: {value1}"), Map.of("value1", String.valueOf(instanceId)));
         }
         Instant now = operatedAt == null ? Instant.now() : operatedAt;
         String selectedKey = manualRouteSelectionPolicy.selectedRouteKeyForBranch(completedNodeKey,
@@ -275,7 +278,9 @@ public class WorkflowRuntimeProgressionService {
         List<WorkflowRouteInstance> defaultSelection = defaults.isEmpty() ? outgoing : defaults;
         if (selectedRouteKey != null
                 && !canUseSelectedRouteForReachableBranch(routes, nodes, graph, defaultSelection, selectedRouteKey)) {
-            throw new PlatformException("workflow selected route is not candidate outgoing route");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-progression.the-selected-route-is-not-available",
+                    "workflow selected route is not candidate outgoing route"));
         }
         return defaultSelection;
     }
@@ -398,9 +403,13 @@ public class WorkflowRuntimeProgressionService {
     }
 
     private WorkflowInstance requireInstance(String instanceId) {
-        WorkflowInstance instance = instanceDao.findById(requireText(instanceId, "workflow instance id must not be blank"));
+        WorkflowInstance instance = instanceDao.findById(requireText(instanceId, TextReference.code(
+                "platform.rejection.workflow-runtime-progression.select-a-workflow-instance",
+                "workflow instance id must not be blank")));
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + instanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-progression.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(instanceId)));
         }
         return instance;
     }
@@ -444,9 +453,9 @@ public class WorkflowRuntimeProgressionService {
         }
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

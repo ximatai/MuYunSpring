@@ -9,6 +9,7 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 import WorkflowRecordPanel from '@/platform-components/WorkflowRecordPanel.vue';
 import {
   createLanguageContext,
+  createCodeTextPresentation,
   provideLanguageContext,
   platformLanguageContext,
   type LanguageContext,
@@ -1166,3 +1167,42 @@ it.each([true, false])(
     wrapper.unmount();
   },
 );
+
+it('updates a retained submission rejection on language changes without rematching or submitting', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.registerResources('en', { 'test.workflow.match-rejected': 'Cannot submit {record}' });
+  language.registerResources('zh-CN', { 'test.workflow.match-rejected': '不能提交{record}' });
+  const raw = '不能提交原始 {record}';
+  const status = {
+    displayStatus: 'MATCH_ERROR',
+    canSubmit: false,
+    errorMessage: raw,
+    errorMessageText: createCodeTextPresentation('test.workflow.match-rejected', raw, language, {
+      record: '原始 {record}',
+    }),
+  };
+  const { wrapper, request } = fixture(undefined, language);
+  const original = request.getMockImplementation()!;
+  request.mockImplementation(async (call) =>
+    call.path.endsWith('/submit/status') ? status : original(call),
+  );
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Refresh workflow')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Cannot submit 原始 {record}');
+  const calls = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain(raw);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Cannot submit 原始 {record}');
+  expect(request.mock.calls).toHaveLength(calls);
+  expect(wrapper.text()).not.toContain('Preview and submit approval');
+  expect(status.errorMessage).toBe(raw);
+  expect(status.canSubmit).toBe(false);
+  wrapper.unmount();
+});

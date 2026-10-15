@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.iam.workflow;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.employee.*;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
@@ -11,6 +10,8 @@ import net.ximatai.muyun.spring.iam.role.*;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowIdentityResolver;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowParticipantRule;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 
 @Service
 public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
@@ -56,7 +58,9 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
             case "DEPT" -> scopeUsers(rule.ids(), true, Boolean.TRUE.equals(rule.headOnly()));
             case "ORG" -> scopeUsers(rule.ids(), false, Boolean.TRUE.equals(rule.headOnly()));
             case "RELATIVE" -> relativeUsers(rule, originUserId, organizationId);
-            default -> throw new PlatformException("unsupported IAM workflow participant: " + rule.type());
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.iam-workflow-identity-resolver.unsupported-participant-source",
+                    "unsupported IAM workflow participant: {value1}"), Map.of("value1", String.valueOf(rule.type())));
         };
     }
 
@@ -105,7 +109,9 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
     }
 
     private List<String> scopeUsers(List<String> scopeIds, boolean department, boolean headOnly) {
-        if (scopeIds.isEmpty()) throw new PlatformException("参与人组织范围不能为空");
+        if (scopeIds.isEmpty()) throw PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.iam-workflow-identity-resolver.select-an-organization-scope-for-participants",
+                "参与人组织范围不能为空"));
         List<String> employeeIds = new ArrayList<>();
         for (String id : scopeIds) {
             String manager;
@@ -139,7 +145,9 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
         var employee = tenantRecord(employees.select(binding.get().getEmployeeId()));
         if (employee == null || !Boolean.TRUE.equals(employee.getEnabled())) return List.of();
         int depth = rule.depth();
-        if (depth < 0 || depth > 32) throw new PlatformException("参与人关系层级必须在 0 到 32 之间");
+        if (depth < 0 || depth > 32) throw PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.iam-workflow-identity-resolver.the-participant-relationship-depth-must-be-between-0-and-32",
+                "参与人关系层级必须在 0 到 32 之间"));
         Set<String> visited = new HashSet<>();
         if ("SUPERVISOR".equals(relation)) {
             visited.add(employee.getId());
@@ -147,7 +155,9 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
                 if (employee.getSupervisorEmployeeId() == null) return List.of();
                 employee = tenantRecord(employees.select(employee.getSupervisorEmployeeId()));
                 if (employee == null || !Boolean.TRUE.equals(employee.getEnabled())) return List.of();
-                if (!visited.add(employee.getId())) throw new PlatformException("员工汇报关系存在循环");
+                if (!visited.add(employee.getId())) throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.iam-workflow-identity-resolver.the-employee-reporting-hierarchy-contains-a-cycle",
+                        "员工汇报关系存在循环"));
             }
             return userIds(List.of(employee.getId()));
         }
@@ -157,7 +167,9 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
             for (int index = 0; index < depth && department != null; index++) {
                 if (!Boolean.TRUE.equals(department.getEnabled())) return List.of();
                 department = department.getParentId() == null ? null : tenantRecord(departments.select(department.getParentId()));
-                if (department != null && !visited.add(department.getId())) throw new PlatformException("部门层级存在循环");
+                if (department != null && !visited.add(department.getId())) throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.iam-workflow-identity-resolver.the-department-hierarchy-contains-a-cycle",
+                        "部门层级存在循环"));
             }
             return department == null ? List.of() : scopeUsers(List.of(department.getId()), true,
                     relation.endsWith("MANAGER") || Boolean.TRUE.equals(rule.headOnly()));
@@ -168,12 +180,16 @@ public class IamWorkflowIdentityResolver implements WorkflowIdentityResolver {
             for (int index = 0; index < depth && organization != null; index++) {
                 if (!Boolean.TRUE.equals(organization.getEnabled())) return List.of();
                 organization = organization.getParentId() == null ? null : tenantRecord(organizations.select(organization.getParentId()));
-                if (organization != null && !visited.add(organization.getId())) throw new PlatformException("机构层级存在循环");
+                if (organization != null && !visited.add(organization.getId())) throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.iam-workflow-identity-resolver.the-organization-hierarchy-contains-a-cycle",
+                        "机构层级存在循环"));
             }
             return organization == null ? List.of() : scopeUsers(List.of(organization.getId()), false,
                     relation.endsWith("MANAGER") || Boolean.TRUE.equals(rule.headOnly()));
         }
-        throw new PlatformException("不支持的参与人关系: " + relation);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.iam-workflow-identity-resolver.unsupported-participant-relationship",
+                "不支持的参与人关系: {value1}"), Map.of("value1", String.valueOf(relation)));
     }
 
     private List<String> userIds(List<String> employeeIds) {

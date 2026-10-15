@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.*;
 import org.springframework.boot.*;
@@ -442,7 +443,8 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
                     .reason("专业复核").designerSnapshot("{\"changed\":true}", "{\"changed\":true}").build();
 
             assertThatThrownBy(() -> actions.addSign(request))
-                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置");
+                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置")
+                    .hasCauseInstanceOf(PlatformException.class);
 
             assertThat(runtimeSnapshot(id)).usingRecursiveComparison().isEqualTo(before);
             assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("nodeKey", "branch"), PageRequest.of(1, 1)).getFirst().getSelectorNodeKey())
@@ -469,7 +471,8 @@ class WorkflowConcurrencyRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThatThrownBy(() -> actions.addSign(WorkflowTaskActionRequest.builder(first.getId(), "one")
                     .addSignSegment(addSignSegment("replacement-approval", "first", "branch", "different-operator"))
                     .reason("替换为专业审批").designerSnapshot("{\"replacement\":true}", "{\"replacement\":true}").build()))
-                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置");
+                    .hasMessageContaining("branch").hasMessageContaining("first").hasMessageContaining("调整加签位置")
+                    .hasCauseInstanceOf(PlatformException.class);
 
             assertThat(runtimeSnapshot(id)).usingRecursiveComparison().isEqualTo(before);
             assertThat(nodeRuns.query(Criteria.of().eq("instanceId", id).eq("addedByAddSign", true), PageRequest.of(1, 10)))

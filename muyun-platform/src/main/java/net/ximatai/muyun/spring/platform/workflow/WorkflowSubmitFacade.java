@@ -1,7 +1,9 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -10,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 
 @Service
 public class WorkflowSubmitFacade {
@@ -99,7 +102,9 @@ public class WorkflowSubmitFacade {
 
     private WorkflowSubmitRequest normalize(WorkflowSubmitRequest request) {
         if (request == null) {
-            throw new PlatformException("workflow submit request must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-submit.provide-a-workflow-submission-request",
+                    "workflow submit request must not be null"));
         }
         String moduleAlias = requireText(request.moduleAlias(), "moduleAlias");
         String recordId = requireText(request.recordId(), "recordId");
@@ -124,7 +129,9 @@ public class WorkflowSubmitFacade {
 
     private String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(name + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow.required-field",
+                    "{name} must not be blank"), Map.of("name", name));
         }
         return value;
     }

@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,10 +25,14 @@ public record WorkflowRuntimeGraph(
         if (nodes != null) {
             for (WorkflowNodeDefinition node : nodes) {
                 if (node == null || node.getNodeKey() == null || node.getNodeKey().isBlank()) {
-                    throw new PlatformException("workflow node key must not be blank");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.enter-a-workflow-node-key",
+                            "workflow node key must not be blank"));
                 }
                 if (nodeMap.put(node.getNodeKey(), node) != null) {
-                    throw new PlatformException("workflow node key must be unique: " + node.getNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.duplicate-workflow-node-key",
+                            "workflow node key must be unique: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
                 }
             }
         }
@@ -37,17 +42,25 @@ public record WorkflowRuntimeGraph(
         if (links != null) {
             for (WorkflowLinkDefinition link : links) {
                 if (link == null || link.getSourceNodeKey() == null || link.getTargetNodeKey() == null) {
-                    throw new PlatformException("workflow link source and target must not be blank");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.select-a-source-and-target-for-the-route",
+                            "workflow link source and target must not be blank"));
                 }
                 if (!nodeMap.containsKey(link.getSourceNodeKey())) {
-                    throw new PlatformException("workflow link source node does not exist: " + link.getSourceNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.route-source-node-not-found",
+                            "workflow link source node does not exist: {value1}"), Map.of("value1", String.valueOf(link.getSourceNodeKey())));
                 }
                 if (!nodeMap.containsKey(link.getTargetNodeKey())) {
-                    throw new PlatformException("workflow link target node does not exist: " + link.getTargetNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.route-target-node-not-found",
+                            "workflow link target node does not exist: {value1}"), Map.of("value1", String.valueOf(link.getTargetNodeKey())));
                 }
                 if (link.getRouteKey() != null && !link.getRouteKey().isBlank()
                         && routeMap.put(link.getRouteKey(), link) != null) {
-                    throw new PlatformException("workflow route key must be unique: " + link.getRouteKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-runtime-graph.duplicate-workflow-route-key",
+                            "workflow route key must be unique: {value1}"), Map.of("value1", String.valueOf(link.getRouteKey())));
                 }
                 incomingMap.computeIfAbsent(link.getTargetNodeKey(), ignored -> new java.util.ArrayList<>()).add(link);
                 outgoingMap.computeIfAbsent(link.getSourceNodeKey(), ignored -> new java.util.ArrayList<>()).add(link);
@@ -61,7 +74,9 @@ public record WorkflowRuntimeGraph(
     public WorkflowNodeDefinition requireNode(String nodeKey) {
         WorkflowNodeDefinition node = nodes.get(nodeKey);
         if (node == null) {
-            throw new PlatformException("workflow node does not exist: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-runtime-graph.workflow-node-not-found",
+                    "workflow node does not exist: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         }
         return node;
     }

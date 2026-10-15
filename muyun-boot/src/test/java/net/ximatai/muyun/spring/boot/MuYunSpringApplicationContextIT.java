@@ -456,6 +456,37 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void actualWorkflowRejectionsKeepTheirStatusIdentityAndTraceAcrossLanguagesWithoutWritingTasks() {
+        String token = issueSuperAdminSessionToken();
+        long count = jdbcTemplate.queryForObject("select count(*) from platform_workflow_task", Long.class);
+        try {
+            for (String tag : List.of("en", "zh-CN", "en")) {
+                var headers = bearerHeaders(token);
+                headers.set("Accept-Language", tag);
+                headers.set("X-MuYun-Trace-Id", "workflow-rejection-http");
+                var response = restTemplate.exchange("/workflow/runtime/task/missing-rejection-probe/actions/revokeApprove",
+                        HttpMethod.POST, new HttpEntity<>(Map.of("reason", "Literal 中文 {value}"), headers), JsonNode.class);
+                assertThat(response.getStatusCode().value()).isEqualTo(400);
+                var error = response.getBody();
+                assertThat(error.path("code").asText()).isEqualTo("VALIDATION_FAILED");
+                assertThat(error.path("status").asInt()).isEqualTo(400);
+                assertThat(error.path("traceId").asText()).isEqualTo("workflow-rejection-http");
+                assertThat(error.at("/textSource/sourceKind").asText()).isEqualTo("CODE");
+                assertThat(error.path("message").asText()).isEqualTo(tag.equals("en")
+                        ? "Approval task not found: missing-rejection-probe"
+                        : "审批任务不存在：missing-rejection-probe");
+                assertThat(error.at("/messageText/languages/en/text").asText())
+                        .isEqualTo("Approval task not found: missing-rejection-probe");
+                assertThat(error.path("messageArgs").path("value1").asText()).isEqualTo("missing-rejection-probe");
+                assertThat(response.getHeaders().getFirst("Content-Language")).isEqualTo(tag);
+            }
+            assertThat(jdbcTemplate.queryForObject("select count(*) from platform_workflow_task", Long.class)).isEqualTo(count);
+        } finally {
+            userSessionService.logout(token);
+        }
+    }
+
+    @Test
     void actualStaticDetailDeliversDeclaredSummariesAndTheirTranslationsWithoutChangingStorage() {
         String token = issueSuperAdminSessionToken();
         var fields = applicationContext.getBean(FieldSpecService.class);

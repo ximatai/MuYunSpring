@@ -3,9 +3,11 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -24,9 +26,13 @@ public class WorkflowConditionService {
     public void validate(String expression) {
         if (expression == null || expression.isBlank()) return;
         try { formulas.parse("workflow", expression); }
-        catch (FormulaEvaluationException invalid) { throw new PlatformException("流程条件公式不合法: " + invalid.getMessage(), invalid); }
+        catch (FormulaEvaluationException invalid) { throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-condition.invalid-workflow-condition-formula",
+                "流程条件公式不合法: {value1}"), Map.of("value1", String.valueOf(invalid.getMessage())), invalid); }
         if (!formulas.assignedFields(expression).isEmpty())
-            throw new PlatformException("workflow conditions cannot assign business fields");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-condition.workflow-conditions-cannot-assign-values-to-business-fields",
+                    "workflow conditions cannot assign business fields"));
     }
 
     public boolean matches(String expression, String moduleAlias, String recordId) {
@@ -43,7 +49,9 @@ public class WorkflowConditionService {
 
     static boolean requireBoolean(Object value) {
         if (value instanceof Boolean result) return result;
-        throw new PlatformException("流程条件公式必须返回布尔值，请使用比较公式，例如 {amount} > 100");
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-condition.a-workflow-condition-must-return-a-boolean-use-a-comparison-such-as",
+                "流程条件公式必须返回布尔值，请使用比较公式，例如 {amount} > 100"));
     }
 
     /** Advisory manual conditions share one current fact snapshot. Null denotes an invalid formula, not a mismatch.

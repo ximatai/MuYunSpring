@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.workflow.WorkflowTaskGuide;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowWorkbenchCard;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowEvent;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowHistoryEventView;
+import net.ximatai.muyun.spring.platform.workflow.WorkflowSubmitStatusView;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.web.WebTreeNode;
@@ -49,6 +50,7 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
                 net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WebPageResponse.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowRuntimeRenderBundle.class.isAssignableFrom(parameter.getParameterType()) ||
+                WorkflowSubmitStatusView.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskProcessBundle.class.isAssignableFrom(parameter.getParameterType()) ||
                 WorkflowModuleTaskContinueResult.class.isAssignableFrom(parameter.getParameterType()) ||
                 parameter.getContainingClass() == ModuleFieldOptionWebController.class ||
@@ -87,12 +89,12 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             }
             if (!(output.at(slot.parentPath()) instanceof ObjectNode parent)) continue;
             if (slot.retainOriginal() && (!parent.path(slot.property()).isTextual() ||
-                    !parent.path(slot.property()).asText().equals(slot.source().originalText()) ||
+                    !parent.path(slot.property()).asText().equals(TextResources.format(slot.source().originalText(), slot.arguments())) ||
                     (slot.source().sourceKind() == TextReference.SourceKind.CODE &&
                     !slot.source().sourceVersion().equals(TextReference.versionOf(slot.source().originalText()))))) continue;
-            parent.set(slot.property() + "Text", mapper.valueToTree(TextPresentations.of(slot.source(), Map.of(), prepared, catalog)));
+            parent.set(slot.property() + "Text", mapper.valueToTree(TextPresentations.of(slot.source(), slot.arguments(), prepared, catalog)));
             if (!slot.retainOriginal())
-                parent.put(slot.property(), prepared.resolve(slot.source(), Map.of(), LanguageContext.currentTag()).text());
+                parent.put(slot.property(), prepared.resolve(slot.source(), slot.arguments(), LanguageContext.currentTag()).text());
         }
         if (!constructionBindings.isEmpty() && output instanceof ObjectNode object)
             object.set("textBindings", mapper.valueToTree(constructionBindings));
@@ -100,7 +102,10 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         return output;
     }
     private void collect(Object value, String path, List<Slot> slots) {
-        if (value instanceof PlatformRecordActionAvailability availability) {
+        if (value instanceof WorkflowSubmitStatusView status) {
+            if (status.errorMessageSource() != null)
+                slots.add(new Slot(path, "errorMessage", status.errorMessageSource(), status.errorMessageArgs(), false, true));
+        } else if (value instanceof PlatformRecordActionAvailability availability) {
             collect(availability.actions(), path + "/actions", slots);
         } else if (value instanceof PlatformRecordActionAvailability.Action action) {
             if (action.reasonSource() != null)

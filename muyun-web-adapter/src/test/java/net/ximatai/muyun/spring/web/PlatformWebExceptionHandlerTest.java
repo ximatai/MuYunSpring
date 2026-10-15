@@ -75,6 +75,43 @@ class PlatformWebExceptionHandlerTest {
         }
     }
 
+    @Test
+    void shouldTranslatePlainDomainRejectionsWithoutAddingBusinessActionSemantics() {
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var handler = new PlatformWebExceptionHandler();
+        handler.setLanguageCatalog(catalog);
+        handler.setTextResolver(new net.ximatai.muyun.spring.common.i18n.TextResources(catalog,
+                Map.of("en", Map.of("domain.blocked", "Cannot change {record}"))));
+        var source = net.ximatai.muyun.spring.common.i18n.TextReference.code("domain.blocked", "不能修改{record}");
+        var cause = new IllegalStateException("raw diagnostic");
+        var exception = PlatformErrors.badRequestText(source, Map.of("record", "原文 {record}"), cause);
+
+        for (String language : List.of("en", "zh-CN", "en")) {
+            try (var ignored = net.ximatai.muyun.spring.common.i18n.LanguageContext.use(language);
+                 var trace = RequestTraceContext.use("domain-rejection-trace")) {
+                var response = handler.handlePlatformException(exception);
+                var error = response.getBody();
+                assertThat(response.getStatusCode().value()).isEqualTo(400);
+                assertThat(error.code()).isEqualTo(PlatformErrorCodes.VALIDATION_FAILED);
+                assertThat(error.traceId()).isEqualTo("domain-rejection-trace");
+                assertThat(error.actionMessage()).isNull();
+                assertThat(error.textSource()).isEqualTo(source);
+                assertThat(error.messageText().source()).isEqualTo(source);
+                assertThat(error.message()).isEqualTo(language.equals("en")
+                        ? "Cannot change 原文 {record}" : "不能修改原文 {record}");
+                assertThat(error.messageArgs()).containsEntry("record", "原文 {record}");
+                assertThat(exception.getCause()).isSameAs(cause);
+                assertThat(exception.getMessage()).isEqualTo("不能修改原文 {record}");
+            }
+        }
+        var custom = new net.ximatai.muyun.spring.common.exception.PlatformException(
+                "VALIDATION_FAILED", 400, "不能修改原文 {record}", null, null, null, null, null);
+        var raw = handler.handlePlatformException(custom).getBody();
+        assertThat(raw.message()).isEqualTo(custom.getMessage());
+        assertThat(raw.textSource()).isNull();
+        assertThat(raw.messageText()).isNull();
+    }
+
     @AfterEach
     void tearDown() {
         RequestTraceContext.clear();

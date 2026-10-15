@@ -24,11 +24,52 @@ class PlatformPresentationResponseAdviceTest {
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("languages", LanguageCatalog.load(getClass().getClassLoader(), "zh-CN"));
         beans.registerSingleton("texts", (TextResolver) (source, arguments, tag) -> new TextResources.Resolution(
-                translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), tag, tag, false, false));
+                TextResources.format(translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), arguments), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @Test
+    void statusRejectionResourcesRetainOriginalsAndFormatArgumentsOnlyOnce() throws Exception {
+        var source = TextReference.code("test.match.failure", "流程匹配失败：{record}");
+        var status = WorkflowSubmitStatusView.matchError("sales.order", "record-1", "流程匹配失败：原始 {record}")
+                .withErrorSource(source, Map.of("record", "原始 {record}"));
+        var projection = advice(Map.of(source, "Workflow matching failed: {record}"));
+        for (String tag : List.of("en", "zh-CN", "en")) {
+            try (var ignored = LanguageContext.use(tag)) {
+                var output = mapper.valueToTree(projection.project(status));
+                assertThat(output.path("errorMessage").asText()).isEqualTo(status.errorMessage());
+                assertThat(output.at("/errorMessageText/languages/en/text").asText())
+                        .isEqualTo("Workflow matching failed: 原始 {record}");
+                assertThat(output.at("/errorMessageText/languages/zh-CN/text").asText())
+                        .isEqualTo("流程匹配失败：原始 {record}");
+                assertThat(output.path("displayStatus").asText()).isEqualTo("MATCH_ERROR");
+                assertThat(output.path("canSubmit").asBoolean()).isFalse();
+            }
+        }
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new CatalogFixture())
+                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(mapper))
+                .setControllerAdvice(projection).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/workflow-status-fixture"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.errorMessage")
+                        .value("流程匹配失败：原始 {record}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.errorMessageText.languages.en.text").value("Workflow matching failed: 原始 {record}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.canSubmit").value(false));
+        var stale = WorkflowSubmitStatusView.matchError("sales.order", "record-1", "new original")
+                .withErrorSource(source, Map.of("record", "原始 {record}"));
+        assertThat(mapper.valueToTree(projection.project(stale)).has("errorMessageText")).isFalse();
+        assertThat(projection.project(WorkflowSubmitStatusView.matchError("sales.order", "record-1", "custom failure")))
+                .isInstanceOf(WorkflowSubmitStatusView.class);
+    }
+
     @org.springframework.web.bind.annotation.RestController
     static class CatalogFixture {
+        @org.springframework.web.bind.annotation.GetMapping("/workflow-status-fixture")
+        public WorkflowSubmitStatusView status() {
+            return WorkflowSubmitStatusView.matchError("sales.order", "record-1", "流程匹配失败：原始 {record}")
+                    .withErrorSource(TextReference.code("test.match.failure", "流程匹配失败：{record}"),
+                            Map.of("record", "原始 {record}"));
+        }
         @org.springframework.web.bind.annotation.GetMapping("/catalog-fixture")
         public List<OpenApiModuleCatalogItem> catalog() {
             return List.of(new OpenApiModuleCatalogItem("test.module", "模块", "static", "/test.module/openapi",

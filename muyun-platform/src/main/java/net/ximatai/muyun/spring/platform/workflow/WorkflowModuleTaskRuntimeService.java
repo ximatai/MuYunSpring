@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class WorkflowModuleTaskRuntimeService {
@@ -110,21 +112,31 @@ public class WorkflowModuleTaskRuntimeService {
     private Context requireContext(String taskId, String operatorId) {
         WorkflowTask task = requireTask(taskId);
         if (task.getTaskKind() != WorkflowTaskKind.BUSINESS) {
-            throw new PlatformException("workflow task is not a business task: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.this-is-not-a-business-task",
+                    "workflow task is not a business task: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         if (task.getTaskStatus() != WorkflowTaskStatus.TODO) {
-            throw new PlatformException("workflow task is not todo: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.this-task-is-no-longer-pending",
+                    "workflow task is not todo: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         if (!assignments.canProcess(task, operatorId)) {
-            throw new PlatformException("workflow task action operator is not assignee: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.you-are-not-this-task-s-assignee",
+                    "workflow task action operator is not assignee: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         WorkflowInstance instance = requireInstance(task);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING) {
-            throw new PlatformException("workflow instance is not running: " + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.the-workflow-is-not-running",
+                    "workflow instance is not running: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         WorkflowNodeInstance node = requireNode(task);
         if (node.getNodeType() != WorkflowNodeType.TASK || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE) {
-            throw new PlatformException("workflow node is not active task node: " + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.this-node-is-not-an-active-task-node",
+                    "workflow node is not active task node: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
         }
         actionPolicies.requireRuntimeAction(instance, "complete");
         WorkflowTaskDefinition definition = specifications.resolve(node).definition();
@@ -133,11 +145,15 @@ public class WorkflowModuleTaskRuntimeService {
 
     private WorkflowTask requireTask(String taskId) {
         if (taskId == null || taskId.isBlank()) {
-            throw new PlatformException("workflow task id must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.select-an-approval-task",
+                    "workflow task id must not be blank"));
         }
         WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(taskId));
         if (task == null) {
-            throw new PlatformException("workflow task not found: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.approval-task-not-found",
+                    "workflow task not found: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         return task;
     }
@@ -145,7 +161,9 @@ public class WorkflowModuleTaskRuntimeService {
     private WorkflowInstance requireInstance(WorkflowTask task) {
         WorkflowInstance instance = instanceDao.findById(task.getInstanceId());
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + task.getInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(task.getInstanceId())));
         }
         return instance;
     }
@@ -153,7 +171,9 @@ public class WorkflowModuleTaskRuntimeService {
     private WorkflowNodeInstance requireNode(WorkflowTask task) {
         WorkflowNodeInstance node = nodeDao.findById(task.getNodeInstanceId());
         if (node == null) {
-            throw new PlatformException("workflow node instance not found: " + task.getNodeInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-module-task-runtime.workflow-node-instance-not-found",
+                    "workflow node instance not found: {value1}"), Map.of("value1", String.valueOf(task.getNodeInstanceId())));
         }
         return node;
     }

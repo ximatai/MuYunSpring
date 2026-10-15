@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -128,10 +129,14 @@ public class WorkflowTaskActionAvailabilityService {
     }
 
     private WorkflowTask requireTask(String taskId) {
-        String validTaskId = requireText(taskId, "workflow task id must not be blank");
+        String validTaskId = requireText(taskId, TextReference.code(
+                "platform.rejection.workflow-task-action-availability.select-an-approval-task",
+                "workflow task id must not be blank"));
         WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(validTaskId));
         if (task == null) {
-            throw new PlatformException("workflow task not found: " + validTaskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action-availability.approval-task-not-found",
+                    "workflow task not found: {value1}"), Map.of("value1", String.valueOf(validTaskId)));
         }
         return task;
     }
@@ -139,7 +144,9 @@ public class WorkflowTaskActionAvailabilityService {
     private WorkflowInstance requireInstance(WorkflowTask task) {
         WorkflowInstance instance = instanceDao.findById(task.getInstanceId());
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + task.getInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action-availability.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(task.getInstanceId())));
         }
         return instance;
     }
@@ -163,9 +170,9 @@ public class WorkflowTaskActionAvailabilityService {
                 .anyMatch(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE);
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

@@ -3,9 +3,10 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -296,18 +297,23 @@ public class WorkflowInstanceActionService {
     private WorkflowInstance requireRunningInstance(WorkflowInstanceActionRequest request) {
         WorkflowInstance instance = requireExistingInstance(request);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING) {
-            throw new PlatformException("workflow instance is not running: " + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-instance-action.the-workflow-is-not-running",
+                    "workflow instance is not running: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         return instance;
     }
 
     private WorkflowInstance requireExistingInstance(WorkflowInstanceActionRequest request) {
-        String instanceId = requireText(request == null ? null : request.instanceId(),
-                "workflow instance id must not be blank");
+        String instanceId = requireText(request == null ? null : request.instanceId(), TextReference.code(
+                "platform.rejection.workflow-instance-action.select-a-workflow-instance",
+                "workflow instance id must not be blank"));
         WorkflowMutationLock.instance(instanceId);
         WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(instanceId));
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + instanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-instance-action.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(instanceId)));
         }
         return instance;
     }
@@ -418,9 +424,9 @@ public class WorkflowInstanceActionService {
         return request.operatedAt() == null ? Instant.now() : request.operatedAt();
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

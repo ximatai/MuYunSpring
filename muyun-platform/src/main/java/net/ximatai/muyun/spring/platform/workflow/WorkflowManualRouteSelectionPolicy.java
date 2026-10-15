@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,7 +87,9 @@ public class WorkflowManualRouteSelectionPolicy {
         String selectedKey = selectedRouteKeyForBranch(completedNodeKey, manualRouteSelections, selectedRouteKey);
         if (selectedKey == null || selectedInitialRoutes.stream()
                 .noneMatch(route -> selectedKey.equals(route.getRouteKey()))) {
-            throw new PlatformException("workflow manual branch requires selected route: " + completedNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.select-a-route-for-the-manual-branch",
+                    "workflow manual branch requires selected route: {value1}"), Map.of("value1", String.valueOf(completedNodeKey)));
         }
         requireManualSelection(instance, nodeDefinition(completedNode), nodes, tasks, completedNodeKey,
                 selectedReasonForBranch(completedNodeKey, manualRouteSelections, selectedRouteKey, selectedReason),
@@ -158,8 +162,9 @@ public class WorkflowManualRouteSelectionPolicy {
         return manualRouteSelections.stream()
                 .filter(selection -> branchNodeKey.equals(textOrNull(selection.branchNodeKey())))
                 .findFirst()
-                .map(selection -> requireText(selection.routeKey(),
-                        "workflow manual branch selected route key must not be blank"))
+                .map(selection -> requireText(selection.routeKey(), TextReference.code(
+                        "platform.rejection.workflow-manual-route-selection-policy.select-a-manual-branch-route",
+                        "workflow manual branch selected route key must not be blank")))
                 .orElse(null);
     }
 
@@ -189,7 +194,9 @@ public class WorkflowManualRouteSelectionPolicy {
                     requireManualBranch(graph, List.of(), link.getSourceNodeKey());
                     return Map.of(link.getSourceNodeKey(), Set.of(selectedRouteKey));
                 })
-                .orElseThrow(() -> new PlatformException("workflow selected route is not candidate outgoing route"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-manual-route-selection-policy.the-selected-route-is-not-available",
+                        "workflow selected route is not candidate outgoing route")));
     }
 
     public Map<String, Set<String>> selectedRoutesForPlanning(WorkflowRuntimeGraph graph,
@@ -205,13 +212,17 @@ public class WorkflowManualRouteSelectionPolicy {
                                                           List<WorkflowManualRouteSelection> manualRouteSelections) {
         Map<String, Set<String>> selected = new LinkedHashMap<>();
         for (WorkflowManualRouteSelection selection : manualRouteSelections) {
-            String branchNodeKey = requireText(selection.branchNodeKey(),
-                    "workflow manual branch node key must not be blank");
-            String routeKey = requireText(selection.routeKey(),
-                    "workflow manual branch selected route key must not be blank");
+            String branchNodeKey = requireText(selection.branchNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.enter-a-manual-branch-node-key",
+                    "workflow manual branch node key must not be blank"));
+            String routeKey = requireText(selection.routeKey(), TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.select-a-manual-branch-route",
+                    "workflow manual branch selected route key must not be blank"));
             if (graph.outgoing(branchNodeKey).stream()
                     .noneMatch(link -> routeKey.equals(link.getRouteKey()))) {
-                throw new PlatformException("workflow selected route is not candidate outgoing route");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-manual-route-selection-policy.the-selected-route-is-not-available",
+                        "workflow selected route is not candidate outgoing route"));
             }
             requireManualBranch(graph, List.of(), branchNodeKey);
             putSingleSelection(selected, branchNodeKey, routeKey);
@@ -255,10 +266,12 @@ public class WorkflowManualRouteSelectionPolicy {
                                                                List<WorkflowManualRouteSelection> manualRouteSelections) {
         Map<String, Set<String>> selected = new LinkedHashMap<>();
         for (WorkflowManualRouteSelection selection : manualRouteSelections) {
-            String branchNodeKey = requireText(selection.branchNodeKey(),
-                    "workflow manual branch node key must not be blank");
-            String routeKey = requireText(selection.routeKey(),
-                    "workflow manual branch selected route key must not be blank");
+            String branchNodeKey = requireText(selection.branchNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.enter-a-manual-branch-node-key",
+                    "workflow manual branch node key must not be blank"));
+            String routeKey = requireText(selection.routeKey(), TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.select-a-manual-branch-route",
+                    "workflow manual branch selected route key must not be blank"));
             requireManualBranch(graph, nodes, branchNodeKey);
             if (branchNodeKey.equals(completedNodeKey)) {
                 continue;
@@ -268,7 +281,9 @@ public class WorkflowManualRouteSelectionPolicy {
                             && branchNodeKey.equals(route.getSourceNodeKey())
                             && routeKey.equals(route.getRouteKey()));
             if (!candidate) {
-                throw new PlatformException("workflow selected route is not candidate outgoing route");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-manual-route-selection-policy.the-selected-route-is-not-available",
+                        "workflow selected route is not candidate outgoing route"));
             }
             putSingleSelection(selected, branchNodeKey, routeKey);
         }
@@ -282,7 +297,9 @@ public class WorkflowManualRouteSelectionPolicy {
         WorkflowNodeInstance runtimeNode = nodesByKey(nodes).get(branchNodeKey);
         if (definition.getNodeType() != WorkflowNodeType.BRANCH
                 || routeMode(definition, runtimeNode) != WorkflowRouteMode.MANUAL) {
-            throw new PlatformException("workflow manual route selection requires MANUAL branch: " + branchNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.route-selection-is-only-available-for-manual-branches",
+                    "workflow manual route selection requires MANUAL branch: {value1}"), Map.of("value1", String.valueOf(branchNodeKey)));
         }
     }
 
@@ -301,7 +318,9 @@ public class WorkflowManualRouteSelectionPolicy {
 
     private void requireReachedSelections(Map<String, Set<String>> selections, Set<String> reached) {
         for (String branch : selections.keySet()) {
-            if (!reached.contains(branch)) throw new PlatformException("workflow selected route is not candidate outgoing route: " + branch);
+            if (!reached.contains(branch)) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.the-selected-route-is-not-available-details",
+                    "workflow selected route is not candidate outgoing route: {value1}"), Map.of("value1", String.valueOf(branch)));
         }
     }
 
@@ -329,7 +348,9 @@ public class WorkflowManualRouteSelectionPolicy {
             }
             Set<String> selected = selectedByBranch.get(branchNodeKey);
             if (selected == null || selected.isEmpty()) {
-                throw new PlatformException("workflow manual branch requires selected route: " + branchNodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-manual-route-selection-policy.select-a-route-for-the-manual-branch",
+                        "workflow manual branch requires selected route: {value1}"), Map.of("value1", String.valueOf(branchNodeKey)));
             }
             WorkflowNodeDefinition governingNode = runtimeNode == null ? graphNode : nodeDefinition(runtimeNode);
             requireManualSelection(instance, governingNode, selectorNodes, tasks, fallbackSelectorNodeKey,
@@ -346,15 +367,20 @@ public class WorkflowManualRouteSelectionPolicy {
                                         String selectedReason,
                                         String operatorId) {
         if (Boolean.TRUE.equals(branchNode.getRequireManualSelectionReason()) && textOrNull(selectedReason) == null) {
-            throw new PlatformException("workflow manual branch selection reason is required: "
-                    + branchNode.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.enter-a-reason-for-the-manual-branch-selection",
+                    "workflow manual branch selection reason is required: {value1}"), Map.of("value1", String.valueOf(branchNode.getNodeKey())));
         }
         String selectorNodeKey = textOrNull(branchNode.getSelectorNodeKey());
         if (selectorNodeKey == null) {
             selectorNodeKey = fallbackSelectorNodeKey;
         }
-        selectorNodeKey = requireText(selectorNodeKey, "workflow manual branch selector node key must not be blank");
-        String validOperatorId = requireText(operatorId, "workflow operator id must not be blank");
+        selectorNodeKey = requireText(selectorNodeKey, TextReference.code(
+                "platform.rejection.workflow-manual-route-selection-policy.enter-a-manual-branch-selector-node-key",
+                "workflow manual branch selector node key must not be blank"));
+        String validOperatorId = requireText(operatorId, TextReference.code(
+                "platform.rejection.workflow-manual-route-selection-policy.select-a-workflow-operator",
+                "workflow operator id must not be blank"));
         WorkflowManualBranchSelectorResolver.SelectorResolution resolution = selectorResolver.resolve(instance, nodes,
                 tasks, selectorNodeKey, null, validOperatorId);
         if (!resolution.selectable()) {
@@ -368,12 +394,18 @@ public class WorkflowManualRouteSelectionPolicy {
         String selectorNodeKey = resolution.selectorNodeKey();
         return switch (resolution.unselectableReason()) {
             case WorkflowManualBranchSelectorResolver.SELECTOR_NOT_FOUND ->
-                    new PlatformException("workflow manual branch selector node not found: " + selectorNodeKey);
-            case WorkflowManualBranchSelectorResolver.SELECTOR_UNSUPPORTED -> new PlatformException(
-                    "workflow manual branch selector node must be start, approval or task: " + selectorNodeKey);
-            case WorkflowManualBranchSelectorResolver.SELECTOR_NOT_PROCESSED -> new PlatformException(
-                    "workflow manual branch selector has no actual processor: " + selectorNodeKey);
-            default -> new PlatformException("workflow manual branch selector must be operator: " + branchNodeKey);
+                    PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-manual-route-selection-policy.manual-branch-selector-node-not-found",
+                            "workflow manual branch selector node not found: {value1}"), Map.of("value1", String.valueOf(selectorNodeKey)));
+            case WorkflowManualBranchSelectorResolver.SELECTOR_UNSUPPORTED -> PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.the-selector-must-be-a-start-approval-or-task-node",
+                    "workflow manual branch selector node must be start, approval or task: {value1}"), Map.of("value1", String.valueOf(selectorNodeKey)));
+            case WorkflowManualBranchSelectorResolver.SELECTOR_NOT_PROCESSED -> PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.the-selector-node-has-not-been-processed",
+                    "workflow manual branch selector has no actual processor: {value1}"), Map.of("value1", String.valueOf(selectorNodeKey)));
+            default -> PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.you-are-not-the-selector-for-this-manual-branch",
+                    "workflow manual branch selector must be operator: {value1}"), Map.of("value1", String.valueOf(branchNodeKey)));
         };
     }
 
@@ -420,7 +452,9 @@ public class WorkflowManualRouteSelectionPolicy {
         }
         Map<String, String> reasons = new LinkedHashMap<>();
         for (WorkflowManualRouteSelection selection : manualRouteSelections) {
-            reasons.put(requireText(selection.branchNodeKey(), "workflow manual branch node key must not be blank"),
+            reasons.put(requireText(selection.branchNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.enter-a-manual-branch-node-key",
+                    "workflow manual branch node key must not be blank")),
                     selection.selectedReason());
         }
         return reasons;
@@ -442,7 +476,9 @@ public class WorkflowManualRouteSelectionPolicy {
 
     private void putSingleSelection(Map<String, Set<String>> selected, String branchNodeKey, String routeKey) {
         if (selected.put(branchNodeKey, Set.of(routeKey)) != null) {
-            throw new PlatformException("workflow manual branch has duplicate route selection: " + branchNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-manual-route-selection-policy.duplicate-manual-branch-selection",
+                    "workflow manual branch has duplicate route selection: {value1}"), Map.of("value1", String.valueOf(branchNodeKey)));
         }
     }
 
@@ -450,9 +486,9 @@ public class WorkflowManualRouteSelectionPolicy {
         return manualRouteSelections != null && !manualRouteSelections.isEmpty();
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

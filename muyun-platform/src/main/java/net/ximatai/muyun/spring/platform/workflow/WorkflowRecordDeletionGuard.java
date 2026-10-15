@@ -5,13 +5,17 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.deletion.RecordDeletionGuard;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Component;
 import java.util.Objects;
+import java.util.List;
+import java.util.Map;
 
 /** Workflow ownership is checked on the shared static/dynamic deletion path. */
 @Component
@@ -35,7 +39,10 @@ public class WorkflowRecordDeletionGuard implements RecordDeletionGuard {
             if (record.getTenantId() == null) criteria.isNull("tenantId");
             else criteria.eq("tenantId", record.getTenantId());
             if (instances.count(criteria) > 0) throw new PlatformException(PlatformErrorCodes.RESOURCE_IN_USE, 409,
-                    "该记录仍有运行中的流程，请先终止或重置流程后再删除");
+                    "该记录仍有运行中的流程，请先终止或重置流程后再删除", null,
+                    ErrorScope.empty(), List.of(), Map.of(), Map.of(), TextReference.code(
+                            "platform.rejection.workflow.running-record-deletion",
+                            "该记录仍有运行中的流程，请先终止或重置流程后再删除"));
         }
     }
 }
