@@ -54,7 +54,7 @@ public class BusinessException extends PlatformException {
     public BusinessException(String code, int httpStatus, String message, ActionMessageType messageType,
                              ErrorScope scope, List<ErrorTarget> targets, Map<String, Object> details,
                              Map<String, Object> messageArgs, TextReference textSource) {
-        super(code, httpStatus, message, scope, targets, details, messageArgs, textSource);
+        super(textSource, code, httpStatus, message, scope, targets, details, messageArgs);
         this.messageType = messageType == null ? ActionMessageType.WARNING : messageType;
     }
 

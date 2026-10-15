@@ -60,8 +60,8 @@ public final class PlatformErrors {
     public static PlatformException badRequestText(TextReference source, Map<String, Object> args, Throwable cause) {
         String original = TextResources.format(source.originalText(), args);
         return cause == null
-                ? new PlatformException(PlatformErrorCodes.VALIDATION_FAILED, 400,
-                        original, ErrorScope.empty(), List.of(), Map.of(), args, source)
+                ? new PlatformException(source, PlatformErrorCodes.VALIDATION_FAILED, 400,
+                        original, ErrorScope.empty(), List.of(), Map.of(), args)
                 : new PlatformException(PlatformErrorCodes.VALIDATION_FAILED, 400,
                         original, cause, ErrorScope.empty(), List.of(), Map.of(), args, source);
     }

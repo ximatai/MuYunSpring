@@ -46,17 +46,17 @@ public class PlatformException extends RuntimeException {
                              List<ErrorTarget> targets,
                              Map<String, Object> details,
                              Map<String, Object> messageArgs) {
-        this(code, httpStatus, message, scope, targets, details, messageArgs, null);
+        this(null, code, httpStatus, message, scope, targets, details, messageArgs);
     }
 
-    protected PlatformException(String code,
+    protected PlatformException(TextReference textSource,
+                             String code,
                              int httpStatus,
                              String message,
                              ErrorScope scope,
                              List<ErrorTarget> targets,
                              Map<String, Object> details,
-                             Map<String, Object> messageArgs,
-                             TextReference textSource) {
+                             Map<String, Object> messageArgs) {
         // Keep the existing no-cause constructor contract, including Throwable.initCause.
         super(message);
         this.code = normalizeCode(code);

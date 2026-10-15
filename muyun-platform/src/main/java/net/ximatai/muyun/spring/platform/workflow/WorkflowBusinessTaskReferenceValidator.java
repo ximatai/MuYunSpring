@@ -59,7 +59,9 @@ public class WorkflowBusinessTaskReferenceValidator {
         switch (block.checkType()) {
             case QUERY_TEMPLATE -> {
                 var template = templates.select(block.queryTemplateId());
-                requireOwned(template, "查询模板");
+                requireOwned(template, TextReference.code(
+                        "platform.rejection.workflow-business-task-reference-validator.query-template-not-owned",
+                        "任务查询模板不存在或不属于当前租户"));
                 if (!Boolean.TRUE.equals(template.getEnabled()) || !Boolean.TRUE.equals(template.getPublished())
                        ) throw PlatformErrors.badRequestText(TextReference.code(
                                "platform.rejection.workflow-business-task-reference-validator.the-task-query-template-is-unpublished-or-disabled",
@@ -87,7 +89,9 @@ public class WorkflowBusinessTaskReferenceValidator {
                 requireModule(block.targetModuleAlias());
                 if (block.generationRuleId() != null) {
                     var rule = generations.select(block.generationRuleId());
-                    requireOwned(rule, "生成规则");
+                    requireOwned(rule, TextReference.code(
+                            "platform.rejection.workflow-business-task-reference-validator.generation-rule-not-owned",
+                            "任务生成规则不存在或不属于当前租户"));
                     if (!Boolean.TRUE.equals(rule.getEnabled()) || !moduleAlias.equals(rule.getSourceModuleAlias())
                             || !block.targetModuleAlias().equals(rule.getTargetModuleAlias()))
                         throw PlatformErrors.badRequestText(TextReference.code(
@@ -143,11 +147,9 @@ public class WorkflowBusinessTaskReferenceValidator {
         return module;
     }
 
-    private void requireOwned(EntityContract entity, String name) {
+    private void requireOwned(EntityContract entity, TextReference source) {
         if (entity == null || Boolean.TRUE.equals(entity.getDeleted()) || !TenantContext.tenantFilterBypassed()
                 && !Objects.equals(entity.getTenantId(), TenantContext.currentTenantId().orElse(null)))
-            throw PlatformErrors.badRequestText(TextReference.code(
-                    "platform.rejection.workflow-business-task-reference-validator.the-task-reference-was-not-found-or-does-not-belong-to-the",
-                    "任务{value1}不存在或不属于当前租户"), Map.of("value1", String.valueOf(name)));
+            throw PlatformErrors.badRequestText(source);
     }
 }

@@ -104,12 +104,18 @@ class PlatformWebExceptionHandlerTest {
                 assertThat(exception.getMessage()).isEqualTo("不能修改原文 {record}");
             }
         }
-        var custom = new net.ximatai.muyun.spring.common.exception.PlatformException(
-                "VALIDATION_FAILED", 400, "不能修改原文 {record}", null, null, null, null, null);
+        var custom = new LegacyDomainException();
         var raw = handler.handlePlatformException(custom).getBody();
         assertThat(raw.message()).isEqualTo(custom.getMessage());
         assertThat(raw.textSource()).isNull();
         assertThat(raw.messageText()).isNull();
+    }
+
+    private static final class LegacyDomainException extends net.ximatai.muyun.spring.common.exception.PlatformException {
+        private LegacyDomainException() {
+            // External subclasses must keep compiling against the original eight-argument constructor.
+            super("VALIDATION_FAILED", 400, "不能修改原文 {record}", null, null, null, null, null);
+        }
     }
 
     @AfterEach
