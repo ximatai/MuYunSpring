@@ -156,6 +156,22 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
+import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.RelationProjectionReadService;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.ability.reference.ReferencePath;
+import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
+import net.ximatai.muyun.spring.platform.module.StaticReferenceDefinition;
+import net.ximatai.muyun.spring.platform.web.RecordTextPresentationService;
+import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -459,6 +475,47 @@ class MuYunSpringApplicationContextIT {
             assertThat(projected.at("/defaultUiControlSummary/title").asText()).isEqualTo(raw.at("/defaultUiControlSummary/title").asText());
             assertThat(projected.at("/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text input");
             assertThat(raw.at("/defaultUiControlSummary/$texts").isMissingNode()).isTrue();
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
+    void keepsReferenceSummaryTranslationsWhenTheSourceReferenceIsInternalOnly() {
+        var definition = StaticModuleDefinition.builder("platform", "platform.field_spec", "Field specifications")
+                .capabilities(Set.of(EntityCapability.CRUD))
+                .entities(List.of(new EntityDefinition("field_spec", "platform_field_spec", "Field specification",
+                        List.of(FieldDefinition.string("defaultUiControlAlias", "Default control").column("default_ui_control_alias")))))
+                .uiDefinition(ModuleUiDefinition.builder("platform.field_spec")
+                        .page(PageTemplates.listDetailCard(page -> page.list(list -> list.fields(values -> values.field("defaultUiControlAlias")))
+                                .detail(detail -> detail.display(form -> form.field("defaultUiControlAlias")))))
+                        .build())
+                .references(List.of(new StaticReferenceDefinition("control", "defaultUiControlAlias", "platform.field_ui_control")))
+                .readProjections(List.of(new StaticModuleReadProjectionDefinition(
+                        ReferencePath.from(FieldSpec::getDefaultUiControlAlias)
+                                .select(FieldUiControl::getTitle), "controlTitle")))
+                .modelClass(FieldSpec.class).build();
+        var target = StaticModuleDefinition.builder("platform", "platform.field_ui_control", "Controls")
+                .entities(List.of(new EntityDefinition("field_ui_control", "platform_field_ui_control", "Control",
+                        List.of(FieldDefinition.string("title", "Title")))))
+                .modelClass(FieldUiControl.class).build();
+        var catalog = new StaticModuleDefinitionCatalog(List.of(definition, target));
+        var projection = new StaticRecordReadProjectionService(catalog,
+                applicationContext.getBeanProvider(RelationProjectionReadService.class),
+                applicationContext.getBeanProvider(OptionSourceRegistry.class),
+                new ModuleExecutionPlanCatalog(catalog));
+        var texts = applicationContext.getBean(RecordTextPresentationService.class);
+        projection.setRecordTextPresentationService(texts);
+        var fields = applicationContext.getBean(FieldSpecService.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try (var system = CurrentUserContext.use(CurrentUser.systemUser("summary-only-test", "Summary only test"));
+             var scope = TenantContext.system("summary-only SQL contract")) {
+            var response = projection.queryExplicitList("platform.field_spec", "summary-only", List.of("controlTitle", "defaultUiControlSummary"),
+                    Criteria.of().eq("id", "string"), ALL, fields).orElseThrow();
+            var output = mapper.valueToTree(texts.projectCaptured(response));
+            assertThat(output.at("/records/0/defaultUiControlAlias").isMissingNode()).isTrue();
+            assertThat(output.at("/records/0/defaultUiControlSummary/id").asText()).isEqualTo("text");
+            assertThat(output.at("/records/0/defaultUiControlSummary/$texts/title/languages/en/text").asText()).isEqualTo("Text input");
         } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
     }
 

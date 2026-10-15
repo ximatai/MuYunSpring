@@ -77,6 +77,11 @@ public class RecordTextPresentationService implements RecordOutputTransformer {
         captureSummaries(ability, output);
     }
 
+    void captureProjectedSummaries(CrudAbility<?> ability, List<Map<String, Object>> records) {
+        List<ObjectNode> output = new ArrayList<>(); collectRecords(mapper.valueToTree(records), output);
+        captureSummaries(ability, output);
+    }
+
     public Object projectCaptured(Object body) {
         var attributes = RequestContextHolder.getRequestAttributes();
         var sources = attributes == null ? null : (ResponseSources) attributes.getAttribute(SOURCES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);

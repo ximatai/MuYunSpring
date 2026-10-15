@@ -42,14 +42,16 @@ final class ReferenceReadProjectionPostProcessor {
     static List<Map<String, Object>> apply(Class<?> modelClass,
                                             List<Map<String, Object>> records,
                                             Collection<String> outputFields) {
+        return apply(modelClass, records, outputFields, ignored -> {});
+    }
+
+    static List<Map<String, Object>> apply(Class<?> modelClass, List<Map<String, Object>> records,
+            Collection<String> outputFields, java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
         if (records == null || records.isEmpty()) {
             return records == null ? List.of() : records;
         }
         if (modelClass == null) {
-            return records.stream()
-                    .map(record -> restrictOutput(record, outputFields))
-                    .map(Collections::unmodifiableMap)
-                    .toList();
+            return restrict(records, outputFields, beforeRestriction);
         }
         List<ReferencePlan> plans = PlatformStandardReferences.withStaticPlans(modelClass).stream()
                 .map(plan -> forOutputFields(plan, outputFields))
@@ -62,10 +64,7 @@ final class ReferenceReadProjectionPostProcessor {
                 .filter(summary -> outputFields == null || outputFields.contains(summary.outputField()))
                 .toList();
         if (plans.isEmpty() && loadPaths.isEmpty() && summaryPlans.isEmpty()) {
-            return records.stream()
-                    .map(record -> restrictOutput(record, outputFields))
-                    .map(Collections::unmodifiableMap)
-                    .toList();
+            return restrict(records, outputFields, beforeRestriction);
         }
         List<Map<String, Object>> output = records.stream()
                 .<Map<String, Object>>map(record -> new LinkedHashMap<>(record))
@@ -84,10 +83,15 @@ final class ReferenceReadProjectionPostProcessor {
             }
         }
         applyLoadPaths(output, modelClass, loadPaths);
-        return output.stream()
-                .map(record -> restrictOutput(record, outputFields))
-                .map(Collections::unmodifiableMap)
-                .toList();
+        return restrict(output, outputFields, beforeRestriction);
+    }
+
+    private static List<Map<String, Object>> restrict(List<Map<String, Object>> records, Collection<String> outputFields,
+            java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
+        // Sources still include internal reference IDs here; the consumer only captures read metadata.
+        beforeRestriction.accept(records);
+        return records.stream().map(record -> restrictOutput(record, outputFields))
+                .map(Collections::unmodifiableMap).toList();
     }
 
     private static ReferencePlan forOutputFields(ReferencePlan plan, Collection<String> outputFields) {

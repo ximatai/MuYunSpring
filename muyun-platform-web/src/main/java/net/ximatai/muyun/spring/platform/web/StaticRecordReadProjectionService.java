@@ -105,7 +105,7 @@ public class StaticRecordReadProjectionService {
             return response;
         }
         return projectResponse(response, withReferenceSourceFields(moduleAlias, recordService, projection),
-                modelClass(moduleAlias, recordService));
+                modelClass(moduleAlias, recordService), recordService);
     }
 
     public boolean supportsDefaultListQuery(String moduleAlias, Object recordService) {
@@ -263,15 +263,16 @@ public class StaticRecordReadProjectionService {
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService,
                 RecordReadProjectionPlanner.defaultList(plan.uiDescriptor(), plan.readModel(), recordService,
                         ActionExecutionContextHolder.current().orElse(null)));
-        PageResult<Map<String, Object>> page = relationProjectionReadService.queryList(
-                staticModuleDefinitionCatalog.definitions(), definition, projection, criteria, pageRequest, sorts
+        PageResult<Map<String, Object>> page = relationProjectionReadService.queryListWithInternalFields(
+                staticModuleDefinitionCatalog.definitions(), definition, projection, criteria, pageRequest,
+                referenceSourceFields(projection, modelClass(moduleAlias, recordService)), sorts
         ).orElse(null);
         if (page == null) return Optional.empty();
         Class<?> modelClass = modelClass(moduleAlias, recordService);
-        List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords());
-        if (recordTexts != null && recordService instanceof CrudAbility<?> ability) {
-            recordTexts.captureProjected(ability, records, visibility);
-        }
+        List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
+            if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
+                recordTexts.captureProjected(ability, projected, visibility);
+        });
         return Optional.of(new WebPageResponse<>(records, page.getTotal(), page.getPageNum(), page.getPageSize(),
                 page.getPages(), page.isTotalKnown(), null));
     }
@@ -333,23 +334,23 @@ public class StaticRecordReadProjectionService {
                 : RecordReadProjectionPlanner.explicit(moduleAlias, plan.readModel(), viewCode,
                         outputFields, recordService, sourceAction);
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, declared);
-        PageResult<Map<String, Object>> page = relationProjectionReadService.queryList(
+        PageResult<Map<String, Object>> page = relationProjectionReadService.queryListWithInternalFields(
                 staticModuleDefinitionCatalog.definitions(),
                 definition,
                 projection,
                 criteria,
                 pageRequest,
+                referenceSourceFields(projection, modelClass(moduleAlias, recordService)),
                 sorts
         ).orElse(null);
         if (page == null) {
             return Optional.empty();
         }
         Class<?> modelClass = modelClass(moduleAlias, recordService);
-        List<Map<String, Object>> records = postProcessStaticOutput(
-                modelClass, projection, page.getRecords());
-        if (recordTexts != null && recordService instanceof CrudAbility<?> ability) {
-            recordTexts.captureProjected(ability, records, RecordReadVisibility.ACTIVE);
-        }
+        List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
+            if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
+                recordTexts.captureProjected(ability, projected, RecordReadVisibility.ACTIVE);
+        });
         WebPageResponse<Map<String, Object>> response = new WebPageResponse<>(
                 records,
                 page.getTotal(),
@@ -489,8 +490,21 @@ public class StaticRecordReadProjectionService {
         if (modelClass == null || projection == null) {
             return projection;
         }
-        Set<String> output = Set.copyOf(outputFieldNames(projection, modelClass));
         List<String> internal = new java.util.ArrayList<>(projection.internalReadFields());
+        internal.addAll(referenceSourceFields(projection, modelClass));
+        List<String> normalizedInternal = internal.stream().distinct().toList();
+        if (normalizedInternal.equals(projection.internalReadFields())) {
+            return projection;
+        }
+        return new RecordReadProjection(projection.moduleAlias(), projection.viewCode(), projection.actionCode(),
+                projection.permissionCode(), projection.permissionActionCode(), projection.fieldReadPolicies(),
+                projection.outputFields(), normalizedInternal, projection.postReadTransforms());
+    }
+
+    private Set<String> referenceSourceFields(RecordReadProjection projection, Class<?> modelClass) {
+        if (projection == null || modelClass == null) return Set.of();
+        Set<String> output = Set.copyOf(outputFieldNames(projection, modelClass));
+        Set<String> internal = new LinkedHashSet<>();
         for (ReferencePlan plan : PlatformStandardReferences.withStaticPlans(modelClass)) {
             boolean projectionRequested = plan.projections().stream()
                     .anyMatch(item -> output.contains(item.outputField()));
@@ -516,21 +530,18 @@ public class StaticRecordReadProjectionService {
                 internal.add(load.sourceField());
             }
         }
-        List<String> normalizedInternal = internal.stream().distinct().toList();
-        if (normalizedInternal.equals(projection.internalReadFields())) {
-            return projection;
-        }
-        return new RecordReadProjection(projection.moduleAlias(), projection.viewCode(), projection.actionCode(),
-                projection.permissionCode(), projection.permissionActionCode(), projection.fieldReadPolicies(),
-                projection.outputFields(), normalizedInternal, projection.postReadTransforms());
+        return internal;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private <T> WebPageResponse<T> projectResponse(WebPageResponse<T> response,
                                                    RecordReadProjection projection,
-                                                   Class<?> modelClass) {
+                                                   Class<?> modelClass, Object recordService) {
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection,
-                RecordReadProjectionProjector.projectWithInternalFields(response.records(), projection));
+                RecordReadProjectionProjector.projectWithInternalFields(response.records(), projection), projected -> {
+                    if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
+                        recordTexts.captureProjectedSummaries(ability, projected);
+                });
         return new WebPageResponse(
                 records,
                 response.total(),
@@ -544,13 +555,14 @@ public class StaticRecordReadProjectionService {
 
     private List<Map<String, Object>> postProcessStaticOutput(Class<?> modelClass,
                                                               RecordReadProjection projection,
-                                                              List<Map<String, Object>> records) {
+                                                              List<Map<String, Object>> records,
+                                                              java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
         return ReferenceReadProjectionPostProcessor.apply(modelClass,
                 RecordReadProjectionPostProcessor.applyStaticOutput(
                         modelClass,
                         projection,
                         records,
                         optionSourceRegistry),
-                outputFieldNames(projection, modelClass));
+                outputFieldNames(projection, modelClass), beforeRestriction);
     }
 }
