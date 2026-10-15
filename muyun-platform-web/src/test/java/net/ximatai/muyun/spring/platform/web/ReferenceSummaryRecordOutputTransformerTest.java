@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.output.RecordOutputContext;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,15 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class ReferenceSummaryRecordOutputTransformerTest {
     private final ReferenceSummaryRecordOutputTransformer transformer = new ReferenceSummaryRecordOutputTransformer();
@@ -80,9 +89,9 @@ class ReferenceSummaryRecordOutputTransformerTest {
     @SuppressWarnings("unchecked")
     void doesNotExposeAMaskedSourceIdentityThroughItsSummary() {
         CrudAbility<FieldSpec> source = mock(CrudAbility.class, withSettings().extraInterfaces(
-                net.ximatai.muyun.spring.ability.security.FieldProtectionAbility.class));
+                FieldProtectionAbility.class));
         doReturn(FieldSpec.class).when(source).modelClass();
-        var protection = (net.ximatai.muyun.spring.ability.security.FieldProtectionAbility<?>) source;
+        var protection = (FieldProtectionAbility<?>) source;
         when(protection.maskProtectedValue(eq("defaultUiControlAlias"), eq("text"), any())).thenReturn("***");
         ReferenceAbility<?> controls = mock(ReferenceAbility.class);
         PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
@@ -111,7 +120,8 @@ class ReferenceSummaryRecordOutputTransformerTest {
 
     private FieldSpec record(String title, String control) {
         var record = new FieldSpec();
-        record.setTitle(title); record.setDefaultUiControlAlias(control);
+        record.setTitle(title);
+        record.setDefaultUiControlAlias(control);
         return record;
     }
 }

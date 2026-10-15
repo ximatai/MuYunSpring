@@ -66,6 +66,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldChangeSetDraft;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
@@ -458,7 +459,7 @@ class MuYunSpringApplicationContextIT {
     void actualStaticDetailDeliversDeclaredSummariesAndTheirTranslationsWithoutChangingStorage() {
         String token = issueSuperAdminSessionToken();
         var fields = applicationContext.getBean(FieldSpecService.class);
-        var controls = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.FieldUiControlService.class);
+        var controls = applicationContext.getBean(FieldUiControlService.class);
         try {
             String originalTitle;
             Integer version;
@@ -467,9 +468,10 @@ class MuYunSpringApplicationContextIT {
                 version = fields.select("string").getVersion();
             }
             for (String language : List.of("en", "zh-CN", "en")) {
-                var headers = bearerHeaders(token); headers.set("Accept-Language", language);
+                var headers = bearerHeaders(token);
+                headers.set("Accept-Language", language);
                 var response = restTemplate.exchange("/platform.field_spec/view/string", HttpMethod.GET,
-                        new org.springframework.http.HttpEntity<>(headers), JsonNode.class);
+                        new HttpEntity<>(headers), JsonNode.class);
                 assertThat(response.getStatusCode().value()).isEqualTo(200);
                 var body = response.getBody();
                 assertThat(body.path("defaultUiControlAlias").asText()).isEqualTo("text");
@@ -483,7 +485,9 @@ class MuYunSpringApplicationContextIT {
                 assertThat(fields.select("string").getDefaultUiControlAlias()).isEqualTo("text");
                 assertThat(controls.select("text").getTitle()).isEqualTo(originalTitle);
             }
-        } finally { userSessionService.logout(token); }
+        } finally {
+            userSessionService.logout(token);
+        }
     }
 
     @Test

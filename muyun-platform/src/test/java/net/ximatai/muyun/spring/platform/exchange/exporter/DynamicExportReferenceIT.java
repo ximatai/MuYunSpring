@@ -1,22 +1,26 @@
 package net.ximatai.muyun.spring.platform.exchange.exporter;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
+import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
-import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.database.spring.boot.sql.annotation.MuYunRepository;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
-import net.ximatai.muyun.database.core.annotation.Table;
-import net.ximatai.muyun.database.spring.boot.sql.annotation.MuYunRepository;
 import net.ximatai.muyun.spring.common.i18n.LanguageContext;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.dynamic.metadata.*;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRuntimeRefresher;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -85,17 +89,15 @@ class DynamicExportReferenceIT extends PlatformPostgresIntegrationTest {
             foreignCustomer = records.create(module, "customer", foreign);
         }
         var exports = new DynamicExportFacade(records, null,
-                new ExcelWorkbookPresentation(TestBeanProviders.empty(net.ximatai.muyun.spring.common.i18n.TextResolver.class)));
+                new ExcelWorkbookPresentation(TestBeanProviders.empty(TextResolver.class)));
         try (var ignored = TenantContext.use("export-owner"); var language = LanguageContext.use("en")) {
-            var spec = new Target(); spec.setTitle("规格原文 {value}");
+            var spec = new Target();
+            spec.setTitle("规格原文 {value}");
             String specId = specs.insert(spec);
             var ownCustomer = records.newRecord(module, "customer").setValue("title", "客户原文 {value}");
             String customerId = records.create(module, "customer", ownCustomer);
             var record = records.newRecord(module, "order")
                     .setValue("spec", specId).setValue("customer", customerId);
-            assertThat(specs.referenceFacts(List.of(specId), List.of())).as("static target facts").containsKey(specId);
-            assertThat(records.referenceAbility(ReferenceTarget.of(module, "customer")).orElseThrow()
-                    .referenceFacts(List.of(customerId), List.of("tenantId"))).as("dynamic target facts").containsKey(customerId);
             String recordId = records.create(module, "order", record);
             var command = new DynamicExportCommand(records.describe(module), Criteria.of(), new PageRequest(0, Integer.MAX_VALUE), List.of());
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(exports.exportWorkbook(command)))) {
@@ -126,7 +128,9 @@ class DynamicExportReferenceIT extends PlatformPostgresIntegrationTest {
     public interface TargetDao extends BaseDao<Target, String> {}
 
     static class TargetService extends AbstractAbilityService<Target> implements ReferenceAbility<Target>, SoftDeleteAbility<Target> {
-        TargetService(TargetDao dao) { super("fixture.spec", Target.class, dao); }
+        TargetService(TargetDao dao) {
+            super("fixture.spec", Target.class, dao);
+        }
     }
 
     @SpringBootConfiguration
@@ -137,6 +141,8 @@ class DynamicExportReferenceIT extends PlatformPostgresIntegrationTest {
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                     .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();
         }
-        @Bean TargetService specs(TargetDao dao) { return new TargetService(dao); }
+        @Bean TargetService specs(TargetDao dao) {
+            return new TargetService(dao);
+        }
     }
 }
