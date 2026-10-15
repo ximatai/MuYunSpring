@@ -137,7 +137,7 @@ it('preserves unsaved retention days across language changes and confirms cleanu
       expect.objectContaining({
         title: 'Clean up Action logs now',
         requiredText: 'Clean up Action logs',
-        content: expect.stringContaining('strictly older than 30 days'),
+        content: expect.stringContaining('strictly older than the retention threshold (days: 30)'),
       }),
       language,
     );

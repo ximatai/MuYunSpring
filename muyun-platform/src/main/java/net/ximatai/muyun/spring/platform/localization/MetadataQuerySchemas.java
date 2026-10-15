@@ -28,7 +28,7 @@ public final class MetadataQuerySchemas {
         return fields.stream().map(field -> new QuerySchema.Field(field.name(), field.title(), field.valueType(),
                 field.operators(), field.defaultOperator(), field.quickSearch(), field.sortable(), field.optionBinding(),
                 field.selectionMode(), field.optionTitleField(), field.reference(), field.persistentControl(),
-                field.title() == null || field.title().isBlank() ? null :
+                field.titleSource() != null ? field.titleSource() : field.title() == null || field.title().isBlank() ? null :
                         ConfigurationTextSources.metadataFieldTitle(moduleAlias, entityAlias, field.name(), field.title()))).toList();
     }
 }

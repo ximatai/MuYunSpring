@@ -17,6 +17,10 @@ public record PlatformFieldPolicy(String fieldName, String title, boolean compos
                     .findFirst().orElseGet(() -> new PlatformFieldPolicy(name, name, false, true, null)))
             .toList();
 
+    public net.ximatai.muyun.spring.common.i18n.TextReference titleSource() {
+        return net.ximatai.muyun.spring.common.i18n.TextReference.code("query/field/" + fieldName + "/title", title);
+    }
+
     public static List<PlatformFieldPolicy> all() { return ALL; }
     public static List<PlatformFieldPolicy> auditFields() { return AUDIT; }
     public static PlatformFieldPolicy find(String name) {

@@ -219,7 +219,9 @@ public final class QueryDescriptors {
             field = field.withSortable();
         }
         String title = FIELD_TITLES.get(fieldName);
-        if (title != null) {
+        if (net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.isAudit(fieldName)) {
+            field = field.withTitle(net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.find(fieldName).titleSource());
+        } else if (title != null) {
             field = field.withTitle(net.ximatai.muyun.spring.common.i18n.TextReference.code(
                     "query/field/" + fieldName + "/title", title));
         }

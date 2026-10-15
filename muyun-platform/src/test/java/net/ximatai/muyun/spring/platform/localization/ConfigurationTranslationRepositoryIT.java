@@ -91,6 +91,11 @@ class ConfigurationTranslationRepositoryIT extends PlatformPostgresIntegrationTe
         var previous = original.getAndSet(source);
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("root", "root"));
              var scope = TenantContext.system("metadata query translation contract")) {
+            var auditLabels = Map.of("createdBy", "Created by", "createdAt", "Created at", "updatedBy", "Updated by", "updatedAt", "Updated at");
+            schema.fields().stream().filter(field -> auditLabels.containsKey(field.name())).forEach(field -> {
+                assertThat(field.titleSource().sourceKind()).isEqualTo(TextReference.SourceKind.CODE);
+                assertThat(resolver.resolve(field.titleSource(), Map.of(), "en").text()).isEqualTo(auditLabels.get(field.name()));
+            });
             assertThat(schema.fields().getFirst().titleSource()).isEqualTo(source);
             assertThat(schema.quickSearch().fieldSchemas().getFirst().titleSource()).isEqualTo(source);
             var draft = translations.saveDraft("test.order", source.sourceId(), source.sourceVersion(), "en", "Business title", null);
