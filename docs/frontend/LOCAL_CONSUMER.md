@@ -49,8 +49,9 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过
 `useModuleHttpClient()` 取得所属页面的客户端，不自行创建第二套连接配置；页面会话提供的
-`ModuleHttpProvider` 优先于应用默认配置。用户在线状态按该客户端隔离批次与缓存，页面最后一个
-观察者释放后取消订阅，已释放页面的晚返回不进入新页面缓存。
+`ModuleHttpProvider` 优先于应用默认配置。用户在线状态按该客户端隔离批次与缓存，实时事件仅刷新
+该 store 已观察的用户；观察集合在首次请求前建立，随 store 一起释放。页面最后一个观察者释放后
+取消订阅，已释放页面的晚返回不进入新页面缓存。
 
 默认 factory 可直接使用公开的 `createBackendHttpClient`，保留当前登录令牌、语言、流式请求和
 已提交数据变化分发。其 API 地址、备用开发令牌及 credentials 由宿主构建配置。宿主需要运行时

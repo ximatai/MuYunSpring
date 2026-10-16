@@ -91,3 +91,73 @@ it('isolates caches and pending responses across owner transports and disposed s
   replacement.unmount();
   expect(events.size).toBe(0);
 });
+
+it('refreshes only users observed by each scoped client and batches repeated events', async () => {
+  const requestA = vi.fn().mockResolvedValue([{ userId: 'tenant-a-user', activeSessionCount: 2 }]);
+  const requestB = vi.fn().mockResolvedValue([{ userId: 'tenant-b-user', activeSessionCount: 3 }]);
+  const pageA = mountUsers({ request: requestA }, ['tenant-a-user']);
+  const pageB = mountUsers({ request: requestB }, ['tenant-b-user']);
+  await flushPromises();
+  requestA.mockClear();
+  requestB.mockClear();
+
+  for (const recordId of ['tenant-a-user', 'tenant-a-user', 'unobserved-user']) {
+    for (const handler of events)
+      handler({ type: 'iam.user.session.collectionChanged', moduleAlias: 'iam.user', recordId });
+  }
+  await flushPromises();
+
+  expect(requestA).toHaveBeenCalledOnce();
+  expect(requestA).toHaveBeenCalledWith({
+    method: 'POST',
+    path: '/iam.user/sessions/status',
+    body: { userIds: ['tenant-a-user'] },
+  });
+  expect(requestB).not.toHaveBeenCalled();
+  expect(pageA.text()).toBe('2');
+  expect(pageB.text()).toBe('3');
+  pageA.unmount();
+  pageB.unmount();
+  expect(events.size).toBe(0);
+});
+
+it('tracks observed users before their first response and resets observation with the store lifetime', async () => {
+  let finishInitial!: (value: unknown) => void;
+  const request = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishInitial = resolve;
+        }),
+    )
+    .mockResolvedValue([{ userId: 'old-user', activeSessionCount: 2 }]);
+  const http = { request } as HttpClient;
+  const old = mountUsers(http, ['old-user']);
+  await flushPromises();
+  for (const handler of events)
+    handler({ type: 'iam.user.session.collectionChanged', moduleAlias: 'iam.user', recordId: 'old-user' });
+  await flushPromises();
+  expect(request).toHaveBeenCalledTimes(2);
+  old.unmount();
+
+  request.mockResolvedValue([{ userId: 'new-user', activeSessionCount: 4 }]);
+  const replacement = mountUsers(http, ['new-user']);
+  await flushPromises();
+  request.mockClear();
+  for (const recordId of ['old-user', 'new-user']) {
+    for (const handler of events)
+      handler({ type: 'iam.user.session.collectionChanged', moduleAlias: 'iam.user', recordId });
+  }
+  finishInitial([{ userId: 'old-user', activeSessionCount: 1 }]);
+  await flushPromises();
+  expect(request).toHaveBeenCalledOnce();
+  expect(request).toHaveBeenCalledWith({
+    method: 'POST',
+    path: '/iam.user/sessions/status',
+    body: { userIds: ['new-user'] },
+  });
+  expect(replacement.text()).toBe('4');
+  replacement.unmount();
+  expect(events.size).toBe(0);
+});

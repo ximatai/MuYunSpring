@@ -28,16 +28,18 @@ export function useUserOnlineStatusStore() {
 
 function createStatusStore(http: HttpClient) {
   const statuses = ref<Record<string, UserSessionStatusView>>({});
+  const observedUserIds = new Set<string>();
   const pendingUserIds = new Set<string>();
   let scheduled = false;
   let disposed = false;
   const subscription = subscribeAppBusinessEvents((event) => {
-    if (isUserSessionChange(event)) refresh(event.recordId);
+    if (isUserSessionChange(event) && observedUserIds.has(event.recordId)) refresh(event.recordId);
   });
 
   function observe(userId: string | undefined) {
-    if (!userId || statuses.value[userId]) return;
-    refresh(userId);
+    if (!userId || disposed) return;
+    observedUserIds.add(userId);
+    if (!statuses.value[userId]) refresh(userId);
   }
 
   function statusOf(userId: string | undefined) {
@@ -82,6 +84,7 @@ function createStatusStore(http: HttpClient) {
     refresh,
     dispose() {
       disposed = true;
+      observedUserIds.clear();
       pendingUserIds.clear();
       subscription.unsubscribe();
     },
