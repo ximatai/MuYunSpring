@@ -29,6 +29,7 @@ class BusinessContentStore {
 
     void capture(BusinessContentSource source, String text, SourceInput input, Baseline baseline) {
         if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Business content requires a transaction");
+        lockRecord(source);
         var previous = latest(source);
         checkExpected(previous, input);
         // A newly enabled field may already contain business text. Capture its unknown provenance
@@ -79,6 +80,7 @@ class BusinessContentStore {
     }
 
     void purgeRecord(String tenantId, String moduleAlias, String entityKey, String recordId) {
+        lockRecord(new BusinessContentSource(tenantId, moduleAlias, entityKey, recordId, ""));
         Criteria criteria = Criteria.of().eqNullable("tenantId", tenantId).eq("moduleAlias", moduleAlias)
                 .eq("entityKey", entityKey).eq("recordId", recordId);
         while (true) {
@@ -87,6 +89,13 @@ class BusinessContentStore {
             if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Content cleanup requires a transaction");
             batch.forEach(row -> revisions.deleteById(row.getId()));
         }
+    }
+
+    /** Original writes, translation maintenance and final cleanup share the same owner partition. */
+    static void lockRecord(BusinessContentSource source) {
+        if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Business content requires a transaction");
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition("platform.business-content",
+                new BusinessContentSource(source.tenantId(), source.moduleAlias(), source.entityKey(), source.recordId(), "").key());
     }
 
     static void checkExpected(BusinessContentRevision previous, SourceInput input) {

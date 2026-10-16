@@ -190,6 +190,10 @@ final class PlatformAbilityDispatcher {
         return DeletionContext.root(moduleAlias, recordId, deletionLifecycleListener.open(root));
     }
 
+    static void retainedRecordPurged(CrudAbility<?> ability, EntityContract entity) {
+        deletionLifecycleListener.retainedRecordPurged(ability, entity);
+    }
+
     static DeletionContext resolveDeletionContext(String moduleAlias,
                                                   String recordId,
                                                   DeletionContext requestedContext) {

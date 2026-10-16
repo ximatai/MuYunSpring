@@ -40,6 +40,7 @@ public final class RetainedRecordPurgeSupport {
         }
         ability.afterRetainedRecordPurge(id, entity, purged);
         ability.afterChanged(entity);
+        PlatformAbilityDispatcher.retainedRecordPurged(ability, entity);
         CacheInvalidationSupport.clearAfterChanged(ability, entity);
         return purged;
     }

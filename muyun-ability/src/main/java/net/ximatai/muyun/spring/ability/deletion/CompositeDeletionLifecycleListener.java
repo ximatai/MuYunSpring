@@ -12,6 +12,10 @@ public final class CompositeDeletionLifecycleListener implements DeletionLifecyc
     public CompositeDeletionLifecycleListener(DeletionLifecycleListener listener, List<DeletionLifecycleObserver> observers) {
         this.listener = Objects.requireNonNull(listener); this.observers = List.copyOf(observers);
     }
+    @Override public void retainedRecordPurged(CrudAbility<?> ability, EntityContract entity) {
+        observers.forEach(observer -> observer.retainedRecordPurged(ability, entity));
+        listener.retainedRecordPurged(ability, entity);
+    }
     @Override public DeletionLifecycleSession open(DeletionResource root) {
         var journal = listener.open(root);
         return new DeletionLifecycleSession() {

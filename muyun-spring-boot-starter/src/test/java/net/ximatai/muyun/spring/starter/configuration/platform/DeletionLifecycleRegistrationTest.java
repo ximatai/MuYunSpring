@@ -74,5 +74,37 @@ class DeletionLifecycleRegistrationTest {
             assertThat(cleanup.getSuppressed()).singleElement().extracting(Throwable::getMessage).isEqualTo("diagnostic failed");
         } finally { PlatformAbilityRuntime.resetDeletionLifecycleListener(); }
     }
+    @Test void retainedPurgeNotifiesCopiesWithoutOpeningAnotherDeletionJournal() {
+        List<String> observed = new ArrayList<>();
+        DeletionLifecycleListener journal = new DeletionLifecycleListener() {
+            @Override public DeletionLifecycleSession open(DeletionResource root) {
+                throw new AssertionError("Recovery owns the purge journal");
+            }
+            @Override public void retainedRecordPurged(CrudAbility<?> ability,
+                    net.ximatai.muyun.spring.common.model.contract.EntityContract entity) { observed.add("primary-purged"); }
+        };
+        DeletionLifecycleObserver observer = new DeletionLifecycleObserver() {
+            @Override public void succeeded(CrudAbility<?> ability,
+                    net.ximatai.muyun.spring.common.model.contract.EntityContract entity,
+                    DeletionContext context, DeletionNode node, DeletionMode mode) {
+                throw new AssertionError("Purge is distinct from the source deletion");
+            }
+            @Override public void retainedRecordPurged(CrudAbility<?> ability,
+                    net.ximatai.muyun.spring.common.model.contract.EntityContract entity) { observed.add("copies-purged"); }
+        };
+        PlatformAbilityRuntime.configureDeletionLifecycleListener(new CompositeDeletionLifecycleListener(journal, List.of(observer)));
+        try {
+            BaseDao<Fixture, String> dao = mock(BaseDao.class);
+            Fixture row = new Fixture(); row.setId("record"); row.setDeleted(true);
+            when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(row));
+            when(dao.deleteByIdAndVersion("record", 0)).thenReturn(1);
+            var service = new RetainedService(dao);
+            assertThat(RetainedRecordPurgeSupport.purge(service, "record", 0)).isEqualTo(1);
+            assertThat(observed).containsExactly("copies-purged", "primary-purged");
+        } finally { PlatformAbilityRuntime.resetDeletionLifecycleListener(); }
+    }
+    static class RetainedService extends AbstractAbilityService<Fixture> implements SoftDeleteAbility<Fixture> {
+        RetainedService(BaseDao<Fixture, String> dao) { super("test.content", Fixture.class, dao); }
+    }
     static class Fixture extends StandardEntity { }
 }

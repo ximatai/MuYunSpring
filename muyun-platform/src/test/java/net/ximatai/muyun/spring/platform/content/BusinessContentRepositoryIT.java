@@ -32,11 +32,13 @@ import static org.assertj.core.api.Assertions.*;
 class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired ContentFixtureDao dao;
     @Autowired BusinessContentStore store;
+    @Autowired BusinessContentTranslationStore translations;
     @Autowired BusinessContentService content;
     @Autowired BusinessContentSaveLifecycleListener listener;
     @Autowired BusinessContentDeletionObserver deletion;
     @Autowired PlatformTransactionManager transactions;
     @Autowired IDatabaseOperations<?> operations;
+    @Autowired DataSource dataSource;
     private FixtureService service;
     private TransactionTemplate tx;
     private static final PageRequest HISTORY = PageRequest.of(1, 100);
@@ -49,6 +51,10 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
         service = new FixtureService(dao);
         PlatformAbilityRuntime.configureMutationTransactionOperator(new MutationTransactionOperator() {
             public <T> T execute(java.util.function.Supplier<T> work) { return tx.execute(status -> work.get()); }
+            public void lock(String scope, String key) {
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject(
+                        "select pg_advisory_xact_lock(hashtextextended(?, 0))", Object.class, scope + key);
+            }
         });
         PlatformAbilityRuntime.configureEntitySaveLifecycleListener(new CompositeEntitySaveLifecycleListener(List.of(listener)));
         PlatformAbilityRuntime.configureDeletionLifecycleListener(new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(
@@ -243,6 +249,200 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             }
         }
     }
+    @Test void humanDraftDoesNotReplaceReadingAndConfirmationRetainsBothAuthorsAndHistory() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("80°C，暂勿发货"); service.insert(row);
+            var source = source(row);
+            var machine = tx.execute(status -> translations.saveMachine(source, 1, "en", "80°C; do not ship yet", null, generation()));
+            assertThat(machine.getGenerationReference()).isEqualTo("test-generation");
+            assertThat(machine.getProviderRequestId()).isEqualTo("request-1");
+            try (var editor = actor("us")) {
+                tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", "Hold shipment until inspected at 80°C", 1));
+            }
+            var state = translations.state(source, 1, "en");
+            assertThat(state.effective().getTranslatedText()).isEqualTo("80°C; do not ship yet");
+            assertThat(state.draft().getCreatedBy()).isEqualTo("us");
+            assertThatThrownBy(() -> tx.execute(status -> translations.confirm(source, 1, "en", 2, 1)))
+                    .isInstanceOf(OptimisticLockException.class);
+            try (var reviewer = actor("de")) {
+                tx.executeWithoutResult(status -> translations.confirm(source, 1, "en", 2, 2));
+            }
+            state = translations.state(source, 1, "en");
+            assertThat(state.draft()).isNull();
+            assertThat(state.effective().getCreatedBy()).isEqualTo("de");
+            assertThat(state.effective().getReviewedDraftRevision()).isEqualTo(2);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", "New unconfirmed human edit", 3));
+            tx.executeWithoutResult(status -> translations.saveMachine(source, 1, "en", "Machine refresh", 4, generation()));
+            state = translations.state(source, 1, "en");
+            assertThat(state.effective().getTranslatedText()).isEqualTo("Hold shipment until inspected at 80°C");
+            assertThat(state.draft().getTranslatedText()).isEqualTo("New unconfirmed human edit");
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "de", "Bis zur Prüfung nicht versenden", null));
+            assertThat(translations.state(source, 1, "de").effective()).isNull();
+            assertThat(translations.history(source, 1, "en", HISTORY)).extracting(BusinessContentTranslation::getKind)
+                    .containsExactly("MACHINE", "DRAFT", "CONFIRMED", "DRAFT", "MACHINE");
+            assertThat(service.select(row.getId()).getTitle()).isEqualTo("80°C，暂勿发货");
+            assertThat(history(row)).hasSize(1);
+        }
+    }
+
+    @Test void explicitTranslationRemovalKeepsHistoryAndRejectsLateGenerationWithoutTouchingOtherLanguage() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("原文"); service.insert(row); var source = source(row);
+            tx.executeWithoutResult(status -> translations.saveMachine(source, 1, "en", "Original", null, generation()));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "de", "Originaltext", null));
+            tx.executeWithoutResult(status -> translations.remove(source, 1, "en", 1));
+            assertThat(translations.state(source, 1, "en").effective()).isNull();
+            assertThat(translations.state(source, 1, "en").revision()).isEqualTo(2);
+            assertThat(translations.state(source, 1, "de").draft().getTranslatedText()).isEqualTo("Originaltext");
+            assertThatThrownBy(() -> tx.execute(status -> translations.saveMachine(source, 1, "en", "Late result", 1, generation())))
+                    .isInstanceOf(OptimisticLockException.class);
+            assertThatThrownBy(() -> tx.execute(status -> translations.saveDraft(source, 1, "en", "Lost update", null)))
+                    .isInstanceOf(OptimisticLockException.class);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", "Recreated explicitly", 2));
+            assertThat(translations.state(source, 1, "en").effective()).isNull();
+            assertThat(translations.history(source, 1, "en", HISTORY)).hasSize(3);
+        }
+    }
+
+    @Test void originalChangeInvalidatesTranslationsWhileHistoricalFactsAndTransactionalRecoveryRemainAvailable() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("80°C"); service.insert(row); var source = source(row);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", "80°C", null));
+            tx.executeWithoutResult(status -> translations.confirm(source, 1, "en", 1, 1));
+            tx.executeWithoutResult(status -> {
+                translations.saveDraft(source, 1, "en", "Rolled back", 2);
+                status.setRollbackOnly();
+            });
+            assertThat(translations.state(source, 1, "en").revision()).isEqualTo(2);
+            row.setTitle("60°C"); service.update(row);
+            assertThat(translations.state(source, 2, "en").effective()).isNull();
+            assertThat(translations.state(source, 1, "en").confirmed().getTranslatedText()).isEqualTo("80°C");
+            assertThatThrownBy(() -> tx.execute(status -> translations.saveMachine(source, 1, "en", "Old original result", 2, generation())))
+                    .isInstanceOf(OptimisticLockException.class);
+            assertThatThrownBy(() -> tx.execute(status -> translations.confirm(source, 1, "en", 2, 1)))
+                    .isInstanceOf(OptimisticLockException.class);
+            service.delete(row.getId());
+            assertThatThrownBy(() -> content.sources(service, row.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            service.restore(row.getId());
+            assertThat(translations.history(source, 1, "en", HISTORY)).hasSize(2);
+            var hard = new AbstractAbilityService<ContentFixture>("test.content", ContentFixture.class, dao) { };
+            tx.executeWithoutResult(status -> {
+                hard.delete(row.getId());
+                assertThat(translations.history(source, 1, "en", HISTORY)).isEmpty();
+                status.setRollbackOnly();
+            });
+            assertThat(translations.history(source, 1, "en", HISTORY)).hasSize(2);
+            hard.delete(row.getId());
+            assertThat(translations.history(source, 1, "en", HISTORY)).isEmpty();
+            assertThat(translations.history(source, 1, "de", HISTORY)).isEmpty();
+        }
+    }
+
+    @Test void actualRecycleBinPurgeAtomicallyRemovesOriginalAndTranslationCopies() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var retained = new RetainedFixtureService(dao);
+            var row = row("需要清理的业务文本"); retained.insert(row); var source = source(row);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", "Retained text", null));
+            retained.delete(row.getId());
+            assertThat(translations.state(source, 1, "en").draft()).isNotNull();
+            tx.executeWithoutResult(status -> {
+                retained.purge(row.getId());
+                assertThat(store.latest(source)).isNull();
+                assertThat(translations.history(source, 1, "en", HISTORY)).isEmpty();
+                status.setRollbackOnly();
+            });
+            assertThat(retained.selectIgnoreSoftDelete(row.getId())).isNotNull();
+            assertThat(store.latest(source)).isNotNull();
+            assertThat(translations.state(source, 1, "en").draft()).isNotNull();
+            retained.purge(row.getId());
+            assertThat(retained.selectIgnoreSoftDelete(row.getId())).isNull();
+            assertThat(store.latest(source)).isNull();
+            assertThat(translations.history(source, 1, "en", HISTORY)).isEmpty();
+        }
+    }
+
+    @Test void concurrentTranslationMaintenanceUsesOneReviewedVersion() throws Exception {
+        BusinessContentSource source;
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("原文"); service.insert(row); source = source(row);
+        }
+        var start = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            List<Future<Boolean>> writes = new ArrayList<>();
+            for (String value : List.of("First draft", "Second draft")) writes.add(executor.submit(() -> {
+                try (var user = actor(value); var tenant = TenantContext.use("tenant-a")) {
+                    start.await(10, TimeUnit.SECONDS);
+                    try {
+                        tx.executeWithoutResult(status -> translations.saveDraft(source, 1, "en", value, null));
+                        return true;
+                    } catch (OptimisticLockException expected) { return false; }
+                }
+            }));
+            assertThat(List.of(writes.get(0).get(15, TimeUnit.SECONDS), writes.get(1).get(15, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        }
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            assertThat(translations.history(source, 1, "en", HISTORY)).hasSize(1);
+            try (var other = TenantContext.use("tenant-b")) {
+                var otherSource = new BusinessContentSource("tenant-b", source.moduleAlias(), source.entityKey(), source.recordId(), source.fieldKey());
+                assertThat(translations.state(otherSource, 1, "en").draft()).isNull();
+                assertThatThrownBy(() -> tx.execute(status -> translations.saveDraft(otherSource, 1, "en", "No owner", null)))
+                        .isInstanceOf(OptimisticLockException.class);
+            }
+        }
+    }
+
+    private BusinessContentSource source(ContentFixture row) {
+        return BusinessContentSaveLifecycleListener.source(service, row, "category-name");
+    }
+    @Test void delayedGenerationWaitsForCommittedOriginalAndCannotAttachToItsReplacement() throws Exception {
+        String id;
+        BusinessContentSource source;
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("80°C"); service.insert(row); id = row.getId(); source = source(row);
+        }
+        var originalWritten = new CountDownLatch(1);
+        var generationStarted = new CountDownLatch(1);
+        var commitOriginal = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var edit = executor.submit(() -> {
+                try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+                    tx.executeWithoutResult(status -> {
+                        var row = service.select(id); row.setTitle("60°C"); service.update(row);
+                        originalWritten.countDown();
+                        try { if (!commitOriginal.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Commit timeout"); }
+                        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+                    });
+                }
+            });
+            assertThat(originalWritten.await(10, TimeUnit.SECONDS)).isTrue();
+            var late = executor.submit(() -> {
+                try (var user = actor("us"); var tenant = TenantContext.use("tenant-a")) {
+                    generationStarted.countDown();
+                    try {
+                        tx.executeWithoutResult(status -> translations.saveMachine(source, 1, "en", "80°C", null, generation()));
+                        return true;
+                    } catch (OptimisticLockException expected) { return false; }
+                }
+            });
+            try {
+                assertThat(generationStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> late.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            } finally { commitOriginal.countDown(); }
+            edit.get(10, TimeUnit.SECONDS);
+            assertThat(late.get(10, TimeUnit.SECONDS)).isFalse();
+        }
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            assertThat(translations.history(source, 1, "en", HISTORY)).isEmpty();
+            assertThat(translations.state(source, 2, "en").effective()).isNull();
+            assertThat(service.select(id).getTitle()).isEqualTo("60°C");
+        }
+    }
+    private static BusinessContentTranslationStore.Generation generation() {
+        return new BusinessContentTranslationStore.Generation("test-generation", "request-1", "translation-v1", "context-v1");
+    }
+
     @Test void concurrentOriginalEditsCannotProduceTwoCurrentRevisions() throws Exception {
         String id;
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
@@ -295,6 +495,15 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             records.create(module.moduleAlias(), "main", parent);
             var parentHistory = content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY);
             var childHistory = content.history(runtime.entityService(module.moduleAlias(), "line"), child.getId(), "description", HISTORY);
+            var parentSource = BusinessContentSaveLifecycleListener.source(runtime.entityService(module.moduleAlias(), "main"), parent, policy.key());
+            var childTextSource = BusinessContentSaveLifecycleListener.source(runtime.entityService(module.moduleAlias(), "line"), child, policy.key());
+            tx.executeWithoutResult(status -> translations.saveMachine(parentSource, 1, "en", "80°C; do not ship yet", null, generation()));
+            tx.executeWithoutResult(status -> translations.saveDraft(childTextSource, 1, "de", "Untersuchung ausstehend", null));
+            tx.executeWithoutResult(status -> translations.confirm(childTextSource, 1, "de", 1, 1));
+            assertThat(translations.state(parentSource, 1, "en").effective().getTranslatedText()).isEqualTo("80°C; do not ship yet");
+            assertThat(translations.state(childTextSource, 1, "de").effective().getTranslatedText()).isEqualTo("Untersuchung ausstehend");
+            assertThat(translations.state(parentSource, 1, "de").effective()).isNull();
+            assertThat(translations.state(childTextSource, 1, "en").effective()).isNull();
             assertThat(content.history(records.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
             DataScopeCriteriaService viewWithoutQuery = new AllowAllDataScopeCriteriaService() {
                 @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
@@ -369,6 +578,23 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             records.update(module.moduleAlias(), "main", partial);
             assertThat(content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY)).hasSize(1);
             assertThat(records.select(module.moduleAlias(), "main", parent.getId()).getValue("description")).isEqualTo("80°C，暂勿发货");
+            records.delete(module.moduleAlias(), "main", parent.getId());
+            assertThat(store.latest(parentSource)).isNotNull();
+            assertThat(translations.history(parentSource, 1, "en", HISTORY)).hasSize(1);
+            assertThatThrownBy(() -> aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            // Exercise the retained-resource primitive used after recovery has verified each owner.
+            records.delete(module.moduleAlias(), "line", child.getId());
+            RetainedRecordPurgeSupport.purge(runtime.entityService(module.moduleAlias(), "line"), child.getId(),
+                    records.selectIgnoreSoftDelete(module.moduleAlias(), "line", child.getId()).getVersion());
+            RetainedRecordPurgeSupport.purge(runtime.entityService(module.moduleAlias(), "main"), parent.getId(),
+                    records.selectIgnoreSoftDelete(module.moduleAlias(), "main", parent.getId()).getVersion());
+            assertThat(store.latest(parentSource)).isNull();
+            assertThat(store.latest(childTextSource)).isNull();
+            assertThat(translations.history(parentSource, 1, "en", HISTORY)).isEmpty();
+            assertThat(translations.history(childTextSource, 1, "de", HISTORY)).isEmpty();
+            assertThat(records.select(module.moduleAlias(), "main", another.getId())).isNotNull();
+            assertThat(content.history(runtime.entityService(module.moduleAlias(), "line"), otherLine.getId(), "description", HISTORY)).hasSize(1);
         }
     }
     @Test void staleDynamicInputCannotRetainWithdrawnContentOrBypassNewMaskingPolicy() {
@@ -408,9 +634,15 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     static class FixtureService extends AbstractAbilityService<ContentFixture> implements SoftDeleteAbility<ContentFixture>, DataScopeAbility<ContentFixture> {
         FixtureService(ContentFixtureDao dao) { super("test.content", ContentFixture.class, dao); }
     }
+    static class RetainedFixtureService extends FixtureService implements RecycleBinAbility<ContentFixture> {
+        RetainedFixtureService(ContentFixtureDao dao) { super(dao); }
+        @Override public boolean isRecycleBinPurgeEnabled() { return true; }
+        @Override public void beforeRecycleBinPurge(String id) { }
+    }
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = BusinessContentRevisionDao.class)
-    @Import({BusinessContentStore.class, BusinessContentService.class, BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class})
+    @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class,
+            BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
         @Bean ActionExecutionPolicyService policies() { return new AllowAllActionExecutionPolicyService(); }
