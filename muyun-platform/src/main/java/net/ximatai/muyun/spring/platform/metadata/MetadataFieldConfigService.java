@@ -175,6 +175,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
 
     public void validateEffectiveBehavior(MetadataField field, MetadataFieldConfig base, MetadataFieldConfig override,
                                           ModuleMetadataField legacy) {
+        if (field.getContentPolicy() != null && field.getContentPolicy().enabled() && legacy != null
+                && legacy.getReferenceModuleAlias() != null && !legacy.getReferenceModuleAlias().isBlank())
+            throw new IllegalArgumentException("Reference identity cannot declare business content: " + field.getFieldName());
         MetadataFieldConfig dictionary = MetadataFieldConfig.effectiveDictionaryConfig(base, override);
         if (legacy != null && legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()) {
             dictionary = new MetadataFieldConfig();

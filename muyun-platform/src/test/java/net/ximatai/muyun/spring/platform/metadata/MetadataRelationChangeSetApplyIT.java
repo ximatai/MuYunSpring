@@ -209,6 +209,31 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void contentPolicyPreflightRejectsLegacyReferencesOwnedByAnotherRelationBeforePublication() {
+        applyNewStringField("companyId", "company_id");
+        var saved = field("companyId");
+        String otherRelation = anotherModuleRelation();
+        var legacy = new ModuleMetadataField();
+        legacy.setRelationId(otherRelation); legacy.setMetadataFieldId(saved.getId());
+        legacy.setTitle("Other legacy company");
+        legacy.setReferenceModuleAlias(moduleAlias); legacy.setReferenceModuleKeyField("id");
+        legacy.setReferenceModuleLabelField("id"); moduleFields.insert(legacy);
+        var change = fieldSpecChangeProposal(saved, "string");
+        change.fieldDrafts().getFirst().field()
+                .setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE);
+        var checked = previewService.preview(moduleAlias, relationId, change);
+        assertThat(checked.valid()).isFalse();
+        assertThat(checked.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("Reference identity"));
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(change, checked.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        assertThat(field("companyId").getContentPolicy())
+                .isEqualTo(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+        assertThat(moduleFields.select(legacy.getId()).getReferenceModuleAlias()).isEqualTo(moduleAlias);
+    }
+
+    @Test
     void contentPolicyPreflightRejectsNumericProtectedAndFinalDictionaryFieldsWithoutPublishing() {
         var automatic = net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE;
         var numeric = proposal("quantity", "quantity", "integer", false);
