@@ -304,6 +304,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static <T extends EntityContract> void afterSelect(CrudAbility<T> ability, T entity) {
+        if (entity != null) referenceTextReadListener.onRecords(ability, java.util.List.of(entity));
         runFieldProtectionAfterSelect(ability, entity);
         runChildrenAfterSelect(ability, entity);
         runReferenceAfterSelect(ability, entity);
@@ -376,6 +377,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static void populateReferenceLoads(CrudAbility<?> ability, java.util.Collection<? extends EntityContract> entities) {
+        referenceTextReadListener.onRecords(ability, entities);
         referenceLoadResolver.populateAll(ability, entities);
     }
 

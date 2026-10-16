@@ -123,7 +123,9 @@ public final class BusinessContentQueryService {
         FieldDefinition field = entity == null ? null : contentFields(entity).get(fieldName);
         if (field == null) throw new IllegalArgumentException("Undeclared business content query field");
         return translatedRecords(owner.getModuleAlias(), entityKey(owner, entity), entity, field,
-                language(language), prefix, "r.record_id, r.tenant_id, r.original_text, t.translated_text as reading_text", null, Map.of());
+                language(language), prefix, "r.record_id, r.tenant_id, b." + quote("created_at")
+                        + " as record_created_at, b." + quote("updated_at") + " as record_updated_at, b." + quote("version")
+                        + " as record_version, r.original_text, t.translated_text as reading_text", null, Map.of());
     }
 
     /** Missing current reading in at least one declared query field; caller still owns the full authorized scope. */

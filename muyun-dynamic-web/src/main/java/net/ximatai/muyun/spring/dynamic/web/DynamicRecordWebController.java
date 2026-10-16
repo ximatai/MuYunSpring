@@ -344,7 +344,9 @@ public class DynamicRecordWebController implements
                 output.put(field, values.get(field));
             }
         }
-        return java.util.Collections.unmodifiableMap(output);
+        var projected = java.util.Collections.unmodifiableMap(output);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, projected);
+        return projected;
     }
 
     @Override
@@ -694,6 +696,7 @@ public class DynamicRecordWebController implements
         if (output == null) return output;
         var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
         DynamicRecord enriched = output.copy();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(output, enriched);
         populateReadProjections(List.of(enriched), projectionFields(DynamicWebRequest.moduleAlias()));
         plan.uiDescriptor().detailRelations().stream()
                 .filter(relation -> relation.embeddedField() != null)
@@ -1156,6 +1159,8 @@ public class DynamicRecordWebController implements
         projected.setId(source.getId());
         projected.setTenantId(source.getTenantId());
         projected.setVersion(source.getVersion());
+        projected.setCreatedAt(source.getCreatedAt());
+        projected.setUpdatedAt(source.getUpdatedAt());
         Map<String, FieldDefinition> fieldDefinitions = source.getEntity().fields().stream()
                 .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, field -> field));
         for (String field : fields) {
@@ -1169,6 +1174,7 @@ public class DynamicRecordWebController implements
                 }
             }
         }
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(source, projected);
         return projected;
     }
 

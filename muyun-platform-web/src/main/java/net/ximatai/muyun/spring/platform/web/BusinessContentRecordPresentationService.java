@@ -52,12 +52,39 @@ public final class BusinessContentRecordPresentationService implements Reference
         String id = identity(projection.owner());
         if (id == null) return;
         registerOwner(snapshot, projection.owner());
-        var key = new Key(id, projection.summaryField(), projection.summaryItemId(), projection.outputField());
+        var key = new Key(snapshot.owners.get(projection.owner()), projection.summaryField(), projection.summaryItemId(), projection.outputField());
         if (snapshot.ambiguous.contains(key)) return;
         var captured = new Captured(projection.sourceField(), projection.sourceIds(), projection.collection(), projection.texts());
         var previous = snapshot.projections.putIfAbsent(key, captured);
         if (previous != null && !previous.equals(captured)) {
             snapshot.projections.remove(key); snapshot.ambiguous.add(key);
+        }
+    }
+
+    @Override public void onRecords(CrudAbility<?> owner, Collection<?> records) {
+        if (snapshot(true) == null) return;
+        readings.capture(owner, records);
+        records.forEach(record -> { registerOwner(snapshot(true), record); captureOwn(owner, record); });
+    }
+
+    @Override public void onOwnerCopy(Object source, Object output) {
+        var snapshot = snapshot(true);
+        if (snapshot == null || source == null || output == null) return;
+        if (source == output) return;
+        registerOwner(snapshot, source);
+        Object token = snapshot.owners.get(source);
+        if (token != null) {
+            snapshot.owners.put(output, token);
+            var shape = snapshot.shapes.get(token);
+            var kind = snapshot.explicitKinds.getOrDefault(token, shape.kind);
+            if (kind == Kind.FLAT_DYNAMIC) return;
+            boolean dynamic = kind == Kind.DYNAMIC;
+            for (String field : shape.children) {
+                var before = childRecords(source, field, dynamic);
+                var after = childRecords(output, field, dynamic);
+                if (before.size() == after.size()) for (int index = 0; index < before.size(); index++)
+                    onOwnerCopy(before.get(index), after.get(index));
+            }
         }
     }
 
@@ -140,6 +167,7 @@ public final class BusinessContentRecordPresentationService implements Reference
         var snapshot = snapshot(true);
         if (snapshot != null && record != null) {
             registerOwner(snapshot, record);
+            readings.capture(owner, List.of(record));
             captureOwn(owner, record);
         }
         return record;
@@ -152,25 +180,28 @@ public final class BusinessContentRecordPresentationService implements Reference
         for (var record : records) {
             if (record == null || record.getId() == null) continue;
             var kind = flat ? Kind.FLAT_DYNAMIC : Kind.DYNAMIC;
-            var previous = snapshot.explicitKinds.putIfAbsent(record.getId(), kind);
-            if (previous != null && previous != kind) snapshot.ambiguousOwners.add(record.getId());
             registerOwner(snapshot, record);
-            if (moduleAlias != null && dynamics.getIfAvailable() != null)
-                captureOwn(dynamics.getIfAvailable().entity(moduleAlias, record.getEntity().alias()), record);
+            snapshot.explicitKinds.put(snapshot.owners.get(record), kind);
+            if (moduleAlias != null && dynamics.getIfAvailable() != null) {
+                var owner = dynamics.getIfAvailable().entity(moduleAlias, record.getEntity().alias());
+                readings.capture(owner, List.of(record));
+                captureOwn(owner, record);
+            }
             record.getChildren().values().forEach(children -> captureDynamic(moduleAlias, children, flat));
         }
     }
 
-    private void captureOwn(CrudAbility<?> owner, EntityContract record) {
-        if (record.getId() == null) return;
+    private void captureOwn(CrudAbility<?> owner, Object record) {
+        String id = identity(record);
+        if (id == null) return;
         var fields = readings.fields(owner);
         if (fields.isEmpty()) return;
         ReferenceTarget target = ReferenceTargets.of(owner);
         for (String field : fields) {
             Object raw = record instanceof DynamicRecord dynamic ? dynamic.getValue(field)
-                    : StaticReferenceResolver.readLoadedValue(record, field);
-            if (raw instanceof String text) onProjection(new Projection(record, "id", List.of(record.getId()), field,
-                    null, null, false, List.of(new Text(target, record.getId(), field, text))));
+                    : record instanceof Map<?, ?> map ? map.get(field) : StaticReferenceResolver.readLoadedValue(record, field);
+            if (raw instanceof String text) onProjection(new Projection(record, "id", List.of(id), field,
+                    null, null, false, List.of(new Text(target, id, field, text))));
         }
     }
 
@@ -178,8 +209,8 @@ public final class BusinessContentRecordPresentationService implements Reference
         var snapshot = snapshot(false);
         if (snapshot == null || snapshot.projections.isEmpty() || body == null) return body;
         JsonNode output = mapper.valueToTree(body);
-        Map<String, List<Map.Entry<Key, Captured>>> byOwner = new LinkedHashMap<>();
-        snapshot.projections.entrySet().forEach(entry -> byOwner.computeIfAbsent(entry.getKey().ownerId(), ignored -> new ArrayList<>()).add(entry));
+        Map<Object, List<Map.Entry<Key, Captured>>> byOwner = new LinkedHashMap<>();
+        snapshot.projections.entrySet().forEach(entry -> byOwner.computeIfAbsent(entry.getKey().owner(), ignored -> new ArrayList<>()).add(entry));
         List<Delivered> delivered = new ArrayList<>();
         collectBody(body, output, snapshot, byOwner, delivered);
         if (delivered.isEmpty()) return body;
@@ -224,7 +255,7 @@ public final class BusinessContentRecordPresentationService implements Reference
 
     /** Only formal response containers expose nested records; arbitrary JSON keys are never traversal instructions. */
     private void collectBody(Object source, JsonNode node, Snapshot snapshot,
-            Map<String, List<Map.Entry<Key, Captured>>> byOwner, List<Delivered> output) {
+            Map<Object, List<Map.Entry<Key, Captured>>> byOwner, List<Delivered> output) {
         if (source instanceof net.ximatai.muyun.spring.web.WebPageResponse<?> page)
             collectRecords(page.records(), node.path("records"), snapshot, byOwner, output);
         else if (source instanceof net.ximatai.muyun.spring.web.WebListResponse<?> list)
@@ -235,43 +266,49 @@ public final class BusinessContentRecordPresentationService implements Reference
         } else if (source instanceof Collection<?> records)
             collectRecords(new ArrayList<>(records), node, snapshot, byOwner, output);
         else if (source instanceof EntityContract || source instanceof Map<?, ?> map && map.get("id") instanceof String)
-            collect(node, snapshot, byOwner, output);
+            collect(source, node, snapshot, byOwner, output);
     }
 
     private void collectRecords(List<?> records, JsonNode node, Snapshot snapshot,
-            Map<String, List<Map.Entry<Key, Captured>>> byOwner, List<Delivered> output) {
+            Map<Object, List<Map.Entry<Key, Captured>>> byOwner, List<Delivered> output) {
         if (!node.isArray() || records.size() != node.size()) return;
         for (int index = 0; index < records.size(); index++)
             collectBody(records.get(index), node.get(index), snapshot, byOwner, output);
     }
 
-    private void collect(JsonNode node, Snapshot snapshot, Map<String, List<Map.Entry<Key, Captured>>> byOwner,
+    private void collect(Object sourceRecord, JsonNode node, Snapshot snapshot, Map<Object, List<Map.Entry<Key, Captured>>> byOwner,
             List<Delivered> output) {
-        if (node == null) return;
-        if (node.isArray()) { node.forEach(child -> collect(child, snapshot, byOwner, output)); return; }
         if (!(node instanceof ObjectNode record)) return;
-        String id = record.path("id").isTextual() ? record.path("id").asText() : null;
-        if (id == null) return;
-        if (snapshot.ambiguousOwners.contains(id)) return;
-        var shape = snapshot.shapes.get(id);
-        if (shape == null) return;
-        var kind = snapshot.explicitKinds.getOrDefault(id, shape.kind);
+        Object token = snapshot.owners.get(sourceRecord);
+        var shape = snapshot.shapes.get(token);
+        if (shape == null || !shape.id.equals(record.path("id").asText())) return;
+        var kind = snapshot.explicitKinds.getOrDefault(token, shape.kind);
         if (kind == Kind.DYNAMIC && !(record.get("values") instanceof ObjectNode)) return;
         ObjectNode values = kind == Kind.DYNAMIC ? (ObjectNode) record.get("values") : record;
-        for (var entry : byOwner.getOrDefault(id, List.of())) {
-            Key key = entry.getKey(); var source = entry.getValue();
-            if (!key.ownerId().equals(id) || !sourceMatches(values, source)) continue;
-            if (key.summaryField() == null) collectField(record, values, key.field(), source, output);
+        for (var entry : byOwner.getOrDefault(token, List.of())) {
+            Key key = entry.getKey(); var captured = entry.getValue();
+            if (!sourceMatches(values, captured)) continue;
+            if (key.summaryField() == null) collectField(record, values, key.field(), captured, output);
             else {
                 JsonNode summary = values.get(key.summaryField());
-                if (summary != null && summary.isArray()) summary.forEach(item -> collectSummary(item, key, source, output));
-                else collectSummary(summary, key, source, output);
+                if (summary != null && summary.isArray()) summary.forEach(item -> collectSummary(item, key, captured, output));
+                else collectSummary(summary, key, captured, output);
             }
         }
-        if (kind == Kind.DYNAMIC) {
-            var children = record.get("children");
-            if (children != null && children.isObject()) children.forEach(child -> collect(child, snapshot, byOwner, output));
-        } else for (String field : shape.children) collect(record.get(field), snapshot, byOwner, output);
+        if (kind == Kind.FLAT_DYNAMIC) return;
+        for (String field : shape.children)
+            collectRecords(childRecords(sourceRecord, field, kind == Kind.DYNAMIC),
+                    kind == Kind.DYNAMIC ? record.path("children").path(field) : record.path(field), snapshot, byOwner, output);
+    }
+
+    private static List<?> childRecords(Object owner, String field, boolean dynamic) {
+        Object value;
+        if (owner instanceof DynamicRecord record) value = record.getChildren().get(field);
+        else if (owner instanceof Map<?, ?> map) {
+            Map<?, ?> container = dynamic ? map.get("children") instanceof Map<?, ?> children ? children : Map.of() : map;
+            value = container.get(field);
+        } else value = StaticReferenceResolver.readLoadedValue(owner, field);
+        return value instanceof List<?> children ? children : value instanceof Collection<?> children ? new ArrayList<>(children) : List.of();
     }
 
     private void collectSummary(JsonNode node, Key key, Captured source, List<Delivered> output) {
@@ -318,10 +355,14 @@ public final class BusinessContentRecordPresentationService implements Reference
     private void registerOwner(Snapshot snapshot, Object owner) {
         String id = identity(owner);
         if (id == null) return;
-        var shape = snapshot.shapes.computeIfAbsent(id, ignored -> new Shape());
-        if (!snapshot.registered.add(owner)) return;
+        Object token = snapshot.owners.computeIfAbsent(owner, ignored -> new Object());
+        var shape = snapshot.shapes.computeIfAbsent(token, ignored -> new Shape(id));
         if (owner instanceof DynamicRecord dynamic) {
             shape.kind = Kind.DYNAMIC;
+            shape.children.addAll(dynamic.getChildren().keySet());
+        }
+        if (!snapshot.registered.add(owner)) return;
+        if (owner instanceof DynamicRecord dynamic) {
             dynamic.getChildren().values().forEach(children -> children.forEach(child -> registerOwner(snapshot, child)));
         } else if (owner instanceof EntityContract entity) {
             for (var rule : StaticChildResolver.rules(owner.getClass())) {
@@ -349,20 +390,24 @@ public final class BusinessContentRecordPresentationService implements Reference
         return current;
     }
 
-    private record Key(String ownerId, String summaryField, String itemId, String field) { }
+    private record Key(Object owner, String summaryField, String itemId, String field) { }
     private record CandidateKey(ReferenceTarget target, String path, String id) { }
     private record Captured(String sourceField, List<String> sourceIds, boolean collection, List<Text> texts) { }
     private record Delivered(ObjectNode record, ObjectNode values, String field, Captured source) { }
     private enum Kind { STATIC, DYNAMIC, FLAT_DYNAMIC }
-    private static final class Shape { Kind kind = Kind.STATIC; Set<String> children = new LinkedHashSet<>(); }
+    private static final class Shape {
+        final String id;
+        Kind kind = Kind.STATIC; Set<String> children = new LinkedHashSet<>();
+        Shape(String id) { this.id = id; }
+    }
     private static final class TargetRequest {
         Map<String, Map<String, Object>> originals = new LinkedHashMap<>(); Set<String> fields = new LinkedHashSet<>(); Set<String> ambiguous = new HashSet<>();
     }
     private static final class Snapshot {
         final List<String> languages;
         final Map<Key, Captured> projections = new LinkedHashMap<>(); final Set<Key> ambiguous = new HashSet<>();
-        final Map<String, Shape> shapes = new LinkedHashMap<>(); final Map<String, Kind> explicitKinds = new HashMap<>();
-        final Set<String> ambiguousOwners = new HashSet<>();
+        final Map<Object, Shape> shapes = new IdentityHashMap<>(); final Map<Object, Kind> explicitKinds = new IdentityHashMap<>();
+        final Map<Object, Object> owners = new IdentityHashMap<>();
         final Set<Object> registered = Collections.newSetFromMap(new IdentityHashMap<>());
         final Map<CandidateKey, ReferenceLoadReader.ResolvedValue> subtitles = new LinkedHashMap<>();
         final Set<CandidateKey> ambiguousSubtitles = new HashSet<>();

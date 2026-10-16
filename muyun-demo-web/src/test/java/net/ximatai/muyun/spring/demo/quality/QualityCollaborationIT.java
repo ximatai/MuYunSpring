@@ -449,6 +449,64 @@ class QualityCollaborationIT {
         }
     }
 
+    @Test void readingProjectionBindsTheAuthorizedTenantIncarnationAndVersionFromTheSameRead() throws Exception {
+        var mvc = webAppContextSetup(web).build();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("snapshot-contract", "Snapshot Contract"));
+             var tenant = TenantContext.system("verify authorized reading identity")) {
+            var tenants = web.getBean(TenantService.class);
+            var value = new Tenant(); value.setAlias("quality_read_snapshot"); value.setTitle("Read snapshot"); value.setEnabled(true);
+            tenants.insert(value); tenants.provisionTenant(value.getAlias());
+            web.getBean(TenantApplicationService.class).ensureApplicationsOpened(value.getAlias(), java.util.List.of("iam", "quality"));
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("snapshot-contract", "Snapshot Contract"));
+             var tenant = TenantContext.use("quality_read_snapshot")) {
+            String id = write(mvc, "/quality.equipment_category/insert", Map.of("code", "READ-SNAPSHOT", "title", "身份设备", "parentId", "root",
+                    "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN")))).path("id").asText();
+            confirmTranslation(mvc, "/quality.equipment_category/view/" + id + "/content/title/translations/en/", "Authorized equipment");
+            var row = categories.select(id);
+            var reading = web.getBean(net.ximatai.muyun.spring.platform.web.BusinessContentReadingProjectionService.class);
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            var attributes = new org.springframework.web.context.request.ServletRequestAttributes(request);
+            var previous = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(attributes);
+            try {
+                var output = java.util.List.of(Map.of("id", id, "title", row.getTitle()));
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en")).isEmpty();
+                reading.capture(categories, java.util.List.of(row));
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en"))
+                        .containsEntry(id, Map.of("title", "Authorized equipment"));
+                executeSql("update quality_equipment_category set updated_at = updated_at + interval '1 second' where id = ?", id);
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en")).isEmpty();
+                executeSql("update quality_equipment_category set updated_at = updated_at - interval '1 second' where id = ?", id);
+                executeSql("update quality_equipment_category set version = version + 1 where id = ?", id);
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en")).isEmpty();
+                executeSql("update quality_equipment_category set version = version - 1, created_at = created_at + interval '1 second' where id = ?", id);
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en")).isEmpty();
+                executeSql("update quality_equipment_category set created_at = created_at - interval '1 second', tenant_id = 'replacement-tenant' where id = ?", id);
+                executeSql("update platform_business_content_revision set tenant_id = 'replacement-tenant' where record_id = ?", id);
+                executeSql("update platform_business_content_translation set tenant_id = 'replacement-tenant' where record_id = ?", id);
+                assertThat(reading.readings(categories, output, java.util.Set.of("title"), "en")).isEmpty();
+                // The replacement really has a current translated slot; matching raw text alone would leak it.
+                assertThat(storedValue("select t.translated_text from platform_business_content_translation t join quality_equipment_category b on b.id = t.record_id and b.tenant_id = t.tenant_id where t.kind = 'CONFIRMED' and t.record_id = ?", id))
+                        .isEqualTo("Authorized equipment");
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(previous);
+                executeSql("update quality_equipment_category set tenant_id = ?, created_at = ?, updated_at = ?, version = ? where id = ?",
+                        row.getTenantId(), java.sql.Timestamp.from(row.getCreatedAt()), java.sql.Timestamp.from(row.getUpdatedAt()), row.getVersion(), id);
+                executeSql("update platform_business_content_revision set tenant_id = ? where record_id = ?", row.getTenantId(), id);
+                executeSql("update platform_business_content_translation set tenant_id = ? where record_id = ?", row.getTenantId(), id);
+            }
+        }
+    }
+
+    private void executeSql(String sql, Object... arguments) throws java.sql.SQLException {
+        try (var connection = web.getBean(javax.sql.DataSource.class).getConnection();
+             var statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < arguments.length; index++) statement.setObject(index + 1, arguments[index]);
+            statement.executeUpdate();
+        }
+    }
+
     private JsonNode presentationQuery(MockMvc mvc, String path, Map<String, ?> values) throws Exception {
         var response = mvc.perform(post(path).header("X-MuYun-Content-Languages", "zh-CN,en,de")
                 .contentType("application/json").content(mapper.writeValueAsString(values))).andReturn().getResponse();

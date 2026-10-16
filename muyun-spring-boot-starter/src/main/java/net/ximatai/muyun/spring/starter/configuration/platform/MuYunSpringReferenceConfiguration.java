@@ -129,6 +129,12 @@ public class MuYunSpringReferenceConfiguration {
             @Override public void onCandidateSubtitles(ReferenceTextReadListener.CandidateSubtitles subtitles) {
                 notifyListeners(consumer -> consumer.onCandidateSubtitles(subtitles));
             }
+            @Override public void onRecords(net.ximatai.muyun.spring.ability.CrudAbility<?> owner, java.util.Collection<?> records) {
+                notifyListeners(consumer -> consumer.onRecords(owner, records));
+            }
+            @Override public void onOwnerCopy(Object source, Object output) {
+                notifyListeners(consumer -> consumer.onOwnerCopy(source, output));
+            }
             private void notifyListeners(java.util.function.Consumer<ReferenceTextReadListener> callback) {
                 for (var consumer : listeners) {
                     try { callback.accept(consumer); }

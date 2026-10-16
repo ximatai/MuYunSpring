@@ -316,7 +316,8 @@ public class DynamicRelationProjectionReadService {
                 List.of(
                         StandardEntitySchema.ID_FIELD,
                         StandardEntitySchema.TENANT_ID_FIELD,
-                        StandardEntitySchema.VERSION_FIELD
+                        StandardEntitySchema.VERSION_FIELD,
+                        "createdAt", "updatedAt"
                 ),
                 List.of()
         );
@@ -352,13 +353,21 @@ public class DynamicRelationProjectionReadService {
         DynamicRecord record = new DynamicRecord(entity);
         record.setId(value(row, "id"));
         record.setTenantId(value(row, "tenantId"));
+        Object createdAt = row.get("createdAt");
+        if (createdAt instanceof java.time.Instant instant) record.setCreatedAt(instant);
+        else if (createdAt instanceof java.sql.Timestamp timestamp) record.setCreatedAt(timestamp.toInstant());
+        else if (createdAt instanceof java.time.OffsetDateTime date) record.setCreatedAt(date.toInstant());
+        Object updatedAt = row.get("updatedAt");
+        if (updatedAt instanceof java.time.Instant instant) record.setUpdatedAt(instant);
+        else if (updatedAt instanceof java.sql.Timestamp timestamp) record.setUpdatedAt(timestamp.toInstant());
+        else if (updatedAt instanceof java.time.OffsetDateTime date) record.setUpdatedAt(date.toInstant());
         Object version = row.get("version");
         if (version instanceof Number number) {
             record.setVersion(number.intValue());
         }
         for (Map.Entry<String, Object> entry : row.entrySet()) {
             String fieldName = entry.getKey();
-            if ("id".equals(fieldName) || "tenantId".equals(fieldName) || "version".equals(fieldName)) {
+            if ("id".equals(fieldName) || "tenantId".equals(fieldName) || "version".equals(fieldName) || "createdAt".equals(fieldName) || "updatedAt".equals(fieldName)) {
                 continue;
             }
             record.putProjectedValue(fieldName, entry.getValue());

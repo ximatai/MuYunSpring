@@ -16,6 +16,12 @@ public interface ReferenceTextReadListener {
 
     default void onCandidateSubtitles(CandidateSubtitles subtitles) { }
 
+    /** Captures lifecycle identity from the authorized read itself, never by re-reading a target. */
+    default void onRecords(net.ximatai.muyun.spring.ability.CrudAbility<?> owner, java.util.Collection<?> records) { }
+
+    /** Explicit platform projection/copy; equal IDs or equal business values alone never bind owners. */
+    default void onOwnerCopy(Object source, Object output) { }
+
     record CandidateSubtitles(ReferenceTarget target, String projection, List<String> candidateIds,
                              java.util.Map<String, ReferenceLoadReader.ResolvedValue> sources) {
         public CandidateSubtitles {

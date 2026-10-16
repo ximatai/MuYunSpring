@@ -68,7 +68,11 @@ final class ReferenceReadProjectionPostProcessor {
             return restrict(records, outputFields, beforeRestriction);
         }
         List<Map<String, Object>> output = records.stream()
-                .<Map<String, Object>>map(record -> new LinkedHashMap<>(record))
+                .<Map<String, Object>>map(record -> {
+                    var copy = new LinkedHashMap<String, Object>(record);
+                    PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, copy);
+                    return copy;
+                })
                 .toList();
         Map<ReferencePlan, TargetRequest> requests = collectRequests(modelClass, output, plans, summaryPlans);
         Map<ReferencePlan, TargetValues> resolved = resolve(requests);
@@ -100,8 +104,11 @@ final class ReferenceReadProjectionPostProcessor {
             java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
         // Sources still include internal reference IDs here; the consumer only captures read metadata.
         beforeRestriction.accept(records);
-        return records.stream().map(record -> restrictOutput(record, outputFields))
-                .map(Collections::unmodifiableMap).toList();
+        return records.stream().map(record -> {
+            var output = Collections.unmodifiableMap(restrictOutput(record, outputFields));
+            PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, output);
+            return output;
+        }).toList();
     }
 
     private static ReferencePlan forOutputFields(ReferencePlan plan, Collection<String> outputFields) {

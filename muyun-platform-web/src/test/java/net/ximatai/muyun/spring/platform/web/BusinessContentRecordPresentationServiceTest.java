@@ -52,7 +52,11 @@ class BusinessContentRecordPresentationServiceTest {
         });
     }
 
-    @AfterEach void reset() { RequestContextHolder.resetRequestAttributes(); }
+    @AfterEach void reset() {
+        RequestContextHolder.resetRequestAttributes();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTextReadListener();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+    }
 
     @Test void projectsOnlyExposedMatchingTextAndLeavesDomainValuesAndBusinessJsonUntouched() {
         var owner = new LinkedHashMap<String, Object>(Map.of("id", "owner", "categoryId", "a", "categoryTitle", "设备原名"));
@@ -131,6 +135,7 @@ class BusinessContentRecordPresentationServiceTest {
         service.captureDynamic(null, List.of(dynamic), true);
         var owner = Map.of("id", "owner", "categoryId", "a", "categoryTitle", "设备原名",
                 "values", Map.of("categoryTitle", "设备原名"), "children", Map.of("fake", List.of(Map.of("id", "owner", "categoryTitle", "设备原名"))));
+        service.onOwnerCopy(dynamic, owner);
         var output = mapper.valueToTree(service.projectCaptured(new WebListResponse<>(List.of(owner))));
         assertThat(output.at("/records/0/$contentTexts/categoryTitle/readings/de").asText()).isEqualTo("Gerät a");
         assertThat(output.at("/records/0/values/$contentTexts").isMissingNode()).isTrue();
@@ -149,6 +154,23 @@ class BusinessContentRecordPresentationServiceTest {
         assertThat(output.at("/records/0/record/$contentTexts/title/readings/de").asText()).isEqualTo("Gerät a");
         assertThat(output.at("/records/0/children/0/record/$contentTexts/title/readings/en").asText()).isEqualTo("Equipment b");
         assertThat(record.getTitle()).isEqualTo("设备原名");
+    }
+
+    @Test void bindsCopiedDynamicChildrenByDeclaredRelationAndActualObjectDespiteEqualParentId() {
+        var entity = new EntityDefinition("main", "reference_test", "Reference", List.of(new FieldDefinition(
+                "categoryId", "category_id", net.ximatai.muyun.spring.dynamic.metadata.FieldType.TEXT, "Category")));
+        var parent = new DynamicRecord(entity).setValue("categoryId", "a"); parent.setId("same");
+        var child = new DynamicRecord(entity).setValue("categoryId", "a"); child.setId("same");
+        child.putProjectedValue("categoryTitle", "设备原名");
+        parent.setChildren("details", List.of(child));
+        service.onProjection(fact(child, "a", "设备原名"));
+        service.captureDynamic(null, List.of(parent), false);
+        var copy = mapper.convertValue(parent, Map.class);
+        service.onOwnerCopy(parent, copy);
+        var output = mapper.valueToTree(service.projectCaptured(copy));
+        assertThat(output.at("/$contentTexts").isMissingNode()).isTrue();
+        assertThat(output.at("/children/details/0/$contentTexts/categoryTitle/readings/en").asText()).isEqualTo("Equipment a");
+        assertThat(output.at("/children/details/0/values/categoryTitle").asText()).isEqualTo("设备原名");
     }
 
     @Test void keepsCandidateTitleContextAndBusinessPatchesSeparateAndWithdrawsDeniedContext() {
@@ -177,5 +199,49 @@ class BusinessContentRecordPresentationServiceTest {
     }
     private static ReferenceTextReadListener.Text text(String id, String original) {
         return new ReferenceTextReadListener.Text(TARGET, id, "title", original);
+    }
+
+    @Test void neverBindsAnUnrelatedResponseOwnerByEqualIdAndEqualText() {
+        var first = new LinkedHashMap<String, Object>(Map.of("id", "same", "categoryId", "a", "categoryTitle", "同名"));
+        var unrelated = new LinkedHashMap<String, Object>(first);
+        service.onProjection(fact(first, "a", "同名"));
+        var output = mapper.valueToTree(service.projectCaptured(new WebListResponse<>(List.of(first, unrelated))));
+        assertThat(output.at("/records/0/$contentTexts/categoryTitle/readings/en").asText()).isEqualTo("Equipment a");
+        assertThat(output.at("/records/1/$contentTexts").isMissingNode()).isTrue();
+        var authorizedCopy = new LinkedHashMap<String, Object>(first);
+        service.onOwnerCopy(first, authorizedCopy);
+        assertThat(mapper.valueToTree(service.projectCaptured(authorizedCopy)).at("/$contentTexts/categoryTitle/readings/de").asText())
+                .isEqualTo("Gerät a");
+        clearInvocations(readings);
+        first.put("id", "other");
+        assertThat(mapper.valueToTree(service.projectCaptured(first)).path("$contentTexts").isMissingNode()).isTrue();
+        verifyNoInteractions(readings);
+    }
+
+    @Test @SuppressWarnings("unchecked") void standardDetailSummaryChainKeepsTheActualParentObjectBinding() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTextReadListener(service);
+        var target = mock(net.ximatai.muyun.spring.ability.reference.ReferenceAbility.class);
+        when(target.projections(anyCollection(), anyCollection())).thenReturn(Map.of("a", Map.of("title", "设备原名")));
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(ignored -> Optional.of(target));
+        CrudAbility<SummaryOwner> owner = mock(CrudAbility.class);
+        doReturn(SummaryOwner.class).when(owner).modelClass();
+        var record = new SummaryOwner(); record.setId("parent"); record.categoryId = "a";
+        var chain = new net.ximatai.muyun.spring.ability.output.DefaultPlatformRecordOutput(List.of(
+                new ReferenceSummaryRecordOutputTransformer(), service));
+        var result = chain.record(owner, record, net.ximatai.muyun.spring.ability.output.RecordOutputContext.view());
+        var output = mapper.valueToTree(service.projectCaptured(result));
+        assertThat(output.at("/category/id").asText()).isEqualTo("a");
+        assertThat(output.at("/category/title").asText()).isEqualTo("设备原名");
+        assertThat(output.at("/category/$contentTexts/title/readings/en").asText()).isEqualTo("Equipment a");
+        verify(target, times(1)).projections(List.of("a"), List.of("title"));
+    }
+
+    public static class SummaryOwner extends StandardTitledEntity {
+        @net.ximatai.muyun.spring.ability.reference.ReferenceTo(moduleAlias = "test", entityAlias = "category")
+        public String categoryId;
+        @net.ximatai.muyun.spring.ability.reference.ReferenceSummary(source = "categoryId", fields = {"title"})
+        public transient Map<String, Object> category;
+        public Map<String, Object> getCategory() { return category; }
+        public void setCategory(Map<String, Object> category) { this.category = category; }
     }
 }

@@ -315,10 +315,12 @@ public class StaticRecordReadProjectionService {
                         ActionExecutionContextHolder.current().orElse(null)));
         PageResult<Map<String, Object>> page = relationProjectionReadService.queryListWithInternalFields(
                 staticModuleDefinitionCatalog.definitions(), definition, projection, criteria, pageRequest,
-                referenceSourceFields(projection, modelClass(moduleAlias, recordService)), sorts
+                postReadFields(projection, modelClass(moduleAlias, recordService), recordService), sorts
         ).orElse(null);
         if (page == null) return Optional.empty();
         Class<?> modelClass = modelClass(moduleAlias, recordService);
+        if (recordService instanceof CrudAbility<?> owner)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(owner, page.getRecords());
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
             if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
                 recordTexts.captureProjected(ability, projected, visibility);
@@ -390,13 +392,15 @@ public class StaticRecordReadProjectionService {
                 projection,
                 criteria,
                 pageRequest,
-                referenceSourceFields(projection, modelClass(moduleAlias, recordService)),
+                postReadFields(projection, modelClass(moduleAlias, recordService), recordService),
                 sorts
         ).orElse(null);
         if (page == null) {
             return Optional.empty();
         }
         Class<?> modelClass = modelClass(moduleAlias, recordService);
+        if (recordService instanceof CrudAbility<?> owner)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(owner, page.getRecords());
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
             if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
                 recordTexts.captureProjected(ability, projected, RecordReadVisibility.ACTIVE);
@@ -542,6 +546,8 @@ public class StaticRecordReadProjectionService {
         }
         List<String> internal = new java.util.ArrayList<>(projection.internalReadFields());
         internal.addAll(referenceSourceFields(projection, modelClass));
+        if (contentQueries != null && recordService instanceof CrudAbility<?> owner && !contentQueries.fields(owner).isEmpty())
+            internal.addAll(List.of("tenantId", "createdAt", "updatedAt", "version"));
         List<String> normalizedInternal = internal.stream().distinct().toList();
         if (normalizedInternal.equals(projection.internalReadFields())) {
             return projection;
@@ -583,6 +589,13 @@ public class StaticRecordReadProjectionService {
         return internal;
     }
 
+    private Set<String> postReadFields(RecordReadProjection projection, Class<?> modelClass, Object recordService) {
+        var fields = new LinkedHashSet<>(referenceSourceFields(projection, modelClass));
+        if (contentQueries != null && recordService instanceof CrudAbility<?> owner && !contentQueries.fields(owner).isEmpty())
+            fields.addAll(List.of("tenantId", "createdAt", "updatedAt", "version"));
+        return fields;
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private <T> WebPageResponse<T> projectResponse(WebPageResponse<T> response,
                                                    RecordReadProjection projection,
@@ -607,12 +620,14 @@ public class StaticRecordReadProjectionService {
                                                               RecordReadProjection projection,
                                                               List<Map<String, Object>> records,
                                                               java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
-        return ReferenceReadProjectionPostProcessor.apply(modelClass,
-                RecordReadProjectionPostProcessor.applyStaticOutput(
+        var projected = RecordReadProjectionPostProcessor.applyStaticOutput(
                         modelClass,
                         projection,
                         records,
-                        optionSourceRegistry),
+                        optionSourceRegistry);
+        for (int index = 0; index < records.size(); index++)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(records.get(index), projected.get(index));
+        return ReferenceReadProjectionPostProcessor.apply(modelClass, projected,
                 outputFieldNames(projection, modelClass), beforeRestriction);
     }
 }

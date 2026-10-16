@@ -20,7 +20,9 @@ public class FieldProtectionRecordOutputTransformer implements RecordOutputTrans
         if (record == null || !(service instanceof FieldProtectionAbility fieldProtectionAbility)) {
             return record;
         }
-        return (T) fieldProtectionAbility.maskProtectedFieldsForOutput(record, context.fieldContext());
+        T output = (T) fieldProtectionAbility.maskProtectedFieldsForOutput(record, context.fieldContext());
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, output);
+        return output;
     }
 
     @Override

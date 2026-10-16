@@ -862,6 +862,7 @@ public class DynamicEntityService implements
     }
 
     private void populateReferenceReadFields(List<DynamicRecord> records) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(this, records);
         populateDeclaredReferenceProjections(records);
         populateReferencedBys(records);
     }

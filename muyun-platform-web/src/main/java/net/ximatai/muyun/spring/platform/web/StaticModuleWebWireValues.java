@@ -40,7 +40,9 @@ final class StaticModuleWebWireValues {
             return record;
         }
         fieldTypes.forEach((fieldName, fieldType) -> adaptPath(values, fieldName.split("\\."), 0, fieldType));
-        return objectMapper.convertValue(values, Map.class);
+        Map<?, ?> output = objectMapper.convertValue(values, Map.class);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, output);
+        return output;
     }
 
     static WebPageResponse<?> adaptPage(WebPageResponse<?> response,

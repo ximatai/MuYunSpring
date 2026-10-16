@@ -1,4 +1,5 @@
 import { defineComponent, h } from 'vue';
+import type { UiTreeNode } from '@/vue-ui-antdv/types';
 import { businessContentLanguageContext, createLanguageContext, provideLanguageContext } from '@/web-core';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
@@ -191,5 +192,78 @@ it('relabels retained lazy nodes without losing expansion, search or the pending
     expect(picker.emitted('update:value')).toBeUndefined();
   } finally {
     wrapper.unmount();
+  }
+});
+
+it('relabels expanded descendants after appending a parent page through the actual tree cache', async () => {
+  vi.useFakeTimers();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const candidate = (id: string, isLeaf = false) => ({
+    id,
+    title: `原文 ${id}`,
+    isLeaf,
+    subtitle: `路径 ${id}`,
+    titleContent: { originalText: `原文 ${id}`, readings: { en: `English ${id}`, de: `Deutsch ${id}` } },
+    subtitleContent: { originalText: `路径 ${id}`, readings: { en: `Path ${id}`, de: `Pfad ${id}` } },
+  });
+  const source = provider({
+    loadRoot: vi.fn().mockResolvedValue({ records: [candidate('parent')] }),
+    loadChildren: vi.fn(async ({ parent, cursor }) =>
+      parent.id === 'parent'
+        ? cursor
+          ? { records: [candidate('second', true)] }
+          : { records: [candidate('first')], hasMore: true, nextCursor: 'page-2' }
+        : { records: [candidate('grandchild', true)] },
+    ),
+  });
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ScopedTreePicker, { provider: source });
+      },
+    }),
+    {
+      global: {
+        stubs: {
+          ScopedTreePicker: false,
+          UiTree: false,
+          UiModal: { template: '<section><slot /></section>' },
+          ATree: { name: 'ATree', props: ['treeData'], template: '<div />' },
+        },
+      },
+    },
+  );
+  try {
+    const picker = wrapper.findComponent(ScopedTreePicker);
+    picker.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '');
+    await flushPromises();
+    const tree = picker.findComponent({ name: 'UiTree' });
+    const renderer = tree.findComponent({ name: 'ATree' });
+    renderer.vm.$emit('expand', ['parent'], { expanded: true, node: { key: 'parent' } });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(300);
+    renderer.vm.$emit('expand', ['parent', 'first'], { expanded: true, node: { key: 'first' } });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(300);
+    const append = (tree.vm.$.exposed as { loadMore: (key: string) => Promise<void> }).loadMore('parent');
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(300);
+    await append;
+    await flushPromises();
+    businessContentLanguageContext(language).setLanguage('de');
+    await flushPromises();
+    const parent = (renderer.props('treeData') as UiTreeNode[])[0]!;
+    expect(parent.title).toBe('Deutsch parent');
+    expect(parent.children?.map((node) => [node.title, node.secondary])).toEqual([
+      ['Deutsch first', 'Pfad first'],
+      ['Deutsch second', 'Pfad second'],
+    ]);
+    expect(parent.children?.[0]?.children?.[0]?.title).toBe('Deutsch grandchild');
+    expect(tree.props('expandedKeys')).toEqual(['parent', 'first']);
+    expect(source.loadChildren).toHaveBeenCalledTimes(3);
+  } finally {
+    wrapper.unmount();
+    vi.useRealTimers();
   }
 });
