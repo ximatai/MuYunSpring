@@ -86,7 +86,13 @@ it('scoped tree context resolves scope values lazily', async () => {
   selectedOrganization.id = 'org-2';
   await scopedContext.abilities.tree().tree();
 
-  assert.deepEqual(context.requests, [{ path: '/iam.department/tree', query: { organizationId: 'org-2' } }]);
+  assert.deepEqual(context.requests, [
+    {
+      path: '/iam.department/tree',
+      query: { organizationId: 'org-2' },
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
+    },
+  ]);
 });
 
 it('scoped tree context sends scoped tree flat and sort requests through platform paths', async () => {
@@ -105,10 +111,12 @@ it('scoped tree context sends scoped tree flat and sort requests through platfor
   assert.deepEqual(context.requests, [
     {
       path: '/iam.department/tree/dept%2F1',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       query: { organizationId: 'org-1', flat: true, includeSelf: true },
     },
     {
       path: '/iam.department/tree/dept%2F2',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       query: { organizationId: 'org-1', includeSelf: false },
     },
     {
@@ -154,7 +162,13 @@ it('picker query context scopes tree requests and stays empty before its navigat
   await scopedContext.abilities.tree().tree();
   await scopedContext.crud.query();
 
-  assert.deepEqual(context.requests, [{ path: '/iam.department/tree', query: { organizationId: 'org-1' } }]);
+  assert.deepEqual(context.requests, [
+    {
+      path: '/iam.department/tree',
+      query: { organizationId: 'org-1' },
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
+    },
+  ]);
   assert.deepEqual(context.queries, [
     { conditions: [{ fieldName: 'organizationId', operator: 'EQ', values: ['org-1'] }] },
   ]);
@@ -225,3 +239,37 @@ function createFakeModuleContext(options: { hasTree?: boolean } = {}) {
     queryOptions: Array<RecordQueryRequestOptions | undefined>;
   };
 }
+
+it('normalizes dynamic scoped tree records at every depth without moving reading labels into raw fields', async () => {
+  const context = createFakeModuleContext();
+  const texts = { title: { originalText: 'original', readings: { de: 'Gerät' } } };
+  const record = { id: 'one', version: 1, values: { title: 'original' }, children: {}, $contentTexts: texts };
+  context.http.request = async (request: HttpRequestOptions) =>
+    (request.query?.flat
+      ? { records: [record] }
+      : { records: [{ record, children: [{ record: { ...record, id: 'two' }, children: [] }] }] }) as never;
+  const client = createScopedTreeModuleContext<Record<string, unknown>>(context as never, {
+    scopeFieldName: 'organizationId',
+    scopeValue: 'org-1',
+    treePath: '/test.category/tree',
+  }).abilities.tree();
+  const tree = await client.tree();
+  assert.deepEqual(tree.records[0]?.record, {
+    id: 'one',
+    version: 1,
+    title: 'original',
+    $contentTexts: texts,
+  });
+  assert.deepEqual(tree.records[0]?.children[0]?.record, {
+    id: 'two',
+    version: 1,
+    title: 'original',
+    $contentTexts: texts,
+  });
+  assert.deepEqual((await client.treeFlat()).records[0], {
+    id: 'one',
+    version: 1,
+    title: 'original',
+    $contentTexts: texts,
+  });
+});

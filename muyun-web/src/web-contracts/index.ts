@@ -861,7 +861,21 @@ export interface WebReferenceResolveRequest {
   navigatorTargetLevelKey?: string;
 }
 
+/** Disposable business reading text, independent of configuration resources and write values. */
+export interface BusinessContentTextPresentation {
+  originalText: string;
+  readings: Readonly<Record<string, string>>;
+}
+
+export interface RecordBusinessContentPresentation {
+  $contentTexts?: Readonly<
+    Record<string, BusinessContentTextPresentation | readonly (BusinessContentTextPresentation | null)[]>
+  >;
+}
+
 export interface WebReferenceResolveItem {
+  titleContent?: BusinessContentTextPresentation;
+  subtitleContent?: BusinessContentTextPresentation;
   id: string;
   title?: string;
   titleText?: TextPresentation;

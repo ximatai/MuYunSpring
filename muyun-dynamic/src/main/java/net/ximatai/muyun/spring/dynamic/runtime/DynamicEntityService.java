@@ -784,18 +784,24 @@ public class DynamicEntityService implements
 
     public DynamicReferenceResolveResponse resolveReference(String sourceField,
                                                             DynamicReferenceResolveRequest request) {
+        return resolveReference(sourceField, request, java.util.function.UnaryOperator.identity());
+    }
+
+    public DynamicReferenceResolveResponse resolveReference(String sourceField, DynamicReferenceResolveRequest request,
+            java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         EntityReferenceDefinition reference = referenceDefinition(sourceField);
         ReferencePlan plan = reference.plan();
+        DynamicReferenceResolver resolver;
         try {
-            return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects())
-                    .resolve(request);
+            resolver = new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects());
         } catch (ModuleDefinitionException dynamicTargetUnavailable) {
             var staticTarget = PlatformAbilityRuntime.referenceTargetResolver().resolve(plan.target());
             if (staticTarget.isEmpty()) {
                 throw dynamicTargetUnavailable;
             }
-            return new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects()).resolve(request);
+            resolver = new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects());
         }
+        return resolver.resolve(request, userLabelCriteria);
     }
 
     @Override

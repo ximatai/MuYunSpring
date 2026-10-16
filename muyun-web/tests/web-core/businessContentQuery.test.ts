@@ -36,11 +36,14 @@ it('carries reading intent separately from unchanged business query controls on 
   const controls = { quickSearch: 'Gerät', page: { pageNum: 2, pageSize: 20 } };
   for (const client of clients) {
     const result = await client.query(controls, { contentLanguage: 'de' });
-    expect(requests.at(-1)?.headers).toEqual({ 'X-MuYun-Content-Language': 'de' });
+    expect(requests.at(-1)?.headers).toEqual({
+      'X-MuYun-Content-Language': 'de',
+      'X-MuYun-Content-Languages': 'zh-CN,en,de',
+    });
     expect(requests.at(-1)?.body).toMatchObject(controls);
     expect(result.records[0]).toEqual({ id: 'record', title: '原文' });
     expect(result.businessContent).toEqual(response.businessContent);
   }
   await clients[0]!.query(controls);
-  expect(requests.at(-1)?.headers).toBeUndefined();
+  expect(requests.at(-1)?.headers).toEqual({ 'X-MuYun-Content-Languages': 'zh-CN,en,de' });
 });

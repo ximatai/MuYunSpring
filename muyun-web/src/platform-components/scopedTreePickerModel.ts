@@ -1,3 +1,4 @@
+import type { BusinessContentTextPresentation, TextPresentation } from '@muyun/web-contracts';
 /**
  * An authorized, source-owned record projection for a lazily loaded tree selector.
  * The component deliberately does not infer a parent, tenant, or module from this shape.
@@ -5,6 +6,9 @@
 export interface ScopedTreePickerCandidate {
   id: string;
   title: string;
+  titleText?: TextPresentation;
+  titleContent?: BusinessContentTextPresentation;
+  subtitleContent?: BusinessContentTextPresentation;
   /** A provider may return a path, code, or scope summary to disambiguate equal titles. */
   subtitle?: string;
   /** False keeps the item expandable and asks the provider for children when it is expanded. */

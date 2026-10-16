@@ -38,6 +38,15 @@ public final class ReferenceLoadReader {
                                               List<String> sourceIds,
                                               Function<ReferenceTarget, ReferenceAbility<?>> abilities,
                                               ReferenceReadObserver observer) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        readResolvedAll(path, sourceIds, abilities, observer).forEach((id, value) -> result.put(id, value == null ? null : value.value()));
+        return result;
+    }
+
+    /** The same batched read with its actual terminal identity, for authorized presentation adapters. */
+    public static Map<String, ResolvedValue> readResolvedAll(ReferenceLoadPath path,
+            List<String> sourceIds, Function<ReferenceTarget, ReferenceAbility<?>> abilities,
+            ReferenceReadObserver observer) {
         if (sourceIds == null || sourceIds.isEmpty()) {
             return Map.of();
         }
@@ -69,11 +78,17 @@ public final class ReferenceLoadReader {
                 path.hops().size()));
         Map<String, Map<String, Object>> values = require(abilities, current).projections(
                 terminalIds, List.of(path.terminalField()));
-        Map<String, Object> result = new LinkedHashMap<>();
-        currentIds.forEach((sourceId, terminalId) -> result.put(sourceId,
-                values.getOrDefault(terminalId, Map.of()).get(path.terminalField())));
+        Map<String, ResolvedValue> result = new LinkedHashMap<>();
+        ReferenceTarget terminal = current;
+        currentIds.forEach((sourceId, terminalId) -> {
+            // An inaccessible terminal has no presentation identity, even if the last hop was visible.
+            result.put(sourceId, values.containsKey(terminalId) ? new ResolvedValue(terminal, terminalId,
+                    path.terminalField(), values.get(terminalId).get(path.terminalField())) : null);
+        });
         return result;
     }
+
+    public record ResolvedValue(ReferenceTarget target, String recordId, String field, Object value) { }
 
     private static String nextId(Map<String, Map<String, Object>> values, String currentId, String viaField) {
         Object value = values.getOrDefault(currentId, Map.of()).get(viaField);

@@ -17,11 +17,21 @@ public record WebReferenceResolveItem(
         Boolean hasChildren,
         String subtitle,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        net.ximatai.muyun.spring.common.i18n.TextPresentation titleText
+        net.ximatai.muyun.spring.common.i18n.TextPresentation titleText,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation titleContent,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation subtitleContent
 ) {
     public WebReferenceResolveItem {
         projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
         affectPatch = affectPatch == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(affectPatch));
+    }
+
+    public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
+            Map<String, Object> projections, Map<String, Object> affectPatch, Boolean hasChildren, String subtitle,
+            net.ximatai.muyun.spring.common.i18n.TextPresentation titleText) {
+        this(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, titleText, null, null);
     }
 
     public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
@@ -30,7 +40,7 @@ public record WebReferenceResolveItem(
     }
 
     public WebReferenceResolveItem withTitleText(net.ximatai.muyun.spring.common.i18n.TextPresentation text) {
-        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, text);
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, text, titleContent, subtitleContent);
     }
 
     public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
@@ -39,7 +49,14 @@ public record WebReferenceResolveItem(
     }
 
     public WebReferenceResolveItem withSubtitle(String subtitle) {
-        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, titleText);
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, titleText,
+                titleContent, subtitleContent != null && java.util.Objects.equals(subtitleContent.originalText(), subtitle) ? subtitleContent : null);
+    }
+
+    public WebReferenceResolveItem withContentTexts(
+            net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation titleContent,
+            net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation subtitleContent) {
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle, titleText, titleContent, subtitleContent);
     }
 
     /** Compatibility constructor for callers that do not deliver lazy-tree structure. */

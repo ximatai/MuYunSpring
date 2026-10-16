@@ -46,11 +46,13 @@ describe('query reference picker provider', () => {
     expect(request).toHaveBeenNthCalledWith(1, {
       method: 'POST',
       path: '/sales.customer/navigator/reference/query',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       body: { page: { pageNum: 2, pageSize: 20 }, quickSearch: '杭州' },
     });
     expect(request).toHaveBeenNthCalledWith(2, {
       method: 'POST',
       path: '/sales.customer/navigator/reference/translate',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       body: { ids: ['customer-1', 'customer-3'] },
     });
     expect(request.mock.calls.flat().map((call) => call.path)).not.toContain('/sales.customer/query');

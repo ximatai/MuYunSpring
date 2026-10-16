@@ -12,16 +12,27 @@ public final class ReferenceCandidateSubtitleReader {
 
     public static Map<String, String> read(ReferenceTarget target, List<String> ids,
                                             ReferenceSelectionProjection projection, ReferenceTargetResolver resolver) {
-        if (projection == null || ids == null || ids.isEmpty()) return Map.of();
-        try {
-            return readAuthorized(target, ids, projection, resolver);
-        } catch (net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException denied) {
-            // Optional context cannot widen access or prevent an already-authorized candidate selection.
-            return Map.of();
-        }
+        Map<String, String> result = new LinkedHashMap<>();
+        readResolved(target, ids, projection, resolver).forEach((id, value) -> result.put(id, label(value.value())));
+        return Map.copyOf(result);
     }
 
-    private static Map<String, String> readAuthorized(ReferenceTarget target, List<String> ids,
+    public static Map<String, ReferenceLoadReader.ResolvedValue> readResolved(ReferenceTarget target, List<String> ids,
+            ReferenceSelectionProjection projection, ReferenceTargetResolver resolver) {
+        if (projection == null || ids == null || ids.isEmpty()) return Map.of();
+        Map<String, ReferenceLoadReader.ResolvedValue> result;
+        try {
+            result = readAuthorized(target, ids, projection, resolver);
+        } catch (net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException denied) {
+            // Optional context cannot widen access or prevent an already-authorized candidate selection.
+            result = Map.of();
+        }
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onCandidateSubtitles(
+                new ReferenceTextReadListener.CandidateSubtitles(target, projection.key(), ids, result));
+        return result;
+    }
+
+    private static Map<String, ReferenceLoadReader.ResolvedValue> readAuthorized(ReferenceTarget target, List<String> ids,
                                                      ReferenceSelectionProjection projection, ReferenceTargetResolver resolver) {
         ReferenceTarget current = target;
         for (int index = 0; index < projection.path().size(); index++) {
@@ -38,15 +49,21 @@ public final class ReferenceCandidateSubtitleReader {
                 current = hop.target();
             }
         }
-        Map<String, String> result = new LinkedHashMap<>();
-        ReferenceSelectionProjectionReader.read(target, ids, List.of(projection), resolver).forEach((id, values) -> {
-            Object value = values.get(projection.key());
-            if (value instanceof CharSequence || value instanceof Number || value instanceof Boolean) {
-                String text = value.toString().trim();
-                if (!text.isBlank()) result.put(id, text.substring(0, Math.min(text.length(), 500)));
-            }
+        Map<String, ReferenceLoadReader.ResolvedValue> result = new LinkedHashMap<>();
+        ReferenceSelectionProjectionReader.readResolved(target, ids, List.of(projection), resolver).forEach((id, values) -> {
+            var value = values.get(projection.key());
+            if (value != null && label(value.value()) != null) result.put(id, value);
         });
         return Map.copyOf(result);
+    }
+
+    public static String label(Object value) {
+        if (!(value instanceof CharSequence || value instanceof Number || value instanceof Boolean)) return null;
+        String text = value.toString().trim();
+        if (text.isBlank()) return null;
+        int end = Math.min(text.length(), 500);
+        if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1)) && Character.isLowSurrogate(text.charAt(end))) end--;
+        return text.substring(0, end);
     }
 
     private static ReferenceAbility<?> require(ReferenceTargetResolver resolver, ReferenceTarget target) {

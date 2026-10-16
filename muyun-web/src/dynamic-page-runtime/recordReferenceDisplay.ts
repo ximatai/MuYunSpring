@@ -49,6 +49,8 @@ export function createRecordReferenceDisplay(
           title: candidate!.title,
           subtitle: candidate!.subtitle,
           titleText: candidate!.titleText && structuredClone(toRaw(candidate!.titleText)),
+          titleContent: candidate!.titleContent && structuredClone(toRaw(candidate!.titleContent)),
+          subtitleContent: candidate!.subtitleContent && structuredClone(toRaw(candidate!.subtitleContent)),
         })),
       });
     },

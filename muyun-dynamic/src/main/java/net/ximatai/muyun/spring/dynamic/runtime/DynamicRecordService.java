@@ -945,6 +945,13 @@ public class DynamicRecordService {
         return resolveReference(moduleAlias, entityAlias, fieldName, request);
     }
 
+    /** Expands only a user's label search; dependencies, identity matching and REFERENCE scope remain raw. */
+    public DynamicReferenceResolveResponse resolveFieldReference(String moduleAlias, String entityAlias, String fieldName,
+            DynamicReferenceResolveRequest request, java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
+        return relationRuntime.resolveReference(moduleAlias, entityAlias, fieldName, request,
+                Objects.requireNonNull(userLabelCriteria));
+    }
+
     DynamicEntityService entityService(String moduleAlias, String entityAlias) {
         return access.entityService(moduleAlias, entityAlias);
     }

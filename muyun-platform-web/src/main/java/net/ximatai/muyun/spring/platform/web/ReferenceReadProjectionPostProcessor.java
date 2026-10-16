@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSummaryPlan;
@@ -80,6 +81,15 @@ final class ReferenceReadProjectionPostProcessor {
                         .normalizeValues(record.get(summary.sourceField()));
                 record.put(summary.outputField(), summaryValue(ids,
                         resolved.get(sourcePlan(modelClass, summary.sourceField())), summary));
+                var target = resolved.get(sourcePlan(modelClass, summary.sourceField()));
+                if (target != null) for (String id : ids) {
+                    var values = target.projections.get(id);
+                    if (values == null) continue;
+                    for (String field : summary.fields()) if (!"id".equals(field) && values.get(field) instanceof String text)
+                        capture(new ReferenceTextReadListener.Projection(record, summary.sourceField(), ids,
+                                field, summary.outputField(), id, false,
+                                List.of(new ReferenceTextReadListener.Text(summary.target(), id, field, text))));
+                }
             }
         }
         applyLoadPaths(output, modelClass, loadPaths);
@@ -222,6 +232,11 @@ final class ReferenceReadProjectionPostProcessor {
         for (ReferenceProjection projection : plan.projections()) {
             record.put(projection.outputField(), projectionValue(ids, target.projections,
                     projection.targetField(), plan.cardinality()));
+            var delivered = (plan.cardinality() == ReferenceCardinality.MANY ? ids.stream() : ids.stream().limit(1))
+                    .filter(target.projections::containsKey).map(id -> new ReferenceLoadReader.ResolvedValue(plan.target(),
+                            id, projection.targetField(), target.projections.get(id).get(projection.targetField()))).toList();
+            capture(ReferenceTextReadListener.Projection.fromResolved(record, plan.sourceField(), ids,
+                    projection.outputField(), plan.cardinality() == ReferenceCardinality.MANY, delivered));
         }
     }
 
@@ -259,15 +274,25 @@ final class ReferenceReadProjectionPostProcessor {
                     .flatMap(record -> source.normalizeValues(record.get(path.sourceField())).stream())
                     .distinct()
                     .toList();
-            Map<String, Object> values = ReferenceLoadReader.readAll(path, sourceValues,
+            var values = ReferenceLoadReader.readResolvedAll(path, sourceValues,
                     target -> PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElseThrow(
                             () -> new PlatformException("reference target is not registered: " + target.qualifiedName())),
                     PlatformAbilityRuntime.referenceReadObserver());
             for (Map<String, Object> record : records) {
                 List<String> sourceValuesForRecord = source.normalizeValues(record.get(path.sourceField()));
-                record.put(path.outputField(), sourceValuesForRecord.isEmpty() ? null : values.get(sourceValuesForRecord.getFirst()));
+                boolean collection = source.cardinality() == ReferenceCardinality.MANY && path.hops().isEmpty();
+                var delivered = (collection ? sourceValuesForRecord.stream() : sourceValuesForRecord.stream().limit(1))
+                        .map(values::get).filter(java.util.Objects::nonNull).toList();
+                record.put(path.outputField(), collection ? delivered.stream().map(ReferenceLoadReader.ResolvedValue::value)
+                        .filter(java.util.Objects::nonNull).toList() : delivered.isEmpty() ? null : delivered.getFirst().value());
+                capture(ReferenceTextReadListener.Projection.fromResolved(record, source.sourceField(), sourceValuesForRecord,
+                        path.outputField(), collection, delivered));
             }
         }
+    }
+
+    private static void capture(ReferenceTextReadListener.Projection projection) {
+        if (projection != null) PlatformAbilityRuntime.referenceTextReadListener().onProjection(projection);
     }
 
     private static final class TargetRequest {

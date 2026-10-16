@@ -229,6 +229,7 @@ class QualityCollaborationIT {
             var product = write(mvc, "/quality.product/insert", Map.of("code", "SEAL-1", "title", "密封组件",
                     "categoryId", categoryId, "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))));
             String productId = product.path("id").asText();
+            confirmTranslation(mvc, "/quality.product/view/" + productId + "/content/title/translations/en/", "Seal component");
             String original = "温度达到 80°C 时，12 件样品中有 2 件密封失效；暂勿发货。";
             String privateNote = "仅供内部核实的供应商批次说明，不得进入阅读译文。";
             var issue = write(mvc, "/quality.exception/insert", Map.of("title", "密封失效", "description", original,
@@ -248,6 +249,34 @@ class QualityCollaborationIT {
             assertThat(dynamicMatches.path("total").asLong()).isEqualTo(1);
             assertThat(dynamicMatches.at("/records/0/id").asText()).isEqualTo(id);
             assertThat(dynamicMatches.at("/records/0/values/title").asText()).isEqualTo("密封失效");
+            var productReading = presentationRead(mvc, "/quality.product/view/" + productId);
+            assertThat(productReading.path("categoryTitle").asText()).isEqualTo("数控设备");
+            assertThat(productReading.at("/$contentTexts/categoryTitle/readings/en").asText()).isEqualTo("CNC Equipment");
+            var issueReading = presentationRead(mvc, "/quality.exception/view/" + id);
+            assertThat(issueReading.at("/values/productTitle").asText()).isEqualTo("密封组件");
+            assertThat(issueReading.at("/$contentTexts/productTitle/readings/en").asText()).isEqualTo("Seal component");
+            assertThat(issueReading.at("/$contentTexts/productIdTitle/readings/en").asText()).isEqualTo("Seal component");
+            for (String[] source : java.util.List.of(new String[] {"/platform.module/quality.product/references/categoryId/resolve", "CNC Equipment", categoryId, "数控设备"},
+                    new String[] {"/quality.exception/references/productId/resolve", "Seal component", productId, "密封组件"})) {
+                var candidates = presentationQuery(mvc, source[0], Map.of("mode", "QUERY", "fuzzy", source[1]));
+                assertThat(candidates.path("total").asLong()).isEqualTo(1);
+                assertThat(candidates.at("/options/0/id").asText()).isEqualTo(source[2]);
+                assertThat(candidates.at("/options/0/title").asText()).isEqualTo(source[3]);
+                assertThat(candidates.at("/options/0/titleContent/readings/en").asText()).isEqualTo(source[1]);
+                var restored = presentationQuery(mvc, source[0], Map.of("mode", "TRANSLATE", "values", java.util.List.of(source[2])));
+                assertThat(restored.at("/results/0/item/id").asText()).isEqualTo(source[2]);
+                assertThat(restored.at("/results/0/item/titleContent/readings/en").asText()).isEqualTo(source[1]);
+            }
+            for (String[] target : java.util.List.of(new String[] {"quality.equipment_category", "CNC Equipment", categoryId},
+                    new String[] {"quality.product", "Seal component", productId})) {
+                var navigator = presentationQuery(mvc, "/" + target[0] + "/navigator/reference/query", Map.of("quickSearch", target[1]));
+                assertThat(navigator.path("total").asLong()).isEqualTo(1);
+                assertThat(navigator.at("/records/0/id").asText()).isEqualTo(target[2]);
+                assertThat(navigator.at("/records/0/$contentTexts/title/readings/en").asText()).isEqualTo(target[1]);
+            }
+            var categoryTree = presentationQuery(mvc, "/quality.equipment_category/navigator/reference/tree/query", Map.of());
+            assertThat(categoryTree.at("/records/0/record/id").asText()).isEqualTo(categoryId);
+            assertThat(categoryTree.at("/records/0/record/$contentTexts/title/readings/en").asText()).isEqualTo("CNC Equipment");
             assertThat(issue.toString()).doesNotContain(privateNote);
             var reopened = read(mvc, "/quality.exception/view/" + id);
             assertThat(reopened.at("/values/internalNote").asText()).matches("\\*+");
@@ -418,6 +447,19 @@ class QualityCollaborationIT {
                 }
             }
         }
+    }
+
+    private JsonNode presentationQuery(MockMvc mvc, String path, Map<String, ?> values) throws Exception {
+        var response = mvc.perform(post(path).header("X-MuYun-Content-Languages", "zh-CN,en,de")
+                .contentType("application/json").content(mapper.writeValueAsString(values))).andReturn().getResponse();
+        assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+        return mapper.readTree(response.getContentAsString());
+    }
+
+    private JsonNode presentationRead(MockMvc mvc, String path) throws Exception {
+        var response = mvc.perform(get(path).header("X-MuYun-Content-Languages", "zh-CN,en,de")).andReturn().getResponse();
+        assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+        return mapper.readTree(response.getContentAsString());
     }
 
     private JsonNode readingQuery(MockMvc mvc, String module, Map<String, ?> values) throws Exception {

@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.LinkedHashMap;
@@ -36,14 +37,18 @@ public final class PageReferenceProjectionReader {
                 idsByRecord.add(valuesForRecord);
                 ids.addAll(valuesForRecord);
             }
-            Map<String, Object> loaded = ReferenceLoadReader.readAll(path.loadPath(), List.copyOf(ids),
+            var loaded = ReferenceLoadReader.readResolvedAll(path.loadPath(), List.copyOf(ids),
                     PageReferenceProjectionReader::ability, PlatformAbilityRuntime.referenceReadObserver());
             for (int index = 0; index < records.size(); index++) {
                 List<String> recordIds = idsByRecord.get(index);
-                Object value = recordIds.isEmpty() ? null : loaded.get(recordIds.getFirst());
+                var resolved = recordIds.isEmpty() ? null : loaded.get(recordIds.getFirst());
+                Object value = resolved == null ? null : resolved.value();
                 Map<String, Object> projection = new LinkedHashMap<>();
                 projection.put(path.fieldName(), value);
                 output.accept(records.get(index), projection);
+                var fact = ReferenceTextReadListener.Projection.fromResolved(records.get(index), source.sourceField(),
+                        recordIds, path.fieldName(), false, resolved == null ? List.of() : List.of(resolved));
+                if (fact != null) PlatformAbilityRuntime.referenceTextReadListener().onProjection(fact);
             }
         }
     }

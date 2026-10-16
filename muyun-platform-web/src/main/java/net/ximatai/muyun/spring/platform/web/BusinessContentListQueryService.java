@@ -17,19 +17,24 @@ public final class BusinessContentListQueryService {
     private final BusinessContentQueryService content;
     private final RelationProjectionQueryExecutor executor;
     private final RelationProjectionDatabaseTypeProvider database;
-    private final org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations jdbc;
-    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
+    private final BusinessContentReadingProjectionService readings;
 
     public BusinessContentListQueryService(BusinessContentQueryService content,
                                            RelationProjectionQueryExecutor executor,
                                            RelationProjectionDatabaseTypeProvider database,
                                            org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations jdbc,
                                            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        this(content, executor, database, new BusinessContentReadingProjectionService(content, jdbc, mapper));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public BusinessContentListQueryService(BusinessContentQueryService content,
+            RelationProjectionQueryExecutor executor, RelationProjectionDatabaseTypeProvider database,
+            BusinessContentReadingProjectionService readings) {
         this.content = Objects.requireNonNull(content);
         this.executor = Objects.requireNonNull(executor);
         this.database = Objects.requireNonNull(database);
-        this.jdbc = Objects.requireNonNull(jdbc);
-        this.mapper = Objects.requireNonNull(mapper);
+        this.readings = Objects.requireNonNull(readings);
     }
 
     public boolean applies(CrudAbility<?> owner, Sort... sorts) {
@@ -63,30 +68,7 @@ public final class BusinessContentListQueryService {
     /** Batch presentation only for fields actually present in this already-authorized output page. */
     public Map<String, Map<String, String>> readings(CrudAbility<?> owner, List<?> records, Set<String> allowedFields) {
         var language = BusinessContentQueryWebContext.language();
-        if (language.isEmpty() || records == null || records.isEmpty()) return Map.of();
-        var result = new LinkedHashMap<String, Map<String, String>>();
-        List<Map<?, ?>> output = records.stream().<Map<?, ?>>map(record -> mapper.convertValue(record, Map.class)).toList();
-        for (String field : content.fields(owner)) {
-            if (!allowedFields.contains(field)) continue;
-            var ids = new LinkedHashSet<String>();
-            var originals = new HashMap<String, String>();
-            for (Map<?, ?> record : output) {
-                Object id = record.get("id");
-                Object text = record.containsKey("values") && record.get("values") instanceof Map<?, ?> values
-                        ? values.get(field) : record.get(field);
-                if (id instanceof String identity && text instanceof String raw) { ids.add(identity); originals.put(identity, raw); }
-            }
-            if (ids.isEmpty()) continue;
-            var projection = content.readingProjection(owner, field, language.get(), "content_list_read_");
-            var params = new LinkedHashMap<>(projection.getParams()); params.put("content_list_ids", ids);
-            jdbc.query("select record_id, original_text, reading_text from (" + projection.getSql()
-                    + ") reading where record_id in (:content_list_ids)", params, row -> {
-                if (!Objects.equals(originals.get(row.getString("record_id")), row.getString("original_text"))) return;
-                result.computeIfAbsent(row.getString("record_id"), ignored -> new LinkedHashMap<>())
-                        .put(field, row.getString("reading_text"));
-            });
-        }
-        return result;
+        return language.isEmpty() ? Map.of() : readings.readings(owner, records, allowedFields, language.get());
     }
 
     Ordering order(CrudAbility<?> owner, RelationProjectionSqlPlan source, String language, Sort... sorts) {

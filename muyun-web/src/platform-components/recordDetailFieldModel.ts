@@ -8,6 +8,7 @@ import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonly
 import {
   recordPresentationLabel,
   recordPresentationText,
+  recordBusinessContentText,
   presentationLabel,
   platformLanguageContext,
   type LanguageContext,
@@ -42,7 +43,10 @@ export function resolveRecordDetailDisplayValue(
   if (isPresent(customValue)) {
     return String(customValue);
   }
-  if (!options.draft && recordPresentationText(record, field.fieldName))
+  if (
+    !options.draft &&
+    (recordPresentationText(record, field.fieldName) || recordBusinessContentText(record, field.fieldName))
+  )
     return recordPresentationLabel(record, field.fieldName, language) ?? String(value);
   const scale = field.inputRequirements?.scale;
   if (

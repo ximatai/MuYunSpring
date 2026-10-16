@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { businessContentLabel, useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -159,7 +159,7 @@ const rows = computed<UiDataTableRecord[]>(() =>
     ...(candidate.projections ?? {}),
     id: candidate.id,
     title: candidateTitle(candidate),
-    subtitle: candidate.subtitle,
+    subtitle: candidateSubtitle(candidate),
   })),
 );
 const browsingTree = computed(() => open.value && !keyword.value.trim() && Boolean(props.provider.loadTree));
@@ -449,8 +449,18 @@ function closePicker() {
   loading.value = false;
 }
 
+function candidateSubtitle(candidate: ReferencePickerCandidate) {
+  return (
+    candidate.subtitle &&
+    (businessContentLabel(candidate.subtitle, candidate.subtitleContent, language) ?? candidate.subtitle)
+  );
+}
+
 function candidateTitle(candidate: ReferencePickerCandidate) {
-  return referencePickerDisplayTitle({ title: candidate.title, titleText: candidate.titleText }, language);
+  return referencePickerDisplayTitle(
+    { title: candidate.title, titleText: candidate.titleText, titleContent: candidate.titleContent },
+    language,
+  );
 }
 
 function treeNode(node: ReferencePickerTreeNode): UiTreeNode {
@@ -462,7 +472,7 @@ function treeNode(node: ReferencePickerTreeNode): UiTreeNode {
           title: candidateTitle(record),
         })
       : candidateTitle(record),
-    secondary: record.subtitle,
+    secondary: candidateSubtitle(record),
     disabled: record.disabled || record.unavailable,
     isLeaf: !node.children?.length,
     ...(node.children?.length ? { children: node.children.map(treeNode) } : {}),

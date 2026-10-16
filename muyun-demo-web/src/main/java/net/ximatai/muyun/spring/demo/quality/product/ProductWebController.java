@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.demo.quality.configuration.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.*;
 import org.springframework.context.annotation.Profile;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import org.springframework.web.bind.annotation.*;
 
 @RestController @Profile("collaboration-demo")
@@ -12,7 +13,8 @@ import org.springframework.web.bind.annotation.*;
 @StaticModuleOpenApi
 @RequestMapping("/" + ProductService.MODULE_ALIAS)
 public class ProductWebController extends StaticModuleWebControllerAdapter<ProductService>
-        implements CrudWeb<Product, ProductService>, StaticModuleUiContributor {
+        implements CrudWeb<Product, ProductService>, NavigatorReferenceWeb<Product, ProductService>,
+        StaticModuleUiContributor {
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ProductService.MODULE_ALIAS)
                 .page(PageTemplates.flatManagement(page -> page

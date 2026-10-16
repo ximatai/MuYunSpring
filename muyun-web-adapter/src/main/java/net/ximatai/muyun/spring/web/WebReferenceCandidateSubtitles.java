@@ -19,8 +19,11 @@ public final class WebReferenceCandidateSubtitles {
             result.candidates().forEach(item -> ids.add(item.id()));
         });
         collectTreeIds(response.tree(), ids);
-        Map<String, String> subtitles = net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.read(
+        var resolved = net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.readResolved(
                 target, List.copyOf(ids), projection, resolver);
+        Map<String, String> subtitles = new java.util.LinkedHashMap<>();
+        resolved.forEach((id, value) -> subtitles.put(id,
+                net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.label(value.value())));
         return new WebReferenceResolveResponse(response.status(), response.mode(),
                 response.options().stream().map(item -> item.withSubtitle(subtitles.get(item.id()))).toList(),
                 response.results().stream().map(result -> new WebReferenceResolveResult(result.input(), result.status(),

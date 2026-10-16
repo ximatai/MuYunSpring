@@ -115,3 +115,20 @@ it('omits uncomposed approval and storage facts without erasing same-named field
   expect(recordMutationPayload(record).approvalStatus).toBe('approved');
   expect(record.approvalInstanceId).toBe('instance');
 });
+
+it('never submits disposable business reading metadata as an ordinary business field', () => {
+  const record = {
+    id: 'one',
+    version: 2,
+    title: '原文',
+    $contentTexts: { title: { originalText: '原文', readings: { en: 'Reading' } } },
+    businessJson: { $contentTexts: 'business fact' },
+  };
+  expect(recordMutationPayload(record)).toEqual({
+    id: 'one',
+    version: 2,
+    title: '原文',
+    businessJson: { $contentTexts: 'business fact' },
+  });
+  expect(record.title).toBe('原文');
+});

@@ -48,7 +48,7 @@ const displayValue = computed(() =>
 const readingTitle = computed(() =>
   props.reading !== undefined && renderedValue.value === undefined && !props.column.reference
     ? language.t('platform.content.list-reading-original', '阅读译文；原文：{original}', {
-        original: String(originalDisplayValue.value),
+        original: String(props.record[props.column.key] ?? originalDisplayValue.value),
       })
     : String(displayValue.value),
 );

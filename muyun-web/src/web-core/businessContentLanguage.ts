@@ -32,3 +32,11 @@ export function businessContentLanguageContext(language: LanguageContext): Busin
   contexts.set(language, context);
   return context;
 }
+
+/** A bounded reading snapshot lets language changes preserve local picker and form drafts. */
+export function businessContentReadHeaders(options?: { contentLanguage?: string }): Record<string, string> {
+  return {
+    'X-MuYun-Content-Languages': businessContentLanguages.map(({ value }) => value).join(','),
+    ...(options?.contentLanguage ? { 'X-MuYun-Content-Language': options.contentLanguage } : {}),
+  };
+}

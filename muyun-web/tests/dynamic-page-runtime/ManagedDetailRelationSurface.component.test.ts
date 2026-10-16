@@ -1463,7 +1463,7 @@ describe('managed detail relation surface', () => {
       expect.objectContaining({
         method: 'POST',
         path: '/platform.field_ui_control/view/select/relations/properties/query',
-        headers: { 'X-MuYun-Content-Language': 'de' },
+        headers: { 'X-MuYun-Content-Language': 'de', 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       }),
     );
 

@@ -59,11 +59,17 @@ final class DynamicReferenceResolver {
     }
 
     DynamicReferenceResolveResponse resolve(DynamicReferenceResolveRequest request) {
+        return resolve(request, java.util.function.UnaryOperator.identity());
+    }
+
+    DynamicReferenceResolveResponse resolve(DynamicReferenceResolveRequest request,
+            java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         DynamicReferenceResolveRequest effective = request == null
                 ? DynamicReferenceResolveRequest.query(null)
                 : request;
         sourceService.requireSameEntityAliasForReference(plan);
-        return withSubtitles(effective.mode() == DynamicReferenceResolveMode.TRANSLATE ? translate(effective) : query(effective));
+        return withSubtitles(effective.mode() == DynamicReferenceResolveMode.TRANSLATE ? translate(effective)
+                : query(effective, Objects.requireNonNull(userLabelCriteria)));
     }
 
     private DynamicReferenceResolveResponse withSubtitles(DynamicReferenceResolveResponse response) {
@@ -84,9 +90,10 @@ final class DynamicReferenceResolver {
                 response.offset(), response.limit(), response.total());
     }
 
-    private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request) {
+    private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request,
+            java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         if (dynamicTargetService != null) {
-            PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(queryCriteria(request), request.pageRequest());
+            PageResult<DynamicRecord> page = dynamicTargetService.pageQuery(queryCriteria(request, userLabelCriteria), request.pageRequest());
             Map<String, Map<String, Object>> selectionProjections = dynamicSelectionProjections(page.getRecords(), request.includeProjections());
             List<DynamicReferenceResolveItem> items = page.getRecords().stream()
                     .map(record -> dynamicItem(record, matchedBy(record, request.fuzzy(), request.matchMode()),
@@ -95,7 +102,7 @@ final class DynamicReferenceResolver {
             return new DynamicReferenceResolveResponse(resolveQueryStatus(page.getTotal()), DynamicReferenceResolveMode.QUERY,
                     items, List.of(), request.pageRequest().getOffset(), request.pageRequest().getLimit(), page.getTotal());
         }
-        PageResult<ReferenceOption> page = referenceOptions(queryCriteria(request), request.pageRequest());
+        PageResult<ReferenceOption> page = referenceOptions(queryCriteria(request, userLabelCriteria), request.pageRequest());
         return new DynamicReferenceResolveResponse(
                 resolveQueryStatus(page.getTotal()), DynamicReferenceResolveMode.QUERY,
                 items(page.getRecords(), request.fuzzy(), request.matchMode(), request.includeProjections()), List.of(),
@@ -160,18 +167,19 @@ final class DynamicReferenceResolver {
                 candidates);
     }
 
-    private Criteria queryCriteria(DynamicReferenceResolveRequest request) {
+    private Criteria queryCriteria(DynamicReferenceResolveRequest request, java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         Criteria criteria = baseCriteria(request.criteria());
         String fuzzy = request.fuzzy();
         if (fuzzy == null || fuzzy.isBlank()) return criteria;
         if (request.matchMode() == DynamicReferenceMatchMode.KEY) return criteria.eq(plan.targetKeyField(), fuzzy);
         String pattern = QueryLikePattern.containsLiteral(fuzzy.trim());
+        Criteria label = Objects.requireNonNull(userLabelCriteria.apply(Criteria.of().likeIgnoreCase(titleFieldName(), pattern)));
         if (request.matchMode() == DynamicReferenceMatchMode.LABEL) {
-            return criteria.likeIgnoreCase(titleFieldName(), pattern);
+            return criteria.and(label);
         }
         return criteria.andGroup(group -> group
                 .or(plan.targetKeyField(), net.ximatai.muyun.database.core.orm.CriteriaOperator.EQ, fuzzy)
-                .orLikeIgnoreCase(titleFieldName(), pattern));
+                .orGroup(label.getRoot()));
     }
 
     private Criteria baseCriteria(Criteria base) {

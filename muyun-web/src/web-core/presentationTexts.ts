@@ -1,4 +1,6 @@
 import { toRaw } from 'vue';
+import { businessContentLanguageContext } from './businessContentLanguage';
+import type { BusinessContentTextPresentation } from '@muyun/web-contracts';
 import type { TextReference, TextPresentation, TextPresentationDocument } from '@muyun/web-contracts';
 import type { LanguageContext, TextResolution } from './language';
 import { sha256Hex } from './sha256';
@@ -168,13 +170,66 @@ export function recordPresentationLabel(
 ): string | undefined {
   const original = (record as Record<string, unknown>)[field];
   if (original == null) return undefined;
-  return presentationLabel(String(original), recordPresentationText(record, field), context);
+  return (
+    businessContentLabel(String(original), recordBusinessContentText(record, field), context) ??
+    presentationLabel(String(original), recordPresentationText(record, field), context)
+  );
 }
 
 /** Removes only the record's read metadata; arbitrary nested JSON business values are preserved. */
 export function withoutRecordPresentation<T>(record: T): T {
-  if (!record || typeof record !== 'object' || !Object.hasOwn(record, '$texts')) return record;
+  if (
+    !record ||
+    typeof record !== 'object' ||
+    (!Object.hasOwn(record, '$texts') && !Object.hasOwn(record, '$contentTexts'))
+  )
+    return record;
   const values = { ...(record as Record<string, unknown>) };
   delete values.$texts;
+  delete values.$contentTexts;
   return values as T;
+}
+
+/** An edited original immediately invalidates its disposable reading snapshot. */
+export function businessContentLabel(
+  original: string,
+  text: BusinessContentTextPresentation | undefined,
+  context: LanguageContext,
+): string | undefined {
+  if (!text || text.originalText !== original || !text.readings) return undefined;
+  const translated = text.readings[businessContentLanguageContext(context).languageTag.value];
+  return typeof translated === 'string' && translated.trim() ? translated : undefined;
+}
+
+export function recordBusinessContentText(
+  record: object | undefined,
+  field: string,
+): BusinessContentTextPresentation | undefined {
+  if (!record) return undefined;
+  const values = record as Record<string, unknown>;
+  const texts = values.$contentTexts;
+  if (!Object.hasOwn(values, field) || !texts || typeof texts !== 'object') return undefined;
+  const text = (texts as Record<string, BusinessContentTextPresentation>)[field];
+  return text &&
+    !Array.isArray(text) &&
+    typeof values[field] === 'string' &&
+    text.originalText === values[field]
+    ? text
+    : undefined;
+}
+
+export function recordBusinessContentArray(
+  record: Record<string, unknown>,
+  field: string,
+  context: LanguageContext,
+): unknown {
+  const originals = record[field];
+  const texts = (record.$contentTexts as Record<string, unknown> | undefined)?.[field];
+  if (!Array.isArray(originals) || !Array.isArray(texts) || originals.length !== texts.length)
+    return originals;
+  return originals.map((original, index) =>
+    typeof original === 'string'
+      ? (businessContentLabel(original, texts[index], context) ?? original)
+      : original,
+  );
 }

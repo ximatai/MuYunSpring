@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.demo.quality.configuration.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.*;
 import org.springframework.context.annotation.Profile;
+import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
+import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import org.springframework.web.bind.annotation.*;
 
 @RestController @Profile("collaboration-demo")
@@ -12,7 +14,8 @@ import org.springframework.web.bind.annotation.*;
 @StaticModuleOpenApi
 @RequestMapping("/" + EquipmentCategoryService.MODULE_ALIAS)
 public class EquipmentCategoryWebController extends StaticModuleWebControllerAdapter<EquipmentCategoryService>
-        implements CrudWeb<EquipmentCategory, EquipmentCategoryService>, StaticModuleUiContributor {
+        implements CrudWeb<EquipmentCategory, EquipmentCategoryService>, NavigatorReferenceWeb<EquipmentCategory, EquipmentCategoryService>,
+        NavigatorReferenceTreeWeb<EquipmentCategory, EquipmentCategoryService>, StaticModuleUiContributor {
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(EquipmentCategoryService.MODULE_ALIAS)
                 .page(PageTemplates.treeManagement(page -> page

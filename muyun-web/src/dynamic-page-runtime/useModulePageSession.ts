@@ -11,6 +11,7 @@ import {
   recordFieldDisplay,
 } from './recordDisplayProjection';
 import type {
+  WebReferenceResolveItem,
   OptionItemDescriptor,
   OperationReceiptReference,
   OperationPresentation,
@@ -862,13 +863,18 @@ export function useModulePageSession(
       const sourceValue = live.options.formValues()[scopedTree.sourceField];
       return typeof sourceValue === 'string' && sourceValue.trim() !== '';
     };
-    const candidate = (item: {
-      id: string;
-      title?: string;
-      hasChildren?: boolean;
-    }): ScopedTreePickerCandidate => ({
+    const candidate = (
+      item: Pick<
+        WebReferenceResolveItem,
+        'id' | 'title' | 'titleText' | 'titleContent' | 'subtitle' | 'subtitleContent' | 'hasChildren'
+      >,
+    ): ScopedTreePickerCandidate => ({
       id: item.id,
       title: item.title ?? item.id,
+      titleText: item.titleText,
+      titleContent: item.titleContent,
+      subtitle: item.subtitle,
+      subtitleContent: item.subtitleContent,
       // Older source resolvers omit this field, so keep those items expandable until their first
       // lazy load. Newer TREE_CHILDREN responses let the UI avoid a needless empty request.
       isLeaf: item.hasChildren === false,

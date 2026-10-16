@@ -1,3 +1,5 @@
+import { defineComponent, h } from 'vue';
+import { businessContentLanguageContext, createLanguageContext, provideLanguageContext } from '@/web-core';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
 import ScopedTreePicker from '@/platform-components/ScopedTreePicker.vue';
@@ -133,4 +135,61 @@ it('does not let an older root request replace the latest keyword result', async
   expect(wrapper.findComponent({ name: 'UiTree' }).props('nodes')).toMatchObject([
     { key: 'department-1', title: '平台研发部' },
   ]);
+});
+
+it('relabels retained lazy nodes without losing expansion, search or the pending selection', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const parent = {
+    id: 'parent',
+    title: '设备分类',
+    isLeaf: false,
+    titleContent: { originalText: '设备分类', readings: { en: 'Equipment category', de: 'Gerätekategorie' } },
+  };
+  const child = {
+    id: 'child',
+    title: '设备',
+    isLeaf: true,
+    titleContent: { originalText: '设备', readings: { en: 'Equipment', de: 'Gerät' } },
+  };
+  const source = provider({
+    loadRoot: vi.fn().mockResolvedValue({ records: [parent] }),
+    loadChildren: vi.fn().mockResolvedValue({ records: [child] }),
+  });
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ScopedTreePicker, { provider: source });
+      },
+    }),
+    {
+      global: { stubs: { ScopedTreePicker: false, UiModal: { template: '<section><slot /></section>' } } },
+    },
+  );
+  try {
+    const picker = wrapper.findComponent(ScopedTreePicker);
+    picker.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '');
+    await flushPromises();
+    const tree = picker.findComponent({ name: 'UiTree' });
+    const retained = await tree.props('loadChildren')(
+      { key: 'parent' },
+      { signal: new AbortController().signal, reason: 'expand' },
+    );
+    tree.vm.$emit('update:expandedKeys', ['parent']);
+    tree.vm.$emit('select', { key: 'child' });
+    const search = picker.findAllComponents({ name: 'UiSearchInput' }).at(-1)!;
+    search.vm.$emit('update:value', 'draft keyword');
+    businessContentLanguageContext(language).setLanguage('de');
+    await flushPromises();
+    expect(tree.props('nodes')[0].title).toBe('Gerätekategorie');
+    expect(retained.nodes[0].title).toBe('Gerät');
+    expect(tree.props('expandedKeys')).toEqual(['parent']);
+    expect(tree.props('selectedKey')).toBe('child');
+    expect(search.props('value')).toBe('draft keyword');
+    expect(source.loadRoot).toHaveBeenCalledTimes(1);
+    expect(source.loadChildren).toHaveBeenCalledTimes(1);
+    expect(picker.emitted('update:value')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
 });

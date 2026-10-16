@@ -85,6 +85,13 @@ public final class ReferenceReadPipeline<T> {
                             .filter(java.util.Objects::nonNull).toList()
                             : ids.isEmpty() ? null : resolved.get(plan.target()).getOrDefault(ids.getFirst(), Map.of()).get(projection.targetField());
                     output.put(projection.outputField(), projected);
+                    var targetValues = resolved.get(plan.target());
+                    var delivered = (plan.cardinality() == ReferenceCardinality.MANY ? ids.stream() : ids.stream().limit(1))
+                            .filter(targetValues::containsKey).map(id -> new ReferenceLoadReader.ResolvedValue(
+                                    plan.target(), id, projection.targetField(), targetValues.get(id).get(projection.targetField())))
+                            .toList();
+                    capture(ReferenceTextReadListener.Projection.fromResolved(record, plan.sourceField(), ids,
+                            projection.outputField(), plan.cardinality() == ReferenceCardinality.MANY, delivered));
                 }
             }
             if (!output.isEmpty()) writes.accept(record, output);
@@ -104,17 +111,27 @@ public final class ReferenceReadPipeline<T> {
                 idsByRecord.put(record, sourceIds);
                 ids.addAll(sourceIds);
             }
-            Map<String, Object> loaded = ReferenceLoadReader.readAll(path, List.copyOf(ids), this::require, observer);
+            var loaded = ReferenceLoadReader.readResolvedAll(path, List.copyOf(ids), this::require, observer);
             for (Map.Entry<T, List<String>> entry : idsByRecord.entrySet()) {
                 List<String> sourceIds = entry.getValue();
-                Object value = source.cardinality() == ReferenceCardinality.MANY && path.hops().isEmpty()
-                        ? sourceIds.stream().map(loaded::get).filter(java.util.Objects::nonNull).toList()
-                        : sourceIds.isEmpty() ? null : loaded.get(sourceIds.getFirst());
+                boolean collection = source.cardinality() == ReferenceCardinality.MANY && path.hops().isEmpty();
+                var delivered = (collection ? sourceIds.stream() : sourceIds.stream().limit(1))
+                        .map(loaded::get).filter(java.util.Objects::nonNull).toList();
+                Object value = collection ? delivered.stream().map(ReferenceLoadReader.ResolvedValue::value)
+                        .filter(java.util.Objects::nonNull).toList()
+                        : delivered.isEmpty() ? null : delivered.getFirst().value();
                 Map<String, Object> output = new LinkedHashMap<>();
                 output.put(path.outputField(), value);
                 writes.accept(entry.getKey(), output);
+                capture(ReferenceTextReadListener.Projection.fromResolved(entry.getKey(), source.sourceField(),
+                        sourceIds, path.outputField(), collection, delivered));
             }
         }
+    }
+
+    private static void capture(ReferenceTextReadListener.Projection projection) {
+        if (projection != null) net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener()
+                .onProjection(projection);
     }
 
     private Object value(T record, String field) {

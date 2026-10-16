@@ -707,6 +707,7 @@ public class DynamicRecordWebController implements
     }
 
     private void captureReadTexts(List<DynamicRecord> records, boolean expansion) {
+        if (contentRecordPresentation != null) contentRecordPresentation.captureDynamic(DynamicWebRequest.moduleAlias(), records, expansion);
         if (recordTexts == null) return;
         recordService.moduleDefinitions().stream()
                 .filter(module -> DynamicWebRequest.moduleAlias().equals(module.moduleAlias()))
@@ -714,6 +715,13 @@ public class DynamicRecordWebController implements
                     if (expansion) recordTexts.captureDynamicExpansionReferences(module, records);
                     else recordTexts.captureDynamicReferences(module, records);
                 });
+    }
+
+    private net.ximatai.muyun.spring.platform.web.BusinessContentRecordPresentationService contentRecordPresentation;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBusinessContentRecordPresentation(net.ximatai.muyun.spring.platform.web.BusinessContentRecordPresentationService presentation) {
+        this.contentRecordPresentation = presentation;
     }
 
     private void enrichEmbeddedRelation(DynamicRecord parent,
@@ -1520,23 +1528,36 @@ public class DynamicRecordWebController implements
                 sourceRecordId -> dynamicSourceTenant(moduleAlias, entityAlias, sourceRecordId),
                 () -> withReferenceTexts(reference, normalized.mode() == WebReferenceResolveMode.TREE
                         ? dynamicReferenceTree(reference, normalized)
-                        : webReferenceResponse(recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName,
-                                new DynamicReferenceResolveRequest(
-                                        dynamicResolveMode(normalized.mode()),
-                                        dynamicMatchMode(normalized.matchMode()),
-                                        normalized.fuzzy(),
-                                        normalized.values(),
-                                        referenceCriteria(reference, normalized),
-                                        DynamicWebQueryMapper.page(normalized.page()),
-                                        normalized.includeProjections(),
-                                        normalized.formValues()
-                                )))));
+                        : resolveReferenceCandidates(moduleAlias, entityAlias, fieldName, normalized, reference)));
+    }
+
+    private WebReferenceResolveResponse resolveReferenceCandidates(String moduleAlias, String entityAlias, String fieldName,
+            WebReferenceResolveRequest request, DynamicReferenceDescriptor reference) {
+        var normalized = new DynamicReferenceResolveRequest(dynamicResolveMode(request.mode()), dynamicMatchMode(request.matchMode()),
+                request.fuzzy(), request.values(), referenceCriteria(reference, request), DynamicWebQueryMapper.page(request.page()),
+                request.includeProjections(), request.formValues());
+        if (contentQueries == null) return webReferenceResponse(recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName, normalized));
+        return webReferenceResponse(recordService.resolveFieldReference(moduleAlias, entityAlias, fieldName, normalized,
+                user -> contentReferenceUserCriteria(reference, user)));
+    }
+
+    private Criteria contentReferenceUserCriteria(DynamicReferenceDescriptor reference, Criteria user) {
+        if (contentQueries == null || reference == null) return user;
+        var target = ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias());
+        net.ximatai.muyun.spring.ability.CrudAbility<?> producer = recordService.hasRegisteredDynamicEntity(target.moduleAlias(), target.entityAlias())
+                ? recordService.entity(target.moduleAlias(), target.entityAlias())
+                : net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElse(null);
+        return producer == null ? user : contentUserCriteria(producer, user);
     }
 
     private WebReferenceResolveResponse withReferenceTexts(DynamicReferenceDescriptor reference, WebReferenceResolveResponse response) {
-        if (recordTexts == null || reference == null) return response;
-        return recordTexts.projectReference(ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()).qualifiedName(),
-                reference.labelField() == null ? "title" : reference.labelField(), response);
+        if (reference == null) return response;
+        var target = ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias());
+        String label = reference.labelField() == null ? "title" : reference.labelField();
+        var projected = recordTexts == null ? response : recordTexts.projectReference(target.qualifiedName(), label, response);
+        return contentRecordPresentation == null ? projected : contentRecordPresentation.projectReference(target, label,
+                reference.candidateSubtitleProjection() == null ? null
+                        : new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(reference.candidateSubtitleProjection()).key(), projected);
     }
 
     private String dynamicSourceTenant(String moduleAlias, String entityAlias, String sourceRecordId) {

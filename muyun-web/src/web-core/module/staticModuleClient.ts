@@ -11,6 +11,7 @@ import type {
 } from '@muyun/web-contracts';
 import type { HttpClient } from '../http';
 import { withoutRecordPresentation } from '../presentationTexts';
+import { businessContentReadHeaders } from '../businessContentLanguage';
 
 export interface StaticRecordMutationResult<TRecord> extends WebActionResultFacts {
   record: TRecord;
@@ -105,9 +106,7 @@ export function createManagedDetailRelationClient<TRecord>(
           method: 'POST',
           path: `${relationPath}/query`,
           body: request,
-          ...(options?.contentLanguage
-            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
-            : {}),
+          headers: businessContentReadHeaders(options),
         })
         .then(normalizeModulePageResponse),
     insert: async (record) =>
@@ -165,6 +164,7 @@ export function createNavigatorReferenceCrudClient<TRecord>(
         .request<WebPageResponse<TRecord>>({
           method: 'POST',
           path: `${modulePath}/navigator/reference/translate`,
+          headers: businessContentReadHeaders(),
           body: { ids },
         })
         .then(normalizeModulePageResponse),
@@ -174,9 +174,7 @@ export function createNavigatorReferenceCrudClient<TRecord>(
           method: 'POST',
           path: `${modulePath}/navigator/reference/query`,
           body: navigatorReferenceRequest(request, navigatorOptions.navigatorReference),
-          ...(options?.contentLanguage
-            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
-            : {}),
+          headers: businessContentReadHeaders(options),
         })
         .then(normalizeModulePageResponse),
   };
@@ -202,14 +200,15 @@ export function createStaticResourceCrudClient<TRecord>(
           method: 'POST',
           path: `${modulePath}/query`,
           body: request,
-          ...(options?.contentLanguage
-            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
-            : {}),
+          headers: businessContentReadHeaders(options),
         })
         .then(normalizeModulePageResponse),
     view: (id) =>
       http
-        .request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` })
+        .request<TRecord>({
+          path: `${modulePath}/view/${encodeURIComponent(id)}`,
+          headers: businessContentReadHeaders(),
+        })
         .then(normalizeModuleRecord),
     saveReceipt: (requestId) =>
       http.request<RecordSaveReceipt>({
@@ -289,6 +288,7 @@ export function createNavigatorReferenceTreeClient<TRecord>(
         .request<WebListResponse<WebTreeNode<TRecord>>>({
           method: 'POST',
           path: `${modulePath}/navigator/reference/tree/query`,
+          headers: businessContentReadHeaders(),
           body: navigatorReferenceRequest(request, options.navigatorReference),
         })
         .then(normalizeModuleTreeResponse),
@@ -339,12 +339,14 @@ export function createStaticResourceTreeClient<TRecord>(
             .request<WebListResponse<WebTreeNode<TRecord>>>({
               method: 'POST',
               path: `${modulePath}/tree/query`,
+              headers: businessContentReadHeaders(),
               body: request,
             })
             .then(normalizeModuleTreeResponse)
         : http
             .request<WebListResponse<WebTreeNode<TRecord>>>({
               path: `${modulePath}/tree`,
+              headers: businessContentReadHeaders(),
             })
             .then(normalizeModuleTreeResponse),
     treeFlat: (options) => {
@@ -353,6 +355,7 @@ export function createStaticResourceTreeClient<TRecord>(
       return http
         .request<WebListResponse<TRecord>>({
           path,
+          headers: businessContentReadHeaders(),
           query: {
             flat: true,
             includeSelf: options?.includeSelf,
@@ -364,6 +367,7 @@ export function createStaticResourceTreeClient<TRecord>(
       http
         .request<WebListResponse<WebTreeNode<TRecord>>>({
           path: `${modulePath}/tree/${encodeURIComponent(id)}`,
+          headers: businessContentReadHeaders(),
           query,
         })
         .then(normalizeModuleTreeResponse),
@@ -428,6 +432,7 @@ export function normalizeModuleRecord<TRecord>(record: TRecord): TRecord {
   return {
     ...record.values,
     ...('$texts' in record ? { $texts: record.$texts } : {}),
+    ...('$contentTexts' in record ? { $contentTexts: record.$contentTexts } : {}),
     ...normalizeModuleChildren(record.children),
     id: record.id,
     version: record.version,
@@ -460,7 +465,9 @@ export function normalizeModulePageResponse<TRecord>(
   };
 }
 
-function normalizeModuleListResponse<TRecord>(response: WebListResponse<TRecord>): WebListResponse<TRecord> {
+export function normalizeModuleListResponse<TRecord>(
+  response: WebListResponse<TRecord>,
+): WebListResponse<TRecord> {
   if (!Array.isArray(response.records)) return response;
   return {
     ...response,
@@ -468,7 +475,7 @@ function normalizeModuleListResponse<TRecord>(response: WebListResponse<TRecord>
   };
 }
 
-function normalizeModuleTreeResponse<TRecord>(
+export function normalizeModuleTreeResponse<TRecord>(
   response: WebListResponse<WebTreeNode<TRecord>>,
 ): WebListResponse<WebTreeNode<TRecord>> {
   if (!Array.isArray(response.records)) return response;

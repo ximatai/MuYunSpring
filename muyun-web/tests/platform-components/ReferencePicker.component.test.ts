@@ -1,6 +1,11 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { reactive, defineComponent, h } from 'vue';
-import { createLanguageContext, provideLanguageContext, createCodeTextPresentation } from '@/web-core';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  createCodeTextPresentation,
+  businessContentLanguageContext,
+} from '@/web-core';
 import { expect, it, vi } from 'vitest';
 import { AppError } from '@/web-core';
 import { missingReferencePickerDependencies } from '@/platform-components/referencePickerReadError';
@@ -1080,6 +1085,56 @@ it('reprojects configuration tree labels and selected names without duplicating 
     expect(source.loadTree).toHaveBeenCalledTimes(treeReads);
     expect(picker.emitted('update:value')).toBeUndefined();
     expect(candidate.title).toBe('配置');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('changes business reading labels in an open picker while preserving search, selected ID and draft patches', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const content = businessContentLanguageContext(language);
+  const candidate = {
+    id: 'a',
+    title: '设备',
+    subtitle: '分类',
+    titleContent: { originalText: '设备', readings: { en: 'Equipment', de: 'Gerät' } },
+    subtitleContent: { originalText: '分类', readings: { en: 'Category', de: 'Kategorie' } },
+    affectPatch: { titleSnapshot: '设备' },
+  };
+  const source = provider({
+    resolve: vi.fn().mockResolvedValue([candidate]),
+    searchPage: vi.fn().mockResolvedValue({ records: [candidate], total: 1 }),
+  });
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ReferencePicker, { value: 'a', provider: source });
+      },
+    }),
+    { global: { stubs: { ReferencePicker: false, UiModal: { template: '<section><slot /></section>' } } } },
+  );
+  try {
+    await flushPromises();
+    const picker = wrapper.findComponent(ReferencePicker);
+    const input = picker.findComponent({ name: 'ObjectPickerInput' });
+    expect(input.props('value')).toBe('Equipment · Category');
+    input.vm.$emit('browse', 'Equipment');
+    await flushPromises();
+    const search = picker.findComponent({ name: 'UiSearchInput' });
+    search.vm.$emit('update:value', '未提交搜索');
+    await flushPromises();
+    const reads = vi.mocked(source.searchPage).mock.calls.length;
+    content.setLanguage('de');
+    await flushPromises();
+    expect(search.props('value')).toBe('未提交搜索');
+    expect(input.props('value')).toBe('Gerät · Kategorie');
+    expect(source.searchPage).toHaveBeenCalledTimes(reads);
+    expect(source.resolve).toHaveBeenCalledTimes(1);
+    expect(picker.emitted('update:value')).toBeUndefined();
+    expect(language.languageTag.value).toBe('en');
+    expect(candidate.affectPatch).toEqual({ titleSnapshot: '设备' });
+    expect(candidate.title).toBe('设备');
   } finally {
     wrapper.unmount();
   }

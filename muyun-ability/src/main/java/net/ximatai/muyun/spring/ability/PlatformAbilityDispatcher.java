@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
@@ -34,6 +35,7 @@ final class PlatformAbilityDispatcher {
     private static volatile ReferencedByResolver referencedByResolver = ReferencedByResolver.NONE;
     private static volatile ReferenceLoadResolver referenceLoadResolver = ReferenceLoadResolver.NONE;
     private static volatile ReferenceReadObserver referenceReadObserver = ReferenceReadObserver.NONE;
+    private static volatile ReferenceTextReadListener referenceTextReadListener = ReferenceTextReadListener.NONE;
     private static volatile ChildAbilityResolver childAbilityResolver = ChildAbilityResolver.NONE;
     private static volatile EntitySaveLifecycleListener entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
 
@@ -169,6 +171,12 @@ final class PlatformAbilityDispatcher {
     static ReferenceReadObserver referenceReadObserver() {
         return referenceReadObserver;
     }
+
+    static void setReferenceTextReadListener(ReferenceTextReadListener listener) {
+        referenceTextReadListener = listener == null ? ReferenceTextReadListener.NONE : listener;
+    }
+
+    static ReferenceTextReadListener referenceTextReadListener() { return referenceTextReadListener; }
 
     static <T extends EntityContract> void beforeTargetUnavailable(CrudAbility<T> ability,
                                                                     T entity,

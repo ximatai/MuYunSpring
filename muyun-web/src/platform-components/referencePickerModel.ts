@@ -1,5 +1,10 @@
-import type { TextPresentation } from '@muyun/web-contracts';
-import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import type { BusinessContentTextPresentation, TextPresentation } from '@muyun/web-contracts';
+import {
+  businessContentLabel,
+  presentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 /**
  * Source-neutral candidate contract for records selected through an authorized
  * reference source. IDs are the only persisted value; projections are display
@@ -28,6 +33,8 @@ export interface ReferencePickerCandidate {
   id: ReferencePickerId;
   title: string;
   titleText?: TextPresentation;
+  titleContent?: BusinessContentTextPresentation;
+  subtitleContent?: BusinessContentTextPresentation;
   /** The UI is displaying the persisted identifier because no business title was available. */
   identifierFallback?: boolean;
   subtitle?: string;
@@ -123,6 +130,8 @@ export interface ReferencePickerSelectionSummary {
   id: ReferencePickerId;
   title: string;
   titleText?: TextPresentation;
+  titleContent?: BusinessContentTextPresentation;
+  subtitleContent?: BusinessContentTextPresentation;
   subtitle?: string;
   unavailable?: boolean;
 }
@@ -148,18 +157,27 @@ export function referencePickerSummary(candidate: ReferencePickerCandidate): Ref
     id: candidate.id,
     title: candidate.title,
     titleText: candidate.titleText,
+    titleContent: candidate.titleContent,
+    subtitleContent: candidate.subtitleContent,
     subtitle: candidate.subtitle,
     unavailable: candidate.unavailable,
   };
 }
 
 export function referencePickerDisplayTitle(
-  candidate: Pick<ReferencePickerCandidate, 'title' | 'subtitle' | 'titleText'>,
+  candidate: Pick<
+    ReferencePickerCandidate,
+    'title' | 'subtitle' | 'titleText' | 'titleContent' | 'subtitleContent'
+  >,
   language: LanguageContext = platformLanguageContext,
 ): string {
   const title =
-    candidate.titleText?.source.originalText === candidate.title
+    businessContentLabel(candidate.title, candidate.titleContent, language) ??
+    (candidate.titleText?.source.originalText === candidate.title
       ? presentationLabel(candidate.title, candidate.titleText, language)
-      : candidate.title;
-  return candidate.subtitle?.trim() ? `${title} · ${candidate.subtitle.trim()}` : title;
+      : candidate.title);
+  const subtitle =
+    candidate.subtitle &&
+    (businessContentLabel(candidate.subtitle, candidate.subtitleContent, language) ?? candidate.subtitle);
+  return subtitle?.trim() ? `${title} · ${subtitle.trim()}` : title;
 }

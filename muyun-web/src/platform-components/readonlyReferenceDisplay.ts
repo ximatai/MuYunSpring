@@ -1,4 +1,9 @@
-import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
+import {
+  recordBusinessContentArray,
+  recordPresentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 type ReferenceSummary = Record<string, unknown>;
@@ -19,7 +24,9 @@ export function readonlyReferenceSummaryOf(
 ): unknown {
   if (!field) return undefined;
   const summary = record[field];
-  return typeof summary === 'string' ? recordPresentationLabel(record, field, language) : summary;
+  return typeof summary === 'string'
+    ? recordPresentationLabel(record, field, language)
+    : recordBusinessContentArray(record, field, language);
 }
 
 /**

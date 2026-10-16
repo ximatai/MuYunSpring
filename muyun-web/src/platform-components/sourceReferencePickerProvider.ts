@@ -3,6 +3,7 @@ import type {
   WebReferenceResolveItem,
   WebTreeNode,
   TextPresentation,
+  BusinessContentTextPresentation,
 } from '@muyun/web-contracts';
 import type { ReferenceResolveClient } from '@muyun/web-core';
 import type {
@@ -44,16 +45,21 @@ export function createSourceReferencePickerProvider({
     id: string;
     title?: string;
     titleText?: TextPresentation;
+    titleContent?: BusinessContentTextPresentation;
+    subtitleContent?: BusinessContentTextPresentation;
     subtitle?: string;
     projections?: Record<string, unknown>;
     affectPatch?: Record<string, unknown>;
   }): ReferencePickerCandidate => {
-    const title = item.title?.trim() || undefined;
+    const title = item.title?.trim() ? item.title : undefined;
     return {
       id: item.id,
       title: title ?? item.id,
+      titleContent: item.titleContent?.originalText === title ? item.titleContent : undefined,
+      subtitleContent:
+        item.subtitleContent?.originalText === item.subtitle ? item.subtitleContent : undefined,
       titleText: item.titleText?.source.originalText === title ? item.titleText : undefined,
-      ...(item.subtitle?.trim() ? { subtitle: item.subtitle.trim() } : {}),
+      ...(item.subtitle?.trim() ? { subtitle: item.subtitle } : {}),
       ...(!title ? { identifierFallback: true } : {}),
       projections: item.projections,
       affectPatch: item.affectPatch,

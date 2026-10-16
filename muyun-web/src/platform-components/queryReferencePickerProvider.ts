@@ -1,5 +1,10 @@
 import type { QuerySchemaReference } from '@muyun/web-contracts';
-import { createNavigatorReferenceCrudClient, recordPresentationText, type HttpClient } from '@muyun/web-core';
+import {
+  createNavigatorReferenceCrudClient,
+  recordBusinessContentText,
+  recordPresentationText,
+  type HttpClient,
+} from '@muyun/web-core';
 import type { ReferencePickerCandidate, ReferencePickerProvider } from './referencePickerModel';
 import { unsupportedReferencePickerConfiguration } from './referencePickerReadError';
 
@@ -80,6 +85,10 @@ function candidateOf(reference: QuerySchemaReference) {
       {
         id,
         title: title ?? id,
+        titleContent: recordBusinessContentText(
+          record,
+          label ? reference.labelField! : record.title ? 'title' : 'code',
+        ),
         titleText: recordPresentationText(
           record,
           label ? reference.labelField! : record.title ? 'title' : 'code',
