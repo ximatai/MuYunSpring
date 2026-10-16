@@ -34,6 +34,40 @@ afterEach(() => {
 });
 
 describe('managed detail relation surface', () => {
+  it.each([true, false])('shares one source read across content columns (editable: %s)', async (editable) => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.listProjection = { fields: [{ fieldName: 'attributeAlias' }, { fieldName: 'title' }] };
+    const ui = descriptor();
+    for (const field of ui.editorContributions![0]!.editor.fields)
+      field.content = { key: field.fieldRef.fieldName, policy: 'AUTO_TRANSLATE' };
+    let resolve!: (value: unknown) => void;
+    const request = vi.fn(() => new Promise((done) => (resolve = done)));
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: ui,
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'child', version: 1, attributeAlias: '说明', title: '原名' }],
+        },
+        mutationEnabled: editable,
+      },
+      global: { stubs: { UiModal: { template: '<div />' } } },
+    });
+    await flushPromises();
+    expect(wrapper.findAll('[data-content-field]')).toHaveLength(2);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]).toEqual([
+      { path: '/platform.field_ui_control/view/parent/relations/properties/child/content' },
+    ]);
+    resolve({ fields: {}, recordVersion: 1 });
+    await flushPromises();
+    wrapper.unmount();
+  });
+
   it('uses the display list projection for independent child columns without mutating the query contract', async () => {
     const configured = relation('properties');
     configured.queryContract!.listProjection = { fields: [{ fieldName: 'attributeAlias', title: '属性' }] };

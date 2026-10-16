@@ -275,6 +275,15 @@ function displayRecord(
   };
 }
 
+// Every content column in a row shares the same draft snapshot and in-flight source read.
+// A changed draft or reference projection replaces the snapshot without sharing across sessions.
+const displaySnapshots = computed(
+  () => new Map(rows.value.map((row) => [row.__draftKey, displayRecord(row)])),
+);
+function rowDisplayRecord(row: DraftRow): RecordFormRecord {
+  return displaySnapshots.value.get(row.__draftKey) ?? displayRecord(row);
+}
+
 function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
   const field = resolveRecordFormFieldState(fieldName, {
     fields: formFields.value,
@@ -868,7 +877,7 @@ onMounted(() => void load());
       <RecordFormFields
         :mode="rowMode(row)"
         v-if="editingEnabled && formFields.has(column.fieldName)"
-        :record="displayRecord(row)"
+        :record="rowDisplayRecord(row)"
         :fields="formFields"
         :field-names="[column.fieldName]"
         :picker-configs="pickerConfigsOf(row)"
@@ -888,9 +897,9 @@ onMounted(() => void load());
       <RecordRelationValue
         v-else
         :field="
-          resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: displayRecord(row) })
+          resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: rowDisplayRecord(row) })
         "
-        :record="displayRecord(row)"
+        :record="rowDisplayRecord(row)"
         :text="relationDisplayText(row, column.fieldName)"
         :content-context="sourceContext"
         :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
