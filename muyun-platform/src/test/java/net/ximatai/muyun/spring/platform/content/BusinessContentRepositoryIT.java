@@ -1061,6 +1061,78 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @Test void readingQueryProjectionAndCoverageFollowCurrentSourceAndEffectiveTranslation() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("温控设备 " + UUID.randomUUID());
+            try (var input = input(row, "zh-CN", null)) { service.insert(row); }
+            var source = new BusinessContentSource("tenant-a", "test.content", "content_fixture", row.getId(), "category-name");
+            var original = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            assertMissing(row, "en", true);
+            assertThat(projectedReading(row, "en")).isNull();
+            tx.executeWithoutResult(status -> translations.saveMachine(source, original, "en", "Machine equipment", null, generation()));
+            assertMissing(row, "en", false); assertThat(projectedReading(row, "en")).isEqualTo("Machine equipment");
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Human equipment", 1));
+            assertMissing(row, "en", false); assertThat(projectedReading(row, "en")).isEqualTo("Machine equipment");
+            tx.executeWithoutResult(status -> translations.confirm(source, original, "en", 2, 2));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Private draft", 3));
+            assertMissing(row, "en", false); assertThat(projectedReading(row, "en")).isEqualTo("Human equipment");
+            tx.executeWithoutResult(status -> translations.remove(source, original, "en", 4));
+            assertMissing(row, "en", true); assertThat(projectedReading(row, "en")).isNull();
+            assertMissing(row, "zh-CN", false); assertThat(projectedReading(row, "zh-CN")).isNull(); // Same-language sorting falls back to raw.
+            row.setTitle("Equipment original");
+            try (var input = input(row, "en-US", 1)) { service.update(row); }
+            assertMissing(row, "en", false); assertMissing(row, "de", true);
+            new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("update content_fixture set title = ? where id = ?", "Untracked change", row.getId());
+            assertMissing(row, "en", true); // Matching source language alone cannot validate a stale raw value.
+            var empty = row(null); service.insert(empty);
+            var emptySource = source(empty);
+            var emptyOriginal = BusinessContentStore.OriginalVersion.of(store.latest(emptySource));
+            assertThatThrownBy(() -> tx.executeWithoutResult(status -> translations.saveDraft(
+                    emptySource, emptyOriginal, "en", "Human empty-original reading", null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("nonempty original");
+            assertThat(translationService.read(service, BusinessContentService.Location.record(empty.getId()), "en")
+                    .fields().get("title").text()).isNull();
+            assertThat(projectedReading(empty, "en")).isNull();
+            assertSearch(empty, "Human empty-original reading", false);
+            assertMissing(empty, "en", false);
+            assertThat(service.select(empty.getId()).getTitle()).isNull();
+        }
+    }
+
+    @Test void readingCoverageDoesNotHideUntranslatedRowsBehindAnOrTextFilterOrCountBlankFields() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var low = row("未翻译设备 " + UUID.randomUUID()); low.setQuantity(1); service.insert(low);
+            var high = row("未翻译设备 " + UUID.randomUUID()); high.setQuantity(7); service.insert(high);
+            var userQuery = Criteria.of().andGroup(group -> group.eq("title", "English equipment").orEq("quantity", 7));
+            var actual = queries.expandUserText(service, userQuery);
+            var coverage = queries.coverageUserScope(service, userQuery);
+            var identities = List.of(low.getId(), high.getId());
+            assertThat(service.count(Criteria.copyOf(actual).in("id", identities))).isEqualTo(1);
+            assertThat(service.count(Criteria.copyOf(coverage).in("id", identities))).isEqualTo(2);
+            assertThat(service.count(Criteria.copyOf(coverage).in("id", identities).lt("quantity", 2))).isEqualTo(1);
+            for (String blank : new String[]{null, "", "   "}) {
+                var row = row(blank); service.insert(row); assertMissing(row, "en", false);
+            }
+            assertThat(service.count(queries.missingReadingCriteria(service, Set.of("quantity"), "en"))).isZero();
+            try (var other = TenantContext.use("tenant-b")) {
+                assertThat(service.count(Criteria.copyOf(coverage).in("id", identities))).isZero();
+            }
+        }
+    }
+
+    private void assertMissing(ContentFixture row, String language, boolean missing) {
+        var criterion = queries.missingReadingCriteria(service, Set.of("title"), language);
+        assertThat(service.count(Criteria.copyOf(criterion).eq("id", row.getId()))).isEqualTo(missing ? 1 : 0);
+    }
+
+    private String projectedReading(ContentFixture row, String language) {
+        var projection = queries.readingProjection(service, "title", language, "reading_test_");
+        Map<String, Object> params = new LinkedHashMap<>(projection.getParams()); params.put("record", row.getId());
+        var values = new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(dataSource)
+                .queryForList("select reading_text from (" + projection.getSql() + ") reading where record_id = :record", params);
+        return values.isEmpty() ? null : (String) values.getFirst().get("reading_text");
+    }
+
     private void assertSearch(ContentFixture row, String value, boolean matched) {
         Criteria criteria = queries.expandUserText(service, Criteria.of().eq("title", value));
         assertThat(service.count(Criteria.copyOf(criteria).eq("id", row.getId()))).isEqualTo(matched ? 1 : 0);

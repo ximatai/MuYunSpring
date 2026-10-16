@@ -235,3 +235,17 @@ it('switches delivered configuration cell labels in the owning language without 
     wrapper.unmount();
   }
 });
+
+it('shows a reading projection while preserving the raw record and explicit custom renderers', async () => {
+  const raw = Object.freeze({ id: 'equipment', title: '设备原名' });
+  const wrapper = shallowMount(RecordQueryListCell, {
+    props: { record: raw, column: { key: 'title', title: '名称' }, reading: 'Equipment' },
+  });
+  expect(wrapper.text()).toBe('Equipment');
+  expect(wrapper.find('.record-query-list-text').attributes('title')).toContain('设备原名');
+  expect(raw.title).toBe('设备原名');
+  await wrapper.setProps({ cellRenderers: { title: () => 'Special label' } });
+  expect(wrapper.text()).toBe('Special label');
+  await wrapper.setProps({ cellRenderers: {}, reading: undefined });
+  expect(wrapper.text()).toBe('设备原名');
+});

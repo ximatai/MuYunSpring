@@ -30,14 +30,9 @@ it('record list explorer exposes visible secondary identity text', () => {
   assert.match(listSource, /secondary: recordSecondary\(record\)/);
   assert.match(listSource, /display-mode="flat"/);
   assert.match(listSource, /:allow-drop="canDropNode"/);
-  assert.match(
-    crudListSource,
-    /itemOf\?: \(record: CrudRecordListBase\) => RecordExplorerItemDescriptor \| undefined/,
-  );
   assert.match(crudListSource, /actionsOf\?: \(record: CrudRecordListBase\) => UiRecordInlineAction\[\]/);
   assert.match(crudListSource, /action: \[action: UiRecordInlineAction, record: CrudRecordListBase\]/);
   assert.match(crudListSource, /props\.subtitleOf[\s\S]*\? props\.subtitleOf\(record\)/);
-  assert.match(crudListSource, /:item-of="\(record\) => itemOf\?\.\(record as CrudRecordListBase\)"/);
   assert.match(crudListSource, /:actions-of="\(record\) => recordActions\(record as CrudRecordListBase\)"/);
   assert.match(
     crudListSource,

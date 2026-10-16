@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
+
 import net.ximatai.muyun.spring.ability.reference.PlatformStandardReferences;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 
@@ -47,6 +49,11 @@ public class StaticRecordReadProjectionService {
     private final RelationProjectionReadService relationProjectionReadService;
     private final OptionSourceRegistry optionSourceRegistry;
     private RecordTextPresentationService recordTexts;
+    private BusinessContentListQueryService contentLists;
+
+    @Autowired(required = false)
+    public void setBusinessContentListQueryService(BusinessContentListQueryService service) { contentLists = service; }
+
     private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
 
     @Autowired(required = false)
@@ -117,6 +124,36 @@ public class StaticRecordReadProjectionService {
         }
         return projectResponse(response, withReferenceSourceFields(moduleAlias, recordService, projection),
                 modelClass(moduleAlias, recordService), recordService);
+    }
+
+    /** Native reading order, followed by the owner's ordinary read and output projection. */
+    public <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract> Optional<PageResult<T>>
+            queryContentOrderedList(String moduleAlias, QueryRequest request, Criteria additionalCriteria,
+                    PageRequest page, CrudAbility<T> owner, ActionExecutionPolicy policy, RecordReadVisibility visibility) {
+        if (contentLists == null || BusinessContentQueryWebContext.language().isEmpty()) return Optional.empty();
+        ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
+        QueryCompiler compiler = queryCompiler(plan, owner);
+        Sort[] sorts = compiler.sorts(request);
+        if (!contentLists.applies(owner, sorts)) return Optional.empty();
+        if (!visibility.action().matches(policy.actionCode())) throw new IllegalArgumentException("content query action mismatch");
+        Criteria criteria = andCriteria(compiler.criteria(request), additionalCriteria);
+        java.util.function.Function<Criteria, PageResult<T>> read = scoped -> {
+            Criteria effective = visibility.apply(owner, scoped);
+            RelationProjectionSqlPlan source = null;
+            StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElseThrow();
+            Optional<RecordReadProjection> projection = defaultListProjection(moduleAlias, owner);
+            if (projection.isPresent() && relationProjectionReadService.describeListQuery(
+                    staticModuleDefinitionCatalog.definitions(), definition, projection.get()).supported()) {
+                source = relationProjectionReadService.prepareListSource(staticModuleDefinitionCatalog.definitions(),
+                        definition, projection.get(), effective, sorts);
+            }
+            return contentLists.page(owner, source, effective, page, visibility, sorts);
+        };
+        if (owner instanceof DataScopeAbility<?> scoped) {
+            DataScopeCriteriaResult scope = scoped.readScopeByPolicy(policy, criteria);
+            return Optional.of(scoped.withDataScopeTenant(scope, () -> read.apply(scope.criteria())));
+        }
+        return Optional.of(read.apply(criteria));
     }
 
     public boolean supportsDefaultListQuery(String moduleAlias, Object recordService) {

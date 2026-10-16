@@ -29,6 +29,14 @@ export interface WebPageResponse<T> {
   totalKnown: boolean;
   navigation?: unknown;
   summaries?: WebListQuerySummaryItem[];
+  businessContent?: WebBusinessContentQueryStatus;
+}
+
+/** Reading metadata is separate from business records and never participates in normal saves. */
+export interface WebBusinessContentQueryStatus {
+  language: string;
+  missingRecords: number;
+  readings: Record<string, Record<string, string>>;
 }
 
 /** Value of one footer summary for the complete result set of the current list query. */

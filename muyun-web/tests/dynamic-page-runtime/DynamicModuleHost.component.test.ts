@@ -48,6 +48,46 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModuleHttpProvider;
   });
 
+  it('preserves reading intent through the page-owned query adapter', async () => {
+    const languages: Array<string | null> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'dynamic',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            moduleAlias: 'crm.customer',
+            page: { template: 'FLAT_MANAGEMENT', navigator: { levels: [] }, detail: {}, explorer: {} },
+          },
+        });
+      if (request.url.endsWith('/query')) languages.push(request.headers.get('X-MuYun-Content-Language'));
+      return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    await session.context.crud.query({ quickSearch: 'Gerät' }, { contentLanguage: 'de' });
+    expect(languages.at(-1)).toBe('de');
+    wrapper.unmount();
+  });
+
   it('switches an independently scoped draft between English and Chinese without changing its data or repeating requests', async () => {
     const language = createLanguageContext({ languageTag: 'en' });
     const calls: string[] = [];

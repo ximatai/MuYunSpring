@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -39,6 +41,11 @@ public class StandardModuleWebRuntime {
     private final StaticRecordReadProjectionService readProjectionService;
     private final ListQuerySummaryRuntime listQuerySummaryRuntime;
     private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+    private BusinessContentListQueryService contentLists;
+
+    @Autowired(required = false)
+    public void setBusinessContentListQueryService(BusinessContentListQueryService service) { contentLists = service; }
+
 
     public StandardModuleWebRuntime(ModuleExecutionPlanCatalog executionPlans,
                                     StaticRecordReadProjectionService readProjectionService) {
@@ -120,6 +127,39 @@ public class StandardModuleWebRuntime {
                 additionalCriteria -> scopedSummaryCount(moduleAlias, executionRequest, service, baseCriteria,
                         actionPolicy, additionalCriteria), aggregateQuery -> scopedSummaryAggregate(moduleAlias,
                         executionRequest, service, baseCriteria, actionPolicy, aggregateQuery));
+    }
+
+    public net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus businessContentQueryStatus(
+            String moduleAlias, WebQueryRequest request, CrudAbility<?> owner, Criteria navigation,
+            ActionExecutionPolicy policy, List<?> outputRecords) {
+        if (contentQueries == null || BusinessContentQueryWebContext.language().isEmpty()) return null;
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        var declared = contentQueries.fields(owner);
+        if (declared.isEmpty()) return null;
+        var fields = plan.queryDescriptor().fields().stream().map(net.ximatai.muyun.spring.ability.query.QueryField::fieldName)
+                .filter(declared::contains).collect(java.util.stream.Collectors.toSet());
+        String language = BusinessContentQueryWebContext.language().orElseThrow();
+        var compiler = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
+                user -> contentQueries.coverageUserScope(owner, user));
+        WebQueryRequest execution = CrudWebRuntimeSupport.withoutWorkspaceExternalValues(request, plan.pageContextBindings());
+        Criteria coverage = Criteria.copyOf(compiler.criteria(WebQueryRequests.from(execution))).and(navigation);
+        java.util.function.Function<Criteria, net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus> read = scoped -> {
+            Criteria active = owner.activeCriteria(scoped);
+            long missing = contentScopeCount(moduleAlias, owner, Criteria.copyOf(active)
+                    .and(contentQueries.missingReadingCriteria(owner, fields, language)));
+            return new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(language, missing,
+                    contentLists == null ? Map.of() : contentLists.readings(owner, outputRecords, declared));
+        };
+        if (owner instanceof DataScopeAbility<?> scoped) {
+            var scope = scoped.readScopeByPolicy(policy, coverage);
+            return scoped.withDataScopeTenant(scope, () -> read.apply(scope.criteria()));
+        }
+        return read.apply(coverage);
+    }
+
+    private long contentScopeCount(String moduleAlias, CrudAbility<?> owner, Criteria criteria) {
+        var projected = readProjectionService.queryDefaultList(moduleAlias, criteria, PageRequest.of(1, 1), owner);
+        return projected.isPresent() ? projected.get().total() : owner.count(criteria);
     }
 
     private long scopedSummaryCount(String moduleAlias, WebQueryRequest request, CrudAbility<?> service,
@@ -216,6 +256,15 @@ public class StandardModuleWebRuntime {
         requirePlan(moduleAlias);
         return readProjectionService.queryDefaultList(moduleAlias, request, additionalCriteria, pageRequest,
                 service, actionPolicy, visibility);
+    }
+
+    public <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract>
+            Optional<net.ximatai.muyun.database.core.orm.PageResult<T>> queryContentOrderedList(String moduleAlias,
+                    QueryRequest request, Criteria additionalCriteria, PageRequest page, CrudAbility<T> owner,
+                    ActionExecutionPolicy policy, RecordReadVisibility visibility) {
+        requirePlan(moduleAlias);
+        return readProjectionService.queryContentOrderedList(moduleAlias, request, additionalCriteria, page,
+                owner, policy, visibility);
     }
 
     /** Applies the compiled plan's default response projection for a migrated static module. */

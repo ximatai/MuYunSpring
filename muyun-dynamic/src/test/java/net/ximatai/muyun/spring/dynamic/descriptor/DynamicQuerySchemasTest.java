@@ -32,6 +32,23 @@ class DynamicQuerySchemasTest {
                 .singleElement().satisfies(field -> { assertThat(field.title()).isEqualTo("创建人"); assertThat(field.titleSource()).isNull(); });
     }
 
+    @Test void contentQueryOrderingDoesNotDeclareIntegerDragOrdering() {
+        var definition = net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("title", "Title")
+                .queryable().content(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition(
+                        "name", net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS));
+        var entity = DynamicEntityDescriptor.from(new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition(
+                "entry", "test_entry", "Entry", List.of(definition,
+                net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("raw", "Raw").queryable())));
+        assertThat(entity.fields()).filteredOn(field -> field.fieldName().equals("title"))
+                .singleElement().satisfies(field -> assertThat(field.sortable()).isFalse());
+        var schema = DynamicQuerySchemas.from("test.entry", entity, List.of("title"));
+        assertThat(schema.fields()).filteredOn(field -> field.name().equals("title"))
+                .singleElement().satisfies(field -> assertThat(field.sortable()).isTrue());
+        assertThat(schema.quickSearch().fieldSchemas().getFirst().sortable()).isTrue();
+        assertThat(schema.fields()).filteredOn(field -> field.name().equals("raw"))
+                .singleElement().satisfies(field -> assertThat(field.sortable()).isFalse());
+    }
+
     @Test
     void shouldExposeDeclaredExternalCriteriaKeys() {
         QuerySchema schema = DynamicQuerySchemas.from("iam.employee", new DynamicEntityDescriptor(

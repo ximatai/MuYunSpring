@@ -147,7 +147,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         if (items.stream().map(WebListQuerySummaryItem::key).distinct().count() != items.size()) {
             throw new IllegalStateException("duplicate list query summary result key: " + webScopeName());
         }
-        return response.withSummaries(items);
+        WebPageResponse<T> result = response.withSummaries(items);
+        if (moduleAlias != null && runtime != null && runtime.hasPlan(moduleAlias)
+                && BusinessContentQueryWebContext.language().isPresent()) {
+            Criteria navigation = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+            applyMenuEntryQueryCriteria(navigation);
+            result = result.withBusinessContent(runtime.businessContentQueryStatus(moduleAlias, request, service(),
+                    navigation, StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY), response.records()));
+        }
+        return result;
     }
 
     @GetMapping("/query/schema")
@@ -184,6 +192,22 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default WebPageResponse<T> query(@RequestBody(required = false) WebQueryRequest request) {
         return webScope(() -> {
             requireExecutionPlanAtRequest();
+            if ((request == null || !request.unpagedEnabled()) && BusinessContentQueryWebContext.language().isPresent()
+                    && moduleAliasForRuntime() != null && executionRuntime() != null
+                    && executionRuntime().hasPlan(moduleAliasForRuntime())) {
+                Criteria navigation = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+                applyMenuEntryQueryCriteria(navigation);
+                WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+                var ordered = executionRuntime().queryContentOrderedList(moduleAliasForRuntime(),
+                        WebQueryRequests.from(CrudWebRuntimeSupport.withoutWorkspaceExternalValues(this, request)),
+                        navigation, PageRequest.of(page.pageNum(), page.pageSize()), service(),
+                        StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY), RecordReadVisibility.ACTIVE);
+                if (ordered.isPresent()) {
+                    var response = WebPageResponse.from(WebOutputSupport.page(service(), ordered.get(), FieldOutputContext.LIST));
+                    return attachListQuerySummaries(request,
+                            (WebPageResponse<T>) standardWirePage(projectStaticDefaultList(response)));
+                }
+            }
             if (request == null || !request.unpagedEnabled()) {
                 Optional<WebPageResponse<Map<String, Object>>> projected = queryStaticProjectedList(
                         request, RecordReadVisibility.ACTIVE);

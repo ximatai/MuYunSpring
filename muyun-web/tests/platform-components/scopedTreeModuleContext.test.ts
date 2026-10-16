@@ -5,6 +5,7 @@ import {
 } from '@/platform-components/scopedTreeModuleContext.ts';
 import type { RouteQueryValue, WebQueryRequest } from '@/web-contracts/index.ts';
 import type { HttpRequestOptions } from '@/web-core/http.ts';
+import type { RecordQueryRequestOptions } from '@/web-core/module/staticModuleClient.ts';
 import type { ModuleContext } from '@/web-core/module/moduleContext.ts';
 
 interface DepartmentRecord {
@@ -32,6 +33,20 @@ it('scoped tree context appends scope condition to query requests', async () => 
       { fieldName: 'organizationId', operator: 'EQ', values: ['org-1'] },
     ],
   });
+});
+
+it('preserves reading intent when it binds a query to its parent scope', async () => {
+  const context = createFakeModuleContext();
+  const scoped = createScopedTreeModuleContext(context, {
+    scopeFieldName: 'organizationId',
+    scopeValue: 'org-1',
+    treePath: '/iam.department/tree',
+  });
+  await scoped.abilities.tree().query({}, { contentLanguage: 'de' });
+  assert.deepEqual(context.queryOptions[0], { contentLanguage: 'de' });
+  assert.deepEqual(context.queries[0]?.conditions, [
+    { fieldName: 'organizationId', operator: 'EQ', values: ['org-1'] },
+  ]);
 });
 
 it('scoped tree context returns empty tree data before scope is selected', async () => {
@@ -148,11 +163,13 @@ it('picker query context scopes tree requests and stays empty before its navigat
 function createFakeModuleContext(options: { hasTree?: boolean } = {}) {
   const requests: HttpRequestOptions[] = [];
   const queries: Array<WebQueryRequest | undefined> = [];
+  const queryOptions: Array<RecordQueryRequestOptions | undefined> = [];
   const hasTree = options.hasTree ?? true;
   const crud = {
     querySchema: async () => ({ fields: [] }),
-    query: async (request?: WebQueryRequest) => {
+    query: async (request?: WebQueryRequest, options?: RecordQueryRequestOptions) => {
       queries.push(request);
+      queryOptions.push(options);
       return { records: [], total: 0, pageNum: 1, pageSize: 10, pages: 0, totalKnown: true };
     },
     view: async (id: string) => ({ id, title: id }),
@@ -200,9 +217,11 @@ function createFakeModuleContext(options: { hasTree?: boolean } = {}) {
     can: () => undefined,
     requests,
     queries,
+    queryOptions,
   };
   return context as unknown as ModuleContext<DepartmentRecord> & {
     requests: HttpRequestOptions[];
     queries: Array<WebQueryRequest | undefined>;
+    queryOptions: Array<RecordQueryRequestOptions | undefined>;
   };
 }

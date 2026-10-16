@@ -25,6 +25,7 @@ import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
 import net.ximatai.muyun.spring.platform.web.ModuleDiscoveryEndpoint;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
@@ -461,6 +462,15 @@ public class DynamicRecordWebController implements
                 .map(reference -> reference.sourceField()).forEach(readFields::add);
         ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(readFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
+        var contentOrdered = dynamicRelationProjectionReadService.queryContentOrderedList(DynamicWebRequest.moduleAlias(),
+                recordService, readFields, criteria, pageRequest, visibility, sorts);
+        if (contentOrdered.isPresent()) {
+            var result = contentOrdered.get();
+            populateReadProjections(result.getRecords(), projectionFields);
+            captureReadTexts(result.getRecords());
+            return PageResult.of(result.getRecords().stream().map(record -> project(record, projectionFields)).toList(),
+                    result.getTotal(), pageRequest);
+        }
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
                 ? queryProjectionRecords(readFields, criteria, pageRequest, visibility, sorts)
                 : null;
@@ -575,8 +585,7 @@ public class DynamicRecordWebController implements
     public WebPageResponse<DynamicRecord> attachListQuerySummaries(WebQueryRequest request,
                                                                      WebPageResponse<DynamicRecord> response) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
-        if (listQuerySummaryRuntime == null) return response;
-        return executionPlanCatalog.find(moduleAlias)
+        WebPageResponse<DynamicRecord> result = listQuerySummaryRuntime == null ? response : executionPlanCatalog.find(moduleAlias)
                 .filter(plan -> plan.uiDescriptor().page() != null && plan.uiDescriptor().page().list() != null)
                 .filter(plan -> !plan.uiDescriptor().page().list().querySummaries().isEmpty())
                 .map(plan -> response.withSummaries(listQuerySummaryRuntime.summarize(moduleAlias,
@@ -587,6 +596,19 @@ public class DynamicRecordWebController implements
                         aggregateQuery -> recordService.aggregate(moduleAlias, mainEntityAlias(moduleAlias),
                                 Criteria.copyOf(queryCriteria(request)), aggregateQuery))))
                 .orElse(response);
+        var language = BusinessContentQueryWebContext.language();
+        if (contentQueries == null || language.isEmpty()) return result;
+        var declared = contentQueries.fields(service());
+        if (declared.isEmpty()) return result;
+        var fields = requireExecutionPlan(moduleAlias).querySchema().fields().stream()
+                .map(net.ximatai.muyun.spring.ability.query.QuerySchema.Field::name)
+                .filter(declared::contains).collect(java.util.stream.Collectors.toSet());
+        Criteria coverage = querySupport.criteria(requireExecutionPlan(moduleAlias), request, service()::queryCriteria,
+                user -> contentQueries.coverageUserScope(service(), user));
+        long missing = recordService.count(moduleAlias, mainEntityAlias(moduleAlias), Criteria.copyOf(coverage)
+                .and(contentQueries.missingReadingCriteria(service(), fields, language.get())));
+        return result.withBusinessContent(new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(
+                language.get(), missing, dynamicRelationProjectionReadService.contentReadings(service(), result.records(), declared)));
     }
 
     /**

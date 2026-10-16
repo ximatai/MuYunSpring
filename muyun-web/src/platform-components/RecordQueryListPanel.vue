@@ -13,6 +13,7 @@ import {
   presentationLabel,
   userFacingErrorMessage,
   useLanguageContext,
+  businessContentLanguageContext,
   displayModuleRuntime,
   canQueryRecycleBin,
   createModuleContext,
@@ -46,12 +47,15 @@ import type {
   RecycleBinItem,
   ResolvedPageListQuerySummaryDescriptor,
   WebListQuerySummaryItem,
+  WebBusinessContentQueryStatus,
 } from '@muyun/web-contracts';
 
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
 import { useWorkspaceSortActivity, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
+import BusinessContentQueryNotice from './BusinessContentQueryNotice.vue';
+import RecordQuerySortSelector from './RecordQuerySortSelector.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
 import QueryGroupedSummary from './QueryGroupedSummary.vue';
 import QueryCriteriaComposer from './QueryCriteriaComposer.vue';
@@ -315,6 +319,23 @@ const persistentFieldReferenceValidity = ref<Record<string, ReferencePickerValid
 const persistentFieldEditorResetKey = ref(0);
 const advancedReferenceValidity = ref<Record<number, ReferencePickerValidity>>({});
 const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
+const contentLanguage = businessContentLanguageContext(language);
+const contentQueryStatus = ref<WebBusinessContentQueryStatus>();
+const currentContentStatus = computed(() =>
+  props.mode === 'normal' && contentQueryStatus.value?.language === contentLanguage.languageTag.value
+    ? contentQueryStatus.value
+    : undefined,
+);
+watch(
+  contentLanguage.languageTag,
+  () => {
+    if (!contentQueryStatus.value) return;
+    pageNum.value = 1;
+    void loadRecords();
+  },
+  { flush: 'sync' },
+);
+
 const optionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>({});
 const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>(
   {},
@@ -865,10 +886,17 @@ async function loadRecords(updateLoading = true) {
   try {
     recordsLoadError.value = undefined;
     const request = buildQueryRequest();
-    const response = await props.context.crud.query(request);
+    const response = await props.context.crud.query(request, {
+      contentLanguage: contentLanguage.languageTag.value,
+    });
     if (requestSeq !== recordsRequestSeq) {
       return false;
     }
+    if (response.businessContent && response.businessContent.language !== contentLanguage.languageTag.value) {
+      pageNum.value = 1;
+      return loadRecords();
+    }
+    contentQueryStatus.value = response.businessContent;
     records.value = response.records;
     preloadRecordActionAvailability(response.records);
     selectedRowKeys.value = reconcileSelectedKeys(
@@ -1762,6 +1790,13 @@ function recordKey(record: QueryListRecord) {
   return String(record[props.rowKey] ?? record.id ?? '');
 }
 
+function changeQuerySorts(sorts: WebSort[] | undefined) {
+  queryInteractionRevision.value++;
+  appliedSorts.value = sorts;
+  pageNum.value = 1;
+  void loadRecords();
+}
+
 function goPage(nextPage: number) {
   queryInteractionRevision.value += 1;
   pageNum.value = Math.min(Math.max(1, nextPage), pages.value);
@@ -1943,6 +1978,17 @@ defineExpose({ clearSelection, refresh });
       </div>
     </template>
     <template v-if="!sorting" #queryControls>
+      <RecordQuerySortSelector
+        v-if="currentContentStatus"
+        :fields="
+          queryFields.filter(
+            (field) => field.sortable && tableColumns.some((column) => column.key === field.name),
+          )
+        "
+        :sorts="appliedSorts"
+        :disabled="loading || queryActionsDisabled"
+        @change="changeQuerySorts"
+      />
       <UiButton
         v-if="advancedCriteriaVisible"
         class="record-query-list-advanced"
@@ -1960,6 +2006,7 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template #conditions>
+      <BusinessContentQueryNotice :status="currentContentStatus" />
       <section v-if="criteriaComposerMounted" v-show="conditionsExpanded" class="record-query-conditions">
         <QueryCriteriaComposer
           :key="criteriaComposerResetKey"
@@ -2017,6 +2064,7 @@ defineExpose({ clearSelection, refresh });
         :record="(record as QueryListRow).record"
         :column="tableColumns.find((item) => item.key === column.key)!"
         :cell-renderers="cellRenderers"
+        :reading="currentContentStatus?.readings[recordKey((record as QueryListRow).record)]?.[column.key]"
       />
     </template>
     <template #rowActions="{ record }">

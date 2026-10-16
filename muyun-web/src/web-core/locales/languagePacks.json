@@ -3269,6 +3269,12 @@
       "platform.content.translation-history": "本原文的译文修订历史",
       "platform.content.follow-interface": "跟随界面语言",
       "platform.content.preference-save-failed": "阅读语言偏好保存失败，请重试",
+      "platform.content.sort-by": "排序方式",
+      "platform.content.sort-default": "默认顺序",
+      "platform.content.sort-asc": "{field}升序",
+      "platform.content.sort-desc": "{field}降序",
+      "platform.content.query-incomplete": "文本筛选前的业务范围内仍有 {count} 条记录缺少 {language} 阅读内容，查询可能不完整，缺失项按原文排序。",
+      "platform.content.list-reading-original": "阅读译文；原文：{original}",
       "platform.content.reading-language": "业务阅读语言",
       "platform.content.preference-restore-failed": "暂时无法恢复阅读语言偏好，可继续选择"
     }
@@ -6544,6 +6550,12 @@
       "platform.content.translation-history": "Translation revisions for this original",
       "platform.content.follow-interface": "Follow interface language",
       "platform.content.preference-save-failed": "Could not save reading language preference. Please retry.",
+      "platform.content.sort-by": "Sort by",
+      "platform.content.sort-default": "Default order",
+      "platform.content.sort-asc": "{field} ascending",
+      "platform.content.sort-desc": "{field} descending",
+      "platform.content.query-incomplete": "Before text filters, {count} records in this business scope lack {language} reading content. Results may be incomplete; missing readings sort by their original text.",
+      "platform.content.list-reading-original": "Reading translation; original: {original}",
       "platform.content.reading-language": "Business reading language",
       "platform.content.preference-restore-failed": "Could not restore reading language preference. You can still choose a language."
     }

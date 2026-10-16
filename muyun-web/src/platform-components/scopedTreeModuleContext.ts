@@ -91,22 +91,25 @@ function createTreeScopeClient<TRecord>(
   const hasScope = () => Object.keys(options.queryValues() ?? {}).length > 0;
   return {
     ...context.crud,
-    query: (request) => {
+    query: (request, queryOptions) => {
       const queryValues = options.queryValues();
       if (!hasScope()) {
         return emptyPageResponse<TRecord>(request);
       }
-      return context.crud.query({
-        ...request,
-        conditions: [
-          ...(request?.conditions ?? []),
-          ...Object.entries(queryValues ?? {}).map(([fieldName, value]) => ({
-            fieldName,
-            operator: 'EQ' as const,
-            values: [String(value)],
-          })),
-        ],
-      });
+      return context.crud.query(
+        {
+          ...request,
+          conditions: [
+            ...(request?.conditions ?? []),
+            ...Object.entries(queryValues ?? {}).map(([fieldName, value]) => ({
+              fieldName,
+              operator: 'EQ' as const,
+              values: [String(value)],
+            })),
+          ],
+        },
+        queryOptions,
+      );
     },
     tree: () => {
       if (!hasScope()) {

@@ -232,7 +232,13 @@ public class RelationProjectionReadService {
         return projectionQueryExecutor.get();
     }
 
-    private java.util.Set<String> requiredMainFields(Criteria criteria, Sort... sorts) {
+    RelationProjectionSqlPlan prepareListSource(List<StaticModuleDefinition> definitions,
+            StaticModuleDefinition definition, RecordReadProjection projection, Criteria criteria, Sort... sorts) {
+        return RelationProjectionQueryPlanner.plan(definitions, definition, projection,
+                databaseTypeProvider.databaseType(), requiredMainFields(criteria, sorts));
+    }
+
+    static java.util.Set<String> requiredMainFields(Criteria criteria, Sort... sorts) {
         LinkedHashSet<String> fields = new LinkedHashSet<>();
         if (criteria != null) {
             collectCriteriaFields(criteria.getRoot(), fields);
@@ -247,7 +253,7 @@ public class RelationProjectionReadService {
         return java.util.Set.copyOf(fields);
     }
 
-    private void collectCriteriaFields(CriteriaGroup group, java.util.Set<String> fields) {
+    private static void collectCriteriaFields(CriteriaGroup group, java.util.Set<String> fields) {
         if (group == null) {
             return;
         }

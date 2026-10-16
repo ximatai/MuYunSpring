@@ -183,8 +183,15 @@ public final class RelationProjectionQueryPlanner {
         if (definition == null || definition.entities().isEmpty()) {
             throw new IllegalArgumentException("static aggregate requires a main entity definition");
         }
+        return mainTableReadPlan(definition.entities().getFirst(), databaseType, requiredMainFields);
+    }
+
+    /** Physical identity query source, also used by server-side business-content sorting. */
+    public static RelationProjectionSqlPlan mainTableReadPlan(EntityDefinition mainEntity,
+                                                               DBInfo.Type databaseType,
+                                                               java.util.Set<String> requiredMainFields) {
+        java.util.Objects.requireNonNull(mainEntity, "main entity");
         DBInfo.Type dbType = databaseType == null ? DBInfo.Type.POSTGRESQL : databaseType;
-        EntityDefinition mainEntity = definition.entities().getFirst();
         LinkedHashMap<String, SelectField> selectFields = new LinkedHashMap<>();
         Map<String, FieldDefinition> fieldsByName = fieldsByName(mainEntity);
         for (String fieldName : requiredMainFields == null ? java.util.Set.<String>of() : requiredMainFields) {
@@ -195,6 +202,10 @@ public final class RelationProjectionQueryPlanner {
             }
         }
         addStandardMainFields(selectFields);
+        net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema.fieldToColumn().forEach((field, column) -> {
+            if (requiredMainFields != null && requiredMainFields.contains(field))
+                addSelectField(selectFields, new SelectField(RelationProjectionSqlNames.MAIN_ALIAS, column, field));
+        });
         String sql = "select " + selectFields.values().stream()
                 .map(field -> selectExpression(field, dbType) + " as " + quote(field.outputName(), dbType))
                 .collect(java.util.stream.Collectors.joining(", "))

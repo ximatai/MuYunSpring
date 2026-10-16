@@ -15,12 +15,16 @@ class StaticModuleWebWireValuesTest {
     void preservesListQuerySummariesWhenAdaptingRecordsToWireValues() {
         WebPageResponse<Map<String, Object>> response = new WebPageResponse<>(
                 List.of(Map.of("amount", 12L)), 1, 1, 20, 1, true, null,
-                List.of(new WebListQuerySummaryItem("onlineUsers", 3)));
+                List.of(new WebListQuerySummaryItem("onlineUsers", 3)),
+                new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus("en", 1,
+                        Map.of("record", Map.of("title", "Equipment"))));
 
         WebPageResponse<?> adapted = StaticModuleWebWireValues.adaptPage(response,
                 Map.of("amount", FieldValueType.LONG), new ObjectMapper());
 
         assertThat(adapted.records()).singleElement().isEqualTo(Map.of("amount", "12"));
         assertThat(adapted.summaries()).containsExactly(new WebListQuerySummaryItem("onlineUsers", 3));
+        assertThat(adapted.businessContent()).isEqualTo(response.businessContent());
+        assertThat(adapted.withSummaries(List.of()).businessContent()).isEqualTo(response.businessContent());
     }
 }

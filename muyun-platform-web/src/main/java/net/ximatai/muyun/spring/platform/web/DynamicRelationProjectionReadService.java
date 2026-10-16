@@ -26,6 +26,34 @@ import java.util.Set;
 @Component
 public class DynamicRelationProjectionReadService {
     private final RelationProjectionReadService relationProjectionReadService;
+    private BusinessContentListQueryService contentLists;
+
+    @Autowired(required = false)
+    public void setBusinessContentListQueryService(BusinessContentListQueryService service) { contentLists = service; }
+
+    public Map<String, Map<String, String>> contentReadings(net.ximatai.muyun.spring.ability.CrudAbility<?> owner,
+            List<?> output, Set<String> fields) {
+        return contentLists == null ? Map.of() : contentLists.readings(owner, output, fields);
+    }
+
+    public Optional<PageResult<DynamicRecord>> queryContentOrderedList(String moduleAlias, DynamicRecordService records,
+            Set<String> outputFields, Criteria criteria, PageRequest page, RecordReadVisibility visibility, Sort... sorts) {
+        var owner = records.mainEntity(moduleAlias);
+        if (contentLists == null || !contentLists.applies(owner, sorts)) return Optional.empty();
+        List<ModuleDefinition> dynamic = records.moduleDefinitions();
+        List<StaticModuleDefinition> definitions = DynamicRelationProjectionDefinitionAdapter.adapt(dynamic);
+        StaticModuleDefinition definition = staticDefinition(definitions, moduleAlias);
+        RecordReadProjection projection = projection(moduleAlias, resolveListOutputFields(moduleAlias, records, outputFields));
+        java.util.function.Function<Criteria, PageResult<DynamicRecord>> read = scoped -> {
+            RelationProjectionSqlPlan source = relationProjectionReadService.describeListQuery(definitions, definition, projection).supported()
+                    ? relationProjectionReadService.prepareListSource(definitions, definition, projection, scoped, sorts) : null;
+            return contentLists.page(owner, source, scoped, page, visibility, sorts);
+        };
+        return Optional.of(visibility == RecordReadVisibility.RETAINED
+                ? records.withRecycleBinReadScope(moduleAlias, criteria, read)
+                : records.withQueryReadScope(moduleAlias, criteria, read));
+    }
+
 
     DynamicRelationProjectionReadService() {
         this((RelationProjectionReadService) null);

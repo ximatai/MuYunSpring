@@ -27,6 +27,11 @@ export interface QuerySchemaRequestOptions {
   queryTemplateId?: string;
 }
 
+/** Display intent only, independent of original-content and interface languages. */
+export interface RecordQueryRequestOptions {
+  contentLanguage?: string;
+}
+
 export interface RecordSaveRequestOptions {
   requestId: string;
 }
@@ -40,7 +45,7 @@ export interface RecordSaveReceipt {
 /** Source-neutral client for a platform module's standard CRUD contract. */
 export interface ModuleCrudClient<TRecord> {
   querySchema(options?: QuerySchemaRequestOptions): Promise<QuerySchema>;
-  query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
+  query(request?: WebQueryRequest, options?: RecordQueryRequestOptions): Promise<WebPageResponse<TRecord>>;
   view(id: string): Promise<TRecord>;
   insert(record: TRecord, options?: RecordSaveRequestOptions): Promise<StaticRecordMutationResult<TRecord>>;
   update(
@@ -81,7 +86,7 @@ export interface ModuleEnableClient {
  * server-issued relation code are the only routing facts a surface receives.
  */
 export interface ManagedDetailRelationClient<TRecord> {
-  query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
+  query(request?: WebQueryRequest, options?: RecordQueryRequestOptions): Promise<WebPageResponse<TRecord>>;
   insert(record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
   update(id: string, record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
   delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
@@ -94,12 +99,15 @@ export function createManagedDetailRelationClient<TRecord>(
   const parentPath = modulePathOf(options.parentModuleAlias);
   const relationPath = `${parentPath}/view/${encodeURIComponent(options.parentId)}/relations/${encodeURIComponent(options.relationCode)}`;
   return {
-    query: (request) =>
+    query: (request, options) =>
       http
         .request<WebPageResponse<TRecord>>({
           method: 'POST',
           path: `${relationPath}/query`,
           body: request,
+          ...(options?.contentLanguage
+            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
+            : {}),
         })
         .then(normalizeModulePageResponse),
     insert: async (record) =>
@@ -144,10 +152,10 @@ export interface NavigatorReferenceCrudClient<TRecord> extends ModuleCrudClient<
 /** The navigation-only read surface deliberately does not reuse the module query endpoint. */
 export function createNavigatorReferenceCrudClient<TRecord>(
   http: HttpClient,
-  options: { moduleAlias: string; navigatorReference?: NavigatorReferenceRequestContext },
+  navigatorOptions: { moduleAlias: string; navigatorReference?: NavigatorReferenceRequestContext },
 ): NavigatorReferenceCrudClient<TRecord> {
-  const normal = createModuleCrudClient<TRecord>(http, options);
-  const modulePath = modulePathOf(options.moduleAlias);
+  const normal = createModuleCrudClient<TRecord>(http, navigatorOptions);
+  const modulePath = modulePathOf(navigatorOptions.moduleAlias);
   return {
     ...normal,
     // A navigator reference is a scoped read projection, not the source module's full CRUD scope.
@@ -160,12 +168,15 @@ export function createNavigatorReferenceCrudClient<TRecord>(
           body: { ids },
         })
         .then(normalizeModulePageResponse),
-    query: (request) =>
+    query: (request, options) =>
       http
         .request<WebPageResponse<TRecord>>({
           method: 'POST',
           path: `${modulePath}/navigator/reference/query`,
-          body: navigatorReferenceRequest(request, options.navigatorReference),
+          body: navigatorReferenceRequest(request, navigatorOptions.navigatorReference),
+          ...(options?.contentLanguage
+            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
+            : {}),
         })
         .then(normalizeModulePageResponse),
   };
@@ -185,12 +196,15 @@ export function createStaticResourceCrudClient<TRecord>(
           queryTemplateId: options?.queryTemplateId,
         },
       }),
-    query: (request) =>
+    query: (request, options) =>
       http
         .request<WebPageResponse<TRecord>>({
           method: 'POST',
           path: `${modulePath}/query`,
           body: request,
+          ...(options?.contentLanguage
+            ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
+            : {}),
         })
         .then(normalizeModulePageResponse),
     view: (id) =>

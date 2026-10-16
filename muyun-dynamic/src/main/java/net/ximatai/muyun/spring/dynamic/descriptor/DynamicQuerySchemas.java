@@ -61,7 +61,7 @@ public final class DynamicQuerySchemas {
                 queryable ? operators(field) : List.of(QueryOperator.LIKE),
                 queryable ? QueryOperator.valueOf(field.query().defaultOperator()) : QueryOperator.LIKE,
                 quickSearch,
-                field.sortable(),
+                querySortable(field),
                 field.optionBinding(),
                 field.selectionMode(),
                 optionTitleField(field, fields),
@@ -77,12 +77,18 @@ public final class DynamicQuerySchemas {
                 List.of(QueryOperator.LIKE),
                 QueryOperator.LIKE,
                 true,
-                field.sortable(),
+                querySortable(field),
                 field.optionBinding(),
                 field.selectionMode(),
                 null,
                 reference(field), null, auditTitleSource(field)
             );
+    }
+
+    private static boolean querySortable(DynamicFieldDescriptor field) {
+        // Query order is independent of the integer field that owns drag/reorder capability.
+        return field.sortable() || (queryable(field) && field.content() != null && field.content().enabled()
+                && field.storageForm() == net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm.PHYSICAL);
     }
 
     private static net.ximatai.muyun.spring.common.i18n.TextReference auditTitleSource(DynamicFieldDescriptor field) {

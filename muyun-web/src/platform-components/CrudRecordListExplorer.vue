@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  businessContentLanguageContext,
   canQueryRecycleBin,
   hasRecycleBinAbility,
   type ModuleContext,
@@ -20,7 +21,14 @@ import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 import { defaultCrudRecordListTitle, type CrudRecordListBase } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import BusinessContentQueryNotice from './BusinessContentQueryNotice.vue';
+import RecordQuerySortSelector from './RecordQuerySortSelector.vue';
+import type {
+  WebBusinessContentQueryStatus,
+  WebQueryRequest,
+  WebSort,
+  QuerySchema,
+} from '@muyun/web-contracts';
 import { sortPartitionKey } from './sortPartitionKey';
 import type {
   RecordQueryListQueryController,
@@ -28,6 +36,7 @@ import type {
 } from './recordQueryListQueryController';
 
 const language = useLanguageContext();
+const contentLanguage = businessContentLanguageContext(language);
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -52,7 +61,10 @@ const props = withDefaults(
     fallbackTitle?: string;
     titleOf?: (record: CrudRecordListBase) => string;
     subtitleOf?: (record: CrudRecordListBase) => string | undefined;
-    itemOf?: (record: CrudRecordListBase) => RecordExplorerItemDescriptor | undefined;
+    itemOf?: (
+      record: CrudRecordListBase,
+      readings?: Readonly<Record<string, string>>,
+    ) => RecordExplorerItemDescriptor | undefined;
     actionsOf?: (record: CrudRecordListBase) => UiRecordInlineAction[];
     tagOf?: (record: CrudRecordListBase) => string | undefined;
     mutedOf?: (record: CrudRecordListBase) => boolean;
@@ -116,6 +128,35 @@ const changeReason = ref<UiTreeChangeReason>('reset');
 const sortingRequest = ref(false);
 useWorkspaceSortActivity(sortingRequest);
 const records = ref<CrudRecordListBase[]>([]);
+const contentQueryStatus = ref<WebBusinessContentQueryStatus>();
+const contentQuerySchema = ref<QuerySchema>();
+const appliedSorts = ref<WebSort[]>();
+watch(
+  () => props.context,
+  () => {
+    contentQuerySchema.value = undefined;
+    contentQueryStatus.value = undefined;
+    appliedSorts.value = undefined;
+  },
+  { flush: 'sync' },
+);
+function changeQuerySorts(sorts: WebSort[] | undefined) {
+  appliedSorts.value = sorts;
+  void loadRecords('interaction', 1);
+}
+
+const currentContentStatus = computed(() =>
+  props.mode === 'normal' && contentQueryStatus.value?.language === contentLanguage.languageTag.value
+    ? contentQueryStatus.value
+    : undefined,
+);
+watch(
+  contentLanguage.languageTag,
+  () => {
+    if (contentQueryStatus.value) void loadRecords('reset', 1);
+  },
+  { flush: 'sync' },
+);
 let recordsRequestSeq = 0;
 let queryControllerRevision = 0;
 const loadedTotal = ref<number>();
@@ -227,6 +268,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
   const keyword = props.keyword.trim();
   const request: WebQueryRequest = {
     page: { pageNum: requestedPage, pageSize: pageSize.value },
+    ...(appliedSorts.value ? { sorts: appliedSorts.value } : {}),
     ...(keyword ? { quickSearch: keyword } : {}),
     ...(props.externalQueryValues ? { externalQueryValues: { ...props.externalQueryValues } } : {}),
     ...(props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
@@ -268,15 +310,31 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
         pages: recycleBinState.pages.value,
       };
     } else {
-      response = await context.abilities.crud().query(request);
+      response = await context.abilities
+        .crud()
+        .query(request, { contentLanguage: contentLanguage.languageTag.value });
     }
     if (requestSeq !== recordsRequestSeq) return;
+    if ('businessContent' in response && response.businessContent && !contentQuerySchema.value) {
+      const loadedSchema = await context.crud.querySchema();
+      if (requestSeq !== recordsRequestSeq) return;
+      contentQuerySchema.value = loadedSchema;
+    }
+    if (
+      'businessContent' in response &&
+      response.businessContent &&
+      response.businessContent.language !== contentLanguage.languageTag.value
+    ) {
+      await loadRecords('reset', 1);
+      return;
+    }
     // Deletion can empty the last page. Re-read the last available page once.
     if (response.totalKnown !== false && requestedPage > Math.max(1, response.pages)) {
       await loadRecords(reason, Math.max(1, response.pages));
       return;
     }
     changeReason.value = reason;
+    contentQueryStatus.value = 'businessContent' in response ? response.businessContent : undefined;
     records.value = response.records;
     loadedTotal.value = response.total;
     loadedTotalKnown.value = response.totalKnown !== false;
@@ -302,15 +360,26 @@ function changePage(nextPage: number) {
   void loadRecords('interaction', nextPage);
 }
 
+function recordItem(record: CrudRecordListBase) {
+  const readings = currentContentStatus.value?.readings[record.id ?? ''];
+  const item = props.itemOf?.(record, readings);
+  return item
+    ? { ...item, title: item.title === record.title ? (readings?.title ?? item.title) : item.title }
+    : undefined;
+}
+
 function recordTitle(record: CrudRecordListBase) {
-  const item = props.itemOf?.(record);
-  return (
-    item?.title ?? props.titleOf?.(record) ?? defaultCrudRecordListTitle(record, resolvedFallbackTitle.value)
-  );
+  const original =
+    recordItem(record)?.title ??
+    props.titleOf?.(record) ??
+    defaultCrudRecordListTitle(record, resolvedFallbackTitle.value);
+  return original === record.title
+    ? (currentContentStatus.value?.readings[record.id ?? '']?.title ?? original)
+    : original;
 }
 
 function recordCode(record: CrudRecordListBase) {
-  const item = props.itemOf?.(record);
+  const item = recordItem(record);
   return item
     ? item.secondary
     : props.subtitleOf
@@ -571,6 +640,14 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 
 <template>
   <div class="crud-record-list-explorer">
+    <RecordQuerySortSelector
+      v-if="currentContentStatus && contentQuerySchema"
+      :fields="contentQuerySchema.fields.filter((field) => field.sortable)"
+      :sorts="appliedSorts"
+      :disabled="loading"
+      @change="changeQuerySorts"
+    />
+    <BusinessContentQueryNotice :status="currentContentStatus" />
     <UiButton v-if="loadError" type="text" @click="loadRecords()">{{
       language.t('platform.screen.CrudRecordListExplorer.reload', '重新加载')
     }}</UiButton>
@@ -584,7 +661,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :empty-description="resolvedEmptyDescription"
       :title-of="(record) => recordTitle(record as CrudRecordListBase)"
       :code-of="(record) => recordCode(record as CrudRecordListBase)"
-      :item-of="(record) => itemOf?.(record as CrudRecordListBase)"
+      :item-of="(record) => recordItem(record as CrudRecordListBase)"
       :actions-of="(record) => recordActions(record as CrudRecordListBase)"
       :tag-of="(record) => tagOf?.(record as CrudRecordListBase)"
       :muted-of="(record) => mutedOf?.(record as CrudRecordListBase) ?? record.enabled === false"

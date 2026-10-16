@@ -347,6 +347,86 @@ class QualityCollaborationIT {
         }
     }
 
+    @Test void serverPagesByCurrentReadingAndReportsUntranslatedRowsOutsideTheTextMatches() throws Exception {
+        MockMvc mvc = webAppContextSetup(web).build();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("ordering-setup", "Ordering Setup"));
+             var tenant = TenantContext.system("provision reading order contract tenant")) {
+            var tenants = web.getBean(TenantService.class);
+            for (String alias : java.util.List.of("quality_reading_order", "quality_order_other_tenant")) {
+                var value = new Tenant(); value.setAlias(alias); value.setTitle("Reading order"); value.setEnabled(true);
+                tenants.insert(value); tenants.provisionTenant(value.getAlias());
+                web.getBean(TenantApplicationService.class).ensureApplicationsOpened(alias, java.util.List.of("iam", "quality"));
+            }
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("ordering-author", "Ordering Author"));
+             var tenant = TenantContext.use("quality_reading_order")) {
+            var category = write(mvc, "/quality.equipment_category/insert", Map.of("code", "ORDER-CATEGORY", "title", "设备", "parentId", "root",
+                    "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))));
+            String[] raw = {"设备一", "设备二", "设备三"};
+            String[] english = {"Zulu equipment", "Alpha equipment"};
+            var products = new java.util.ArrayList<String>();
+            var issues = new java.util.ArrayList<String>();
+            for (int index = 0; index < raw.length; index++) {
+                String product = write(mvc, "/quality.product/insert", Map.of("code", "ORDER-" + index, "title", raw[index],
+                        "categoryId", category.path("id").asText(), "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))))
+                        .path("id").asText();
+                products.add(product);
+                String issue = write(mvc, "/quality.exception/insert", Map.of("title", raw[index], "description", "Original details", "productId", product,
+                        "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"), "description", Map.of("languageTag", "en"))))
+                        .path("id").asText();
+                issues.add(issue);
+                if (index < english.length) {
+                    confirmTranslation(mvc, "/quality.product/view/" + product + "/content/title/translations/en/", english[index]);
+                    confirmTranslation(mvc, "/quality.exception/view/" + issue + "/content/title/translations/en/", english[index]);
+                }
+            }
+            for (String module : java.util.List.of("quality.product", "quality.exception")) {
+                var expected = module.endsWith("product") ? products : issues;
+                var first = readingQuery(mvc, module, Map.of("page", Map.of("pageNum", 1, "pageSize", 1),
+                        "sorts", java.util.List.of(Map.of("field", "title", "desc", false))));
+                var second = readingQuery(mvc, module, Map.of("page", Map.of("pageNum", 2, "pageSize", 1),
+                        "sorts", java.util.List.of(Map.of("field", "title", "desc", false))));
+                assertThat(first.path("total").asLong()).isEqualTo(3);
+                assertThat(second.path("total").asLong()).isEqualTo(3);
+                assertThat(first.at("/records/0/id").asText()).isEqualTo(expected.get(1));
+                assertThat(second.at("/records/0/id").asText()).isEqualTo(expected.get(0));
+                assertThat(first.at(module.endsWith("product") ? "/records/0/title" : "/records/0/values/title").asText()).isEqualTo(raw[1]);
+                assertThat(first.at("/businessContent/language").asText()).isEqualTo("en");
+                assertThat(first.at("/businessContent/missingRecords").asLong()).isEqualTo(1);
+                assertThat(first.at("/businessContent/readings/" + expected.get(1) + "/title").asText()).isEqualTo(english[1]);
+                var filtered = readingQuery(mvc, module, Map.of("quickSearch", "Alpha equipment"));
+                assertThat(filtered.path("total").asLong()).isEqualTo(1);
+                assertThat(filtered.at("/businessContent/missingRecords").asLong()).isEqualTo(1);
+                assertThat(filtered.toString()).doesNotContain("__content_order_", "reading_text");
+                var rawQuery = write(mvc, "/" + module + "/query", Map.of());
+                assertThat(rawQuery.has("businessContent")).isFalse();
+                confirmTranslation(mvc, "/" + module + "/view/" + expected.getFirst() + "/content/title/translations/en/", english[1]);
+                var tiedIds = java.util.List.of(expected.get(0), expected.get(1)).stream().sorted().toList();
+                for (int page = 1; page <= 2; page++) {
+                    var tied = readingQuery(mvc, module, Map.of("page", Map.of("pageNum", page, "pageSize", 1),
+                            "sorts", java.util.List.of(Map.of("field", "title", "desc", false))));
+                    assertThat(tied.at("/records/0/id").asText()).isEqualTo(tiedIds.get(page - 1));
+                }
+                var descending = readingQuery(mvc, module, Map.of("page", Map.of("pageNum", 1, "pageSize", 1),
+                        "sorts", java.util.List.of(Map.of("field", "title", "desc", true))));
+                assertThat(descending.at("/records/0/id").asText()).isEqualTo(expected.get(2));
+                try (var other = TenantContext.use("quality_order_other_tenant")) {
+                    var invisible = readingQuery(mvc, module, Map.of("sorts", java.util.List.of(Map.of("field", "title", "desc", false))));
+                    assertThat(invisible.path("total").asLong()).isZero();
+                    assertThat(invisible.at("/businessContent/missingRecords").asLong()).isZero();
+                    assertThat(invisible.at("/businessContent/readings").isEmpty()).isTrue();
+                }
+            }
+        }
+    }
+
+    private JsonNode readingQuery(MockMvc mvc, String module, Map<String, ?> values) throws Exception {
+        var response = mvc.perform(post("/" + module + "/query").header("X-MuYun-Content-Language", "en")
+                .contentType("application/json").content(mapper.writeValueAsString(values))).andReturn().getResponse();
+        assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+        return mapper.readTree(response.getContentAsString());
+    }
+
     private void publishField(net.ximatai.muyun.spring.platform.metadata.MetadataField field) {
         var relations = web.getBean(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService.class);
         var owner = relations.list(Criteria.of().eq("metadataId", field.getMetadataId())
@@ -367,9 +447,11 @@ class QualityCollaborationIT {
 
     private void confirmTranslation(MockMvc mvc, String path, String text) throws Exception {
         var opened = write(mvc, path + "prepare", Map.of());
-        var draft = write(mvc, path + "draft", Map.of(
+        var input = new java.util.LinkedHashMap<String, Object>(Map.of(
                 "sourceRevisionId", opened.at("/original/revisionId").asText(),
                 "sourceRevision", opened.at("/original/revision").asInt(), "text", text));
+        if (opened.hasNonNull("expectedRevision")) input.put("expectedRevision", opened.path("expectedRevision").asInt());
+        var draft = write(mvc, path + "draft", input);
         write(mvc, path + "confirm", Map.of(
                 "sourceRevisionId", opened.at("/original/revisionId").asText(),
                 "sourceRevision", opened.at("/original/revision").asInt(),
