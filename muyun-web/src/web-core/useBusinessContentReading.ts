@@ -53,7 +53,6 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
     return [
       current.http,
       current.moduleAlias,
-      current.record,
       current.record.id,
       current.record.version,
       current.fieldName,
@@ -119,6 +118,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
         current.language,
         current.relation,
         current.record,
+        current.sessionKey,
       );
       if (disposed || epoch !== readEpoch || !sameKey(expected)) return;
       if (result.language !== current.language || result.recordVersion !== (current.record.version ?? null))
@@ -164,6 +164,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
           current.language,
           current.relation,
           current.record,
+          current.sessionKey,
         );
         if (
           valid() &&
@@ -219,7 +220,15 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
     }
   }
 
-  watch(key, () => void load(), { immediate: true });
+  watch(
+    key,
+    (current, previous) => {
+      // Standard forms replace immutable draft objects, including unchanged sibling rows.
+      // A replacement only reloads when its logical record/version/session scope changes.
+      if (!previous || current.some((value, index) => value !== previous[index])) void load();
+    },
+    { immediate: true },
+  );
   // Keystrokes stop generation display/polling without issuing a source read per keystroke.
   watch(raw, cancelGeneration, { flush: 'sync' });
   onScopeDispose(() => {

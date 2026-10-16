@@ -92,6 +92,7 @@ async function load() {
       id.value,
       props.relation,
       props.record,
+      props.sessionKey,
     );
     if (token === generation) current.value = response.fields[props.fieldName];
   } catch {

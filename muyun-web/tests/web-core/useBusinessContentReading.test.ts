@@ -47,11 +47,11 @@ function reading(language = 'en', translated = false): BusinessContentReading {
 function status(state: BusinessContentGenerationStatus['state']): BusinessContentGenerationStatus {
   return { state, reference: 'job-1', attempts: 1, retryAt: null, problem: null };
 }
-function fixture(request: ReturnType<typeof vi.fn>) {
+function fixture(request: ReturnType<typeof vi.fn>, id = 'child/one') {
   const options = reactive({
     http: { request } as unknown as HttpClient,
     moduleAlias: 'quality.exception',
-    record: { id: 'child/one', version: 4, description: raw },
+    record: { id, version: 4, description: raw, other: 'initial' },
     fieldName: 'description',
     content: { key: 'description', policy: 'AUTO_TRANSLATE' as const },
     language: 'en',
@@ -234,4 +234,58 @@ it('does not generate for an existing translation, unknown source or an unsaved 
   await settle();
   expect(view.reading.value).toBeUndefined();
   expect(generationRequests(request)).toHaveLength(0);
+});
+
+it('does not restart reading or generation when immutable form/detail snapshots are rebuilt', async () => {
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/reading') ? reading() : status('RUNNING'),
+  );
+  const first = fixture(request, 'line-one');
+  const second = fixture(request, 'line-two');
+  await settle();
+  expect(generationRequests(request)).toHaveLength(2);
+  const signals = generationRequests(request).map((row) => row.signal!);
+  const count = request.mock.calls.length;
+  first.options.record = { ...first.options.record, other: 'user typing into an unrelated field' };
+  second.options.record = { ...second.options.record };
+  await settle();
+  expect(request).toHaveBeenCalledTimes(count);
+  expect(signals.every((signal) => !signal.aborted)).toBe(true);
+  expect(first.view.reading.value?.text).toBe(raw);
+  expect(second.view.reading.value?.text).toBe(raw);
+  first.options.record = { ...first.options.record, description: 'Unsaved immutable business edit' };
+  second.options.record = { ...second.options.record };
+  await settle();
+  expect(request).toHaveBeenCalledTimes(count);
+  expect(signals[0]!.aborted).toBe(true);
+  expect(signals[1]!.aborted).toBe(false);
+  expect(first.view.matches.value).toBe(false);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(generationRequests(request).filter((row) => row.method === 'POST')).toHaveLength(2);
+  expect(generationRequests(request).at(-1)!.path).toContain('/line-two/');
+});
+
+it('starts a separate reading when only the page session changes and ignores the old session response', async () => {
+  const callbacks: ((value: BusinessContentReading) => void)[] = [];
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/reading')
+      ? new Promise<BusinessContentReading>((resolve) => callbacks.push(resolve))
+      : status('UNAVAILABLE'),
+  );
+  const { options, view } = fixture(request);
+  await settle();
+  const sameRecord = options.record;
+  options.sessionKey = 2;
+  await settle();
+  expect(options.record).toBe(sameRecord);
+  expect(callbacks).toHaveLength(2);
+  callbacks[0]!(reading('en', true));
+  await settle();
+  expect(view.reading.value).toBeUndefined();
+  expect(generationRequests(request)).toHaveLength(0);
+  callbacks[1]!(reading());
+  await settle();
+  expect(view.reading.value?.originalFallback).toBe(true);
+  expect(view.status.value?.state).toBe('UNAVAILABLE');
+  expect(generationRequests(request)).toHaveLength(1);
 });

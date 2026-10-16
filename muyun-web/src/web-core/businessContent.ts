@@ -29,7 +29,13 @@ export function businessContentPath(
 // Share only an explicit draft snapshot, never a mutable authentication client by itself.
 const pending = new WeakMap<
   object,
-  { http: HttpClient; path: string; version: unknown; request: Promise<BusinessContentSources> }
+  {
+    http: HttpClient;
+    path: string;
+    version: unknown;
+    sessionKey?: string | number;
+    request: Promise<BusinessContentSources>;
+  }
 >();
 export function loadBusinessContentSources(
   http: HttpClient,
@@ -37,16 +43,22 @@ export function loadBusinessContentSources(
   id: string,
   relation?: BusinessContentRelationScope,
   snapshot?: object,
+  sessionKey?: string | number,
 ) {
   const path = businessContentPath(moduleAlias, id, relation);
   const version = snapshot && 'version' in snapshot ? snapshot.version : undefined;
   const previous = snapshot ? pending.get(snapshot) : undefined;
-  if (previous?.http === http && previous.path === path && previous.version === version)
+  if (
+    previous?.http === http &&
+    previous.path === path &&
+    previous.version === version &&
+    previous.sessionKey === sessionKey
+  )
     return previous.request;
   const request = http.request<BusinessContentSources>({ path }).finally(() => {
     if (snapshot && pending.get(snapshot)?.request === request) pending.delete(snapshot);
   });
-  if (snapshot) pending.set(snapshot, { http, path, version, request });
+  if (snapshot) pending.set(snapshot, { http, path, version, sessionKey, request });
   return request;
 }
 
@@ -75,10 +87,11 @@ export function loadBusinessContentReading(
   language: string,
   relation?: BusinessContentRelationScope,
   snapshot?: object,
+  sessionKey?: string | number,
 ) {
   const path = `${businessContentPath(moduleAlias, id, relation)}/reading`;
   const version = snapshot && 'version' in snapshot ? snapshot.version : undefined;
-  const key = JSON.stringify([path, language, version]);
+  const key = JSON.stringify([path, language, version, sessionKey]);
   const requests = snapshot ? readingPending.get(snapshot) : undefined;
   const previous = requests?.get(key);
   if (previous?.http === http) return previous.request;

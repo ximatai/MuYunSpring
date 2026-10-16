@@ -176,3 +176,26 @@ it('keeps generation status read-only and refreshes an in-flight projection only
   });
   expect(snapshot.version).toBe(4);
 });
+
+it('isolates in-flight source and reading requests between logical page sessions', async () => {
+  const { loadBusinessContentReading } = await import('@/web-core/businessContent');
+  const callbacks: ((value: unknown) => void)[] = [];
+  const request = vi.fn(() => new Promise((resolve) => callbacks.push(resolve)));
+  const http = { request } as unknown as import('@/web-core/http').HttpClient;
+  const snapshot = { version: 4 };
+  const oldSource = loadBusinessContentSources(http, 'demo.issue', 'one', undefined, snapshot, 1);
+  const newSource = loadBusinessContentSources(http, 'demo.issue', 'one', undefined, snapshot, 2);
+  const oldRead = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot, 1);
+  const newRead = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot, 2);
+  expect(newSource).not.toBe(oldSource);
+  expect(newRead).not.toBe(oldRead);
+  callbacks[0]!({});
+  callbacks[2]!({});
+  await Promise.all([oldSource, oldRead]);
+  expect(loadBusinessContentSources(http, 'demo.issue', 'one', undefined, snapshot, 2)).toBe(newSource);
+  expect(loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot, 2)).toBe(newRead);
+  callbacks[1]!({});
+  callbacks[3]!({});
+  await Promise.all([newSource, newRead]);
+  expect(request).toHaveBeenCalledTimes(4);
+});

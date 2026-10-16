@@ -59,6 +59,42 @@ function host(render: () => ReturnType<typeof h>, language = createLanguageConte
 }
 
 describe('business original source controls', () => {
+  it('does not adopt an old source response after a session-only switch with the same record snapshot', async () => {
+    const callbacks: ((value: BusinessContentSources) => void)[] = [];
+    const request = vi.fn(() => new Promise<BusinessContentSources>((resolve) => callbacks.push(resolve)));
+    const state = reactive({ record: { id: 'one', version: 4, description: '原始中文' }, sessionKey: 1 });
+    const context = {
+      moduleAlias: 'demo.issue',
+      http: { request },
+    } as unknown as import('@muyun/web-core').ModuleContext<unknown>;
+    const { wrapper } = host(() =>
+      h(RecordContentSourceField, {
+        record: state.record,
+        fieldName: 'description',
+        content: policy,
+        context,
+        mode: 'view',
+        sessionKey: state.sessionKey,
+      }),
+    );
+    await flushPromises();
+    state.sessionKey = 2;
+    await flushPromises();
+    expect(callbacks).toHaveLength(2);
+    const old = source();
+    old.fields.description!.source!.authorName = 'old-session-author';
+    callbacks[0]!(old);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('old-session-author');
+    const current = source();
+    current.fields.description!.source!.authorName = 'new-session-author';
+    callbacks[1]!(current);
+    await flushPromises();
+    expect(wrapper.text()).toContain('new-session-author');
+    expect(wrapper.text()).not.toContain('old-session-author');
+    wrapper.unmount();
+  });
+
   it('keeps raw editor values and source intent when the interface language changes', async () => {
     const request = vi.fn().mockResolvedValue(source());
     const state = reactive({
