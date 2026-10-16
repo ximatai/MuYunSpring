@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService;
+import net.ximatai.muyun.spring.platform.ui.*;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -30,12 +31,14 @@ class BusinessContentWebTest {
         var plans = mock(ModuleExecutionPlanCatalog.class);
         var ui = mock(ResolvedModuleUiDescriptor.class);
         when(ui.moduleAlias()).thenReturn("test.content");
-        when(ui.detailRelations()).thenReturn(List.of(new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor(
-                "lines", "Lines", true, "test.content", "main", "test.content", "line", "mainId", null, false)));
+        when(ui.detailRelations()).thenReturn(List.of(new ResolvedDetailRelationDescriptor(
+                "lines", "Lines", true, "test.content", "main", "test.content", "line", "mainId",
+                null, null, null, ResolvedDetailRelationEditing.DEFAULT, false, "lines",
+                new ResolvedDetailRelationListProjection(null, List.of(new ResolvedDetailRelationListField(
+                        "description", "Description", null, null, null, null, null))), List.of(), ResolvedUiRule.constant(true))));
         var plan = new ModuleExecutionPlan("test.content", "one", ui,
                 new ResolvedModuleReadModel("test.content", "main", List.of(
-                        new ResolvedModuleReadField("main", null, "title", false),
-                        new ResolvedModuleReadField("line", "lines", "description", false))), List.of());
+                        new ResolvedModuleReadField("main", null, "title", false))), List.of());
         when(plans.find("test.content")).thenReturn(Optional.of(plan));
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("content", content); beans.registerSingleton("plans", plans);

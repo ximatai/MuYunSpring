@@ -53,6 +53,13 @@ public final class BusinessContentWebSupport {
         var relation = plan.uiDescriptor().detailRelations().stream().filter(value -> relationCode.equals(value.code())
                         && web.webScopeName().equals(value.targetModuleAlias()))
                 .findFirst().orElseThrow(BusinessContentWebSupport::denied);
+        var projection = relation.listProjection() != null ? relation.listProjection()
+                : relation.queryContract() == null ? null : relation.queryContract().listProjection();
+        // Dynamic management read models describe the main row. Child display fields belong to
+        // the resolved relation projection, not to an assumed flattened main read model.
+        if (projection != null) return projection.fields().stream()
+                .map(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField::fieldName)
+                .collect(Collectors.toUnmodifiableSet());
         return plan.readModel().fields().stream().filter(field -> relation.targetEntityAlias().equals(field.entityAlias()))
                 .map(ResolvedModuleReadField::fieldName).collect(Collectors.toUnmodifiableSet());
     }

@@ -15,17 +15,7 @@ final class BusinessContentFields {
     private BusinessContentFields() { }
     private static final ClassValue<Map<String, ContentFieldDefinition>> STATIC = new ClassValue<>() {
         @Override protected Map<String, ContentFieldDefinition> computeValue(Class<?> type) {
-            Map<String, ContentFieldDefinition> result = new LinkedHashMap<>();
-            Set<String> keys = new HashSet<>();
-            for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-                for (Field field : current.getDeclaredFields()) {
-                    var definition = net.ximatai.muyun.spring.dynamic.metadata.StaticContentFieldDefinitionCompiler.content(field);
-                    if (!definition.enabled()) continue;
-                    if (!keys.add(definition.key()) || result.putIfAbsent(field.getName(), definition) != null)
-                        throw new IllegalArgumentException("Duplicate business content field identity: " + field);
-                }
-            }
-            return Map.copyOf(result);
+            return net.ximatai.muyun.spring.dynamic.metadata.StaticContentFieldDefinitionCompiler.resolve(type);
         }
     };
 

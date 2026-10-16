@@ -94,3 +94,15 @@ tasks.register<BootRun>("demoBootRun") {
         }
     }
 }
+
+tasks.register<BootRun>("collaborationDemoBootRun") {
+    description = "Runs the optional static/dynamic quality collaboration business sample."
+    group = "application"
+    mainClass.set("net.ximatai.muyun.spring.boot.MuYunSpringApplication")
+    systemProperty("spring.profiles.include", "collaboration-demo")
+    classpath = bootMainOutput.get() + demoRuntimeOutputs + demoRuntimeClasspath.filter { entry ->
+        demoRuntimeBuildDirectories.none { buildDirectory ->
+            entry.toPath().startsWith(buildDirectory.get().asFile.toPath())
+        }
+    }
+}
