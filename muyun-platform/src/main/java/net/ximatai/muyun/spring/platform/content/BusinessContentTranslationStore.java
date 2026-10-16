@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.content;
 
 import net.ximatai.muyun.database.core.orm.*;
+import net.ximatai.muyun.spring.platform.content.BusinessContentStore.OriginalVersion;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.common.content.ContentWriteContext;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -31,7 +32,7 @@ class BusinessContentTranslationStore {
         BusinessContentTranslation effective() { return confirmed == null ? machine : confirmed; }
     }
 
-    State state(BusinessContentSource source, int sourceRevision, String language) {
+    State state(BusinessContentSource source, OriginalVersion sourceRevision, String language) {
         String tag = language(language);
         Integer head = null;
         BusinessContentTranslation draft = null, confirmed = null, machine = null;
@@ -51,20 +52,20 @@ class BusinessContentTranslationStore {
         }
     }
 
-    List<BusinessContentTranslation> history(BusinessContentSource source, int sourceRevision, String language, PageRequest page) {
-        if (sourceRevision < 1 || page.getLimit() > 200) throw new IllegalArgumentException("Invalid translation history range");
-        return translations.query(identity(source).eq("sourceRevision", sourceRevision).eq("languageTag", language(language)),
+    List<BusinessContentTranslation> history(BusinessContentSource source, OriginalVersion sourceRevision, String language, PageRequest page) {
+        if (sourceRevision == null || page.getLimit() > 200) throw new IllegalArgumentException("Invalid translation history range");
+        return translations.query(identity(source).eq("sourceRevisionId", sourceRevision.revisionId()).eq("sourceRevision", sourceRevision.revision()).eq("languageTag", language(language)),
                 page, Sort.desc("revision"));
     }
 
-    BusinessContentTranslation saveDraft(BusinessContentSource source, int sourceRevision, String language,
+    BusinessContentTranslation saveDraft(BusinessContentSource source, OriginalVersion sourceRevision, String language,
                                          String text, Integer expectedRevision) {
         requireText(text);
         var current = prepare(source, sourceRevision, language, expectedRevision);
         return append(source, sourceRevision, language(language), current, "DRAFT", text, null, null);
     }
 
-    BusinessContentTranslation confirm(BusinessContentSource source, int sourceRevision, String language,
+    BusinessContentTranslation confirm(BusinessContentSource source, OriginalVersion sourceRevision, String language,
                                        Integer expectedRevision, int reviewedDraftRevision) {
         var current = prepare(source, sourceRevision, language, expectedRevision);
         if (current.draft() == null || current.draft().getRevision() != reviewedDraftRevision)
@@ -73,7 +74,7 @@ class BusinessContentTranslationStore {
                 current.draft().getTranslatedText(), reviewedDraftRevision, null);
     }
 
-    BusinessContentTranslation saveMachine(BusinessContentSource source, int sourceRevision, String language,
+    BusinessContentTranslation saveMachine(BusinessContentSource source, OriginalVersion sourceRevision, String language,
                                            String text, Integer expectedRevision, Generation generation) {
         requireText(text);
         Objects.requireNonNull(generation, "generation");
@@ -81,17 +82,17 @@ class BusinessContentTranslationStore {
         return append(source, sourceRevision, language(language), current, "MACHINE", text, null, generation);
     }
 
-    BusinessContentTranslation remove(BusinessContentSource source, int sourceRevision, String language, Integer expectedRevision) {
+    BusinessContentTranslation remove(BusinessContentSource source, OriginalVersion sourceRevision, String language, Integer expectedRevision) {
         var current = prepare(source, sourceRevision, language, expectedRevision);
         if (current.revision() == null) throw new IllegalArgumentException("Translation does not exist");
         return append(source, sourceRevision, language(language), current, "REMOVED", null, null, null);
     }
 
-    private State prepare(BusinessContentSource source, int revision, String language, Integer expected) {
+    private State prepare(BusinessContentSource source, OriginalVersion revision, String language, Integer expected) {
         if (CurrentUserContext.currentUser().isEmpty()) throw new IllegalStateException("Translation mutation requires a trusted actor");
         BusinessContentStore.lockRecord(source);
         var original = originals.latest(source);
-        if (original == null || original.getRevision() != revision)
+        if (original == null || !Objects.equals(original.getId(), revision.revisionId()) || original.getRevision() != revision.revision())
             throw new OptimisticLockException("Business translation original revision changed");
         if (original.getOriginalText() == null || original.getOriginalText().isBlank())
             throw new IllegalArgumentException("Translation requires a nonempty original");
@@ -100,11 +101,12 @@ class BusinessContentTranslationStore {
         return state;
     }
 
-    private BusinessContentTranslation append(BusinessContentSource source, int original, String tag, State state,
+    private BusinessContentTranslation append(BusinessContentSource source, OriginalVersion original, String tag, State state,
             String kind, String text, Integer reviewedDraft, Generation generation) {
         var row = new BusinessContentTranslation();
         row.setSourceKey(source.key()); row.setModuleAlias(source.moduleAlias()); row.setEntityKey(source.entityKey());
-        row.setRecordId(source.recordId()); row.setFieldKey(source.fieldKey()); row.setSourceRevision(original);
+        row.setRecordId(source.recordId()); row.setFieldKey(source.fieldKey()); row.setSourceRevision(original.revision());
+        row.setSourceRevisionId(original.revisionId());
         row.setLanguageTag(tag); row.setRevision(state.revision() == null ? 1 : Math.addExact(state.revision(), 1));
         row.setKind(kind); row.setTranslatedText(text); row.setReviewedDraftRevision(reviewedDraft);
         if (generation != null) {

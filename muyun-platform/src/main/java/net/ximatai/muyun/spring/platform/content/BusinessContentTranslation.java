@@ -9,7 +9,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 /** Append-only translation facts, owned by an exact original revision. No independent CRUD module. */
 @Getter @Setter
 @Table(name = "platform_business_content_translation", comment = "Business content translation revision")
-@CompositeIndex(columns = {"source_key", "source_revision", "language_tag", "revision"}, unique = true)
+@CompositeIndex(columns = {"source_key", "source_revision_id", "language_tag", "revision"}, unique = true)
 @CompositeIndex(columns = {"tenant_id", "module_alias", "record_id"})
 public class BusinessContentTranslation extends StandardEntity {
     @Column(name = "source_key", type = ColumnType.VARCHAR, length = 64, nullable = false)
@@ -24,6 +24,8 @@ public class BusinessContentTranslation extends StandardEntity {
     private String fieldKey;
     @Column(name = "source_revision", type = ColumnType.INT, nullable = false)
     private Integer sourceRevision;
+    @Column(name = "source_revision_id", type = ColumnType.VARCHAR, length = 64, nullable = false)
+    private String sourceRevisionId;
     @Column(name = "language_tag", type = ColumnType.VARCHAR, length = 255, nullable = false)
     private String languageTag;
     @Column(name = "revision", type = ColumnType.INT, nullable = false)

@@ -27,6 +27,17 @@ class BusinessContentStore {
 
     record Baseline(String text) { }
 
+    /** The row identity cannot restart when a purged business record ID is reused. */
+    record OriginalVersion(String revisionId, int revision) {
+        OriginalVersion {
+            if (revisionId == null || revisionId.isBlank() || revisionId.length() > 64 || revision < 1)
+                throw new IllegalArgumentException("Invalid business content original version");
+        }
+        static OriginalVersion of(BusinessContentRevision row) {
+            return new OriginalVersion(row.getId(), row.getRevision());
+        }
+    }
+
     void capture(BusinessContentSource source, String text, SourceInput input, Baseline baseline) {
         if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Business content requires a transaction");
         lockRecord(source);
