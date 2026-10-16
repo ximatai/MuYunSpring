@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.spring.common.identity.*;
+import net.ximatai.muyun.spring.common.security.FieldMaskingPolicy;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.demo.quality.product.ProductService;
 import net.ximatai.muyun.spring.platform.metadata.*;
@@ -25,16 +26,23 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
     private final MetadataFieldService fields;
     private final ModuleMetadataRelationService relations;
     private final MetadataFieldReferenceConfigService references;
+    private final MetadataFieldProtectionConfigService protections;
+    private final MetadataRelationChangeSetPreviewService previews;
+    private final MetadataRelationChangeSetApplyService publication;
     private final DynamicModuleStandardActionRegistrar actions;
     private final PlatformDynamicRuntimeRefreshService runtime;
     private final TransactionTemplate transactions;
 
     public QualityDemoBootstrapTask(PlatformModuleService modules, MetadataService metadata,
             MetadataFieldService fields, ModuleMetadataRelationService relations,
-            MetadataFieldReferenceConfigService references, DynamicModuleStandardActionRegistrar actions,
+            MetadataFieldReferenceConfigService references, MetadataFieldProtectionConfigService protections,
+            MetadataRelationChangeSetPreviewService previews, MetadataRelationChangeSetApplyService publication,
+            DynamicModuleStandardActionRegistrar actions,
             PlatformDynamicRuntimeRefreshService runtime, TransactionTemplate transactions) {
         this.modules = modules; this.metadata = metadata; this.fields = fields;
         this.relations = relations; this.references = references; this.actions = actions;
+        this.protections = protections;
+        this.previews = previews; this.publication = publication;
         this.runtime = runtime; this.transactions = transactions;
     }
     @Override public String name() { return "demo-quality-collaboration"; }
@@ -55,8 +63,8 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
         field(main, "title", "title", "string", "异常标题", true, true, ContentPolicy.AUTO_TRANSLATE);
         field(main, "description", "description", "text", "异常说明", true, false, ContentPolicy.AUTO_TRANSLATE);
         var product = field(main, "productId", "product_id", "string", "商品", true, false, ContentPolicy.KEEP_ORIGINAL);
-        // A restricted field is intentionally absent from the ordinary page's source boundary.
-        field(main, "internalNote", "internal_note", "text", "内部记录", false, false, ContentPolicy.AUTO_TRANSLATE);
+        protectInternalNote(field(main, "internalNote", "internal_note", "text", "内部记录", false, false,
+                ContentPolicy.KEEP_ORIGINAL));
         var owner = relation(main, "exception", "质量异常单", null);
         reference(product, owner);
 
@@ -71,6 +79,34 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
         field(investigation, "exceptionId", "exception_id", "string", "异常单", true, false, ContentPolicy.KEEP_ORIGINAL);
         field(investigation, "description", "description", "text", "调查意见", true, false, ContentPolicy.AUTO_TRANSLATE);
         relation(investigation, "investigations", "团队调查记录", main);
+    }
+
+    /** The sample's private field remains protected even when upgrading an existing installation. */
+    private void protectInternalNote(MetadataField field) {
+        if (field.getContentPolicy() != ContentPolicy.KEEP_ORIGINAL) {
+            field.setContentPolicy(ContentPolicy.KEEP_ORIGINAL);
+            var owner = relations.list(Criteria.of().eq("moduleAlias", MODULE_ALIAS)
+                    .eq("metadataId", field.getMetadataId()).eq("relationRole", RelationRole.MAIN), ONE)
+                    .stream().findFirst().orElseThrow();
+            var proposal = new MetadataRelationChangeSetPreviewCommand(metadata.select(field.getMetadataId()).getVersion(),
+                    java.util.Map.of(), java.util.List.of(new MetadataFieldChangeSetDraft(
+                            MetadataFieldChangeSetDraft.Operation.UPDATE, field.getId(), field.getVersion(), field)));
+            var preview = previews.preview(MODULE_ALIAS, owner.getId(), proposal);
+            publication.apply(MODULE_ALIAS, owner.getId(),
+                    new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+        }
+        var protection = protections.findByMetadataFieldId(field.getId());
+        if (protection == null) {
+            protection = new MetadataFieldProtectionConfig();
+            protection.setMetadataFieldId(field.getId());
+            protection.setMaskingPolicy(FieldMaskingPolicy.FULL);
+            protections.insert(protection);
+        } else if (!Boolean.TRUE.equals(protection.getEnabled())
+                || protection.getMaskingPolicy() != FieldMaskingPolicy.FULL) {
+            protection.setEnabled(true);
+            protection.setMaskingPolicy(FieldMaskingPolicy.FULL);
+            protections.update(protection);
+        }
     }
 
     private Metadata entity(String alias, String title, boolean dataScope) {

@@ -208,6 +208,47 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void contentPolicySurvivesPublicationAndOmittedUpdatesAndBindsTheReviewedFingerprint() {
+        var automatic = net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE;
+        var manual = net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS;
+        var keep = net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL;
+        var create = proposal("description", "description", stringSpecAlias, false);
+        create.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var preview = previewService.preview(moduleAlias, relationId, create);
+        assertThat(preview.errors()).isEmpty();
+        assertThat(preview.plan().fieldMutations().getFirst().field().getContentPolicy()).isEqualTo(automatic);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(create, preview.proposalFingerprint()));
+        var saved = field("description");
+        String fieldId = saved.getId();
+        assertThat(saved.getContentPolicy()).isEqualTo(automatic);
+        assertThat(fieldCompiler.compile(saved).content().policy()).isEqualTo(automatic);
+
+        var edit = fieldSpecChangeProposal(saved, stringSpecAlias);
+        assertThat(edit.fieldDrafts().getFirst().field().getContentPolicy()).isNull();
+        edit.fieldDrafts().getFirst().field().setTitle("Revised label");
+        preview = previewService.preview(moduleAlias, relationId, edit);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(edit, preview.proposalFingerprint()));
+        saved = field("description");
+        assertThat(saved.getId()).isEqualTo(fieldId);
+        assertThat(saved.getContentPolicy()).isEqualTo(automatic);
+
+        var change = fieldSpecChangeProposal(saved, stringSpecAlias);
+        change.fieldDrafts().getFirst().field().setContentPolicy(manual);
+        var reviewed = previewService.preview(moduleAlias, relationId, change);
+        change.fieldDrafts().getFirst().field().setContentPolicy(keep);
+        assertThat(previewService.preview(moduleAlias, relationId, change).proposalFingerprint())
+                .isNotEqualTo(reviewed.proposalFingerprint());
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(change, reviewed.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("fingerprint");
+        assertThat(field("description").getContentPolicy()).isEqualTo(automatic);
+        change.fieldDrafts().getFirst().field().setContentPolicy(manual);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(change, reviewed.proposalFingerprint()));
+        assertThat(field("description").getContentPolicy()).isEqualTo(manual);
+        assertThat(fieldCompiler.compile(field("description")).content().key()).isEqualTo(saved.getId());
+    }
+
+    @Test
     void recordNamePublishesAsStandardTitleAndReportsIncorrectIdentityBeforeAnyWrite() {
         var invalid = proposal("keHuMingCheng", "ke_hu_ming_cheng", stringSpecAlias, false);
         invalid.fieldDrafts().getFirst().field().setTitleField(true);

@@ -97,10 +97,24 @@ class QualityCollaborationIT {
             draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
             draft.setTitle("用户草稿"); draft.setUiTreeJson(published.getUiTreeJson().replace("异常单列表", "自定义列表"));
             String id = revisions.insert(draft);
+            var privateField = fields.list(Criteria.of().eq("fieldName", "internalNote"), PageRequest.of(1, 1)).getFirst();
+            var protections = web.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataFieldProtectionConfigService.class);
+            var protection = protections.findByMetadataFieldId(privateField.getId());
+            // Reconstruct the initial sample's unprotected declaration, then exercise its real upgrade.
+            web.getBean(org.springframework.transaction.support.TransactionTemplate.class).executeWithoutResult(status -> {
+                protection.setEnabled(false);
+                protections.update(protection);
+                privateField.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE);
+                publishField(privateField);
+            });
             sample.run(); samplePage.run();
             assertThat(revisions.select(id).getUiTreeJson()).contains("自定义列表");
-            assertThat(fields.list(Criteria.of(), PageRequest.of(1, 2000)))
-                    .allSatisfy(field -> assertThat(field.getContentPolicy()).isEqualTo(before.get(field.getId())));
+            before.forEach((fieldId, policy) -> assertThat(fields.select(fieldId)).isNotNull()
+                    .satisfies(field -> assertThat(field.getContentPolicy()).isEqualTo(policy)));
+            var upgraded = protections.findByMetadataFieldId(privateField.getId());
+            assertThat(upgraded.getId()).isEqualTo(protection.getId());
+            assertThat(upgraded.getEnabled()).isTrue();
+            assertThat(upgraded.getMaskingPolicy()).isEqualTo(net.ximatai.muyun.spring.common.security.FieldMaskingPolicy.FULL);
         }
     }
 
@@ -159,13 +173,22 @@ class QualityCollaborationIT {
                     "categoryId", categoryId, "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))));
             String productId = product.path("id").asText();
             String original = "温度达到 80°C 时，12 件样品中有 2 件密封失效；暂勿发货。";
+            String privateNote = "仅供内部核实的供应商批次说明，不得进入阅读译文。";
             var issue = write(mvc, "/quality.exception/insert", Map.of("title", "密封失效", "description", original,
+                    "internalNote", privateNote,
                     "productId", productId, "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"),
                             "description", Map.of("languageTag", "zh-CN")),
                     "inspections", java.util.List.of(Map.of("description", "高温密封试验", "sampleQuantity", 12, "failedQuantity", 2,
                             "$contentLanguages", Map.of("description", Map.of("languageTag", "zh-CN"))))));
             String id = issue.path("id").asText();
+            assertThat(issue.toString()).doesNotContain(privateNote);
             var reopened = read(mvc, "/quality.exception/view/" + id);
+            assertThat(reopened.at("/values/internalNote").asText()).matches("\\*+");
+            assertThat(reopened.toString()).doesNotContain(privateNote);
+            assertThat(storedValue("select internal_note from quality_exception where id = ?", id))
+                    .isEqualTo(privateNote);
+            assertThat(storedValue("select count(*) from platform_business_content_revision where record_id = ? and original_text = ?",
+                    id, privateNote)).isEqualTo(0L);
             assertThat(reopened.at("/values/description").asText()).isEqualTo(original);
             assertThat(reopened.at("/values/productId").asText()).isEqualTo(productId);
             assertThat(reopened.at("/children/inspections")).hasSize(1);
@@ -177,6 +200,10 @@ class QualityCollaborationIT {
             assertThat(child.at("/fields/description/source/authorId").asText()).as(child.toPrettyString()).isEqualTo("cn-author");
             assertThat(child.at("/fields/description/source/sourceLanguage").asText()).isEqualTo("zh-CN");
             assertThat(read(mvc, "/quality.exception/view/" + id + "/content").path("fields").has("internalNote")).isFalse();
+            var privateHistory = mvc.perform(get("/quality.exception/view/" + id + "/content/internalNote/history"))
+                    .andReturn().getResponse();
+            assertThat(privateHistory.getStatus()).isBetween(400, 499);
+            assertThat(privateHistory.getContentAsString()).doesNotContain(privateNote);
 
             try (var american = CurrentUserContext.use(CurrentUser.systemUser("us-author", "US Buyer"))) {
                 var updated = write(mvc, "/quality.exception/update/" + id, Map.of("version", reopened.path("version").asInt(),
@@ -211,6 +238,8 @@ class QualityCollaborationIT {
                 assertThat(germanSource.at("/fields/description/source/authorId").asText()).isEqualTo("de-author");
             }
             var current = read(mvc, "/quality.exception/view/" + id);
+            assertThat(storedValue("select internal_note from quality_exception where id = ?", id))
+                    .as("unrelated aggregate edits preserve the private original").isEqualTo(privateNote);
             write(mvc, "/quality.exception/update/" + id, Map.of("version", current.path("version").asInt(),
                     "title", "密封失效", "description", original.replace("80°C", "60°C"), "productId", productId,
                     "$contentLanguages", Map.of("description", Map.of("languageTag", "zh-CN", "expectedRevision", 1))));
@@ -223,6 +252,35 @@ class QualityCollaborationIT {
                         .isInstanceOf(PlatformAccessDeniedException.class);
             }
         }
+    }
+
+    private Object storedValue(String sql, String... arguments) throws java.sql.SQLException {
+        try (var connection = web.getBean(javax.sql.DataSource.class).getConnection();
+             var statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < arguments.length; index++) statement.setString(index + 1, arguments[index]);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getObject(1);
+            }
+        }
+    }
+
+    private void publishField(net.ximatai.muyun.spring.platform.metadata.MetadataField field) {
+        var relations = web.getBean(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService.class);
+        var owner = relations.list(Criteria.of().eq("metadataId", field.getMetadataId())
+                .eq("relationRole", net.ximatai.muyun.spring.platform.metadata.RelationRole.MAIN)).getFirst();
+        var entity = web.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataService.class).select(field.getMetadataId());
+        var proposal = new net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewCommand(
+                entity.getVersion(), Map.of(), java.util.List.of(
+                    new net.ximatai.muyun.spring.platform.metadata.MetadataFieldChangeSetDraft(
+                        net.ximatai.muyun.spring.platform.metadata.MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        field.getId(), field.getVersion(), field)));
+        var preview = web.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewService.class)
+                .preview(owner.getModuleAlias(), owner.getId(), proposal);
+        assertThat(preview.errors()).isEmpty();
+        web.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyService.class).apply(
+                owner.getModuleAlias(), owner.getId(),
+                new net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
     }
 
     private JsonNode write(MockMvc mvc, String path, Map<String, ?> values) throws Exception {

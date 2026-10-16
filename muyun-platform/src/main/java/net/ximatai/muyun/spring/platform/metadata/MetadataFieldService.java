@@ -95,14 +95,19 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     @Override
     public void beforeInsert(MetadataField field) {
         assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
+        if (field.getContentPolicy() == null)
+            field.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
         normalizeAndValidate(field);
     }
 
     @Override
     public void beforeUpdate(MetadataField field) {
         assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
-        normalizeAndValidate(field);
         MetadataField existing = select(field.getId());
+        if (field.getContentPolicy() == null)
+            field.setContentPolicy(existing == null || existing.getContentPolicy() == null
+                    ? net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL : existing.getContentPolicy());
+        normalizeAndValidate(field);
         validateConfigurationFieldChange(existing, field);
         if (!MetadataFieldPropertyMutationContext.active() && existing != null
                 && (!Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())

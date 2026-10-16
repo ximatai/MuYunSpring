@@ -717,7 +717,7 @@ public class MetadataRelationChangeSetPreviewService {
                     + field.getFieldName() + "|" + field.getColumnName() + "|" + field.getFieldSpecAlias() + "|"
                     + field.getTitle() + "|" + field.getRequired() + "|" + field.getUniqueField() + "|"
                     + field.getIndexed() + "|" + field.getSortableField() + "|" + field.getTitleField() + "|"
-                    + field.getEnabled() + "|" + field.getSortOrder());
+                    + field.getEnabled() + "|" + field.getSortOrder() + "|" + field.getContentPolicy());
             MetadataFieldPropertyChangeSetPlan property = mutation.property();
             if (property != null) {
                 facts.add("property:" + mutation.fieldId() + "|" + field.getFieldName() + "|" + property.kind() + "|"
@@ -757,6 +757,8 @@ public class MetadataRelationChangeSetPreviewService {
         result.setColumnName(source.getColumnName());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        result.setContentPolicy(java.util.Objects.requireNonNullElse(source.getContentPolicy(),
+                net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL));
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());
@@ -777,6 +779,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setVersion(existing.getVersion());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        if (source.getContentPolicy() != null) result.setContentPolicy(source.getContentPolicy());
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());
