@@ -68,6 +68,13 @@ export function provideModuleContextConfig(config: ModuleContextConfig) {
   provide(moduleContextConfigKey, config);
 }
 
+/** Auxiliary module APIs share the owner's transport without loading another module runtime. */
+export function useModuleHttpClient(): HttpClient {
+  const config = inject(moduleContextConfigKey, undefined);
+  const context = inject(moduleContextKey, undefined);
+  return context?.value?.http ?? resolveModuleHttpClient({}, config);
+}
+
 export function createModuleContext<TRecord>(options: ModuleContextOptions): ModuleContext<TRecord> {
   const http = resolveModuleHttpClient(options);
   return moduleContextOf<TRecord>(

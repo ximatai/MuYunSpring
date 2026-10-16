@@ -37,7 +37,9 @@ writeFileSync(
         '.': { types: './dist/types/consumer/index.d.ts', import: './dist/index.js' },
         './style.css': './dist/index.css',
       },
-      sideEffects: ['./dist/index.css'],
+      // Importing the runtime registers first-party page and workspace contributions.
+      // Consumers must retain these initializers as well as the explicit stylesheet.
+      sideEffects: true,
       peerDependencies: {
         vue: rootPackage.dependencies.vue,
         'ant-design-vue': rootPackage.dependencies['ant-design-vue'],
@@ -68,6 +70,14 @@ const aliases = {
 await build({
   configFile: false,
   plugins: [vue()],
+  // A library must leave deployment configuration to the consuming host build.
+  // Otherwise Vite erases unset variables while packing, before the host can set them.
+  define: Object.fromEntries(
+    ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS'].map((key) => [
+      `import.meta.env.${key}`,
+      `import.meta.env.${key}`,
+    ]),
+  ),
   resolve: { alias: aliases },
   build: {
     emptyOutDir: true,

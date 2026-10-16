@@ -1,11 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
-import { codeOperationErrorMessage, createLanguageContext, provideLanguageContext } from '@muyun/web-core';
+import {
+  codeOperationErrorMessage,
+  createLanguageContext,
+  provideLanguageContext,
+  provideModuleContextConfig,
+} from '@muyun/web-core';
 import RoleScopeTree from '@/platform-admin-runtime/role/RoleScopeTree.vue';
 
 const backend = vi.hoisted(() => ({ request: vi.fn() }));
-vi.mock('@/platform-admin-runtime/backendHttp', () => ({ createBackendHttpClient: () => backend }));
 
 it('refreshes cached scope labels without selecting again or fetching directory facts', async () => {
   const language = createLanguageContext({ languageTag: 'en' });
@@ -41,6 +45,7 @@ it('refreshes cached scope labels without selecting again or fetching directory 
   const Host = defineComponent({
     setup() {
       provideLanguageContext(language);
+      provideModuleContextConfig({ httpFactory: () => backend });
       return () => h(RoleScopeTree, { context });
     },
   });

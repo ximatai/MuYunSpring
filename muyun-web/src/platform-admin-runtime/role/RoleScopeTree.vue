@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { useLanguageContext, presentationLabel } from '@muyun/web-core';
+import { useLanguageContext, useModuleHttpClient, presentationLabel } from '@muyun/web-core';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RecordExplorerPanel, presentPlatformError } from '@muyun/platform-components';
 import { UiSpin, UiTree, useTreeData, type UiTreeLoadRequest, type UiTreeNode } from '@muyun/vue-ui-antdv';
 import type { TextPresentation } from '@muyun/web-contracts';
 import type { ModulePageNavigatorExtensionContext } from '@muyun/dynamic-page-runtime';
-import { createBackendHttpClient } from '../backendHttp';
 import {
   createRoleScopeSelectionClient,
   type RoleScopeSelectionCandidate,
@@ -32,7 +31,7 @@ interface RoleScopeChildrenQuery {
   parentId?: string;
 }
 
-const client = createRoleScopeSelectionClient(createBackendHttpClient());
+const client = createRoleScopeSelectionClient(useModuleHttpClient());
 const descriptor = ref<RoleScopeSelectionDescriptor>();
 const keyword = ref('');
 const loading = ref(false);

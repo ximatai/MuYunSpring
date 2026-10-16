@@ -1,4 +1,13 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -57,10 +66,54 @@ try {
   if (installedPackage.version !== version) {
     throw new Error(`消费者未安装当前 tarball：期望 ${version}，实际 ${installedPackage.version}`);
   }
+  const libraryJavascript = readdirSync(join(installedPackageRoot, 'dist'))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readFileSync(join(installedPackageRoot, 'dist', name), 'utf8'))
+    .join('\n');
+  for (const key of ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS']) {
+    if (!libraryJavascript.includes(`import.meta.env.${key}`)) {
+      throw new Error(`消费者包提前固化了宿主配置：${key}`);
+    }
+  }
+  const contractFixtures = join(webRoot, 'tests', 'consumer', 'packaged');
+  cpSync(join(contractFixtures, 'host.mjs'), join(temporaryExampleRoot, 'src', 'consumer-contract.ts'));
+  cpSync(join(contractFixtures, 'vite.config.ts'), join(temporaryExampleRoot, 'vite.contract.config.ts'));
   execFileSync(process.execPath, [process.env.npm_execpath, 'run', 'build'], {
     cwd: temporaryExampleRoot,
+    env: { ...process.env, VITE_MUYUN_API_BASE_URL: '/consumer-api-contract' },
     stdio: 'inherit',
   });
+  execFileSync(
+    process.execPath,
+    [
+      join(temporaryExampleRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+      'build',
+      '--config',
+      'vite.contract.config.ts',
+    ],
+    {
+      cwd: temporaryExampleRoot,
+      env: {
+        ...process.env,
+        VITE_MUYUN_API_BASE_URL: '/consumer-api-contract',
+        VITE_MUYUN_AUTH_TOKEN: 'consumer-environment-token',
+        VITE_MUYUN_CREDENTIALS: 'include',
+      },
+      stdio: 'inherit',
+    },
+  );
+  execFileSync(
+    process.execPath,
+    [join(webRoot, 'node_modules', 'vitest', 'vitest.mjs'), 'run', '--config', 'vitest.consumer.config.ts'],
+    {
+      cwd: webRoot,
+      env: {
+        ...process.env,
+        MUYUN_CONSUMER_CONTRACT_BUNDLE: join(temporaryExampleRoot, 'contract-dist', 'consumer-contract.js'),
+      },
+      stdio: 'inherit',
+    },
+  );
 } finally {
   rmSync(temporaryExampleRoot, { recursive: true, force: true });
 }

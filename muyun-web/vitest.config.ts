@@ -78,6 +78,7 @@ export default mergeConfig(
             name: 'component',
             environment: 'jsdom',
             include: ['tests/**/*.component.test.ts'],
+            exclude: ['tests/consumer/packaged/**'],
             setupFiles: ['./tests/setup.ts'],
           },
         },
