@@ -37,6 +37,8 @@ import java.util.function.Supplier;
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/export")
 public class DynamicExportWebController {
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
     private final DynamicRecordService recordService;
     private final ActiveTenantVerifier activeTenantVerifier;
     private final DynamicExportFacade exportFacade;
@@ -90,7 +92,8 @@ public class DynamicExportWebController {
                 "Dynamic module has no executable published page plan: " + moduleAlias,
                 ErrorScope.module(moduleAlias)));
         querySupport.validateSorts(plan.querySchema(), normalized.sorts(), querySupport.runtimeSortFields(descriptor));
-        Criteria criteria = querySupport.criteria(plan, normalized, operations::queryCriteria);
+        Criteria criteria = querySupport.criteria(plan, normalized, operations::queryCriteria,
+                userCriteria -> contentQueries == null ? userCriteria : contentQueries.expandUserText(operations, userCriteria));
         DynamicWebQueryFieldSupport.validatePhysicalSorts(operations, normalized.sorts());
         return new DynamicExportCommand(descriptor, criteria, exportPage(normalized),
                 List.of(DynamicWebQueryMapper.sorts(normalized.sorts())));

@@ -186,6 +186,13 @@ public class DynamicRecordWebController implements
     private final ListQuerySummaryRuntime listQuerySummaryRuntime;
     private final PlatformModuleRuntimeContextService runtimeContextService;
     private final TenantRequestScope tenantRequestScope;
+    @Autowired(required = false)
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+
+    private Criteria contentUserCriteria(net.ximatai.muyun.spring.ability.CrudAbility<?> owner, Criteria criteria) {
+        return contentQueries == null ? criteria : contentQueries.expandUserText(owner, criteria);
+    }
+
     private RecycleBinFacade recycleBinFacade;
     private StaticReferenceResolveFacade staticReferenceResolveFacade;
     private net.ximatai.muyun.spring.platform.web.RecordTextPresentationService recordTexts;
@@ -357,7 +364,7 @@ public class DynamicRecordWebController implements
     @Override
     public Criteria queryCriteria(WebQueryRequest request) {
         return querySupport.criteria(requireExecutionPlan(DynamicWebRequest.moduleAlias()), request,
-                service()::queryCriteria);
+                service()::queryCriteria, criteria -> contentUserCriteria(service(), criteria));
     }
 
     private Criteria navigatorReferenceCriteria(String moduleAlias, WebQueryRequest request) {
@@ -378,7 +385,7 @@ public class DynamicRecordWebController implements
 
     /** Reference sources retain ordinary query controls but never inherit their own LIST_QUERY bindings. */
     private Criteria referenceSourceCriteria(String moduleAlias, WebQueryRequest request) {
-        return querySupport.controlsCriteria(requireExecutionPlan(moduleAlias), request, service()::queryCriteria);
+        return contentUserCriteria(service(), querySupport.controlsCriteria(requireExecutionPlan(moduleAlias), request, service()::queryCriteria));
     }
 
     private List<PageContextBindingDefinition> navigatorReferenceBindings(String sourceModuleAlias, WebQueryRequest request) {
@@ -985,7 +992,7 @@ public class DynamicRecordWebController implements
         if (request == null || !hasText(request.uiConfigId()) && !hasText(request.queryTemplateId())
                 && !hasText(request.quickSearch()) && request.quickSearchFields().isEmpty()
                 && request.queryForm().values().stream().allMatch(DynamicWebQueryFormSupport::isEmptyValue)) {
-            return andCriteria(manualCriteria, treeCriteria);
+            return contentUserCriteria(recordService.entity(moduleAlias, entityAlias), andCriteria(manualCriteria, treeCriteria));
         }
         ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
         if (hasText(request.uiConfigId())) querySupport.requireListUiConfig(plan, request.uiConfigId());
@@ -994,7 +1001,8 @@ public class DynamicRecordWebController implements
         Criteria queryFormCriteria = querySupport.queryFormCriteria(request, plan.queryFormFields(),
                 conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
         Criteria quickCriteria = querySupport.quickSearchCriteria(request, plan.querySchema());
-        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria);
+        return contentUserCriteria(recordService.entity(moduleAlias, entityAlias),
+                andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria));
     }
 
     private void validateUiSave(String moduleAlias, DynamicRecord record) {

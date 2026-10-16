@@ -52,6 +52,42 @@ class QueryCompilerTest {
     }
 
     @Test
+    void shouldTransformOnlyValidatedUserConditionsAndQuickSearchBeforeAddingExternalScope() {
+        List<Criteria> transformed = new ArrayList<>();
+        QueryCompiler compiler = new QueryCompiler(descriptor(), QueryCriteriaComposition.TREE, criteria -> {
+            transformed.add(criteria);
+            return Criteria.copyOf(criteria).or(Criteria.of().eq("internalTranslationMatch", true));
+        });
+        QueryRequest request = new QueryRequest(
+                List.of(new QueryCondition("enabled", QueryOperator.EQ, List.of("true"), null)),
+                QueryCriteria.group(QueryGroupOperator.OR, List.of(
+                        new QueryCondition("title", QueryOperator.EQ, List.of("Equipment"), null),
+                        new QueryCondition("code", QueryOperator.EQ, List.of("M100"), null))),
+                Map.of(), List.of(), null, null, Map.of("scope", "dept-1"),
+                "a%b_c", List.of("title"), false, null);
+        Criteria compiled = compiler.criteria(request);
+        assertThat(transformed).hasSize(4);
+        assertThat(transformed.stream().flatMap(criteria -> clauses(criteria).stream()).toList())
+                .extracting(CriteriaClause::getField).containsExactly("enabled", "title", "code", "title");
+        assertThat(clauses(transformed.getFirst()).getFirst().getValues()).containsExactly(Boolean.TRUE);
+        assertThat(containsCondition(compiled, "departmentId", "dept-1")).isTrue();
+        assertThat(containsCondition(compiled, "title", "%a\\%b\\_c%")).isTrue();
+    }
+
+    @Test
+    void shouldRejectUndeclaredInputsBeforeInvokingAUserConditionTransform() {
+        List<Criteria> transformed = new ArrayList<>();
+        QueryCompiler compiler = new QueryCompiler(descriptor(), QueryCriteriaComposition.TREE, criteria -> {
+            transformed.add(criteria); return criteria;
+        });
+        QueryRequest request = new QueryRequest(
+                List.of(new QueryCondition("internalTranslationMatch", QueryOperator.EQ, List.of(true), null)),
+                null, Map.of(), List.of(), null, null, Map.of(), null, List.of(), false, null);
+        assertThatThrownBy(() -> compiler.criteria(request)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(transformed).isEmpty();
+    }
+
+    @Test
     void shouldTreatQuickSearchWildcardsAsLiterals() {
         QueryCompiler compiler = new QueryCompiler(descriptor());
         QueryRequest request = new QueryRequest(List.of(), null, Map.of(), List.of(), null, null,

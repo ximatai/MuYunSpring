@@ -209,6 +209,8 @@ class QualityCollaborationIT {
                     "sourceRevision", maintenance.at("/original/revision").asInt(), "text", "CNC Equipment"));
             assertThat(read(mvc, "/quality.equipment_category/view/" + categoryId + "/content/reading?language=en")
                     .at("/fields/title/text").asText()).isEqualTo("数控设备");
+            assertThat(write(mvc, "/quality.equipment_category/query", Map.of("quickSearch", "CNC Equipment"))
+                    .path("total").asLong()).isZero();
             write(mvc, categoryTranslations + "confirm", Map.of(
                     "sourceRevisionId", maintenance.at("/original/revisionId").asText(),
                     "sourceRevision", maintenance.at("/original/revision").asInt(), "expectedRevision", draft.path("expectedRevision").asInt(),
@@ -217,6 +219,12 @@ class QualityCollaborationIT {
             assertThat(englishCategory.at("/fields/title/text").asText()).isEqualTo("CNC Equipment");
             assertThat(englishCategory.at("/fields/title/originalText").asText()).isEqualTo("数控设备");
             assertThat(read(mvc, "/quality.equipment_category/view/" + categoryId).path("title").asText()).isEqualTo("数控设备");
+
+            var categoryMatches = write(mvc, "/quality.equipment_category/query", Map.of(
+                    "quickSearch", "CNC Equipment", "page", Map.of("pageNum", 1, "pageSize", 1)));
+            assertThat(categoryMatches.path("total").asLong()).isEqualTo(1);
+            assertThat(categoryMatches.at("/records/0/id").asText()).isEqualTo(categoryId);
+            assertThat(categoryMatches.at("/records/0/title").asText()).isEqualTo("数控设备");
 
             var product = write(mvc, "/quality.product/insert", Map.of("code", "SEAL-1", "title", "密封组件",
                     "categoryId", categoryId, "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))));
@@ -230,6 +238,16 @@ class QualityCollaborationIT {
                     "inspections", java.util.List.of(Map.of("description", "高温密封试验", "sampleQuantity", 12, "failedQuantity", 2,
                             "$contentLanguages", Map.of("description", Map.of("languageTag", "zh-CN"))))));
             String id = issue.path("id").asText();
+            confirmTranslation(mvc, "/quality.exception/view/" + id + "/content/title/translations/en/", "Seal failure");
+            confirmTranslation(mvc, "/quality.exception/view/" + id + "/content/description/translations/de/", "Dichtung bei 80°C defekt");
+            var dynamicMatches = write(mvc, "/quality.exception/query", Map.of(
+                    "criteria", Map.of("kind", "GROUP", "operator", "OR", "children", java.util.List.of(
+                            Map.of("kind", "CONDITION", "fieldName", "title", "operator", "EQ", "values", java.util.List.of("Seal failure")),
+                            Map.of("kind", "CONDITION", "fieldName", "description", "operator", "EQ", "values", java.util.List.of("Dichtung bei 80°C defekt")))),
+                    "page", Map.of("pageNum", 1, "pageSize", 1)));
+            assertThat(dynamicMatches.path("total").asLong()).isEqualTo(1);
+            assertThat(dynamicMatches.at("/records/0/id").asText()).isEqualTo(id);
+            assertThat(dynamicMatches.at("/records/0/values/title").asText()).isEqualTo("密封失效");
             assertThat(issue.toString()).doesNotContain(privateNote);
             var reopened = read(mvc, "/quality.exception/view/" + id);
             assertThat(reopened.at("/values/internalNote").asText()).matches("\\*+");
@@ -345,6 +363,18 @@ class QualityCollaborationIT {
         web.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyService.class).apply(
                 owner.getModuleAlias(), owner.getId(),
                 new net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+    }
+
+    private void confirmTranslation(MockMvc mvc, String path, String text) throws Exception {
+        var opened = write(mvc, path + "prepare", Map.of());
+        var draft = write(mvc, path + "draft", Map.of(
+                "sourceRevisionId", opened.at("/original/revisionId").asText(),
+                "sourceRevision", opened.at("/original/revision").asInt(), "text", text));
+        write(mvc, path + "confirm", Map.of(
+                "sourceRevisionId", opened.at("/original/revisionId").asText(),
+                "sourceRevision", opened.at("/original/revision").asInt(),
+                "expectedRevision", draft.path("expectedRevision").asInt(),
+                "reviewedDraftRevision", draft.at("/draft/revision").asInt()));
     }
 
     private JsonNode write(MockMvc mvc, String path, Map<String, ?> values) throws Exception {

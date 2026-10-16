@@ -47,6 +47,17 @@ public class StaticRecordReadProjectionService {
     private final RelationProjectionReadService relationProjectionReadService;
     private final OptionSourceRegistry optionSourceRegistry;
     private RecordTextPresentationService recordTexts;
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+
+    @Autowired(required = false)
+    public void setBusinessContentQueryService(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService service) {
+        this.contentQueries = service;
+    }
+
+    private QueryCompiler queryCompiler(ModuleExecutionPlan plan, CrudAbility<?> owner) {
+        return new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
+                criteria -> contentQueries == null ? criteria : contentQueries.expandUserText(owner, criteria));
+    }
 
     @Autowired(required = false)
     public void setRecordTextPresentationService(RecordTextPresentationService recordTexts) {
@@ -137,7 +148,9 @@ public class StaticRecordReadProjectionService {
 
     public Criteria queryCriteria(String moduleAlias, Object recordService, QueryRequest request) {
         QueryDescriptor descriptor = projectionAwareQueryDescriptor(moduleAlias, recordService);
-        return new QueryCompiler(descriptor).criteria(request);
+        return new QueryCompiler(descriptor, net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition.TREE,
+                criteria -> contentQueries == null || !(recordService instanceof CrudAbility<?> owner) ? criteria
+                        : contentQueries.expandUserText(owner, criteria)).criteria(request);
     }
 
     public Sort[] querySorts(String moduleAlias, Object recordService, QueryRequest request) {
@@ -172,7 +185,7 @@ public class StaticRecordReadProjectionService {
         // The compiled plan owns the query allow-list.  Do not re-read a controller/service
         // declaration while executing a migrated standard module request.
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        QueryCompiler compiler = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition());
+        QueryCompiler compiler = queryCompiler(plan, recordService);
         Criteria criteria = andCriteria(compiler.criteria(request), additionalCriteria);
         Sort[] sorts = compiler.sorts(request);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
@@ -205,7 +218,7 @@ public class StaticRecordReadProjectionService {
         if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
                 || aggregateQuery == null) return Optional.empty();
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
+        Criteria criteria = andCriteria(queryCompiler(plan, recordService)
                 .criteria(request), additionalCriteria);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);

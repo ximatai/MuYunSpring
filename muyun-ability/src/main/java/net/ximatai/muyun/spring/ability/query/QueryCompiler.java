@@ -16,6 +16,7 @@ public final class QueryCompiler {
     private final QueryDescriptor descriptor;
     private final PlatformTimeService timeService;
     private final QueryCriteriaComposition criteriaComposition;
+    private final java.util.function.UnaryOperator<Criteria> userConditionTransform;
 
     public QueryCompiler(QueryDescriptor descriptor) {
         this(descriptor, PlatformAbilityRuntime.timeService(), QueryCriteriaComposition.TREE);
@@ -31,9 +32,22 @@ public final class QueryCompiler {
 
     public QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService,
                          QueryCriteriaComposition criteriaComposition) {
+        this(descriptor, timeService, criteriaComposition, java.util.function.UnaryOperator.identity());
+    }
+
+    /** Transforms validated user predicates; descriptor-owned external scope is never transformed. */
+    public QueryCompiler(QueryDescriptor descriptor, QueryCriteriaComposition criteriaComposition,
+                         java.util.function.UnaryOperator<Criteria> userConditionTransform) {
+        this(descriptor, PlatformAbilityRuntime.timeService(), criteriaComposition, userConditionTransform);
+    }
+
+    private QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService,
+                          QueryCriteriaComposition criteriaComposition,
+                          java.util.function.UnaryOperator<Criteria> userConditionTransform) {
         this.descriptor = descriptor;
         this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
         this.criteriaComposition = criteriaComposition == null ? QueryCriteriaComposition.TREE : criteriaComposition;
+        this.userConditionTransform = java.util.Objects.requireNonNull(userConditionTransform);
     }
 
     public Criteria criteria(QueryRequest request) {
@@ -128,7 +142,7 @@ public final class QueryCompiler {
                 throw new IllegalArgumentException("quick search field is not supported by "
                         + descriptor.scopeName() + ": " + fieldName);
             }
-            quick.orLikeIgnoreCase(fieldName, pattern);
+            quick.orGroup(userConditionTransform.apply(Criteria.of().likeIgnoreCase(fieldName, pattern)).getRoot());
         }
         target.andGroup(quick.getRoot());
     }
@@ -160,7 +174,7 @@ public final class QueryCompiler {
         }
         Criteria criteria = Criteria.of();
         appendLeaf(criteria, field, operator, condition);
-        return criteria;
+        return userConditionTransform.apply(criteria);
     }
 
     private void appendLeaf(Criteria criteria, QueryField field, QueryOperator operator, QueryCondition condition) {

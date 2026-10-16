@@ -38,6 +38,7 @@ public class StandardModuleWebRuntime {
     private final ModuleExecutionPlanCatalog executionPlans;
     private final StaticRecordReadProjectionService readProjectionService;
     private final ListQuerySummaryRuntime listQuerySummaryRuntime;
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
 
     public StandardModuleWebRuntime(ModuleExecutionPlanCatalog executionPlans,
                                     StaticRecordReadProjectionService readProjectionService) {
@@ -57,6 +58,16 @@ public class StandardModuleWebRuntime {
                 ? new ListQuerySummaryRuntime(java.util.List.of()) : listQuerySummaryRuntime;
     }
 
+    @Autowired(required = false)
+    public void setBusinessContentQueryService(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService service) {
+        contentQueries = service;
+    }
+
+    private QueryCompiler queryCompiler(ModuleExecutionPlan plan, CrudAbility<?> owner) {
+        return new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
+                criteria -> contentQueries == null ? criteria : contentQueries.expandUserText(owner, criteria));
+    }
+
     public boolean hasPlan(String moduleAlias) {
         return executionPlans.find(moduleAlias).isPresent();
     }
@@ -74,8 +85,7 @@ public class StandardModuleWebRuntime {
     }
 
     public Optional<Criteria> queryCriteria(String moduleAlias, CrudAbility<?> service, QueryRequest request) {
-        return plan(moduleAlias).map(plan -> new QueryCompiler(plan.queryDescriptor(),
-                plan.querySchema().criteriaComposition()).criteria(request));
+        return plan(moduleAlias).map(plan -> queryCompiler(plan, service).criteria(request));
     }
 
     public Optional<Sort[]> querySorts(String moduleAlias, CrudAbility<?> service, QueryRequest request) {
@@ -121,8 +131,7 @@ public class StandardModuleWebRuntime {
                 actionPolicy, RecordReadVisibility.ACTIVE);
         if (projected.isPresent()) return projected.get().total();
         ModuleExecutionPlan plan = requirePlan(moduleAlias);
-        Criteria queryCriteria = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
-                .criteria(WebQueryRequests.from(request));
+        Criteria queryCriteria = queryCompiler(plan, service).criteria(WebQueryRequests.from(request));
         criteria = Criteria.copyOf(queryCriteria).and(criteria);
         if (service instanceof DataScopeAbility<?> scoped) {
             DataScopeCriteriaResult scope = scoped.readScopeByPolicy(actionPolicy, criteria);

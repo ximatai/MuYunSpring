@@ -1815,6 +1815,40 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldExpandUserTextWithoutExpandingPublishedNavigatorScope() throws Exception {
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(List.of(
+                PageContextBindingDefinition.navigatorList("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE)))));
+        var controller = controllerFixture(service, activeTenantVerifier).executionPlans(catalog).build();
+        var contentQueries = mock(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "contentQueries", contentQueries);
+        when(contentQueries.expandUserText(eq(mainEntity), any(Criteria.class))).thenAnswer(invocation ->
+                Criteria.copyOf(invocation.getArgument(1, Criteria.class)).or(Criteria.of().eq("code", "translated-name")));
+        MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(), 0, PageRequest.of(1, 20)));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("""
+                                {"uiConfigId":"ui-list","quickSearch":"Equipment",
+                                 "externalQueryValues":{"tenantId":"tenant_a"}}
+                                """))
+                .andExpect(status().isOk());
+        ArgumentCaptor<Criteria> user = ArgumentCaptor.forClass(Criteria.class);
+        verify(contentQueries).expandUserText(eq(mainEntity), user.capture());
+        assertThat(containsCondition(user.getValue().getRoot(), "tenantId", "tenant_a")).isFalse();
+        ArgumentCaptor<Criteria> executed = ArgumentCaptor.forClass(Criteria.class);
+        verify(mainEntity).pageQuery(executed.capture(), any(PageRequest.class), any(Sort[].class));
+        assertThat(containsCondition(executed.getValue().getRoot(), "tenantId", "tenant_a")).isTrue();
+        assertThat(containsCondition(executed.getValue().getRoot(), "code", "translated-name")).isTrue();
+        assertThat(executed.getValue().getRoot().getEntries()).hasSize(2); // User OR remains inside the outer AND scope.
+    }
+
+    @Test
     void shouldApplyQuickSearchWithinPublishedListUiConfig() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         MockMvc lowCodeMvc = MockMvcBuilders

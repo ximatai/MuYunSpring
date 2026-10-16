@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.demo.quality.product;
 import net.ximatai.muyun.spring.demo.quality.configuration.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.*;
-import net.ximatai.muyun.spring.web.WebSupport;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 @PlatformMenu(parent = QualityDemoMenuDeclarations.ROOT, title = "商品目录", order = 120)
 @StaticModuleOpenApi
 @RequestMapping("/" + ProductService.MODULE_ALIAS)
-public class ProductWebController extends WebSupport<ProductService>
+public class ProductWebController extends StaticModuleWebControllerAdapter<ProductService>
         implements CrudWeb<Product, ProductService>, StaticModuleUiContributor {
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(ProductService.MODULE_ALIAS)

@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.demo.quality.equipment;
 import net.ximatai.muyun.spring.demo.quality.configuration.*;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.*;
-import net.ximatai.muyun.spring.web.WebSupport;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 @PlatformMenu(parent = QualityDemoMenuDeclarations.ROOT, title = "设备分类", order = 110)
 @StaticModuleOpenApi
 @RequestMapping("/" + EquipmentCategoryService.MODULE_ALIAS)
-public class EquipmentCategoryWebController extends WebSupport<EquipmentCategoryService>
+public class EquipmentCategoryWebController extends StaticModuleWebControllerAdapter<EquipmentCategoryService>
         implements CrudWeb<EquipmentCategory, EquipmentCategoryService>, StaticModuleUiContributor {
     @Override public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(EquipmentCategoryService.MODULE_ALIAS)

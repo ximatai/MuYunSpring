@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Table(name = "platform_business_content_revision", comment = "Business content source revision")
 @CompositeIndex(columns = {"source_key", "revision"}, unique = true)
 @CompositeIndex(columns = {"tenant_id", "module_alias", "record_id"})
+@CompositeIndex(columns = {"module_alias", "entity_key", "field_key", "record_id", "revision"})
 public class BusinessContentRevision extends StandardEntity {
     @Column(name = "source_key", type = ColumnType.VARCHAR, length = 64, nullable = false)
     private String sourceKey;

@@ -35,6 +35,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired BusinessContentTranslationStore translations;
     @Autowired BusinessContentTranslationDao translationDao;
     @Autowired BusinessContentService content;
+    @Autowired BusinessContentQueryService queries;
     @Autowired BusinessContentTranslationService translationService;
     @Autowired BusinessContentSaveLifecycleListener listener;
     @Autowired BusinessContentDeletionObserver deletion;
@@ -931,6 +932,140 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             }
         }
     }
+    @Test void multilingualSearchUsesOnlyTheCurrentReadableTranslationPerLanguage() {
+        String key = "query-" + UUID.randomUUID();
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("数控设备 " + key); service.insert(row);
+            var source = new BusinessContentSource("tenant-a", "test.content", "content_fixture", row.getId(), "category-name");
+            var original = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            tx.executeWithoutResult(status -> translations.saveMachine(source, original, "en", "Machine " + key, null, generation()));
+            assertSearch(row, "Machine " + key, true);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Human " + key, 1));
+            assertSearch(row, "Human " + key, false);
+            assertSearch(row, "Machine " + key, true);
+            tx.executeWithoutResult(status -> translations.confirm(source, original, "en", 2, 2));
+            assertSearch(row, "Machine " + key, false);
+            assertSearch(row, "Human " + key, true);
+            tx.executeWithoutResult(status -> translations.saveMachine(source, original, "en", "Refresh " + key, 3, generation()));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Private " + key, 4));
+            assertSearch(row, "Human " + key, true);
+            assertSearch(row, "Private " + key, false);
+            assertSearch(row, "Refresh " + key, false);
+            tx.executeWithoutResult(status -> translations.remove(source, original, "en", 5));
+            assertSearch(row, "Human " + key, false);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "New draft " + key, 6));
+            assertSearch(row, "Human " + key, false);
+            assertSearch(row, "New draft " + key, false);
+            tx.executeWithoutResult(status -> translations.saveMachine(source, original, "en", "New machine " + key, 7, generation()));
+            assertSearch(row, "New machine " + key, true);
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "de", "Maschine " + key, null));
+            tx.executeWithoutResult(status -> translations.confirm(source, original, "de", 1, 1));
+            assertSearch(row, "Maschine " + key, true);
+            assertThat(service.count(queries.expandUserText(service, Criteria.of().likeIgnoreCase("title", "%" + key + "%"))))
+                    .isEqualTo(1); // Three languages still identify one business record.
+        }
+    }
+
+    @Test void multilingualSearchRejectsStaleOriginalsReusedRevisionNumbersAndUntrackedWrites() {
+        String key = "query-" + UUID.randomUUID();
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("初始原文 " + key);
+            try (var input = input(row, "zh-CN", null)) { service.insert(row); }
+            var source = new BusinessContentSource("tenant-a", "test.content", "content_fixture", row.getId(), "category-name");
+            var original = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            var old = tx.execute(status -> translations.saveMachine(source, original, "en", "Old " + key, null, generation()));
+            assertSearch(row, "Old " + key, true);
+            row.setTitle("New original " + key);
+            try (var input = input(row, "en-US", 1)) { service.update(row); }
+            var current = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            assertSearch(row, "Old " + key, false);
+            tx.executeWithoutResult(status -> translations.saveMachine(source, current, "en", "Same language " + key, null, generation()));
+            assertSearch(row, "Same language " + key, false); // Reading en uses the en-US original.
+            tx.executeWithoutResult(status -> translations.saveMachine(source, current, "de", "Aktuell " + key, null, generation()));
+            assertSearch(row, "Aktuell " + key, true);
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.update("update content_fixture set title = ? where id = ?", "初始原文 " + key, row.getId());
+            assertSearch(row, "Old " + key, false); // An older matching raw text cannot become the latest original.
+            assertSearch(row, "Aktuell " + key, false);
+            jdbc.update("update content_fixture set title = ? where id = ?", row.getTitle(), row.getId());
+            old.setId(UUID.randomUUID().toString().replace("-", "")); old.setSourceRevision(current.revision()); old.setLanguageTag("de"); old.setRevision(99);
+            old.setTranslatedText("Wrong immutable original " + key); // Same ordinal, different original ID.
+            translationDao.insert(old);
+            assertSearch(row, "Wrong immutable original " + key, false);
+            assertSearch(row, "Aktuell " + key, true);
+        }
+    }
+
+    @Test void multilingualSearchPreservesNestedScopeNegativeFiltersLiteralWildcardsAndServerPages() {
+        String key = "query-" + UUID.randomUUID();
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            List<ContentFixture> rows = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                var row = row("原文 " + i + " " + key); row.setQuantity(i); service.insert(row); rows.add(row);
+                var source = new BusinessContentSource("tenant-a", "test.content", "content_fixture", row.getId(), "category-name");
+                var version = BusinessContentStore.OriginalVersion.of(store.latest(source));
+                int index = i;
+                tx.executeWithoutResult(status -> translations.saveMachine(source, version, "en", "CNC " + index + " %_ " + key, null, generation()));
+            }
+            var controls = queries.expandUserText(service, Criteria.of().andGroup(group -> group
+                    .likeIgnoreCase("title", "%CNC%" + key + "%").orEq("title", rows.get(2).getTitle())));
+            var scoped = Criteria.copyOf(controls).lt("quantity", 2);
+            assertThat(service.count(scoped)).isEqualTo(2);
+            var first = service.pageQuery(scoped, PageRequest.of(1, 1), Sort.asc("quantity"), Sort.asc("id"));
+            var second = service.pageQuery(scoped, PageRequest.of(2, 1), Sort.asc("quantity"), Sort.asc("id"));
+            assertThat(first.getTotal()).isEqualTo(2); assertThat(second.getTotal()).isEqualTo(2);
+            assertThat(first.getRecords()).extracting(ContentFixture::getId).containsExactly(rows.get(0).getId());
+            assertThat(second.getRecords()).extracting(ContentFixture::getId).containsExactly(rows.get(1).getId());
+            var excluded = queries.expandUserText(service, Criteria.of().ne("title", "CNC 0 %_ " + key)
+                    .notIn("title", List.of("CNC 1 %_ " + key)));
+            assertThat(service.list(Criteria.copyOf(excluded).in("id", rows.stream().map(ContentFixture::getId).toList())))
+                    .extracting(ContentFixture::getId).containsExactly(rows.get(2).getId());
+            var literal = queries.expandUserText(service, Criteria.of().likeIgnoreCase("title",
+                    net.ximatai.muyun.spring.ability.query.QueryLikePattern.containsLiteral("%_ " + key)));
+            assertThat(service.count(literal)).isEqualTo(3);
+            var impossibleLiteral = queries.expandUserText(service, Criteria.of().likeIgnoreCase("title",
+                    net.ximatai.muyun.spring.ability.query.QueryLikePattern.containsLiteral("X%_ " + key)));
+            assertThat(service.count(impossibleLiteral)).isZero();
+            service.delete(rows.get(0).getId());
+            assertThat(service.count(scoped)).isEqualTo(1);
+            try (var other = TenantContext.use("tenant-b")) { assertThat(service.count(controls)).isZero(); }
+        }
+    }
+
+    @Test void multilingualDynamicMainAndChildUseTheirDeclaredIdentityAndCurrentPhysicalField() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String alias = "test.content_query_" + suffix;
+        var main = new EntityDefinition("main", "content_query_main_" + suffix, "Main", List.of(
+                FieldDefinition.text("description", "Description").content(new ContentFieldDefinition("stable-description", ContentPolicy.AUTO_TRANSLATE))));
+        var child = new EntityDefinition("line", "content_query_line_" + suffix, "Line", List.of(
+                FieldDefinition.text("description", "Description").content(new ContentFieldDefinition("stable-description", ContentPolicy.MANUAL_TRANSLATIONS))));
+        var schema = new DynamicSchemaService(operations); schema.ensureTable(main); schema.ensureTable(child);
+        try (var runtime = new DynamicRecordRuntime(operations).register(new ModuleDefinition(alias, "Content query", List.of(main, child)));
+             var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var mainService = runtime.entityService(alias, "main"); var childService = runtime.entityService(alias, "line");
+            var parent = new DynamicRecord(main).setValue("description", "主表中文"); mainService.insert(parent);
+            var line = new DynamicRecord(child).setValue("description", "子表中文"); childService.insert(line);
+            var parentSource = new BusinessContentSource("tenant-a", alias, "main", parent.getId(), "stable-description");
+            var childSource = new BusinessContentSource("tenant-a", alias, "line", line.getId(), "stable-description");
+            tx.executeWithoutResult(status -> translations.saveMachine(parentSource, BusinessContentStore.OriginalVersion.of(store.latest(parentSource)),
+                    "en", "Quality exception", null, generation()));
+            tx.executeWithoutResult(status -> translations.saveDraft(childSource, BusinessContentStore.OriginalVersion.of(store.latest(childSource)),
+                    "de", "Untersuchung", null));
+            tx.executeWithoutResult(status -> translations.confirm(childSource, BusinessContentStore.OriginalVersion.of(store.latest(childSource)), "de", 1, 1));
+            assertThat(mainService.count(queries.expandUserText(mainService, Criteria.of().eq("description", "Quality exception")))).isEqualTo(1);
+            assertThat(childService.count(queries.expandUserText(childService, Criteria.of().eq("description", "Untersuchung")))).isEqualTo(1);
+            assertThat(mainService.count(queries.expandUserText(mainService, Criteria.of().eq("description", "Untersuchung")))).isZero();
+            var update = new DynamicRecord(child).setValue("description", "Revised investigation");
+            update.setId(line.getId()); update.setVersion(line.getVersion()); childService.update(update);
+            assertThat(childService.count(queries.expandUserText(childService, Criteria.of().eq("description", "Untersuchung")))).isZero();
+        }
+    }
+
+    private void assertSearch(ContentFixture row, String value, boolean matched) {
+        Criteria criteria = queries.expandUserText(service, Criteria.of().eq("title", value));
+        assertThat(service.count(Criteria.copyOf(criteria).eq("id", row.getId()))).isEqualTo(matched ? 1 : 0);
+    }
+
     private static ContentFixture row(String title) { var row = new ContentFixture(); row.setTitle(title); return row; }
     private CurrentUserContext.Scope actor(String name) { return CurrentUserContext.use(CurrentUser.tenantUser(name, name, "tenant-a")); }
     private static ContentWriteContext.Scope input(ContentFixture row, String language, Integer revision) {
@@ -947,7 +1082,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     }
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = BusinessContentRevisionDao.class)
-    @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class, BusinessContentTranslationService.class,
+    @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class, BusinessContentTranslationService.class, BusinessContentQueryService.class,
             BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class, BusinessContentGenerationStore.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
