@@ -34,6 +34,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired BusinessContentStore store;
     @Autowired BusinessContentTranslationStore translations;
     @Autowired BusinessContentService content;
+    @Autowired BusinessContentTranslationService translationService;
     @Autowired BusinessContentSaveLifecycleListener listener;
     @Autowired BusinessContentDeletionObserver deletion;
     @Autowired PlatformTransactionManager transactions;
@@ -470,6 +471,140 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
         return new BusinessContentTranslationStore.Generation("test-generation", "request-1", "translation-v1", "context-v1");
     }
 
+    @Test void publicReadingKeepsDraftsPrivateAndMaintenanceNeverWritesRawBusinessFields() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("数控设备");
+            try (var input = input(row, "zh-CN", null)) { service.insert(row); }
+            var location = BusinessContentService.Location.record(row.getId());
+            var businessVersion = service.select(row.getId()).getVersion();
+            var first = translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT);
+            assertThat(first.original().revisionId()).isNotBlank();
+            var draft = translationService.saveDraft(service, location, "title", "en", change(first, "CNC Equipment", null));
+            var reading = translationService.read(service, location, "en").fields().get("title");
+            assertThat(reading.originalFallback()).isTrue(); assertThat(reading.text()).isEqualTo("数控设备");
+            assertThat(reading.translation()).isNull();
+            assertThat(translationService.read(service, location, "zh-CN").fields().get("title").originalFallback()).isFalse();
+            try (var confirmer = actor("us")) {
+                var confirmed = translationService.confirm(service, location, "title", "en", change(draft, null, draft.draft().revision()));
+                assertThat(confirmed.confirmed().authorId()).isEqualTo("us");
+                assertThat(translationService.history(service, location, "title", "en", first.original().revisionId(),
+                        first.original().revision(), HISTORY, PlatformAction.CONTENT_CONFIRM)).extracting(BusinessContentTranslationService.TranslationRevision::authorId)
+                        .containsExactly("us", "cn");
+                var next = translationService.saveDraft(service, location, "title", "en", change(confirmed, "CNC Machines", null));
+                reading = translationService.read(service, location, "en").fields().get("title");
+                assertThat(reading.text()).isEqualTo("CNC Equipment"); assertThat(reading.originalText()).isEqualTo("数控设备");
+                assertThat(reading.translation().kind()).isEqualTo("CONFIRMED");
+                assertThatThrownBy(() -> translationService.confirm(service, location, "title", "en", change(draft, null, 1)))
+                        .isInstanceOf(OptimisticLockException.class);
+                var removed = translationService.remove(service, location, "title", "en", change(next, null, null));
+                assertThat(removed.draft()).isNull(); assertThat(removed.confirmed()).isNull();
+                assertThat(translationService.read(service, location, "en").fields().get("title").text()).isEqualTo("数控设备");
+            }
+            assertThat(service.select(row.getId()).getTitle()).isEqualTo("数控设备");
+            assertThat(service.select(row.getId()).getVersion()).isEqualTo(businessVersion);
+            assertThat(history(row)).hasSize(1);
+            var updated = service.select(row.getId()); updated.setTitle("CNC source");
+            try (var input = input(updated, "en-US", 1)) { service.update(updated); }
+            assertThat(translationService.read(service, location, "en").fields().get("title").originalFallback()).isFalse();
+            assertThatThrownBy(() -> translationService.saveDraft(service, location, "title", "en", change(first, "stale", null)))
+                    .isInstanceOf(OptimisticLockException.class);
+        }
+    }
+    @Test void publicTranslationAuthorizationUsesIndependentActionsRecordScopeTenantAndLiveField() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("受权译文"); service.insert(row);
+            var location = BusinessContentService.Location.record(row.getId());
+            var initial = translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT);
+            var draft = translationService.saveDraft(service, location, "title", "de", change(initial, "Autorisierter Text", null));
+            var viewOnly = new BusinessContentService(store, context -> {
+                if (context.platformAction() != PlatformAction.VIEW)
+                    throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("No maintenance right");
+            }, new AllowAllDataScopeCriteriaService());
+            var viewTranslations = new BusinessContentTranslationService(viewOnly, store, translations, transactions);
+            assertThat(viewTranslations.read(service, location, "de").fields().get("title").translation()).isNull();
+            assertThatThrownBy(() -> viewTranslations.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> viewTranslations.confirm(service, location, "title", "de", change(draft, null, 1)))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            var scoped = new FixtureService(dao) {
+                @Override public DataScopeCriteriaResult readScope(PlatformAction action, Criteria criteria) {
+                    return DataScopeCriteriaResult.unrestricted(action == PlatformAction.VIEW ? criteria : criteria.eq("id", "invisible"));
+                }
+            };
+            assertThatThrownBy(() -> translationService.prepare(scoped, location, "title", "de", PlatformAction.CONTENT_EDIT))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> translationService.prepare(service, location, "quantity", "de", PlatformAction.CONTENT_EDIT))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            try (var other = TenantContext.use("tenant-b")) {
+                assertThatThrownBy(() -> translationService.read(service, location, "de"))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                assertThatThrownBy(() -> translationService.history(service, location, "title", "de", initial.original().revisionId(),
+                        initial.original().revision(), HISTORY, PlatformAction.CONTENT_EDIT))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
+            service.delete(row.getId());
+            assertThatThrownBy(() -> translationService.read(service, location, "de"))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            service.restore(row.getId());
+            assertThat(translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT).draft().text()).isEqualTo("Autorisierter Text");
+        }
+    }
+    @Test void translationMaintenanceRetainsTheTrustedResolvedActionPolicyWithoutBorrowingItForConfirmation() {
+        try (var user = actor("contributor"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("Policy-scoped content"); service.insert(row);
+            var location = BusinessContentService.Location.record(row.getId());
+            var resolved = new ActionExecutionPolicy("contentEdit", PlatformActionLevel.RECORD, ActionAccessMode.AUTH_REQUIRED,
+                    true, false, ActionDefaultGrantPolicy.NONE, "translationTeam");
+            var policies = (ActionExecutionPolicyService) context -> {
+                if (context.platformAction() != PlatformAction.VIEW && !context.actionPolicy().equals(resolved))
+                    throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("Requires the resolved policy");
+            };
+            var scoped = new FixtureService(dao) {
+                @Override public DataScopeCriteriaResult readScope(PlatformAction action, Criteria criteria) {
+                    return DataScopeCriteriaResult.unrestricted(action == PlatformAction.VIEW ? criteria : criteria.eq("id", "invisible"));
+                }
+                @Override public DataScopeCriteriaResult readScopeByPolicy(ActionExecutionPolicy policy, Criteria criteria) {
+                    assertThat(policy).isEqualTo(resolved);
+                    return DataScopeCriteriaResult.unrestricted(criteria);
+                }
+            };
+            var facade = new BusinessContentTranslationService(new BusinessContentService(store, policies,
+                    new AllowAllDataScopeCriteriaService()), store, translations, transactions);
+            try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(service.getModuleAlias(), resolved,
+                    Set.of(row.getId()), CurrentUserContext.currentUser()))) {
+                var state = facade.prepare(scoped, location, "title", "de", PlatformAction.CONTENT_EDIT);
+                facade.saveDraft(scoped, location, "title", "de", change(state, "Inhalt", null));
+                assertThatThrownBy(() -> facade.prepare(scoped, location, "title", "de", PlatformAction.CONTENT_CONFIRM))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
+        }
+    }
+
+    @Test void preparingLegacyMaintenanceCapturesUnknownProvenanceWithoutClaimingOriginalAuthorship() {
+        try (var user = actor("viewer"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("Legacy category");
+            net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(row, java.time.Instant.now());
+            row.setTenantId("tenant-a"); dao.insert(row);
+            var location = BusinessContentService.Location.record(row.getId());
+            assertThat(translationService.read(service, location, "de").fields().get("title").source()).isNull();
+            assertThat(history(row)).isEmpty();
+            var state = translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT);
+            assertThat(state.original().revisionKind()).isEqualTo("UNTRACKED_BASELINE");
+            assertThat(state.original().authorId()).isNull(); assertThat(state.original().authoredAt()).isNull();
+            assertThat(state.original().revisionAuthorId()).isEqualTo("viewer");
+            assertThat(state.original().text()).isEqualTo("Legacy category");
+            assertThat(service.select(row.getId()).getVersion()).isEqualTo(row.getVersion());
+            assertThat(translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_CONFIRM).original().revisionId())
+                    .isEqualTo(state.original().revisionId());
+            assertThat(history(row)).hasSize(1);
+        }
+    }
+    private static BusinessContentTranslationService.Change change(BusinessContentTranslationService.Maintenance state,
+            String text, Integer reviewedDraft) {
+        return new BusinessContentTranslationService.Change(state.original().revisionId(), state.original().revision(),
+                state.expectedRevision(), text, reviewedDraft);
+    }
+
     @Test void concurrentOriginalEditsCannotProduceTwoCurrentRevisions() throws Exception {
         String id;
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
@@ -577,6 +712,16 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     .isEqualTo(childHistory);
             assertThat(content.childSources(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "lines", child.getId()))
                     .isEqualTo(childSource);
+            var aggregateTranslations = new BusinessContentTranslationService(aggregateContent, store, translations, transactions);
+            var childLocation = new BusinessContentService.Location(parent.getId(), "lines", child.getId());
+            assertThat(aggregateTranslations.read(records.mainEntity(module.moduleAlias()), childLocation, "de").fields().get("description").text())
+                    .isEqualTo("Untersuchung ausstehend");
+            var childMaintenance = aggregateTranslations.prepare(records.mainEntity(module.moduleAlias()), childLocation,
+                    "description", "de", PlatformAction.CONTENT_EDIT);
+            aggregateTranslations.saveDraft(records.mainEntity(module.moduleAlias()), childLocation, "description", "de",
+                    change(childMaintenance, "Neue Untersuchung", null));
+            assertThat(aggregateTranslations.read(records.mainEntity(module.moduleAlias()), childLocation, "de").fields().get("description").text())
+                    .isEqualTo("Untersuchung ausstehend");
             var another = new DynamicRecord(main).setValue("description", "Other parent").setValue("quantity", 7);
             var otherLine = new DynamicRecord(line).setValue("description", "Other parent's text");
             another.setChildren("lines", List.of(otherLine)); records.create(module.moduleAlias(), "main", another);
@@ -670,7 +815,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     }
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = BusinessContentRevisionDao.class)
-    @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class,
+    @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class, BusinessContentTranslationService.class,
             BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }

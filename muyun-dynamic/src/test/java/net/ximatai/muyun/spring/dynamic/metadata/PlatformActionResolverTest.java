@@ -17,7 +17,8 @@ class PlatformActionResolverTest {
     void shouldDeriveStandardActionsFromEntityCapabilities() {
         EntityDefinition entity = new EntityDefinition("contract", "sales_contract", "Contract", List.of(
                 FieldDefinition.string("code", "Code"),
-                FieldDefinition.titleField().queryable(),
+                FieldDefinition.titleField().queryable().content(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition(
+                        "content-title", net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS)),
                 FieldDefinition.parentId(),
                 FieldDefinition.sortOrder(),
                 FieldDefinition.enabled()

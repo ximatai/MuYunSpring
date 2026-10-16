@@ -68,6 +68,9 @@ public class ModuleDefinitionValidator {
             validateRelation(relation, entities);
             requireUnique(relationCodes, relation.parentEntityAlias() + "." + relation.code(), "relation code");
         }
+        var contentOwners = net.ximatai.muyun.spring.dynamic.capability.BusinessContentCapabilityModule.aggregateOwners(module.entities(), module.relations());
+        for (var entity : module.entities()) if (entity.supports(EntityCapability.BUSINESS_CONTENT) && !contentOwners.contains(entity.alias()))
+            throw new ModuleDefinitionException("BUSINESS_CONTENT requires declared business text in the entity or its owned children: " + entity.alias());
         validateFormulaRuleTargets(module, entities);
         validateBeforeSaveFormulaPlans(module, entities);
         validateAggregateFormulaOwnership(module, entities);

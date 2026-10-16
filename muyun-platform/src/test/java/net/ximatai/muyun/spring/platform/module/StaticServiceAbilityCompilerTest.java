@@ -60,6 +60,25 @@ class StaticServiceAbilityCompilerTest {
                 .withMessageContaining("APPROVAL requires CRUD");
     }
 
+    @Test void fieldDeclarationsPublishContentActionsWithoutBusinessMutationOperations() {
+        var service = new ContentService();
+        var registry = CapabilityModuleRegistry.defaultRegistry();
+        assertThat(StaticServiceAbilityCompiler.compile(service, registry)).contains(EntityCapability.BUSINESS_CONTENT);
+        assertThat(StaticServiceAbilityCompiler.standardActions(service, registry))
+                .contains(PlatformAction.CONTENT_EDIT, PlatformAction.CONTENT_CONFIRM);
+        assertThat(StaticServiceAbilityCompiler.standardOperations(service, registry)).extracting(PlatformOperationDefinition::action)
+                .doesNotContain(PlatformAction.CONTENT_EDIT, PlatformAction.CONTENT_CONFIRM);
+        assertThat(StaticServiceAbilityCompiler.compile(new ReferencingService(), registry)).doesNotContain(EntityCapability.BUSINESS_CONTENT);
+    }
+    private static final class ContentRecord extends StandardEntity {
+        @net.ximatai.muyun.spring.common.content.BusinessContent(key = "content-name")
+        @net.ximatai.muyun.database.core.annotation.Column(name = "name", type = net.ximatai.muyun.database.core.builder.ColumnType.TEXT)
+        private String name;
+    }
+    private static final class ContentService extends AbstractAbilityService<ContentRecord> {
+        @SuppressWarnings("unchecked") ContentService() { super("test.content", ContentRecord.class, mock(BaseDao.class)); }
+    }
+
     private static final class ApprovalService { }
 
     private static final class ReferencingRecord extends StandardEntity {

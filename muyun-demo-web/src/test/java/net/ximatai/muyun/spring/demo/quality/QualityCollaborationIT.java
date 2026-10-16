@@ -202,6 +202,21 @@ class QualityCollaborationIT {
             assertThat(provenance.at("/fields/title/source/authorId").asText()).isEqualTo("cn-author");
             assertThat(provenance.at("/fields/title/source/sourceLanguage").asText()).isEqualTo("zh-CN");
             assertThat(provenance.path("fields").has("remark")).isFalse();
+            String categoryTranslations = "/quality.equipment_category/view/" + categoryId + "/content/title/translations/en/";
+            var maintenance = write(mvc, categoryTranslations + "prepare", Map.of());
+            var draft = write(mvc, categoryTranslations + "draft", Map.of(
+                    "sourceRevisionId", maintenance.at("/original/revisionId").asText(),
+                    "sourceRevision", maintenance.at("/original/revision").asInt(), "text", "CNC Equipment"));
+            assertThat(read(mvc, "/quality.equipment_category/view/" + categoryId + "/content/reading?language=en")
+                    .at("/fields/title/text").asText()).isEqualTo("数控设备");
+            write(mvc, categoryTranslations + "confirm", Map.of(
+                    "sourceRevisionId", maintenance.at("/original/revisionId").asText(),
+                    "sourceRevision", maintenance.at("/original/revision").asInt(), "expectedRevision", draft.path("expectedRevision").asInt(),
+                    "reviewedDraftRevision", draft.at("/draft/revision").asInt()));
+            var englishCategory = read(mvc, "/quality.equipment_category/view/" + categoryId + "/content/reading?language=en");
+            assertThat(englishCategory.at("/fields/title/text").asText()).isEqualTo("CNC Equipment");
+            assertThat(englishCategory.at("/fields/title/originalText").asText()).isEqualTo("数控设备");
+            assertThat(read(mvc, "/quality.equipment_category/view/" + categoryId).path("title").asText()).isEqualTo("数控设备");
 
             var product = write(mvc, "/quality.product/insert", Map.of("code", "SEAL-1", "title", "密封组件",
                     "categoryId", categoryId, "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"))));
@@ -233,6 +248,21 @@ class QualityCollaborationIT {
             var child = read(mvc, "/quality.exception/view/" + id + "/relations/inspections/" + childId + "/content");
             assertThat(child.at("/fields/description/source/authorId").asText()).as(child.toPrettyString()).isEqualTo("cn-author");
             assertThat(child.at("/fields/description/source/sourceLanguage").asText()).isEqualTo("zh-CN");
+            String childTranslations = "/quality.exception/view/" + id + "/relations/inspections/" + childId + "/content/description/translations/de/";
+            var childMaintenance = write(mvc, childTranslations + "prepare", Map.of());
+            var childDraft = write(mvc, childTranslations + "draft", Map.of(
+                    "sourceRevisionId", childMaintenance.at("/original/revisionId").asText(),
+                    "sourceRevision", childMaintenance.at("/original/revision").asInt(), "text", "Dichtheitsprüfung bei hoher Temperatur"));
+            write(mvc, childTranslations + "confirm", Map.of(
+                    "sourceRevisionId", childMaintenance.at("/original/revisionId").asText(),
+                    "sourceRevision", childMaintenance.at("/original/revision").asInt(), "expectedRevision", childDraft.path("expectedRevision").asInt(),
+                    "reviewedDraftRevision", childDraft.at("/draft/revision").asInt()));
+            assertThat(read(mvc, "/quality.exception/view/" + id + "/relations/inspections/" + childId + "/content/reading?language=de")
+                    .at("/fields/description/text").asText()).isEqualTo("Dichtheitsprüfung bei hoher Temperatur");
+            var privateTranslation = mvc.perform(post("/quality.exception/view/" + id + "/content/internalNote/translations/en/prepare")
+                    .contentType("application/json").content("{}")).andReturn().getResponse();
+            assertThat(privateTranslation.getStatus()).isBetween(400, 499);
+            assertThat(privateTranslation.getContentAsString()).doesNotContain(privateNote);
             assertThat(read(mvc, "/quality.exception/view/" + id + "/content").path("fields").has("internalNote")).isFalse();
             var privateHistory = mvc.perform(get("/quality.exception/view/" + id + "/content/internalNote/history"))
                     .andReturn().getResponse();

@@ -493,7 +493,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addWorkflowActions(actions, capabilities);
         java.util.Set<PlatformAction> disabledActions = StaticServiceAbilityCompiler.disabledActions(service(bean));
         ReflectionUtils.doWithMethods(beanClass,
-                method -> addAnnotatedAction(actions, method, disabledActions));
+                method -> { if (contentEndpointEnabled(method, capabilities)) addAnnotatedAction(actions, method, disabledActions); });
         return List.copyOf(actions.values());
     }
 
@@ -573,7 +573,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             target.actions().forEach(action -> merged.put(action.actionCode(), action));
             LinkedHashMap<String, StaticModuleActionDefinition> declaredActions = new LinkedHashMap<>();
             ReflectionUtils.doWithMethods(beanClass,
-                    method -> addAnnotatedAction(declaredActions, method, java.util.Set.of()));
+                    method -> { if (contentEndpointEnabled(method, target.capabilities())) addAnnotatedAction(declaredActions, method, java.util.Set.of()); });
             declaredActions.values().forEach(action -> mergeDeclaredAction("@PlatformStaticActionDeclaration",
                     target.moduleAlias(), beanClass, merged, action));
             definitions.put(target.moduleAlias(), target.toBuilder().actions(List.copyOf(merged.values())).build());
@@ -597,7 +597,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             target.actions().forEach(action -> targetActions.put(action.actionCode(), action));
             LinkedHashMap<String, StaticModuleActionDefinition> scopedActions = new LinkedHashMap<>();
             ReflectionUtils.doWithMethods(beanClass,
-                    method -> addAnnotatedAction(scopedActions, method, java.util.Set.of()));
+                    method -> { if (contentEndpointEnabled(method, target.capabilities())) addAnnotatedAction(scopedActions, method, java.util.Set.of()); });
             scopedActions.values().forEach(action -> validateScopedAction(target.moduleAlias(), beanClass,
                     targetActions, action));
         }
@@ -761,8 +761,10 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         LinkedHashMap<String, StaticModuleActionDefinition> actions = new LinkedHashMap<>();
         addContributionStandardActions(actions, bean, beanClass, contribution);
         java.util.Set<PlatformAction> disabledActions = StaticServiceAbilityCompiler.disabledActions(service(bean));
-        ReflectionUtils.doWithMethods(beanClass, method -> addContributionAnnotatedAction(actions, method,
-                contribution, disabledActions));
+        var capabilities = StaticServiceAbilityCompiler.compile(service(bean), staticCapabilityRegistry);
+        ReflectionUtils.doWithMethods(beanClass, method -> {
+            if (contentEndpointEnabled(method, capabilities)) addContributionAnnotatedAction(actions, method, contribution, disabledActions);
+        });
         return List.copyOf(actions.values());
     }
 
@@ -898,6 +900,12 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             actions.putIfAbsent("submitApproval",
                     StaticModuleActionDefinition.workflowAction("submitApproval", "提交审批"));
         }
+    }
+
+    private boolean contentEndpointEnabled(Method method, java.util.Set<EntityCapability> capabilities) {
+        var action = AnnotationUtils.findAnnotation(method, ActionEndpoint.class);
+        return action == null || action.value().group() != net.ximatai.muyun.spring.common.platform.PlatformActionGroup.BUSINESS_CONTENT
+                || !StandardWebEndpoint.isDefault(method) || capabilities.contains(EntityCapability.BUSINESS_CONTENT);
     }
 
     private void addAnnotatedAction(Map<String, StaticModuleActionDefinition> actions,

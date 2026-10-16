@@ -23,7 +23,7 @@ public interface CapabilityActionContribution {
         return Optional.empty();
     }
 
-    /** Static web runtime handler. Every standard capability module contributes this facet. */
+    /** Static handler for generated service-operation endpoints; shared domain HTTP workflows own their own execution. */
     default Optional<StaticCapabilityActionRuntimeHandler> staticRuntimeHandler() {
         return Optional.empty();
     }

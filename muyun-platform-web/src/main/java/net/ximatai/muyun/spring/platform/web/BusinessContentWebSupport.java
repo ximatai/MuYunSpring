@@ -3,6 +3,9 @@ package net.ximatai.muyun.spring.platform.web;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService;
+import net.ximatai.muyun.spring.platform.content.BusinessContentService.Location;
+import net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import java.util.*;
@@ -13,8 +16,9 @@ public final class BusinessContentWebSupport {
     static final String ATTRIBUTE = BusinessContentWebSupport.class.getName();
     private final BusinessContentService content;
     private final ModuleExecutionPlanCatalog plans;
-    public BusinessContentWebSupport(BusinessContentService content, ModuleExecutionPlanCatalog plans) {
-        this.content = Objects.requireNonNull(content); this.plans = Objects.requireNonNull(plans);
+    private final BusinessContentTranslationService translations;
+    public BusinessContentWebSupport(BusinessContentService content, ModuleExecutionPlanCatalog plans, BusinessContentTranslationService translations) {
+        this.content = Objects.requireNonNull(content); this.plans = Objects.requireNonNull(plans); this.translations = translations;
     }
     static BusinessContentWebSupport current() {
         if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
@@ -48,6 +52,46 @@ public final class BusinessContentWebSupport {
         if (!childFields(web, relation).contains(field)) throw denied();
         return content.childHistory(web.service(), parentId, relation, childId, field, page);
     }
+    public BusinessContentTranslationService.Reading reading(CrudWeb<?, ?> web, Location location, String language) {
+        web.view(location.recordId());
+        var allowed = location.childId() == null ? fields(web) : childFields(web, location.relationCode());
+        var reading = translationService().read(web.service(), location, language);
+        Map<String, BusinessContentTranslationService.ReadingField> visible = new LinkedHashMap<>();
+        reading.fields().forEach((field, value) -> { if (allowed.contains(field)) visible.put(field, value); });
+        return new BusinessContentTranslationService.Reading(reading.recordVersion(), reading.language(), visible);
+    }
+    public BusinessContentTranslationService.Maintenance maintain(CrudWeb<?, ?> web, Location location, String field,
+            String language, String operation, BusinessContentTranslationService.Change change) {
+        PlatformAction action = "confirm".equals(operation) || "review".equals(operation)
+                ? PlatformAction.CONTENT_CONFIRM : PlatformAction.CONTENT_EDIT;
+        requireTranslationField(web, location, field, action);
+        return switch (operation) {
+            case "prepare", "review" -> translationService().prepare(web.service(), location, field, language, action);
+            case "draft" -> translationService().saveDraft(web.service(), location, field, language, change);
+            case "confirm" -> translationService().confirm(web.service(), location, field, language, change);
+            case "remove" -> translationService().remove(web.service(), location, field, language, change);
+            default -> throw new IllegalArgumentException("Unknown translation operation");
+        };
+    }
+    public List<BusinessContentTranslationService.TranslationRevision> translationHistory(CrudWeb<?, ?> web, Location location,
+            String field, String language, String originalId, int revision, PageRequest page, PlatformAction action) {
+        requireTranslationField(web, location, field, action);
+        return translationService().history(web.service(), location, field, language, originalId, revision, page, action);
+    }
+    private <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract> void requireTranslationField(CrudWeb<T, ?> web, Location location, String field, PlatformAction action) {
+        var record = web.view(location.recordId());
+        web.requireMenuEntryAction(action);
+        web.requireMenuEntryRecord(action, record);
+        PageContextScopePolicy.requireRecordInScope(record, web.recordScopeBindings(),
+                web.webScopeName(), action, web.pageSelectionContextResolvers());
+        var allowed = location.childId() == null ? fields(web) : childFields(web, location.relationCode());
+        if (!allowed.contains(field)) throw denied();
+    }
+    private BusinessContentTranslationService translationService() {
+        if (translations == null) throw new IllegalStateException("Business content translation support is unavailable");
+        return translations;
+    }
+
     private Set<String> childFields(CrudWeb<?, ?> web, String relationCode) {
         var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
         var relation = plan.uiDescriptor().detailRelations().stream().filter(value -> relationCode.equals(value.code())

@@ -129,6 +129,52 @@ class DynamicModuleStandardActionRegistrarTest {
     }
 
     @Test
+    void childContentDeclarationsReconcileIndependentActionsAndWithdrawalThroughTheExistingMetadataEvent() {
+        var modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
+        var actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), modules);
+        var module = new PlatformModule(); module.setAlias("quality.child_content"); module.setApplicationAlias("quality");
+        module.setTitle("Content aggregate"); module.setModuleKind(ModuleKind.DYNAMIC); modules.insert(module);
+        var relations = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService.class);
+        var metadata = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataService.class);
+        var fields = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class);
+        var relationDao = new TestMemoryDao<net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation>();
+        for (var role : java.util.List.of(net.ximatai.muyun.spring.platform.metadata.RelationRole.MAIN,
+                net.ximatai.muyun.spring.platform.metadata.RelationRole.CHILD)) {
+            var relation = new net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation();
+            relation.setId(role.name()); relation.setModuleAlias(module.getAlias()); relation.setMetadataId(role.name());
+            relation.setRelationRole(role); relationDao.insert(relation);
+        }
+        var main = new net.ximatai.muyun.spring.platform.metadata.Metadata();
+        main.setId("MAIN"); main.setCapabilityDeclarations(Set.of());
+        org.mockito.Mockito.when(metadata.select("MAIN")).thenReturn(main);
+        var field = new net.ximatai.muyun.spring.platform.metadata.MetadataField();
+        field.setId("child-field"); field.setMetadataId("CHILD");
+        field.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);
+        var fieldDao = new TestMemoryDao<net.ximatai.muyun.spring.platform.metadata.MetadataField>(); fieldDao.insert(field);
+        org.mockito.Mockito.when(relations.list(org.mockito.ArgumentMatchers.any(Criteria.class), org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class)))
+                .thenAnswer(invocation -> relationDao.query(invocation.getArgument(0), invocation.getArgument(1)));
+        org.mockito.Mockito.when(fields.list(org.mockito.ArgumentMatchers.any(Criteria.class), org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class)))
+                .thenAnswer(invocation -> fieldDao.query(invocation.getArgument(0), invocation.getArgument(1)));
+        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+        beans.registerSingleton("relations", relations); beans.registerSingleton("metadata", metadata); beans.registerSingleton("fields", fields);
+        var registrar = new DynamicModuleStandardActionRegistrar(modules, new ModuleActionContributionRegistrar(actions),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.metadata.MetadataService.class),
+                beans.getBeanProvider(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class));
+        registrar.reconcile(new net.ximatai.muyun.spring.platform.metadata.MetadataChangedEvent("CHILD", null, null));
+        for (String code : java.util.List.of("contentEdit", "contentConfirm")) {
+            var action = actions.findByModuleAliasAndActionCode(module.getAlias(), code);
+            assertThat(action).isNotNull(); assertThat(action.getEnabled()).isTrue();
+            assertThat(action.getPermissionActionCode()).isEqualTo(code);
+            assertThat(action.getDataAuth()).isFalse();
+        }
+        field.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+        registrar.reconcile(new net.ximatai.muyun.spring.platform.metadata.MetadataChangedEvent("CHILD", null, null));
+        assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "contentEdit").getEnabled()).isFalse();
+        assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "contentConfirm").getEnabled()).isFalse();
+    }
+
+    @Test
     void shouldDisableNoLongerSupportedCapabilityActionsDuringReconciliation() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);

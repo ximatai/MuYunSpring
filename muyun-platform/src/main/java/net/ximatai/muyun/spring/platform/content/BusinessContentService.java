@@ -39,7 +39,7 @@ public final class BusinessContentService {
     }
     public record SourceRevision(String sourceKey, int revision, String text, String sourceLanguage,
                                  String authorId, Instant createdAt, Instant authoredAt,
-                                 String revisionAuthorId, String revisionKind, String authorName, String revisionAuthorName) { }
+                                 String revisionAuthorId, String revisionKind, String authorName, String revisionAuthorName, String revisionId) { }
     public record CurrentSource(ContentFieldDefinition content, String text, Integer expectedRevision,
                                 SourceRevision source) { }
     public record Sources(Integer recordVersion, Map<String, CurrentSource> fields) {
@@ -116,27 +116,64 @@ public final class BusinessContentService {
         return new OwnedChild(relation.childAbility(), child);
     }
 
-    private static SourceRevision view(BusinessContentRevision row) {
+    static SourceRevision view(BusinessContentRevision row) {
         return new SourceRevision(row.getSourceKey(), row.getRevision(), row.getOriginalText(), row.getSourceLanguage(),
                 BusinessContentStore.originalAuthor(row), row.getCreatedAt(), BusinessContentStore.originalAuthoredAt(row),
                 row.getCreatedBy(), row.getRevisionKind() == null ? "ORIGINAL_WRITE" : row.getRevisionKind(),
-                row.getOriginalAuthorName(), row.getRevisionAuthorName());
+                row.getOriginalAuthorName(), row.getRevisionAuthorName(), row.getId());
     }
 
+    /** A location is always resolved through its owning aggregate, never an independently supplied source hash. */
+    public record Location(String recordId, String relationCode, String childId) {
+        public Location {
+            if (recordId == null || recordId.isBlank() || recordId.length() > 64)
+                throw new IllegalArgumentException("A valid owning record is required");
+            if ((relationCode == null) != (childId == null)
+                    || relationCode != null && (relationCode.isBlank() || relationCode.length() > 128 || childId.isBlank() || childId.length() > 64))
+                throw new IllegalArgumentException("An aggregate child requires its relation and identity");
+        }
+        public static Location record(String id) { return new Location(id, null, null); }
+    }
+    record OwnedRecord(CrudAbility<?> ability, EntityContract record) { }
+    record FieldTarget(CrudAbility<?> ability, EntityContract record, String fieldName,
+                       ContentFieldDefinition content, BusinessContentSource source) {
+        String text() { return BusinessContentFields.text(record, fieldName); }
+    }
+    OwnedRecord owned(CrudAbility<?> parent, Location location, PlatformAction action) {
+        var root = authorizedRecord(parent, location.recordId());
+        if (action != PlatformAction.VIEW) authorizedRecord(parent, location.recordId(), action);
+        if (location.childId() == null) return new OwnedRecord(parent, root);
+        var child = child(parent, location.recordId(), location.relationCode(), location.childId());
+        return new OwnedRecord(child.ability(), child.record());
+    }
+    FieldTarget target(CrudAbility<?> parent, Location location, String field, PlatformAction action) {
+        var owned = owned(parent, location, action);
+        var definition = BusinessContentFields.definitions(owned.ability(), owned.record()).get(field);
+        if (definition == null) throw denied();
+        return new FieldTarget(owned.ability(), owned.record(), field, definition,
+                BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key()));
+    }
     private <T extends EntityContract> T authorizedRecord(CrudAbility<T> ability, String recordId) {
+        return authorizedRecord(ability, recordId, PlatformAction.VIEW);
+    }
+    private <T extends EntityContract> T authorizedRecord(CrudAbility<T> ability, String recordId, PlatformAction action) {
         if (!TenantContext.hasContext() || CurrentUserContext.currentUser().isEmpty()) throw denied();
-        policies.requireRecordAction(ActionExecutionContext.ofPlatformAction(ability.getModuleAlias(), PlatformAction.VIEW,
+        var policy = ActionExecutionContextHolder.current()
+                .filter(context -> ability.getModuleAlias().equals(context.moduleAlias()) && action.matches(context.actionCode()))
+                .map(ActionExecutionContext::actionPolicy).orElseGet(action::executionPolicy);
+        policies.requireRecordAction(ActionExecutionContext.ofPolicy(ability.getModuleAlias(), policy,
                 Set.of(recordId), CurrentUserContext.currentUser()));
         // An embedded dynamic facade can own a stricter VIEW scope than the host policy service.
         // Preserve that normal read boundary without using its QUERY-scoped list operation.
         if (ability instanceof DynamicEntityOperations dynamic && dynamic.select(recordId) == null) throw denied();
         Criteria id = Criteria.of().eq("id", recordId);
-        var scope = ability instanceof DataScopeAbility<?> scoped ? scoped.readScope(PlatformAction.VIEW, id)
+        var scope = ability instanceof DataScopeAbility<?> scoped
+                ? policy.equals(action.executionPolicy()) ? scoped.readScope(action, id) : scoped.readScopeByPolicy(policy, id)
                 : ability.getDao() instanceof DynamicRecordDao
-                    ? scopes.resolveReadScope(ability.getModuleAlias(), PlatformAction.VIEW.executionPolicy(), id,
+                    ? scopes.resolveReadScope(ability.getModuleAlias(), policy, id,
                         CurrentUserContext.currentUser())
                     : DataScopeCriteriaResult.unrestricted(id);
-        // The VIEW scope above is authoritative. Facade list() would add QUERY scope and
+        // The requested action scope above is authoritative. Facade list() would add QUERY scope and
         // presentation hooks; original provenance must read only the scoped storage facts.
         T record;
         if (scope.crossTenant()) {
