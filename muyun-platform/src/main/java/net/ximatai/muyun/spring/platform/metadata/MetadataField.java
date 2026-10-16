@@ -15,6 +15,9 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEnt
 @Table(name = "platform_metadata_field", comment = "Platform metadata field")
 @net.ximatai.muyun.spring.ability.SortPartitionBy(fields = "metadataId")
 public class MetadataField extends StandardEnabledSortableEntity implements PlatformManagedCapable {
+    @Column(name = "content_policy", type = ColumnType.VARCHAR, length = 32, comment = "Business content language policy")
+    private net.ximatai.muyun.spring.common.content.ContentPolicy contentPolicy = net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL;
+
     @Column(name = "metadata_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Metadata id")
     private String metadataId;
 

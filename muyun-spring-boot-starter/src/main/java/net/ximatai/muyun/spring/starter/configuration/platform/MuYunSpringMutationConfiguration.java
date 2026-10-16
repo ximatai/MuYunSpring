@@ -40,7 +40,7 @@ public class MuYunSpringMutationConfiguration {
     DeletionLifecycleListenerRegistration deletionLifecycleListenerRegistration(
             ObjectProvider<DeletionLifecycleListener> listenerProvider) {
         return new DeletionLifecycleListenerRegistration(
-                listenerProvider.getIfAvailable(() -> DeletionLifecycleListener.NONE));
+                new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(listenerProvider.orderedStream().toList()));
     }
 
     @Bean

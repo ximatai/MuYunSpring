@@ -24,8 +24,8 @@ public class MuYunSpringFileReferenceConfiguration {
     }
 
     @Bean
-    EntitySaveLifecycleRegistration entitySaveLifecycleRegistration(FileReferenceSaveLifecycleListener listener) {
-        return new EntitySaveLifecycleRegistration(listener);
+    EntitySaveLifecycleRegistration entitySaveLifecycleRegistration(java.util.List<EntitySaveLifecycleListener> listeners) {
+        return new EntitySaveLifecycleRegistration(new net.ximatai.muyun.spring.ability.CompositeEntitySaveLifecycleListener(listeners));
     }
 
     static final class EntitySaveLifecycleRegistration implements DisposableBean {

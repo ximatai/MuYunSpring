@@ -220,6 +220,7 @@ public class StaticEntityDefinitionCompiler {
             if (pattern != null) definition = definition.validationRegex(pattern.value());
             definition = StaticMeasureUnitFieldDefinitionCompiler.compile(definition, field);
             definition = StaticMoneyFieldDefinitionCompiler.compile(definition, field);
+            definition = StaticContentFieldDefinitionCompiler.compile(definition, field);
             fields.add(definition);
         }
         if (sortable && fields.stream().noneMatch(field -> field.fieldName().equals("sortOrder"))) {

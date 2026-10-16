@@ -92,6 +92,12 @@ public class MetadataFieldDefinitionCompiler {
                 && !definition.behavior().writeRules().equals(FieldWriteRules.NONE)) {
             throw new IllegalArgumentException("System managed field cannot override write rules: " + field.getFieldName());
         }
+        if (field.getContentPolicy() != null && field.getContentPolicy().enabled()) {
+            if (Boolean.TRUE.equals(field.getSystemManaged()))
+                throw new IllegalArgumentException("System fields cannot declare business content: " + field.getFieldName());
+            definition = definition.content(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition(
+                    field.getId(), field.getContentPolicy()));
+        }
         FieldDefinition managedDefinition = MetadataCapabilityCatalog.managedDefinition(field);
         return managedDefinition == null ? definition : managedDefinition;
     }

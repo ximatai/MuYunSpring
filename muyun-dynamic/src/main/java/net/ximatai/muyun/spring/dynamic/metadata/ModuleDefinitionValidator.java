@@ -73,6 +73,9 @@ public class ModuleDefinitionValidator {
         validateAggregateFormulaOwnership(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
             validateReference(reference, entities, module.moduleAlias(), module.references());
+            FieldDefinition sourceField = requireField(entities.get(reference.sourceEntityAlias()), reference.sourceField(), "reference source");
+            if (sourceField.content().enabled())
+                throw new ModuleDefinitionException("Reference identity cannot declare business content: " + reference.sourceField());
         }
         for (EntityDiscriminatedValueDefinition value : module.discriminatedValues()) {
             validateDiscriminatedValue(value, entities);
@@ -113,6 +116,7 @@ public class ModuleDefinitionValidator {
         requireText(entity.name(), "entity name");
         Set<String> fieldCodes = new HashSet<>();
         Set<String> columnNames = new HashSet<>();
+        Set<String> contentKeys = new HashSet<>();
         int sortableFields = 0;
         int titleFields = 0;
         FieldDefinition sortableField = null;
@@ -121,6 +125,11 @@ public class ModuleDefinitionValidator {
         List<FieldDefinition> fields = entity.fields();
         for (FieldDefinition field : entity.fields()) {
             validateField(field);
+            if (field.content().enabled()) {
+                requireUnique(contentKeys, field.content().key(), "business content field identity");
+                if (entity.fileReferences().containsKey(field.fieldName()))
+                    throw new ModuleDefinitionException("File identity cannot declare business content: " + field.fieldName());
+            }
             requireUnique(fieldCodes, field.code(), "field code");
             requireUnique(columnNames, field.columnName(), "column name");
             if (PlatformAbilityFields.ENABLED_FIELD.equals(field.fieldName())
