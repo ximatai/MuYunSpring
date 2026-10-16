@@ -331,6 +331,24 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return webScope(() -> BusinessContentWebSupport.current().reading(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), language));
     }
 
+    @GetMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationStatus(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language) {
+        return webScope(() -> BusinessContentWebSupport.current().generation(this,
+                net.ximatai.muyun.spring.platform.content.BusinessContentService.Location.record(id), field, language, false, false));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationRequest(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestParam(defaultValue = "false") boolean retry) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().generation(this,
+                        net.ximatai.muyun.spring.platform.content.BusinessContentService.Location.record(id), field, language, true, retry)));
+    }
+
     @PostMapping("/view/{id}/content/{field}/translations/{language}/prepare")
     @ActionEndpoint(PlatformAction.CONTENT_EDIT)
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationPrepare(
@@ -399,6 +417,25 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Reading childContentReading(
             @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @RequestParam String language) {
         return webScope(() -> BusinessContentWebSupport.current().reading(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), language));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationStatus(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
+            @PathVariable String field, @PathVariable String language) {
+        return webScope(() -> BusinessContentWebSupport.current().generation(this,
+                new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, false, false));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationRequest(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
+            @PathVariable String field, @PathVariable String language, @RequestParam(defaultValue = "false") boolean retry) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().generation(this,
+                        new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, true, retry)));
     }
 
     @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/prepare")

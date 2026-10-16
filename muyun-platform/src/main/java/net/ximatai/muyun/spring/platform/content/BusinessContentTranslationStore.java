@@ -62,6 +62,10 @@ class BusinessContentTranslationStore {
         return previousHuman(source, current, language, List.of("CONFIRMED", "REMOVED")) != null;
     }
 
+    boolean wasRemoved(BusinessContentSource source, OriginalVersion original, String language) {
+        return latest(slot(source, original, language(language)).eq("kind", "REMOVED")) != null;
+    }
+
     private BusinessContentTranslation previousHuman(BusinessContentSource source, OriginalVersion current, String language, List<String> kinds) {
         String tag = language(language);
         // Deleting this language also discards suggestions from earlier originals. A new

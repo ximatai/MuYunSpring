@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService;
 import net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService;
+import net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService;
+import net.ximatai.muyun.spring.platform.content.BusinessContentGenerationScope;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.ui.*;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
@@ -28,11 +30,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class BusinessContentWebTest {
     private BusinessContentService content;
     private BusinessContentTranslationService translations;
+    private BusinessContentGenerationService generations;
+    private BusinessContentGenerationWebScope generationScopes;
     private Controller controller;
     private MockMvc mvc;
     @BeforeEach void setup() {
         content = mock(BusinessContentService.class);
         translations = mock(BusinessContentTranslationService.class);
+        generations = mock(BusinessContentGenerationService.class);
+        generationScopes = mock(BusinessContentGenerationWebScope.class);
         var plans = mock(ModuleExecutionPlanCatalog.class);
         var ui = mock(ResolvedModuleUiDescriptor.class);
         when(ui.moduleAlias()).thenReturn("test.content");
@@ -48,9 +54,11 @@ class BusinessContentWebTest {
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("content", content); beans.registerSingleton("plans", plans);
         beans.registerSingleton("translations", translations);
+        beans.registerSingleton("generations", generations); beans.registerSingleton("generationScopes", generationScopes);
         var registry = new Interceptors();
         new BusinessContentWebConfiguration(beans.getBeanProvider(BusinessContentService.class),
-                beans.getBeanProvider(ModuleExecutionPlanCatalog.class), beans.getBeanProvider(net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.class)).addInterceptors(registry);
+                beans.getBeanProvider(ModuleExecutionPlanCatalog.class), beans.getBeanProvider(net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.class),
+                beans.getBeanProvider(BusinessContentGenerationService.class), beans.getBeanProvider(BusinessContentGenerationWebScope.class)).addInterceptors(registry);
         controller = new Controller();
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new ObjectMapper().findAndRegisterModules()))
@@ -135,6 +143,42 @@ class BusinessContentWebTest {
             mvc.perform(get("/test.content/view/record/content/reading?language=en")).andExpect(status().isForbidden());
             mvc.perform(post("/test.content/view/record/content/title/translations/en/prepare")).andExpect(status().isForbidden());
             verifyNoInteractions(translations);
+        }
+    }
+
+    @Test void generationUsesExplicitPostAndReadOnlyStatusWithTheOwningRootAndChildTransport() throws Exception {
+        var root = BusinessContentService.Location.record("record");
+        var child = new BusinessContentService.Location("record", "lines", "child");
+        var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
+        when(generationScopes.capture(eq(controller), any(), anyString())).thenAnswer(invocation -> {
+            BusinessContentService.Location location = invocation.getArgument(1);
+            String field = invocation.getArgument(2); controller.view(location.recordId());
+            if (!(location.childId() == null ? "title" : "description").equals(field))
+                throw new PlatformAccessDeniedException("field is not exposed");
+            return scope;
+        });
+        var pending = new BusinessContentGenerationService.Status("PENDING", "opaque-generation", null, 0, null);
+        when(generations.request(eq(scope), eq("test.content"), any(), anyString(), anyString(), anyBoolean())).thenReturn(pending);
+        when(generations.status(eq(scope), eq("test.content"), any(), anyString(), anyString())).thenReturn(pending);
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/view/record/content/title/translations/en/generation"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("PENDING"));
+            verify(generations).request(scope, "test.content", root, "title", "en", false);
+            mvc.perform(get("/test.content/view/record/content/title/translations/en/generation"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.reference").value("opaque-generation"));
+            verify(generations).status(scope, "test.content", root, "title", "en");
+            mvc.perform(post("/test.content/view/record/relations/lines/child/content/description/translations/de/generation?retry=true"))
+                    .andExpect(status().isOk());
+            verify(generations).request(scope, "test.content", child, "description", "de", true);
+            mvc.perform(get("/test.content/view/record/relations/lines/child/content/description/translations/de/generation"))
+                    .andExpect(status().isOk());
+            verify(generations).status(scope, "test.content", child, "description", "de");
+            clearInvocations(generations);
+            mvc.perform(post("/test.content/view/record/content/unexposed/translations/en/generation")).andExpect(status().isForbidden());
+            mvc.perform(get("/test.content/view/record/relations/lines/child/content/title/translations/de/generation")).andExpect(status().isForbidden());
+            controller.denied = true;
+            mvc.perform(post("/test.content/view/record/content/title/translations/en/generation")).andExpect(status().isForbidden());
+            verifyNoInteractions(generations);
         }
     }
 

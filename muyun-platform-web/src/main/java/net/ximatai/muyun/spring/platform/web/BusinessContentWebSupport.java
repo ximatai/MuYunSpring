@@ -5,11 +5,11 @@ import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService;
 import net.ximatai.muyun.spring.platform.content.BusinessContentService.Location;
 import net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService;
+import net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /** Standard-record bridge: owning VIEW scopes and compiled field exposure remain authoritative. */
 public final class BusinessContentWebSupport {
@@ -17,8 +17,16 @@ public final class BusinessContentWebSupport {
     private final BusinessContentService content;
     private final ModuleExecutionPlanCatalog plans;
     private final BusinessContentTranslationService translations;
+    private final BusinessContentGenerationService generations;
+    private final BusinessContentGenerationWebScope generationScopes;
     public BusinessContentWebSupport(BusinessContentService content, ModuleExecutionPlanCatalog plans, BusinessContentTranslationService translations) {
+        this(content, plans, translations, null, null);
+    }
+    public BusinessContentWebSupport(BusinessContentService content, ModuleExecutionPlanCatalog plans,
+            BusinessContentTranslationService translations, BusinessContentGenerationService generations,
+            BusinessContentGenerationWebScope generationScopes) {
         this.content = Objects.requireNonNull(content); this.plans = Objects.requireNonNull(plans); this.translations = translations;
+        this.generations = generations; this.generationScopes = generationScopes;
     }
     static BusinessContentWebSupport current() {
         if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
@@ -60,6 +68,13 @@ public final class BusinessContentWebSupport {
         reading.fields().forEach((field, value) -> { if (allowed.contains(field)) visible.put(field, value); });
         return new BusinessContentTranslationService.Reading(reading.recordVersion(), reading.language(), visible);
     }
+    public BusinessContentGenerationService.Status generation(CrudWeb<?, ?> web, Location location, String field,
+            String language, boolean request, boolean retry) {
+        if (generations == null || generationScopes == null) throw new IllegalStateException("Business content generation support is unavailable");
+        var scope = generationScopes.capture(web, location, field);
+        return request ? generations.request(scope, web.webScopeName(), location, field, language, retry)
+                : generations.status(scope, web.webScopeName(), location, field, language);
+    }
     public BusinessContentTranslationService.Maintenance maintain(CrudWeb<?, ?> web, Location location, String field,
             String language, String operation, BusinessContentTranslationService.Change change) {
         PlatformAction action = "confirm".equals(operation) || "review".equals(operation)
@@ -94,24 +109,11 @@ public final class BusinessContentWebSupport {
 
     private Set<String> childFields(CrudWeb<?, ?> web, String relationCode) {
         var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
-        var relation = plan.uiDescriptor().detailRelations().stream().filter(value -> relationCode.equals(value.code())
-                        && web.webScopeName().equals(value.targetModuleAlias()))
-                .findFirst().orElseThrow(BusinessContentWebSupport::denied);
-        var projection = relation.listProjection() != null ? relation.listProjection()
-                : relation.queryContract() == null ? null : relation.queryContract().listProjection();
-        // Dynamic management read models describe the main row. Child display fields belong to
-        // the resolved relation projection, not to an assumed flattened main read model.
-        if (projection != null) return projection.fields().stream()
-                .map(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField::fieldName)
-                .collect(Collectors.toUnmodifiableSet());
-        return plan.readModel().fields().stream().filter(field -> relation.targetEntityAlias().equals(field.entityAlias()))
-                .map(ResolvedModuleReadField::fieldName).collect(Collectors.toUnmodifiableSet());
+        return BusinessContentReadExposure.fields(plan, relationCode);
     }
     private Set<String> fields(CrudWeb<?, ?> web) {
         var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
-        return plan.readModel().fields().stream().filter(field -> field.relationCode() == null
-                        && Objects.equals(field.entityAlias(), plan.readModel().mainEntityAlias()))
-                .map(ResolvedModuleReadField::fieldName).collect(Collectors.toUnmodifiableSet());
+        return BusinessContentReadExposure.fields(plan, null);
     }
     private static PlatformAccessDeniedException denied() {
         return new PlatformAccessDeniedException("Business content source is unavailable");

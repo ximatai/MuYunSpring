@@ -1,0 +1,16 @@
+package net.ximatai.muyun.spring.platform.content;
+
+import lombok.Getter;
+import lombok.Setter;
+import net.ximatai.muyun.database.core.annotation.*;
+import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.spring.common.content.*;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+
+@Getter @Setter
+@Table(name = "content_generation_fixture", comment = "Automatic business reading contract fixture")
+public class ContentGenerationFixture extends StandardEntity {
+    @BusinessContent(value = ContentPolicy.AUTO_TRANSLATE, key = "quality-description")
+    @Column(name = "description", type = ColumnType.TEXT)
+    private String description;
+}

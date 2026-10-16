@@ -46,6 +46,11 @@ public final class BusinessContentService {
         public Sources { fields = Map.copyOf(fields); }
     }
 
+    /** Server-side owning row for entry adapters that must recheck menu and page-workspace constraints. */
+    public EntityContract requireOwner(CrudAbility<?> parent, Location location) {
+        return authorizedRecord(parent, location.recordId());
+    }
+
     /** The text is always the authorized raw business value. A missing matching source is explicitly untracked. */
     public <T extends EntityContract> Sources sources(CrudAbility<T> ability, String recordId) {
         return sources(ability, authorizedRecord(ability, recordId));
