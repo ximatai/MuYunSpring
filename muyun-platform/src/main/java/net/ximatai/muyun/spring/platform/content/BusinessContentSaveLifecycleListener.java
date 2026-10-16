@@ -31,8 +31,10 @@ public final class BusinessContentSaveLifecycleListener implements EntitySaveLif
         var inputs = ContentWriteContext.inputs(incoming);
         fields.forEach((field, definition) -> store.capture(source(ability, persisted, definition.key()),
                 BusinessContentFields.text(persisted, field), inputs.get(field)));
-        if (incoming instanceof net.ximatai.muyun.spring.common.content.ContentLanguageInputs carrier)
-            carrier.contentLanguageInputs(Map.of());
+        if (incoming instanceof net.ximatai.muyun.spring.common.content.ContentLanguageInputs carrier) {
+            Runnable restore = carrier.consumeContentLanguageInputs();
+            TransactionScopeSupport.afterCompletionOrNow(() -> {}, restore);
+        }
     }
 
     static BusinessContentSource source(CrudAbility<?> ability, EntityContract record, String fieldKey) {

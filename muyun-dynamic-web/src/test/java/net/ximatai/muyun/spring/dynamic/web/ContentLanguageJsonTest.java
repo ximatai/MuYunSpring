@@ -42,6 +42,9 @@ class ContentLanguageJsonTest {
     }
     @Test void invalidMetadataIsRejectedAndEmptyInputDoesNotClaimALanguage() throws Exception {
         assertThatThrownBy(() -> mapper.readValue("{\"$contentLanguages\":[]}", DynamicRecord.class)).isInstanceOf(IllegalArgumentException.class);
+        var invalid = catchThrowable(() -> mapper.readValue("{\"$contentLanguages\":{\"description\":null}}", DynamicRecord.class));
+        assertThat(invalid).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("field and source input");
+        assertThat(new net.ximatai.muyun.spring.web.PlatformWebExceptionHandler().handleBadRequest((IllegalArgumentException) invalid).getStatusCode().value()).isEqualTo(400);
         var row = mapper.readValue("{\"description\":\"Original\"}", DynamicRecord.class);
         assertThat(ContentWriteContext.inputs(row)).isEmpty();
         assertThat(mapper.valueToTree(row).has("$contentLanguages")).isFalse();

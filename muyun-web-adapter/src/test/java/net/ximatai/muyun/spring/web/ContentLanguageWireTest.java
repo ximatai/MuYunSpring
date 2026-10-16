@@ -27,6 +27,8 @@ class ContentLanguageWireTest {
     @Test void rejectsInvalidLanguageMetadataWithoutTraversingBusinessJson() throws Exception {
         assertThatThrownBy(() -> mapper.readValue("{\"$contentLanguages\":{\"description\":{\"languageTag\":\"bad_tag\"}}}", Fixture.class))
                 .isInstanceOf(com.fasterxml.jackson.databind.exc.ValueInstantiationException.class).hasMessageContaining("Invalid source language tag");
+        assertThatThrownBy(() -> mapper.readValue("{\"$contentLanguages\":{\"description\":null}}", Fixture.class))
+                .isInstanceOf(com.fasterxml.jackson.databind.JsonMappingException.class).hasMessageContaining("field and source input");
         var row = mapper.readValue("{\"extra\":{\"$contentLanguages\":{\"some\":\"business JSON\"}}}", Fixture.class);
         assertThat(ContentWriteContext.inputs(row)).isEmpty();
         assertThat(row.extra).containsKey("$contentLanguages");

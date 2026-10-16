@@ -146,6 +146,44 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             org.mockito.Mockito.verifyNoInteractions(unexpectedScopes);
         }
     }
+    @Test void rollbackRestoresConsumedIntentForRetryWithoutOverwritingLaterCallerIntent() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("回滚后重试");
+            var original = Map.of("title", new ContentWriteContext.SourceInput("zh-CN", null));
+            row.contentLanguageInputs(original);
+            tx.executeWithoutResult(status -> {
+                service.insert(row);
+                assertThat(row.contentLanguageInputs()).isEmpty();
+                row.setQuantity(2); service.update(row);
+                status.setRollbackOnly();
+            });
+            assertThat(service.select(row.getId())).isNull();
+            assertThat(row.contentLanguageInputs()).isEqualTo(original);
+            service.insert(row);
+            assertThat(history(row).getFirst().sourceLanguage()).isEqualTo("zh-CN");
+            assertThat(row.contentLanguageInputs()).isEmpty();
+
+            var retry = service.select(row.getId()); retry.setTitle("Updated text");
+            retry.contentLanguageInputs(Map.of("title", new ContentWriteContext.SourceInput("en", 1)));
+            tx.executeWithoutResult(status -> {
+                service.update(retry);
+                retry.contentLanguageInputs(Map.of()); // Explicitly abandon the input after save.
+                status.setRollbackOnly();
+            });
+            assertThat(retry.contentLanguageInputs()).isEmpty();
+            assertThat(history(row)).hasSize(1);
+
+            var changed = service.select(row.getId()); changed.setTitle("Deutsch");
+            changed.contentLanguageInputs(Map.of("title", new ContentWriteContext.SourceInput("de", 1)));
+            var later = Map.of("title", new ContentWriteContext.SourceInput("de-DE", 1));
+            tx.executeWithoutResult(status -> {
+                service.update(changed);
+                changed.contentLanguageInputs(later);
+                status.setRollbackOnly();
+            });
+            assertThat(changed.contentLanguageInputs()).isEqualTo(later);
+        }
+    }
     @Test void concurrentOriginalEditsCannotProduceTwoCurrentRevisions() throws Exception {
         String id;
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
@@ -187,6 +225,14 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             parent.setChildren("lines", List.of(child));
             parent.contentLanguageInputs(Map.of("description", new ContentWriteContext.SourceInput("zh-CN", null)));
             child.contentLanguageInputs(Map.of("description", new ContentWriteContext.SourceInput("en-US", null)));
+            tx.executeWithoutResult(status -> {
+                records.create(module.moduleAlias(), "main", parent);
+                assertThat(parent.contentLanguageInputs()).isEmpty();
+                assertThat(child.contentLanguageInputs()).isEmpty();
+                status.setRollbackOnly();
+            });
+            assertThat(parent.contentLanguageInputs().get("description").languageTag()).isEqualTo("zh-CN");
+            assertThat(child.contentLanguageInputs().get("description").languageTag()).isEqualTo("en-US");
             records.create(module.moduleAlias(), "main", parent);
             var parentHistory = content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY);
             var childHistory = content.history(runtime.entityService(module.moduleAlias(), "line"), child.getId(), "description", HISTORY);

@@ -6,4 +6,6 @@ import java.util.Map;
 public interface ContentLanguageInputs {
     Map<String, ContentWriteContext.SourceInput> contentLanguageInputs();
     void contentLanguageInputs(Map<String, ContentWriteContext.SourceInput> inputs);
+    /** Returns rollback restoration for this exact consumed intent. */
+    Runnable consumeContentLanguageInputs();
 }
