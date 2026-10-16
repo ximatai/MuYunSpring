@@ -81,3 +81,41 @@ it('shares only in-flight reading for the same snapshot, language, version and t
   callbacks[3]!({});
   await fresh;
 });
+
+it('invalidates a pending reading after a successful translation write while retaining the business version', async () => {
+  const { loadBusinessContentReading, changeBusinessContentTranslation } =
+    await import('@/web-core/businessContent');
+  const callbacks: ((value: unknown) => void)[] = [];
+  const request = vi.fn((options: import('@/web-core/http').HttpRequestOptions) =>
+    options.method === 'POST'
+      ? Promise.resolve({ expectedRevision: 4 })
+      : new Promise((done) => callbacks.push(done)),
+  );
+  const http = { request } as unknown as import('@/web-core/http').HttpClient;
+  const snapshot = { version: 1 };
+  const old = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot);
+  await changeBusinessContentTranslation(
+    http,
+    'demo.issue',
+    'one',
+    'description',
+    'en',
+    'confirm',
+    {
+      sourceRevisionId: 'immutable-original',
+      sourceRevision: 1,
+      expectedRevision: 3,
+      reviewedDraftRevision: 3,
+    },
+    undefined,
+    snapshot,
+  );
+  const fresh = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot);
+  expect(fresh).not.toBe(old);
+  callbacks[0]!({});
+  await old;
+  expect(loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot)).toBe(fresh);
+  callbacks[1]!({});
+  await fresh;
+  expect(snapshot.version).toBe(1);
+});

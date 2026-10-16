@@ -198,6 +198,7 @@ async function mutate(operation: 'draft' | 'confirm' | 'remove') {
         ...(operation === 'confirm' ? { reviewedDraftRevision: reviewed.draft!.revision } : {}),
       },
       props.relation,
+      props.record,
     );
     if (token !== editorGeneration) return;
     maintenance.value = response;

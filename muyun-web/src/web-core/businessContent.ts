@@ -128,12 +128,20 @@ export function changeBusinessContentTranslation(
   operation: 'draft' | 'confirm' | 'remove',
   change: BusinessContentTranslationChange,
   relation?: BusinessContentRelationScope,
+  snapshot?: object,
 ) {
-  return http.request<BusinessContentTranslationMaintenance>({
-    path: `${translationPath(moduleAlias, id, field, language, relation)}/${operation}`,
-    method: 'POST',
-    body: change,
-  });
+  return http
+    .request<BusinessContentTranslationMaintenance>({
+      path: `${translationPath(moduleAlias, id, field, language, relation)}/${operation}`,
+      method: 'POST',
+      body: change,
+    })
+    .then((response) => {
+      // Translation changes deliberately preserve the business version. A subsequent
+      // reading must not reuse a projection started before this translation write.
+      if (snapshot) readingPending.delete(snapshot);
+      return response;
+    });
 }
 export function loadBusinessContentTranslationHistory(
   http: HttpClient,

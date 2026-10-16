@@ -242,3 +242,59 @@ describe('shared business translation reading and maintenance', () => {
     wrapper.unmount();
   });
 });
+
+it.each(['confirm', 'remove'] as const)(
+  'refreshes beyond a delayed pre-mutation reading after %s without changing the business version',
+  async (operation) => {
+    let finishOld!: (value: BusinessContentReading) => void;
+    let readCount = 0;
+    const draft = translation('DRAFT', 3, 'New confirmed English');
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) {
+        readCount++;
+        if (readCount === 2) return new Promise<BusinessContentReading>((done) => (finishOld = done));
+        if (readCount === 1) return reading();
+        return operation === 'confirm'
+          ? reading('en', 'New confirmed English')
+          : {
+              ...reading(),
+              fields: {
+                description: {
+                  originalText: original.text,
+                  source: original,
+                  text: original.text,
+                  actualLanguage: 'zh-CN',
+                  originalFallback: true,
+                  translation: null,
+                },
+              },
+            };
+      }
+      if (options.path.endsWith('/history')) return [];
+      if (options.path.endsWith('/draft')) return { ...state(), expectedRevision: 3, draft };
+      if (options.path.endsWith('/confirm'))
+        return { ...state(), expectedRevision: 4, confirmed: translation('CONFIRMED', 4, draft.text!) };
+      if (options.path.endsWith('/remove'))
+        return { ...state(), expectedRevision: 4, draft: null, confirmed: null };
+      return state();
+    });
+    const { wrapper, record } = host(request);
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    await wrapper.get('textarea').setValue(draft.text!);
+    await button(wrapper, '保存人工草稿').trigger('click');
+    await flushPromises();
+    await button(wrapper, operation === 'confirm' ? '确认已审阅的草稿' : '删除本语言译文').trigger('click');
+    await flushPromises();
+    finishOld(reading());
+    await flushPromises();
+    expect(readCount).toBe(3);
+    const projection = wrapper.get('[data-translation-field]').text();
+    expect(projection).not.toContain('Previous confirmed English');
+    expect(projection).toContain(operation === 'confirm' ? 'New confirmed English' : '当前语言暂无有效译文');
+    expect(record.version).toBe(4);
+    expect(record.description).toBe(original.text);
+    wrapper.unmount();
+  },
+);
