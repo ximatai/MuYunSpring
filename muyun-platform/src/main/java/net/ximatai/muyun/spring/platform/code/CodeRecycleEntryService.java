@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
@@ -105,11 +108,15 @@ public class CodeRecycleEntryService extends AbstractAbilityService<CodeRecycleE
 
     public CodeRecycleEntry adjustStatus(String id, CodeRecycleStatus status) {
         if (status == null || status == CodeRecycleStatus.USED) {
-            throw new PlatformException("Code recycle governance cannot directly mark an entry USED");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-recycle-entry.code-recycle-governance-cannot-directly-mark-an-entry-used",
+                    "Code recycle governance cannot directly mark an entry USED"));
         }
         CodeRecycleEntry entry = select(id);
         if (entry == null) {
-            throw new PlatformException("Code recycle entry does not exist: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-recycle-entry.code-recycle-entry-does-not-exist",
+                    "Code recycle entry does not exist: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         entry.setStatus(status);
         update(entry);

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -7,7 +10,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -29,7 +31,9 @@ public class RecordWriteBackMatchRuleService extends AbstractAbilityService<Reco
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("Record write-back match rule " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-match-rule.record-write-back-match-rule-must-not-be-blank",
+                    "Record write-back match rule {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

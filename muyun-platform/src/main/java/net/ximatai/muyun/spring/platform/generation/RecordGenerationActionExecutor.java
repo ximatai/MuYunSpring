@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
@@ -69,7 +71,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 ? List.of()
                 : rule.getObjectMappings();
         if (mappings.isEmpty()) {
-            throw new PlatformException("Generation rule has no target root object mapping: " + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-rule-has-no-target-root-object-mapping",
+                    "Generation rule has no target root object mapping: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
         RecordGenerationObjectMapping splitDriver = splitDriver(mappings);
         List<RecordGenerationDraft> drafts = splitDriver == null
@@ -93,8 +97,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 .filter(rule -> actionCode.equals(rule.getActionCode()))
                 .filter(rule -> Boolean.TRUE.equals(rule.getEnabled()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Generation rule not found for action: "
-                        + moduleAlias + "." + actionCode));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-generation-action-executor.generation-rule-not-found-for-action",
+                        "Generation rule not found for action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode))));
     }
 
     private String sourceRecordId(DynamicActionExecutionRequest request) {
@@ -105,7 +110,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 && request.record().getId() != null && !request.record().getId().isBlank()) {
             return request.record().getId();
         }
-        throw new PlatformException("Generation action requires source record id");
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-generation-action-executor.generation-action-requires-source-record-id",
+                "Generation action requires source record id"));
     }
 
     private DynamicRecord sourceRecord(DynamicActionExecutionContext context,
@@ -114,9 +121,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                                        String sourceRecordId) {
         DynamicRecord selected = operations.select(sourceRecordId);
         if (selected == null) {
-            throw new PlatformException("Generation source record not found: "
-                    + requireText(context == null ? null : context.moduleAlias(), "generation source module")
-                    + "." + sourceRecordId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-source-record-not-found",
+                    "Generation source record not found: {value1}.{value2}"), Map.of("value1", String.valueOf(requireText(context == null ? null : context.moduleAlias(), "generation source module")), "value2", String.valueOf(sourceRecordId)));
         }
         return selected;
     }
@@ -131,8 +138,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
         }
         RecordGenerationObjectMapping rootMapping = mappings.getFirst();
         if (rootMapping.getSourceObjectAlias() != null && !sourceEntityAlias.equals(rootMapping.getSourceObjectAlias())) {
-            throw new PlatformException("Generation sourceObjectAlias mismatch: "
-                    + rootMapping.getSourceObjectAlias() + " != " + sourceEntityAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-sourceobjectalias-mismatch",
+                    "Generation sourceObjectAlias mismatch: {value1} != {value2}"), Map.of("value1", String.valueOf(rootMapping.getSourceObjectAlias()), "value2", String.valueOf(sourceEntityAlias)));
         }
     }
 
@@ -165,14 +173,19 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                                                     String batchId) {
         RecordGenerationObjectMapping rootMapping = mappings.getFirst();
         if (splitDriver == rootMapping) {
-            throw new PlatformException("Generation split driver must be child object mapping: " + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-split-driver-must-be-child-object-mapping",
+                    "Generation split driver must be child object mapping: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
         if (mappings.size() != 2) {
-            throw new PlatformException("Generation split runtime supports root and one split driver mapping only: "
-                    + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-split-runtime-supports-root-and-one-split-driver-mapping-only",
+                    "Generation split runtime supports root and one split driver mapping only: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
         if (hasSplitPolicy(splitDriver.getSplitPolicy())) {
-            throw new PlatformException("Generation split policy runtime is not supported yet: " + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-split-policy-runtime-is-not-supported-yet",
+                    "Generation split policy runtime is not supported yet: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
 
         List<RecordGenerationDraft> drafts = new ArrayList<>();
@@ -262,7 +275,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 .filter(mapping -> Boolean.TRUE.equals(mapping.getSplitDriver()))
                 .toList();
         if (drivers.size() > 1) {
-            throw new PlatformException("Generation rule has multiple split drivers");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-rule-has-multiple-split-drivers",
+                    "Generation rule has multiple split drivers"));
         }
         return drivers.isEmpty() ? null : drivers.getFirst();
     }
@@ -278,7 +293,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
                 mapping.getSourceObjectAlias(), "sourceRelationCode");
         List<DynamicRecord> children = source.getChildren(sourceRelationCode);
         if (children == null) {
-            throw new PlatformException("Generation source child rows not loaded: " + sourceRelationCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-source-child-rows-not-loaded",
+                    "Generation source child rows not loaded: {value1}"), Map.of("value1", String.valueOf(sourceRelationCode)));
         }
         return children;
     }
@@ -286,7 +303,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
     private String relationCode(String explicit, String fallback, String fieldName) {
         String value = explicit == null || explicit.isBlank() ? fallback : explicit;
         if (value == null || value.isBlank()) {
-            throw new PlatformException("Generation child mapping " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.generation-child-mapping-must-not-be-blank",
+                    "Generation child mapping {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }
@@ -310,7 +329,9 @@ public class RecordGenerationActionExecutor implements DynamicActionExecutor {
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-action-executor.required-parameter",
+                    "{value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value;
     }

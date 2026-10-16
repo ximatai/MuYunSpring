@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ai;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -15,7 +18,6 @@ import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.common.exception.PlatformConfigurationException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
@@ -75,7 +77,9 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     @Override
     public void beforeUpdate(AiModelConfiguration configuration, AiModelConfiguration existing) {
         if (existing == null) {
-            throw new PlatformException("AI model configuration does not exist");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-configuration.ai-model-configuration-does-not-exist",
+                    "AI model configuration does not exist"));
         }
         normalize(configuration, existing);
         requireNoEnabledConfigurationForScope(configuration, existing.getId());
@@ -156,7 +160,9 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         ReferenceAbility<?> tenants = PlatformAbilityRuntime.referenceTargetResolver().resolve(TENANT_TARGET)
                 .orElseThrow(() -> new PlatformConfigurationException("tenant reference target is unavailable"));
         if (!tenants.titles(List.of(tenantId)).containsKey(tenantId)) {
-            throw new PlatformException("AI model configuration tenant does not exist: " + tenantId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-configuration.ai-model-configuration-tenant-does-not-exist",
+                    "AI model configuration tenant does not exist: {value1}"), Map.of("value1", String.valueOf(tenantId)));
         }
     }
 
@@ -180,7 +186,9 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         configuration.setApiKeyInput(null);
         if (input == null || input.isBlank()) {
             if (existing == null || existing.getApiKey() == null || existing.getApiKey().isBlank()) {
-                throw new PlatformException("AI model API key must not be blank");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.ai-model-configuration.ai-model-api-key-must-not-be-blank",
+                        "AI model API key must not be blank"));
             }
             retainProtectedFieldFromStorage(configuration, existing, "apiKey");
         } else {
@@ -224,9 +232,13 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
                 ? Criteria.of().isNull("tenantId") : Criteria.of().eq("tenantId", configuration.getTenantId()));
         if (existingId != null) criteria.ne("id", existingId);
         if (count(criteria) > 0) {
-            throw new PlatformException(configuration.getTenantId() == null
-                    ? "平台已有启用的模型配置，请先停用后再启用其他配置"
-                    : "该租户已有启用的模型配置，请先停用后再启用其他配置");
+            throw PlatformErrors.badRequestText(configuration.getTenantId() == null
+                    ? TextReference.code(
+                            "platform.rejection.ai-model-configuration.enabled-platform-exists",
+                            "平台已有启用的模型配置，请先停用后再启用其他配置")
+                    : TextReference.code(
+                            "platform.rejection.ai-model-configuration.enabled-tenant-exists",
+                            "该租户已有启用的模型配置，请先停用后再启用其他配置"));
         }
     }
 }

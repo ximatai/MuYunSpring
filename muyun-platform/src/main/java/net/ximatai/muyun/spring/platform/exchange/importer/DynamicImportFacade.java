@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
@@ -78,7 +80,9 @@ public class DynamicImportFacade {
             throw new PlatformException("dynamic import parse requires module descriptor");
         }
         if (excelBytes == null || excelBytes.length == 0) {
-            throw new PlatformException("dynamic import parse excel bytes must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import.dynamic-import-parse-excel-bytes-must-not-be-empty",
+                    "dynamic import parse excel bytes must not be empty"));
         }
         ParsedWorkbook workbook = parser.parse(excelBytes);
         DynamicImportPlan plan = planBuilder.build(descriptor, workbook, parsePlanCommand(descriptor, workbook));
@@ -123,7 +127,9 @@ public class DynamicImportFacade {
         String mainEntityAlias = descriptor.mainEntityAlias();
         ParsedSheet mainSheet = sheetsByEntity.get(mainEntityAlias);
         if (mainSheet == null) {
-            throw new PlatformException("dynamic import main sheet not found: " + mainEntityAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import.dynamic-import-main-sheet-not-found",
+                    "dynamic import main sheet not found: {value1}"), Map.of("value1", String.valueOf(mainEntityAlias)));
         }
         List<BuildDynamicImportPlanCommand.ChildSheetCommand> childCommands = firstLevelChildEntityAliases(descriptor)
                 .stream()
@@ -166,8 +172,9 @@ public class DynamicImportFacade {
                 .map(column -> column.fieldName())
                 .filter(fieldName -> !ExcelExchangeProtocol.RELATE_ID_FIELD.equals(fieldName))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("dynamic import sheet has no business field: "
-                        + sheet.sheetName()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import.dynamic-import-sheet-has-no-business-field",
+                        "dynamic import sheet has no business field: {value1}"), Map.of("value1", String.valueOf(sheet.sheetName()))));
     }
 
     private String firstMatchKeyCandidate(DynamicImportPlan.SheetPlan sheet) {
@@ -175,8 +182,9 @@ public class DynamicImportFacade {
                 .filter(DynamicImportPlan.FieldPlan::matchKeyCandidate)
                 .map(DynamicImportPlan.FieldPlan::fieldName)
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("dynamic import sheet has no match key candidate: "
-                        + sheet.sheetName()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import.dynamic-import-sheet-has-no-match-key-candidate",
+                        "dynamic import sheet has no match key candidate: {value1}"), Map.of("value1", String.valueOf(sheet.sheetName()))));
     }
 
     private DynamicImportParseResult parseResult(DynamicImportPlan plan, ParsedWorkbook workbook) {

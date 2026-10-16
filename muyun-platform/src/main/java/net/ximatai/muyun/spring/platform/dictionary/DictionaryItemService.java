@@ -201,8 +201,10 @@ public class DictionaryItemService extends AbstractAbilityService<DictionaryItem
     }
 
     private void validateParentCategory(DictionaryItem item) {
-        validateTreePlacementInScope(item, categoryScope(item.getCategoryId()),
-                "Dictionary item parent must belong to the same category");
+        validateTreePlacementInScopeOrThrow(item, categoryScope(item.getCategoryId()),
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dictionary-item.parent-scope",
+                        "Dictionary item parent must belong to the same category")));
     }
 
     private void validateImmutableIdentity(DictionaryItem item) {

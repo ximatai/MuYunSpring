@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -14,7 +17,6 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import org.springframework.stereotype.Service;
@@ -123,7 +125,9 @@ public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPo
         try {
             Pattern.compile(pattern);
         } catch (PatternSyntaxException ex) {
-            throw new PlatformException("invalid password policy regex: " + ex.getDescription());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.password-policy-rule.invalid-password-policy-regex",
+                    "invalid password policy regex: {value1}"), Map.of("value1", String.valueOf(ex.getDescription())));
         }
     }
 

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
@@ -72,8 +74,9 @@ public class DynamicImportValueConverter {
         String timeZoneFieldName = FieldCompanionRules.zonedTimestampTimeZoneFieldName(field.fieldName());
         String rawTimeZone = normalizeText(valuesByFieldName.get(timeZoneFieldName));
         if (raw == null && rawTimeZone != null) {
-            throw new PlatformException("zoned timestamp timeZone cannot be provided without value: "
-                    + timeZoneFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.zoned-timestamp-timezone-cannot-be-provided-without-value",
+                    "zoned timestamp timeZone cannot be provided without value: {value1}"), Map.of("value1", String.valueOf(timeZoneFieldName)));
         }
     }
 
@@ -108,32 +111,41 @@ public class DynamicImportValueConverter {
         } catch (PlatformException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            throw new PlatformException("import field value conversion failed: "
-                    + field.title() + "/" + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.import-field-value-conversion-failed",
+                    "import field value conversion failed: {value1}/{value2}"), Map.of("value1", String.valueOf(field.title()), "value2", String.valueOf(raw)), ex);
         }
     }
 
     private Integer parseInteger(String raw) {
-        requireWholeNumberText(raw, "integer");
+        requireWholeNumberText(raw, TextReference.code(
+                "platform.rejection.dynamic-import-value-converter.whole-integer",
+                "integer value must not contain decimals: {value1}"));
         try {
             return Integer.valueOf(raw.replace(",", ""));
         } catch (NumberFormatException ex) {
-            throw new PlatformException("integer value format is invalid: " + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.integer-value-format-is-invalid",
+                    "integer value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)), ex);
         }
     }
 
     private Long parseLong(String raw) {
-        requireWholeNumberText(raw, "long");
+        requireWholeNumberText(raw, TextReference.code(
+                "platform.rejection.dynamic-import-value-converter.whole-long",
+                "long value must not contain decimals: {value1}"));
         try {
             return Long.valueOf(raw.replace(",", ""));
         } catch (NumberFormatException ex) {
-            throw new PlatformException("long value format is invalid: " + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.long-value-format-is-invalid",
+                    "long value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)), ex);
         }
     }
 
-    private void requireWholeNumberText(String raw, String typeName) {
+    private void requireWholeNumberText(String raw, TextReference source) {
         if (!raw.replace(",", "").matches("[+-]?\\d+")) {
-            throw new PlatformException(typeName + " value must not contain decimals: " + raw);
+            throw PlatformErrors.badRequestText(source, Map.of("value1", raw));
         }
     }
 
@@ -141,7 +153,9 @@ public class DynamicImportValueConverter {
         try {
             return new BigDecimal(raw.replace(",", ""));
         } catch (NumberFormatException ex) {
-            throw new PlatformException("decimal value format is invalid: " + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.decimal-value-format-is-invalid",
+                    "decimal value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)), ex);
         }
     }
 
@@ -156,14 +170,18 @@ public class DynamicImportValueConverter {
                 || "否".equals(raw) || "关".equals(raw)) {
             return Boolean.FALSE;
         }
-        throw new PlatformException("boolean value format is invalid: " + raw);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.dynamic-import-value-converter.boolean-value-format-is-invalid",
+                "boolean value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)));
     }
 
     private LocalDate parseDate(String raw) {
         try {
             return LocalDate.parse(raw);
         } catch (DateTimeParseException ex) {
-            throw new PlatformException("date value format is invalid: " + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.date-value-format-is-invalid",
+                    "date value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)), ex);
         }
     }
 
@@ -177,7 +195,9 @@ public class DynamicImportValueConverter {
             LocalDateTime localDateTime = LocalDateTime.parse(raw, LOCAL_DATE_TIME_SECONDS);
             return localDateTime.atZone(zoneId).toInstant();
         } catch (DateTimeParseException ex) {
-            throw new PlatformException("timestamp value format is invalid: " + raw, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.timestamp-value-format-is-invalid",
+                    "timestamp value format is invalid: {value1}"), Map.of("value1", String.valueOf(raw)), ex);
         }
     }
 
@@ -187,13 +207,17 @@ public class DynamicImportValueConverter {
         String timeZoneFieldName = FieldCompanionRules.zonedTimestampTimeZoneFieldName(field.fieldName());
         String rawTimeZone = normalizeText(valuesByFieldName.get(timeZoneFieldName));
         if (rawTimeZone == null) {
-            throw new PlatformException("zoned timestamp requires companion timeZone field: " + timeZoneFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.zoned-timestamp-requires-companion-timezone-field",
+                    "zoned timestamp requires companion timeZone field: {value1}"), Map.of("value1", String.valueOf(timeZoneFieldName)));
         }
         String normalizedTimeZone;
         try {
             normalizedTimeZone = DynamicFieldValueSupport.normalizeTimeZone(rawTimeZone);
         } catch (RuntimeException ex) {
-            throw new PlatformException("timeZone value format is invalid: " + rawTimeZone, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-value-converter.timezone-value-format-is-invalid",
+                    "timeZone value format is invalid: {value1}"), Map.of("value1", String.valueOf(rawTimeZone)), ex);
         }
         Instant instant = parseTimestamp(raw, ZoneId.of(normalizedTimeZone));
         valuesByFieldName.put(timeZoneFieldName, normalizedTimeZone);

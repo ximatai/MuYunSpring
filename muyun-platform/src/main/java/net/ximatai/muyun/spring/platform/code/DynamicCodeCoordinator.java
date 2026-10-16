@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicMutationContext;
@@ -371,7 +372,9 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
                 baselineSequenceFromAcceptedValue(rule, existingValue, context, at);
                 return;
             }
-            throw new PlatformException("AUTO code field does not accept manual value: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-code-coordinator.auto-code-field-does-not-accept-manual-value",
+                    "AUTO code field does not accept manual value: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         generateAndAssign(moduleAlias, entityAlias, record, rule, organizationId, at, context, null);
     }
@@ -396,7 +399,9 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
         boolean explicitlySet = incoming.isExplicitlySet(fieldName);
         if (explicitlySet && !sameCode(oldValue, incomingValue) && hasText(incomingValue)) {
             if (rule.getMode() != CodeMode.AUTO_WITH_MANUAL_EDIT) {
-                throw new PlatformException("AUTO code field does not accept manual value: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-code-coordinator.auto-code-field-does-not-accept-manual-value",
+                        "AUTO code field does not accept manual value: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             rejectOccupiedCode(rule, incomingValue, incoming.getId());
             context.put(fieldName, incomingValue);
@@ -493,7 +498,9 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
         if (sourceRecordId == null || sourceRecordId.isBlank()
                 || entry.getSourceRecordId() == null || entry.getSourceRecordId().isBlank()
                 || !sourceRecordId.equals(entry.getSourceRecordId())) {
-            throw new PlatformException("Code value is already occupied: " + codeValue);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-code-coordinator.code-value-is-already-occupied",
+                    "Code value is already occupied: {value1}"), Map.of("value1", String.valueOf(codeValue)));
         }
     }
 

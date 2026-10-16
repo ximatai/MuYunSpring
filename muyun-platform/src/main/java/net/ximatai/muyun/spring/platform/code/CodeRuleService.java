@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -181,7 +184,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                 .distinct()
                 .count();
         if (primaryCount > 1) {
-            throw new PlatformException("Only one PRIMARY code field can be resolved for the same business object");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.only-one-primary-code-field-can-be-resolved-for-the-same-business",
+                    "Only one PRIMARY code field can be resolved for the same business object"));
         }
         return resolved;
     }
@@ -300,7 +305,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             return;
         }
         if (rule.getOrgScopeId() == null || rule.getOrgScopeId().isBlank()) {
-            throw new PlatformException("ORG scoped code rule requires orgScopeId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.org-scoped-code-rule-requires-orgscopeid",
+                    "ORG scoped code rule requires orgScopeId"));
         }
         rule.setGlobalDefault(Boolean.FALSE);
     }
@@ -308,7 +315,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     private void validateTargetExists(CodeRule rule) {
         moduleService.ifPresent(service -> {
             if (service.resolveVisibleModule(rule.getModuleAlias()) == null) {
-                throw new PlatformException("Code rule requires existing module: " + rule.getModuleAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.code-rule-requires-existing-module",
+                        "Code rule requires existing module: {value1}"), Map.of("value1", String.valueOf(rule.getModuleAlias())));
             }
         });
         if (relationService.isEmpty() || fieldService.isEmpty()) {
@@ -318,8 +327,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         if (resolvedModuleField != null) {
             if (!Objects.equals(resolvedModuleField.moduleAlias(), rule.getModuleAlias())
                     || !Objects.equals(resolvedModuleField.relationAlias(), rule.getEntityAlias())) {
-                throw new PlatformException("Code rule moduleMetadataFieldId does not belong to target object: "
-                        + rule.getModuleMetadataFieldId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.code-rule-modulemetadatafieldid-does-not-belong-to-target-object",
+                        "Code rule moduleMetadataFieldId does not belong to target object: {value1}"), Map.of("value1", String.valueOf(rule.getModuleMetadataFieldId())));
             }
             rule.setMetadataFieldId(resolvedModuleField.metadataFieldId());
             rule.setFieldName(resolvedModuleField.fieldName());
@@ -342,13 +352,15 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             }
         }
         if (relation == null) {
-            throw new PlatformException("Code rule requires existing module entity: "
-                    + rule.getModuleAlias() + "/" + rule.getEntityAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-rule-requires-existing-module-entity",
+                    "Code rule requires existing module entity: {value1}/{value2}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getEntityAlias())));
         }
         MetadataField field = resolveField(relation.getMetadataId(), rule);
         if (field == null) {
-            throw new PlatformException("Code rule requires existing target field: "
-                    + rule.getEntityAlias() + "." + rule.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-rule-requires-existing-target-field",
+                    "Code rule requires existing target field: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getEntityAlias()), "value2", String.valueOf(rule.getFieldName())));
         }
         if (rule.getMetadataFieldId() == null || rule.getMetadataFieldId().isBlank()) {
             rule.setMetadataFieldId(field.getId());
@@ -394,12 +406,14 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                 continue;
             }
             if (!Objects.equals(targetFieldKey(existing), currentFieldKey)) {
-                throw new PlatformException("Business object can only have one PRIMARY code field: "
-                        + rule.getModuleAlias() + "/" + rule.getEntityAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.business-object-can-only-have-one-primary-code-field",
+                        "Business object can only have one PRIMARY code field: {value1}/{value2}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getEntityAlias())));
             }
             if (sameScope(existing, rule)) {
-                throw new PlatformException("Code rule already exists for target field in the same scope: "
-                        + rule.getModuleAlias() + "/" + rule.getEntityAlias() + "/" + currentFieldKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.code-rule-already-exists-for-target-field-in-the-same-scope",
+                        "Code rule already exists for target field in the same scope: {value1}/{value2}/{value3}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getEntityAlias()), "value3", String.valueOf(currentFieldKey)));
             }
         }
     }
@@ -413,7 +427,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         boolean hasSequence = rule.getSegments() != null && rule.getSegments().stream()
                 .anyMatch(segment -> segment != null && segment.getSegmentType() == CodeSegmentType.SEQUENCE);
         if (hasSequence && rule.getSequencePolicy() == null) {
-            throw new PlatformException("Code rule with SEQUENCE segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-rule-with-sequence-segment-requires-sequencepolicy",
+                    "Code rule with SEQUENCE segment requires sequencePolicy"));
         }
     }
 
@@ -421,25 +437,35 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         CodeMode mode = rule.getMode() == null ? CodeMode.AUTO : rule.getMode();
         if (mode == CodeMode.MANUAL) {
             if (sequencePolicy != null || segments.stream().anyMatch(this::isSequenceSegment)) {
-                throw new PlatformException("MANUAL code rule cannot declare automatic sequence configuration");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.manual-code-rule-cannot-declare-automatic-sequence-configuration",
+                        "MANUAL code rule cannot declare automatic sequence configuration"));
             }
             return;
         }
         if (segments.isEmpty()) {
-            throw new PlatformException("Automatic code rule requires at least one segment");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.automatic-code-rule-requires-at-least-one-segment",
+                    "Automatic code rule requires at least one segment"));
         }
         boolean hasSequence = segments.stream().anyMatch(this::isSequenceSegment);
         if (hasSequence && sequencePolicy == null) {
-            throw new PlatformException("Code rule with SEQUENCE segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-rule-with-sequence-segment-requires-sequencepolicy",
+                    "Code rule with SEQUENCE segment requires sequencePolicy"));
         }
         if (!hasSequence && sequencePolicy != null) {
-            throw new PlatformException("Code sequence policy requires a SEQUENCE segment");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-sequence-policy-requires-a-sequence-segment",
+                    "Code sequence policy requires a SEQUENCE segment"));
         }
         if (sequencePolicy != null) {
             validateDraftSequencePolicy(sequencePolicy);
         }
         if (Boolean.TRUE.equals(rule.getLinkedUpdate()) && !hasLinkedDependency(segments)) {
-            throw new PlatformException("linkedUpdate code rule requires at least one source or formula segment");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.linkedupdate-code-rule-requires-at-least-one-source-or-formula-segment",
+                    "linkedUpdate code rule requires at least one source or formula segment"));
         }
         for (CodeRuleSegment segment : segments) {
             validateDraftSegment(segment);
@@ -460,31 +486,45 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
 
     private void validateDraftSequencePolicy(CodeSequencePolicy policy) {
         if (policy.getStartValue() != null && policy.getStartValue() < 0) {
-            throw new PlatformException("Code sequence policy startValue must not be negative");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-sequence-policy-startvalue-must-not-be-negative",
+                    "Code sequence policy startValue must not be negative"));
         }
         if (policy.getStepValue() != null && policy.getStepValue() <= 0) {
-            throw new PlatformException("Code sequence policy stepValue must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-sequence-policy-stepvalue-must-be-positive",
+                    "Code sequence policy stepValue must be positive"));
         }
         if (policy.getSequenceLength() != null && policy.getSequenceLength() <= 0) {
-            throw new PlatformException("Code sequence policy sequenceLength must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-sequence-policy-sequencelength-must-be-positive",
+                    "Code sequence policy sequenceLength must be positive"));
         }
         if (policy.getMaxValue() != null && policy.getStartValue() != null
                 && policy.getMaxValue() < policy.getStartValue()) {
-            throw new PlatformException("Code sequence policy maxValue must be greater than or equal to startValue");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-sequence-policy-maxvalue-must-be-greater-than-or-equal-to-startvalue",
+                    "Code sequence policy maxValue must be greater than or equal to startValue"));
         }
     }
 
     private void validateDraftSegment(CodeRuleSegment segment) {
         if (segment == null) {
-            throw new PlatformException("Code rule segment must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-rule-segment-must-not-be-null",
+                    "Code rule segment must not be null"));
         }
         if (segment.getSegmentType() == null) {
-            throw new PlatformException("Code segment requires segmentType");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.code-segment-requires-segmenttype",
+                    "Code segment requires segmentType"));
         }
         switch (segment.getSegmentType()) {
             case CONSTANT -> {
                 if (!hasText(segment.getFixedValue())) {
-                    throw new PlatformException("CONSTANT code segment requires fixedValue");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.constant-code-segment-requires-fixedvalue",
+                            "CONSTANT code segment requires fixedValue"));
                 }
             }
             case FIELD_VALUE, CONTEXT_VAR -> requireSourceRef(segment);
@@ -494,12 +534,16 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             }
             case FORMULA -> {
                 if (!hasText(segment.getFormulaExpr())) {
-                    throw new PlatformException("FORMULA code segment requires formulaExpr");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.formula-code-segment-requires-formulaexpr",
+                            "FORMULA code segment requires formulaExpr"));
                 }
             }
             case SEQUENCE -> {
                 if (segment.getLength() != null && segment.getLength() <= 0) {
-                    throw new PlatformException("SEQUENCE code segment length must be positive");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.sequence-code-segment-length-must-be-positive",
+                            "SEQUENCE code segment length must be positive"));
                 }
             }
             case SYSTEM_TIME -> {
@@ -509,36 +553,49 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
 
     private void requireSourceRef(CodeRuleSegment segment) {
         if (!hasText(segment.getSourceRef())) {
-            throw new PlatformException(segment.getSegmentType() + " code segment requires sourceRef");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.source-reference-required",
+                    "{value1} code segment requires sourceRef"), Map.of("value1", String.valueOf(segment.getSegmentType())));
         }
     }
 
     private void validateValueMappings(CodeRuleSegment segment) {
         List<CodeValueMapping> mappings = segment.getMappings() == null ? List.of() : segment.getMappings();
         if (mappings.isEmpty()) {
-            throw new PlatformException("VALUE_MAPPING code segment requires mappings");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.value-mapping-code-segment-requires-mappings",
+                    "VALUE_MAPPING code segment requires mappings"));
         }
         boolean defaultSeen = false;
         Set<String> sourceValues = new HashSet<>();
         for (CodeValueMapping mapping : mappings) {
             if (mapping == null) {
-                throw new PlatformException("Code value mapping must not be null");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.code-value-mapping-must-not-be-null",
+                        "Code value mapping must not be null"));
             }
             if (mapping.getTargetValue() == null) {
-                throw new PlatformException("Code value mapping requires targetValue");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.code-rule.code-value-mapping-requires-targetvalue",
+                        "Code value mapping requires targetValue"));
             }
             if (Boolean.TRUE.equals(mapping.getDefaultMapping())) {
                 if (defaultSeen) {
-                    throw new PlatformException("VALUE_MAPPING code segment can only have one default mapping");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.value-mapping-code-segment-can-only-have-one-default-mapping",
+                            "VALUE_MAPPING code segment can only have one default mapping"));
                 }
                 defaultSeen = true;
             } else {
                 if (!hasText(mapping.getSourceValue())) {
-                    throw new PlatformException("Code value mapping requires sourceValue");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.code-value-mapping-requires-sourcevalue",
+                            "Code value mapping requires sourceValue"));
                 }
                 if (!sourceValues.add(mapping.getSourceValue())) {
-                    throw new PlatformException("VALUE_MAPPING code segment has duplicate sourceValue: "
-                            + mapping.getSourceValue());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-rule.value-mapping-code-segment-has-duplicate-sourcevalue",
+                            "VALUE_MAPPING code segment has duplicate sourceValue: {value1}"), Map.of("value1", String.valueOf(mapping.getSourceValue())));
                 }
             }
         }
@@ -571,7 +628,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
 
     private CodeRule assertSingleScopedRule(List<CodeRule> rules) {
         if (rules.size() > 1) {
-            throw new PlatformException("Multiple code rules matched in the same scope");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-rule.multiple-code-rules-matched-in-the-same-scope",
+                    "Multiple code rules matched in the same scope"));
         }
         return rules.getFirst();
     }

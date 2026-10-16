@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
 import org.jdbi.v3.core.Jdbi;
@@ -74,13 +76,17 @@ public class PostgresCodeSequenceAllocator implements CodeSequenceAllocator {
         verifyPostgres();
         Long maxByLength = maxByLength(allocation.sequenceLength());
         if (!resetOnOverflow(allocation) && isOverflow(allocation.startValue(), allocation.maxValue(), maxByLength)) {
-            throw new PlatformException("Code sequence overflow for rule: " + allocation.ruleId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.postgres-code-sequence-allocator.code-sequence-overflow-for-rule",
+                    "Code sequence overflow for rule: {value1}"), Map.of("value1", String.valueOf(allocation.ruleId())));
         }
         return jdbi.withHandle(handle -> handle.createQuery(SQL)
                 .bindMap(params(allocation, maxByLength))
                 .mapTo(Long.class)
                 .findOne()
-                .orElseThrow(() -> new PlatformException("Code sequence overflow for rule: " + allocation.ruleId())));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.postgres-code-sequence-allocator.code-sequence-overflow-for-rule",
+                        "Code sequence overflow for rule: {value1}"), Map.of("value1", String.valueOf(allocation.ruleId())))));
     }
 
     private void verifyPostgres() {

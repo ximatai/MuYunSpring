@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -38,7 +40,9 @@ public class LowCodeModulePackageExchangeService {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         LowCodeModuleConfigVersion current = versionService.currentVersion(validModuleAlias);
         if (current == null) {
-            throw new PlatformException("current low code config version not found: " + validModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-exchange.current-low-code-config-version-not-found",
+                    "current low code config version not found: {value1}"), Map.of("value1", String.valueOf(validModuleAlias)));
         }
         return current.getPackageSnapshotText();
     }
@@ -46,19 +50,25 @@ public class LowCodeModulePackageExchangeService {
     public String exportVersionPackage(String versionId) {
         LowCodeModuleConfigVersion version = versionService.select(versionId);
         if (version == null) {
-            throw new PlatformException("low code config version not found: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-exchange.low-code-config-version-not-found",
+                    "low code config version not found: {value1}"), Map.of("value1", String.valueOf(versionId)));
         }
         return version.getPackageSnapshotText();
     }
 
     public LowCodeModulePackage parsePackage(String packageJson) {
         if (packageJson == null || packageJson.isBlank()) {
-            throw new PlatformException("low code module package json must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-exchange.low-code-module-package-json-must-not-be-blank",
+                    "low code module package json must not be blank"));
         }
         try {
             return OBJECT_MAPPER.readValue(packageJson, LowCodeModulePackage.class);
         } catch (JsonProcessingException exception) {
-            throw new PlatformException("low code module package json cannot be decoded");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-exchange.low-code-module-package-json-cannot-be-decoded",
+                    "low code module package json cannot be decoded"));
         }
     }
 

@@ -1,11 +1,12 @@
 package net.ximatai.muyun.spring.platform.deletion;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import org.springframework.stereotype.Service;
 
@@ -74,7 +75,9 @@ public class RecycleBinFacade {
             String sourceDeleteOperationId) {
         Objects.requireNonNull(ability, "recycleBinAbility must not be null");
         if (!ability.isRecycleBinPurgeEnabled()) {
-            throw new PlatformException("Recycle-bin purge is not enabled for " + ability.getModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.recycle-bin.recycle-bin-purge-is-not-enabled-for",
+                    "Recycle-bin purge is not enabled for {value1}"), Map.of("value1", String.valueOf(ability.getModuleAlias())));
         }
         DeletionOperation source = requireAccessibleSource(ability, sourceDeleteOperationId, "purge");
         T record = ability.selectIgnoreSoftDelete(source.getRootRecordId());
@@ -87,12 +90,14 @@ public class RecycleBinFacade {
                                                       String action) {
         DeletionOperation source = deletionLogService.operation(sourceDeleteOperationId);
         if (!isSuccessfulRootDelete(ability, source)) {
-            throw new PlatformException("Recycle-bin " + action
-                    + " requires a successful root delete operation for "
-                    + ability.getModuleAlias() + ": " + sourceDeleteOperationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.recycle-bin.recycle-bin-requires-a-successful-root-delete-operation-for",
+                    "Recycle-bin {value1} requires a successful root delete operation for {value2}: {value3}"), Map.of("value1", String.valueOf(action), "value2", String.valueOf(ability.getModuleAlias()), "value3", String.valueOf(sourceDeleteOperationId)));
         }
         if (!ability.canAccessRecycleBinSourceRecord(source.getRootRecordId())) {
-            throw new PlatformException("Recycle-bin record is unavailable: " + ability.getModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.recycle-bin.recycle-bin-record-is-unavailable",
+                    "Recycle-bin record is unavailable: {value1}"), Map.of("value1", String.valueOf(ability.getModuleAlias())));
         }
         return source;
     }

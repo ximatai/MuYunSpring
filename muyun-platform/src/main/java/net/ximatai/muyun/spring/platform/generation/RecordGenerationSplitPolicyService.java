@@ -1,10 +1,11 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -35,7 +36,9 @@ public class RecordGenerationSplitPolicyService extends StandardBusinessService<
             policy.setQuantityModuleMetadataFieldId(policy.getQuantityModuleMetadataFieldId().trim());
         }
         if (policy.getQuantityStep() != null && policy.getQuantityStep() <= 0) {
-            throw new PlatformException("Split policy quantityStep must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-split-policy.split-policy-quantitystep-must-be-positive",
+                    "Split policy quantityStep must be positive"));
         }
         if (policy.getTitle() == null || policy.getTitle().isBlank()) {
             policy.setTitle("Split Policy");

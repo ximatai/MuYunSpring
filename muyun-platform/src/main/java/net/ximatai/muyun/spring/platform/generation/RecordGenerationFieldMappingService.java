@@ -1,11 +1,12 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -48,11 +49,15 @@ public class RecordGenerationFieldMappingService extends StandardBusinessService
         mapping.setTargetField(PlatformNameRules.requireFieldName(mapping.getTargetField(), "targetField"));
         if (mapping.getMappingType() == RecordGenerationFieldSourceType.DIRECT
                 && (mapping.getSourceField() == null || mapping.getSourceField().isBlank())) {
-            throw new PlatformException("DIRECT field mapping requires sourceField");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-field-mapping.direct-field-mapping-requires-sourcefield",
+                    "DIRECT field mapping requires sourceField"));
         }
         if (mapping.getMappingType() == RecordGenerationFieldSourceType.FORMULA
                 && (mapping.getFormulaExpr() == null || mapping.getFormulaExpr().isBlank())) {
-            throw new PlatformException("FORMULA field mapping requires formulaExpr");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-field-mapping.formula-field-mapping-requires-formulaexpr",
+                    "FORMULA field mapping requires formulaExpr"));
         }
         if (mapping.getTitle() == null || mapping.getTitle().isBlank()) {
             mapping.setTitle(mapping.getTargetField());

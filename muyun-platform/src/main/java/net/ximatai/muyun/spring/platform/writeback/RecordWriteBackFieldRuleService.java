@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -7,7 +10,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -39,7 +41,9 @@ public class RecordWriteBackFieldRuleService extends AbstractAbilityService<Reco
 
     private void normalizeAndValidate(RecordWriteBackFieldRule rule) {
         if (rule == null) {
-            throw new PlatformException("Record write-back field rule must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-field-rule.record-write-back-field-rule-must-not-be-null",
+                    "Record write-back field rule must not be null"));
         }
         if (rule.getSourceType() == null) {
             rule.setSourceType(RecordWriteBackFieldSourceType.FIELD);
@@ -54,7 +58,9 @@ public class RecordWriteBackFieldRuleService extends AbstractAbilityService<Reco
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("Record write-back field rule " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-field-rule.record-write-back-field-rule-must-not-be-blank",
+                    "Record write-back field rule {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -157,13 +159,17 @@ final class DynamicRecordActionRuntime {
         if (action.actionLevel() != EntityActionLevel.RECORD && action.actionLevel() != EntityActionLevel.ANY
                 || action.executorType() != EntityActionExecutorType.SERVICE
                 && action.executorType() != EntityActionExecutorType.GENERATE) {
-            throw new PlatformException("审批业务指引必须绑定当前主记录的领域动作");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.approval-guidance-must-bind-a-domain-action-on-the-current-main-record",
+                    "审批业务指引必须绑定当前主记录的领域动作"));
         }
         DynamicEntityService service = access.entityService(moduleAlias, entityAlias);
         DynamicRecord stored = service.selectActiveRaw(id);
         String tenantId = TenantContext.currentTenantId().orElse(null);
         if (stored == null || !Objects.equals(tenantId, stored.getTenantId()))
-            throw new PlatformException("审批业务动作绑定的记录不存在或不属于当前租户");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.the-record-bound-to-the-approval-action-was-not-found-or-does",
+                    "审批业务动作绑定的记录不存在或不属于当前租户"));
         try (var binding = new ApprovalBusinessUpdate(service, stored)) {
             return execute(moduleAlias, entityAlias, action,
                     DynamicActionExecutionRequest.id(id).withPayload(payload), binding);
@@ -293,12 +299,16 @@ final class DynamicRecordActionRuntime {
                     || entity != record.getEntity() || !recordId.equals(record.getId())) return false;
             if (!Objects.equals(tenantId, record.getTenantId())
                     || !Objects.equals(tenantId, TenantContext.currentTenantId().orElse(null)))
-                throw new PlatformException("审批业务动作绑定的租户不可修改");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-record-action-runtime.the-tenant-bound-to-the-approval-action-cannot-be-changed",
+                        "审批业务动作绑定的租户不可修改"));
             return true;
         }
 
         void requireMatches(DynamicRecord record) {
-            if (!matches(record)) throw new PlatformException("审批业务动作绑定的记录不可修改");
+            if (!matches(record)) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.the-record-bound-to-the-approval-action-cannot-be-changed",
+                    "审批业务动作绑定的记录不可修改"));
         }
 
         @Override public void close() { active = false; }
@@ -311,7 +321,9 @@ final class DynamicRecordActionRuntime {
         String submit = separator < 0 || separator == key.length() - 1 ? null : requireText(key.substring(separator + 1), "dialog submit actionCode");
         DynamicActionDescriptor submitAction = submit == null ? null : access.actionDescriptor(moduleAlias, submit);
         if (submitAction != null && submitAction.executorType() == EntityActionExecutorType.DIALOG) {
-            throw new PlatformException("dialog submit action must not be DIALOG: " + submit);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.dialog-submit-action-must-not-be-dialog",
+                    "dialog submit action must not be DIALOG: {value1}"), Map.of("value1", String.valueOf(submit)));
         }
         String recordId = request == null ? null : firstText(request.recordId(), request.record() == null ? null : request.record().getId());
         String path = submitAction == null ? null : submitPath(moduleAlias, submitAction, recordId);

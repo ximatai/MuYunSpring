@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -32,11 +35,15 @@ public class LowCodeModuleConfigArchiveFacade {
                                                     String operatorId,
                                                     String remark) {
         if (modulePackage.mode() != LowCodePackageMode.MODULE_FULL) {
-            throw new PlatformException("only MODULE_FULL package can be archived: " + modulePackage.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-archive.only-module-full-package-can-be-archived",
+                    "only MODULE_FULL package can be archived: {value1}"), Map.of("value1", String.valueOf(modulePackage.moduleAlias())));
         }
         LowCodeConfigHealthReport healthReport = healthService.check(LowCodeModuleHealthContext.ofPackage(modulePackage));
         if (healthReport.status() == LowCodeConfigHealthStatus.FAIL) {
-            throw new PlatformException("low code module config health check failed: " + modulePackage.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-archive.low-code-module-config-health-check-failed",
+                    "low code module config health check failed: {value1}"), Map.of("value1", String.valueOf(modulePackage.moduleAlias())));
         }
         String snapshot = snapshot(modulePackage);
         LowCodeModuleConfigVersion version = new LowCodeModuleConfigVersion();

@@ -129,6 +129,40 @@ class ImportWorkbookGrouperTest {
     }
 
     @Test
+    void conversionRejectionsKeepSourcesAndRawCellsThroughTheErrorWorkbook() throws Exception {
+        String raw = "原文 {value1}";
+        var plan = mainIntegerPlan();
+        var grouped = grouper.group(plan, workbook(mainRows(List.of("R-1", raw)), childRows()));
+        assertThat(grouped.groups()).isEmpty();
+        var error = grouped.errorRows().getFirst();
+        assertThat(error.message()).isEqualTo("integer value must not contain decimals: " + raw);
+        assertThat(error.rawValuesByFieldName()).containsValue(raw);
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        for (String language : List.of("en", "zh-CN", "en")) {
+            try (var scope = net.ximatai.muyun.spring.common.i18n.LanguageContext.use(language)) {
+                String expected = (language.equals("en") ? "An integer value is required: " : "必须是整数值：") + raw;
+                assertThat(error.presentedMessage(texts)).isEqualTo(expected);
+                var output = new DynamicImportErrorWorkbookBuilder(texts).build(plan, grouped.errorRows());
+                var sheet = output.sheets().getFirst();
+                assertThat(sheet.columns()).extracting(ExcelColumnPlan::fieldName)
+                        .containsExactly(ExcelExchangeProtocol.RELATE_ID_FIELD, "orderNo", "errorReason");
+                assertThat(sheet.rows().getFirst()).containsExactly("R-1", raw, expected);
+                try (var excel = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(
+                        new ExcelWorkbookPlanWriter().writeToBytes(output)))) {
+                    var written = excel.getSheet(sheet.sheetName());
+                    assertThat(written.getRow(0).getCell(0).getStringCellValue()).isEqualTo("__relateId");
+                    assertThat(written.getRow(0).getCell(1).getStringCellValue()).isEqualTo("order.orderNo");
+                    assertThat(written.getRow(0).getCell(2).getStringCellValue()).isEqualTo("order.errorReason");
+                    assertThat(written.getRow(2).getCell(1).getStringCellValue()).isEqualTo(raw);
+                    assertThat(written.getRow(2).getCell(2).getStringCellValue()).isEqualTo(expected);
+                }
+            }
+        }
+        assertThat(error.rawValuesByFieldName()).containsValue(raw);
+    }
+
+    @Test
     void shouldPutMainConversionErrorIntoErrorRowsAndSkipGroup() {
         GroupedWorkbook grouped = grouper.group(mainIntegerPlan(), workbook(
                 mainRows(List.of("R-1", "not-int"), List.of("R-2", "200")),

@@ -507,8 +507,10 @@ public class MenuService extends AbstractAbilityService<Menu> implements
     }
 
     private void validateParentScheme(Menu menu) {
-        validateTreePlacementInScope(menu, schemeScope(menu.getSchemeId()),
-                "Menu parent must belong to the same scheme");
+        validateTreePlacementInScopeOrThrow(menu, schemeScope(menu.getSchemeId()),
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.menu.parent-scope",
+                        "Menu parent must belong to the same scheme")));
     }
 
     private void requireBlank(String value, TextReference source) {

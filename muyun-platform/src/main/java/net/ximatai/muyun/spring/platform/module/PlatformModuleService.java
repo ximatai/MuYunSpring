@@ -6,7 +6,6 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
@@ -234,8 +233,10 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     }
 
     private void validateParentApplication(PlatformModule module) {
-        validateTreePlacementInScope(module, applicationScope(module.getApplicationAlias()),
-                "Module parent must belong to the same application");
+        validateTreePlacementInScopeOrThrow(module, applicationScope(module.getApplicationAlias()),
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-module.parent-scope",
+                        "Module parent must belong to the same application")));
     }
 
     private Criteria applicationScope(String applicationAlias) {

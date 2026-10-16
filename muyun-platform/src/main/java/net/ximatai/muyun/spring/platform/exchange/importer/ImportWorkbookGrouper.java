@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedColumn;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedSheet;
@@ -52,7 +54,9 @@ public class ImportWorkbookGrouper {
                         ParsedSheet::entityAlias,
                         Function.identity(),
                         (left, right) -> {
-                            throw new PlatformException("parsed sheet duplicated for entity: " + left.entityAlias());
+                            throw PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.import-workbook-grouper.parsed-sheet-duplicated-for-entity",
+                                    "parsed sheet duplicated for entity: {value1}"), Map.of("value1", String.valueOf(left.entityAlias())));
                         },
                         LinkedHashMap::new
                 ));
@@ -77,7 +81,7 @@ public class ImportWorkbookGrouper {
             try {
                 parsedRow = valueConverter.convert(mainSheetPlan, mainSheet, row, temporalContext);
             } catch (PlatformException ex) {
-                errorRows.add(buildParseErrorRow(mainSheetPlan, mainSheet, row, ex.getMessage(), null));
+                errorRows.add(buildParseErrorRow(mainSheetPlan, mainSheet, row, ex, null));
                 continue;
             }
             String relateId = normalizeKey(parsedRow.valuesByFieldName().get(ExcelExchangeProtocol.RELATE_ID_FIELD));
@@ -153,7 +157,7 @@ public class ImportWorkbookGrouper {
                     String groupKey = readRowByField(parsedSheet, row).get(ExcelExchangeProtocol.RELATE_ID_FIELD);
                     ImportGroup group = groups.get(groupKey);
                     if (group != null) group.markChildSheetCovered(sheetPlan.sheetKey());
-                    errorRows.add(buildParseErrorRow(sheetPlan, parsedSheet, row, ex.getMessage(), groupKey));
+                    errorRows.add(buildParseErrorRow(sheetPlan, parsedSheet, row, ex, groupKey));
                     continue;
                 }
                 String relateId = normalizeKey(parsedRow.valuesByFieldName().get(ExcelExchangeProtocol.RELATE_ID_FIELD));
@@ -209,7 +213,7 @@ public class ImportWorkbookGrouper {
     private ImportErrorRow buildParseErrorRow(DynamicImportPlan.SheetPlan sheetPlan,
                                               ParsedSheet parsedSheet,
                                               List<String> row,
-                                              String message,
+                                              PlatformException rejection,
                                               String groupIdentity) {
         LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row);
@@ -218,8 +222,8 @@ public class ImportWorkbookGrouper {
             rawValuesByFieldName.put(field.fieldName(), raw);
             valuesByFieldName.put(field.fieldName(), raw);
         }
-        return ImportErrorRow.of(new ParsedImportRow(sheetPlan.sheetKey(), rawValuesByFieldName, valuesByFieldName),
-                message, groupIdentity);
+        return new ImportErrorRow(sheetPlan.sheetKey(), rawValuesByFieldName, rejection.getMessage(), groupIdentity,
+                rejection.textSource(), rejection.messageArgs());
     }
 
     private LinkedHashMap<String, String> readRowByField(ParsedSheet parsedSheet, List<String> row) {

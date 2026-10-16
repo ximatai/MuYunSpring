@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -420,7 +421,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     private void requireCommandUserEnabled(UserAccount user) {
         if (!Boolean.TRUE.equals(user.getEnabled())) {
-            throw new PlatformException("user is not active: " + user.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.user-account.user-is-not-active",
+                    "user is not active: {value1}"), Map.of("value1", String.valueOf(user.getId())));
         }
     }
 
@@ -496,8 +499,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private void rejectDuplicateUsername(UserAccount user) {
         rejectDuplicate(user, Criteria.of()
                         .eq("username", user.getUsername())
-                        .eqNullable("tenantId", user.getTenantId()),
-                "username must be unique within tenant: " + user.getUsername());
+                        .eqNullable("tenantId", user.getTenantId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "iam.rejection.user-account.username-must-be-unique-within-tenant",
+                                "username must be unique within tenant: {value1}"), Map.of("value1", String.valueOf(user.getUsername()))));
     }
 
     private UserAccount selectSystemUser(String userId) {

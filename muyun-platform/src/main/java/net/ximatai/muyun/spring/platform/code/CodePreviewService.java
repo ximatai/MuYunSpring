@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
@@ -39,7 +41,9 @@ public class CodePreviewService {
 
     public CodePreviewResult previewDraft(PreviewCodeRuleCommand command) {
         if (command == null || command.rule() == null) {
-            throw new PlatformException("Code preview requires rule draft");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-preview-requires-rule-draft",
+                    "Code preview requires rule draft"));
         }
         CodeRule rule = command.rule();
         List<CodeRuleSegment> segments = rule.getSegments() == null ? List.of() : rule.getSegments().stream()
@@ -47,11 +51,15 @@ public class CodePreviewService {
                 .sorted(Comparator.comparing(CodeRuleSegment::getSortOrder, Comparator.nullsLast(Integer::compareTo)))
                 .toList();
         if (segments.isEmpty()) {
-            throw new PlatformException("Code rule has no segments to preview");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-rule-has-no-segments-to-preview",
+                    "Code rule has no segments to preview"));
         }
         if (segments.stream().anyMatch(segment -> segment.getSegmentType() == CodeSegmentType.SEQUENCE)
                 && rule.getSequencePolicy() == null) {
-            throw new PlatformException("Code rule with SEQUENCE segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-rule-with-sequence-segment-requires-sequencepolicy",
+                    "Code rule with SEQUENCE segment requires sequencePolicy"));
         }
 
         Map<String, Object> context = command.context() == null
@@ -88,7 +96,9 @@ public class CodePreviewService {
                                        LocalDateTime at,
                                        Long sequenceValue) {
         if (segment.getSegmentType() == null) {
-            throw new PlatformException("Code segment requires segmentType");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-segment-requires-segmenttype",
+                    "Code segment requires segmentType"));
         }
         return switch (segment.getSegmentType()) {
             case CONSTANT -> segment.getFixedValue();
@@ -118,7 +128,9 @@ public class CodePreviewService {
 
     private String formatSequence(CodeRuleSegment segment, CodeSequencePolicy policy, Long sequenceValue) {
         if (policy == null) {
-            throw new PlatformException("Code sequence segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-sequence-segment-requires-sequencepolicy",
+                    "Code sequence segment requires sequencePolicy"));
         }
         long value = sequenceValue == null ? policy.getStartValue() == null ? 1L : policy.getStartValue() : sequenceValue;
         Integer length = segment.getLength() == null ? policy.getSequenceLength() : segment.getLength();

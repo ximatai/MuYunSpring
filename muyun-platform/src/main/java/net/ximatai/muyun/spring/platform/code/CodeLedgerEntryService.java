@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.stereotype.Service;
 
@@ -42,7 +44,9 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
             entry.setFieldName(rule.getFieldName());
         } else if (entry.getStatus() == CodeLedgerStatus.ACTIVE
                 && !Objects.equals(entry.getSourceRecordId(), sourceRecordId)) {
-            throw new PlatformException("Code value is already occupied: " + codeValue);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ledger-entry.code-value-is-already-occupied",
+                    "Code value is already occupied: {value1}"), Map.of("value1", String.valueOf(codeValue)));
         }
         entry.setBasisKey(normalizeBucket(basisKey));
         entry.setPeriodKey(normalizeBucket(periodKey));
@@ -124,7 +128,9 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
 
     public CodeLedgerEntry releaseStaleBinding(CodeLedgerEntry entry, CodeRule rule, CodeLedgerAction action) {
         if (entry == null) {
-            throw new PlatformException("Code ledger entry does not exist");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ledger-entry.code-ledger-entry-does-not-exist",
+                    "Code ledger entry does not exist"));
         }
         CodeLedgerStatus targetStatus = Boolean.TRUE.equals(rule.getAllowRecycle())
                 ? CodeLedgerStatus.AVAILABLE
@@ -147,8 +153,9 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
                         .eq("ruleId", entry.getRuleId())
-                        .eq("codeValue", entry.getCodeValue()),
-                "Code ledger entry already exists for value: " + entry.getRuleId() + "/" + entry.getCodeValue());
+                        .eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.code-ledger-entry.code-ledger-entry-already-exists-for-value",
+                                "Code ledger entry already exists for value: {value1}/{value2}"), Map.of("value1", String.valueOf(entry.getRuleId()), "value2", String.valueOf(entry.getCodeValue()))));
     }
 
     @Override
@@ -156,8 +163,9 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
                         .eq("ruleId", entry.getRuleId())
-                        .eq("codeValue", entry.getCodeValue()),
-                "Code ledger entry already exists for value: " + entry.getRuleId() + "/" + entry.getCodeValue());
+                        .eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.code-ledger-entry.code-ledger-entry-already-exists-for-value",
+                                "Code ledger entry already exists for value: {value1}/{value2}"), Map.of("value1", String.valueOf(entry.getRuleId()), "value2", String.valueOf(entry.getCodeValue()))));
     }
 
     private void applyDefaults(CodeLedgerEntry entry) {

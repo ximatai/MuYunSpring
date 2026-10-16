@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -153,7 +155,9 @@ public class RecordWriteBackRuntimeService {
         for (RecordWriteBackMatchRule matchRule : rootMatchRules(rule)) {
             Object sourceValue = source.getValue(matchRule.getSourceField());
             if (sourceValue == null) {
-                throw new PlatformException("Write-back source match field is null: " + matchRule.getSourceField());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-runtime.write-back-source-match-field-is-null",
+                        "Write-back source match field is null: {value1}"), Map.of("value1", String.valueOf(matchRule.getSourceField())));
             }
             criteria.eq(matchRule.getTargetField(), sourceValue);
         }
@@ -161,10 +165,14 @@ public class RecordWriteBackRuntimeService {
         List<DynamicRecord> targets = dynamicRecordService.get()
                 .listSystem(rule.getTargetModuleAlias(), targetEntityAlias, criteria, PageRequest.of(1, 2));
         if (targets.isEmpty()) {
-            throw new PlatformException("Write-back target record not found: " + rule.getTargetModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-record-not-found",
+                    "Write-back target record not found: {value1}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias())));
         }
         if (targets.size() > 1) {
-            throw new PlatformException("Write-back target record is not unique: " + rule.getTargetModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-record-is-not-unique",
+                    "Write-back target record is not unique: {value1}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias())));
         }
         return targets.getFirst();
     }
@@ -181,19 +189,22 @@ public class RecordWriteBackRuntimeService {
                 rule.getRelationGenerationRuleId()
         );
         if (targetRecordIds.isEmpty()) {
-            throw new PlatformException("Write-back target record not found by generation relation: "
-                    + rule.getTargetModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-record-not-found-by-generation-relation",
+                    "Write-back target record not found by generation relation: {value1}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias())));
         }
         if (targetRecordIds.size() > 1) {
-            throw new PlatformException("Write-back target record is not unique by generation relation: "
-                    + rule.getTargetModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-record-is-not-unique-by-generation-relation",
+                    "Write-back target record is not unique by generation relation: {value1}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias())));
         }
         String targetEntityAlias = dynamicRecordService.get().mainEntityAlias(rule.getTargetModuleAlias());
         DynamicRecord target = dynamicRecordService.get()
                 .selectSystem(rule.getTargetModuleAlias(), targetEntityAlias, targetRecordIds.getFirst());
         if (target == null) {
-            throw new PlatformException("Write-back target record not found by generation relation: "
-                    + rule.getTargetModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-record-not-found-by-generation-relation",
+                    "Write-back target record not found by generation relation: {value1}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias())));
         }
         return target;
     }
@@ -208,8 +219,9 @@ public class RecordWriteBackRuntimeService {
         for (RecordWriteBackMatchRule matchRule : childMatchRules) {
             Object sourceValue = source.getValue(matchRule.getSourceField());
             if (sourceValue == null) {
-                throw new PlatformException("Write-back source child match field is null: "
-                        + matchRule.getSourceField());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-runtime.write-back-source-child-match-field-is-null",
+                        "Write-back source child match field is null: {value1}"), Map.of("value1", String.valueOf(matchRule.getSourceField())));
             }
             criteria.eq(matchRule.getTargetField(), sourceValue);
         }
@@ -220,12 +232,14 @@ public class RecordWriteBackRuntimeService {
                 PageRequest.of(1, 2)
         );
         if (children.isEmpty()) {
-            throw new PlatformException("Write-back target child row not found: "
-                    + rule.getTargetModuleAlias() + "." + rule.getTargetRelationCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-child-row-not-found",
+                    "Write-back target child row not found: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias()), "value2", String.valueOf(rule.getTargetRelationCode())));
         }
         if (children.size() > 1) {
-            throw new PlatformException("Write-back target child row is not unique: "
-                    + rule.getTargetModuleAlias() + "." + rule.getTargetRelationCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.write-back-target-child-row-is-not-unique",
+                    "Write-back target child row is not unique: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias()), "value2", String.valueOf(rule.getTargetRelationCode())));
         }
         DynamicRecord child = children.getFirst();
         root.setPartialChildren(relation.code(), List.of(child));
@@ -239,8 +253,9 @@ public class RecordWriteBackRuntimeService {
                 .filter(relation -> Objects.equals(rule.getTargetRelationCode(), relation.code()))
                 .filter(relation -> Objects.equals(rule.getTargetEntityAlias(), relation.childEntityAlias()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Write-back target child relation not found: "
-                        + rule.getTargetModuleAlias() + "." + rule.getTargetRelationCode()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-runtime.write-back-target-child-relation-not-found",
+                        "Write-back target child relation not found: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias()), "value2", String.valueOf(rule.getTargetRelationCode()))));
     }
 
     private List<RecordWriteBackMatchRule> rootMatchRules(RecordWriteBackRule rule) {
@@ -317,8 +332,9 @@ public class RecordWriteBackRuntimeService {
         if (effectLogService.isEmpty()) {
             throw new PlatformException("Record write-back ADD/SUBTRACT requires effect log service");
         }
-        BigDecimal current = numeric(target.getValue(fieldRule.getTargetField()),
-                "Record write-back ADD/SUBTRACT target field must be numeric: " + fieldRule.getTargetField());
+        BigDecimal current = numeric(target.getValue(fieldRule.getTargetField()), TextReference.code(
+                "platform.rejection.record-write-back-runtime.record-write-back-add-subtract-target-field-must-be-numeric",
+                "Record write-back ADD/SUBTRACT target field must be numeric: {value1}"), Map.of("value1", String.valueOf(fieldRule.getTargetField())));
         ActiveContribution active = activeContribution(event, rule, target, fieldRule);
         BigDecimal contributionValue = contributionValue(event, triggerMode, fieldRule);
         BigDecimal delta = numericDelta(triggerMode, fieldRule, active, contributionValue);
@@ -343,8 +359,9 @@ public class RecordWriteBackRuntimeService {
             case ON_EXIT -> active.contributionValue().negate();
             case ON_CHANGE_WHILE_EFFECTIVE -> {
                 if (!active.exists()) {
-                    throw new PlatformException("Record write-back active contribution not found: "
-                            + fieldRule.getTargetField());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.record-write-back-runtime.record-write-back-active-contribution-not-found",
+                            "Record write-back active contribution not found: {value1}"), Map.of("value1", String.valueOf(fieldRule.getTargetField())));
                 }
                 yield contributionValue.subtract(active.contributionValue());
             }
@@ -365,15 +382,17 @@ public class RecordWriteBackRuntimeService {
                 fieldRule.getSourceField()
         );
         if (activeEffects.size() > 1) {
-            throw new PlatformException("Record write-back active contribution is not unique: "
-                    + rule.getTargetModuleAlias() + "." + fieldRule.getTargetField());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-runtime.record-write-back-active-contribution-is-not-unique",
+                    "Record write-back active contribution is not unique: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getTargetModuleAlias()), "value2", String.valueOf(fieldRule.getTargetField())));
         }
         if (activeEffects.isEmpty()) {
             return ActiveContribution.empty();
         }
         RecordWriteBackEffectLog effect = activeEffects.getFirst();
-        return new ActiveContribution(effect, numeric(effect.getContributionValue(),
-                "Record write-back active contribution value must be numeric"));
+        return new ActiveContribution(effect, numeric(effect.getContributionValue(), TextReference.code(
+                "platform.rejection.record-write-back-runtime.record-write-back-active-contribution-value-must-be-numeric",
+                "Record write-back active contribution value must be numeric"), Map.of()));
     }
 
     private BigDecimal contributionValue(DynamicRecordMutationEvent event,
@@ -389,13 +408,16 @@ public class RecordWriteBackRuntimeService {
                                           RecordWriteBackFieldRule fieldRule,
                                           boolean before) {
         if (fieldRule.getSourceType() == RecordWriteBackFieldSourceType.CONSTANT) {
-            return numeric(fieldRule.getConstantValue(),
-                    "Record write-back ADD/SUBTRACT constant value must be numeric");
+            return numeric(fieldRule.getConstantValue(), TextReference.code(
+                    "platform.rejection.record-write-back-runtime.record-write-back-add-subtract-constant-value-must-be-numeric",
+                    "Record write-back ADD/SUBTRACT constant value must be numeric"), Map.of());
         }
         Object value = recordValue(record, fieldRule.getSourceField());
-        return numeric(value, "Record write-back ADD/SUBTRACT "
-                + (before ? "before" : "after")
-                + " source field must be numeric: " + fieldRule.getSourceField());
+        return numeric(value, before ? TextReference.code(
+                "platform.rejection.record-write-back-runtime.before-source-numeric",
+                "Record write-back ADD/SUBTRACT before source field must be numeric: {value1}") : TextReference.code(
+                "platform.rejection.record-write-back-runtime.after-source-numeric",
+                "Record write-back ADD/SUBTRACT after source field must be numeric: {value1}"), Map.of("value1", String.valueOf(fieldRule.getSourceField())));
     }
 
     private Object recordValue(DynamicRecord record, String field) {
@@ -405,7 +427,7 @@ public class RecordWriteBackRuntimeService {
         return record.getValue(field);
     }
 
-    private BigDecimal numeric(Object value, String message) {
+    private BigDecimal numeric(Object value, TextReference source, Map<String, Object> args) {
         if (value instanceof BigDecimal decimal) {
             return decimal;
         }
@@ -416,10 +438,10 @@ public class RecordWriteBackRuntimeService {
             try {
                 return new BigDecimal(text.trim());
             } catch (NumberFormatException ignored) {
-                throw new PlatformException(message);
+                throw PlatformErrors.badRequestText(source, args);
             }
         }
-        throw new PlatformException(message);
+        throw PlatformErrors.badRequestText(source, args);
     }
 
     private List<RecordWriteBackEffectLog> effectLogs(DynamicRecordMutationEvent event,
@@ -462,9 +484,12 @@ public class RecordWriteBackRuntimeService {
     private BigDecimal deltaValue(DynamicRecord target,
                                   Map<String, Object> patch,
                                   RecordWriteBackFieldRule fieldRule) {
-        return numeric(patch.get(fieldRule.getTargetField()), "Record write-back effect after value must be numeric")
-                .subtract(numeric(target.getValue(fieldRule.getTargetField()),
-                        "Record write-back effect before value must be numeric"));
+        return numeric(patch.get(fieldRule.getTargetField()), TextReference.code(
+                "platform.rejection.record-write-back-runtime.record-write-back-effect-after-value-must-be-numeric",
+                "Record write-back effect after value must be numeric"), Map.of())
+                .subtract(numeric(target.getValue(fieldRule.getTargetField()), TextReference.code(
+                        "platform.rejection.record-write-back-runtime.record-write-back-effect-before-value-must-be-numeric",
+                        "Record write-back effect before value must be numeric"), Map.of()));
     }
 
     private void writeEffects(List<RecordWriteBackEffectLog> effects) {

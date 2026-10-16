@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.measure;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -11,7 +14,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -83,7 +85,9 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
     public MeasureUnit requireUnit(String applicationAlias, String categoryAlias, String unitCode) {
         MeasureUnit unit = resolveUnit(applicationAlias, categoryAlias, unitCode);
         if (unit == null) {
-            throw new PlatformException("Measure unit requires existing unit: " + unitCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-requires-existing-unit",
+                    "Measure unit requires existing unit: {value1}"), Map.of("value1", String.valueOf(unitCode)));
         }
         return unit;
     }
@@ -94,7 +98,9 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
         categoryService.requireEnabledCategory(validApplicationAlias, validCategoryAlias);
         MeasureUnit unit = resolveUnit(validApplicationAlias, validCategoryAlias, unitCode);
         if (unit == null || !Boolean.TRUE.equals(unit.getEnabled())) {
-            throw new PlatformException("Measure unit requires enabled unit: " + unitCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-requires-enabled-unit",
+                    "Measure unit requires enabled unit: {value1}"), Map.of("value1", String.valueOf(unitCode)));
         }
         return unit;
     }
@@ -113,7 +119,9 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
     public MeasureUnit requireVisibleUnit(String applicationAlias, String categoryAlias, String unitCode) {
         MeasureUnit unit = resolveVisibleUnit(applicationAlias, categoryAlias, unitCode);
         if (unit == null) {
-            throw new PlatformException("Measure unit requires existing visible unit: " + unitCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-requires-existing-visible-unit",
+                    "Measure unit requires existing visible unit: {value1}"), Map.of("value1", String.valueOf(unitCode)));
         }
         return unit;
     }
@@ -125,7 +133,9 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
         MeasureUnitCategory category = categoryService.requireEnabledVisibleCategory(validApplicationAlias, validCategoryAlias);
         MeasureUnit unit = resolveUnitInCategoryScope(category, validUnitCode);
         if (unit == null || !Boolean.TRUE.equals(unit.getEnabled())) {
-            throw new PlatformException("Measure unit requires enabled unit in visible scope: " + unitCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-requires-enabled-unit-in-visible-scope",
+                    "Measure unit requires enabled unit in visible scope: {value1}"), Map.of("value1", String.valueOf(unitCode)));
         }
         return unit;
     }
@@ -134,7 +144,9 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
         String validUnitCode = requireCode(unitCode, "measureUnitCode");
         MeasureUnit unit = resolveUnitInCategoryScope(category, validUnitCode);
         if (unit == null || !Boolean.TRUE.equals(unit.getEnabled())) {
-            throw new PlatformException("Measure unit requires enabled unit: " + unitCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-requires-enabled-unit",
+                    "Measure unit requires enabled unit: {value1}"), Map.of("value1", String.valueOf(unitCode)));
         }
         return unit;
     }
@@ -180,13 +192,17 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
             unit.setSymbol(null);
         }
         if (unit.getScale() != null && unit.getScale() < 0) {
-            throw new PlatformException("measure unit scale must not be negative: " + unit.getCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-scale-must-not-be-negative",
+                    "measure unit scale must not be negative: {value1}"), Map.of("value1", String.valueOf(unit.getCode())));
         }
         if (unit.getFactorToBase() == null) {
             unit.setFactorToBase(BigDecimal.ONE);
         }
         if (unit.getFactorToBase().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new PlatformException("measure unit factorToBase must be positive: " + unit.getCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit.measure-unit-factortobase-must-be-positive",
+                    "measure unit factorToBase must be positive: {value1}"), Map.of("value1", String.valueOf(unit.getCode())));
         }
         if (unit.getOffsetToBase() == null) {
             unit.setOffsetToBase(BigDecimal.ZERO);
@@ -197,9 +213,15 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
     }
 
     private void validateImmutableIdentity(MeasureUnit unit, MeasureUnit existing) {
-        rejectChanged(existing, unit, "Measure unit application", MeasureUnit::getApplicationAlias);
-        rejectChanged(existing, unit, "Measure unit category", MeasureUnit::getCategoryAlias);
-        rejectChanged(existing, unit, "Measure unit code", MeasureUnit::getCode);
+        rejectChangedText(existing, unit, TextReference.code(
+                "platform.rejection.measure-unit.measure-unit-application-cannot-be-changed",
+                "Measure unit application cannot be changed"), MeasureUnit::getApplicationAlias);
+        rejectChangedText(existing, unit, TextReference.code(
+                "platform.rejection.measure-unit.measure-unit-category-cannot-be-changed",
+                "Measure unit category cannot be changed"), MeasureUnit::getCategoryAlias);
+        rejectChangedText(existing, unit, TextReference.code(
+                "platform.rejection.measure-unit.measure-unit-code-cannot-be-changed",
+                "Measure unit code cannot be changed"), MeasureUnit::getCode);
     }
 
     private Criteria categoryScope(String applicationAlias, String categoryAlias) {

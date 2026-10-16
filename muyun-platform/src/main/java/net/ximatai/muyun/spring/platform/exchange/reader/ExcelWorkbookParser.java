@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.reader;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookMeta;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedColumn;
@@ -39,7 +41,9 @@ public class ExcelWorkbookParser {
 
     public ParsedWorkbook parse(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {
-            throw new PlatformException("exchange workbook bytes must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-parser.exchange-workbook-bytes-must-not-be-empty",
+                    "exchange workbook bytes must not be empty"));
         }
         return parse(new ByteArrayInputStream(bytes));
     }
@@ -51,13 +55,17 @@ public class ExcelWorkbookParser {
         try (Workbook workbook = new XSSFWorkbook(inputStream)) {
             return parse(workbook);
         } catch (IOException ex) {
-            throw new PlatformException("exchange workbook parse failed", ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-parser.exchange-workbook-parse-failed",
+                    "exchange workbook parse failed"), Map.of(), ex);
         }
     }
 
     public ParsedWorkbook parse(Workbook workbook) {
         if (workbook == null || workbook.getNumberOfSheets() == 0) {
-            throw new PlatformException("exchange workbook must contain at least one sheet");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-parser.exchange-workbook-must-contain-at-least-one-sheet",
+                    "exchange workbook must contain at least one sheet"));
         }
 
         DataFormatter formatter = new DataFormatter();
@@ -90,7 +98,9 @@ public class ExcelWorkbookParser {
         Row technicalHeaderRow = sheet.getRow(ExcelExchangeProtocol.TECHNICAL_HEADER_ROW_INDEX);
         Row displayHeaderRow = sheet.getRow(ExcelExchangeProtocol.DISPLAY_HEADER_ROW_INDEX);
         if (technicalHeaderRow == null || displayHeaderRow == null) {
-            throw new PlatformException("exchange sheet missing double headers: " + sheet.getSheetName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-parser.exchange-sheet-missing-double-headers",
+                    "exchange sheet missing double headers: {value1}"), Map.of("value1", String.valueOf(sheet.getSheetName())));
         }
 
         List<String> technicalHeader = readHeaderRow(technicalHeaderRow, formatter, evaluator);

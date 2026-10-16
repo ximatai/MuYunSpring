@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +29,9 @@ public class LowCodeModuleConfigVersionService extends AbstractAbilityService<Lo
     public void beforeInsert(LowCodeModuleConfigVersion version) {
         normalizeAndValidate(version);
         if (Boolean.TRUE.equals(version.getCurrentVersion())) {
-            throw new PlatformException("low code config current version can only be switched by archive facade");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-version.low-code-config-current-version-can-only-be-switched-by-archive-facade",
+                    "low code config current version can only be switched by archive facade"));
         }
     }
 
@@ -62,10 +66,14 @@ public class LowCodeModuleConfigVersionService extends AbstractAbilityService<Lo
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         LowCodeModuleConfigVersion target = select(versionId);
         if (target == null || !validModuleAlias.equals(target.getModuleAlias())) {
-            throw new PlatformException("low code config version not found in module: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-version.low-code-config-version-not-found-in-module",
+                    "low code config version not found in module: {value1}"), Map.of("value1", String.valueOf(versionId)));
         }
         if (target.getVersionStatus() != LowCodeConfigVersionStatus.ARCHIVED) {
-            throw new PlatformException("only archived low code config version can be current: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-version.only-archived-low-code-config-version-can-be-current",
+                    "only archived low code config version can be current: {value1}"), Map.of("value1", String.valueOf(versionId)));
         }
         for (LowCodeModuleConfigVersion version : listByModule(validModuleAlias)) {
             boolean current = version.getId().equals(versionId);
@@ -79,7 +87,9 @@ public class LowCodeModuleConfigVersionService extends AbstractAbilityService<Lo
     private void normalizeAndValidate(LowCodeModuleConfigVersion version) {
         version.setModuleAlias(PlatformNameRules.requireModuleAlias(version.getModuleAlias()));
         if (version.getVersionNo() == null || version.getVersionNo() <= 0) {
-            throw new PlatformException("low code config version number must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-config-version.low-code-config-version-number-must-be-positive",
+                    "low code config version number must be positive"));
         }
         if (version.getVersionStatus() == null) {
             version.setVersionStatus(LowCodeConfigVersionStatus.ARCHIVED);
@@ -89,8 +99,9 @@ public class LowCodeModuleConfigVersionService extends AbstractAbilityService<Lo
         }
         rejectDuplicate(version, Criteria.of()
                         .eq("moduleAlias", version.getModuleAlias())
-                        .eq("versionNo", version.getVersionNo()),
-                "low code config version number must be unique within module: " + version.getVersionNo());
+                        .eq("versionNo", version.getVersionNo()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.low-code-module-config-version.low-code-config-version-number-must-be-unique-within-module",
+                                "low code config version number must be unique within module: {value1}"), Map.of("value1", String.valueOf(version.getVersionNo()))));
     }
 
 

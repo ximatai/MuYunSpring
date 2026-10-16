@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.platform.duplicate;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
@@ -35,7 +36,9 @@ public class RecordDuplicateCheckService {
         RecordDuplicateRule rule = ruleService.requireEnabledRule(moduleAlias, actionCode);
         List<String> fieldNames = ruleService.fieldNames(rule);
         if (fieldNames.isEmpty()) {
-            throw new PlatformException("duplicate rule requires fields: " + actionCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-check.duplicate-rule-requires-fields",
+                    "duplicate rule requires fields: {value1}"), Map.of("value1", String.valueOf(actionCode)));
         }
         DynamicEntityDescriptor entity = recordService.mainEntity(moduleAlias).describe();
         validateFields(entity, fieldNames);
@@ -43,7 +46,9 @@ public class RecordDuplicateCheckService {
         for (String fieldName : fieldNames) {
             Object value = values == null ? null : values.get(fieldName);
             if (value == null || value instanceof String text && text.isBlank()) {
-                throw new PlatformException("duplicate check requires field value: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-duplicate-check.duplicate-check-requires-field-value",
+                        "duplicate check requires field value: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             criteria.eq(fieldName, value);
         }
@@ -65,7 +70,9 @@ public class RecordDuplicateCheckService {
                 .collect(Collectors.toSet());
         for (String fieldName : fieldNames) {
             if (!fields.contains(fieldName)) {
-                throw new PlatformException("duplicate rule field does not exist: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-duplicate-check.duplicate-rule-field-does-not-exist",
+                        "duplicate rule field does not exist: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
         }
     }

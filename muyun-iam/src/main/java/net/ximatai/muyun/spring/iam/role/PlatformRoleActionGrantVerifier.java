@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.iam.role;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.iam.role.RoleActionGrantVerifier;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
@@ -40,7 +42,9 @@ public class PlatformRoleActionGrantVerifier implements RoleActionGrantVerifier 
     public String resolveGrantablePermissionActionCode(String moduleAlias, String actionCode) {
         PlatformModule module = moduleService.resolveVisibleModule(moduleAlias);
         if (module == null) {
-            throw new PlatformException("role action requires existing module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.platform-role-action-grant-verifier.role-action-requires-existing-module",
+                    "role action requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         List<PlatformModuleAction> persistedActions = persistedModuleActions(moduleAlias);
         List<PlatformModuleAction> registeredActions = grantableActions(persistedActions);
@@ -49,25 +53,30 @@ public class PlatformRoleActionGrantVerifier implements RoleActionGrantVerifier 
                     .filter(action -> actionCode.equals(action.getActionCode()))
                     .map(this::permissionActionCode)
                     .findFirst()
-                    .orElseThrow(() -> new PlatformException("role action requires configured module action: "
-                            + moduleAlias + "." + actionCode));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                            "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode))));
         }
         if (persistedActions.isEmpty() && (module.getModuleKind() == null || module.getModuleKind() == ModuleKind.STATIC)) {
             return PlatformAction.fromCode(actionCode)
                     .filter(action -> staticModuleActionRegistry.isGrantable(moduleAlias, action))
                     .map(PlatformAction::permissionActionCode)
-                    .orElseThrow(() -> new PlatformException("role action requires configured module action: "
-                            + moduleAlias + "." + actionCode));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                            "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode))));
         }
-        throw new PlatformException("role action requires configured module action: "
-                + moduleAlias + "." + actionCode);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode)));
     }
 
     @Override
     public boolean requiresDataScope(String moduleAlias, String actionCode) {
         PlatformModule module = moduleService.resolveVisibleModule(moduleAlias);
         if (module == null) {
-            throw new PlatformException("role action requires existing module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.platform-role-action-grant-verifier.role-action-requires-existing-module",
+                    "role action requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         List<PlatformModuleAction> persistedActions = persistedModuleActions(moduleAlias);
         List<PlatformModuleAction> registeredActions = grantableActions(persistedActions);
@@ -76,18 +85,21 @@ public class PlatformRoleActionGrantVerifier implements RoleActionGrantVerifier 
                     .filter(action -> actionCode.equals(action.getActionCode()))
                     .map(moduleActionService::effectiveDataAuth)
                     .findFirst()
-                    .orElseThrow(() -> new PlatformException("role action requires configured module action: "
-                            + moduleAlias + "." + actionCode));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                            "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode))));
         }
         if (persistedActions.isEmpty() && (module.getModuleKind() == null || module.getModuleKind() == ModuleKind.STATIC)) {
             return PlatformAction.fromCode(actionCode)
                     .filter(action -> staticModuleActionRegistry.isGrantable(moduleAlias, action))
                     .map(PlatformAction::dataAuth)
-                    .orElseThrow(() -> new PlatformException("role action requires configured module action: "
-                            + moduleAlias + "." + actionCode));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                            "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode))));
         }
-        throw new PlatformException("role action requires configured module action: "
-                + moduleAlias + "." + actionCode);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.platform-role-action-grant-verifier.role-action-requires-configured-module-action",
+                "role action requires configured module action: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(actionCode)));
     }
 
     private List<PlatformModuleAction> persistedModuleActions(String moduleAlias) {

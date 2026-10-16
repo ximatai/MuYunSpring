@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.duplicate;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -29,7 +31,9 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
                 .eq("actionCode", requireActionCode(actionCode))
                 .eq("enabled", Boolean.TRUE));
         if (rule == null) {
-            throw new PlatformException("duplicate rule is not enabled for action: " + actionCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-rule.duplicate-rule-is-not-enabled-for-action",
+                    "duplicate rule is not enabled for action: {value1}"), Map.of("value1", String.valueOf(actionCode)));
         }
         return rule;
     }
@@ -47,17 +51,17 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
     @Override
     public void beforeInsert(RecordDuplicateRule rule) {
         normalizeAndValidate(rule);
-        rejectDuplicate(rule, scopeCriteria(rule),
-                "duplicate rule actionCode must be unique in module: "
-                        + rule.getModuleAlias() + "." + rule.getActionCode());
+        rejectDuplicate(rule, scopeCriteria(rule), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-duplicate-rule.duplicate-rule-actioncode-must-be-unique-in-module",
+                "duplicate rule actionCode must be unique in module: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getActionCode()))));
     }
 
     @Override
     public void beforeUpdate(RecordDuplicateRule rule) {
         normalizeAndValidate(rule);
-        rejectDuplicate(rule, scopeCriteria(rule),
-                "duplicate rule actionCode must be unique in module: "
-                        + rule.getModuleAlias() + "." + rule.getActionCode());
+        rejectDuplicate(rule, scopeCriteria(rule), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-duplicate-rule.duplicate-rule-actioncode-must-be-unique-in-module",
+                "duplicate rule actionCode must be unique in module: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getActionCode()))));
     }
 
     private Criteria scopeCriteria(RecordDuplicateRule rule) {
@@ -68,12 +72,16 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
 
     private void normalizeAndValidate(RecordDuplicateRule rule) {
         if (rule == null) {
-            throw new PlatformException("duplicate rule must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-rule.duplicate-rule-must-not-be-null",
+                    "duplicate rule must not be null"));
         }
         rule.setActionCode(requireActionCode(rule.getActionCode()));
         List<String> fields = normalizeFieldNames(rule.getFieldNames());
         if (fields.isEmpty()) {
-            throw new PlatformException("duplicate rule requires fields: " + rule.getActionCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-rule.duplicate-rule-requires-fields",
+                    "duplicate rule requires fields: {value1}"), Map.of("value1", String.valueOf(rule.getActionCode())));
         }
         rule.setFieldNames(String.join(",", fields));
         if (rule.getEnabled() == null) {
@@ -92,7 +100,9 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
             }
             String fieldName = requireFieldName(raw.trim());
             if (!normalized.add(fieldName)) {
-                throw new PlatformException("duplicate rule field duplicated: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-duplicate-rule.duplicate-rule-field-duplicated",
+                        "duplicate rule field duplicated: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
         }
         return List.copyOf(normalized);
@@ -104,14 +114,18 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
 
     private String requireFieldName(String fieldName) {
         if (fieldName == null || fieldName.isBlank() || fieldName.contains(",")) {
-            throw new PlatformException("duplicate rule field name is invalid: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-rule.duplicate-rule-field-name-is-invalid",
+                    "duplicate rule field name is invalid: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         return fieldName.trim();
     }
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("duplicate rule " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-duplicate-rule.duplicate-rule-must-not-be-blank",
+                    "duplicate rule {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

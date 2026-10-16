@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.ai;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.stereotype.Service;
 
 /** Privileged configuration diagnostic; it intentionally returns no model content or credential detail. */
@@ -24,7 +26,9 @@ public class AiModelConnectionTester {
     public AiModelConnectionTestResult test(String configurationId) {
         AiModelConfiguration configuration = configurationService.select(configurationId);
         if (configuration == null) {
-            throw new PlatformException("AI model configuration does not exist: " + configurationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-connection-tester.ai-model-configuration-does-not-exist",
+                    "AI model configuration does not exist: {value1}"), Map.of("value1", String.valueOf(configurationId)));
         }
         if (configuration.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
             AiModelCredentialResolver.requireEnvironmentManagementAccess();
@@ -36,7 +40,9 @@ public class AiModelConnectionTester {
     public AiModelConnectionTestResult testDraft(AiModelConfiguration draft) {
         if (draft == null || draft.getProvider() == null || draft.getProvider().isBlank()
                 || draft.getModelId() == null || draft.getModelId().isBlank()) {
-            throw new PlatformException("AI model provider and model id must be provided before testing");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-connection-tester.ai-model-provider-and-model-id-must-be-provided-before-testing",
+                    "AI model provider and model id must be provided before testing"));
         }
         if (draft.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
             AiModelCredentialResolver.requireEnvironmentManagementAccess();
@@ -55,7 +61,9 @@ public class AiModelConnectionTester {
             apiKey = stored == null ? null : stored.getApiKey();
         }
         if (apiKey == null || apiKey.isBlank()) {
-            throw new PlatformException("AI model API key must be provided before testing");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-connection-tester.ai-model-api-key-must-be-provided-before-testing",
+                    "AI model API key must be provided before testing"));
         }
         AiModelConfiguration candidate = new AiModelConfiguration();
         candidate.setProvider(draft.getProvider().trim());
@@ -76,7 +84,9 @@ public class AiModelConnectionTester {
         AiTextResponse response = client.generate(routeResolver.resolveCandidate(configuration), PROBE);
         if (response == null || response.text() == null || response.text().isBlank()
                 || !"stop".equalsIgnoreCase(response.finishReason())) {
-            throw new PlatformException("模型服务未返回完整的非空回复，请检查模型配置或服务状态");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.ai-model-connection-tester.the-model-service-did-not-return-a-complete-nonempty-reply-check-the",
+                    "模型服务未返回完整的非空回复，请检查模型配置或服务状态"));
         }
         return new AiModelConnectionTestResult(true, (System.nanoTime() - startedAt) / 1_000_000L);
     }

@@ -151,8 +151,10 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
 
     private void validateParentApplication(DictionaryCategory category) {
         Criteria scope = applicationScope(category.getApplicationAlias());
-        validateTreePlacementInScope(category, scope,
-                "Dictionary category parent must belong to the same application");
+        validateTreePlacementInScopeOrThrow(category, scope,
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dictionary-category.parent-scope",
+                        "Dictionary category parent must belong to the same application")));
         String parentId = category.getParentId();
         if (parentId == null || parentId.isBlank() || TreeAbility.ROOT_ID.equals(parentId)) {
             return;
