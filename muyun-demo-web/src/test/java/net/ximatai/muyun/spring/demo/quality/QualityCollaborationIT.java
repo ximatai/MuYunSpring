@@ -81,6 +81,40 @@ class QualityCollaborationIT {
         }
     }
 
+    @Test void sampleMenusDeliverEnglishForGlobalNavigationAndNewTenantCopies() throws Exception {
+        var expected = Map.of(QualityDemoMenuDeclarations.ROOT, "Quality collaboration",
+                "platform.menu.module.quality.equipment_category", "Equipment categories",
+                "platform.menu.module.quality.product", "Product catalog",
+                "platform.menu.module.quality.exception", "Quality exceptions");
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("english-menu", "English Menu"));
+             var tenant = TenantContext.system("verify sample navigation translations")) {
+            var mvc = webAppContextSetup(web).addFilters(web.getBean(net.ximatai.muyun.spring.web.LanguageWebFilter.class)).build();
+            var response = mvc.perform(get("/platform.menu/mine").header("Accept-Language", "en")).andReturn().getResponse();
+            assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+            var records = mapper.readTree(response.getContentAsString()).findValues("record");
+            var titles = records.stream().collect(java.util.stream.Collectors.toMap(
+                    row -> row.path("id").asText(), row -> row.path("title").asText()));
+            assertThat(titles).containsAllEntriesOf(expected);
+
+            var created = new Tenant(); created.setAlias("quality_english_menus");
+            created.setTitle("English sample navigation"); created.setEnabled(true);
+            web.getBean(TenantService.class).insert(created);
+            var menus = web.getBean(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+            var texts = web.getBean(net.ximatai.muyun.spring.common.i18n.TextResolver.class);
+            try (var scope = TenantContext.use(created.getAlias())) {
+                expected.forEach((id, english) -> {
+                    var copy = menus.select(net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner
+                            .tenantMenuId(created.getAlias(), id));
+                    assertThat(copy).isNotNull();
+                    var source = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources
+                            .menuTitle(copy.getId(), copy.getTitle());
+                    assertThat(texts.resolve(source, Map.of(), "en").text()).isEqualTo(english);
+                    assertThat(texts.resolve(source, Map.of(), "zh-CN").text()).isEqualTo(copy.getTitle());
+                });
+            }
+        }
+    }
+
     @Test void restartingSampleKeepsFieldIdentitiesAndUserOwnedPresentationDrafts() {
         try (var actor = CurrentUserContext.use(CurrentUser.systemUser("sample-contract", "Sample Contract"));
              var tenant = TenantContext.system("verify sample restart")) {
