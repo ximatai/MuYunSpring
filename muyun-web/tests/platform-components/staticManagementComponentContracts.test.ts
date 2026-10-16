@@ -1102,7 +1102,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<TreeRecordExplorer\s+v-if="mainTreeScopeReady"/);
   assert.match(hostSource, /for \(const descendantKey of navigatorDescendantKeys\(levelKey\)\)/);
   assert.match(listPanelSource, /queryTemplateId: props\.queryTemplateId/);
-  assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
   assert.match(listPanelSource, /uiDescriptor\?\.page\?\.list\?\.fields/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
   assert.match(hostSource, /resolvePageContextTargetValues\(pageContextBindings\.value, 'LIST_QUERY'/);

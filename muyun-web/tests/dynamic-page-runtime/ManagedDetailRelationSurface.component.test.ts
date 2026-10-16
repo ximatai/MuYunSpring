@@ -1458,11 +1458,12 @@ describe('managed detail relation surface', () => {
     const listContext = wrapper
       .findComponent({ name: 'RecordQueryListPanel' })
       .props('context') as ModuleContext<Record<string, unknown>>;
-    await listContext.crud.query();
+    await listContext.crud.query({ page: { pageNum: 1, pageSize: 10 } }, { contentLanguage: 'de' });
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
         path: '/platform.field_ui_control/view/select/relations/properties/query',
+        headers: { 'X-MuYun-Content-Language': 'de' },
       }),
     );
 

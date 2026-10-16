@@ -1110,12 +1110,54 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(service.count(Criteria.copyOf(actual).in("id", identities))).isEqualTo(1);
             assertThat(service.count(Criteria.copyOf(coverage).in("id", identities))).isEqualTo(2);
             assertThat(service.count(Criteria.copyOf(coverage).in("id", identities).lt("quantity", 2))).isEqualTo(1);
-            for (String blank : new String[]{null, "", "   "}) {
+            for (String blank : new String[]{null, "", "   ", "\t\n", "\u2003", "\u3000\r\u001c"}) {
                 var row = row(blank); service.insert(row); assertMissing(row, "en", false);
+            }
+            for (String nonblank : List.of("\u00a0", "\u2007", "\u202f", "\tA\n")) {
+                assertThat(nonblank.isBlank()).isFalse();
+                var row = row(nonblank); service.insert(row); assertMissing(row, "en", true);
             }
             assertThat(service.count(queries.missingReadingCriteria(service, Set.of("quantity"), "en"))).isZero();
             try (var other = TenantContext.use("tenant-b")) {
                 assertThat(service.count(Criteria.copyOf(coverage).in("id", identities))).isZero();
+            }
+        }
+    }
+
+    @Test void readingHeadUsesBoundedIndexLookupsDespiteGrowingMachineHistory() throws Exception {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("历史增长设备 " + UUID.randomUUID()); service.insert(row);
+            var source = source(row);
+            var original = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Confirmed equipment", null));
+            tx.executeWithoutResult(status -> translations.confirm(source, original, "en", 1, 1));
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.update("""
+                    insert into platform_business_content_translation
+                        (id, source_key, source_revision_id, source_revision, language_tag, revision, kind,
+                         translated_text, tenant_id, module_alias, entity_key, record_id, field_key)
+                    select md5(concat(t.id, '-', n)), t.source_key, t.source_revision_id, t.source_revision,
+                           t.language_tag, n + 2, 'MACHINE', 'Later machine equipment', t.tenant_id,
+                           t.module_alias, t.entity_key, t.record_id, t.field_key
+                    from platform_business_content_translation t cross join generate_series(1, 20000) n
+                    where t.source_revision_id = ? and t.kind = 'CONFIRMED'
+                    """, original.revisionId());
+            jdbc.execute("analyze platform_business_content_translation");
+            assertThat(projectedReading(row, "en")).isEqualTo("Confirmed equipment");
+            assertMissing(row, "en", false);
+            var projection = queries.readingProjection(service, "title", "en", "history_plan_");
+            var params = new LinkedHashMap<String, Object>(projection.getParams()); params.put("record", row.getId());
+            var plan = new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(dataSource).queryForObject(
+                    "explain (analyze, format json) select reading_text from (" + projection.getSql()
+                            + ") reading where record_id = :record", params, String.class);
+            var tree = new com.fasterxml.jackson.databind.ObjectMapper().readTree(plan);
+            var scans = tree.findParents("Relation Name").stream()
+                    .filter(node -> "platform_business_content_translation".equals(node.path("Relation Name").asText())).toList();
+            assertThat(scans).isNotEmpty();
+            for (var scan : scans) {
+                assertThat(scan.path("Actual Rows").asDouble() * scan.path("Actual Loops").asDouble())
+                        .as("Translation history scan: %s", scan).isLessThan(32);
+                assertThat(scan.path("Rows Removed by Filter").asDouble()).isLessThan(32);
             }
         }
     }

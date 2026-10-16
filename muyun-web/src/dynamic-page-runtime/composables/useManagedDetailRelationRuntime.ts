@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue';
-import type { ManagedDetailRelationClient } from '@muyun/web-core';
+import type { ManagedDetailRelationClient, RecordQueryRequestOptions } from '@muyun/web-core';
 import type {
   ResolvedDetailRelationDescriptor,
   WebPageResponse,
@@ -58,7 +58,10 @@ export function useManagedDetailRelationRuntime<TRecord extends Record<string, u
     return options.clientOf(parentId, relation.code);
   }
 
-  async function query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>> {
+  async function query(
+    request?: WebQueryRequest,
+    queryOptions?: RecordQueryRequestOptions,
+  ): Promise<WebPageResponse<TRecord>> {
     const token = ++querySequence;
     const session = sessionIdentity.value;
     if (!executable.value) {
@@ -75,7 +78,7 @@ export function useManagedDetailRelationRuntime<TRecord extends Record<string, u
     loading.value = true;
     error.value = undefined;
     try {
-      const response = await requireClient().query(request);
+      const response = await requireClient().query(request, queryOptions);
       if (token === querySequence && session === sessionIdentity.value)
         records.value = response.records ?? [];
       return response;

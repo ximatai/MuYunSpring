@@ -11,6 +11,51 @@ import { defineComponent, h } from 'vue';
 import type { WebPageResponse, WebQueryRequest } from '@muyun/web-contracts';
 
 describe('CrudRecordListExplorer', () => {
+  it('disables drag ordering under query sorting and advances the interaction signature for every sort change', async () => {
+    const requests: Array<WebQueryRequest | undefined> = [];
+    const moves: Array<{ id: string; request: unknown }> = [];
+    const context = createContext(requests, [{ id: 'first' }, { id: 'second' }], moves);
+    const query = context.crud.query;
+    context.crud.query = async (request, options) => ({
+      ...(await query(request, options)),
+      businessContent: { language: options!.contentLanguage!, missingRecords: 0, readings: {} },
+    });
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context, sorting: true } });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')![0]![0] as { interactionRevision(): string };
+    const list = () => wrapper.findComponent({ name: 'RecordListExplorer' });
+    const selector = () => wrapper.findComponent({ name: 'RecordQuerySortSelector' });
+    expect(list().props('sorting')).toBe(true);
+    let signature = controller.interactionRevision();
+    for (const desc of [false, true]) {
+      selector().vm.$emit('change', [{ field: 'title', desc }]);
+      await flushPromises();
+      expect(controller.interactionRevision()).not.toBe(signature);
+      signature = controller.interactionRevision();
+      expect(requests.at(-1)?.sorts).toEqual([{ field: 'title', desc }]);
+      expect(list().props('sorting')).toBe(false);
+      list().vm.$emit('sort', { dragRecord: { id: 'first' }, dropRecord: { id: 'second' }, position: 1 });
+      expect(moves).toEqual([]);
+    }
+    selector().vm.$emit('change', undefined);
+    await flushPromises();
+    expect(controller.interactionRevision()).not.toBe(signature);
+    expect(requests.at(-1)?.sorts).toBeUndefined();
+    expect(list().props('sorting')).toBe(true);
+    selector().vm.$emit('change', [{ field: 'title', desc: true }]);
+    await flushPromises();
+    context.crud.query = async () => {
+      throw new Error('Default order reload failed');
+    };
+    selector().vm.$emit('change', undefined);
+    await flushPromises();
+    // A failed reset retains the previous title-ordered rows, so dragging must stay disabled.
+    expect(list().props('sorting')).toBe(false);
+    list().vm.$emit('sort', { dragRecord: { id: 'first' }, dropRecord: { id: 'second' }, position: 1 });
+    expect(moves).toEqual([]);
+    wrapper.unmount();
+  });
+
   it.each(['query', 'schema'])(
     'reissues the first query when language changes while the initial %s is pending',
     async (pending) => {

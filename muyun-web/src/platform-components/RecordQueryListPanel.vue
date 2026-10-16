@@ -655,6 +655,7 @@ watch(
 watch(
   () => props.context,
   () => loadSchemaAndRecords(),
+  { flush: 'sync' },
 );
 
 watch(
@@ -666,6 +667,10 @@ watch(
       return;
     }
     records.value = [];
+    schemaRequestSeq += 1;
+    recordsRequestSeq += 1;
+    contentQueryStatus.value = undefined;
+    loading.value = false;
     total.value = 0;
     totalKnown.value = true;
     querySummaryValues.value = [];
@@ -736,25 +741,37 @@ watch(
 );
 
 async function loadSchemaAndRecords() {
+  const requestSeq = ++schemaRequestSeq;
+  recordsRequestSeq += 1;
+  contentQueryStatus.value = undefined;
+  successfulRequest.value = undefined;
+  records.value = [];
+  total.value = 0;
+  totalKnown.value = true;
+  selectedRowKeys.value = [];
+  querySummaryValues.value = [];
   if (!queryReady.value) {
+    loading.value = false;
     return;
   }
   queryControllerRevision += 1;
-  const requestSeq = ++schemaRequestSeq;
+  const context = props.context;
   loading.value = true;
   descriptorLoadError.value = false;
   recordsLoadError.value = undefined;
   try {
-    loadedRuntimeListView.value = await loadRuntimeListView();
+    const nextRuntimeListView = await loadRuntimeListView(context);
+    if (requestSeq !== schemaRequestSeq) return;
     const nextSchema =
       props.querySchema ??
-      (await props.context.crud.querySchema({
+      (await context.crud.querySchema({
         uiConfigId: props.uiConfigId,
         queryTemplateId: props.queryTemplateId,
       }));
     if (requestSeq !== schemaRequestSeq) {
       return;
     }
+    loadedRuntimeListView.value = nextRuntimeListView;
     schema.value = nextSchema;
     if (
       props.requiredExternalCriteriaKeys.some(
@@ -814,17 +831,14 @@ async function loadSchemaAndRecords() {
   }
 }
 
-async function loadRuntimeListView(): Promise<ResolvedViewDescriptor | undefined> {
+async function loadRuntimeListView(
+  context: ModuleContext<QueryListRecord>,
+): Promise<ResolvedViewDescriptor | undefined> {
   if (props.columns && props.columns.length > 0) {
     return undefined;
   }
-  try {
-    const runtimeContext = await props.context.runtime.ready;
-    return runtimeContext.uiDescriptor?.page?.list?.fields;
-  } catch (cause) {
-    descriptorLoadError.value = true;
-    throw cause;
-  }
+  const runtimeContext = await context.runtime.ready;
+  return runtimeContext.uiDescriptor?.page?.list?.fields;
 }
 
 async function loadRecords(updateLoading = true) {

@@ -192,7 +192,9 @@ const sortingEnabled = computed(
     props.sorting &&
     props.mode === 'normal' &&
     !loading.value &&
+    !loadError.value &&
     !sortingRequest.value &&
+    !appliedSorts.value?.length &&
     !props.keyword.trim(),
 );
 
@@ -443,7 +445,12 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
   interactionRevision: () =>
-    JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value, pageNum: pageNum.value }),
+    JSON.stringify({
+      mode: props.mode,
+      keyword: assistantKeyword.value,
+      pageNum: pageNum.value,
+      sorts: appliedSorts.value,
+    }),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
     for (let attempt = 0; attempt < 8; attempt += 1) {

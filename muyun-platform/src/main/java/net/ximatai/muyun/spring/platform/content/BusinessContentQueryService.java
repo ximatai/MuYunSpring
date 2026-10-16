@@ -19,6 +19,9 @@ import java.util.*;
  */
 @Service
 public final class BusinessContentQueryService {
+    private static final String BLANK_CHARACTERS = java.util.stream.IntStream.rangeClosed(0, Character.MAX_CODE_POINT)
+            .filter(Character::isWhitespace).collect(StringBuilder::new, StringBuilder::appendCodePoint,
+                    StringBuilder::append).toString();
     private final DBInfo.Type databaseType;
     private final CriteriaSqlCompiler compiler = new CriteriaSqlCompiler();
     private static final ClassValue<Optional<EntityDefinition>> STATIC = new ClassValue<>() {
@@ -139,7 +142,7 @@ public final class BusinessContentQueryService {
             params.put(prefix + "field", field.content().key()); params.put(prefix + "language", tag);
             String target = ":" + prefix + "language";
             String sql = "select b." + quote("id") + " from " + table(entity) + " b where b."
-                    + quote(field.columnName()) + " is not null and trim(b." + quote(field.columnName()) + ") <> ''"
+                    + quote(field.columnName()) + " is not null and " + nonblank("b." + quote(field.columnName()), prefix, params)
                     + " and not exists (select 1 from platform_business_content_revision r where r.record_id = b." + quote("id")
                     + " and (r.tenant_id = b." + quote("tenant_id") + " or (r.tenant_id is null and b." + quote("tenant_id") + " is null))"
                     + " and " + originalScope(field, prefix)
@@ -174,12 +177,35 @@ public final class BusinessContentQueryService {
     }
 
     private static String effectiveReadingId(String target) {
+        // Each kind has its own indexed head. A confirmation must not require sorting every
+        // later machine refresh in this append-only slot merely to retain human priority.
+        return "coalesce(" + latestReadingId(target, "CONFIRMED") + ", " + latestReadingId(target, "MACHINE") + ")";
+    }
+
+    private static String latestReadingId(String target, String kind) {
         return "(select effective.id from platform_business_content_translation effective"
                 + " where " + slot("effective") + " and effective.language_tag = " + target
-                + " and effective.kind in ('CONFIRMED', 'MACHINE')"
+                + " and effective.kind = '" + kind + "'"
                 + " and effective.revision > coalesce((select max(removed.revision) from platform_business_content_translation removed where " + slot("removed")
                 + " and removed.language_tag = " + target + " and removed.kind = 'REMOVED'), 0)"
-                + " order by case when effective.kind = 'CONFIRMED' then 0 else 1 end, effective.revision desc limit 1)";
+                + " order by effective.revision desc limit 1)";
+    }
+
+    private String nonblank(String column, String prefix, Map<String, Object> params) {
+        // Match String.isBlank at the write boundary, independent of database locale or its
+        // broader/narrower regex whitespace classes (for example nonbreaking spaces).
+        if (databaseType != DBInfo.Type.MYSQL) {
+            params.put(prefix + "blank", BLANK_CHARACTERS);
+            return "btrim(" + column + ", :" + prefix + "blank) <> ''";
+        }
+        String stripped = column;
+        int[] characters = BLANK_CHARACTERS.codePoints().toArray();
+        for (int index = 0; index < characters.length; index++) {
+            String key = prefix + "blank_" + index;
+            params.put(key, Character.toString(characters[index]));
+            stripped = "replace(" + stripped + ", :" + key + ", '')";
+        }
+        return stripped + " <> ''";
     }
 
     private String originalSource(EntityDefinition entity) {
