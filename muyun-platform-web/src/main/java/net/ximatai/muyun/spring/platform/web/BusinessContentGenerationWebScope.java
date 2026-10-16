@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -12,6 +13,9 @@ import net.ximatai.muyun.spring.dynamic.runtime.*;
 import net.ximatai.muyun.spring.platform.content.*;
 import net.ximatai.muyun.spring.platform.menu.*;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
+import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationParentConstraint;
+import net.ximatai.muyun.spring.platform.ui.ResolvedUiRule;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,7 +30,7 @@ import java.util.function.Function;
 
 /** Reopens server-owned compiled entry constraints without fabricating an HTTP request or restoring permission snapshots. */
 @Component
-public final class BusinessContentGenerationWebScope implements BusinessContentGenerationScope {
+public final class BusinessContentGenerationWebScope implements BusinessContentGenerationScope, BusinessContentSubmissionScope {
     private static final String KEY = "standard-record-web";
     private final ApplicationContext context;
     private final ModuleExecutionPlanCatalog plans;
@@ -48,6 +52,44 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         this.tenantScopes = Objects.requireNonNull(tenantScopes);
     }
     @Override public String key() { return KEY; }
+
+    @Override public Optional<Submission> captureSubmission(BusinessContentOriginalChanged change) {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) return Optional.empty();
+        Object bean = context.getBean(handlerBean(attributes));
+        if (!(bean instanceof CrudWeb<?, ?> web) || !web.webScopeName().equals(change.owner().getModuleAlias()))
+            return Optional.empty();
+        var parent = web.service();
+        List<BusinessContentService.Location> locations = new ArrayList<>();
+        if (parent.getDao() instanceof DynamicRecordDao root && change.owner().getDao() instanceof DynamicRecordDao saved) {
+            if (root.getEntity().alias().equals(saved.getEntity().alias())) {
+                locations.add(BusinessContentService.Location.record(change.record().getId()));
+            } else {
+                var records = dynamics.getIfAvailable();
+                if (records != null) records.moduleDefinitions().stream().filter(module -> module.moduleAlias().equals(web.webScopeName()))
+                        .flatMap(module -> module.relations().stream())
+                        .filter(relation -> relation.parentEntityAlias().equals(root.getEntity().alias())
+                                && relation.childEntityAlias().equals(saved.getEntity().alias()))
+                        .forEach(relation -> addChildLocation(locations, change, relation.code(), relation.childForeignKeyField()));
+            }
+        } else if (parent.mutationServiceIdentity().equals(change.owner().mutationServiceIdentity())) {
+            locations.add(BusinessContentService.Location.record(change.record().getId()));
+        } else if (parent instanceof ChildrenAbility<?> aggregate) {
+            aggregate.childRelations().stream()
+                    .filter(relation -> relation.childAbility().mutationServiceIdentity().equals(change.owner().mutationServiceIdentity()))
+                    .forEach(relation -> addChildLocation(locations, change, relation.relationCode(), relation.childForeignKeyField()));
+        }
+        if (locations.size() != 1) return Optional.empty();
+        var location = locations.getFirst();
+        return Optional.of(new Submission(capture(web, location, change.field()), web.webScopeName(), location,
+                change.field(), change.originalRevisionId()));
+    }
+
+    private static void addChildLocation(List<BusinessContentService.Location> locations, BusinessContentOriginalChanged change,
+                                         String relation, String foreignKey) {
+        Object parentId = value(change.record(), foreignKey);
+        if (relation != null && parentId instanceof String id && !id.isBlank())
+            locations.add(new BusinessContentService.Location(id, relation, change.record().getId()));
+    }
 
     /** The descriptor is constructed from the authenticated handler and live server facts, never from request JSON. */
     public Reference capture(CrudWeb<?, ?> web, BusinessContentService.Location location, String field) {
@@ -79,8 +121,8 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         String beanName = handlerBean(attributes);
         Object bean = context.getBean(beanName);
         if (!(bean instanceof CrudWeb<?, ?>) || !AopUtils.getTargetClass(bean).equals(AopUtils.getTargetClass(web))) throw denied();
-        var descriptor = new Descriptor(module, location, field, beanName, AopUtils.getTargetClass(bean).getName(), plan.versionKey(),
-                valueVersion(bindings), menuRef, ownedEntry, scopeHashes, selection);
+        var descriptor = new Descriptor(module, location, field, beanName, AopUtils.getTargetClass(bean).getName(), planVersion(plan),
+                valueVersion(orderedBindings(bindings)), menuRef, ownedEntry, scopeHashes, selection);
         String payload = encode(descriptor);
         return new Reference(KEY, TextReference.versionOf(payload), payload);
     }
@@ -104,7 +146,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         if (!(bean instanceof CrudWeb<?, ?> web) || !AopUtils.getTargetClass(bean).getName().equals(saved.beanType())) throw denied();
         var plan = plans.find(module).orElseThrow(BusinessContentGenerationWebScope::denied);
         var bindings = PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings());
-        if (!plan.versionKey().equals(saved.planVersion()) || !valueVersion(bindings).equals(saved.bindingsVersion())
+        if (!planVersion(plan).equals(saved.planVersion()) || !valueVersion(orderedBindings(bindings)).equals(saved.bindingsVersion())
                 || !BusinessContentReadExposure.fields(plan, location.relationCode()).contains(field)) throw denied();
         // Dynamic plans do not duplicate the live module action registry. Reuse the same
         // published-action and governance resolution as ordinary static/dynamic HTTP entry points.
@@ -181,6 +223,25 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         if (owner instanceof DynamicRecord dynamic) return dynamic.getValue(field);
         throw denied();
     }
+
+    /** Cache revisions include JVM identities/counters. Durable work binds the actual compiled read contract instead. */
+    private String planVersion(ModuleExecutionPlan plan) {
+        var fields = plan.readModel().fields().stream().sorted(Comparator.comparing(this::encode)).toList();
+        var relations = plan.uiDescriptor().detailRelations().stream()
+                .filter(relation -> plan.moduleAlias().equals(relation.targetModuleAlias()))
+                .map(relation -> new ReadRelation(relation.code(), relation.sourceEntityAlias(), relation.targetModuleAlias(), relation.targetEntityAlias(),
+                        relation.parentBinding(), relation.parentConstraint(), relation.visible(),
+                        new TreeSet<>(BusinessContentReadExposure.fields(plan, relation.code()))))
+                .sorted(Comparator.comparing(ReadRelation::code)).toList();
+        var contract = new ReadContract(plan.moduleAlias(), plan.readModel().mainEntityAlias(), fields,
+                orderedBindings(PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings())),
+                plan.actions().stream().sorted(Comparator.comparing(StaticModuleActionDefinition::actionCode)).toList(),
+                plan.dataScopeEnabled(), relations);
+        return "content-read-v1:" + valueVersion(contract);
+    }
+    private List<PageContextBindingDefinition> orderedBindings(List<PageContextBindingDefinition> bindings) {
+        return bindings.stream().sorted(Comparator.comparing(this::encode)).toList();
+    }
     private String valueVersion(Object value) { return TextReference.versionOf(encode(value)); }
     private String encode(Object value) {
         try { return json.writeValueAsString(value); }
@@ -188,6 +249,12 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     }
     private static PlatformAccessDeniedException denied() { return new PlatformAccessDeniedException("Business content generation scope is unavailable"); }
     record MenuReference(String id, Instant createdAt, String moduleAlias, String paramsVersion) { }
+    private record ReadRelation(String code, String sourceEntityAlias, String moduleAlias, String entityAlias,
+                                String parentBinding, ResolvedDetailRelationParentConstraint parentConstraint,
+                                ResolvedUiRule<Boolean> visible, Set<String> fields) { }
+    private record ReadContract(String moduleAlias, String mainEntityAlias, List<ResolvedModuleReadField> fields,
+                                List<PageContextBindingDefinition> bindings, List<StaticModuleActionDefinition> actions,
+                                boolean dataScopeEnabled, List<ReadRelation> relations) { }
     record Descriptor(String moduleAlias, BusinessContentService.Location location, String field,
                       String beanName, String beanType, String planVersion, String bindingsVersion, MenuReference menu,
                       boolean ownedEntry, Map<String, String> scopeHashes, PageSelectionContextRequestHeader.SelectionReference selection) { }

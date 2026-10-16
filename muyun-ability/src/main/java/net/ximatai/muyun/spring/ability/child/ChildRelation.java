@@ -71,6 +71,9 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return childAbility;
     }
 
+    /** The same declared owning key used by aggregate reads and writes. */
+    public String childForeignKeyField() { return childForeignKeyField; }
+
     public List<C> incomingChildren(P parent) {
         return extractChildren.apply(parent);
     }

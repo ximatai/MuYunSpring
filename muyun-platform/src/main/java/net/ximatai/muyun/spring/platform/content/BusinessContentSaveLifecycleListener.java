@@ -4,15 +4,23 @@ import net.ximatai.muyun.spring.ability.*;
 import net.ximatai.muyun.spring.common.content.ContentWriteContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import java.util.*;
 
 /** Same transactional source capture for static records and dynamic aggregate children. */
 @Component
 public final class BusinessContentSaveLifecycleListener implements EntitySaveLifecycleListener {
     private final BusinessContentStore store;
+    private final ApplicationEventPublisher events;
     private final ThreadLocal<Map<EntityContract, Map<String, BusinessContentStore.Baseline>>> baselines =
             ThreadLocal.withInitial(IdentityHashMap::new);
-    public BusinessContentSaveLifecycleListener(BusinessContentStore store) { this.store = Objects.requireNonNull(store); }
+    public BusinessContentSaveLifecycleListener(BusinessContentStore store) { this(store, ignored -> { }); }
+    @Autowired
+    public BusinessContentSaveLifecycleListener(BusinessContentStore store, ApplicationEventPublisher events) {
+        this.store = Objects.requireNonNull(store); this.events = Objects.requireNonNull(events);
+    }
 
     @Override public <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T incoming) {
         var fields = BusinessContentFields.definitions(ability, incoming);
@@ -43,8 +51,14 @@ public final class BusinessContentSaveLifecycleListener implements EntitySaveLif
         T persisted = ability.selectActiveRaw(incoming.getId());
         if (persisted == null) throw new IllegalStateException("Saved business content record is unavailable");
         var inputs = ContentWriteContext.inputs(incoming);
-        fields.forEach((field, definition) -> store.capture(source(ability, persisted, definition.key()),
-                BusinessContentFields.text(persisted, field), inputs.get(field), before.get(field)));
+        fields.forEach((field, definition) -> {
+            var revision = store.capture(source(ability, persisted, definition.key()),
+                    BusinessContentFields.text(persisted, field), inputs.get(field), before.get(field));
+            if (revision != null && definition.policy() == ContentPolicy.AUTO_TRANSLATE
+                    && revision.getOriginalText() != null && !revision.getOriginalText().isBlank()
+                    && revision.getSourceLanguage() != null)
+                events.publishEvent(new BusinessContentOriginalChanged(ability, persisted, field, revision.getId()));
+        });
         if (incoming instanceof net.ximatai.muyun.spring.common.content.ContentLanguageInputs carrier) {
             Runnable restore = carrier.consumeContentLanguageInputs();
             TransactionScopeSupport.afterCompletionOrNow(() -> {}, restore);

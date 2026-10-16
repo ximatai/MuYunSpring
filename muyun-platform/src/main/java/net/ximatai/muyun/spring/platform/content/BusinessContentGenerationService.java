@@ -57,29 +57,46 @@ public final class BusinessContentGenerationService {
     /** Only trusted adapters construct execution scopes. No route means no executable generation row. */
     public Status request(BusinessContentGenerationScope.Reference scope, String moduleAlias, Location location,
                           String field, String language, boolean retry) {
+        return request(scope, moduleAlias, location, field, language, retry, null, false);
+    }
+
+    /** Submission adapters already own a savepoint inside the original write transaction. */
+    Status requestSubmitted(BusinessContentSubmissionScope.Submission submission, String language) {
+        if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Submission requires the original transaction");
+        return request(submission.scope(), submission.moduleAlias(), submission.location(), submission.field(), language,
+                false, Objects.requireNonNull(submission.originalRevisionId()), true);
+    }
+
+    private Status request(BusinessContentGenerationScope.Reference scope, String moduleAlias, Location location,
+                           String field, String language, boolean retry, String originalId, boolean transactional) {
         String tag = language(language); PlatformNameRules.requireModuleAlias(moduleAlias);
-        return adapter(scope).withAccess(scope, moduleAlias, location, field, parent -> tx.execute(status -> {
-            var target = locked(parent, location, field, () -> adapter(scope).withAccess(scope, moduleAlias, location, field,
-                    current -> content.target(current, location, field, PlatformAction.VIEW)));
-            var original = original(target);
-            var eligibility = eligibility(target, original, tag);
-            if (eligibility != null) return eligibility;
-            var version = OriginalVersion.of(original);
-            Integer expected = translations.state(target.source(), version, tag).revision();
-            if (!gateway.isTextGenerationAvailable()) return state("UNAVAILABLE", "MODEL_UNAVAILABLE");
-            String slot = slot(target.source(), version, tag, expected);
-            var previous = jobs.latest(slot);
-            if (previous != null && (ACTIVE.contains(previous.getStatus()) || !retry)) return view(previous);
-            var resolver = identities.getIfAvailable();
-            var identity = resolver == null ? null : resolver.capture(moduleAlias, PlatformAction.VIEW.code()).orElse(null);
-            if (identity == null) return state("UNAVAILABLE", "IDENTITY_UNAVAILABLE");
-            var route = Routing.capture();
-            var request = new Request(moduleAlias, location, field, version.revisionId(), version.revision(), tag, expected,
-                    identity, route, scope, BusinessContentTextTranslator.POLICY_VERSION);
-            int sequence = previous == null ? 1 : Math.addExact(previous.getSequence(), 1);
-            String payload = encode(request);
-            return view(jobs.insert(target.source(), slot, sequence, hash(payload + ":" + sequence), payload, clock.instant()));
-        }));
+        return adapter(scope).withAccess(scope, moduleAlias, location, field, parent -> {
+            Supplier<Status> work = () -> {
+                var target = locked(parent, location, field, () -> adapter(scope).withAccess(scope, moduleAlias, location, field,
+                        current -> content.target(current, location, field, PlatformAction.VIEW)));
+                var original = original(target);
+                if (originalId != null && (original == null || !originalId.equals(original.getId())))
+                    return state("STALE", "SOURCE_OR_TRANSLATION_CHANGED");
+                var eligibility = eligibility(target, original, tag);
+                if (eligibility != null) return eligibility;
+                var version = OriginalVersion.of(original);
+                Integer expected = translations.state(target.source(), version, tag).revision();
+                if (!gateway.isTextGenerationAvailable()) return state("UNAVAILABLE", "MODEL_UNAVAILABLE");
+                String slot = slot(target.source(), version, tag, expected);
+                var previous = jobs.latest(slot);
+                if (previous != null && (ACTIVE.contains(previous.getStatus()) || !retry)) return view(previous);
+                var resolver = identities.getIfAvailable();
+                var identity = resolver == null ? null : resolver.capture(moduleAlias, PlatformAction.VIEW.code()).orElse(null);
+                if (identity == null) return state("UNAVAILABLE", "IDENTITY_UNAVAILABLE");
+                var route = Routing.capture();
+                var request = new Request(moduleAlias, location, field, version.revisionId(), version.revision(), tag, expected,
+                        identity, route, scope, BusinessContentTextTranslator.POLICY_VERSION);
+                int sequence = previous == null ? 1 : Math.addExact(previous.getSequence(), 1);
+                String payload = encode(request);
+                return view(jobs.insert(target.source(), slot, sequence, hash(payload + ":" + sequence), payload, clock.instant()));
+            };
+            return transactional ? work.get() : tx.execute(status -> work.get());
+        });
     }
 
     /** Authorized, read-only status lookup. It does not enqueue, retry or invoke a model. */

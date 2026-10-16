@@ -47,7 +47,7 @@ class BusinessContentStore {
         }
     }
 
-    void capture(BusinessContentSource source, String text, SourceInput input, Baseline baseline) {
+    BusinessContentRevision capture(BusinessContentSource source, String text, SourceInput input, Baseline baseline) {
         if (!TransactionScopeSupport.isTransactionActive()) throw new IllegalStateException("Business content requires a transaction");
         lockRecord(source);
         var previous = latest(source);
@@ -59,10 +59,10 @@ class BusinessContentStore {
                     previous == null ? 1 : Math.addExact(previous.getRevision(), 1));
         boolean sameText = previous != null && Objects.equals(previous.getOriginalText(), text);
         String language = input != null ? input.languageTag() : sameText ? previous.getSourceLanguage() : null;
-        if (sameText && Objects.equals(previous.getSourceLanguage(), language)) return;
+        if (sameText && Objects.equals(previous.getSourceLanguage(), language)) return null;
         String author = sameText ? originalAuthor(previous) : currentActor();
         Instant authoredAt = sameText ? originalAuthoredAt(previous) : Instant.now();
-        append(source, text, language, author, sameText ? previous.getOriginalAuthorName() : currentActorName(), authoredAt, sameText ? "SOURCE_LANGUAGE_CORRECTION" : "ORIGINAL_WRITE",
+        return append(source, text, language, author, sameText ? previous.getOriginalAuthorName() : currentActorName(), authoredAt, sameText ? "SOURCE_LANGUAGE_CORRECTION" : "ORIGINAL_WRITE",
                 previous == null ? 1 : Math.addExact(previous.getRevision(), 1));
     }
 

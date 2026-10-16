@@ -132,6 +132,92 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         }
     }
 
+    @Test void originalSubmissionAtomicallyRegistersPrimaryLanguagesAndRestartedWorkerUsesTheAuthor() {
+        installSubmissions("zh-CN,en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN");
+            var queued = jobDao.query(Criteria.of().eq("recordId", row.getId()), PageRequest.of(1, 10));
+            assertThat(queued).hasSize(2).allSatisfy(job -> {
+                assertThat(job.getStatus()).isEqualTo("PENDING");
+                assertThat(job.getRequestJson()).contains("\"userId\":\"cn\"").doesNotContain(RAW);
+            });
+            verify(gateway, never()).generate(any());
+            when(gateway.generate(any())).thenAnswer(invocation -> {
+                assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("cn");
+                assertThat(TransactionScopeSupport.isTransactionActive()).isFalse(); return response(EN);
+            });
+            assertThat(restarted().runOne()).isTrue();
+            assertThat(restarted().runOne()).isTrue();
+            assertThat(maintenance.read(service, location(row), "en").fields().get("description").text()).isEqualTo(EN);
+            int count = jobDao.query(Criteria.of(), PageRequest.of(1, 100)).size();
+            service.update(service.select(row.getId()));
+            assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 100))).hasSize(count);
+        }
+    }
+
+    @Test void submissionFollowsOriginalRollbackAndCoalescesMultipleWritesOfTheSameField() {
+        installSubmissions("en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var rolledBack = tx.execute(status -> { var row = insert(RAW, "zh-CN"); status.setRollbackOnly(); return row.getId(); });
+            assertThat(dao.findById(rolledBack)).isNull();
+            assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+            var row = tx.execute(status -> {
+                var saved = insert(RAW, "zh-CN"); var next = service.select(saved.getId()); next.setDescription(RAW + " 请暂停处理。");
+                try (var input = input(next, "zh-CN", 1)) { service.update(next); } return next;
+            });
+            var current = originals.latest(source(row));
+            assertThat(current.getRevision()).isEqualTo(2);
+            assertThat(jobDao.query(Criteria.of().eq("recordId", row.getId()), PageRequest.of(1, 10)))
+                    .hasSize(2).allSatisfy(job -> assertThat(job.getRequestJson()).contains(current.getId()));
+        }
+    }
+
+    @Test void unavailableModelsUnknownLanguagesAndWithdrawnSubmissionScopesLeaveOriginalSavesUsable() {
+        installSubmissions("en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            when(gateway.isTextGenerationAvailable()).thenReturn(false);
+            var noModel = insert(RAW, "zh-CN");
+            when(gateway.isTextGenerationAvailable()).thenReturn(true);
+            var unknown = insert(RAW, null);
+            scopeActive.set(false); var denied = insert(RAW, "zh-CN");
+            assertThat(service.select(noModel.getId())).isNotNull();
+            assertThat(service.select(unknown.getId())).isNotNull();
+            assertThat(service.select(denied.getId())).isNotNull();
+            assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+            scopeActive.set(true);
+            // Installing a connection later is not a request to translate existing records.
+            assertThat(engine.runOne()).isFalse(); verify(gateway, never()).generate(any());
+        }
+    }
+
+    @Test void queueDatabaseFailureRollsBackItsSavepointWithoutLosingTheOriginalOrLeavingPartialJobs() {
+        installSubmissions("en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var calls = new AtomicInteger();
+            scopeGuard = location -> {
+                if (calls.incrementAndGet() == 3) new org.springframework.jdbc.core.JdbcTemplate(dataSource)
+                        .queryForObject("select 1 / 0", Integer.class);
+            };
+            var row = insert(RAW, "zh-CN");
+            assertThat(service.select(row.getId()).getDescription()).isEqualTo(RAW);
+            assertThat(originals.latest(source(row)).getOriginalText()).isEqualTo(RAW);
+            assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+            verify(gateway, never()).generate(any());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void installSubmissions(String languages) {
+        ObjectProvider<BusinessContentSubmissionScope> adapters = mock(ObjectProvider.class);
+        when(adapters.orderedStream()).thenAnswer(invocation -> Stream.of((BusinessContentSubmissionScope) change ->
+                Optional.of(new BusinessContentSubmissionScope.Submission(SCOPE, MODULE,
+                        BusinessContentService.Location.record(change.record().getId()), change.field(), change.originalRevisionId()))));
+        var submissions = new BusinessContentSubmissionService(gateway, engine, adapters, transactions, languages);
+        var sourceListener = new BusinessContentSaveLifecycleListener(originals,
+                event -> submissions.originalChanged((BusinessContentOriginalChanged) event));
+        PlatformAbilityRuntime.configureEntitySaveLifecycleListener(new CompositeEntitySaveLifecycleListener(List.of(sourceListener)));
+    }
+
     @Test void unknownSourceLanguageAndAlreadyMatchingOriginalDoNotCreateModelWork() {
         try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var unknown = insert(RAW, null);

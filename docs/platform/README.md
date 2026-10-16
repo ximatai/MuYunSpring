@@ -56,7 +56,7 @@
 | [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
 | [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md)           | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。                                   |
 | [国际化专项治理](INTERNATIONALIZATION_GOVERNANCE.md)                       | 规定平台与业务填报界面的多语言目标、统一译法、译文独立发布、语言资源交付及业务内容多语言的阶段计划。                 |
-| [业务内容多语言专项治理](BUSINESS_CONTENT_MULTILINGUAL_GOVERNANCE.md)       | 实施中：阶段一来源与真实填报已完成，人工译文互读与维护已接入；自动生成、查询与 Excel 业务闭环仍待交付。 |
+| [业务内容多语言专项治理](BUSINESS_CONTENT_MULTILINGUAL_GOVERNANCE.md)       | 实施中：阶段一来源与真实填报、阶段二自动阅读与人工维护已验收；查询、引用及提交后预生成已接入，受控补齐、流程及 Excel 完整闭环继续交付。 |
 | [平台与智能助手协作建设方案](AI_COLLABORATION_ROADMAP.md)                 | 统一平台治理、智能体治理与交付演练的建设顺序，维护主干、分支取舍、代码证据、进度与下一步计划。                     |
 | [智能助手能力融合专项治理](AI_ASSISTANT_GOVERNANCE.md)                    | 维护助手分层、Surface 与能力适配、字段投影、确认执行、会话恢复和模型诊断契约；建设进度统一由协作方案维护。           |
 

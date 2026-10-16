@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.child.*;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.*;
@@ -15,6 +16,10 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import org.junit.jupiter.api.*;
 import org.springframework.context.support.GenericApplicationContext;
@@ -109,6 +114,9 @@ class BusinessContentGenerationWebScopeTest {
         assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
                 .isInstanceOf(PlatformAccessDeniedException.class);
         row.setProjectId("project-one"); plan("two", List.of(binding));
+        assertThat(scope.<String>withAccess(reference, MODULE, LOCATION, "description", ability -> "allowed"))
+                .isEqualTo("allowed"); // A rebuilt cache is not a changed business read contract.
+        plan("three", List.of());
         assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
@@ -218,6 +226,98 @@ class BusinessContentGenerationWebScopeTest {
         verifyNoInteractions(content);
     }
 
+    @Test void submittedRootUsesTheActualSavingServiceAndRetainsTheNormalReadingScope() {
+        when(controller.service.mutationServiceIdentity()).thenCallRealMethod();
+        var change = new BusinessContentOriginalChanged(controller.service, row, "description", "original-one");
+        var submission = scope.captureSubmission(change).orElseThrow();
+        assertThat(submission.location()).isEqualTo(LOCATION);
+        assertThat(submission.originalRevisionId()).isEqualTo("original-one");
+        assertThat(scope.<CrudAbility<?>>withAccess(submission.scope(), MODULE, LOCATION, "description", ability -> ability))
+                .isSameAs(controller.service);
+        CrudAbility<?> other = mock(CrudAbility.class);
+        when(other.getModuleAlias()).thenReturn("other.module");
+        assertThat(scope.captureSubmission(new BusinessContentOriginalChanged(other, row, "description", "original-one"))).isEmpty();
+        RequestContextHolder.resetRequestAttributes();
+        assertThat(scope.captureSubmission(change)).isEmpty();
+    }
+
+    @Test void durableReadContractSurvivesIndependentCacheRebuildAndFieldOrderingButRejectsChangedExecutionFacts() {
+        var original = plans.find(MODULE).orElseThrow();
+        var description = new ResolvedModuleReadField("main", null, "description", false);
+        var project = new ResolvedModuleReadField("main", null, "projectId", false);
+        var first = new ModuleExecutionPlan(MODULE, "static-first-jvm-cache", original.uiDescriptor(),
+                new ResolvedModuleReadModel(MODULE, "main", List.of(description, project)), List.of(), null, null,
+                List.of(), original.actions(), true);
+        when(plans.find(MODULE)).thenReturn(Optional.of(first));
+        var reference = scope.capture(controller, LOCATION, "description");
+        var rebuilt = new ModuleExecutionPlan(MODULE, "static-second-jvm-cache", original.uiDescriptor(),
+                new ResolvedModuleReadModel(MODULE, "main", List.of(project, description)), List.of(), null, null,
+                List.of(), original.actions(), true);
+        when(plans.find(MODULE)).thenReturn(Optional.of(rebuilt));
+        assertThat(scope.<String>withAccess(reference, MODULE, LOCATION, "description", ability -> "allowed")).isEqualTo("allowed");
+        var changed = new ModuleExecutionPlan(MODULE, rebuilt.versionKey(), rebuilt.uiDescriptor(), rebuilt.readModel(),
+                List.of(), null, null, List.of(), rebuilt.actions(), false);
+        when(plans.find(MODULE)).thenReturn(Optional.of(changed));
+        assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+    }
+
+    @Test @SuppressWarnings("unchecked") void submittedStaticChildUsesItsDeclaredOwningKeyAndRejectsAmbiguousRelations() {
+        var aggregate = mock(Aggregate.class); controller.service = aggregate;
+        when(aggregate.getModuleAlias()).thenReturn(MODULE); when(aggregate.mutationServiceIdentity()).thenCallRealMethod();
+        ChildAbility<Row> child = mock(ChildAbility.class);
+        when(child.getModuleAlias()).thenReturn(MODULE); when(child.mutationServiceIdentity()).thenCallRealMethod();
+        var relation = new ChildRelation<Row, Row>("details", child, (record, id) -> record.setProjectId(id),
+                "projectId", ignored -> List.of(), Row::getProjectId);
+        when(aggregate.childRelations()).thenReturn(List.of(relation)); childPlan();
+        var saved = new Row(); saved.setId("child"); saved.setProjectId("record");
+        var change = new BusinessContentOriginalChanged(child, saved, "description", "child-original");
+        assertThat(scope.captureSubmission(change).orElseThrow().location())
+                .isEqualTo(new BusinessContentService.Location("record", "details", "child"));
+        var captured = scope.captureSubmission(change).orElseThrow();
+        var relationView = plans.find(MODULE).orElseThrow().uiDescriptor().detailRelations().getFirst();
+        when(relationView.parentBinding()).thenReturn("changedOwnerKey");
+        assertThatThrownBy(() -> scope.withAccess(captured.scope(), MODULE, captured.location(), "description", ability -> "not allowed"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        when(aggregate.childRelations()).thenReturn(List.of(relation, relation));
+        assertThat(scope.captureSubmission(change)).isEmpty();
+    }
+
+    @Test @SuppressWarnings("unchecked") void submittedDynamicChildUsesPublishedEntityOwnershipAndFieldExposure() {
+        var rootDao = mock(DynamicRecordDao.class); var childDao = mock(DynamicRecordDao.class);
+        var root = mock(EntityDefinition.class); when(root.alias()).thenReturn("main"); when(rootDao.getEntity()).thenReturn(root);
+        var detail = mock(EntityDefinition.class); when(detail.alias()).thenReturn("inspection"); when(childDao.getEntity()).thenReturn(detail);
+        doReturn(rootDao).when(controller.service).getDao();
+        CrudAbility<DynamicRecord> child = mock(CrudAbility.class); when(child.getModuleAlias()).thenReturn(MODULE);
+        doReturn(childDao).when(child).getDao();
+        var module = mock(ModuleDefinition.class); when(module.moduleAlias()).thenReturn(MODULE);
+        when(module.relations()).thenReturn(List.of(EntityRelationDefinition.child("details", "main", "inspection", "ownerId")));
+        when(dynamics.moduleDefinitions()).thenReturn(List.of(module)); childPlan();
+        var saved = mock(DynamicRecord.class); when(saved.getId()).thenReturn("child"); when(saved.getValue("ownerId")).thenReturn("record");
+        var change = new BusinessContentOriginalChanged(child, saved, "description", "child-original");
+        assertThat(scope.captureSubmission(change).orElseThrow().location())
+                .isEqualTo(new BusinessContentService.Location("record", "details", "child"));
+        assertThatThrownBy(() -> scope.captureSubmission(new BusinessContentOriginalChanged(child, saved, "hidden", "child-original")))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        when(module.relations()).thenReturn(List.of(EntityRelationDefinition.child("details", "unrelated", "inspection", "ownerId")));
+        assertThat(scope.captureSubmission(change)).isEmpty();
+    }
+
+    private void childPlan() {
+        var plan = plans.find(MODULE).orElseThrow();
+        var detail = mock(ResolvedDetailRelationDescriptor.class);
+        when(detail.code()).thenReturn("details"); when(detail.targetModuleAlias()).thenReturn(MODULE);
+        when(detail.targetEntityAlias()).thenReturn("inspection");
+        when(plan.uiDescriptor().detailRelations()).thenReturn(List.of(detail));
+        var updated = new ModuleExecutionPlan(MODULE, plan.versionKey(), plan.uiDescriptor(),
+                new ResolvedModuleReadModel(MODULE, "main", List.of(
+                        new ResolvedModuleReadField("main", null, "description", false),
+                        new ResolvedModuleReadField("inspection", "details", "description", false))), List.of());
+        when(plans.find(MODULE)).thenReturn(Optional.of(updated));
+    }
+
+    interface Aggregate extends CrudAbility<Row>, ChildrenAbility<Row> { }
+
     private void plan(String version, List<PageContextBindingDefinition> bindings) {
         controller.bindings = bindings;
         var ui = mock(ResolvedModuleUiDescriptor.class); when(ui.moduleAlias()).thenReturn(MODULE); when(ui.detailRelations()).thenReturn(List.of());
@@ -227,7 +327,7 @@ class BusinessContentGenerationWebScopeTest {
         when(plans.find(MODULE)).thenReturn(Optional.of(plan));
     }
     static class Controller implements CrudWeb<Row, CrudAbility<Row>> {
-        @SuppressWarnings("unchecked") final CrudAbility<Row> service = mock(CrudAbility.class);
+        @SuppressWarnings("unchecked") CrudAbility<Row> service = mock(CrudAbility.class);
         List<PageContextBindingDefinition> bindings = List.of(); boolean denied; boolean serviceNeedsRequest;
         ModulePageEntryPolicy<Row> policy;
         PageSelectionContextResolverRegistry resolvers = new PageSelectionContextResolverRegistry(List.of());
