@@ -149,6 +149,8 @@ async function open() {
 async function loadHistory(page: number) {
   if (!props.context || !id.value || !historyOriginal.value) return;
   const token = ++historyGeneration;
+  history.value = [];
+  historyPage.value = page;
   historyLoading.value = true;
   historyFailed.value = false;
   try {
@@ -165,7 +167,6 @@ async function loadHistory(page: number) {
     );
     if (token === historyGeneration) {
       history.value = rows;
-      historyPage.value = page;
     }
   } catch {
     if (token === historyGeneration) historyFailed.value = true;

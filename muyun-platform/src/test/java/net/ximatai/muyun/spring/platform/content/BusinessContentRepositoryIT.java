@@ -280,7 +280,17 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();
             assertThat(translationService.history(service, location, "title", "en", initial.original().revisionId(),
                     initial.original().revision(), HISTORY, PlatformAction.CONTENT_EDIT)).hasSize(2);
-            translationService.remove(service, location, "title", "en", change(currentConfirmed, null, null));
+            var removed = translationService.remove(service, location, "title", "en", change(currentConfirmed, null, null));
+            assertThat(removed.previousHuman()).isNull();
+            assertThat(translationService.history(service, location, "title", "en", initial.original().revisionId(),
+                    initial.original().revision(), HISTORY, PlatformAction.CONTENT_EDIT)).hasSize(2);
+            assertThat(translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT).previousHuman()).isNull();
+            assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();
+            var restarted = translationService.saveDraft(service, location, "title", "en", change(removed, "New explicit draft", null));
+            assertThat(restarted.previousHuman()).isNull();
+            assertThat(restarted.draft().text()).isEqualTo("New explicit draft");
+            assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();
+            translationService.remove(service, location, "title", "en", change(restarted, null, null));
             edited = service.select(row.getId()); edited.setTitle("50°C，暂勿发货"); service.update(edited);
             assertThat(translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT).previousHuman()).isNull();
             assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();

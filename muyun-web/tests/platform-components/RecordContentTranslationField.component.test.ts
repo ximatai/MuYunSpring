@@ -114,7 +114,9 @@ function host(
   return { wrapper, language, contentLanguage, record };
 }
 function button(wrapper: VueWrapper, text: string) {
-  const found = wrapper.findAll('button').find((value) => value.text() === text);
+  const found = wrapper
+    .findAll('button')
+    .find((value) => value.text().replace(/\s+/g, '') === text.replace(/\s+/g, ''));
   expect(found, text).toBeDefined();
   return found!;
 }
@@ -123,6 +125,64 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it('clears the previous source history while a source switch is pending and retries the failed first page', async () => {
+    const maintained = {
+      ...state(),
+      previousHuman: {
+        original: { ...original, revisionId: 'earlier-original', revision: 2 },
+        translation: translation('CONFIRMED', 8, 'Earlier reference text'),
+      },
+    };
+    let currentLoads = 0;
+    let rejectSwitch!: (error: Error) => void;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return reading();
+      if (!options.path.endsWith('/history')) return maintained;
+      if (options.query?.sourceRevisionId === 'earlier-original') {
+        return options.query.page === 1
+          ? Array.from({ length: 20 }, (_, index) =>
+              translation('DRAFT', 20 - index, `Earlier first page ${index}`),
+            )
+          : [translation('DRAFT', 1, 'Earlier history page two')];
+      }
+      if (++currentLoads === 2)
+        return new Promise((_, reject) => {
+          rejectSwitch = reject;
+        });
+      return [translation('CONFIRMED', 2, 'Current history row')];
+    });
+    const { wrapper } = host(request);
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    await button(wrapper, '查看旧参考的译文历史').trigger('click');
+    await flushPromises();
+    await button(wrapper, '下一页').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Earlier history page two');
+    await button(wrapper, '查看当前原文的译文历史').trigger('click');
+    await flushPromises();
+    expect.soft(wrapper.text()).not.toContain('Earlier history page two');
+    rejectSwitch(new Error('history unavailable'));
+    await flushPromises();
+    expect.soft(wrapper.text()).not.toContain('Earlier history page two');
+    expect(wrapper.text()).toContain('暂时无法读取历史，请重试');
+    await button(wrapper, '重试').trigger('click');
+    await flushPromises();
+    expect(
+      requests(request)
+        .filter((row) => row.path.endsWith('/history'))
+        .at(-1)?.query,
+    ).toMatchObject({
+      sourceRevisionId: original.revisionId,
+      sourceRevision: original.revision,
+      page: 1,
+    });
+    expect(wrapper.text()).toContain('Current history row');
+    expect(wrapper.text()).not.toContain('Earlier history page two');
+    wrapper.unmount();
+  });
+
   it('reviews an earlier human translation without reusing its confirmation or original identity', async () => {
     const previousOriginal = {
       ...original,

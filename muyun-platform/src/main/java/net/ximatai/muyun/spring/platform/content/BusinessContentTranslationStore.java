@@ -63,8 +63,12 @@ class BusinessContentTranslationStore {
     }
 
     private BusinessContentTranslation previousHuman(BusinessContentSource source, OriginalVersion current, String language, List<String> kinds) {
+        String tag = language(language);
+        // Deleting this language also discards suggestions from earlier originals. A new
+        // current draft is allowed, but must not bring those discarded suggestions back.
+        if (current.revision() == 1 || latest(slot(source, current, tag).eq("kind", "REMOVED")) != null) return null;
         var row = translations.query(identity(source).lt("sourceRevision", current.revision())
-                        .eq("languageTag", language(language)).in("kind", kinds),
+                        .eq("languageTag", tag).in("kind", kinds),
                 PageRequest.of(1, 1), Sort.desc("sourceRevision"), Sort.desc("revision")).stream().findFirst().orElse(null);
         return row == null || "REMOVED".equals(row.getKind()) ? null : row;
     }
