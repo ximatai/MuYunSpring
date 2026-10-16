@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import java.util.Map;
+import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
@@ -111,6 +112,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         validateConfigurationFieldChange(existing, field);
         if (!MetadataFieldPropertyMutationContext.active() && existing != null
                 && (!Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                || Objects.requireNonNullElse(existing.getContentPolicy(), ContentPolicy.KEEP_ORIGINAL) != field.getContentPolicy()
                 || Boolean.TRUE.equals(existing.getRequired()) != Boolean.TRUE.equals(field.getRequired()))) {
             fieldConfigServiceProvider.getObject().validateSharedFieldBehavior(field, null, null);
         }

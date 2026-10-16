@@ -242,6 +242,17 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
             definition = definition.dictionary(dictionary.getDictionaryApplicationAlias(), dictionary.getDictionaryCategoryAlias(),
                     dictionary.getSelectionMode());
         }
+        if (field.getContentPolicy() != null && field.getContentPolicy().enabled()) {
+            if (Boolean.TRUE.equals(field.getSystemManaged()))
+                throw new IllegalArgumentException("System fields cannot declare business content: " + field.getFieldName());
+            // A staged ADD has no persistent field identity yet; this key is validation-only.
+            definition = definition.protection(protectionConfigService.definition(field.getId()))
+                    .storageForm(field.getFieldForm() == MetadataFieldForm.VIRTUAL
+                            ? net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm.VIRTUAL
+                            : net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm.PHYSICAL)
+                    .content(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition(
+                            field.getId() == null ? "unpersisted-field" : field.getId(), field.getContentPolicy()));
+        }
         FieldBehaviorSupport.validateBehavior(definition);
         Object normalized = definition.behavior().writeRules().normalize(
                 FieldBehaviorSupport.parseDefaultValue(definition.type(), behavior.defaultValue()));

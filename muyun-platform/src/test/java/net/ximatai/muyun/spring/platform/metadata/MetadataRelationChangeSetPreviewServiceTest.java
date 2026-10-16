@@ -32,6 +32,31 @@ import static org.mockito.ArgumentMatchers.nullable;
 
 class MetadataRelationChangeSetPreviewServiceTest {
     @Test
+    void shouldRejectBusinessContentOnNewAndExistingReferenceIdentities() {
+        var reference = new MetadataFieldReferenceConfig(); reference.setTargetModuleAlias("crm.company");
+        var field = businessField("companyId", "company_id", "string");
+        field.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE);
+        var fixture = fixture(RelationRole.MAIN, List.of());
+        var addition = fixture.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                                MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
+        assertThat(addition.valid()).isFalse();
+        assertThat(addition.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("Reference identity"));
+
+        var existing = businessField("companyId", "company_id", "string"); existing.setVersion(2);
+        var shared = fixture(RelationRole.MAIN, List.of(existing));
+        when(shared.referenceConfigService.count(any(Criteria.class))).thenReturn(1L);
+        field.setId("field-0");
+        var update = shared.service.preview("crm.customer", "main", command(3, Map.of(), List.of(
+                new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE, "field-0", 2, field))));
+        assertThat(update.valid()).isFalse();
+        assertThat(update.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("Reference identity"));
+    }
+
+    @Test
     void shouldRejectDefaultsOutsideTheInheritedPhysicalShapeBeforePublication() {
         MetadataField existing = businessField("code", "code", "string"); existing.setVersion(2);
         Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));

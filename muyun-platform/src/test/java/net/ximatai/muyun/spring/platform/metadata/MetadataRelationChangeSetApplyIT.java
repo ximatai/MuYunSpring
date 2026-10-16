@@ -100,6 +100,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private ModuleMetadataFieldService moduleFields;
     @Autowired private MetadataFieldReferenceConfigService referenceConfigs;
     @Autowired private MetadataFieldDefinitionCompiler fieldCompiler;
+    @Autowired private MetadataFieldProtectionConfigService protections;
     @Autowired private DictionaryItemService dictionaryItems;
     @Autowired private PlatformModuleService moduleService;
     @Autowired private TestSchemaEnsureService schemaEnsureService;
@@ -205,6 +206,62 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @AfterEach
     void resetChildCreationTransactionRuntime() {
         PlatformAbilityRuntime.resetMutationTransactionOperator();
+    }
+
+    @Test
+    void contentPolicyPreflightRejectsNumericProtectedAndFinalDictionaryFieldsWithoutPublishing() {
+        var automatic = net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE;
+        var numeric = proposal("quantity", "quantity", "integer", false);
+        numeric.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var numericPreview = previewService.preview(moduleAlias, relationId, numeric);
+        assertThat(numericPreview.valid()).isFalse();
+        assertThat(numericPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(numeric, numericPreview.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        assertThat(columnExists(metadata.getTableName(), "quantity")).isFalse();
+
+        var create = proposal("description", "description", stringSpecAlias, false);
+        var checked = previewService.preview(moduleAlias, relationId, create);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(create, checked.proposalFingerprint()));
+        var saved = field("description");
+        var protection = new MetadataFieldProtectionConfig();
+        protection.setMetadataFieldId(saved.getId());
+        protection.setMaskingPolicy(net.ximatai.muyun.spring.common.security.FieldMaskingPolicy.FULL);
+        protections.insert(protection);
+        var protectedUpdate = fieldSpecChangeProposal(saved, stringSpecAlias);
+        protectedUpdate.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var protectedPreview = previewService.preview(moduleAlias, relationId, protectedUpdate);
+        assertThat(protectedPreview.valid()).isFalse();
+        assertThat(protectedPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThat(field("description").getContentPolicy())
+                .isEqualTo(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+
+        var dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryApplicationAlias("crm"); dictionary.setDictionaryCategoryAlias("state");
+        dictionary.setSelectionMode(OptionSelectionMode.SINGLE);
+        var addition = proposal("state", "state", stringSpecAlias, false);
+        var field = addition.fieldDrafts().getFirst().field(); field.setContentPolicy(automatic);
+        var combined = new MetadataRelationChangeSetPreviewCommand(addition.expectedMetadataVersion(), Map.of(),
+                List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null, dictionary))));
+        var dictionaryPreview = previewService.preview(moduleAlias, relationId, combined);
+        assertThat(dictionaryPreview.valid()).isFalse();
+        assertThat(dictionaryPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThat(columnExists(metadata.getTableName(), "state")).isFalse();
+
+        protection.setEnabled(false); protections.update(protection);
+        var other = new MetadataFieldConfig();
+        other.setMetadataFieldId(saved.getId()); other.setRelationId(anotherModuleRelation());
+        other.setDictionaryApplicationAlias("crm"); other.setDictionaryCategoryAlias("state");
+        other.setSelectionMode(OptionSelectionMode.SINGLE); fieldConfigs.insert(other);
+        var sharedPreview = previewService.preview(moduleAlias, relationId, protectedUpdate);
+        assertThat(sharedPreview.valid()).as("field policy must remain valid in every relation").isFalse();
+        assertThat(sharedPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
     }
 
     @Test
