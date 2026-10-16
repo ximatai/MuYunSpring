@@ -23,6 +23,13 @@ public final class ActingContextHolder {
         CURRENT.remove();
     }
 
+    /** Resolves a delegation as its actual operator, without inheriting an ambient principal. */
+    public static Scope without() {
+        ActingContext previous = CURRENT.get();
+        CURRENT.remove();
+        return new Scope(previous);
+    }
+
     public static final class Scope implements AutoCloseable {
         private final ActingContext previous;
 

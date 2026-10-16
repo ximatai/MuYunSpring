@@ -31,6 +31,13 @@ public final class CurrentUserContext {
         CURRENT.remove();
     }
 
+    /** Isolates trusted resolution/control work without substituting another actor. */
+    public static Scope without() {
+        CurrentUser previous = CURRENT.get();
+        CURRENT.remove();
+        return new Scope(previous);
+    }
+
     public static final class Scope implements AutoCloseable {
         private final CurrentUser previous;
 

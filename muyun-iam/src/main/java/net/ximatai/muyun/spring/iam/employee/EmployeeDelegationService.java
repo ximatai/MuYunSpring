@@ -205,7 +205,8 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
                 ? BusinessPrincipal.employee(principal.getId(), principal.getOrganizationId(), principal.getDepartmentId())
                 : BusinessPrincipal.employeePosition(principal.getId(), principalPosition.getOrganizationId(),
                 principalPosition.getDepartmentId(), principalPosition.getId());
-        return new ActingContext(matched.getId(), validOperator, businessPrincipal, validModuleAlias, validActionCode);
+        return new ActingContext(matched.getId(), validOperator, businessPrincipal, validModuleAlias, validActionCode,
+                validDelegatePosition);
     }
 
     private EmployeeDelegation requirePrincipalDelegation(String principalEmployeeId, String delegationId) {

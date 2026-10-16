@@ -6,6 +6,9 @@ import net.ximatai.muyun.database.core.orm.SimpleEntityManager;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
@@ -23,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +35,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = UserLoginStateRepositoryIT.Application.class)
@@ -99,6 +104,39 @@ class UserLoginStateRepositoryIT {
         assertThat(stored.getLastLoginAt()).isEqualTo(time);
         assertThat(stored.getLastLoginIp()).isEqualTo("127.0.0.1");
         assertThat(stored.getPasswordHash()).isEqualTo("original-hash");
+    }
+
+    @Test
+    void deferredIdentityUsesTheRealAccountTenantAndRechecksPersistedAccountChanges() {
+        UserAccount user = insertUser("tenant-deferred-owner");
+        VersionedRecordMutation.update(dao, () -> dao.findById(user.getId()), current -> {
+            current.setPasswordStatus(PasswordStatus.NORMAL);
+            current.setEnabled(true);
+        });
+        @SuppressWarnings("unchecked")
+        var delegations = (org.springframework.beans.factory.ObjectProvider<EmployeeDelegationService>)
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        var resolver = new IamTrustedExecutionIdentityResolver(service, tenant -> {},
+                UserSessionCollaborators.empty(), delegations, Clock.systemUTC());
+        var operator = CurrentUser.tenantUser(user.getId(), user.getUsername(), user.getTenantId());
+        try (var actor = CurrentUserContext.use(operator); var route = TenantContext.use("tenant-other-business")) {
+            var reference = resolver.capture("quality.issue", "view").orElseThrow();
+            assertThat(reference.accountCreatedAt()).isEqualTo(dao.findById(user.getId()).getCreatedAt());
+            assertThat(TenantContext.currentTenantId()).contains("tenant-other-business");
+            VersionedRecordMutation.update(dao, () -> dao.findById(user.getId()), current -> current.setUsername("renamed-reader"));
+            var restored = resolver.resolve(reference, "quality.issue", "view").orElseThrow();
+            assertThat(restored.user().username()).isEqualTo("renamed-reader");
+            assertThat(restored.user().tenantId()).isEqualTo(user.getTenantId());
+            assertThat(restored.user().system()).isFalse();
+            VersionedRecordMutation.update(dao, () -> dao.findById(user.getId()), current -> current.setPasswordStatus(PasswordStatus.RESET_REQUIRED));
+            assertThat(resolver.resolve(reference, "quality.issue", "view")).isEmpty();
+            VersionedRecordMutation.update(dao, () -> dao.findById(user.getId()), current -> {
+                current.setPasswordStatus(PasswordStatus.NORMAL); current.setEnabled(false);
+            });
+            assertThat(resolver.resolve(reference, "quality.issue", "view")).isEmpty();
+            assertThat(CurrentUserContext.currentUser()).contains(operator);
+            assertThat(TenantContext.currentTenantId()).contains("tenant-other-business");
+        }
     }
 
     private UserAccount insertUser(String tenant) {

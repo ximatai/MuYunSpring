@@ -347,6 +347,20 @@ class EmployeeDelegationServiceContractTest {
     }
 
     @Test
+    void shouldRetainSelectedPositionsWhenDelegationDoesNotBindPositions() {
+        EmployeeDelegationService service = spy(service(mock(EmployeeDelegationDao.class)));
+        EmployeeDelegation delegation = delegation("principal-1", "delegate-1");
+        delegation.setId("unbound-delegation");
+        doReturn(List.of(delegation)).when(service).list(any(Criteria.class), any(PageRequest.class), any());
+        ActingContext context = service.resolveActingContext(
+                CurrentUser.tenantUser("assistant-user", "Assistant", "tenant_a"),
+                "delegate-1", "delegate-position", "principal-1", "principal-position",
+                "sales.contract", "create", Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(context.principal().employeePositionId()).isEqualTo("principal-position");
+        assertThat(context.delegatePositionId()).isEqualTo("delegate-position");
+    }
+
+    @Test
     void shouldMatchModuleAndActionScopes() {
         EmployeeDelegationService service = spy(service(mock(EmployeeDelegationDao.class)));
         EmployeeDelegation moduleScoped = delegation("principal-1", "delegate-1");

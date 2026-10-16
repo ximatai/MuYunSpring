@@ -5,14 +5,21 @@ public record ActingContext(
         CurrentUser operator,
         BusinessPrincipal principal,
         String moduleAlias,
-        String actionCode
+        String actionCode,
+        String delegatePositionId
 ) {
+    public ActingContext(String delegationId, CurrentUser operator, BusinessPrincipal principal,
+                         String moduleAlias, String actionCode) {
+        this(delegationId, operator, principal, moduleAlias, actionCode, null);
+    }
+
     public ActingContext {
         delegationId = requireText(delegationId, "delegationId");
         operator = java.util.Objects.requireNonNull(operator, "operator must not be null");
         principal = java.util.Objects.requireNonNull(principal, "principal must not be null");
         moduleAlias = normalize(moduleAlias);
         actionCode = normalize(actionCode);
+        delegatePositionId = normalize(delegatePositionId);
     }
 
     public boolean matches(String moduleAlias, String actionCode) {
