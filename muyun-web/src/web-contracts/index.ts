@@ -1144,6 +1144,28 @@ export interface BusinessContentReading {
   language: string;
   fields: Record<string, BusinessContentReadingField>;
 }
+/** Topic status only; carries no model credentials, business source text or execution scope. */
+export interface BusinessContentGenerationStatus {
+  state:
+    | 'DISABLED'
+    | 'ORIGINAL'
+    | 'SOURCE_UNKNOWN'
+    | 'READY'
+    | 'REMOVED'
+    | 'UNSUPPORTED'
+    | 'UNAVAILABLE'
+    | 'MISSING'
+    | 'PENDING'
+    | 'RUNNING'
+    | 'RETRY'
+    | 'FAILED'
+    | 'CANCELLED'
+    | 'STALE';
+  reference: string | null;
+  problem: string | null;
+  attempts: number;
+  retryAt: string | null;
+}
 export interface BusinessContentTranslationMaintenance {
   original: BusinessContentRevision & { revisionId: string };
   expectedRevision: number | null;

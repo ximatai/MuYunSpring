@@ -119,3 +119,60 @@ it('invalidates a pending reading after a successful translation write while ret
   await fresh;
   expect(snapshot.version).toBe(1);
 });
+
+it('keeps generation status read-only and refreshes an in-flight projection only when generation is ready', async () => {
+  const { loadBusinessContentReading, loadBusinessContentGeneration, requestBusinessContentGeneration } =
+    await import('@/web-core/businessContent');
+  const callbacks: ((value: unknown) => void)[] = [];
+  const request = vi.fn((options: import('@/web-core/http').HttpRequestOptions) =>
+    options.path.endsWith('/generation')
+      ? Promise.resolve({ state: 'READY' })
+      : new Promise((resolve) => callbacks.push(resolve)),
+  );
+  const http = { request } as unknown as import('@/web-core/http').HttpClient;
+  const snapshot = { version: 4 };
+  const options = { snapshot, relation: { parentId: 'parent/one', relationCode: 'lines' } };
+  const old = loadBusinessContentReading(
+    http,
+    'quality.exception',
+    'child/one',
+    'de',
+    options.relation,
+    snapshot,
+  );
+  await loadBusinessContentGeneration(http, 'quality.exception', 'child/one', 'description', 'de', options);
+  expect(request.mock.calls[1]![0]).toEqual({
+    path: '/quality.exception/view/parent%2Fone/relations/lines/child%2Fone/content/description/translations/de/generation',
+  });
+  const fresh = loadBusinessContentReading(
+    http,
+    'quality.exception',
+    'child/one',
+    'de',
+    options.relation,
+    snapshot,
+  );
+  expect(fresh).not.toBe(old);
+  callbacks[0]!({});
+  await old;
+  expect(
+    loadBusinessContentReading(http, 'quality.exception', 'child/one', 'de', options.relation, snapshot),
+  ).toBe(fresh);
+  callbacks[1]!({});
+  await fresh;
+  await requestBusinessContentGeneration(
+    http,
+    'quality.exception',
+    'child/one',
+    'description',
+    'de',
+    true,
+    options,
+  );
+  expect(request.mock.calls.at(-1)![0]).toEqual({
+    path: '/quality.exception/view/parent%2Fone/relations/lines/child%2Fone/content/description/translations/de/generation',
+    method: 'POST',
+    query: { retry: true },
+  });
+  expect(snapshot.version).toBe(4);
+});

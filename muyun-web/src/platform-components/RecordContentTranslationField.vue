@@ -4,7 +4,7 @@ import { UiButton, UiModal, UiTextArea } from '@muyun/vue-ui-antdv';
 import {
   businessContentLanguageContext,
   changeBusinessContentTranslation,
-  loadBusinessContentReading,
+  useBusinessContentReading,
   loadBusinessContentTranslationHistory,
   prepareBusinessContentTranslation,
   useLanguageContext,
@@ -13,7 +13,6 @@ import {
 } from '@muyun/web-core';
 import type {
   BusinessContentField,
-  BusinessContentReadingField,
   BusinessContentTranslationMaintenance,
   BusinessContentTranslationRevision,
 } from '@muyun/web-contracts';
@@ -35,11 +34,71 @@ const id = computed(() => (props.record.id == null ? undefined : String(props.re
 const raw = computed(() =>
   props.record[props.fieldName] == null ? null : String(props.record[props.fieldName]),
 );
-const reading = ref<BusinessContentReadingField>();
-const loading = ref(false);
-const failed = ref(false);
-let generation = 0;
-const matches = computed(() => reading.value?.originalText === raw.value);
+const {
+  reading,
+  loading,
+  failed,
+  matches,
+  status: generationStatus,
+  generationBusy,
+  generationFailed,
+  pollingPaused,
+  canRetry,
+  load,
+  retry: retryGeneration,
+} = useBusinessContentReading(() => ({
+  http: props.context?.http,
+  moduleAlias: props.context?.moduleAlias,
+  record: props.record,
+  fieldName: props.fieldName,
+  content: props.content,
+  language: readingLanguage.languageTag.value,
+  mode: props.mode,
+  relation: props.relation,
+  sessionKey: props.sessionKey,
+}));
+const generationMessage = computed(() => {
+  if (
+    props.content.policy === 'AUTO_TRANSLATE' &&
+    matches.value &&
+    reading.value?.originalFallback &&
+    raw.value?.trim() &&
+    !reading.value.source?.sourceLanguage
+  )
+    return language.t('platform.content.generation-source-unknown', '登记原文语言后可申请自动翻译');
+  if (generationFailed.value)
+    return language.t(
+      'platform.content.generation-request-failed',
+      '暂时无法查询或申请翻译，可重试；原文仍可使用',
+    );
+  if (pollingPaused.value)
+    return language.t('platform.content.generation-waiting', '译文仍在后台处理，可稍后刷新');
+  switch (generationStatus.value?.state) {
+    case 'PENDING':
+    case 'RUNNING':
+      return language.t('platform.content.generation-running', '正在生成阅读译文，可继续使用原文');
+    case 'RETRY':
+      return language.t('platform.content.generation-retrying', '翻译暂时失败，系统将稍后重试；原文仍可使用');
+    case 'UNAVAILABLE':
+      return language.t('platform.content.generation-unavailable', '自动翻译未启用，原文及人工译文仍可使用');
+    case 'REMOVED':
+      return language.t('platform.content.generation-removed', '本语言译文已明确删除，可通过维护重新建立');
+    case 'UNSUPPORTED':
+      return language.t('platform.content.generation-unsupported', '此内容暂不支持自动翻译，可维护人工译文');
+    case 'SOURCE_UNKNOWN':
+      return language.t('platform.content.generation-source-unknown', '登记原文语言后可申请自动翻译');
+    case 'FAILED':
+    case 'CANCELLED':
+    case 'STALE':
+    case 'MISSING':
+      return language.t(
+        'platform.content.generation-failed',
+        '译文未生成，可核实原文及权限后重试，或维护人工译文',
+      );
+    default:
+      return '';
+  }
+});
 const editAllowed = computed(() => props.context?.can?.('contentEdit') === true);
 const confirmAllowed = computed(() => props.context?.can?.('contentConfirm') === true);
 const editorOpen = ref(false);
@@ -69,35 +128,6 @@ const unsavedTranslation = computed(
       ''),
 );
 
-async function load() {
-  const token = ++generation;
-  reading.value = undefined;
-  failed.value = false;
-  loading.value = false;
-  if (!props.context || !id.value || props.mode === 'create') return;
-  const target = readingLanguage.languageTag.value;
-  loading.value = true;
-  try {
-    const response = await loadBusinessContentReading(
-      props.context.http,
-      props.context.moduleAlias,
-      id.value,
-      target,
-      props.relation,
-      props.record,
-    );
-    if (
-      token === generation &&
-      response.language === target &&
-      response.recordVersion === (props.record.version ?? null)
-    )
-      reading.value = response.fields[props.fieldName];
-  } catch {
-    if (token === generation) failed.value = true;
-  } finally {
-    if (token === generation) loading.value = false;
-  }
-}
 function close() {
   if (busy.value) return;
   editorOpen.value = false;
@@ -248,23 +278,6 @@ watch(
   ],
   resetEditor,
 );
-watch(
-  [
-    () => props.context?.http,
-    () => props.context?.moduleAlias,
-    () => id.value,
-    () => props.record.version,
-    () => props.fieldName,
-    () => props.content.key,
-    () => props.relation?.parentId,
-    () => props.relation?.relationCode,
-    () => props.mode,
-    () => props.sessionKey,
-    () => readingLanguage.languageTag.value,
-  ],
-  () => void load(),
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -297,9 +310,13 @@ watch(
     <span v-else-if="reading">{{
       language.t('platform.content.unsaved-original', '原文有未保存修改，保存后再读取或维护译文')
     }}</span>
+    <p v-if="matches && generationMessage" role="status">{{ generationMessage }}</p>
     <div class="record-content-translation__actions">
       <UiButton :disabled="loading" @click="load">{{
         language.t('platform.content.refresh-reading', '刷新译文')
+      }}</UiButton>
+      <UiButton v-if="canRetry" :disabled="generationBusy" @click="retryGeneration">{{
+        language.t('platform.content.retry-generation', '重新申请自动翻译')
       }}</UiButton>
       <UiButton
         v-if="editAllowed || confirmAllowed"

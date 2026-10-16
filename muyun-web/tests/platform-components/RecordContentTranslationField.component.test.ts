@@ -1,5 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, reactive } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import {
   businessContentLanguageContext,
@@ -84,11 +84,12 @@ function host(
   request: ReturnType<typeof vi.fn>,
   actions = ['contentEdit', 'contentConfirm'],
   relation?: { parentId: string; relationCode: string },
+  policy: 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS' = 'MANUAL_TRANSLATIONS',
 ) {
   const language = createLanguageContext();
   const contentLanguage = businessContentLanguageContext(language);
   contentLanguage.setLanguage('en');
-  const record = { id: 'child/one', version: 4, description: original.text };
+  const record = reactive({ id: 'child/one', version: 4, description: original.text });
   const context = {
     http: { request },
     moduleAlias: 'quality.exception',
@@ -102,7 +103,7 @@ function host(
           h(RecordContentTranslationField, {
             record,
             fieldName: 'description',
-            content: { key: 'stable-field', policy: 'MANUAL_TRANSLATIONS' },
+            content: { key: 'stable-field', policy },
             context,
             relation,
             mode: 'view',
@@ -487,3 +488,76 @@ it.each(['confirm', 'remove'] as const)(
     wrapper.unmount();
   },
 );
+
+describe('automatic translation in the shared field', () => {
+  function fallback(language = 'en'): BusinessContentReading {
+    const result = reading(language);
+    result.fields.description = {
+      ...result.fields.description!,
+      text: original.text,
+      actualLanguage: 'zh-CN',
+      originalFallback: true,
+      translation: null,
+    };
+    return result;
+  }
+  it('shows unavailable automatic translation while retaining manual maintenance and the original', async () => {
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return fallback();
+      if (options.path.endsWith('/generation')) return { state: 'UNAVAILABLE', problem: 'MODEL_UNAVAILABLE' };
+      if (options.path.endsWith('/history')) return [];
+      return state();
+    });
+    const { wrapper, record } = host(request, ['contentEdit', 'contentConfirm'], undefined, 'AUTO_TRANSLATE');
+    await flushPromises();
+    expect(wrapper.text()).toContain('自动翻译未启用，原文及人工译文仍可使用');
+    expect(wrapper.text()).toContain('当前语言暂无有效译文，显示原文');
+    expect(wrapper.findAll('button').some((value) => value.text().includes('重新申请'))).toBe(false);
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('textarea').exists()).toBe(true);
+    expect(record.description).toBe(original.text);
+    wrapper.unmount();
+  });
+
+  it('requests a new attempt only through the explicit retry button', async () => {
+    let retries = 0;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return fallback();
+      if (options.query?.retry === true) retries++;
+      return { state: 'FAILED' };
+    });
+    const { wrapper } = host(request, [], undefined, 'AUTO_TRANSLATE');
+    await flushPromises();
+    expect(wrapper.text()).toContain('译文未生成');
+    expect(retries).toBe(0);
+    await button(wrapper, '重新申请自动翻译').trigger('click');
+    await flushPromises();
+    expect(retries).toBe(1);
+    expect(requests(request).filter((row) => row.path.endsWith('/generation'))).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('keeps both the business draft and open human translation input when reading language changes', async () => {
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return fallback(String(options.query?.language));
+      if (options.path.endsWith('/generation')) return { state: 'UNAVAILABLE' };
+      if (options.path.endsWith('/history')) return [];
+      return state();
+    });
+    const { wrapper, contentLanguage, record } = host(request, ['contentEdit'], undefined, 'AUTO_TRANSLATE');
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    await wrapper.find('textarea').setValue('Human translation still being edited');
+    record.description = 'Unsaved business edit';
+    await flushPromises();
+    contentLanguage.setLanguage('de');
+    await flushPromises();
+    expect(wrapper.find('textarea').element.value).toBe('Human translation still being edited');
+    expect(record.description).toBe('Unsaved business edit');
+    expect(wrapper.text()).toContain('原文有未保存修改');
+    expect(requests(request).filter((row) => row.path.endsWith('/generation'))).toHaveLength(1);
+    wrapper.unmount();
+  });
+});

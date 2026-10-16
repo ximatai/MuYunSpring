@@ -2,6 +2,7 @@ import type { HttpClient } from './http';
 import type { BusinessContentSources, BusinessContentRevision } from '@muyun/web-contracts';
 import type {
   BusinessContentReading,
+  BusinessContentGenerationStatus,
   BusinessContentTranslationMaintenance,
   BusinessContentTranslationChange,
   BusinessContentTranslationRevision,
@@ -158,4 +159,57 @@ export function loadBusinessContentTranslationHistory(
     path: `${translationPath(moduleAlias, id, field, language, relation)}/${access === 'edit' ? 'history' : 'review-history'}`,
     query: { sourceRevisionId: source.revisionId, sourceRevision: source.revision, page, size: 20 },
   });
+}
+
+export interface BusinessContentGenerationOptions {
+  relation?: BusinessContentRelationScope;
+  snapshot?: object;
+  signal?: AbortSignal;
+}
+
+function generationRequest(
+  http: HttpClient,
+  moduleAlias: string,
+  id: string,
+  field: string,
+  language: string,
+  options: BusinessContentGenerationOptions,
+  retry?: boolean,
+) {
+  return http
+    .request<BusinessContentGenerationStatus>({
+      path: `${translationPath(moduleAlias, id, field, language, options.relation)}/generation`,
+      ...(retry === undefined ? {} : { method: 'POST' as const, query: { retry } }),
+      ...(options.signal ? { signal: options.signal } : {}),
+    })
+    .then((status) => {
+      // A completed generation changes the reading projection without changing the business version.
+      if (status.state === 'READY' && options.snapshot) readingPending.delete(options.snapshot);
+      return status;
+    });
+}
+
+/** Read-only status. No enqueue, retry or model invocation. */
+export function loadBusinessContentGeneration(
+  http: HttpClient,
+  moduleAlias: string,
+  id: string,
+  field: string,
+  language: string,
+  options: BusinessContentGenerationOptions = {},
+) {
+  return generationRequest(http, moduleAlias, id, field, language, options);
+}
+
+/** Explicit automatic-reading request; source, identity and route are resolved by the server. */
+export function requestBusinessContentGeneration(
+  http: HttpClient,
+  moduleAlias: string,
+  id: string,
+  field: string,
+  language: string,
+  retry = false,
+  options: BusinessContentGenerationOptions = {},
+) {
+  return generationRequest(http, moduleAlias, id, field, language, options, retry);
 }
