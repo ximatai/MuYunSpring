@@ -303,6 +303,21 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return webScope(() -> BusinessContentWebSupport.current().history(this, id, field, PageRequest.of(page, size)));
     }
 
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentService.Sources childContentSources(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId) {
+        return webScope(() -> BusinessContentWebSupport.current().childSources(this, id, relationCode, childId));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/history")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentService.SourceRevision> childContentHistory(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().childHistory(this, id, relationCode, childId, field, PageRequest.of(page, size)));
+    }
+
     @GetMapping("/save-receipts/{requestId}")
     @ActionEndpoint(PlatformAction.VIEW)
     default RecordSaveRequestSupport.SaveReceipt saveReceipt(@PathVariable String requestId) {

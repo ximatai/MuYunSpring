@@ -34,14 +34,14 @@ class BusinessContentStore {
         // A newly enabled field may already contain business text. Capture its unknown provenance
         // before recording a real edit, without claiming that the current actor authored the old text.
         if (baseline != null && (previous == null || !Objects.equals(previous.getOriginalText(), baseline.text())))
-            previous = append(source, baseline.text(), null, null, null, "UNTRACKED_BASELINE",
+            previous = append(source, baseline.text(), null, null, null, null, "UNTRACKED_BASELINE",
                     previous == null ? 1 : Math.addExact(previous.getRevision(), 1));
         boolean sameText = previous != null && Objects.equals(previous.getOriginalText(), text);
         String language = input != null ? input.languageTag() : sameText ? previous.getSourceLanguage() : null;
         if (sameText && Objects.equals(previous.getSourceLanguage(), language)) return;
         String author = sameText ? originalAuthor(previous) : currentActor();
         Instant authoredAt = sameText ? originalAuthoredAt(previous) : Instant.now();
-        append(source, text, language, author, authoredAt, sameText ? "SOURCE_LANGUAGE_CORRECTION" : "ORIGINAL_WRITE",
+        append(source, text, language, author, sameText ? previous.getOriginalAuthorName() : currentActorName(), authoredAt, sameText ? "SOURCE_LANGUAGE_CORRECTION" : "ORIGINAL_WRITE",
                 previous == null ? 1 : Math.addExact(previous.getRevision(), 1));
     }
 
@@ -51,10 +51,11 @@ class BusinessContentStore {
     static Instant originalAuthoredAt(BusinessContentRevision row) {
         return row.getRevisionKind() == null ? row.getCreatedAt() : row.getOriginalAuthoredAt();
     }
+    private static String currentActorName() { return CurrentUserContext.currentUser().map(user -> user.username()).orElse(null); }
     private static String currentActor() { return CurrentUserContext.currentUser().map(user -> user.userId()).orElse(null); }
 
     private BusinessContentRevision append(BusinessContentSource source, String text, String language,
-            String author, Instant authoredAt, String kind, int revision) {
+            String author, String authorName, Instant authoredAt, String kind, int revision) {
         var row = new BusinessContentRevision();
         row.setTenantId(source.tenantId());
         row.setSourceKey(source.key());
@@ -66,6 +67,8 @@ class BusinessContentStore {
         row.setOriginalText(text);
         row.setSourceLanguage(language);
         row.setOriginalAuthorId(author);
+        row.setOriginalAuthorName(authorName);
+        row.setRevisionAuthorName(currentActorName());
         row.setOriginalAuthoredAt(authoredAt);
         row.setRevisionKind(kind);
         EntityLifecycle.prepareInsert(row, Instant.now());

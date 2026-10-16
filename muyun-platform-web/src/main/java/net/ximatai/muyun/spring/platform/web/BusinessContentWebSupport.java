@@ -34,6 +34,28 @@ public final class BusinessContentWebSupport {
         if (!fields(web).contains(field)) throw denied();
         return content.history(web.service(), id, field, page);
     }
+    public BusinessContentService.Sources childSources(CrudWeb<?, ?> web, String parentId, String relation, String childId) {
+        web.view(parentId);
+        var allowed = childFields(web, relation);
+        var source = content.childSources(web.service(), parentId, relation, childId);
+        Map<String, BusinessContentService.CurrentSource> visible = new LinkedHashMap<>();
+        source.fields().forEach((field, value) -> { if (allowed.contains(field)) visible.put(field, value); });
+        return new BusinessContentService.Sources(source.recordVersion(), visible);
+    }
+    public List<BusinessContentService.SourceRevision> childHistory(CrudWeb<?, ?> web, String parentId, String relation,
+                                                                    String childId, String field, PageRequest page) {
+        web.view(parentId);
+        if (!childFields(web, relation).contains(field)) throw denied();
+        return content.childHistory(web.service(), parentId, relation, childId, field, page);
+    }
+    private Set<String> childFields(CrudWeb<?, ?> web, String relationCode) {
+        var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
+        var relation = plan.uiDescriptor().detailRelations().stream().filter(value -> relationCode.equals(value.code())
+                        && web.webScopeName().equals(value.targetModuleAlias()))
+                .findFirst().orElseThrow(BusinessContentWebSupport::denied);
+        return plan.readModel().fields().stream().filter(field -> relation.targetEntityAlias().equals(field.entityAlias()))
+                .map(ResolvedModuleReadField::fieldName).collect(Collectors.toUnmodifiableSet());
+    }
     private Set<String> fields(CrudWeb<?, ?> web) {
         var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
         return plan.readModel().fields().stream().filter(field -> field.relationCode() == null

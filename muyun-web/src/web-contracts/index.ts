@@ -1088,7 +1088,41 @@ export interface ResolvedFieldControlBindingDescriptor {
   valueType: string;
 }
 
+export interface BusinessContentField {
+  key: string;
+  policy: 'KEEP_ORIGINAL' | 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS';
+}
+export interface BusinessContentRevision {
+  sourceKey: string;
+  revision: number;
+  text: string | null;
+  sourceLanguage: string | null;
+  authorId: string | null;
+  authorName?: string | null;
+  createdAt: string;
+  authoredAt: string | null;
+  revisionAuthorId: string | null;
+  revisionAuthorName?: string | null;
+  revisionKind: 'ORIGINAL_WRITE' | 'SOURCE_LANGUAGE_CORRECTION' | 'UNTRACKED_BASELINE';
+}
+export interface BusinessContentCurrentSource {
+  content: BusinessContentField;
+  text: string | null;
+  expectedRevision: number | null;
+  source: BusinessContentRevision | null;
+}
+export interface BusinessContentSources {
+  recordVersion: number | null;
+  fields: Record<string, BusinessContentCurrentSource>;
+}
+export interface BusinessContentLanguageInput {
+  languageTag: string | null;
+  expectedRevision: number | null;
+}
+
 export interface ResolvedViewFieldDescriptor {
+  /** Producer-owned policy; absent means the field keeps only its original value. */
+  content?: BusinessContentField | null;
   /** Computed values are previews or are unavailable until the next successful save. */
   calculationTiming?: 'IMMEDIATE' | 'ON_SAVE' | null;
   inputRequirements?: {

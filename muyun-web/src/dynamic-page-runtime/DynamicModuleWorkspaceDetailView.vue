@@ -517,6 +517,7 @@ async function toggleEnabled() {
           v-if="mode === 'view'"
           :record="draft"
           :fields="fields"
+          :option-context="context"
           :file-transfer-context="context"
           :exclude-field-names="['enabled']"
         />

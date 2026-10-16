@@ -128,7 +128,7 @@ public final class ModuleUiDescriptorCompiler {
         List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
         validateListRelationExpansions(descriptor.page(), detailRelations);
         descriptor = AssistantFieldPolicyProjection.protectStatic(descriptor, definition);
-        descriptor = FieldWriteRuleProjection.project(descriptor, FieldWriteRuleProjection.staticFields(definition));
+        descriptor = ModelFieldProjection.project(descriptor, ModelFieldProjection.staticFields(definition));
         descriptor = descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
                 .withDetailRelations(detailRelations);
         // Source ownership belongs to this Java declaration producer, not to the module-kind discriminator.

@@ -96,6 +96,8 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(history(row).getFirst().sourceLanguage()).isEqualTo("en");
             assertThat(history(row).getFirst().authorId()).isEqualTo("us");
             assertThat(history(row).getFirst().revisionAuthorId()).isEqualTo("cn");
+            assertThat(history(row).getFirst().authorName()).isEqualTo("us");
+            assertThat(history(row).getFirst().revisionAuthorName()).isEqualTo("cn");
             assertThat(history(row).getFirst().revisionKind()).isEqualTo("SOURCE_LANGUAGE_CORRECTION");
             assertThat(history(row).getFirst().authoredAt()).isEqualTo(history(row).get(1).authoredAt());
         }
@@ -277,7 +279,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
         try (var runtime = new DynamicRecordRuntime(operations).register(module);
              var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var records = new DynamicRecordService(runtime);
-            var parent = new DynamicRecord(main).setValue("description", "80°C，暂勿发货");
+            var parent = new DynamicRecord(main).setValue("description", "80°C，暂勿发货").setValue("quantity", 7);
             var child = new DynamicRecord(line).setValue("description", "Investigation pending");
             parent.setChildren("lines", List.of(child));
             parent.contentLanguageInputs(Map.of("description", new ContentWriteContext.SourceInput("zh-CN", null)));
@@ -294,11 +296,58 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var parentHistory = content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY);
             var childHistory = content.history(runtime.entityService(module.moduleAlias(), "line"), child.getId(), "description", HISTORY);
             assertThat(content.history(records.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
+            DataScopeCriteriaService viewWithoutQuery = new AllowAllDataScopeCriteriaService() {
+                @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
+                        Criteria criteria, Optional<CurrentUser> actor) {
+                    return PlatformAction.QUERY.code().equals(action.actionCode())
+                            ? DataScopeCriteriaResult.restricted(criteria.eq("id", "not-query-visible"))
+                            : DataScopeCriteriaResult.unrestricted(criteria);
+                }
+            };
+            var viewRecords = new DynamicRecordService(runtime, new AllowAllActionExecutionPolicyService(), viewWithoutQuery);
+            var viewContent = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), viewWithoutQuery);
+            assertThat(viewRecords.mainEntity(module.moduleAlias()).list(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+            assertThat(viewContent.sources(viewRecords.mainEntity(module.moduleAlias()), parent.getId()).fields()).containsKey("description");
+            assertThat(viewContent.history(viewRecords.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
+            DataScopeCriteriaService blockedView = new AllowAllDataScopeCriteriaService() {
+                @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
+                        Criteria criteria, Optional<CurrentUser> actor) {
+                    return DataScopeCriteriaResult.restricted(criteria.eq("id", "not-view-visible"));
+                }
+            };
+            var invisibleRecords = new DynamicRecordService(runtime, new AllowAllActionExecutionPolicyService(), blockedView);
+            assertThatThrownBy(() -> content.sources(invisibleRecords.mainEntity(module.moduleAlias()), parent.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             var sourceState = content.sources(records.mainEntity(module.moduleAlias()), parent.getId());
             assertThat(sourceState.fields().get("description").source()).isEqualTo(parentHistory.getFirst());
             assertThat(sourceState.fields().get("description").text()).isEqualTo("80°C，暂勿发货");
             assertThat(parentHistory.getFirst().sourceLanguage()).isEqualTo("zh-CN");
             assertThat(childHistory.getFirst().sourceLanguage()).isEqualTo("en-US");
+            var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
+            beans.registerSingleton("records", records);
+            DataScopeCriteriaService parentOnlyScope = new AllowAllDataScopeCriteriaService() {
+                @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
+                        Criteria criteria, Optional<CurrentUser> actor) {
+                    return DataScopeCriteriaResult.unrestricted(criteria.eq("quantity", 7));
+                }
+            };
+            var aggregateContent = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(),
+                    parentOnlyScope, beans.getBeanProvider(DynamicRecordService.class));
+            var childSource = aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId());
+            assertThat(childSource.fields().get("description").source()).isEqualTo(childHistory.getFirst());
+            assertThat(aggregateContent.childHistory(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId(), "description", HISTORY))
+                    .isEqualTo(childHistory);
+            assertThat(content.childSources(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "lines", child.getId()))
+                    .isEqualTo(childSource);
+            var another = new DynamicRecord(main).setValue("description", "Other parent").setValue("quantity", 7);
+            var otherLine = new DynamicRecord(line).setValue("description", "Other parent's text");
+            another.setChildren("lines", List.of(otherLine)); records.create(module.moduleAlias(), "main", another);
+            assertThatThrownBy(() -> aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", otherLine.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            try (var otherTenant = TenantContext.use("tenant-b")) {
+                assertThatThrownBy(() -> aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId()))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
             assertThat(parentHistory.getFirst().sourceKey()).isNotEqualTo(childHistory.getFirst().sourceKey());
             DataScopeCriteriaService restricted = new AllowAllDataScopeCriteriaService() {
                 @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
@@ -307,6 +356,8 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                 }
             };
             var restrictedFacade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), restricted);
+            assertThatThrownBy(() -> restrictedFacade.childSources(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "lines", child.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             assertThatThrownBy(() -> restrictedFacade.history(runtime.entityService(module.moduleAlias(), "main"),
                     parent.getId(), "description", HISTORY)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             assertThatThrownBy(() -> restrictedFacade.history(records.mainEntity(module.moduleAlias()),

@@ -61,7 +61,7 @@ class DynamicOpenApiGeneratorTest {
         assertThat(document.schemas().get("DynamicRecordCreatePayload").properties()).containsKey("$contentLanguages");
         assertThat(document.schemas().get("ContractValues").properties()).doesNotContainKey("$contentLanguages");
         assertThat(document.schemas()).containsKeys("BusinessContentSources", "BusinessContentRevisionList");
-        assertThat(document.operations().stream().filter(operation -> operation.path().endsWith("/content")))
+        assertThat(document.operations().stream().filter(operation -> operation.path().equals("/sales.contract/view/{id}/content")))
                 .singleElement().extracting(DynamicOpenApiDocument.Operation::responseSchema).isEqualTo("BusinessContentSources");
         assertThat(payload.required()).doesNotContain("id", "version");
         assertThat(payload.properties().get("version").required()).isFalse();
@@ -96,6 +96,8 @@ class DynamicOpenApiGeneratorTest {
                         "/sales.contract/view/{id}",
                         "/sales.contract/view/{id}/content",
                         "/sales.contract/view/{id}/content/{field}/history",
+                        "/sales.contract/view/{id}/relations/{relationCode}/{childId}/content",
+                        "/sales.contract/view/{id}/relations/{relationCode}/{childId}/content/{field}/history",
                         "/sales.contract/tasks/definitions",
                         "/sales.contract/view/{id}/attachments/query",
                         "/sales.contract/view/{id}/attachments/add",

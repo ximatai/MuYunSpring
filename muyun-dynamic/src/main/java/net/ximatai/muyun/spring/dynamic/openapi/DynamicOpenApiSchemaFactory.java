@@ -298,6 +298,7 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("validationRegex", stringProperty(true));
         properties.put("copyable", booleanProperty(false));
         properties.put("writeProtected", booleanProperty(false));
+        properties.put("content", objectProperty("BusinessContentField"));
         properties.put("writeRules", objectProperty("FieldWriteRules"));
         return new DynamicOpenApiDocument.Schema("DynamicFieldDescriptor", "object", null,
                 List.of("fieldName", "type", "title"), properties, null);

@@ -874,6 +874,7 @@ onMounted(() => void load());
         :picker-configs="pickerConfigsOf(row)"
         :option-context="sourceContext"
         :option-entity-alias="relation.targetEntityAlias"
+        :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
         :form-session-key="row.__draftKey"
         :disabled="row.id != null && !updateAllowed"
         :show-labels="false"
@@ -891,6 +892,8 @@ onMounted(() => void load());
         "
         :record="displayRecord(row)"
         :text="relationDisplayText(row, column.fieldName)"
+        :content-context="sourceContext"
+        :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
       />
     </template>
   </RecordRelationTable>

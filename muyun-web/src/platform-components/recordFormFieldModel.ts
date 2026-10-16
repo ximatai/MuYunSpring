@@ -24,6 +24,7 @@ import type { ReferencePickerColumn, ReferencePickerProvider } from './reference
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
+  content?: ResolvedViewFieldDescriptor['content'];
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   calculationTiming?: ResolvedViewFieldDescriptor['calculationTiming'];
   /** Optional during the protocol migration; resolved descriptors take precedence over legacy uiType. */
@@ -249,6 +250,7 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  content?: ResolvedViewFieldDescriptor['content'];
   calculationPending?: boolean;
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   calculationTiming?: ResolvedViewFieldDescriptor['calculationTiming'];
@@ -480,6 +482,7 @@ export function resolveRecordFormFieldState(
       ? { calculationPending: true }
       : {}),
     ...(field?.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
+    ...(field?.content ? { content: field.content } : {}),
     fieldName,
     ...(field?.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
     label,

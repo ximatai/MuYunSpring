@@ -41,3 +41,5 @@ export * from './language';
 export * from './languagePreference';
 
 export * from './presentationTexts';
+
+export * from './businessContent';

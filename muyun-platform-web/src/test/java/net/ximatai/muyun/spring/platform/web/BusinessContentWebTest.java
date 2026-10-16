@@ -30,6 +30,8 @@ class BusinessContentWebTest {
         var plans = mock(ModuleExecutionPlanCatalog.class);
         var ui = mock(ResolvedModuleUiDescriptor.class);
         when(ui.moduleAlias()).thenReturn("test.content");
+        when(ui.detailRelations()).thenReturn(List.of(new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor(
+                "lines", "Lines", true, "test.content", "main", "test.content", "line", "mainId", null, false)));
         var plan = new ModuleExecutionPlan("test.content", "one", ui,
                 new ResolvedModuleReadModel("test.content", "main", List.of(
                         new ResolvedModuleReadField("main", null, "title", false),
@@ -68,6 +70,26 @@ class BusinessContentWebTest {
             verifyNoInteractions(content);
         }
     }
+    @Test void aggregateEndpointsRetainParentRoutingAndOnlyExposeDeclaredChildFields() throws Exception {
+        var source = new BusinessContentService.CurrentSource(new ContentFieldDefinition("stable", ContentPolicy.AUTO_TRANSLATE), "English original", 2, null);
+        when(content.childSources(controller.service, "parent", "lines", "child"))
+                .thenReturn(new BusinessContentService.Sources(1, Map.of("description", source, "title", source)));
+        when(content.childHistory(eq(controller.service), eq("parent"), eq("lines"), eq("child"), eq("description"), any()))
+                .thenReturn(List.of());
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(get("/test.content/view/parent/relations/lines/child/content"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.fields.description.text").value("English original"))
+                    .andExpect(jsonPath("$.fields.title").doesNotExist());
+            mvc.perform(get("/test.content/view/parent/relations/lines/child/content/description/history"))
+                    .andExpect(status().isOk());
+            mvc.perform(get("/test.content/view/parent/relations/missing/child/content")).andExpect(status().isForbidden());
+            mvc.perform(get("/test.content/view/parent/relations/lines/child/content/title/history")).andExpect(status().isForbidden());
+            clearInvocations(content); controller.denied = true;
+            mvc.perform(get("/test.content/view/parent/relations/lines/child/content")).andExpect(status().isForbidden());
+            verifyNoInteractions(content);
+        }
+    }
+
     @RestController @RequestMapping("/test.content")
     static class Controller implements CrudWeb<Row, CrudAbility<Row>> {
         @SuppressWarnings("unchecked") final CrudAbility<Row> service = mock(CrudAbility.class);

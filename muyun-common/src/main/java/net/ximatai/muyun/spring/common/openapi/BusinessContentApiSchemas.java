@@ -13,6 +13,8 @@ public final class BusinessContentApiSchemas {
         revision.put("text", property("string", true));
         revision.put("sourceLanguage", property("string", true));
         revision.put("authorId", property("string", true));
+        revision.put("authorName", property("string", true));
+        revision.put("revisionAuthorName", property("string", true));
         revision.put("createdAt", instant(false));
         revision.put("authoredAt", instant(true));
         revision.put("revisionAuthorId", property("string", true));
