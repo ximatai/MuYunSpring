@@ -1299,6 +1299,42 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void moduleFieldHelperRejectionsRetainArgumentsAndTranslateWithoutSaving() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "amount", "amount", FieldType.INTEGER);
+        fieldService.insert(field);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+        long before = moduleFieldService.count(Criteria.of());
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        ModuleMetadataField normalized = moduleField(relationId, field.getId());
+        normalized.setTextNormalization(TextNormalization.TRIM);
+        ModuleMetadataField money = moduleField(relationId, field.getId());
+        money.setMoneyCurrencyMode(FieldMoneyMode.SELECTABLE);
+        money.setMoneyDefaultCurrencyCode("US");
+        money.setMoneyBaseCurrencyCode("CNY");
+        money.setMoneyRateTypeCode("SPOT");
+        for (var config : List.of(normalized, money)) {
+            assertThatThrownBy(() -> moduleFieldService.insert(config))
+                    .isInstanceOfSatisfying(PlatformException.class, error -> {
+                        boolean normalization = config == normalized;
+                        for (String language : List.of("en", "zh-CN", "en")) {
+                            assertThat(texts.resolve(error.textSource(), error.messageArgs(), language).text())
+                                    .isEqualTo(language.equals("en")
+                                            ? normalization ? "Text normalization requires text field: amount"
+                                                : "moneyDefaultCurrencyCode must be ISO 4217 alpha-3 code: US"
+                                            : normalization ? "文本规范化必须是文本字段：amount"
+                                                : "moneyDefaultCurrencyCode 必须是 ISO 4217 三位字母编码：US");
+                        }
+                        assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+                        assertThat(error.httpStatus()).isEqualTo(400);
+                    });
+            assertThat(moduleFieldService.count(Criteria.of())).isEqualTo(before);
+        }
+    }
+
+    @Test
     void shouldRejectTextNormalizationOnNumericField() {
         String metadataId = metadataService.insert(metadata("crm", "customer"));
         MetadataField field = field(metadataId, "amount", "amount", FieldType.INTEGER);

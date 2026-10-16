@@ -264,7 +264,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         validateVirtualFieldBoundary(moduleField, field);
         if (moduleField.getTextNormalization() != null
                 && moduleField.getTextNormalization() != TextNormalization.NONE) {
-            requireTextField(field, "Text normalization");
+            requireTextField(field, TextReference.code(
+                    "platform.rejection.module-metadata-field.text-normalization-type",
+                    "Text normalization requires text field: {value1}"));
         }
         normalizeReferenceConfig(moduleField, metadata, relation);
         validateChildForeignKeyReference(moduleField, relation, field);
@@ -408,7 +410,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                     "platform.rejection.module-metadata-field.measure-unit-config-must-be-declared-on-owner-value-field",
                     "measure unit config must be declared on owner value field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
-        requireNumericField(field, "measure unit value field");
+        requireNumericField(field, TextReference.code(
+                    "platform.rejection.module-metadata-field.measure-unit-value-field-type",
+                    "measure unit value field requires numeric field: {value1}"));
         moduleField.setUnitCategoryAlias(PlatformNameRules.requireIdentifier(
                 moduleField.getUnitCategoryAlias(), "unitCategoryAlias"));
         if (hasText(moduleField.getBaseUnitCategoryAlias())) {
@@ -455,7 +459,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                     MetadataFieldForm.COMPANION, MetadataFieldRole.MEASURE_UNIT, "unitFieldId")
                     : ensureRelatedField(metadata, field, MetadataFieldForm.COMPANION,
                     MetadataFieldRole.MEASURE_UNIT, field.getFieldName() + "Unit", "string", "Unit");
-            requireFieldType(unitField, FieldType.STRING, "measure unit companion field");
+            requireFieldType(unitField, FieldType.STRING, TextReference.code(
+                    "platform.rejection.module-metadata-field.measure-unit-companion-field-type",
+                    "measure unit companion field requires STRING field: {value1}"));
             ensureModuleFieldForRelation(relation, unitField);
             moduleField.setUnitFieldId(unitField.getId());
         }
@@ -465,7 +471,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                 : ensureRelatedField(metadata, field, MetadataFieldForm.SHADOW,
                 MetadataFieldRole.MEASURE_BASE_VALUE, field.getFieldName() + "Base",
                 field.getFieldSpecAlias(), "Base");
-        requireNumericField(baseValueField, "measure base value shadow field");
+        requireNumericField(baseValueField, TextReference.code(
+                    "platform.rejection.module-metadata-field.measure-base-value-shadow-field-type",
+                    "measure base value shadow field requires numeric field: {value1}"));
         ensureModuleFieldForRelation(relation, baseValueField);
         moduleField.setBaseValueFieldId(baseValueField.getId());
         if (conversionScopeField != null) {
@@ -502,7 +510,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                     "platform.rejection.module-metadata-field.money-config-must-be-declared-on-owner-amount-field",
                     "money config must be declared on owner amount field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
-        requireNumericField(field, "money amount field");
+        requireNumericField(field, TextReference.code(
+                    "platform.rejection.module-metadata-field.money-amount-field-type",
+                    "money amount field requires numeric field: {value1}"));
         if (moduleField.getMoneyCurrencyMode() == null) {
             moduleField.setMoneyCurrencyMode(hasText(moduleField.getMoneyFixedCurrencyCode())
                     ? FieldMoneyMode.FIXED
@@ -539,7 +549,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         if (hasText(moduleField.getMoneyExchangeRateFieldId())) {
             exchangeRateField = requireRelatedField(moduleField.getMoneyExchangeRateFieldId(), metadata, field,
                     MetadataFieldForm.SHADOW, MetadataFieldRole.MONEY_EXCHANGE_RATE, "moneyExchangeRateFieldId");
-            requireNumericField(exchangeRateField, "money exchange rate shadow field");
+            requireNumericField(exchangeRateField, TextReference.code(
+                    "platform.rejection.module-metadata-field.money-exchange-rate-shadow-field-type",
+                    "money exchange rate shadow field requires numeric field: {value1}"));
         }
         if (moduleField.getMoneyCurrencyMode() == FieldMoneyMode.FIXED) {
             moduleField.setMoneyFixedCurrencyCode(requireCurrencyCode(
@@ -555,7 +567,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                     MetadataFieldForm.COMPANION, MetadataFieldRole.MONEY_CURRENCY, "moneyCurrencyFieldId")
                     : ensureRelatedField(metadata, field, MetadataFieldForm.COMPANION,
                     MetadataFieldRole.MONEY_CURRENCY, field.getFieldName() + "Currency", "string", "Currency");
-            requireTextField(currencyField, "money currency companion field");
+            requireTextField(currencyField, TextReference.code(
+                    "platform.rejection.module-metadata-field.money-currency-companion-field-type",
+                    "money currency companion field requires text field: {value1}"));
             ensureModuleFieldForRelation(relation, currencyField);
             moduleField.setMoneyCurrencyFieldId(currencyField.getId());
         }
@@ -565,7 +579,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                 : ensureRelatedField(metadata, field, MetadataFieldForm.SHADOW,
                 MetadataFieldRole.MONEY_BASE_AMOUNT, field.getFieldName() + "Base",
                 field.getFieldSpecAlias(), "Base Amount");
-        requireNumericField(baseAmountField, "money base amount shadow field");
+        requireNumericField(baseAmountField, TextReference.code(
+                    "platform.rejection.module-metadata-field.money-base-amount-shadow-field-type",
+                    "money base amount shadow field requires numeric field: {value1}"));
         ensureModuleFieldForRelation(relation, baseAmountField);
         moduleField.setMoneyBaseAmountFieldId(baseAmountField.getId());
         if (rateDateField != null) {
@@ -597,17 +613,25 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                                               MetadataFieldRole role,
                                               String label) {
         if (!hasText(fieldId)) {
-            throw new PlatformException(label + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.required-parameter",
+                    "{value1} must not be blank"), Map.of("value1", String.valueOf(label)));
         }
         MetadataField related = requireField(fieldId);
         if (!Objects.equals(related.getMetadataId(), metadata.getId())) {
-            throw new PlatformException(label + " must belong to same metadata: " + fieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.same-metadata",
+                    "{value1} must belong to same metadata: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(fieldId)));
         }
         if (related.getFieldForm() != form || related.getFieldRole() != role) {
-            throw new PlatformException(label + " requires " + form + " " + role + " field: " + fieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.related-field-kind",
+                    "{value1} requires {value2} {value3} field: {value4}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(form), "value3", String.valueOf(role), "value4", String.valueOf(fieldId)));
         }
         if (!Objects.equals(related.getOwnerFieldId(), owner.getId())) {
-            throw new PlatformException(label + " must be owned by owner value field: " + fieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.related-field-owner",
+                    "{value1} must be owned by owner value field: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(fieldId)));
         }
         return related;
     }
@@ -736,24 +760,24 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    private void requireNumericField(MetadataField field, String label) {
+    private void requireNumericField(MetadataField field, TextReference source) {
         FieldType type = requireFieldType(field);
         if (type != FieldType.INTEGER && type != FieldType.LONG && type != FieldType.DECIMAL) {
-            throw new PlatformException(label + " requires numeric field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(source, Map.of("value1", field.getFieldName()));
         }
     }
 
-    private void requireFieldType(MetadataField field, FieldType expected, String label) {
+    private void requireFieldType(MetadataField field, FieldType expected, TextReference source) {
         FieldType type = requireFieldType(field);
         if (type != expected) {
-            throw new PlatformException(label + " requires " + expected + " field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(source, Map.of("value1", field.getFieldName()));
         }
     }
 
-    private void requireTextField(MetadataField field, String label) {
+    private void requireTextField(MetadataField field, TextReference source) {
         FieldType type = requireFieldType(field);
         if (type != FieldType.STRING && type != FieldType.TEXT) {
-            throw new PlatformException(label + " requires text field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(source, Map.of("value1", field.getFieldName()));
         }
     }
 
@@ -772,22 +796,30 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
 
     private String requireCurrencyCode(String value, String label) {
         if (!hasText(value)) {
-            throw new PlatformException(label + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.required-parameter",
+                    "{value1} must not be blank"), Map.of("value1", String.valueOf(label)));
         }
         String code = value.trim().toUpperCase();
         if (!code.matches("[A-Z]{3}")) {
-            throw new PlatformException(label + " must be ISO 4217 alpha-3 code: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.currency-code",
+                    "{value1} must be ISO 4217 alpha-3 code: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(value)));
         }
         return code;
     }
 
     private String requireRateTypeCode(String value, String label) {
         if (!hasText(value)) {
-            throw new PlatformException(label + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.required-parameter",
+                    "{value1} must not be blank"), Map.of("value1", String.valueOf(label)));
         }
         String code = value.trim().toUpperCase();
         if (!code.matches("[A-Z][A-Z0-9_]{0,63}")) {
-            throw new PlatformException(label + " must use upper snake code: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.rate-type-code",
+                    "{value1} must use upper snake code: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(value)));
         }
         return code;
     }
@@ -830,7 +862,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
             try {
                 normalized.add(new ReferenceSelectionProjection(field).key());
             } catch (IllegalArgumentException exception) {
-                throw new PlatformException(label + " must be a relative reference field path: " + field, exception);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field.relative-reference-path",
+                    "{value1} must be a relative reference field path: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(field)), exception);
             }
         }
         return normalized;

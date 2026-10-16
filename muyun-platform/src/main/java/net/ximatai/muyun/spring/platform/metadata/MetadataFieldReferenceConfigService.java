@@ -509,7 +509,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             PlatformNameRules.requireFieldName(projection.targetField(), "projection.targetField");
             PlatformNameRules.requireFieldName(projection.outputField(), "projection.outputField");
             requireTargetField(config, target, projection.targetField());
-            requireAvailableOutputField(sourceMetadataId, projection.outputField(), "reference projection output field");
+            requireAvailableOutputField(sourceMetadataId, projection.outputField());
             if (!outputFields.add(projection.outputField())) {
                 throw PlatformErrors.badRequestText(TextReference.code(
                         "platform.rejection.metadata-field-reference-config.duplicate-reference-output-field",
@@ -642,12 +642,14 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         }
     }
 
-    private void requireAvailableOutputField(String sourceMetadataId, String outputField, String name) {
+    private void requireAvailableOutputField(String sourceMetadataId, String outputField) {
         if (STANDARD_FIELDS.contains(outputField)
                 || fieldService.count(Criteria.of()
                 .eq("metadataId", sourceMetadataId)
                 .eq("fieldName", outputField)) > 0) {
-            throw new PlatformException(name + " conflicts with source field: " + outputField);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.projection-output-conflict",
+                    "reference projection output field conflicts with source field: {value1}"), Map.of("value1", outputField));
         }
     }
 

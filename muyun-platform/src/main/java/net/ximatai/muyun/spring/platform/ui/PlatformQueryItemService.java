@@ -461,7 +461,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
     private Object singleValue(DynamicQueryOperator operator, Object value) {
         List<?> values = listValues(operator, value);
         if (values.size() != 1) {
-            throw new PlatformException(operator + " query item requires exactly one value");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.single-query-value",
+                    "{value1} query item requires exactly one value"), Map.of("value1", String.valueOf(operator)));
         }
         return values.getFirst();
     }

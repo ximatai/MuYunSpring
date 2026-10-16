@@ -194,13 +194,17 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
             }
             case LINK -> {
                 module.setEntryRoute(null);
-                module.setEntryExternalUrl(requireText(module.getEntryExternalUrl(), "LINK module entry requires externalUrl").trim());
+                module.setEntryExternalUrl(requireText(module.getEntryExternalUrl(), TextReference.code(
+                    "platform.rejection.platform-module.link-entry-url",
+                    "LINK module entry requires externalUrl")).trim());
             }
         }
     }
 
     private String normalizeInternalRoute(String route) {
-        String normalized = requireText(route, "ROUTE module entry requires route").trim();
+        String normalized = requireText(route, TextReference.code(
+                    "platform.rejection.platform-module.route-entry-path",
+                    "ROUTE module entry requires route")).trim();
         if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.contains("://")) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.platform-module.route-module-entry-route-must-be-an-internal-path",
@@ -209,9 +213,9 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
         return normalized;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

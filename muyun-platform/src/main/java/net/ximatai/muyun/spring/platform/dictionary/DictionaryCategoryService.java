@@ -184,7 +184,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
 
     private String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(name + " is required");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.required-parameter",
+                    "{value1} is required"), Map.of("value1", String.valueOf(name)));
         }
         return value.trim();
     }
