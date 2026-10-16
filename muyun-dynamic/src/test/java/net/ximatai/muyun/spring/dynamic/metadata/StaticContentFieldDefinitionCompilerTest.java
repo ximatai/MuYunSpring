@@ -22,7 +22,7 @@ class StaticContentFieldDefinitionCompilerTest {
 
     @Test void ambiguousUnknownProtectedAndStructuralDeclarationsFailBeforeStorageOrPresentation() {
         for (var type : new Class<?>[]{Missing.class, Duplicate.class, DuplicateKey.class, Shadowed.class,
-                Protected.class, Audit.class, TreeLink.class}) {
+                Protected.class, Audit.class, TreeLink.class, ShadowedStandardTitle.class}) {
             assertThatThrownBy(() -> StaticContentFieldDefinitionCompiler.resolve(type))
                     .as(type.getSimpleName()).isInstanceOf(IllegalArgumentException.class);
         }
@@ -42,6 +42,9 @@ class StaticContentFieldDefinitionCompilerTest {
         @BusinessContent(key = "same") @Column(name = "note", type = ColumnType.TEXT) String note;
     }
     static class Shadowed extends Category { String title; }
+    @BusinessContent(field = "title") static class ShadowedStandardTitle extends StandardEnabledTreeEntity {
+        @Column(name = "title", type = ColumnType.TEXT) String title;
+    }
     @BusinessContent(field = "secret") static class Protected {
         @MaskedField @Column(name = "secret", type = ColumnType.TEXT) String secret;
     }

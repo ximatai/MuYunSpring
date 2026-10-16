@@ -104,6 +104,32 @@ class QualityCollaborationIT {
         }
     }
 
+    @Test void existingTenantReceivesEnabledSampleMenusOnFirstInstallationAndEveryRestart() {
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("sample-menus", "Sample Menus"));
+             var tenant = TenantContext.system("verify existing tenant sample installation")) {
+            var tenants = web.getBean(TenantService.class);
+            var existing = new Tenant();
+            existing.setAlias("quality_existing"); existing.setTitle("Existing tenant"); existing.setEnabled(true);
+            tenants.insert(existing);
+            var menus = web.getBean(net.ximatai.muyun.spring.platform.menu.MenuService.class);
+            String sourceId = "platform.menu.module.quality.exception";
+            String copyId = net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner.tenantMenuId(existing.getAlias(), sourceId);
+            // Reconstruct a tenant which predates this optional application's first installation.
+            // Only fixture preparation uses the DAO; startup and menu copies use the real services.
+            menus.getDao().deleteById(copyId);
+            var startup = web.getBeansOfType(net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask.class).values().stream()
+                    .filter(task -> java.util.Set.of("platform.menu-contribution-reconciliation", "platform.tenant-menu-reconciliation",
+                            "demo-quality-collaboration", "demo-quality-mount").contains(task.name()))
+                    .sorted(java.util.Comparator.comparingInt(net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask::order)).toList();
+            for (int restart = 0; restart < 2; restart++) {
+                startup.forEach(net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask::run);
+                try (var scoped = TenantContext.use(existing.getAlias())) {
+                    assertThat(menus.select(copyId)).isNotNull().satisfies(menu -> assertThat(menu.getEnabled()).isTrue());
+                }
+            }
+        }
+    }
+
     @Test void sharedSampleSavesReopensAndRevisesStaticAndDynamicContentWithIndependentChildAuthors() throws Exception {
         MockMvc mvc = webAppContextSetup(web).build();
         try (var actor = CurrentUserContext.use(CurrentUser.systemUser("sample-setup", "Sample Setup"));

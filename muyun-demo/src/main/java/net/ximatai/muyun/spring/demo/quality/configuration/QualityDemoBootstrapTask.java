@@ -7,15 +7,12 @@ import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.spring.common.identity.*;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.demo.quality.equipment.EquipmentCategoryService;
 import net.ximatai.muyun.spring.demo.quality.product.ProductService;
-import net.ximatai.muyun.spring.platform.menu.*;
 import net.ximatai.muyun.spring.platform.metadata.*;
 import net.ximatai.muyun.spring.platform.module.*;
 import net.ximatai.muyun.spring.platform.runtime.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
-import java.util.List;
 
 /** Installs one data-declared aggregate, never business translations or per-page translation code. */
 @Profile("collaboration-demo")
@@ -24,7 +21,6 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
     public static final String MODULE_ALIAS = "quality.exception";
     private static final PageRequest ONE = PageRequest.of(1, 1);
     private final PlatformModuleService modules;
-    private final MenuService menus;
     private final MetadataService metadata;
     private final MetadataFieldService fields;
     private final ModuleMetadataRelationService relations;
@@ -33,11 +29,11 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
     private final PlatformDynamicRuntimeRefreshService runtime;
     private final TransactionTemplate transactions;
 
-    public QualityDemoBootstrapTask(PlatformModuleService modules, MenuService menus, MetadataService metadata,
+    public QualityDemoBootstrapTask(PlatformModuleService modules, MetadataService metadata,
             MetadataFieldService fields, ModuleMetadataRelationService relations,
             MetadataFieldReferenceConfigService references, DynamicModuleStandardActionRegistrar actions,
             PlatformDynamicRuntimeRefreshService runtime, TransactionTemplate transactions) {
-        this.modules = modules; this.menus = menus; this.metadata = metadata; this.fields = fields;
+        this.modules = modules; this.metadata = metadata; this.fields = fields;
         this.relations = relations; this.references = references; this.actions = actions;
         this.runtime = runtime; this.transactions = transactions;
     }
@@ -50,18 +46,11 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
                 transactions.executeWithoutResult(status -> configure());
                 actions.register(modules.select(MODULE_ALIAS));
                 runtime.refresh(MODULE_ALIAS);
-                mount();
             });
         }
     }
 
     private void configure() {
-        if (modules.select(MODULE_ALIAS) == null) {
-            var module = new PlatformModule();
-            module.setAlias(MODULE_ALIAS); module.setApplicationAlias("quality");
-            module.setModuleKind(ModuleKind.DYNAMIC); module.setTitle("质量异常单");
-            modules.insert(module);
-        }
         var main = entity("quality_exception", "质量异常单", true);
         field(main, "title", "title", "string", "异常标题", true, true, ContentPolicy.AUTO_TRANSLATE);
         field(main, "description", "description", "text", "异常说明", true, false, ContentPolicy.AUTO_TRANSLATE);
@@ -128,21 +117,4 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
         references.insert(reference);
     }
 
-    private void mount() {
-        for (String alias : List.of(EquipmentCategoryService.MODULE_ALIAS, ProductService.MODULE_ALIAS, MODULE_ALIAS)) {
-            if (modules.select(alias) == null) throw new IllegalStateException("Missing quality sample module: " + alias);
-            modules.enable(alias);
-        }
-        String id = "platform.menu.module." + MODULE_ALIAS;
-        if (menus.select(id) == null) {
-            var menu = new Menu();
-            menu.setId(id); menu.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
-            menu.setParentId(QualityDemoMenuDeclarations.ROOT); menu.setTitle("质量异常单");
-            menu.setModuleAlias(MODULE_ALIAS); menu.setOpenMode(MenuOpenMode.TAB); menu.setSystemManaged(true);
-            menu.setSortOrder(130); menus.insert(menu);
-        }
-        menus.enable(QualityDemoMenuDeclarations.ROOT);
-        for (String alias : List.of(EquipmentCategoryService.MODULE_ALIAS, ProductService.MODULE_ALIAS, MODULE_ALIAS))
-            menus.enable("platform.menu.module." + alias);
-    }
 }

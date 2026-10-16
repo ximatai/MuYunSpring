@@ -13,6 +13,7 @@ class QualityDemoProfileBoundaryTest {
         new ApplicationContextRunner().withUserConfiguration(Scan.class).run(context -> {
             assertThat(context).doesNotHaveBean(QualityApplication.class);
             assertThat(context).doesNotHaveBean(QualityDemoBootstrapTask.class);
+            assertThat(context).doesNotHaveBean(QualityDemoMountTask.class);
             assertThat(context).doesNotHaveBean(QualityDemoPageTask.class);
             assertThat(context).doesNotHaveBean(QualityDemoMenuDeclarations.class);
             assertThat(context).doesNotHaveBean(EquipmentCategoryService.class);

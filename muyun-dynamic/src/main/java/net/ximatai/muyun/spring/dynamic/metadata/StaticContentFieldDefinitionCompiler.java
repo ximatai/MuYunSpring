@@ -15,10 +15,12 @@ public final class StaticContentFieldDefinitionCompiler {
     private static final ClassValue<Map<String, ContentFieldDefinition>> CACHE = new ClassValue<>() {
         @Override protected Map<String, ContentFieldDefinition> computeValue(Class<?> type) {
             Map<String, Field> fields = new LinkedHashMap<>();
+            Set<String> shadowed = new HashSet<>();
             List<Class<?>> owners = new ArrayList<>();
             for (Class<?> owner = type; owner != null && owner != Object.class; owner = owner.getSuperclass()) {
                 owners.add(owner);
-                for (Field field : owner.getDeclaredFields()) fields.putIfAbsent(field.getName(), field);
+                for (Field field : owner.getDeclaredFields())
+                    if (fields.putIfAbsent(field.getName(), field) != null) shadowed.add(field.getName());
             }
             Map<String, ContentFieldDefinition> result = new LinkedHashMap<>();
             Set<String> declared = new HashSet<>();
@@ -26,14 +28,14 @@ public final class StaticContentFieldDefinitionCompiler {
             for (Class<?> owner : owners.reversed()) {
                 for (Field field : owner.getDeclaredFields()) {
                     for (BusinessContent annotation : field.getDeclaredAnnotationsByType(BusinessContent.class)) {
-                        if (!annotation.field().isEmpty() || !field.equals(fields.get(field.getName())))
+                        if (!annotation.field().isEmpty() || shadowed.contains(field.getName()) || !field.equals(fields.get(field.getName())))
                             throw new IllegalArgumentException("Business content field must be local and unshadowed: " + field);
                         bind(result, declared, keys, field, annotation);
                     }
                 }
                 for (BusinessContent annotation : owner.getDeclaredAnnotationsByType(BusinessContent.class)) {
                     Field field = fields.get(annotation.field());
-                    if (field == null || !field.getDeclaringClass().isAssignableFrom(owner))
+                    if (field == null || shadowed.contains(annotation.field()) || !field.getDeclaringClass().isAssignableFrom(owner))
                         throw new IllegalArgumentException("Unknown or shadowed business content field: " + owner.getName() + "." + annotation.field());
                     bind(result, declared, keys, field, annotation);
                 }
