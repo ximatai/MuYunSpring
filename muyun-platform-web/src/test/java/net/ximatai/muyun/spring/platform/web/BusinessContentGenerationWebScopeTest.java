@@ -179,13 +179,62 @@ class BusinessContentGenerationWebScopeTest {
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
-    @Test void hiddenFieldsAndAChangedOwningViewAreRejectedBeforeCapturingWork() {
+    @Test void hiddenFieldsAndRevokedOwningReadsAreRejectedBeforeCapturingWork() {
         assertThatThrownBy(() -> scope.capture(controller, LOCATION, "unexposed"))
                 .isInstanceOf(PlatformAccessDeniedException.class);
-        clearInvocations(content); controller.denied = true;
+        clearInvocations(content);
+        doThrow(new PlatformAccessDeniedException("owning read withdrawn")).when(content).requireOwner(controller.service, LOCATION);
         assertThatThrownBy(() -> scope.capture(controller, LOCATION, "description"))
                 .isInstanceOf(PlatformAccessDeniedException.class);
-        verifyNoInteractions(content);
+        verify(content).requireOwner(controller.service, LOCATION);
+    }
+
+    @Test void publishedViewHidingOrRemovingAStaticFieldWithdrawsGenerationEvenWhenTheEntityReadModelStillContainsIt() {
+        var plan = plans.find(MODULE).orElseThrow();
+        var page = mock(ResolvedModulePageDescriptor.class);
+        var field = mock(ResolvedViewFieldDescriptor.class);
+        when(field.fieldRef()).thenReturn(ViewFieldRef.main("description")); when(field.visible()).thenReturn(UiRule.constant(true));
+        var display = new ResolvedViewDescriptor("detail", ModuleViewKind.FORM, ModuleUiClientType.WEB, "Detail", List.of(field));
+        when(page.detail()).thenReturn(new ResolvedPageDetailDescriptor(null, null, display, null, null, false));
+        when(plan.uiDescriptor().page()).thenReturn(page);
+        var reference = scope.capture(controller, LOCATION, "description");
+        when(field.visible()).thenReturn(UiRule.constant(false));
+        assertThat(plan.readModel().fields()).extracting(ResolvedModuleReadField::fieldName).contains("description");
+        assertThatThrownBy(() -> scope.capture(controller, LOCATION, "description")).isInstanceOf(PlatformAccessDeniedException.class);
+        assertThatThrownBy(() -> scope.withAccess(reference, MODULE, LOCATION, "description", ability -> "not allowed"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        when(page.detail()).thenReturn(new ResolvedPageDetailDescriptor(null, null,
+                new ResolvedViewDescriptor("detail", ModuleViewKind.FORM, ModuleUiClientType.WEB, "Detail", List.of()), null, null, false));
+        assertThatThrownBy(() -> scope.capture(controller, LOCATION, "description")).isInstanceOf(PlatformAccessDeniedException.class);
+    }
+
+    @Test void aRequestOnlyCustomViewCannotBeCapturedAsAReplayableCompiledBoundary() throws Exception {
+        var unsafe = new RequestScopedController();
+        context.getBeanFactory().registerSingleton("requestScopedController", unsafe);
+        request.addHeader("X-Workspace", "workspace-one");
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+                new HandlerMethod(unsafe, RequestScopedController.class.getMethod("view", String.class)));
+        assertThatThrownBy(() -> scope.capture(unsafe, LOCATION, "description"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+    }
+
+    @Test void aCustomSaveHandlerDoesNotInheritAutomaticGenerationFromItsCrudWebBean() throws Exception {
+        when(controller.service.mutationServiceIdentity()).thenCallRealMethod();
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+                new HandlerMethod(controller, Controller.class.getMethod("customSave", Row.class)));
+        assertThat(scope.captureSubmission(new BusinessContentOriginalChanged(controller.service, row, "description", "original-one")))
+                .isEmpty();
+    }
+
+    @Test void aDeclaredViewDoesNotAuthorizeAnOverriddenRequestOnlyExecutionScope() throws Exception {
+        var unsafe = new RequestScopedExecutionController();
+        context.getBeanFactory().registerSingleton("requestScopedExecutionController", unsafe);
+        request.addHeader("X-Workspace", "workspace-one");
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+                new HandlerMethod(unsafe, RequestScopedExecutionController.class.getMethod("view", String.class)));
+        assertThat(unsafe.view("record")).isNotNull();
+        assertThatThrownBy(() -> scope.capture(unsafe, LOCATION, "description"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
     @Test void dynamicRootAbilityIsResolvedWithoutCallingRequestOnlyControllerServiceInTheWorker() {
@@ -226,7 +275,8 @@ class BusinessContentGenerationWebScopeTest {
         verifyNoInteractions(content);
     }
 
-    @Test void submittedRootUsesTheActualSavingServiceAndRetainsTheNormalReadingScope() {
+    @Test void submittedRootUsesTheActualSavingServiceAndRetainsTheNormalReadingScope() throws Exception {
+        savingHandler();
         when(controller.service.mutationServiceIdentity()).thenCallRealMethod();
         var change = new BusinessContentOriginalChanged(controller.service, row, "description", "original-one");
         var submission = scope.captureSubmission(change).orElseThrow();
@@ -262,11 +312,12 @@ class BusinessContentGenerationWebScopeTest {
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
-    @Test @SuppressWarnings("unchecked") void submittedStaticChildUsesItsDeclaredOwningKeyAndRejectsAmbiguousRelations() {
+    @Test @SuppressWarnings("unchecked") void submittedStaticChildUsesItsDeclaredOwningKeyAndRejectsAmbiguousRelations() throws Exception {
+        savingHandler();
         var aggregate = mock(Aggregate.class); controller.service = aggregate;
         when(aggregate.getModuleAlias()).thenReturn(MODULE); when(aggregate.mutationServiceIdentity()).thenCallRealMethod();
         ChildAbility<Row> child = mock(ChildAbility.class);
-        when(child.getModuleAlias()).thenReturn(MODULE); when(child.mutationServiceIdentity()).thenCallRealMethod();
+        when(child.getModuleAlias()).thenReturn(MODULE + ".child"); when(child.mutationServiceIdentity()).thenCallRealMethod();
         var relation = new ChildRelation<Row, Row>("details", child, (record, id) -> record.setProjectId(id),
                 "projectId", ignored -> List.of(), Row::getProjectId);
         when(aggregate.childRelations()).thenReturn(List.of(relation)); childPlan();
@@ -283,7 +334,8 @@ class BusinessContentGenerationWebScopeTest {
         assertThat(scope.captureSubmission(change)).isEmpty();
     }
 
-    @Test @SuppressWarnings("unchecked") void submittedDynamicChildUsesPublishedEntityOwnershipAndFieldExposure() {
+    @Test @SuppressWarnings("unchecked") void submittedDynamicChildUsesPublishedEntityOwnershipAndFieldExposure() throws Exception {
+        savingHandler();
         var rootDao = mock(DynamicRecordDao.class); var childDao = mock(DynamicRecordDao.class);
         var root = mock(EntityDefinition.class); when(root.alias()).thenReturn("main"); when(rootDao.getEntity()).thenReturn(root);
         var detail = mock(EntityDefinition.class); when(detail.alias()).thenReturn("inspection"); when(childDao.getEntity()).thenReturn(detail);
@@ -301,6 +353,11 @@ class BusinessContentGenerationWebScopeTest {
                 .isInstanceOf(PlatformAccessDeniedException.class);
         when(module.relations()).thenReturn(List.of(EntityRelationDefinition.child("details", "unrelated", "inspection", "ownerId")));
         assertThat(scope.captureSubmission(change)).isEmpty();
+    }
+
+    private void savingHandler() throws Exception {
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE, new HandlerMethod(controller,
+                CrudWeb.class.getMethod("insert", net.ximatai.muyun.spring.common.model.contract.EntityContract.class)));
     }
 
     private void childPlan() {
@@ -328,7 +385,7 @@ class BusinessContentGenerationWebScopeTest {
     }
     static class Controller implements CrudWeb<Row, CrudAbility<Row>> {
         @SuppressWarnings("unchecked") CrudAbility<Row> service = mock(CrudAbility.class);
-        List<PageContextBindingDefinition> bindings = List.of(); boolean denied; boolean serviceNeedsRequest;
+        List<PageContextBindingDefinition> bindings = List.of(); boolean serviceNeedsRequest;
         ModulePageEntryPolicy<Row> policy;
         PageSelectionContextResolverRegistry resolvers = new PageSelectionContextResolverRegistry(List.of());
         public CrudAbility<Row> service() {
@@ -339,7 +396,23 @@ class BusinessContentGenerationWebScopeTest {
         public List<PageContextBindingDefinition> recordScopeBindings() { return bindings; }
         public PageSelectionContextResolverRegistry pageSelectionContextResolvers() { return resolvers; }
         public ModulePageEntryPolicy<Row> modulePageEntryPolicy() { return policy; }
-        public Row view(String id) { if (denied) throw new PlatformAccessDeniedException("owning view withdrawn"); return new Row(); }
+        @CompiledRecordScope public Row view(String id) { return new Row(); }
+        public Row customSave(Row value) { return value; }
+    }
+    static class RequestScopedController extends Controller {
+        @Override public Row view(String id) {
+            var attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+            if (!"workspace-one".equals(attributes.getRequest().getHeader("X-Workspace"))) throw new PlatformAccessDeniedException("workspace required");
+            return new Row();
+        }
+    }
+    static class RequestScopedExecutionController extends Controller {
+        @Override @CompiledRecordScope public Row view(String id) { return webScope(Row::new); }
+        @Override public <T> T webScope(java.util.function.Supplier<T> work) {
+            var attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+            if (!"workspace-one".equals(attributes.getRequest().getHeader("X-Workspace"))) throw new PlatformAccessDeniedException("workspace required");
+            return work.get();
+        }
     }
     public static class Row extends StandardEntity {
         private String projectId;

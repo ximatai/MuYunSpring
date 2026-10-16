@@ -17,6 +17,8 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationParentConstraint;
 import net.ximatai.muyun.spring.platform.ui.ResolvedUiRule;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.core.BridgeMethodResolver;
+import net.ximatai.muyun.spring.web.ScopedWeb;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
@@ -56,11 +58,12 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     @Override public Optional<Submission> captureSubmission(BusinessContentOriginalChanged change) {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) return Optional.empty();
         Object bean = context.getBean(handlerBean(attributes));
-        if (!(bean instanceof CrudWeb<?, ?> web) || !web.webScopeName().equals(change.owner().getModuleAlias()))
-            return Optional.empty();
+        if (!(bean instanceof CrudWeb<?, ?> web)) return Optional.empty();
+        if (!compiledHandler(web, attributes, Set.of(CompiledRecordScope.Kind.SAVE))) return Optional.empty();
         var parent = web.service();
         List<BusinessContentService.Location> locations = new ArrayList<>();
         if (parent.getDao() instanceof DynamicRecordDao root && change.owner().getDao() instanceof DynamicRecordDao saved) {
+            if (!web.webScopeName().equals(change.owner().getModuleAlias())) return Optional.empty();
             if (root.getEntity().alias().equals(saved.getEntity().alias())) {
                 locations.add(BusinessContentService.Location.record(change.record().getId()));
             } else {
@@ -94,6 +97,8 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     /** The descriptor is constructed from the authenticated handler and live server facts, never from request JSON. */
     public Reference capture(CrudWeb<?, ?> web, BusinessContentService.Location location, String field) {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) throw denied();
+        if (!compiledHandler(web, attributes, Set.of(CompiledRecordScope.Kind.READ, CompiledRecordScope.Kind.SAVE))
+                || !compiledReadBoundary(web)) throw denied();
         web.view(location.recordId()); web.requireMenuEntryAction(PlatformAction.VIEW);
         String module = web.webScopeName();
         var plan = plans.find(module).orElseThrow(BusinessContentGenerationWebScope::denied);
@@ -143,7 +148,8 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         catch (Exception invalid) { throw denied(); }
         if (saved == null || !module.equals(saved.moduleAlias()) || !location.equals(saved.location()) || !field.equals(saved.field())) throw denied();
         Object bean = context.getBean(saved.beanName());
-        if (!(bean instanceof CrudWeb<?, ?> web) || !AopUtils.getTargetClass(bean).getName().equals(saved.beanType())) throw denied();
+        if (!(bean instanceof CrudWeb<?, ?> web) || !AopUtils.getTargetClass(bean).getName().equals(saved.beanType())
+                || !compiledReadBoundary(web)) throw denied();
         var plan = plans.find(module).orElseThrow(BusinessContentGenerationWebScope::denied);
         var bindings = PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings());
         if (!planVersion(plan).equals(saved.planVersion()) || !valueVersion(orderedBindings(bindings)).equals(saved.bindingsVersion())
@@ -190,6 +196,29 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
         if (ability == null || !module.equals(ability.getModuleAlias())) throw denied();
         return ability;
     }
+
+    private static java.lang.reflect.Method specificMethod(CrudWeb<?, ?> web, java.lang.reflect.Method method) {
+        return BridgeMethodResolver.findBridgedMethod(AopUtils.getMostSpecificMethod(method, AopUtils.getTargetClass(web)));
+    }
+    private static boolean declared(java.lang.reflect.Method method, CompiledRecordScope.Kind kind) {
+        var scope = method.getDeclaredAnnotation(CompiledRecordScope.class);
+        return scope != null && scope.value() == kind;
+    }
+    private static boolean compiledHandler(CrudWeb<?, ?> web, ServletRequestAttributes attributes,
+                                           Set<CompiledRecordScope.Kind> kinds) {
+        var current = attributes.getRequest().getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
+        if (!(current instanceof HandlerMethod handler)) return false;
+        var scope = specificMethod(web, handler.getMethod()).getDeclaredAnnotation(CompiledRecordScope.class);
+        return scope != null && kinds.contains(scope.value());
+    }
+    private static boolean compiledReadBoundary(CrudWeb<?, ?> web) {
+        try {
+            var view = specificMethod(web, CrudWeb.class.getMethod("view", String.class));
+            var execution = specificMethod(web, ScopedWeb.class.getMethod("webScope", java.util.function.Supplier.class));
+            return declared(view, CompiledRecordScope.Kind.READ)
+                    && (execution.getDeclaringClass() == ScopedWeb.class || declared(execution, CompiledRecordScope.Kind.EXECUTION));
+        } catch (NoSuchMethodException invalid) { return false; }
+    }
     private String handlerBean(ServletRequestAttributes attributes) {
         Object current = attributes.getRequest().getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
         if (!(current instanceof HandlerMethod handler)) throw denied();
@@ -234,6 +263,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
                         new TreeSet<>(BusinessContentReadExposure.fields(plan, relation.code()))))
                 .sorted(Comparator.comparing(ReadRelation::code)).toList();
         var contract = new ReadContract(plan.moduleAlias(), plan.readModel().mainEntityAlias(), fields,
+                new TreeSet<>(BusinessContentReadExposure.fields(plan, null)),
                 orderedBindings(PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings())),
                 plan.actions().stream().sorted(Comparator.comparing(StaticModuleActionDefinition::actionCode)).toList(),
                 plan.dataScopeEnabled(), relations);
@@ -253,6 +283,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
                                 String parentBinding, ResolvedDetailRelationParentConstraint parentConstraint,
                                 ResolvedUiRule<Boolean> visible, Set<String> fields) { }
     private record ReadContract(String moduleAlias, String mainEntityAlias, List<ResolvedModuleReadField> fields,
+                                Set<String> exposedFields,
                                 List<PageContextBindingDefinition> bindings, List<StaticModuleActionDefinition> actions,
                                 boolean dataScopeEnabled, List<ReadRelation> relations) { }
     record Descriptor(String moduleAlias, BusinessContentService.Location location, String field,

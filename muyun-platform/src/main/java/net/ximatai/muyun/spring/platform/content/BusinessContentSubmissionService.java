@@ -36,7 +36,7 @@ public final class BusinessContentSubmissionService {
     @EventListener
     public void originalChanged(BusinessContentOriginalChanged change) {
         if (languages.isEmpty() || !TransactionSynchronizationManager.isActualTransactionActive()
-                || !TransactionSynchronizationManager.isSynchronizationActive() || !available()) return;
+                || !TransactionSynchronizationManager.isSynchronizationActive()) return;
         Pending pending = TransactionSynchronizationManager.getSynchronizations().stream()
                 .filter(Pending.class::isInstance).map(Pending.class::cast).filter(item -> item.owner() == this)
                 .findFirst().orElseGet(() -> {
@@ -47,20 +47,20 @@ public final class BusinessContentSubmissionService {
         if (field != null) pending.changes.put(BusinessContentSaveLifecycleListener.source(change.owner(), change.record(), field.key()), change);
     }
 
-    private boolean available() {
-        try { return gateway.isTextGenerationAvailable(); }
-        catch (RuntimeException unavailable) { return false; }
-    }
-
     private void submit(BusinessContentOriginalChanged change) {
         // Missing credentials, revoked viewing rights or unsupported custom entries never reject the original save.
-        if (!available()) return;
         try {
             nested.executeWithoutResult(status -> {
+                // A route adapter may report false after swallowing a database exception. Roll back
+                // the savepoint even for that decision, so a PostgreSQL aborted connection is recovered.
+                if (!gateway.isTextGenerationAvailable()) { status.setRollbackOnly(); return; }
                 var submissions = adapters.orderedStream().map(adapter -> adapter.captureSubmission(change))
                         .flatMap(Optional::stream).toList();
                 if (submissions.size() != 1) return;
-                for (String language : languages) generations.requestSubmitted(submissions.getFirst(), language);
+                for (String language : languages) {
+                    var result = generations.requestSubmitted(submissions.getFirst(), language);
+                    if ("UNAVAILABLE".equals(result.state())) { status.setRollbackOnly(); return; }
+                }
             });
         } catch (RuntimeException unavailable) {
             // Savepoints isolate queue failures from the original. No source text, identities, route or exception message.

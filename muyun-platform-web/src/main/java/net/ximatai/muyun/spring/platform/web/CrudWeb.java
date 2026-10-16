@@ -299,6 +299,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @GetMapping("/view/{id}")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default T view(@PathVariable String id) {
         return webScope(() -> {
@@ -356,6 +357,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @GetMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationStatus(
             @PathVariable String id, @PathVariable String field, @PathVariable String language) {
@@ -364,6 +366,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @PostMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationRequest(
             @PathVariable String id, @PathVariable String field, @PathVariable String language,
@@ -444,6 +447,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationStatus(
             @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
@@ -453,6 +457,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationRequest(
             @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
@@ -526,6 +531,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @PostMapping("/insert")
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     @ActionEndpoint(PlatformAction.CREATE)
     @StandardMutation(StandardMutationKind.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -558,6 +564,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @PostMapping("/update/{id}")
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     @ActionEndpoint(PlatformAction.UPDATE)
     @StandardMutation(StandardMutationKind.UPDATE)
     @Transactional

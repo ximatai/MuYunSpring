@@ -55,7 +55,7 @@ public final class BusinessContentTranslationService {
         String targetLanguage = language(language);
         var owned = content.owned(parent, location, PlatformAction.VIEW);
         Map<String, ReadingField> result = new LinkedHashMap<>();
-        BusinessContentFields.definitions(owned.ability(), owned.record()).forEach((field, definition) -> {
+        content.readableFields(owned.ability(), owned.record()).forEach((field, definition) -> {
             String raw = BusinessContentFields.text(owned.record(), field);
             var source = BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key());
             var original = matchingOriginal(source, raw);

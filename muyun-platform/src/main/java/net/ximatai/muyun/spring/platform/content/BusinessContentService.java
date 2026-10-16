@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.content;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.FieldReadAbility;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.content.ContentFieldDefinition;
@@ -58,7 +59,7 @@ public final class BusinessContentService {
 
     private Sources sources(CrudAbility<?> ability, EntityContract record) {
         Map<String, CurrentSource> fields = new LinkedHashMap<>();
-        BusinessContentFields.definitions(ability, record).forEach((field, content) -> {
+        readableFields(ability, record).forEach((field, content) -> {
             String text = BusinessContentFields.text(record, field);
             var latest = store.latest(BusinessContentSaveLifecycleListener.source(ability, record, content.key()));
             fields.put(field, new CurrentSource(content, text, latest == null ? null : latest.getRevision(),
@@ -76,7 +77,7 @@ public final class BusinessContentService {
 
     private List<SourceRevision> history(CrudAbility<?> ability, EntityContract record, String fieldName, PageRequest page) {
         if (page.getLimit() > 200) throw new IllegalArgumentException("Content history page size must not exceed 200");
-        var field = BusinessContentFields.definitions(ability, record).get(fieldName);
+        var field = readableFields(ability, record).get(fieldName);
         if (field == null) throw denied();
         var source = BusinessContentSaveLifecycleListener.source(ability, record, field.key());
         return store.history(source, page).stream().map(BusinessContentService::view).toList();
@@ -153,10 +154,24 @@ public final class BusinessContentService {
     }
     FieldTarget target(CrudAbility<?> parent, Location location, String field, PlatformAction action) {
         var owned = owned(parent, location, action);
-        var definition = BusinessContentFields.definitions(owned.ability(), owned.record()).get(field);
+        var definition = readableFields(owned.ability(), owned.record()).get(field);
         if (definition == null) throw denied();
         return new FieldTarget(owned.ability(), owned.record(), field, definition,
                 BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key()));
+    }
+
+    /** Every source/translation path keeps the producer's current VIEW field policy, including aggregate children. */
+    Map<String, ContentFieldDefinition> readableFields(CrudAbility<?> ability, EntityContract record) {
+        var fields = BusinessContentFields.definitions(ability, record);
+        if (!(ability instanceof FieldReadAbility readable)) return fields;
+        var action = ActionExecutionContextHolder.current().filter(current -> PlatformAction.VIEW.matches(current.actionCode()))
+                .orElseGet(() -> ActionExecutionContext.ofPlatformAction(ability.getModuleAlias(), PlatformAction.VIEW,
+                        Set.of(record.getId()), CurrentUserContext.currentUser()));
+        var policy = readable.fieldReadPolicy(action);
+        if (policy == null || !policy.restricted()) return fields;
+        var allowed = new LinkedHashMap<String, ContentFieldDefinition>();
+        fields.forEach((name, definition) -> { if (policy.allows(name)) allowed.put(name, definition); });
+        return Map.copyOf(allowed);
     }
     private <T extends EntityContract> T authorizedRecord(CrudAbility<T> ability, String recordId) {
         return authorizedRecord(ability, recordId, PlatformAction.VIEW);

@@ -25,6 +25,7 @@ import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.CompiledRecordScope;
 import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
 import net.ximatai.muyun.spring.platform.web.ModuleDiscoveryEndpoint;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
@@ -360,6 +361,7 @@ public class DynamicRecordWebController implements
     }
 
     @Override
+    @CompiledRecordScope(CompiledRecordScope.Kind.EXECUTION)
     public <T> T webScope(Supplier<T> action) {
         return tenantScope(DynamicWebRequest.moduleAlias(), action);
     }
@@ -686,6 +688,7 @@ public class DynamicRecordWebController implements
     @Override
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
+    @CompiledRecordScope
     public DynamicRecord view(@PathVariable String id) {
         return webScope(() -> detailOutput(RecordReadSupport.requireVisible(webScopeName(), id,
                 selectForAction(PlatformAction.VIEW, id))));
@@ -780,6 +783,7 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     public DynamicRecord insert(@RequestBody DynamicRecord normalized) {
         return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "create", null, normalized, () -> {
             return webScope(() -> {
@@ -800,6 +804,7 @@ public class DynamicRecordWebController implements
     @PostMapping("/update/{id}")
     @ActionEndpoint(PlatformAction.UPDATE)
     @Transactional
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     public DynamicRecord update(@PathVariable String id,
                                 @RequestBody DynamicRecord normalized) {
         return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "update", id, normalized, () -> {

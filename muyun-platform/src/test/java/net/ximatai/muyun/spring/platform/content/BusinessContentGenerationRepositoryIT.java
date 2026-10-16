@@ -206,6 +206,58 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         }
     }
 
+    @Test void availabilityDatabaseFailureIsDeferredAndCannotAbortTheOriginalTransaction() {
+        installSubmissions("en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            when(gateway.isTextGenerationAvailable()).thenAnswer(invocation ->
+                    new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject("select 1 / 0", Boolean.class));
+            var row = tx.execute(status -> {
+                var saved = insert(RAW, "zh-CN");
+                verify(gateway, never()).isTextGenerationAvailable();
+                return saved;
+            });
+            assertThat(service.select(row.getId()).getDescription()).isEqualTo(RAW);
+            assertThat(originals.latest(source(row)).getOriginalText()).isEqualTo(RAW);
+            assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+        }
+    }
+
+    @Test void unavailableDecisionAfterASwallowedDatabaseErrorRollsBackAllQueueWorkAndPreservesTheOriginal() {
+        installSubmissions("en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            for (int failAt : List.of(1, 3)) {
+                var calls = new AtomicInteger();
+                when(gateway.isTextGenerationAvailable()).thenAnswer(invocation -> {
+                    if (calls.incrementAndGet() == failAt) {
+                        try { new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject("select 1 / 0", Integer.class); }
+                        catch (org.springframework.dao.DataAccessException unavailable) { return false; }
+                    }
+                    return true;
+                });
+                var row = insert(RAW, "zh-CN");
+                assertThat(service.select(row.getId()).getDescription()).isEqualTo(RAW);
+                assertThat(originals.latest(source(row)).getOriginalText()).isEqualTo(RAW);
+                assertThat(jobDao.query(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
+            }
+        }
+    }
+
+    @Test void revokedProducerFieldReadPolicyHidesSourcesHistoryAndTranslationsAndCancelsQueuedModelWork() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN"); var pending = request(row, false);
+            service.descriptionReadable = false;
+            assertThat(content.sources(service, row.getId()).fields()).isEmpty();
+            assertThatThrownBy(() -> content.history(service, row.getId(), "description", PageRequest.of(1, 10)))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+            assertThat(maintenance.read(service, location(row), "en").fields()).isEmpty();
+            assertThatThrownBy(() -> maintenance.prepare(service, location(row), "description", "en", PlatformAction.CONTENT_EDIT))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+            assertThat(engine.runOne()).isTrue();
+            assertThat(jobDao.findById(pending.reference()).getStatus()).isEqualTo("CANCELLED");
+            verify(gateway, never()).generate(any());
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private void installSubmissions(String languages) {
         ObjectProvider<BusinessContentSubmissionScope> adapters = mock(ObjectProvider.class);
@@ -534,7 +586,11 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
     private static CurrentUserContext.Scope actor(String id) { return CurrentUserContext.use(CurrentUser.tenantUser(id, id, "tenant-a")); }
     private static AiTextResponse response(String text) { return new AiTextResponse("{\"text\":\"" + text + "\"}", "stop", "provider-id"); }
     private static class FixtureService extends AbstractAbilityService<ContentGenerationFixture>
-            implements SoftDeleteAbility<ContentGenerationFixture>, DataScopeAbility<ContentGenerationFixture> {
+            implements SoftDeleteAbility<ContentGenerationFixture>, DataScopeAbility<ContentGenerationFixture>, FieldReadAbility {
+        boolean descriptionReadable = true;
         FixtureService(ContentGenerationFixtureDao dao) { super(MODULE, ContentGenerationFixture.class, dao); }
+        public FieldReadPolicy fieldReadPolicy(ActionExecutionContext action) {
+            return descriptionReadable ? FieldReadPolicy.allReadable() : FieldReadPolicy.readableFields(List.of("id"));
+        }
     }
 }
