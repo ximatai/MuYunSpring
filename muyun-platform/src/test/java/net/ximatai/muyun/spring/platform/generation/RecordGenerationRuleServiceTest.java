@@ -221,7 +221,7 @@ class RecordGenerationRuleServiceTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
                 new TestMemoryDao<>(),
                 moduleService,

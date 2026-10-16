@@ -56,7 +56,7 @@ class MetadataStandardActionContractTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class))));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), events));
         registrar = new DynamicModuleStandardActionRegistrar(modules, new ModuleActionContributionRegistrar(actions),
                 beans.getBeanProvider(ModuleMetadataRelationService.class), beans.getBeanProvider(MetadataService.class),
                 beans.getBeanProvider(MetadataFieldService.class));

@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-/** Configuration fact; moduleAlias identifies a removed MAIN relation, tenantId its owner. */
+/** Metadata, field or binding change; moduleAlias preserves a removed binding's owner, tenantId its tenant. */
 public record MetadataChangedEvent(String metadataId, String moduleAlias, String tenantId) {
     public MetadataChangedEvent(String metadataId, String moduleAlias) {
         this(metadataId, moduleAlias, null);

@@ -44,6 +44,7 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
     @Autowired PausingMetadataService metadata;
     @Autowired ModuleMetadataRelationService relations;
     @Autowired DynamicModuleStandardActionRegistrar registrar;
+    @Autowired MetadataFieldService fields;
     @Autowired PlatformTransactionManager transactionManager;
 
     @Test
@@ -54,6 +55,77 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
     @Test
     void shouldProvideTransactionForDirectRegistration() throws Exception {
         verifyStaleSnapshotRollsBack(false);
+    }
+
+    @Test
+    void ordinaryChildFieldChangesKeepTheActionCatalogueInTheSameTransaction() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        var module = new PlatformModule();
+        module.setAlias("education.child_" + suffix); module.setApplicationAlias("education");
+        module.setTitle("子表译文"); module.setModuleKind(ModuleKind.DYNAMIC); modules.insert(module);
+        Metadata main = contentModel("main_" + suffix);
+        Metadata child = contentModel("child_" + suffix);
+        var mainBinding = new ModuleMetadataRelation();
+        mainBinding.setModuleAlias(module.getAlias()); mainBinding.setMetadataId(main.getId());
+        mainBinding.setRelationRole(RelationRole.MAIN); mainBinding.setTitle("主表"); relations.insert(mainBinding);
+        var foreignKey = contentField(child, "issueId"); fields.insert(foreignKey);
+        var description = contentField(child, "description"); fields.insert(description);
+        var childBinding = new ModuleMetadataRelation();
+        childBinding.setModuleAlias(module.getAlias()); childBinding.setMetadataId(child.getId());
+        childBinding.setRelationRole(RelationRole.CHILD); childBinding.setParentMetadataId(main.getId());
+        childBinding.setForeignKey("issueId"); childBinding.setTitle("子表"); relations.insert(childBinding);
+        registrar.register(module);
+        assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "contentEdit")).isNull();
+
+        var transactions = new TransactionTemplate(transactionManager);
+        transactions.executeWithoutResult(status -> {
+            var changed = fields.select(description.getId());
+            changed.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);
+            fields.update(changed);
+            assertContentActions(module, true);
+            status.setRollbackOnly();
+        });
+        assertThat(fields.select(description.getId()).getContentPolicy())
+                .isEqualTo(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+        assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "contentEdit")).isNull();
+
+        var changed = fields.select(description.getId());
+        changed.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);
+        fields.update(changed);
+        assertContentActions(module, true);
+        changed = fields.select(description.getId());
+        changed.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+        fields.update(changed);
+        assertContentActions(module, false);
+        changed = fields.select(description.getId());
+        changed.setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);
+        fields.update(changed);
+        assertContentActions(module, true);
+        fields.delete(description.getId());
+        assertContentActions(module, false);
+        fields.restore(description.getId());
+        assertContentActions(module, true);
+    }
+
+    private Metadata contentModel(String alias) {
+        var model = new Metadata(); model.setApplicationAlias("education"); model.setAlias(alias);
+        model.setTitle(alias); model.setCapabilityDeclarations(Set.of());
+        MetadataCapabilityGovernanceMutationContext.run(() -> metadata.insert(model));
+        return model;
+    }
+
+    private MetadataField contentField(Metadata model, String name) {
+        var field = new MetadataField(); field.setMetadataId(model.getId()); field.setFieldName(name);
+        field.setColumnName(name.equals("issueId") ? "issue_id" : name); field.setFieldSpecAlias("string");
+        field.setTitle(name); return field;
+    }
+
+    private void assertContentActions(PlatformModule module, boolean enabled) {
+        for (String action : java.util.List.of("contentEdit", "contentConfirm")) {
+            var persisted = actions.findByModuleAliasAndActionCode(module.getAlias(), action);
+            assertThat(persisted).as(action).isNotNull();
+            assertThat(persisted.getEnabled()).as(action).isEqualTo(enabled);
+        }
     }
 
     private void verifyStaleSnapshotRollsBack(boolean outerTransaction) throws Exception {
@@ -158,15 +230,31 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
         }
         @Bean PausingMetadataService metadata(MetadataDao dao) { return new PausingMetadataService(dao); }
         @Bean ModuleMetadataRelationService relations(ModuleMetadataRelationDao dao, PlatformModuleService modules,
-                                                      MetadataService metadata) {
+                                                      MetadataService metadata, ObjectProvider<MetadataFieldService> fields) {
             return new ModuleMetadataRelationService(
                     dao,
                     modules,
                     metadata,
                     Optional.empty(),
                     TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
-                    TestBeanProviders.empty(MetadataFieldService.class),
+                    fields,
                     event -> {});
+        }
+        @Bean FieldSpecService specs() {
+            var service = new FieldSpecService(new net.ximatai.muyun.spring.platform.support.TestMemoryDao<>(),
+                    new net.ximatai.muyun.spring.platform.support.TestMemoryDao<>());
+            var spec = new FieldSpec(); spec.setAlias("string"); spec.setDefaultLength(128); service.insert(spec);
+            return service;
+        }
+        @Bean MetadataFieldConfigService fieldConfigs() { return org.mockito.Mockito.mock(MetadataFieldConfigService.class); }
+        @Bean MetadataFieldService fields(MetadataFieldDao dao, MetadataService metadata, FieldSpecService specs,
+                ObjectProvider<ModuleMetadataRelationService> relations, ObjectProvider<PlatformModuleService> modules,
+                ObjectProvider<MetadataFieldConfigService> configs, org.springframework.context.ApplicationEventPublisher events) {
+            return new MetadataFieldService(dao, metadata, specs,
+                    TestBeanProviders.empty(net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator.class),
+                    TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class), relations, modules,
+                    TestBeanProviders.empty(MetadataFieldReferenceConfigService.class), configs, events);
         }
         @Bean DynamicModuleStandardActionRegistrar registrar(PlatformModuleService modules,
                 ModuleActionContributionRegistrar contributions, ObjectProvider<ModuleMetadataRelationService> relations,

@@ -308,7 +308,7 @@ class PresentationConfigurationReferencesTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         private final ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
                 relationDao,
                 new PlatformModuleService(new TestMemoryDao<>(), event -> {}),

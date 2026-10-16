@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -43,6 +44,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
     private final ObjectProvider<PlatformModuleService> moduleServiceProvider;
     private final ObjectProvider<MetadataFieldConfigService> fieldConfigServiceProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
                                 MetadataService metadataService,
@@ -53,10 +55,12 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
                                 ObjectProvider<PlatformModuleService> moduleServiceProvider,
                                 ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigServiceProvider,
-                                ObjectProvider<MetadataFieldConfigService> fieldConfigServiceProvider) {
+                                ObjectProvider<MetadataFieldConfigService> fieldConfigServiceProvider,
+                                ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, MetadataField.class, fieldDao);
         this.referenceConfigServiceProvider = Objects.requireNonNull(referenceConfigServiceProvider, "referenceConfigServiceProvider");
         this.fieldConfigServiceProvider = Objects.requireNonNull(fieldConfigServiceProvider, "fieldConfigServiceProvider");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.metadataService = Objects.requireNonNull(metadataService, "metadataService");
         this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService");
         this.runtimeRefreshCoordinatorProvider = Objects.requireNonNull(runtimeRefreshCoordinatorProvider,
@@ -150,8 +154,12 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
 
     @Override
     public void afterChanged(MetadataField field) {
+        // A governed change-set publishes its complete metadata fact at the final CAS boundary.
+        // Ordinary field writes (including CHILD declarations) need the same catalogue fact.
+        if (MetadataCapabilityGovernanceMutationContext.isActive()) return;
+        eventPublisher.publishEvent(new MetadataChangedEvent(field.getMetadataId(), null, field.getTenantId()));
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
-        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
+        if (runtimeRefreshCoordinator != null) {
             runtimeRefreshCoordinator.refreshByMetadataField(field);
         }
     }

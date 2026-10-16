@@ -187,7 +187,7 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
             TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -1607,7 +1607,7 @@ class PlatformMetadataServiceContractTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         for (var target : List.of(fieldService.list(Criteria.of().eq("metadataId", productId).eq("fieldName", "quantity"), PageRequests.all()).getFirst(),
                 fieldService.list(Criteria.of().eq("metadataId", lineId).eq("fieldName", "amount"), PageRequests.all()).getFirst())) {
             var changed = field(target.getMetadataId(), target.getFieldName(), target.getColumnName(), FieldType.STRING);
