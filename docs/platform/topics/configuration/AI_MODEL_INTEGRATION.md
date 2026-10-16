@@ -6,6 +6,8 @@
 
 静态与动态业务统一通过来源无关的 `AiModelGateway` 访问模型；不得在 Controller、动态执行器或业务 Service 中直接持有供应商 SDK、API Key 或供应商 URL。
 
+`AiModelGateway.isTextGenerationAvailable()` 在明确的可信身份与租户上下文下，使用相同路由检查当前连接、供应商启用及凭据可解析性，只返回可用与否，不调用供应商、占用生成并发或暴露连接细节。它不是服务健康承诺，也不缓存结果；实际生成仍重新解析路由。未实现该查询的替代网关默认返回不可用。
+
 `AiModelGateway` 是业务侧唯一稳定门面。每次调用都会在执行时请求 `AiModelRouteResolver` 解析当前路由，
 不会在 Bean 初始化或业务对象中固化配置。路由解析器把配置记录与供应商目录合成为内部
 `ResolvedAiModelRoute` 快照，传输适配器只消费协议、端点、模型和凭据，不依赖配置持久化实体。

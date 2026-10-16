@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.ai;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,19 @@ final class DefaultAiModelGateway implements AiModelGateway {
         this.maxConcurrentPerUser = maxConcurrentPerUser;
         this.routeResolver = Objects.requireNonNull(routeResolver, "routeResolver must not be null");
         this.client = Objects.requireNonNull(client, "client must not be null");
+    }
+
+    @Override
+    public boolean isTextGenerationAvailable() {
+        if (CurrentUserContext.currentUser().isEmpty() || !TenantContext.hasContext()) return false;
+        try {
+            routeResolver.resolveCurrent();
+            return true;
+        } catch (PlatformException unavailable) {
+            // Configuration errors can contain credential environment names or endpoint details.
+            // Availability exposes only the decision; it never discloses the rejected route.
+            return false;
+        }
     }
 
     @Override
