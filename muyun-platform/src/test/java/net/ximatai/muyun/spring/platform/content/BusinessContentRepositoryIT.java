@@ -34,7 +34,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired BusinessContentStore store;
     @Autowired BusinessContentService content;
     @Autowired BusinessContentSaveLifecycleListener listener;
-    @Autowired BusinessContentDeletionLifecycleListener deletion;
+    @Autowired BusinessContentDeletionObserver deletion;
     @Autowired PlatformTransactionManager transactions;
     @Autowired IDatabaseOperations<?> operations;
     private FixtureService service;
@@ -51,7 +51,8 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             public <T> T execute(java.util.function.Supplier<T> work) { return tx.execute(status -> work.get()); }
         });
         PlatformAbilityRuntime.configureEntitySaveLifecycleListener(new CompositeEntitySaveLifecycleListener(List.of(listener)));
-        PlatformAbilityRuntime.configureDeletionLifecycleListener(new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(List.of(deletion)));
+        PlatformAbilityRuntime.configureDeletionLifecycleListener(new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(
+                net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener.NONE, List.of(deletion)));
         PlatformAbilityRuntime.configureDataScopeCriteriaService(AllowAllDataScopeCriteriaService::new);
     }
     @AfterEach void reset() {
@@ -130,6 +131,16 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(store.latest(source)).isNull();
         }
     }
+    @Test void staticServiceWithoutDataScopeKeepsItsOwningReadContract() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var unscoped = new AbstractAbilityService<ContentFixture>("test.content", ContentFixture.class, dao) { };
+            var row = row("Static source"); unscoped.insert(row);
+            var unexpectedScopes = org.mockito.Mockito.mock(DataScopeCriteriaService.class);
+            var facade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), unexpectedScopes);
+            assertThat(facade.history(unscoped, row.getId(), "title", HISTORY)).hasSize(1);
+            org.mockito.Mockito.verifyNoInteractions(unexpectedScopes);
+        }
+    }
     @Test void concurrentOriginalEditsCannotProduceTwoCurrentRevisions() throws Exception {
         String id;
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
@@ -178,6 +189,15 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(parentHistory.getFirst().sourceLanguage()).isEqualTo("zh-CN");
             assertThat(childHistory.getFirst().sourceLanguage()).isEqualTo("en-US");
             assertThat(parentHistory.getFirst().sourceKey()).isNotEqualTo(childHistory.getFirst().sourceKey());
+            DataScopeCriteriaService restricted = new AllowAllDataScopeCriteriaService() {
+                @Override public DataScopeCriteriaResult resolveReadScope(String alias, ActionExecutionPolicy action,
+                        Criteria criteria, Optional<CurrentUser> actor) {
+                    return DataScopeCriteriaResult.unrestricted(criteria.eq("id", "not-visible"));
+                }
+            };
+            var restrictedFacade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), restricted);
+            assertThatThrownBy(() -> restrictedFacade.history(runtime.entityService(module.moduleAlias(), "main"),
+                    parent.getId(), "description", HISTORY)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             var reopened = records.select(module.moduleAlias(), "main", parent.getId());
             assertThat(reopened.getChildren("lines").getFirst().getValue("description")).isEqualTo("Investigation pending");
             var partial = new DynamicRecord(main).setValue("quantity", 0);
@@ -185,6 +205,34 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             records.update(module.moduleAlias(), "main", partial);
             assertThat(content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY)).hasSize(1);
             assertThat(records.select(module.moduleAlias(), "main", parent.getId()).getValue("description")).isEqualTo("80°C，暂勿发货");
+        }
+    }
+    @Test void staleDynamicInputCannotRetainWithdrawnContentOrBypassNewMaskingPolicy() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String alias = "test.content_stale_" + suffix;
+        var old = new EntityDefinition("main", "content_stale_" + suffix, "Content", List.of(
+                FieldDefinition.text("description", "Description").content(new ContentFieldDefinition("description-stable", ContentPolicy.AUTO_TRANSLATE))));
+        new DynamicSchemaService(operations).ensureTable(old);
+        try (var runtime = new DynamicRecordRuntime(operations).register(new ModuleDefinition(alias, "Content", List.of(old)));
+             var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var incoming = new DynamicRecord(old).setValue("description", "Originally public");
+            runtime.entityService(alias, "main").insert(incoming);
+            var source = new BusinessContentSource("tenant-a", alias, "main", incoming.getId(), "description-stable");
+            assertThat(store.latest(source).getRevision()).isEqualTo(1);
+            var masked = FieldDefinition.text("description", "Description").protection(new net.ximatai.muyun.spring.common.security.FieldProtectionDefinition(
+                    null, null, net.ximatai.muyun.spring.common.security.FieldMaskingPolicy.FULL));
+            var current = new EntityDefinition("main", old.tableName(), "Content", List.of(masked));
+            runtime.refresh(new ModuleDefinition(alias, "Content", List.of(current)));
+            incoming.setValue("description", "Must never enter unprotected content history");
+            runtime.entityService(alias, "main").update(incoming);
+            assertThat(store.history(source, HISTORY)).hasSize(1);
+            assertThat(store.latest(source).getOriginalText()).isEqualTo("Originally public");
+            assertThatThrownBy(() -> content.history(runtime.entityService(alias, "main"), incoming.getId(), "description", HISTORY))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            try (var input = ContentWriteContext.open(incoming, Map.of("description", new ContentWriteContext.SourceInput("en", 1)))) {
+                assertThatThrownBy(() -> runtime.entityService(alias, "main").update(incoming))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("undeclared content field");
+            }
         }
     }
     private static ContentFixture row(String title) { var row = new ContentFixture(); row.setTitle(title); return row; }
@@ -198,7 +246,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     }
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = BusinessContentRevisionDao.class)
-    @Import({BusinessContentStore.class, BusinessContentService.class, BusinessContentSaveLifecycleListener.class, BusinessContentDeletionLifecycleListener.class})
+    @Import({BusinessContentStore.class, BusinessContentService.class, BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
         @Bean ActionExecutionPolicyService policies() { return new AllowAllActionExecutionPolicyService(); }

@@ -38,9 +38,11 @@ public class MuYunSpringMutationConfiguration {
     @Bean
     /** 注入删除生命周期监听器；应用未提供时使用显式空实现。 */
     DeletionLifecycleListenerRegistration deletionLifecycleListenerRegistration(
-            ObjectProvider<DeletionLifecycleListener> listenerProvider) {
+            ObjectProvider<DeletionLifecycleListener> listenerProvider,
+            ObjectProvider<net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleObserver> observers) {
         return new DeletionLifecycleListenerRegistration(
-                new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(listenerProvider.orderedStream().toList()));
+                new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(
+                        listenerProvider.getIfAvailable(() -> DeletionLifecycleListener.NONE), observers.orderedStream().toList()));
     }
 
     @Bean

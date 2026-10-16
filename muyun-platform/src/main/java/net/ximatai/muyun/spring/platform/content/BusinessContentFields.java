@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.content.*;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordDao;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import java.lang.reflect.Field;
 import java.util.*;
 
@@ -28,10 +30,10 @@ final class BusinessContentFields {
     };
 
     static Map<String, ContentFieldDefinition> definitions(CrudAbility<?> ability, EntityContract record) {
-        if (record instanceof DynamicRecord dynamic) {
+        if (record instanceof DynamicRecord) {
             Map<String, ContentFieldDefinition> result = new LinkedHashMap<>();
             Set<String> keys = new HashSet<>();
-            dynamic.getEntity().fields().stream().filter(field -> field.content().enabled()).forEach(field -> {
+            dynamicEntity(ability).fields().stream().filter(field -> field.content().enabled()).forEach(field -> {
                 if (!keys.add(field.content().key())) throw new IllegalArgumentException("Duplicate business content field identity");
                 result.put(field.fieldName(), field.content());
             });
@@ -41,11 +43,17 @@ final class BusinessContentFields {
     }
 
     static String entityKey(CrudAbility<?> ability, EntityContract record) {
-        if (record instanceof DynamicRecord dynamic) return dynamic.getEntity().alias();
+        if (record instanceof DynamicRecord) return dynamicEntity(ability).alias();
         Class<?> type = ability.modelClass() == null ? record.getClass() : ability.modelClass();
         Table table = type.getAnnotation(Table.class);
         if (table == null) throw new IllegalArgumentException("Business content requires a mapped model: " + type.getName());
         return table.name();
+    }
+
+    private static EntityDefinition dynamicEntity(CrudAbility<?> ability) {
+        if (!(ability.getDao() instanceof DynamicRecordDao dao))
+            throw new IllegalArgumentException("Dynamic content requires the owning runtime DAO");
+        return dao.getEntity();
     }
 
     static String text(EntityContract record, String fieldName) {
