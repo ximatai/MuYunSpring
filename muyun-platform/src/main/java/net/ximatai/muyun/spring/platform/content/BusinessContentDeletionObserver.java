@@ -13,15 +13,11 @@ import java.util.Objects;
 public final class BusinessContentDeletionObserver implements DeletionLifecycleObserver {
     private final BusinessContentStore store;
     private final BusinessContentTranslationStore translations;
-    private final org.springframework.beans.factory.ObjectProvider<BusinessContentGenerationStore> generations;
-    public BusinessContentDeletionObserver(BusinessContentStore store, BusinessContentTranslationStore translations) {
-        this(store, translations, null);
-    }
-    @org.springframework.beans.factory.annotation.Autowired
+    private final BusinessContentGenerationStore generations;
     public BusinessContentDeletionObserver(BusinessContentStore store, BusinessContentTranslationStore translations,
-            org.springframework.beans.factory.ObjectProvider<BusinessContentGenerationStore> generations) {
+            BusinessContentGenerationStore generations) {
         this.store = Objects.requireNonNull(store); this.translations = Objects.requireNonNull(translations);
-        this.generations = generations;
+        this.generations = Objects.requireNonNull(generations);
     }
     @Override public void succeeded(CrudAbility<?> ability, EntityContract entity, DeletionContext context,
                                     DeletionNode node, DeletionMode mode) {
@@ -38,8 +34,7 @@ public final class BusinessContentDeletionObserver implements DeletionLifecycleO
                 BusinessContentFields.entityKey(ability, entity), entity.getId());
         translations.purgeRecord(entity.getTenantId(), ability.getModuleAlias(),
                 BusinessContentFields.entityKey(ability, entity), entity.getId());
-        var jobs = generations == null ? null : generations.getIfAvailable();
-        if (jobs != null) jobs.purgeRecord(entity.getTenantId(), ability.getModuleAlias(),
+        generations.purgeRecord(entity.getTenantId(), ability.getModuleAlias(),
                 BusinessContentFields.entityKey(ability, entity), entity.getId());
     }
 }

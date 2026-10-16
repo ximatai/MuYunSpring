@@ -948,7 +948,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @SpringBootConfiguration @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = BusinessContentRevisionDao.class)
     @Import({BusinessContentStore.class, BusinessContentTranslationStore.class, BusinessContentService.class, BusinessContentTranslationService.class,
-            BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class})
+            BusinessContentSaveLifecycleListener.class, BusinessContentDeletionObserver.class, BusinessContentGenerationStore.class})
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
         @Bean ActionExecutionPolicyService policies() { return new AllowAllActionExecutionPolicyService(); }

@@ -59,7 +59,8 @@ public final class BusinessContentGenerationService {
                           String field, String language, boolean retry) {
         String tag = language(language); PlatformNameRules.requireModuleAlias(moduleAlias);
         return adapter(scope).withAccess(scope, moduleAlias, location, field, parent -> tx.execute(status -> {
-            var target = locked(parent, location, field);
+            var target = locked(parent, location, field, () -> adapter(scope).withAccess(scope, moduleAlias, location, field,
+                    current -> content.target(current, location, field, PlatformAction.VIEW)));
             var original = original(target);
             var eligibility = eligibility(target, original, tag);
             if (eligibility != null) return eligibility;
@@ -162,7 +163,8 @@ public final class BusinessContentGenerationService {
     public int purgeExpired() { return control(() -> tx.execute(status -> jobs.purgeExpired(clock.instant()))); }
 
     private Input prepare(BusinessContentGeneration job, Request request, CrudAbility<?> parent) {
-        var target = locked(parent, request.location(), request.field());
+        var target = locked(parent, request.location(), request.field(), () -> access(request,
+                current -> content.target(current, request.location(), request.field(), PlatformAction.VIEW)));
         if (!source(job).equals(target.source()) || !BusinessContentTextTranslator.POLICY_VERSION.equals(request.policyVersion()))
             throw new StaleWork();
         var original = original(target);
@@ -174,10 +176,12 @@ public final class BusinessContentGenerationService {
         return new Input(target.text(), original.getSourceLanguage());
     }
 
-    private FieldTarget locked(CrudAbility<?> parent, Location location, String field) {
+    private FieldTarget locked(CrudAbility<?> parent, Location location, String field, Supplier<FieldTarget> reauthorize) {
         var target = content.target(parent, location, field, PlatformAction.VIEW);
         BusinessContentStore.lockRecord(target.source());
-        var current = content.target(parent, location, field, PlatformAction.VIEW);
+        // A concurrent save may move the owner to another workspace without changing its text.
+        // Reopen the complete live entry after waiting for the owner lock, not only its VIEW permission.
+        var current = reauthorize.get();
         if (!target.source().equals(current.source())) throw new OptimisticLockException("Business content field changed");
         return current;
     }

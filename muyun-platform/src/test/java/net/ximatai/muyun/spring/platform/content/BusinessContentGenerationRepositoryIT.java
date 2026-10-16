@@ -53,6 +53,8 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
     private final AtomicBoolean identityActive = new AtomicBoolean(true);
     private final AtomicBoolean scopeActive = new AtomicBoolean(true);
     private final Map<String, CurrentUser> users = new ConcurrentHashMap<>();
+    private Consumer<BusinessContentService.Location> scopeGuard;
+    private BiConsumer<String, String> beforeLock;
     private AiModelGateway gateway;
     private FixtureService service;
     private TransactionTemplate tx;
@@ -65,12 +67,14 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
     }
     @BeforeEach @SuppressWarnings("unchecked") void install() {
         now.set(NOW); identityActive.set(true); scopeActive.set(true);
+        scopeGuard = location -> { }; beforeLock = (scope, key) -> { };
         gateway = mock(AiModelGateway.class); when(gateway.isTextGenerationAvailable()).thenReturn(true);
         when(gateway.generate(any())).thenReturn(response(EN));
         service = new FixtureService(dao); tx = new TransactionTemplate(transactions);
         PlatformAbilityRuntime.configureMutationTransactionOperator(new MutationTransactionOperator() {
             public <T> T execute(Supplier<T> work) { return tx.execute(status -> work.get()); }
             public void lock(String scope, String key) {
+                beforeLock.accept(scope, key);
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForObject(
                         "select pg_advisory_xact_lock(hashtextextended(?, 0))", Object.class, scope + key);
             }
@@ -95,6 +99,7 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
                                     String field, Function<CrudAbility<?>, T> work) {
                 if (!scopeActive.get()) throw new PlatformAccessDeniedException("scope withdrawn");
                 assertThat(CurrentUserContext.currentUser()).isPresent();
+                scopeGuard.accept(location);
                 try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPlatformAction(
                         module, PlatformAction.VIEW, Set.of(location.recordId()), CurrentUserContext.currentUser()))) {
                     return work.apply(service);
@@ -256,6 +261,57 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             assertThat(request(row, false).state()).isEqualTo("CANCELLED");
             verify(gateway, times(2)).generate(any());
             assertThat(maintenance.read(service, location(row), "en").fields().get("description").originalFallback()).isTrue();
+        }
+    }
+
+    @Test void completionRechecksTheOriginalWorkspaceAfterWaitingForAConcurrentSave() throws Exception {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = insert(RAW, "zh-CN");
+            row.setProjectId("project-one"); service.update(row);
+            var source = source(row); var completion = new AtomicBoolean(); var intercepted = new AtomicBoolean();
+            var scopeRead = new CountDownLatch(1); var writerHolds = new CountDownLatch(1);
+            var workerWaiting = new CountDownLatch(1); var releaseWriter = new CountDownLatch(1);
+            scopeGuard = location -> {
+                if (!"project-one".equals(service.select(location.recordId()).getProjectId()))
+                    throw new PlatformAccessDeniedException("original workspace withdrawn");
+                if (completion.get() && intercepted.compareAndSet(false, true)) {
+                    scopeRead.countDown(); await(writerHolds);
+                }
+            };
+            var pending = request(row, false);
+            doAnswer(invocation -> { completion.set(true); return response(EN); }).when(gateway).generate(any());
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                var worker = executor.submit(() -> {
+                    beforeLock = (scope, key) -> {
+                        if (completion.get() && Thread.currentThread().getName().equals("content-completion")) workerWaiting.countDown();
+                    };
+                    Thread.currentThread().setName("content-completion");
+                    return engine.runOne();
+                });
+                Future<?> writer = null;
+                try {
+                    await(scopeRead);
+                    writer = executor.submit(() -> {
+                        try (var editor = actor("cn"); var route = TenantContext.use("tenant-a")) {
+                            tx.executeWithoutResult(status -> {
+                                BusinessContentStore.lockRecord(source);
+                                var moved = service.select(row.getId()); moved.setProjectId("project-two"); service.update(moved);
+                                writerHolds.countDown(); await(releaseWriter);
+                            });
+                        }
+                    });
+                    await(workerWaiting);
+                } finally { writerHolds.countDown(); releaseWriter.countDown(); }
+                Objects.requireNonNull(writer).get(30, TimeUnit.SECONDS);
+                assertThat(worker.get(30, TimeUnit.SECONDS)).isTrue();
+            }
+            assertThat(jobDao.findById(pending.reference()).getStatus()).isEqualTo("CANCELLED");
+            assertThat(jobDao.findById(pending.reference()).getProblemCode()).isEqualTo("SCOPE_WITHDRAWN");
+            assertThat(service.select(row.getId()).getDescription()).isEqualTo(RAW);
+            assertThat(originals.latest(source).getRevision()).isEqualTo(1);
+            assertThat(translations.history(source, BusinessContentStore.OriginalVersion.of(originals.latest(source)),
+                    "en", PageRequest.of(1, 10))).isEmpty();
+            verify(gateway, times(1)).generate(any());
         }
     }
 

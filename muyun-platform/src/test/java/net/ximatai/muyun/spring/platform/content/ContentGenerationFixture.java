@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Getter @Setter
 @Table(name = "content_generation_fixture", comment = "Automatic business reading contract fixture")
 public class ContentGenerationFixture extends StandardEntity {
+    @Column(name = "project_id", type = ColumnType.VARCHAR, length = 64)
+    private String projectId;
+
     @BusinessContent(value = ContentPolicy.AUTO_TRANSLATE, key = "quality-description")
     @Column(name = "description", type = ColumnType.TEXT)
     private String description;
