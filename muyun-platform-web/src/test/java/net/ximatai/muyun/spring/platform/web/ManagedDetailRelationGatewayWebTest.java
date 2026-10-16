@@ -133,6 +133,46 @@ class ManagedDetailRelationGatewayWebTest {
     }
 
     @Test
+    void shouldExpandOnlyManagedChildUserTextBeforeParentAndExternalScope() throws Exception {
+        FieldUiControlService parentService = mock(FieldUiControlService.class);
+        FieldUiControlPropertyService childService = mock(FieldUiControlPropertyService.class);
+        when(parentService.select("select")).thenReturn(parent("select"));
+        when(childService.queryDescriptor()).thenReturn(net.ximatai.muyun.spring.ability.query.QueryDescriptor
+                .builder(FieldUiControlPropertyService.MODULE_ALIAS)
+                .field(net.ximatai.muyun.spring.ability.query.QueryField.of("title",
+                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ))
+                .externalCriteria("fixed", value -> Criteria.of().eq("title", value)).build());
+        when(childService.list(any(Criteria.class), any(net.ximatai.muyun.database.core.orm.Sort[].class)))
+                .thenReturn(List.of());
+        var contentQueries = mock(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService.class);
+        when(contentQueries.expandUserText(eq(childService), any(Criteria.class))).thenAnswer(invocation ->
+                Criteria.copyOf(invocation.getArgument(1, Criteria.class))
+                        .or(Criteria.of().eq("title", "translated-match")));
+        var policy = new AllowAllPolicyService();
+        var gateway = gateway(parentService, childService, mutation(false, false, false), policy);
+        gateway.setBusinessContentQueryService(contentQueries);
+        MockMvc mvc = mvc(parentService, gateway, policy);
+        mvc.perform(post("/platform.field_ui_control/view/select/relations/properties/query")
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"conditions":[{"fieldName":"title","operator":"EQ","values":["English equipment"]}],
+                                 "externalQueryValues":{"fixed":"raw-scope"}}
+                                """))
+                .andExpect(status().isOk());
+        var user = org.mockito.ArgumentCaptor.forClass(Criteria.class);
+        verify(contentQueries).expandUserText(eq(childService), user.capture());
+        var userSql = new net.ximatai.muyun.database.core.orm.CriteriaSqlCompiler().compile(user.getValue(),
+                field -> field, net.ximatai.muyun.database.core.metadata.DBInfo.Type.POSTGRESQL);
+        assertThat(userSql.getParams().values()).containsExactly("English equipment");
+        var executed = org.mockito.ArgumentCaptor.forClass(Criteria.class);
+        verify(childService).list(executed.capture(), any(net.ximatai.muyun.database.core.orm.Sort[].class));
+        var sql = new net.ximatai.muyun.database.core.orm.CriteriaSqlCompiler().compile(executed.getValue(),
+                field -> field, net.ximatai.muyun.database.core.metadata.DBInfo.Type.POSTGRESQL);
+        assertThat(sql.getParams().values()).containsExactlyInAnyOrder("select", "English equipment", "translated-match", "raw-scope");
+        assertThat(sql.getSql()).contains(" AND ", " OR ");
+        assertThat(executed.getValue().getRoot().getEntries()).hasSize(2); // Parent AND (user OR translation) AND external.
+    }
+
+    @Test
     void shouldRunCompiledManagedRelationThroughParentHttpBoundary() throws Exception {
         FieldUiControlService parentService = mock(FieldUiControlService.class);
         FieldUiControlPropertyService childService = mock(FieldUiControlPropertyService.class);

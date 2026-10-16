@@ -8,6 +8,7 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.VerifiedMutationScope;
@@ -42,6 +43,12 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
     private final ActionEndpointContextResolver actionContextResolver;
     private final ObjectMapper objectMapper;
     private final Map<RelationKey, StaticManagedDetailRelationHandler<?, ?>> handlers;
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+
+    @Autowired(required = false)
+    public void setBusinessContentQueryService(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService service) {
+        contentQueries = service;
+    }
 
     @Autowired
     public ManagedDetailRelationGateway(ModuleExecutionPlanCatalog planCatalog,
@@ -110,7 +117,11 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         Criteria criteria = runtime.handler().criteriaFor(runtime.parent());
         QueryAbility<?> queryAbility = runtime.handler().childService() instanceof QueryAbility<?> ability ? ability : null;
         if (queryAbility != null) {
-            Criteria requested = queryAbility.queryCriteria(WebQueryRequests.from(request));
+            Criteria requested = new QueryCompiler(queryAbility.queryDescriptor(),
+                    net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition.TREE,
+                    condition -> contentQueries == null ? condition
+                            : contentQueries.expandUserText(runtime.handler().childService(), condition))
+                    .criteria(WebQueryRequests.from(request));
             if (requested != null) criteria.and(requested);
         } else if (request != null && (!request.conditions().isEmpty() || request.criteria() != null && !request.criteria().isEmpty())) {
             throw new IllegalArgumentException("managed relation query conditions are not supported: " + relationCode);
