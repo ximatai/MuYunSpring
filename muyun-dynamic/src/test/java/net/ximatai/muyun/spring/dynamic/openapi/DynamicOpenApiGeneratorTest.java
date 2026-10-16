@@ -57,6 +57,9 @@ class DynamicOpenApiGeneratorTest {
         assertThat(insert.properties().get("code").nullable()).isTrue();
         assertThat(document.schemas().get("ContractValues").properties().get("code").nullable()).isFalse();
         var payload = document.schemas().get("DynamicRecordUpdatePayload");
+        assertThat(payload.properties().get("$contentLanguages").type()).isEqualTo("object");
+        assertThat(document.schemas().get("DynamicRecordCreatePayload").properties()).containsKey("$contentLanguages");
+        assertThat(document.schemas().get("ContractValues").properties()).doesNotContainKey("$contentLanguages");
         assertThat(payload.required()).doesNotContain("id", "version");
         assertThat(payload.properties().get("version").required()).isFalse();
         @SuppressWarnings("unchecked")

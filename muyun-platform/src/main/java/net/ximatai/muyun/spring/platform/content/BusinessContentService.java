@@ -5,7 +5,7 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordDao;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
@@ -36,7 +36,7 @@ public final class BusinessContentService {
                 Set.of(recordId), CurrentUserContext.currentUser()));
         Criteria id = Criteria.of().eq("id", recordId);
         var scope = ability instanceof DataScopeAbility<?> scoped ? scoped.readScope(PlatformAction.VIEW, id)
-                : ability instanceof DynamicEntityService
+                : ability.getDao() instanceof DynamicRecordDao
                     ? scopes.resolveReadScope(ability.getModuleAlias(), PlatformAction.VIEW.executionPolicy(), id,
                         CurrentUserContext.currentUser())
                     : DataScopeCriteriaResult.unrestricted(id);

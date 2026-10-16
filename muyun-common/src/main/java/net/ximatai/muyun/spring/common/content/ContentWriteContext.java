@@ -29,7 +29,7 @@ public final class ContentWriteContext {
     public static Map<String, SourceInput> inputs(EntityContract record) {
         for (Scope scope = CURRENT.get(); scope != null; scope = scope.previous)
             if (scope.record == record) return scope.fields;
-        return Map.of();
+        return record instanceof ContentLanguageInputs inputs ? inputs.contentLanguageInputs() : Map.of();
     }
 
     public static final class Scope implements AutoCloseable {

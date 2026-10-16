@@ -134,10 +134,15 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Test void staticServiceWithoutDataScopeKeepsItsOwningReadContract() {
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var unscoped = new AbstractAbilityService<ContentFixture>("test.content", ContentFixture.class, dao) { };
-            var row = row("Static source"); unscoped.insert(row);
+            var row = row("Static source");
+            row.contentLanguageInputs(Map.of("title", new ContentWriteContext.SourceInput("en", null)));
+            unscoped.insert(row);
+            assertThat(row.contentLanguageInputs()).isEmpty();
+            row.setQuantity(12); unscoped.update(row);
             var unexpectedScopes = org.mockito.Mockito.mock(DataScopeCriteriaService.class);
             var facade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), unexpectedScopes);
             assertThat(facade.history(unscoped, row.getId(), "title", HISTORY)).hasSize(1);
+            assertThat(facade.history(unscoped, row.getId(), "title", HISTORY).getFirst().sourceLanguage()).isEqualTo("en");
             org.mockito.Mockito.verifyNoInteractions(unexpectedScopes);
         }
     }
@@ -180,12 +185,12 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var parent = new DynamicRecord(main).setValue("description", "80°C，暂勿发货");
             var child = new DynamicRecord(line).setValue("description", "Investigation pending");
             parent.setChildren("lines", List.of(child));
-            try (var parentInput = ContentWriteContext.open(parent, Map.of("description", new ContentWriteContext.SourceInput("zh-CN", null)));
-                 var childInput = ContentWriteContext.open(child, Map.of("description", new ContentWriteContext.SourceInput("en-US", null)))) {
-                records.create(module.moduleAlias(), "main", parent);
-            }
+            parent.contentLanguageInputs(Map.of("description", new ContentWriteContext.SourceInput("zh-CN", null)));
+            child.contentLanguageInputs(Map.of("description", new ContentWriteContext.SourceInput("en-US", null)));
+            records.create(module.moduleAlias(), "main", parent);
             var parentHistory = content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY);
             var childHistory = content.history(runtime.entityService(module.moduleAlias(), "line"), child.getId(), "description", HISTORY);
+            assertThat(content.history(records.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
             assertThat(parentHistory.getFirst().sourceLanguage()).isEqualTo("zh-CN");
             assertThat(childHistory.getFirst().sourceLanguage()).isEqualTo("en-US");
             assertThat(parentHistory.getFirst().sourceKey()).isNotEqualTo(childHistory.getFirst().sourceKey());
@@ -197,6 +202,8 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             };
             var restrictedFacade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), restricted);
             assertThatThrownBy(() -> restrictedFacade.history(runtime.entityService(module.moduleAlias(), "main"),
+                    parent.getId(), "description", HISTORY)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> restrictedFacade.history(records.mainEntity(module.moduleAlias()),
                     parent.getId(), "description", HISTORY)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             var reopened = records.select(module.moduleAlias(), "main", parent.getId());
             assertThat(reopened.getChildren("lines").getFirst().getValue("description")).isEqualTo("Investigation pending");

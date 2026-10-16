@@ -47,6 +47,9 @@ class StaticModuleOpenApiGeneratorTest {
         assertThat(schemas.get("TaskUpdate").writeOperation())
                 .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.UPDATE);
         assertThat(schemas.get("TaskUpdate").partialUpdate()).isFalse();
+        assertThat(schemas.get("TaskCreate").properties().get("$contentLanguages").type()).isEqualTo("object");
+        assertThat(schemas.get("TaskUpdate").properties()).containsKey("$contentLanguages");
+        assertThat(schemas.get("Task").properties()).doesNotContainKey("$contentLanguages");
         assertThat(schemas.get("TaskUpdate").required()).isEmpty();
         assertThat(schemas.get("TaskUpdate").properties().get("code").required()).isFalse();
         assertThat(schemas.get("TaskUpdate").properties().get("code").writeRules()).isEqualTo(rules.withNonNull(true));

@@ -143,6 +143,7 @@ final class DynamicOpenApiSchemaFactory {
     private DynamicOpenApiDocument.Schema recordPayloadSchema(DynamicEntityDescriptor entity) {
         Map<String, DynamicOpenApiDocument.Property> properties = recordEnvelopeProperties(entity);
         properties.put("attachments", arrayProperty("RecordAttachmentCommand"));
+        properties.put("$contentLanguages", objectProperty("object"));
         return new DynamicOpenApiDocument.Schema("DynamicRecordPayload", "object", null,
                 List.of(), properties, null);
     }

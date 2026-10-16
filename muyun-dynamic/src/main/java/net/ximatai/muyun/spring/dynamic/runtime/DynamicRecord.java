@@ -23,6 +23,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRole;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 
+import net.ximatai.muyun.spring.common.content.ContentLanguageInputs;
+import net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.ArrayList;
@@ -37,7 +39,12 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapable, TitledCapable, DataScopeCapable,
-        ApprovalCapable {
+        ApprovalCapable, ContentLanguageInputs {
+    private Map<String, SourceInput> contentLanguageInputs = Map.of();
+    @Override public Map<String, SourceInput> contentLanguageInputs() { return contentLanguageInputs; }
+    @Override public void contentLanguageInputs(Map<String, SourceInput> inputs) {
+        contentLanguageInputs = inputs == null ? Map.of() : Map.copyOf(inputs);
+    }
     private final EntityDefinition entity;
     private final Map<String, FieldDefinition> fields;
     private final Map<String, Object> values = new LinkedHashMap<>();

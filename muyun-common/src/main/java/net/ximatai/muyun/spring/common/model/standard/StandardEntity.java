@@ -9,14 +9,25 @@ import net.ximatai.muyun.database.core.annotation.TrueOrFalse;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
+import net.ximatai.muyun.spring.common.content.ContentLanguageInputs;
+import net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput;
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Standard base class for static entities managed by the platform.
  */
 @Getter
 @Setter
-public abstract class StandardEntity implements EntityContract {
+public abstract class StandardEntity implements EntityContract, ContentLanguageInputs {
+    @Getter(lombok.AccessLevel.NONE)
+    @Setter(lombok.AccessLevel.NONE)
+    private transient Map<String, SourceInput> contentLanguageInputs = Map.of();
+
+    @Override public Map<String, SourceInput> contentLanguageInputs() { return contentLanguageInputs; }
+    @Override public void contentLanguageInputs(Map<String, SourceInput> inputs) {
+        contentLanguageInputs = inputs == null ? Map.of() : Map.copyOf(inputs);
+    }
     /** Read-only reference labels; never stored or accepted as mutation facts. */
     private transient String tenantTitle;
     private transient String createdByTitle;
