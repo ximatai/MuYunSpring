@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewFieldDefinition;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
@@ -127,10 +129,14 @@ public class MetadataViewFieldService extends AbstractAbilityService<MetadataVie
         MetadataField field = requireField(viewField.getMetadataFieldId());
         ModuleMetadataRelation relation = relationService.select(view.getRelationId());
         if (relation == null) {
-            throw new PlatformException("Metadata view requires existing relation: " + view.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.metadata-view-requires-existing-relation",
+                    "Metadata view requires existing relation: {value1}"), Map.of("value1", String.valueOf(view.getRelationId())));
         }
         if (!relation.getMetadataId().equals(field.getMetadataId())) {
-            throw new PlatformException("View field metadata mismatch: " + viewField.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.view-field-metadata-mismatch",
+                    "View field metadata mismatch: {value1}"), Map.of("value1", String.valueOf(viewField.getMetadataFieldId())));
         }
         if (viewField.getTitle() == null || viewField.getTitle().isBlank()) {
             viewField.setTitle(field.getTitle());
@@ -154,18 +160,23 @@ public class MetadataViewFieldService extends AbstractAbilityService<MetadataVie
             }
         }
         if (Boolean.TRUE.equals(field.getRequired()) && Boolean.FALSE.equals(viewField.getRequiredOverride())) {
-            throw new PlatformException("View field cannot make required metadata field optional: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.view-field-cannot-make-required-metadata-field-optional",
+                    "View field cannot make required metadata field optional: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         rejectDuplicate(viewField, Criteria.of()
                         .eq("viewId", viewField.getViewId())
-                        .eq("metadataFieldId", viewField.getMetadataFieldId()),
-                "metadata view field must be unique in view: " + viewField.getMetadataFieldId());
+                        .eq("metadataFieldId", viewField.getMetadataFieldId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.metadata-view-field.metadata-view-field-must-be-unique-in-view",
+                                "metadata view field must be unique in view: {value1}"), Map.of("value1", String.valueOf(viewField.getMetadataFieldId()))));
     }
 
     private int normalizedColumnSpan(Integer value) {
         int columnSpan = value == null ? 1 : value;
         if (columnSpan < 1 || columnSpan > 2) {
-            throw new PlatformException("Metadata view field columnSpan must be between 1 and 2");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.metadata-view-field-columnspan-must-be-between-1-and-2",
+                    "Metadata view field columnSpan must be between 1 and 2"));
         }
         return columnSpan;
     }
@@ -177,22 +188,26 @@ public class MetadataViewFieldService extends AbstractAbilityService<MetadataVie
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         if (fieldType.getUiControlAliases() != null && !fieldType.getUiControlAliases().isEmpty()) {
             if (!fieldType.getUiControlAliases().contains(fieldUiType.getAlias())) {
-                throw new PlatformException("Field UI type is not allowed by field type: "
-                        + field.getFieldName() + "." + fieldUiType.getAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-view-field.field-ui-type-is-not-allowed-by-field-type",
+                        "Field UI type is not allowed by field type: {value1}.{value2}"), Map.of("value1", String.valueOf(field.getFieldName()), "value2", String.valueOf(fieldUiType.getAlias())));
             }
             return;
         }
         if (fieldUiType.getDefaultFieldSpecAlias() != null
                 && !fieldUiType.getDefaultFieldSpecAlias().equals(fieldType.getAlias())) {
-            throw new PlatformException("Field UI type default field type mismatch: "
-                    + field.getFieldName() + "." + fieldUiType.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.field-ui-type-default-field-type-mismatch",
+                    "Field UI type default field type mismatch: {value1}.{value2}"), Map.of("value1", String.valueOf(field.getFieldName()), "value2", String.valueOf(fieldUiType.getAlias())));
         }
     }
 
     private MetadataView requireView(String viewId) {
         MetadataView view = viewId == null || viewId.isBlank() ? null : viewService.select(viewId);
         if (view == null) {
-            throw new PlatformException("Metadata view field requires existing view: " + viewId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.metadata-view-field-requires-existing-view",
+                    "Metadata view field requires existing view: {value1}"), Map.of("value1", String.valueOf(viewId)));
         }
         return view;
     }
@@ -200,7 +215,9 @@ public class MetadataViewFieldService extends AbstractAbilityService<MetadataVie
     private MetadataField requireField(String metadataFieldId) {
         MetadataField field = metadataFieldId == null || metadataFieldId.isBlank() ? null : fieldService.select(metadataFieldId);
         if (field == null) {
-            throw new PlatformException("Metadata view field requires existing metadata field: " + metadataFieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view-field.metadata-view-field-requires-existing-metadata-field",
+                    "Metadata view field requires existing metadata field: {value1}"), Map.of("value1", String.valueOf(metadataFieldId)));
         }
         return field;
     }

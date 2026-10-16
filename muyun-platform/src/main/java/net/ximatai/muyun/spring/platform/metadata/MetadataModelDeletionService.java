@@ -1,11 +1,13 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -58,11 +60,15 @@ public class MetadataModelDeletionService {
         ModuleMetadataRelation relation = relation(moduleAlias, relationId);
         MetadataField field = fieldService.select(fieldId);
         if (field == null || !Objects.equals(field.getMetadataId(), relation.getMetadataId())) {
-            throw new PlatformException("字段不属于当前元数据节点：" + fieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.the-field-does-not-belong-to-the-current-metadata-node",
+                    "字段不属于当前元数据节点：{value1}"), Map.of("value1", String.valueOf(fieldId)));
         }
         if (Boolean.TRUE.equals(field.getSystemManaged()) || field.getFieldOwnership() != MetadataFieldOwnership.BUSINESS
                 || Objects.equals(relation.getForeignKey(), field.getFieldName())) {
-            throw new PlatformException("平台字段、能力字段和子元数据外键不能删除：" + field.getTitle());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.platform-fields-capability-fields-and-child-foreign-keys-cannot-be-deleted",
+                    "平台字段、能力字段和子元数据外键不能删除：{value1}"), Map.of("value1", String.valueOf(field.getTitle())));
         }
         Metadata metadata = requireMetadata(relation);
         DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
@@ -71,7 +77,9 @@ public class MetadataModelDeletionService {
                 Criteria.of().isNotNull(field.getFieldName()))
                 : 0L;
         if (values > 0) {
-            throw new PlatformException("字段“" + field.getTitle() + "”已有 " + values + " 条业务数据，不能删除。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.the-field-contains-business-data-and-cannot-be-deleted-record-count",
+                    "字段“{value1}”已有 {value2} 条业务数据，不能删除。"), Map.of("value1", String.valueOf(field.getTitle()), "value2", String.valueOf(values)));
         }
         EntityDefinition previous = compiler.compile(metadata);
         MetadataCapabilityGovernanceMutationContext.run(() -> {
@@ -101,14 +109,18 @@ public class MetadataModelDeletionService {
         ModuleMetadataRelation relation = relation(moduleAlias, relationId);
         Metadata metadata = requireMetadata(relation);
         if (relationService.count(Criteria.of().eq("parentMetadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0) {
-            throw new PlatformException("元数据“" + metadata.getTitle() + "”仍有子元数据，不能删除。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.metadata-has-child-metadata-and-cannot-be-deleted",
+                    "元数据“{value1}”仍有子元数据，不能删除。"), Map.of("value1", String.valueOf(metadata.getTitle())));
         }
         DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
         long records = schemaFacts.lockExistingTableForSchemaMutation(metadata.getSchemaName(), metadata.getTableName())
                 ? schemaFacts.countPhysicalRecords(moduleAlias, metadata.getAlias(), Criteria.of())
                 : 0L;
         if (records > 0) {
-            throw new PlatformException("元数据“" + metadata.getTitle() + "”已有业务数据，不能删除。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.metadata-contains-business-data-and-cannot-be-deleted",
+                    "元数据“{value1}”已有业务数据，不能删除。"), Map.of("value1", String.valueOf(metadata.getTitle())));
         }
         List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", metadata.getId()), ALL,
                 Sort.asc(PlatformAbilityFields.SORT_FIELD));
@@ -116,7 +128,9 @@ public class MetadataModelDeletionService {
                 .stream().anyMatch(field -> field.getFieldOwnership() == MetadataFieldOwnership.BUSINESS
                         && !Boolean.TRUE.equals(field.getSystemManaged()));
         if (hasBusinessField) {
-            throw new PlatformException("请先删除该元数据下全部业务字段，再删除元数据。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.delete-all-business-fields-before-deleting-the-metadata",
+                    "请先删除该元数据下全部业务字段，再删除元数据。"));
         }
         MetadataCapabilityGovernanceMutationContext.run(() -> {
             deleteModuleFieldMappings(relation.getId(), null);
@@ -139,14 +153,18 @@ public class MetadataModelDeletionService {
     private ModuleMetadataRelation relation(String moduleAlias, String relationId) {
         ModuleMetadataRelation relation = relationService.select(relationId);
         if (relation == null || !Objects.equals(moduleAlias, relation.getModuleAlias())) {
-            throw new PlatformException("元数据节点不属于当前模块：" + relationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-deletion.the-metadata-node-does-not-belong-to-the-current-module",
+                    "元数据节点不属于当前模块：{value1}"), Map.of("value1", String.valueOf(relationId)));
         }
         return relation;
     }
 
     private Metadata requireMetadata(ModuleMetadataRelation relation) {
         Metadata metadata = metadataService.select(relation.getMetadataId());
-        if (metadata == null) throw new PlatformException("元数据节点已不存在：" + relation.getMetadataId());
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-model-deletion.the-metadata-node-no-longer-exists",
+                "元数据节点已不存在：{value1}"), Map.of("value1", String.valueOf(relation.getMetadataId())));
         return metadata;
     }
 

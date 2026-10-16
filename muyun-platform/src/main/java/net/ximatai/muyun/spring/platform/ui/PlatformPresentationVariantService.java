@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -66,11 +69,21 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
     public void beforeUpdate(PlatformPresentationVariant variant) {
         PlatformPresentationVariant existing = selectIncludingDeleted(variant.getId());
         normalizeAndValidate(variant);
-        rejectChanged(existing, variant, "Presentation variant page", PlatformPresentationVariant::getPageId);
-        rejectChanged(existing, variant, "Presentation variant client", PlatformPresentationVariant::getClientType);
-        rejectChanged(existing, variant, "Presentation variant scope", PlatformPresentationVariant::getScopeType);
-        rejectChanged(existing, variant, "Presentation variant tenant", PlatformPresentationVariant::getTenantId);
-        rejectChanged(existing, variant, "Presentation variant organization", PlatformPresentationVariant::getOrganizationId);
+        rejectChangedText(existing, variant, TextReference.code(
+                "platform.rejection.platform-presentation-variant.presentation-variant-page-cannot-be-changed",
+                "Presentation variant page cannot be changed"), PlatformPresentationVariant::getPageId);
+        rejectChangedText(existing, variant, TextReference.code(
+                "platform.rejection.platform-presentation-variant.presentation-variant-client-cannot-be-changed",
+                "Presentation variant client cannot be changed"), PlatformPresentationVariant::getClientType);
+        rejectChangedText(existing, variant, TextReference.code(
+                "platform.rejection.platform-presentation-variant.presentation-variant-scope-cannot-be-changed",
+                "Presentation variant scope cannot be changed"), PlatformPresentationVariant::getScopeType);
+        rejectChangedText(existing, variant, TextReference.code(
+                "platform.rejection.platform-presentation-variant.presentation-variant-tenant-cannot-be-changed",
+                "Presentation variant tenant cannot be changed"), PlatformPresentationVariant::getTenantId);
+        rejectChangedText(existing, variant, TextReference.code(
+                "platform.rejection.platform-presentation-variant.presentation-variant-organization-cannot-be-changed",
+                "Presentation variant organization cannot be changed"), PlatformPresentationVariant::getOrganizationId);
     }
 
     @Override
@@ -101,8 +114,9 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
                         .eq("clientType", variant.getClientType())
                         .eq("scopeType", variant.getScopeType())
                         .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, variant.getTenantId())
-                        .eqNullable("organizationId", variant.getOrganizationId()),
-                "Only one presentation variant is allowed for page, client and scope");
+                        .eqNullable("organizationId", variant.getOrganizationId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-presentation-variant.only-one-presentation-variant-is-allowed-for-page-client-and-scope",
+                                "Only one presentation variant is allowed for page, client and scope")));
     }
 
     public PlatformPresentationVariant requireVisibleVariant(String id) {
@@ -113,8 +127,9 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
             }
         }
         if (variant == null) {
-            throw BusinessExceptions.warning("platform.presentation-variant.not-found",
-                    "Presentation revision requires existing variant: " + id);
+            throw BusinessExceptions.warningText("platform.presentation-variant.not-found", TextReference.code(
+                    "platform.rejection.platform-presentation-variant.presentation-revision-requires-existing-variant",
+                    "Presentation revision requires existing variant: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return variant;
     }
@@ -136,28 +151,32 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
         switch (variant.getScopeType()) {
             case GLOBAL -> {
                 if (!TenantContext.isSystem()) {
-                    throw BusinessExceptions.warning("platform.presentation-variant.global-system-context-required",
-                            "Global presentation variant requires system context");
+                    throw BusinessExceptions.warningText("platform.presentation-variant.global-system-context-required", TextReference.code(
+                            "platform.rejection.platform-presentation-variant.global-presentation-variant-requires-system-context",
+                            "Global presentation variant requires system context"));
                 }
                 variant.setTenantId(null);
                 variant.setOrganizationId(null);
             }
             case TENANT -> {
                 if (variant.getTenantId() == null || variant.getTenantId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.presentation-variant.tenant-required",
-                            "Tenant presentation variant requires tenantId");
+                    throw BusinessExceptions.warningText("platform.presentation-variant.tenant-required", TextReference.code(
+                            "platform.rejection.platform-presentation-variant.tenant-presentation-variant-requires-tenantid",
+                            "Tenant presentation variant requires tenantId"));
                 }
                 variant.setTenantId(variant.getTenantId().trim());
                 variant.setOrganizationId(null);
             }
             case ORGANIZATION -> {
                 if (variant.getTenantId() == null || variant.getTenantId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.presentation-variant.organization-tenant-required",
-                            "Organization presentation variant requires tenantId");
+                    throw BusinessExceptions.warningText("platform.presentation-variant.organization-tenant-required", TextReference.code(
+                            "platform.rejection.platform-presentation-variant.organization-presentation-variant-requires-tenantid",
+                            "Organization presentation variant requires tenantId"));
                 }
                 if (variant.getOrganizationId() == null || variant.getOrganizationId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.presentation-variant.organization-required",
-                            "Organization presentation variant requires organizationId");
+                    throw BusinessExceptions.warningText("platform.presentation-variant.organization-required", TextReference.code(
+                            "platform.rejection.platform-presentation-variant.organization-presentation-variant-requires-organizationid",
+                            "Organization presentation variant requires organizationId"));
                 }
                 variant.setTenantId(variant.getTenantId().trim());
                 variant.setOrganizationId(variant.getOrganizationId().trim());

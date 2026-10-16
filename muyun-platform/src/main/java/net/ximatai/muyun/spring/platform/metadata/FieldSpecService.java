@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
@@ -60,14 +62,18 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
     public void beforeUpdate(FieldSpec fieldType) {
         normalizeAndValidate(fieldType);
         FieldSpec existing = selectIncludingDeleted(fieldType.getId());
-        rejectChanged(existing, fieldType, "Field spec alias", FieldSpec::getAlias);
+        rejectChangedText(existing, fieldType, TextReference.code(
+                "platform.rejection.field-spec.field-spec-alias-cannot-be-changed",
+                "Field spec alias cannot be changed"), FieldSpec::getAlias);
     }
 
     public FieldSpec requireFieldType(String alias) {
         String validAlias = PlatformNameRules.requireIdentifier(alias, "fieldSpecAlias");
         FieldSpec fieldType = findOne(Criteria.of().eq("alias", validAlias));
         if (fieldType == null) {
-            throw new PlatformException("Field spec requires existing type: " + validAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-spec.field-spec-requires-existing-type",
+                    "Field spec requires existing type: {value1}"), Map.of("value1", String.valueOf(validAlias)));
         }
         return fieldType;
     }
@@ -86,8 +92,9 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
         normalizeQueryDefinition(fieldType);
         normalizeUiControlAliases(fieldType);
         normalizeSafeTargetFieldSpecAliases(fieldType);
-        rejectDuplicate(fieldType, Criteria.of().eq("alias", alias),
-                "fieldSpecAlias must be unique: " + alias);
+        rejectDuplicate(fieldType, Criteria.of().eq("alias", alias), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.field-spec.fieldspecalias-must-be-unique",
+                "fieldSpecAlias must be unique: {value1}"), Map.of("value1", String.valueOf(alias))));
     }
 
     private void normalizeQueryDefinition(FieldSpec fieldType) {
@@ -122,8 +129,9 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
             aliases.add(validAlias);
         }
         if (fieldType.getDefaultUiControlAlias() != null && !aliases.contains(fieldType.getDefaultUiControlAlias())) {
-            throw new PlatformException("default UI type must be included in allowed UI types: "
-                    + fieldType.getDefaultUiControlAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-spec.default-ui-type-must-be-included-in-allowed-ui-types",
+                    "default UI type must be included in allowed UI types: {value1}"), Map.of("value1", String.valueOf(fieldType.getDefaultUiControlAlias())));
         }
         fieldType.setUiControlAliases(aliases);
     }
@@ -153,7 +161,9 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
 
     private void requireFieldUiControl(String alias) {
         if (fieldUiTypeDao.list(Criteria.of().eq("alias", alias), new PageRequest(0, 1)).isEmpty()) {
-            throw new PlatformException("Field spec UI alias requires existing UI type: " + alias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-spec.field-spec-ui-alias-requires-existing-ui-type",
+                    "Field spec UI alias requires existing UI type: {value1}"), Map.of("value1", String.valueOf(alias)));
         }
     }
 

@@ -1,7 +1,9 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.stereotype.Service;
@@ -25,10 +27,14 @@ public class ModuleMetadataRelationRecordCountService {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         ModuleMetadataRelation relation = relationService.select(relationId);
         if (relation == null || !validModuleAlias.equals(relation.getModuleAlias())) {
-            throw new PlatformException("metadata relation does not belong to module: " + validModuleAlias + "." + relationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation-record-count.metadata-relation-does-not-belong-to-module",
+                    "metadata relation does not belong to module: {value1}.{value2}"), Map.of("value1", String.valueOf(validModuleAlias), "value2", String.valueOf(relationId)));
         }
         Metadata metadata = metadataService.select(relation.getMetadataId());
-        if (metadata == null) throw new PlatformException("metadata relation requires existing metadata: " + relation.getMetadataId());
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.module-metadata-relation-record-count.metadata-relation-requires-existing-metadata",
+                "metadata relation requires existing metadata: {value1}"), Map.of("value1", String.valueOf(relation.getMetadataId())));
         return new ModuleMetadataRelationRecordCount(relationId,
                 recordService.count(validModuleAlias, metadata.getAlias(), Criteria.of()));
     }

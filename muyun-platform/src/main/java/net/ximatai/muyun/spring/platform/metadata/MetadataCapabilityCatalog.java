@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -173,7 +175,9 @@ public final class MetadataCapabilityCatalog {
     private static void validateApplicability(Set<EntityCapability> capabilities, RelationRole relationRole) {
         if (relationRole != RelationRole.CHILD) return;
         if (!capabilities.isEmpty()) {
-            throw new PlatformException("Child metadata cannot declare module capability: " + capabilities.iterator().next());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-capability-catalog.child-metadata-cannot-declare-module-capability",
+                    "Child metadata cannot declare module capability: {value1}"), Map.of("value1", String.valueOf(capabilities.iterator().next())));
         }
     }
 
@@ -188,10 +192,14 @@ public final class MetadataCapabilityCatalog {
     private static EntityCapability parse(String value) {
         try {
             EntityCapability capability = EntityCapability.valueOf(value == null ? "" : value.trim());
-            if (!isDeclarable(capability)) throw new PlatformException("Dynamic metadata capability is not declarable: " + value);
+            if (!isDeclarable(capability)) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-capability-catalog.dynamic-metadata-capability-is-not-declarable",
+                    "Dynamic metadata capability is not declarable: {value1}"), Map.of("value1", String.valueOf(value)));
             return capability;
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("Unknown dynamic metadata capability: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-capability-catalog.unknown-dynamic-metadata-capability",
+                    "Unknown dynamic metadata capability: {value1}"), Map.of("value1", String.valueOf(value)));
         }
     }
 

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
@@ -166,15 +168,17 @@ public class PlatformPageConfigPublishService {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         PlatformUiSet uiSet = uiSetService.requireUiSet(uiConfig.getUiSetId());
         if (!Boolean.TRUE.equals(uiSet.getEnabled()) || !Boolean.TRUE.equals(uiConfig.getEnabled())) {
-            throw BusinessExceptions.warning("platform.ui-config.publish-disabled",
-                    "UI config publish requires enabled set and config: " + uiConfigId);
+            throw BusinessExceptions.warningText("platform.ui-config.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-publish-requires-enabled-set-and-config",
+                    "UI config publish requires enabled set and config: {value1}"), Map.of("value1", String.valueOf(uiConfigId)));
         }
         uiConfigFieldService.validateUiConfigFields(uiConfig.getId());
         List<PlatformUiConfigField> fields = uiConfigFieldService.listByUiConfigIds(List.of(uiConfig.getId()));
         boolean hasVisibleField = fields.stream().anyMatch(field -> Boolean.TRUE.equals(field.getVisible()));
         if (!hasVisibleField) {
-            throw BusinessExceptions.warning("platform.ui-config.publish-no-visible-field",
-                    "UI config publish requires at least one visible field: " + uiConfigId);
+            throw BusinessExceptions.warningText("platform.ui-config.publish-no-visible-field", TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-publish-requires-at-least-one-visible-field",
+                    "UI config publish requires at least one visible field: {value1}"), Map.of("value1", String.valueOf(uiConfigId)));
         }
         JsonNode layout = validateLayoutJson(uiSet.getModuleAlias(), uiConfig);
         validatePageNavigator(uiSet, uiConfig);
@@ -195,12 +199,15 @@ public class PlatformPageConfigPublishService {
                 PlatformUiSet listSet = publishedUiSets(uiSet.getModuleAlias()).stream()
                         .filter(candidate -> candidate.getId().equals(composition.listConfig().getUiSetId()))
                         .findFirst()
-                        .orElseThrow(() -> new PlatformException("Published list UI set is unavailable: "
-                                + composition.listConfig().getUiSetId()));
+                        .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-page-config-publish.published-list-ui-set-is-unavailable",
+                                "Published list UI set is unavailable: {value1}"), Map.of("value1", String.valueOf(composition.listConfig().getUiSetId()))));
                 validatePageNavigator(listSet, composition.listConfig(), composition);
             }
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("UI config navigator layout is invalid: " + uiConfig.getId(), exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-navigator-layout-is-invalid",
+                    "UI config navigator layout is invalid: {value1}"), Map.of("value1", String.valueOf(uiConfig.getId())), exception);
         }
     }
 
@@ -214,7 +221,9 @@ public class PlatformPageConfigPublishService {
             DynamicEntityDescriptor entity = module.entities().stream()
                     .filter(candidate -> candidate.entityAlias().equals(module.mainEntityAlias()))
                     .findFirst()
-                    .orElseThrow(() -> new PlatformException("Navigator main entity is unavailable: " + uiSet.getModuleAlias()));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-page-config-publish.navigator-main-entity-is-unavailable",
+                            "Navigator main entity is unavailable: {value1}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()))));
             Set<String> editorFieldNames = publishedFormEditorFieldNames(composition);
             for (PlatformPageContextBinding binding : navigator.contextBindings()) {
                 if (!"NAVIGATOR".equals(binding.source()) || (!"LIST_QUERY".equals(binding.target())
@@ -226,29 +235,34 @@ public class PlatformPageConfigPublishService {
                         .findFirst().orElseThrow();
                 DynamicFieldDescriptor field = entity.fields().stream()
                             .filter(candidate -> candidate.fieldName().equals(binding.targetKey()))
-                            .findFirst().orElseThrow(() -> new PlatformException("Navigator query field is unavailable: "
-                                    + uiSet.getModuleAlias() + "." + binding.targetKey()));
+                            .findFirst().orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.platform-page-config-publish.navigator-query-field-is-unavailable",
+                                    "Navigator query field is unavailable: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(binding.targetKey()))));
                 DynamicReferenceDescriptor reference = field.reference();
                 if ("PICKER_QUERY".equals(binding.target())) {
                     if (!editorFieldNames.contains(binding.targetPickerFieldKey())) {
-                        throw new PlatformException("Picker query target must be declared by a published form editor: "
-                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                        throw PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-page-config-publish.picker-query-target-must-be-declared-by-a-published-form-editor",
+                                "Picker query target must be declared by a published form editor: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(binding.targetPickerFieldKey())));
                     }
                     DynamicFieldDescriptor pickerField = entity.fields().stream()
                             .filter(candidate -> candidate.fieldName().equals(binding.targetPickerFieldKey()))
-                            .findFirst().orElseThrow(() -> new PlatformException("Picker query target is unavailable: "
-                                    + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey()));
+                            .findFirst().orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.platform-page-config-publish.picker-query-target-is-unavailable",
+                                    "Picker query target is unavailable: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(binding.targetPickerFieldKey()))));
                     if (!isTreeParentPicker(module, binding)
                             && (pickerField.reference() == null
                             || pickerField.reference().cardinality() != ReferenceCardinality.ONE)) {
-                        throw new PlatformException("Picker query target must be a single record reference: "
-                                + uiSet.getModuleAlias() + "." + binding.targetPickerFieldKey());
+                        throw PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-page-config-publish.picker-query-target-must-be-a-single-record-reference",
+                                "Picker query target must be a single record reference: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(binding.targetPickerFieldKey())));
                     }
                 }
                 if (reference == null || reference.cardinality() != ReferenceCardinality.ONE
                         || !level.sourceModuleAlias().equals(reference.targetModuleAlias())) {
-                    throw new PlatformException("Navigator query field must be a single reference to "
-                            + level.sourceModuleAlias() + ": " + uiSet.getModuleAlias() + "." + binding.targetKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-page-config-publish.navigator-query-field-must-be-a-single-reference-to",
+                            "Navigator query field must be a single reference to {value1}: {value2}.{value3}"), Map.of("value1", String.valueOf(level.sourceModuleAlias()), "value2", String.valueOf(uiSet.getModuleAlias()), "value3", String.valueOf(binding.targetKey())));
                 }
             }
     }
@@ -291,17 +305,17 @@ public class PlatformPageConfigPublishService {
         for (PlatformPageNavigatorLevel level : navigator.levels()) {
             boolean tree = "TREE".equals(level.kind());
             if (!navigatorSourceCapabilityResolver.supports(level.sourceModuleAlias(), tree)) {
-                throw new PlatformException("Navigator source capability is unavailable: page="
-                        + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
-                        + ", source=" + level.sourceModuleAlias() + ", tree=" + tree);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-config-publish.navigator-source-capability-is-unavailable-page-uiconfig-level-source-tree",
+                        "Navigator source capability is unavailable: page={value1}, uiConfig={value2}, level={value3}, source={value4}, tree={value5}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(uiConfig.getId()), "value3", String.valueOf(level.key()), "value4", String.valueOf(level.sourceModuleAlias()), "value5", String.valueOf(tree)));
             }
             PlatformPageNavigatorManagement management = level.management();
             if (management != null) {
                 if (!navigatorSourceCapabilityResolver.supportsManagement(
                         level.sourceModuleAlias(), management.editorSurface())) {
-                    throw new PlatformException("Navigator source management contract is unavailable: page="
-                            + uiSet.getModuleAlias() + ", uiConfig=" + uiConfig.getId() + ", level=" + level.key()
-                            + ", source=" + level.sourceModuleAlias());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-page-config-publish.navigator-source-management-contract-is-unavailable-page-uiconfig-level-source",
+                            "Navigator source management contract is unavailable: page={value1}, uiConfig={value2}, level={value3}, source={value4}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(uiConfig.getId()), "value3", String.valueOf(level.key()), "value4", String.valueOf(level.sourceModuleAlias())));
                 }
             }
         }
@@ -342,8 +356,9 @@ public class PlatformPageConfigPublishService {
     public PlatformQueryTemplate validateQueryTemplatePublishable(String queryTemplateId) {
         PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(queryTemplateId);
         if (!Boolean.TRUE.equals(template.getEnabled())) {
-            throw BusinessExceptions.warning("platform.query-template.publish-disabled",
-                    "Query template publish requires enabled template: " + queryTemplateId);
+            throw BusinessExceptions.warningText("platform.query-template.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-page-config-publish.query-template-publish-requires-enabled-template",
+                    "Query template publish requires enabled template: {value1}"), Map.of("value1", String.valueOf(queryTemplateId)));
         }
         queryItemService.compile(template.getId());
         return template;
@@ -376,7 +391,9 @@ public class PlatformPageConfigPublishService {
                             .map(DynamicActionDescriptor::code)
                             .collect(Collectors.toUnmodifiableSet()));
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("UI config page capability is invalid: " + uiConfig.getId(), exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-page-capability-is-invalid",
+                    "UI config page capability is invalid: {value1}"), Map.of("value1", String.valueOf(uiConfig.getId())), exception);
         }
     }
 
@@ -389,13 +406,17 @@ public class PlatformPageConfigPublishService {
             validateLayoutRoot(moduleAlias, root, uiConfig.getId());
             return root;
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("UI config layout violates the page contract: " + uiConfig.getId(), exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-layout-violates-the-page-contract",
+                    "UI config layout violates the page contract: {value1}"), Map.of("value1", String.valueOf(uiConfig.getId())), exception);
         }
     }
 
     private void validateLayoutRoot(String moduleAlias, JsonNode root, String uiConfigId) {
         if (root == null || !root.isObject()) {
-            throw new PlatformException("UI config layout JSON root must be object: " + uiConfigId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-config-publish.ui-config-layout-json-root-must-be-object",
+                    "UI config layout JSON root must be object: {value1}"), Map.of("value1", String.valueOf(uiConfigId)));
         }
         validatePageRootContract(root, uiConfigId);
         validateListDetailCardMember(root, "querySummaries", uiConfigId);
@@ -947,7 +968,9 @@ public class PlatformPageConfigPublishService {
     }
 
     private PlatformException layoutException(String uiConfigId, String message) {
-        return new PlatformException("UI config layout JSON invalid at " + message + ": " + uiConfigId);
+        return PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.platform-page-config-publish.ui-config-layout-json-invalid-at",
+                "UI config layout JSON invalid at {value1}: {value2}"), Map.of("value1", String.valueOf(message), "value2", String.valueOf(uiConfigId)));
     }
 
     private PlatformUiConfig copyForPublish(PlatformUiConfig source, boolean published) {

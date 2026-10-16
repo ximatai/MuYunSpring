@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.SystemStandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -73,10 +76,18 @@ public class PlatformPageDefinitionService extends SystemStandardBusinessService
 
     @Override
     protected void validateBeforeUpdate(PlatformPageDefinition page, PlatformPageDefinition existing) {
-        rejectChanged(existing, page, "Page moduleAlias", PlatformPageDefinition::getModuleAlias);
-        rejectChanged(existing, page, "Page alias", PlatformPageDefinition::getAlias);
-        rejectChanged(existing, page, "Page contract type", PlatformPageDefinition::getContractType);
-        rejectChanged(existing, page, "Page main relation", PlatformPageDefinition::getMainRelationId);
+        rejectChangedText(existing, page, TextReference.code(
+                "platform.rejection.platform-page-definition.page-modulealias-cannot-be-changed",
+                "Page moduleAlias cannot be changed"), PlatformPageDefinition::getModuleAlias);
+        rejectChangedText(existing, page, TextReference.code(
+                "platform.rejection.platform-page-definition.page-alias-cannot-be-changed",
+                "Page alias cannot be changed"), PlatformPageDefinition::getAlias);
+        rejectChangedText(existing, page, TextReference.code(
+                "platform.rejection.platform-page-definition.page-contract-type-cannot-be-changed",
+                "Page contract type cannot be changed"), PlatformPageDefinition::getContractType);
+        rejectChangedText(existing, page, TextReference.code(
+                "platform.rejection.platform-page-definition.page-main-relation-cannot-be-changed",
+                "Page main relation cannot be changed"), PlatformPageDefinition::getMainRelationId);
     }
 
     @Override
@@ -92,8 +103,9 @@ public class PlatformPageDefinitionService extends SystemStandardBusinessService
     public PlatformPageDefinition requireVisiblePage(String id) {
         PlatformPageDefinition page = id == null || id.isBlank() ? null : select(id);
         if (page == null) {
-            throw BusinessExceptions.warning("platform.page-definition.not-found",
-                    "Page definition requires existing page: " + id);
+            throw BusinessExceptions.warningText("platform.page-definition.not-found", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-requires-existing-page",
+                    "Page definition requires existing page: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return page;
     }
@@ -117,18 +129,21 @@ public class PlatformPageDefinitionService extends SystemStandardBusinessService
     protected void validateBeforeSave(PlatformPageDefinition page) {
         String moduleAlias = PlatformNameRules.requireModuleAlias(page.getModuleAlias());
         if (moduleService.resolveVisibleModule(moduleAlias) == null) {
-            throw BusinessExceptions.warning("platform.page-definition.module-not-found",
-                    "Page definition requires existing module: " + moduleAlias);
+            throw BusinessExceptions.warningText("platform.page-definition.module-not-found", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-requires-existing-module",
+                    "Page definition requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         String alias = PlatformNameRules.requireIdentifier(page.getAlias(), "pageAlias");
         if (page.getContractType() == null) {
-            throw BusinessExceptions.warning("platform.page-definition.contract-type-required",
-                    "Page definition contract type must not be null");
+            throw BusinessExceptions.warningText("platform.page-definition.contract-type-required", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-contract-type-must-not-be-null",
+                    "Page definition contract type must not be null"));
         }
         ModuleMetadataRelation mainRelation = requireRelation(page.getMainRelationId());
         if (!moduleAlias.equals(mainRelation.getModuleAlias()) || mainRelation.getRelationRole() != RelationRole.MAIN) {
-            throw BusinessExceptions.warning("platform.page-definition.main-relation-invalid",
-                    "Page definition main relation must be the module MAIN relation: " + page.getMainRelationId());
+            throw BusinessExceptions.warningText("platform.page-definition.main-relation-invalid", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-main-relation-must-be-the-module-main-relation",
+                    "Page definition main relation must be the module MAIN relation: {value1}"), Map.of("value1", String.valueOf(page.getMainRelationId())));
         }
         page.setModuleAlias(moduleAlias);
         page.setAlias(alias);
@@ -137,19 +152,22 @@ public class PlatformPageDefinitionService extends SystemStandardBusinessService
         if (page.getTitle() == null || page.getTitle().isBlank()) {
             page.setTitle(alias);
         }
-        rejectDuplicate(page, Criteria.of().eq("moduleAlias", moduleAlias).eq("alias", alias),
-                "Page alias must be unique in module: " + moduleAlias + "." + alias);
+        rejectDuplicate(page, Criteria.of().eq("moduleAlias", moduleAlias).eq("alias", alias), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.platform-page-definition.page-alias-must-be-unique-in-module",
+                "Page alias must be unique in module: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(alias))));
     }
 
     private ModuleMetadataRelation requireRelation(String relationId) {
         if (relationId == null || relationId.isBlank()) {
-            throw BusinessExceptions.warning("platform.page-definition.main-relation-required",
-                    "Page definition requires mainRelationId");
+            throw BusinessExceptions.warningText("platform.page-definition.main-relation-required", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-requires-mainrelationid",
+                    "Page definition requires mainRelationId"));
         }
         ModuleMetadataRelation relation = relationService.select(relationId.trim());
         if (relation == null) {
-            throw BusinessExceptions.warning("platform.page-definition.main-relation-not-found",
-                    "Page definition requires existing main relation: " + relationId);
+            throw BusinessExceptions.warningText("platform.page-definition.main-relation-not-found", TextReference.code(
+                    "platform.rejection.platform-page-definition.page-definition-requires-existing-main-relation",
+                    "Page definition requires existing main relation: {value1}"), Map.of("value1", String.valueOf(relationId)));
         }
         return relation;
     }

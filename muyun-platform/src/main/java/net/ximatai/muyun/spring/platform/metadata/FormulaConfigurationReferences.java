@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -62,7 +64,9 @@ public class FormulaConfigurationReferences {
                     try {
                         fields = new LinkedHashSet<>(engine.referencedFields(rule.getExpression()));
                     } catch (RuntimeException exception) {
-                        throw new PlatformException("公式“" + rule.getAlias() + "”无法解析，请修复规则后再修改字段。", exception);
+                        throw PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.formula-configuration-references.formula-could-not-be-parsed-repair-the-rule-before-changing-the-field",
+                                "公式“{value1}”无法解析，请修复规则后再修改字段。"), Map.of("value1", String.valueOf(rule.getAlias())), exception);
                     }
                     if (rule.getTargetField() != null && !rule.getTargetField().isBlank()) fields.add(rule.getTargetField());
                     for (String field : fields) {

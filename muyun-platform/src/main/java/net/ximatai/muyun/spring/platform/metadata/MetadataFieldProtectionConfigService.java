@@ -1,10 +1,12 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.security.FieldEncryptionMode;
 import net.ximatai.muyun.spring.common.security.FieldMaskingPolicy;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
@@ -103,27 +105,33 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
             validateFieldShape(field, definition);
             validateFieldConfig(field, definition);
         }
-        rejectDuplicate(config, Criteria.of().eq("metadataFieldId", config.getMetadataFieldId()),
-                "metadata field protection config must be unique: " + config.getMetadataFieldId());
+        rejectDuplicate(config, Criteria.of().eq("metadataFieldId", config.getMetadataFieldId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-field-protection-config.metadata-field-protection-config-must-be-unique",
+                "metadata field protection config must be unique: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId()))));
     }
 
     private void validateFieldShape(MetadataField field, FieldProtectionDefinition definition) {
         if (definition.hasStorageProtection() && field.getFieldForm() == MetadataFieldForm.VIRTUAL) {
-            throw new PlatformException("Virtual metadata field cannot use storage protection: " + field.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-protection-config.virtual-metadata-field-cannot-use-storage-protection",
+                    "Virtual metadata field cannot use storage protection: {value1}"), Map.of("value1", String.valueOf(field.getId())));
         }
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         if (definition.hasStorageProtection()
                 && fieldType.getFieldType() != FieldType.STRING
                 && fieldType.getFieldType() != FieldType.TEXT) {
-            throw new PlatformException("Field storage protection currently requires string field: " + field.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-protection-config.field-storage-protection-currently-requires-string-field",
+                    "Field storage protection currently requires string field: {value1}"), Map.of("value1", String.valueOf(field.getId())));
         }
         if (definition.hasStorageProtection()
                 && (Boolean.TRUE.equals(field.getUniqueField())
                 || Boolean.TRUE.equals(field.getIndexed())
                 || Boolean.TRUE.equals(field.getSortableField())
                 || Boolean.TRUE.equals(field.getTitleField()))) {
-            throw new PlatformException("Protected storage field cannot be unique, indexed, sortable or title field: "
-                    + field.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-protection-config.protected-storage-field-cannot-be-unique-indexed-sortable-or-title-field",
+                    "Protected storage field cannot be unique, indexed, sortable or title field: {value1}"), Map.of("value1", String.valueOf(field.getId())));
         }
     }
 
@@ -139,7 +147,9 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
         if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, null).queryable()
                 || configs.stream().filter(config -> config.getRelationId() != null)
                 .anyMatch(config -> MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable())) {
-            throw new PlatformException("Protected storage field cannot be queryable: " + field.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-protection-config.protected-storage-field-cannot-be-queryable",
+                    "Protected storage field cannot be queryable: {value1}"), Map.of("value1", String.valueOf(field.getId())));
         }
     }
 
@@ -152,7 +162,9 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
     private MetadataField requireField(String metadataFieldId) {
         MetadataField field = metadataFieldId == null || metadataFieldId.isBlank() ? null : fieldService.select(metadataFieldId);
         if (field == null) {
-            throw new PlatformException("Field protection config requires existing metadata field: " + metadataFieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-protection-config.field-protection-config-requires-existing-metadata-field",
+                    "Field protection config requires existing metadata field: {value1}"), Map.of("value1", String.valueOf(metadataFieldId)));
         }
         return field;
     }

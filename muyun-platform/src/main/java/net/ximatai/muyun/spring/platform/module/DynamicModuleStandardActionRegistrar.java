@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -182,7 +185,9 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
                     .isNull("tenantId"), new PageRequest(0, 1));
             if (!main.isEmpty()) {
                 Metadata definition = metadata.getObject().select(main.getFirst().getMetadataId());
-                if (definition == null || !isGlobal(definition.getTenantId())) throw new PlatformException("Module MAIN metadata is missing: " + module.getAlias());
+                if (definition == null || !isGlobal(definition.getTenantId())) throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-module-standard-action-registrar.module-main-metadata-is-missing",
+                        "Module MAIN metadata is missing: {value1}"), Map.of("value1", String.valueOf(module.getAlias())));
                 Set<String> capabilities = MetadataCapabilityCatalog.resolve(definition, RelationRole.MAIN,
                         definition.getCapabilityDeclarations() == null
                                 ? fields.getObject().list(Criteria.of().eq("metadataId", definition.getId()).isNull("tenantId"),

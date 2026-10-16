@@ -38,7 +38,7 @@ class DomainRejectionResourcesTest {
                 properties.load(reader);
             }
             for (String key : properties.stringPropertyNames()) {
-                if (key.startsWith("platform.rejection.")) result.put(key, properties.getProperty(key));
+                if (key.startsWith("platform.rejection.") || key.startsWith("iam.rejection.")) result.put(key, properties.getProperty(key));
             }
         }
         return result;

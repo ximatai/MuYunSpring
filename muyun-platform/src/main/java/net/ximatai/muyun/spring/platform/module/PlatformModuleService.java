@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
@@ -199,7 +202,9 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     private String normalizeInternalRoute(String route) {
         String normalized = requireText(route, "ROUTE module entry requires route").trim();
         if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.contains("://")) {
-            throw new PlatformException("ROUTE module entry route must be an internal path: " + normalized);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module.route-module-entry-route-must-be-an-internal-path",
+                    "ROUTE module entry route must be an internal path: {value1}"), Map.of("value1", String.valueOf(normalized)));
         }
         return normalized;
     }

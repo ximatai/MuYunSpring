@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -13,7 +16,6 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -188,7 +190,9 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         PlatformModuleAction action = select(actionId);
         if (action == null || !validModuleAlias.equals(action.getModuleAlias())) {
-            throw new PlatformException("module action does not belong to module: " + validModuleAlias + "." + actionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.module-action-does-not-belong-to-module",
+                    "module action does not belong to module: {value1}.{value2}"), Map.of("value1", String.valueOf(validModuleAlias), "value2", String.valueOf(actionId)));
         }
         if (version == null || !version.equals(action.getVersion())) {
             throw new OptimisticLockException("record version conflict: " + actionId);
@@ -231,7 +235,9 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         String moduleAlias = PlatformNameRules.requireModuleAlias(action.getModuleAlias());
         PlatformModule module = moduleService.resolveVisibleModule(moduleAlias);
         if (module == null) {
-            throw new PlatformException("Module action requires existing module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.module-action-requires-existing-module",
+                    "Module action requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         action.setModuleAlias(moduleAlias);
         action.setActionCode(PlatformNameRules.requireActionCode(action.getActionCode(), "actionCode"));
@@ -300,8 +306,9 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         rejectDuplicate(action, Criteria.of()
                         .eq("moduleAlias", action.getModuleAlias())
                         .eq("actionCode", action.getActionCode())
-                        .isNull(StandardEntitySchema.TENANT_ID_FIELD),
-                "module action must be unique in module: " + action.getModuleAlias() + "." + action.getActionCode());
+                        .isNull(StandardEntitySchema.TENANT_ID_FIELD), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-module-action.module-action-must-be-unique-in-module",
+                                "module action must be unique in module: {value1}.{value2}"), Map.of("value1", String.valueOf(action.getModuleAlias()), "value2", String.valueOf(action.getActionCode()))));
     }
 
     private void validateManualActionBinding(PlatformModuleAction action, PlatformModule module) {
@@ -315,27 +322,33 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
             return;
         }
         if (module.getModuleKind() != ModuleKind.DYNAMIC) {
-            throw new PlatformException("Manual module actions require a dynamic module: " + action.getModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.manual-module-actions-require-a-dynamic-module",
+                    "Manual module actions require a dynamic module: {value1}"), Map.of("value1", String.valueOf(action.getModuleAlias())));
         }
         if (action.getCategory() != EntityActionCategory.CUSTOM
                 || action.getExecutorType() != EntityActionExecutorType.SERVICE) {
-            throw new PlatformException("Manual module actions must bind a custom service executor: "
-                    + action.getModuleAlias() + "." + action.getActionCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.manual-module-actions-must-bind-a-custom-service-executor",
+                    "Manual module actions must bind a custom service executor: {value1}.{value2}"), Map.of("value1", String.valueOf(action.getModuleAlias()), "value2", String.valueOf(action.getActionCode())));
         }
         DynamicActionExecutorDefinition definition;
         try {
             definition = actionExecutorRegistry.definition(action.getExecutorKey());
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("Manual module action requires a deployed executor: "
-                    + action.getModuleAlias() + "." + action.getActionCode(), exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.manual-module-action-requires-a-deployed-executor",
+                    "Manual module action requires a deployed executor: {value1}.{value2}"), Map.of("value1", String.valueOf(action.getModuleAlias()), "value2", String.valueOf(action.getActionCode())), exception);
         }
         if (!definition.bindable() || !definition.supports(action.getCategory(), action.getActionLevel())) {
-            throw new PlatformException("Executor cannot be bound to module action: "
-                    + action.getModuleAlias() + "." + action.getActionCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.executor-cannot-be-bound-to-module-action",
+                    "Executor cannot be bound to module action: {value1}.{value2}"), Map.of("value1", String.valueOf(action.getModuleAlias()), "value2", String.valueOf(action.getActionCode())));
         }
         if (Boolean.TRUE.equals(action.getFormSupported()) && !definition.formSupported()) {
-            throw new PlatformException("Executor does not support form context: "
-                    + action.getModuleAlias() + "." + action.getActionCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-action.executor-does-not-support-form-context",
+                    "Executor does not support form context: {value1}.{value2}"), Map.of("value1", String.valueOf(action.getModuleAlias()), "value2", String.valueOf(action.getActionCode())));
         }
         // Form support is an executor-owned fact; persist the deployed definition rather
         // than trusting a mutable configuration value.

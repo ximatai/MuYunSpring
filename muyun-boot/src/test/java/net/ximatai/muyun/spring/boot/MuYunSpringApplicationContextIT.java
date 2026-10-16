@@ -487,6 +487,48 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void rejectedConfigurationSavesKeepTheStoredOriginalAndVersionAcrossLanguages() {
+        String token = issueSuperAdminSessionToken();
+        var fields = applicationContext.getBean(FieldSpecService.class);
+        net.ximatai.muyun.spring.platform.metadata.FieldSpec original;
+        try (var scope = TenantContext.system("configuration rejection baseline")) {
+            original = fields.select("string");
+        }
+        try {
+            var headers = bearerHeaders(token);
+            var record = restTemplate.exchange("/platform.field_spec/view/string", HttpMethod.GET,
+                    new HttpEntity<>(headers), JsonNode.class).getBody().deepCopy();
+            var draft = (com.fasterxml.jackson.databind.node.ObjectNode) record;
+            draft.put("title", "Unsaved 中文 {value1}");
+            draft.putArray("uiControlAliases").add("select");
+            for (String tag : List.of("en", "zh-CN", "en")) {
+                headers.set("Accept-Language", tag);
+                headers.set("X-MuYun-Trace-Id", "configuration-rejection-http");
+                var response = restTemplate.exchange("/platform.field_spec/update/string", HttpMethod.POST,
+                        new HttpEntity<>(draft, headers), JsonNode.class);
+                assertThat(response.getStatusCode().value()).isEqualTo(400);
+                var error = response.getBody();
+                assertThat(error.path("code").asText()).isEqualTo("VALIDATION_FAILED");
+                assertThat(error.path("traceId").asText()).isEqualTo("configuration-rejection-http");
+                assertThat(error.path("message").asText()).isEqualTo(tag.equals("en")
+                        ? "Default UI type must be included in allowed UI types: text"
+                        : "默认界面控件必须包含在允许使用的控件中：text");
+                assertThat(error.path("messageArgs").path("value1").asText()).isEqualTo("text");
+                assertThat(error.at("/messageText/languages/en/text").asText())
+                        .isEqualTo("Default UI type must be included in allowed UI types: text");
+                assertThat(response.getHeaders().getFirst("Content-Language")).isEqualTo(tag);
+                assertThat(draft.path("title").asText()).isEqualTo("Unsaved 中文 {value1}");
+                try (var scope = TenantContext.system("configuration rejection persistence")) {
+                    var stored = fields.select("string");
+                    assertThat(stored.getVersion()).isEqualTo(original.getVersion());
+                    assertThat(stored.getTitle()).isEqualTo(original.getTitle());
+                    assertThat(stored.getUiControlAliases()).isEqualTo(original.getUiControlAliases());
+                }
+            }
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
     void actualStaticDetailDeliversDeclaredSummariesAndTheirTranslationsWithoutChangingStorage() {
         String token = issueSuperAdminSessionToken();
         var fields = applicationContext.getBean(FieldSpecService.class);

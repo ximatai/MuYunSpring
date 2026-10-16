@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -166,11 +168,15 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     private void assertCapabilityDeclarationsAreGoverned(Metadata metadata, Metadata existing) {
         if (MetadataCapabilityGovernanceMutationContext.isActive()) return;
         if (metadata != null && metadata.getCapabilityDeclarations() != null) {
-            throw new PlatformException("Metadata capability declarations require governed mutation");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata.metadata-capability-declarations-require-governed-mutation",
+                    "Metadata capability declarations require governed mutation"));
         }
         if (existing != null && existing.getCapabilityDeclarations() != null
                 && !Objects.equals(existing.getDataScopeEnabled(), metadata.getDataScopeEnabled())) {
-            throw new PlatformException("Metadata dataScopeEnabled requires governed capability migration");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata.metadata-datascopeenabled-requires-governed-capability-migration",
+                    "Metadata dataScopeEnabled requires governed capability migration"));
         }
     }
 
@@ -184,15 +190,17 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     private void rejectDuplicateMetadataAlias(Metadata metadata) {
         rejectDuplicate(metadata, Criteria.of()
                 .eq("applicationAlias", metadata.getApplicationAlias())
-                .eq("alias", metadata.getAlias()),
-                "metadataAlias must be unique within application: " + metadata.getAlias());
+                .eq("alias", metadata.getAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata.metadataalias-must-be-unique-within-application",
+                        "metadataAlias must be unique within application: {value1}"), Map.of("value1", String.valueOf(metadata.getAlias()))));
     }
 
     private void rejectDuplicatePhysicalTable(Metadata metadata) {
         rejectDuplicate(metadata, Criteria.of()
                 .eq("schemaName", metadata.getSchemaName())
-                .eq("tableName", metadata.getTableName()),
-                "metadata physical table must be unique: " + metadata.getSchemaName() + "." + metadata.getTableName());
+                .eq("tableName", metadata.getTableName()), () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata.metadata-physical-table-must-be-unique",
+                        "metadata physical table must be unique: {value1}.{value2}"), Map.of("value1", String.valueOf(metadata.getSchemaName()), "value2", String.valueOf(metadata.getTableName()))));
     }
 
 }

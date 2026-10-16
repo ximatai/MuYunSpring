@@ -1,10 +1,12 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.stereotype.Service;
 
@@ -60,7 +62,9 @@ public class ModuleMetadataFieldAffectService extends AbstractAbilityService<Mod
         ModuleMetadataField referenceField = requireModuleField(affect.getReferenceFieldId(), "referenceFieldId");
         ModuleMetadataField targetField = requireModuleField(affect.getTargetFieldId(), "targetFieldId");
         if (!Objects.equals(owner.getRelationId(), targetField.getRelationId())) {
-            throw new PlatformException("reference affect target field must belong to owner relation");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-affect.reference-affect-target-field-must-belong-to-owner-relation",
+                    "reference affect target field must belong to owner relation"));
         }
         validateReferenceField(owner, referenceField);
         affect.setModuleMetadataFieldId(owner.getId());
@@ -70,15 +74,20 @@ public class ModuleMetadataFieldAffectService extends AbstractAbilityService<Mod
 
     private void validateReferenceField(ModuleMetadataField owner, ModuleMetadataField referenceField) {
         if (owner.getReferenceModuleAlias() == null || owner.getReferenceModuleAlias().isBlank()) {
-            throw new PlatformException("reference affect requires owner referenceModuleAlias");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-affect.reference-affect-requires-owner-referencemodulealias",
+                    "reference affect requires owner referenceModuleAlias"));
         }
         ResolvedModuleMetadataField resolved = moduleFieldService.resolve(referenceField.getId());
         if (!owner.getReferenceModuleAlias().equals(resolved.moduleAlias())) {
-            throw new PlatformException("reference affect field must belong to reference module: "
-                    + owner.getReferenceModuleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-affect.reference-affect-field-must-belong-to-reference-module",
+                    "reference affect field must belong to reference module: {value1}"), Map.of("value1", String.valueOf(owner.getReferenceModuleAlias())));
         }
         if (resolved.relationRole() != RelationRole.MAIN) {
-            throw new PlatformException("reference affect field must belong to reference module main relation");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-affect.reference-affect-field-must-belong-to-reference-module-main-relation",
+                    "reference affect field must belong to reference module main relation"));
         }
     }
 
@@ -87,8 +96,9 @@ public class ModuleMetadataFieldAffectService extends AbstractAbilityService<Mod
                 ? null
                 : moduleFieldService.select(moduleMetadataFieldId);
         if (moduleField == null) {
-            throw new PlatformException("Module metadata field affect requires existing " + label + ": "
-                    + moduleMetadataFieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-affect.module-metadata-field-affect-requires-existing",
+                    "Module metadata field affect requires existing {value1}: {value2}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(moduleMetadataFieldId)));
         }
         return moduleField;
     }

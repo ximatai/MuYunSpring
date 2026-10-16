@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -72,29 +75,36 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
         rejectDirectPublish(existing, uiConfig);
         rejectPublishedEdit(existing, uiConfig);
         normalizeAndValidate(uiConfig);
-        rejectChanged(existing, uiConfig, "UI config set", PlatformUiConfig::getUiSetId);
-        rejectChanged(existing, uiConfig, "UI config client", PlatformUiConfig::getClientType);
+        rejectChangedText(existing, uiConfig, TextReference.code(
+                "platform.rejection.platform-ui-config.ui-config-set-cannot-be-changed",
+                "UI config set cannot be changed"), PlatformUiConfig::getUiSetId);
+        rejectChangedText(existing, uiConfig, TextReference.code(
+                "platform.rejection.platform-ui-config.ui-config-client-cannot-be-changed",
+                "UI config client cannot be changed"), PlatformUiConfig::getClientType);
     }
 
     @Override
     public void beforeDelete(String id) {
         PlatformUiConfig existing = select(id);
         if (existing != null && Boolean.TRUE.equals(existing.getPublished())) {
-            throw BusinessExceptions.warning("platform.ui-config.published-delete-denied",
-                    "Published UI config cannot be deleted; unpublish first: " + id);
+            throw BusinessExceptions.warningText("platform.ui-config.published-delete-denied", TextReference.code(
+                    "platform.rejection.platform-ui-config.published-ui-config-cannot-be-deleted-unpublish-first",
+                    "Published UI config cannot be deleted; unpublish first: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         PlatformUiConfigFieldService uiConfigFieldService = uiConfigFieldServiceProvider.get();
         if (uiConfigFieldService != null && uiConfigFieldService.hasActiveFieldForUiConfig(id)) {
-            throw BusinessExceptions.warning("platform.ui-config.fields-exist",
-                    "UI config cannot be deleted while UI fields exist: " + id);
+            throw BusinessExceptions.warningText("platform.ui-config.fields-exist", TextReference.code(
+                    "platform.rejection.platform-ui-config.ui-config-cannot-be-deleted-while-ui-fields-exist",
+                    "UI config cannot be deleted while UI fields exist: {value1}"), Map.of("value1", String.valueOf(id)));
         }
     }
 
     public PlatformUiConfig requireUiConfig(String id) {
         PlatformUiConfig uiConfig = id == null || id.isBlank() ? null : select(id);
         if (uiConfig == null) {
-            throw BusinessExceptions.warning("platform.ui-config.not-found",
-                    "UI config requires existing config: " + id);
+            throw BusinessExceptions.warningText("platform.ui-config.not-found", TextReference.code(
+                    "platform.rejection.platform-ui-config.ui-config-requires-existing-config",
+                    "UI config requires existing config: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return uiConfig;
     }
@@ -147,8 +157,9 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
         }
         rejectDuplicate(uiConfig, Criteria.of()
                         .eq("uiSetId", uiSet.getId())
-                        .eq("clientType", uiConfig.getClientType()),
-                "UI config client must be unique in UI set: " + uiSet.getId() + "." + uiConfig.getClientType());
+                        .eq("clientType", uiConfig.getClientType()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-ui-config.ui-config-client-must-be-unique-in-ui-set",
+                                "UI config client must be unique in UI set: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getId()), "value2", String.valueOf(uiConfig.getClientType()))));
         uiConfig.setUiSetId(uiSet.getId());
     }
 
@@ -165,15 +176,17 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
                 && Objects.equals(existing.getSortOrder(), updated.getSortOrder())) {
             return;
         }
-        throw BusinessExceptions.warning("platform.ui-config.published-edit-denied",
-                "Published UI config cannot be edited; unpublish first: " + existing.getId());
+        throw BusinessExceptions.warningText("platform.ui-config.published-edit-denied", TextReference.code(
+                "platform.rejection.platform-ui-config.published-ui-config-cannot-be-edited-unpublish-first",
+                "Published UI config cannot be edited; unpublish first: {value1}"), Map.of("value1", String.valueOf(existing.getId())));
     }
 
 
     private void rejectDirectPublish(PlatformUiConfig uiConfig) {
         if (Boolean.TRUE.equals(uiConfig.getPublished()) && !PlatformPageConfigPublishContext.active()) {
-            throw BusinessExceptions.warning("platform.ui-config.direct-publish-denied",
-                    "UI config can only be published through publish service: " + uiConfig.getId());
+            throw BusinessExceptions.warningText("platform.ui-config.direct-publish-denied", TextReference.code(
+                    "platform.rejection.platform-ui-config.ui-config-can-only-be-published-through-publish-service",
+                    "UI config can only be published through publish service: {value1}"), Map.of("value1", String.valueOf(uiConfig.getId())));
         }
     }
 
@@ -182,8 +195,9 @@ public class PlatformUiConfigService extends AbstractAbilityService<PlatformUiCo
             return;
         }
         if (existing == null || !Boolean.TRUE.equals(existing.getPublished())) {
-            throw BusinessExceptions.warning("platform.ui-config.direct-publish-denied",
-                    "UI config can only be published through publish service: " + updated.getId());
+            throw BusinessExceptions.warningText("platform.ui-config.direct-publish-denied", TextReference.code(
+                    "platform.rejection.platform-ui-config.ui-config-can-only-be-published-through-publish-service",
+                    "UI config can only be published through publish service: {value1}"), Map.of("value1", String.valueOf(updated.getId())));
         }
     }
 }

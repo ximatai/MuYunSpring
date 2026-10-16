@@ -420,11 +420,11 @@ class EmployeeDelegationServiceContractTest {
         EmployeeService employeeService = mock(EmployeeService.class);
         EmployeePositionService employeePositionService = mock(EmployeePositionService.class);
         EmployeeAccountService employeeAccountService = mock(EmployeeAccountService.class);
-        when(employeeService.requireEnabled(eq("principal-1"), any()))
+        when(employeeService.requireEnabledOrThrow(eq("principal-1"), any()))
                 .thenReturn(employee("principal-1"));
-        when(employeeService.requireEnabled(eq("principal-2"), any()))
+        when(employeeService.requireEnabledOrThrow(eq("principal-2"), any()))
                 .thenReturn(employee("principal-2"));
-        when(employeeService.requireEnabled(eq("delegate-1"), any()))
+        when(employeeService.requireEnabledOrThrow(eq("delegate-1"), any()))
                 .thenReturn(employee("delegate-1"));
         when(employeePositionService.select("principal-position"))
                 .thenReturn(position("principal-position", "principal-1", true));

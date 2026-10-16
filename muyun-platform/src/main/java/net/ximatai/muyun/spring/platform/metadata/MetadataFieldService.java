@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
@@ -178,7 +180,9 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
             field.setTitleField(Boolean.FALSE);
         }
         if (PlatformFieldPolicy.isAuditLabel(field.getFieldName())) {
-            throw new PlatformException("字段名称与平台审计展示字段冲突：" + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.the-field-name-conflicts-with-a-platform-audit-display-field",
+                    "字段名称与平台审计展示字段冲突：{value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         validateFieldFormBoundary(field);
         validateChildMetadataBoundary(field);
@@ -207,7 +211,9 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         }
         if (childRelations(field.getMetadataId(), relationService).stream()
                 .anyMatch(relation -> field.getFieldName().equals(relation.getForeignKey()))) {
-            throw new PlatformException("Child relation foreign key cannot be deleted: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.child-relation-foreign-key-cannot-be-deleted",
+                    "Child relation foreign key cannot be deleted: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
     }
 
@@ -220,8 +226,9 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                 .eq("relationRole", RelationRole.MAIN), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))) {
             PlatformModule module = moduleService.select(relation.getModuleAlias());
             if (module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
-                throw new PlatformException("Dynamic MAIN metadata fields must be changed through the relation change-set publisher: "
-                        + metadataId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field.dynamic-main-metadata-fields-must-be-changed-through-the-relation-change-set",
+                        "Dynamic MAIN metadata fields must be changed through the relation change-set publisher: {value1}"), Map.of("value1", String.valueOf(metadataId)));
             }
         }
     }
@@ -253,22 +260,31 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         if (field.getFieldForm() == MetadataFieldForm.COMPANION || field.getFieldForm() == MetadataFieldForm.SHADOW) {
             requireOwnerField(field);
         } else if (field.getOwnerFieldId() != null) {
-            throw new PlatformException("ownerFieldId is only allowed for companion or shadow field: "
-                    + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.ownerfieldid-is-only-allowed-for-companion-or-shadow-field",
+                    "ownerFieldId is only allowed for companion or shadow field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (field.getFieldRole() == MetadataFieldRole.TIME_ZONE && field.getFieldForm() != MetadataFieldForm.COMPANION) {
-            throw new PlatformException("TIME_ZONE field role requires companion field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.time-zone-field-role-requires-companion-field",
+                    "TIME_ZONE field role requires companion field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (field.getFieldRole() == MetadataFieldRole.SIGNATURE && field.getFieldForm() != MetadataFieldForm.COMPANION) {
-            throw new PlatformException("SIGNATURE field role requires companion field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.signature-field-role-requires-companion-field",
+                    "SIGNATURE field role requires companion field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (field.getFieldRole() == MetadataFieldRole.MEASURE_UNIT
                 && field.getFieldForm() != MetadataFieldForm.COMPANION) {
-            throw new PlatformException("MEASURE_UNIT field role requires companion field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.measure-unit-field-role-requires-companion-field",
+                    "MEASURE_UNIT field role requires companion field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (field.getFieldRole() == MetadataFieldRole.MEASURE_BASE_VALUE) {
             if (field.getFieldForm() != MetadataFieldForm.SHADOW) {
-                throw new PlatformException("MEASURE_BASE_VALUE field role requires shadow field: " + field.getFieldName());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field.measure-base-value-field-role-requires-shadow-field",
+                        "MEASURE_BASE_VALUE field role requires shadow field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
             }
             field.setSystemManaged(Boolean.TRUE);
         }
@@ -283,52 +299,67 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                 || Boolean.TRUE.equals(field.getIndexed())
                 || Boolean.TRUE.equals(field.getSortableField())
                 || Boolean.TRUE.equals(field.getTitleField())) {
-            throw new PlatformException("Virtual metadata field cannot be required, unique, indexed, sortable or title field: "
-                    + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.virtual-metadata-field-cannot-be-required-unique-indexed-sortable-or-title-field",
+                    "Virtual metadata field cannot be required, unique, indexed, sortable or title field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
     }
 
     private void requireOwnerField(MetadataField field) {
         MetadataField owner = field.getOwnerFieldId() == null ? null : select(field.getOwnerFieldId());
         if (owner == null) {
-            throw new PlatformException("metadata field requires owner field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.metadata-field-requires-owner-field",
+                    "metadata field requires owner field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (!Objects.equals(owner.getMetadataId(), field.getMetadataId())) {
-            throw new PlatformException("owner field must belong to same metadata: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.owner-field-must-belong-to-same-metadata",
+                    "owner field must belong to same metadata: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (Objects.equals(owner.getId(), field.getId())) {
-            throw new PlatformException("metadata field cannot own itself: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.metadata-field-cannot-own-itself",
+                    "metadata field cannot own itself: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
     }
 
     private void rejectDuplicateField(MetadataField field) {
         rejectDuplicate(field, Criteria.of()
                         .eq("metadataId", field.getMetadataId())
-                        .eq("fieldName", field.getFieldName()),
-                "metadata fieldName must be unique: " + field.getFieldName());
+                        .eq("fieldName", field.getFieldName()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.metadata-field.metadata-fieldname-must-be-unique",
+                                "metadata fieldName must be unique: {value1}"), Map.of("value1", String.valueOf(field.getFieldName()))));
         rejectDuplicate(field, Criteria.of()
                         .eq("metadataId", field.getMetadataId())
-                        .eq("columnName", field.getColumnName()),
-                "metadata columnName must be unique: " + field.getColumnName());
+                        .eq("columnName", field.getColumnName()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.metadata-field.metadata-columnname-must-be-unique",
+                                "metadata columnName must be unique: {value1}"), Map.of("value1", String.valueOf(field.getColumnName()))));
     }
 
     private void rejectDuplicateSingleFlag(MetadataField field) {
         if (Boolean.TRUE.equals(field.getTitleField()) && existsOtherInCurrentScope(field, Criteria.of()
                 .eq("metadataId", field.getMetadataId())
                 .eq("titleField", Boolean.TRUE))) {
-            throw new PlatformException("metadata can only have one title field: " + field.getMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.metadata-can-only-have-one-title-field",
+                    "metadata can only have one title field: {value1}"), Map.of("value1", String.valueOf(field.getMetadataId())));
         }
         if (Boolean.TRUE.equals(field.getSortableField()) && existsOtherInCurrentScope(field, Criteria.of()
                 .eq("metadataId", field.getMetadataId())
                 .eq("sortableField", Boolean.TRUE))) {
-            throw new PlatformException("metadata can only have one sortable field: " + field.getMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.metadata-can-only-have-one-sortable-field",
+                    "metadata can only have one sortable field: {value1}"), Map.of("value1", String.valueOf(field.getMetadataId())));
         }
     }
 
     private Metadata requireMetadata(String metadataId) {
         Metadata metadata = metadataId == null || metadataId.isBlank() ? null : metadataService.select(metadataId);
         if (metadata == null) {
-            throw new PlatformException("Metadata field requires existing metadata: " + metadataId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field.metadata-field-requires-existing-metadata",
+                    "Metadata field requires existing metadata: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         }
         return metadata;
     }

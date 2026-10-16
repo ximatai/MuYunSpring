@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -90,7 +92,9 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
                 if (!Objects.equals(left.getModuleAlias(), right.getModuleAlias())
                         || left.getRelationRole() != right.getRelationRole()
                         || !Objects.equals(left.getParentMetadataId(), right.getParentMetadataId())) {
-                    throw new PlatformException("Metadata relations can only be reordered under the same parent metadata");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.module-metadata-relation.metadata-relations-can-only-be-reordered-under-the-same-parent-metadata",
+                            "Metadata relations can only be reordered under the same parent metadata"));
                 }
             }
         };
@@ -123,11 +127,15 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
         String moduleAlias = PlatformNameRules.requireModuleAlias(relation.getModuleAlias());
         PlatformModule module = moduleService.select(moduleAlias);
         if (module == null) {
-            throw new PlatformException("Module metadata relation requires existing module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.module-metadata-relation-requires-existing-module",
+                    "Module metadata relation requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         Metadata metadata = metadataService.select(relation.getMetadataId());
         if (metadata == null) {
-            throw new PlatformException("Module metadata relation requires existing metadata: " + relation.getMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.module-metadata-relation-requires-existing-metadata",
+                    "Module metadata relation requires existing metadata: {value1}"), Map.of("value1", String.valueOf(relation.getMetadataId())));
         }
         if (relation.getRelationRole() == null) {
             relation.setRelationRole(RelationRole.MAIN);
@@ -140,7 +148,9 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
             rejectDuplicateMainRelation(relation);
         } else {
             if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) {
-                throw new PlatformException("Child metadata cannot enable module data scope: " + metadata.getAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-relation.child-metadata-cannot-enable-module-data-scope",
+                        "Child metadata cannot enable module data scope: {value1}"), Map.of("value1", String.valueOf(metadata.getAlias())));
             }
             validateChildRelation(relation, metadata);
         }
@@ -154,27 +164,35 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
     private void rejectDuplicateMainRelation(ModuleMetadataRelation relation) {
         rejectDuplicate(relation, Criteria.of()
                         .eq("moduleAlias", relation.getModuleAlias())
-                        .eq("relationRole", RelationRole.MAIN),
-                "Module can only have one MAIN metadata relation: " + relation.getModuleAlias());
+                        .eq("relationRole", RelationRole.MAIN), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.module-metadata-relation.module-can-only-have-one-main-metadata-relation",
+                                "Module can only have one MAIN metadata relation: {value1}"), Map.of("value1", String.valueOf(relation.getModuleAlias()))));
         relation.setParentMetadataId(null);
         relation.setForeignKey(null);
     }
 
     private void validateChildRelation(ModuleMetadataRelation relation, Metadata metadata) {
         if (relation.getParentMetadataId() == null || relation.getParentMetadataId().isBlank()) {
-            throw new PlatformException("Child relation requires parentMetadataId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.child-relation-requires-parentmetadataid",
+                    "Child relation requires parentMetadataId"));
         }
         if (metadataService.select(relation.getParentMetadataId()) == null) {
-            throw new PlatformException("Relation requires existing parent metadata: " + relation.getParentMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.relation-requires-existing-parent-metadata",
+                    "Relation requires existing parent metadata: {value1}"), Map.of("value1", String.valueOf(relation.getParentMetadataId())));
         }
         if (count(Criteria.of()
                 .eq("moduleAlias", relation.getModuleAlias())
                 .eq("metadataId", relation.getParentMetadataId())) <= 0) {
-            throw new PlatformException("Relation requires parent metadata relation in same module: "
-                    + relation.getParentMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.relation-requires-parent-metadata-relation-in-same-module",
+                    "Relation requires parent metadata relation in same module: {value1}"), Map.of("value1", String.valueOf(relation.getParentMetadataId())));
         }
         if (relation.getForeignKey() == null || relation.getForeignKey().isBlank()) {
-            throw new PlatformException("Child relation requires foreignKey");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-relation.child-relation-requires-foreignkey",
+                    "Child relation requires foreignKey"));
         }
         PlatformNameRules.requireFieldName(relation.getForeignKey(), "foreignKey");
         MetadataFieldService fieldService = metadataFieldServiceProvider.getIfAvailable();
@@ -184,12 +202,14 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
                             .eq("fieldName", relation.getForeignKey()),
                     new PageRequest(0, 1)).stream().findFirst().orElse(null);
             if (foreignKey == null) {
-                throw new PlatformException("Child relation requires physical foreign key field: "
-                        + relation.getForeignKey());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-relation.child-relation-requires-physical-foreign-key-field",
+                        "Child relation requires physical foreign key field: {value1}"), Map.of("value1", String.valueOf(relation.getForeignKey())));
             }
             if (foreignKey.getFieldForm() != MetadataFieldForm.PHYSICAL) {
-                throw new PlatformException("Child relation foreign key must be a physical field: "
-                        + relation.getForeignKey());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-relation.child-relation-foreign-key-must-be-a-physical-field",
+                        "Child relation foreign key must be a physical field: {value1}"), Map.of("value1", String.valueOf(relation.getForeignKey())));
             }
             ModuleMetadataCapabilityPolicy.validateChildMetadata(metadata,
                     fieldService.list(Criteria.of().eq("metadataId", relation.getMetadataId()),
@@ -200,7 +220,8 @@ public class ModuleMetadataRelationService extends AbstractAbilityService<Module
     private void rejectDuplicateRelationAlias(ModuleMetadataRelation relation) {
         rejectDuplicate(relation, Criteria.of()
                         .eq("moduleAlias", relation.getModuleAlias())
-                        .eq("relationAlias", relation.getRelationAlias()),
-                "relationAlias must be unique within module: " + relation.getRelationAlias());
+                        .eq("relationAlias", relation.getRelationAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.module-metadata-relation.relationalias-must-be-unique-within-module",
+                                "relationAlias must be unique within module: {value1}"), Map.of("value1", String.valueOf(relation.getRelationAlias()))));
     }
 }

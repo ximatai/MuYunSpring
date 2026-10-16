@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
 import net.ximatai.muyun.spring.common.formula.FormulaIssueLevel;
@@ -83,7 +85,9 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
     @Override
     public void beforeUpdate(ModuleMetadataFormulaRule rule, ModuleMetadataFormulaRule existing) {
         if (existing != null && !Objects.equals(existing.getRelationId(), rule.getRelationId())) {
-            throw new PlatformException("Metadata formula rule relation cannot be changed: " + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-formula-rule.metadata-formula-rule-relation-cannot-be-changed",
+                    "Metadata formula rule relation cannot be changed: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
         String relationId = existing == null ? null : existing.getRelationId();
         if (relationId == null && rule != null) {
@@ -148,7 +152,9 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
         }
         ModuleMetadataRelation relation = relationId == null || relationId.isBlank() ? null : relationService.select(relationId);
         if (relation == null) {
-            throw new PlatformException("Metadata formula rule requires existing relation: " + relationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-formula-rule.metadata-formula-rule-requires-existing-relation",
+                    "Metadata formula rule requires existing relation: {value1}"), Map.of("value1", String.valueOf(relationId)));
         }
         MetadataCapabilityGovernanceMutationContext.run(() -> {
             relationService.update(relation);
@@ -161,10 +167,14 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
                 ? null
                 : relationService.select(rule.getRelationId());
         if (relation == null) {
-            throw new PlatformException("Metadata formula rule requires existing relation: " + rule.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-formula-rule.metadata-formula-rule-requires-existing-relation",
+                    "Metadata formula rule requires existing relation: {value1}"), Map.of("value1", String.valueOf(rule.getRelationId())));
         }
         if (rule.getAlias() == null || !rule.getAlias().matches("[a-z][A-Za-z0-9]{0,63}")) {
-            throw new PlatformException("Metadata formula rule requires valid alias: " + rule.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-formula-rule.metadata-formula-rule-requires-valid-alias",
+                    "Metadata formula rule requires valid alias: {value1}"), Map.of("value1", String.valueOf(rule.getAlias())));
         }
         if (rule.getRuleKind() == null) {
             rule.setRuleKind(FormulaRuleKind.VALIDATION);
@@ -189,32 +199,38 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
         }
         rejectDuplicate(rule, Criteria.of()
                         .eq("relationId", rule.getRelationId())
-                        .eq("alias", rule.getAlias()),
-                "module metadata formula rule must be unique in relation: "
-                        + rule.getRelationId() + "." + rule.getAlias());
+                        .eq("alias", rule.getAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.module-metadata-formula-rule.module-metadata-formula-rule-must-be-unique-in-relation",
+                                "module metadata formula rule must be unique in relation: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getRelationId()), "value2", String.valueOf(rule.getAlias()))));
     }
 
     private void validateFormula(ModuleMetadataFormulaRule rule, ModuleMetadataRelation relation) {
         try {
             if (formulaEngine.parse(rule.getAlias(), rule.getExpression()) == null) {
-                throw new PlatformException("Metadata formula expression is invalid: " + rule.getAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-formula-rule.metadata-formula-expression-is-invalid",
+                        "Metadata formula expression is invalid: {value1}"), Map.of("value1", String.valueOf(rule.getAlias())));
             }
             if (rule.getRuleKind() != FormulaRuleKind.CALCULATION
                     && formulaEngine.containsAssignment(rule.getExpression())) {
-                throw new PlatformException("Metadata formula expression must not assign fields: " + rule.getAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-formula-rule.metadata-formula-expression-must-not-assign-fields",
+                        "Metadata formula expression must not assign fields: {value1}"), Map.of("value1", String.valueOf(rule.getAlias())));
             }
             if (rule.getRulePhase() == FormulaRulePhase.IMPORT_VALIDATE
                     && rule.getRuleKind() == FormulaRuleKind.CALCULATION) {
-                throw new PlatformException("Metadata import validation formula must not calculate fields: "
-                        + rule.getAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-formula-rule.metadata-import-validation-formula-must-not-calculate-fields",
+                        "Metadata import validation formula must not calculate fields: {value1}"), Map.of("value1", String.valueOf(rule.getAlias())));
             }
             formulaEngine.validateTargetFieldExpressionScope(rule.getTargetField(), rule.getExpression());
             fieldValidator.validateTargetField(rule.getTargetField(), relation, "Metadata formula");
             fieldValidator.validateExpressionFields(formulaEngine.referencedFields(rule.getExpression()), relation,
                     "Metadata formula");
         } catch (FormulaEvaluationException exception) {
-            throw new PlatformException("Metadata formula expression is invalid: "
-                    + rule.getAlias() + ", " + exception.getMessage(), exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-formula-rule.metadata-formula-expression-is-invalid-details",
+                    "Metadata formula expression is invalid: {value1}, {value2}"), Map.of("value1", String.valueOf(rule.getAlias()), "value2", String.valueOf(exception.getMessage())), exception);
         }
     }
 }

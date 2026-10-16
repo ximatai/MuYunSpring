@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.stereotype.Service;
 import net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService;
 
@@ -25,7 +27,9 @@ public class PlatformModuleTaskCheckService {
 
     public PlatformModuleTaskCheckResult check(String moduleAlias, String recordId, String uiConfigId) {
         if (recordId == null || recordId.isBlank()) {
-            throw new PlatformException("Module task check requires record id");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module-task-check.module-task-check-requires-record-id",
+                    "Module task check requires record id"));
         }
         PlatformPageConfigSnapshot snapshot = snapshotService.snapshot(moduleAlias);
         List<PlatformModuleTaskDefinition> definitions = taskDefinitionRegistry.listEnabled(moduleAlias);
@@ -46,7 +50,9 @@ public class PlatformModuleTaskCheckService {
             boolean configExists = snapshot.uiConfigs().stream()
                     .anyMatch(config -> Objects.equals(config.getId(), uiConfigId));
             if (!configExists) {
-                throw new PlatformException("UI config is not published in module snapshot: " + uiConfigId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-module-task-check.ui-config-is-not-published-in-module-snapshot",
+                        "UI config is not published in module snapshot: {value1}"), Map.of("value1", String.valueOf(uiConfigId)));
             }
         }
         List<PlatformTaskSource> sources = new java.util.ArrayList<>();
@@ -89,8 +95,9 @@ public class PlatformModuleTaskCheckService {
             PlatformQueryTemplate template = snapshot.queryTemplates().stream()
                     .filter(item -> Objects.equals(item.getId(), check.queryTemplateId()))
                     .findFirst()
-                    .orElseThrow(() -> new PlatformException("Task query template is not published in module snapshot: "
-                            + check.queryTemplateId()));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-module-task-check.task-query-template-is-not-published-in-module-snapshot",
+                            "Task query template is not published in module snapshot: {value1}"), Map.of("value1", String.valueOf(check.queryTemplateId()))));
             return completionChecks.check(snapshot.moduleAlias(), recordId, check, template);
         }
         return completionChecks.check(snapshot.moduleAlias(), recordId, check);

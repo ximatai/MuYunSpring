@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.ApprovalAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.*;
@@ -54,14 +56,18 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
     private Object execute(ModuleRecordActionCommand command, boolean approvalBusiness) {
         var service = abilities.orderedStream().filter(item -> command.moduleAlias().equals(item.getModuleAlias())).findFirst();
         if (!"update".equals(command.actionCode())) {
-            if (service.isPresent()) throw new PlatformException("静态业务动作未注册领域执行器: " + command.actionCode());
+            if (service.isPresent()) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.default-module-record-action-executor.no-domain-executor-is-registered-for-the-static-action",
+                    "静态业务动作未注册领域执行器: {value1}"), Map.of("value1", String.valueOf(command.actionCode())));
             return approvalBusiness
                     ? records.executeApprovalBusinessAction(command.moduleAlias(), command.actionCode(),
                         command.recordId(), command.payload())
                     : records.executeAction(command.moduleAlias(), command.actionCode(),
                         DynamicActionExecutionRequest.id(command.recordId()).withPayload(command.payload()));
         }
-        if (command.version() == null) throw new PlatformException("业务保存必须携带记录版本");
+        if (command.version() == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.default-module-record-action-executor.saving-requires-the-record-version",
+                "业务保存必须携带记录版本"));
         var context = ActionExecutionContext.ofPlatformAction(command.moduleAlias(), PlatformAction.UPDATE,
                 Set.of(command.recordId()), CurrentUserContext.currentUser());
         policies.requireRecordAction(context);
@@ -69,7 +75,9 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
             if (service.isPresent()) return updateStatic(service.get(), command, approvalBusiness);
             String entity = records.mainEntityAlias(command.moduleAlias());
             var stored = records.select(command.moduleAlias(), entity, command.recordId());
-            if (stored == null) throw new PlatformException("业务记录不存在");
+            if (stored == null) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.default-module-record-action-executor.the-business-record-was-not-found",
+                    "业务记录不存在"));
             var draft = stored.copy();
             for (var field : command.values().entrySet()) {
                 if (!Set.of("id", "version", "tenantId", "createdAt", "createdBy", "updatedAt", "updatedBy", "approvalStatus", "approvalInstanceId", "approvalSubmittedBy", "approvalSubmittedAt", "approvalCompletedAt").contains(field.getKey()))
@@ -78,22 +86,30 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
             draft.setId(command.recordId()); draft.setVersion(command.version());
             int count = approvalBusiness ? records.writeApprovalBusiness(command.moduleAlias(), entity, draft)
                     : records.update(command.moduleAlias(), entity, draft);
-            if (count != 1) throw new PlatformException("业务数据保存失败");
+            if (count != 1) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.default-module-record-action-executor.the-business-data-could-not-be-saved",
+                    "业务数据保存失败"));
             return records.select(command.moduleAlias(), entity, command.recordId());
         }
     }
     @SuppressWarnings({"rawtypes", "unchecked"})
     private Object updateStatic(CrudAbility ability, ModuleRecordActionCommand command, boolean approvalBusiness) {
         Object stored = ability.select(command.recordId());
-        if (stored == null) throw new PlatformException("业务记录不存在");
+        if (stored == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.default-module-record-action-executor.the-business-record-was-not-found",
+                "业务记录不存在"));
         try {
             EntityContract draft = (EntityContract) mapper.convertValue(stored, ability.modelClass());
             mapper.updateValue(draft, command.values());
             draft.setId(command.recordId()); draft.setVersion(command.version());
             int count = approvalBusiness && ability instanceof ApprovalAbility approval && approval.supportsApproval()
                     ? approval.writeApprovalBusiness(draft) : ability.update(draft);
-            if (count != 1) throw new PlatformException("业务数据保存失败");
+            if (count != 1) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.default-module-record-action-executor.the-business-data-could-not-be-saved",
+                    "业务数据保存失败"));
             return ability.select(command.recordId());
-        } catch (java.io.IOException failure) { throw new PlatformException("业务字段解析失败", failure); }
+        } catch (java.io.IOException failure) { throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.default-module-record-action-executor.the-business-field-could-not-be-read",
+                "业务字段解析失败"), Map.of(), failure); }
     }
 }

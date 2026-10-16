@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -54,15 +57,21 @@ public class ModuleMetadataOrchestrationService {
         }
         PlatformModule module = moduleService.select(validModuleAlias);
         if (module == null) {
-            throw new PlatformException("Metadata orchestration requires existing module: " + validModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.metadata-orchestration-requires-existing-module",
+                    "Metadata orchestration requires existing module: {value1}"), Map.of("value1", String.valueOf(validModuleAlias)));
         }
         if (module.getModuleKind() != ModuleKind.DYNAMIC) {
-            throw new PlatformException("Metadata orchestration only supports dynamic module: " + validModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.metadata-orchestration-only-supports-dynamic-module",
+                    "Metadata orchestration only supports dynamic module: {value1}"), Map.of("value1", String.valueOf(validModuleAlias)));
         }
         if (relationService.count(Criteria.of()
                 .eq("moduleAlias", validModuleAlias)
                 .eq("relationRole", RelationRole.MAIN)) > 0) {
-            throw new PlatformException("Module already has MAIN metadata relation: " + validModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.module-already-has-main-metadata-relation",
+                    "Module already has MAIN metadata relation: {value1}"), Map.of("value1", String.valueOf(validModuleAlias)));
         }
 
         Metadata metadata = new Metadata();
@@ -100,7 +109,9 @@ public class ModuleMetadataOrchestrationService {
             try {
                 result.add(EntityCapability.valueOf(declaration));
             } catch (IllegalArgumentException error) {
-                throw new PlatformException("Invalid module MAIN capability declaration: " + declaration);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-orchestration.invalid-module-main-capability-declaration",
+                        "Invalid module MAIN capability declaration: {value1}"), Map.of("value1", String.valueOf(declaration)));
             }
         }
         return result;
@@ -118,11 +129,15 @@ public class ModuleMetadataOrchestrationService {
         PlatformModule module = requireDynamicModule(validModuleAlias);
         ModuleMetadataRelation parentRelation = relationService.select(parentRelationId);
         if (parentRelation == null || !validModuleAlias.equals(parentRelation.getModuleAlias())) {
-            throw new PlatformException("Child metadata requires a parent node in the current module: " + parentRelationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.child-metadata-requires-a-parent-node-in-the-current-module",
+                    "Child metadata requires a parent node in the current module: {value1}"), Map.of("value1", String.valueOf(parentRelationId)));
         }
         Metadata parentMetadata = metadataService.select(parentRelation.getMetadataId());
         if (parentMetadata == null) {
-            throw new PlatformException("Child metadata parent no longer exists: " + parentRelation.getMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.child-metadata-parent-no-longer-exists",
+                    "Child metadata parent no longer exists: {value1}"), Map.of("value1", String.valueOf(parentRelation.getMetadataId())));
         }
 
         Metadata child = new Metadata();
@@ -172,12 +187,16 @@ public class ModuleMetadataOrchestrationService {
             for (ModuleMetadataRelation relation : relationService.list(Criteria.of().eq("moduleAlias", moduleAlias)
                     .eq("relationRole", RelationRole.CHILD), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))) {
                 Metadata child = metadataService.select(relation.getMetadataId());
-                if (child == null) throw new PlatformException("子元数据不存在：" + relation.getMetadataId());
+                if (child == null) throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-metadata-orchestration.child-metadata-was-not-found",
+                        "子元数据不存在：{value1}"), Map.of("value1", String.valueOf(relation.getMetadataId())));
                 MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, child, java.util.Set.of());
                 var foreignKeys = fieldService.list(Criteria.of().eq("metadataId", child.getId())
                         .eq("fieldName", relation.getForeignKey()), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE));
                 if (foreignKeys.size() != 1 || foreignKeys.getFirst().getFieldForm() != MetadataFieldForm.PHYSICAL) {
-                    throw new PlatformException("子元数据父关联字段必须唯一且为物理字段：" + relation.getForeignKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.module-metadata-orchestration.the-child-metadata-parent-field-must-be-unique-and-physical",
+                            "子元数据父关联字段必须唯一且为物理字段：{value1}"), Map.of("value1", String.valueOf(relation.getForeignKey())));
                 }
                 MetadataField foreignKey = foreignKeys.getFirst();
                 if (foreignKey.getFieldOwnership() != MetadataFieldOwnership.STANDARD
@@ -203,10 +222,14 @@ public class ModuleMetadataOrchestrationService {
     private PlatformModule requireDynamicModule(String moduleAlias) {
         PlatformModule module = moduleService.select(moduleAlias);
         if (module == null) {
-            throw new PlatformException("Metadata orchestration requires existing module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.metadata-orchestration-requires-existing-module",
+                    "Metadata orchestration requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         if (module.getModuleKind() != ModuleKind.DYNAMIC) {
-            throw new PlatformException("Metadata orchestration only supports dynamic module: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-orchestration.metadata-orchestration-only-supports-dynamic-module",
+                    "Metadata orchestration only supports dynamic module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         return module;
     }
