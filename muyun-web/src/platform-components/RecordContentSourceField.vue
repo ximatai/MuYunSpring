@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { UiButton, UiModal, UiSelect } from '@muyun/vue-ui-antdv';
 import DateTimeText from './DateTimeText.vue';
+import RecordContentTranslationField from './RecordContentTranslationField.vue';
 import {
   loadBusinessContentSources,
   loadBusinessContentHistory,
@@ -20,7 +21,8 @@ const props = defineProps<{
   record: Record<string, unknown>;
   fieldName: string;
   content: BusinessContentField;
-  context?: Pick<ModuleContext<unknown>, 'http' | 'moduleAlias'>;
+  context?: Pick<ModuleContext<unknown>, 'http' | 'moduleAlias'> &
+    Partial<Pick<ModuleContext<unknown>, 'can'>>;
   relation?: BusinessContentRelationScope;
   mode: 'create' | 'edit' | 'view';
   disabled?: boolean;
@@ -207,6 +209,15 @@ watch(
       }}</UiButton>
     </div>
   </component>
+  <RecordContentTranslationField
+    :record="record"
+    :field-name="fieldName"
+    :content="content"
+    :context="context"
+    :relation="relation"
+    :mode="mode"
+    :session-key="sessionKey"
+  />
   <UiModal
     :open="historyOpen"
     :title="language.t('platform.content.history', '原文修订历史')"

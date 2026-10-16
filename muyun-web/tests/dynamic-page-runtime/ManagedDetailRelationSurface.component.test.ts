@@ -42,8 +42,8 @@ describe('managed detail relation surface', () => {
     const ui = descriptor();
     for (const field of ui.editorContributions![0]!.editor.fields)
       field.content = { key: field.fieldRef.fieldName, policy: 'AUTO_TRANSLATE' };
-    let resolve!: (value: unknown) => void;
-    const request = vi.fn(() => new Promise((done) => (resolve = done)));
+    const pending: ((value: unknown) => void)[] = [];
+    const request = vi.fn(() => new Promise((done) => pending.push(done)));
     const wrapper = mount(ManagedDetailRelationInlineSurface, {
       props: {
         sourceContext: context(request),
@@ -59,11 +59,16 @@ describe('managed detail relation surface', () => {
     });
     await flushPromises();
     expect(wrapper.findAll('[data-content-field]')).toHaveLength(2);
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls[0]).toEqual([
-      { path: '/platform.field_ui_control/view/parent/relations/properties/child/content' },
-    ]);
-    resolve({ fields: {}, recordVersion: 1 });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith({
+      path: '/platform.field_ui_control/view/parent/relations/properties/child/content',
+    });
+    expect(request).toHaveBeenCalledWith({
+      path: '/platform.field_ui_control/view/parent/relations/properties/child/content/reading',
+      query: { language: 'zh-CN' },
+    });
+    pending[0]!({ fields: {}, recordVersion: 1 });
+    pending[1]!({ fields: {}, recordVersion: 1, language: 'zh-CN' });
     await flushPromises();
     wrapper.unmount();
   });

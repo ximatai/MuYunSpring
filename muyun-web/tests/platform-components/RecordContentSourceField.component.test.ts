@@ -52,7 +52,8 @@ function host(render: () => ReturnType<typeof h>, language = createLanguageConte
           return render;
         },
       }),
-      { global: { stubs: { UiModal: Modal } } },
+      // Translation reading has its own transport/race tests; these assertions own original-source intent.
+      { global: { stubs: { UiModal: Modal, RecordContentTranslationField: true } } },
     ),
   };
 }

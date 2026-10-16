@@ -58,3 +58,26 @@ it('starts a new read when the same draft object advances to a newer business ve
   done[1]!({ recordVersion: 5, fields: {} });
   expect((await current).recordVersion).toBe(5);
 });
+
+it('shares only in-flight reading for the same snapshot, language, version and transport', async () => {
+  const { loadBusinessContentReading } = await import('@/web-core/businessContent');
+  const callbacks: ((value: unknown) => void)[] = [];
+  const request = vi.fn(() => new Promise((done) => callbacks.push(done)));
+  const http = { request } as unknown as import('@/web-core/http').HttpClient;
+  const snapshot = { version: 1 };
+  const first = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot);
+  expect(loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot)).toBe(first);
+  const german = loadBusinessContentReading(http, 'demo.issue', 'one', 'de', undefined, snapshot);
+  snapshot.version = 2;
+  const next = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot);
+  callbacks[0]!({});
+  await first;
+  expect(loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot)).toBe(next);
+  callbacks[1]!({});
+  callbacks[2]!({});
+  await Promise.all([german, next]);
+  const fresh = loadBusinessContentReading(http, 'demo.issue', 'one', 'en', undefined, snapshot);
+  expect(request).toHaveBeenCalledTimes(4);
+  callbacks[3]!({});
+  await fresh;
+});

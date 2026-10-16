@@ -5,8 +5,12 @@ const LANGUAGE_PREFERENCE_KEY = 'interface.language';
 
 /** Scope changes and user selection invalidate delayed restores; queued writes never cross accounts. */
 export function createLanguagePreferenceController(
-  context: LanguageContext,
+  context: Pick<
+    LanguageContext,
+    'setLanguage' | 'languageTag' | 'requestedLanguageTag' | 'selectionRevision'
+  >,
   store: UserPreferenceStore = userPreferences,
+  preferenceKey = LANGUAGE_PREFERENCE_KEY,
 ) {
   let scope: string | undefined;
   let revision = 0;
@@ -19,12 +23,12 @@ export function createLanguagePreferenceController(
     async restore(identity?: string) {
       scope = identity;
       const currentRevision = ++revision;
-      const fallback = store.get<string | undefined>(LANGUAGE_PREFERENCE_KEY, undefined);
+      const fallback = store.get<string | undefined>(preferenceKey, undefined);
       context.setLanguage(typeof fallback === 'string' ? fallback : undefined);
       const selectionRevision = context.selectionRevision.value;
       let value: string | undefined;
       try {
-        value = await store.restore(LANGUAGE_PREFERENCE_KEY, fallback, options(identity));
+        value = await store.restore(preferenceKey, fallback, options(identity));
       } catch (failure) {
         if (
           !disposed &&
@@ -43,7 +47,7 @@ export function createLanguagePreferenceController(
       )
         context.setLanguage(typeof value === 'string' ? value : undefined);
     },
-    async save(tag: string) {
+    async save(tag?: string) {
       const identity = scope;
       const currentRevision = ++revision;
       const previous = context.requestedLanguageTag.value;
@@ -54,7 +58,8 @@ export function createLanguagePreferenceController(
         .catch(() => undefined)
         .then(async () => {
           if (disposed || identity !== scope) return;
-          await store.set(LANGUAGE_PREFERENCE_KEY, selected, options(identity));
+          if (tag === undefined) await store.remove(preferenceKey, options(identity));
+          else await store.set(preferenceKey, selected, options(identity));
         });
       try {
         await writes;

@@ -43,3 +43,4 @@ export * from './languagePreference';
 export * from './presentationTexts';
 
 export * from './businessContent';
+export * from './businessContentLanguage';

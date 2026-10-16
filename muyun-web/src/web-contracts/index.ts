@@ -1093,6 +1093,7 @@ export interface BusinessContentField {
   policy: 'KEEP_ORIGINAL' | 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS';
 }
 export interface BusinessContentRevision {
+  revisionId?: string;
   sourceKey: string;
   revision: number;
   text: string | null;
@@ -1118,6 +1119,43 @@ export interface BusinessContentSources {
 export interface BusinessContentLanguageInput {
   languageTag: string | null;
   expectedRevision: number | null;
+}
+export interface BusinessContentTranslationRevision {
+  revision: number;
+  kind: 'MACHINE' | 'DRAFT' | 'CONFIRMED' | 'REMOVED';
+  text: string | null;
+  authorId: string | null;
+  authorName: string | null;
+  createdAt: string;
+  reviewedDraftRevision: number | null;
+  generationReference: string | null;
+}
+export interface BusinessContentReadingField {
+  originalText: string | null;
+  source: BusinessContentRevision | null;
+  text: string | null;
+  actualLanguage: string | null;
+  originalFallback: boolean;
+  translation: BusinessContentTranslationRevision | null;
+}
+export interface BusinessContentReading {
+  recordVersion: number | null;
+  language: string;
+  fields: Record<string, BusinessContentReadingField>;
+}
+export interface BusinessContentTranslationMaintenance {
+  original: BusinessContentRevision & { revisionId: string };
+  expectedRevision: number | null;
+  draft: BusinessContentTranslationRevision | null;
+  confirmed: BusinessContentTranslationRevision | null;
+  machine: BusinessContentTranslationRevision | null;
+}
+export interface BusinessContentTranslationChange {
+  sourceRevisionId: string;
+  sourceRevision: number;
+  expectedRevision: number | null;
+  text?: string;
+  reviewedDraftRevision?: number;
 }
 
 export interface ResolvedViewFieldDescriptor {

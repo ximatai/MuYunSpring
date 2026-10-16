@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import LanguageSelector from './LanguageSelector.vue';
+import BusinessContentLanguageSelector from './BusinessContentLanguageSelector.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -642,6 +643,13 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             :aria-label="language.t('platform.screen.Workbench.global-tools', '全局工具')"
           >
             <LanguageSelector
+              :identity-scope="
+                startup?.session.currentUser
+                  ? JSON.stringify([startup.session.currentUser.userId, startup.session.currentUser.tenantId])
+                  : undefined
+              "
+            />
+            <BusinessContentLanguageSelector
               :identity-scope="
                 startup?.session.currentUser
                   ? JSON.stringify([startup.session.currentUser.userId, startup.session.currentUser.tenantId])
