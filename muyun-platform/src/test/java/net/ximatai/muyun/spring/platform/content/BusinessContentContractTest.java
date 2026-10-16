@@ -57,9 +57,13 @@ class BusinessContentContractTest {
         var owner = new AbstractAbilityService<ContentFixture>("test.content", ContentFixture.class, mock(BaseDao.class)) { };
         assertThatThrownBy(() -> service.history(owner, "record", "title", PageRequest.of(1, 20)))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        assertThatThrownBy(() -> service.sources(owner, "record"))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
         doThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("denied")).when(policies).requireRecordAction(any());
         try (var actor = CurrentUserContext.use(CurrentUser.tenantUser("user", "user", "tenant")); var tenant = TenantContext.use("tenant")) {
             assertThatThrownBy(() -> service.history(owner, "record", "title", PageRequest.of(1, 20)))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> service.sources(owner, "record"))
                     .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
         }
         verifyNoInteractions(store, owner.getDao());

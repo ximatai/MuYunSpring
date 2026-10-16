@@ -100,6 +100,7 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("DynamicWebActionAvailabilityResponse", actionAvailabilityResponseSchema());
         schemas.put("DynamicWebActionContext", actionContextSchema());
         schemas.put("DynamicWebActionResultBody", actionResultBodySchema());
+        schemas.putAll(net.ximatai.muyun.spring.common.openapi.BusinessContentApiSchemas.schemas());
         schemas.put("PlatformWebError", platformWebErrorSchema());
         schemas.put("ErrorScope", errorScopeSchema());
         schemas.put("ErrorTarget", errorTargetSchema());

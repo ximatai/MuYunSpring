@@ -26,6 +26,12 @@ public class BusinessContentRevision extends StandardEntity {
     private Integer revision;
     @Column(name = "original_text", type = ColumnType.TEXT)
     private String originalText;
+    @Column(name = "original_author_id", type = ColumnType.VARCHAR, length = 64)
+    private String originalAuthorId;
+    @Column(name = "original_authored_at", type = ColumnType.TIMESTAMP)
+    private java.time.Instant originalAuthoredAt;
+    @Column(name = "revision_kind", type = ColumnType.VARCHAR, length = 32)
+    private String revisionKind;
     @Column(name = "source_language", type = ColumnType.VARCHAR, length = 255)
     private String sourceLanguage;
 }

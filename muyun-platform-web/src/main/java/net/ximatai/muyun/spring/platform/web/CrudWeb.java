@@ -289,6 +289,20 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         });
     }
 
+    @GetMapping("/view/{id}/content")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentService.Sources contentSources(@PathVariable String id) {
+        return webScope(() -> BusinessContentWebSupport.current().sources(this, id));
+    }
+
+    @GetMapping("/view/{id}/content/{field}/history")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentService.SourceRevision> contentHistory(
+            @PathVariable String id, @PathVariable String field,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().history(this, id, field, PageRequest.of(page, size)));
+    }
+
     @GetMapping("/save-receipts/{requestId}")
     @ActionEndpoint(PlatformAction.VIEW)
     default RecordSaveRequestSupport.SaveReceipt saveReceipt(@PathVariable String requestId) {

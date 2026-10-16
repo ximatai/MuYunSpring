@@ -37,6 +37,7 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("TreeSortScopeRequest", treeSortScopeRequestSchema());
             schemas.put(entitySchemaName + "PageResponse", pageResponseSchema(entitySchemaName));
         }
+        schemas.putAll(net.ximatai.muyun.spring.common.openapi.BusinessContentApiSchemas.schemas());
         schemas.put("PlatformWebError", platformWebErrorSchema());
         return Map.copyOf(schemas);
     }

@@ -94,6 +94,10 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             try (var input = input(correction, "en", 2)) { service.update(correction); }
             assertThat(history(row)).hasSize(3);
             assertThat(history(row).getFirst().sourceLanguage()).isEqualTo("en");
+            assertThat(history(row).getFirst().authorId()).isEqualTo("us");
+            assertThat(history(row).getFirst().revisionAuthorId()).isEqualTo("cn");
+            assertThat(history(row).getFirst().revisionKind()).isEqualTo("SOURCE_LANGUAGE_CORRECTION");
+            assertThat(history(row).getFirst().authoredAt()).isEqualTo(history(row).get(1).authoredAt());
         }
     }
     @Test void sourceCaptureRollsBackWithBusinessWriteAndCannotBeReadAfterDeleteOrAcrossTenants() {
@@ -184,6 +188,59 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(changed.contentLanguageInputs()).isEqualTo(later);
         }
     }
+    @Test void existingUntrackedTextRetainsUnknownProvenanceAndItsRealBeforeImage() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            PlatformAbilityRuntime.configureEntitySaveLifecycleListener(EntitySaveLifecycleListener.NONE);
+            var untouched = row("存量原文"); service.insert(untouched);
+            var edited = row("修改前的存量原文"); service.insert(edited);
+            PlatformAbilityRuntime.configureEntitySaveLifecycleListener(listener);
+            var untracked = content.sources(service, untouched.getId()).fields().get("title");
+            assertThat(untracked.text()).isEqualTo("存量原文");
+            assertThat(untracked.expectedRevision()).isNull();
+            assertThat(untracked.source()).isNull();
+            untouched.setQuantity(10); service.update(untouched);
+            var baseline = history(untouched).getFirst();
+            assertThat(baseline.revisionKind()).isEqualTo("UNTRACKED_BASELINE");
+            assertThat(baseline.authorId()).isNull();
+            assertThat(baseline.authoredAt()).isNull();
+            assertThat(baseline.revisionAuthorId()).isEqualTo("cn");
+            assertThat(content.sources(service, untouched.getId()).fields().get("title").source()).isEqualTo(baseline);
+            try (var correction = input(untouched, "zh-CN", 1)) { service.update(untouched); }
+            assertThat(history(untouched).getFirst().authorId()).isNull();
+            assertThat(history(untouched).getFirst().revisionKind()).isEqualTo("SOURCE_LANGUAGE_CORRECTION");
+            PlatformAbilityRuntime.configureEntitySaveLifecycleListener(EntitySaveLifecycleListener.NONE);
+            untouched.setTitle("能力停用期间的未追踪修改"); service.update(untouched);
+            PlatformAbilityRuntime.configureEntitySaveLifecycleListener(listener);
+            var gap = content.sources(service, untouched.getId()).fields().get("title");
+            assertThat(gap.expectedRevision()).isEqualTo(2);
+            assertThat(gap.source()).isNull();
+            assertThat(gap.text()).isEqualTo("能力停用期间的未追踪修改");
+            untouched.setQuantity(11); service.update(untouched);
+            assertThat(history(untouched).getFirst().revisionKind()).isEqualTo("UNTRACKED_BASELINE");
+            assertThat(history(untouched).getFirst().revision()).isEqualTo(3);
+            assertThat(history(untouched).getFirst().authorId()).isNull();
+            try (var american = actor("us")) {
+                edited.setTitle("Actual English business edit");
+                edited.contentLanguageInputs(Map.of("title", new ContentWriteContext.SourceInput("en", null)));
+                service.update(edited);
+            }
+            var versions = history(edited);
+            assertThat(versions).extracting(BusinessContentService.SourceRevision::text)
+                    .containsExactly("Actual English business edit", "修改前的存量原文");
+            assertThat(versions.getFirst().authorId()).isEqualTo("us");
+            assertThat(versions.getFirst().sourceLanguage()).isEqualTo("en");
+            assertThat(versions.get(1).authorId()).isNull();
+            assertThat(versions.get(1).revisionKind()).isEqualTo("UNTRACKED_BASELINE");
+            var current = content.sources(service, edited.getId());
+            assertThat(current.recordVersion()).isEqualTo(service.select(edited.getId()).getVersion());
+            assertThat(current.fields().get("title").expectedRevision()).isEqualTo(2);
+            assertThat(current.fields().get("title").content().key()).isEqualTo("category-name");
+            try (var other = TenantContext.use("tenant-b")) {
+                assertThatThrownBy(() -> content.sources(service, edited.getId()))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
+        }
+    }
     @Test void concurrentOriginalEditsCannotProduceTwoCurrentRevisions() throws Exception {
         String id;
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
@@ -237,6 +294,9 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var parentHistory = content.history(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "description", HISTORY);
             var childHistory = content.history(runtime.entityService(module.moduleAlias(), "line"), child.getId(), "description", HISTORY);
             assertThat(content.history(records.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
+            var sourceState = content.sources(records.mainEntity(module.moduleAlias()), parent.getId());
+            assertThat(sourceState.fields().get("description").source()).isEqualTo(parentHistory.getFirst());
+            assertThat(sourceState.fields().get("description").text()).isEqualTo("80°C，暂勿发货");
             assertThat(parentHistory.getFirst().sourceLanguage()).isEqualTo("zh-CN");
             assertThat(childHistory.getFirst().sourceLanguage()).isEqualTo("en-US");
             assertThat(parentHistory.getFirst().sourceKey()).isNotEqualTo(childHistory.getFirst().sourceKey());
