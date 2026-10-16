@@ -63,3 +63,11 @@
 | `POST` | `/workflow/runtime/task/{taskId}/read`                           | 标记知会已读。               |
 | `GET`  | `/workflow/runtime/task/{taskId}/module-task/prepare`            | 准备业务任务办理。           |
 | `POST` | `/workflow/runtime/task/{taskId}/module-task/check-and-continue` | 完成业务任务检查并继续推进。 |
+
+## 分页展示契约
+
+`POST /workflow/runtime/workbench/{board}/page` 接收 `{query, keyword}`，`query` 沿用工作台白名单及 `page`；`keyword` 只匹配通过读取权限与 LIST 字段输出保护的业务标题。返回标准 `WebPageResponse`，包含 `records/total/pages/pageNum/pageSize` 及原始 `navigation.modules` 模块标题映射、`navigation.moduleTitles` 目录展示资源。客户端传入的操作人不作为身份依据。
+
+`GET /workflow/runtime/workbench/modules` 返回当前租户可见且配置了已发布流程的业务模块候选，个人委托可在没有当前任务时配置指定模块。
+
+`GET /workflow/runtime/workbench/modules` 返回 `ModuleTitleCatalog`，`modules` 以模块 alias 为键；每项含 `moduleAlias/title/titleSource/titleText`，用于模块筛选和委托配置中的名称展示。模块 alias 和业务记录标题保持原值，目录译文发布后按对应原文身份刷新展示资源。

@@ -1,9 +1,14 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { Modal as AModal } from 'ant-design-vue';
+import { computed, ref } from 'vue';
+import { useUiBlockingOverlayVisibility } from '../blockingOverlays';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiModal', inheritAttrs: false });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
@@ -15,14 +20,22 @@ withDefaults(
     width?: number | string;
   }>(),
   {
-    confirmText: '确认',
-    cancelText: '取消',
+    confirmText: undefined,
+    cancelText: undefined,
     confirmLoading: false,
     confirmDisabled: false,
     closable: true,
     width: 420,
   },
 );
+
+const resolvedConfirmText = computed(
+  () => props.confirmText ?? language.t('platform.screen.UiModal.confirmText', '确认'),
+);
+const resolvedCancelText = computed(() => props.cancelText ?? language.t('platform.action.cancel', '取消'));
+
+const overlayContent = ref<HTMLElement>();
+const updateOverlayVisibility = useUiBlockingOverlayVisibility(() => props.open, overlayContent);
 
 const emit = defineEmits<{
   confirm: [];
@@ -34,8 +47,8 @@ const emit = defineEmits<{
   <AModal
     :open="open"
     :title="title"
-    :ok-text="confirmText"
-    :cancel-text="cancelText"
+    :ok-text="resolvedConfirmText"
+    :cancel-text="resolvedCancelText"
     :confirm-loading="confirmLoading"
     :ok-button-props="{ disabled: confirmDisabled }"
     :closable="closable"
@@ -46,7 +59,8 @@ const emit = defineEmits<{
     :style="$attrs.style"
     @ok="emit('confirm')"
     @cancel="emit('cancel')"
+    @after-close="updateOverlayVisibility(false)"
   >
-    <slot />
+    <div ref="overlayContent"><slot /></div>
   </AModal>
 </template>

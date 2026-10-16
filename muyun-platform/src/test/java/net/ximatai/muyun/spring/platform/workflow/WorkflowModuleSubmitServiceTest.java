@@ -6,6 +6,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class WorkflowModuleSubmitServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowSubmitFacade submitFacade = mock(WorkflowSubmitFacade.class);
     private final WorkflowModuleSubmitService service = new WorkflowModuleSubmitService(submitFacade);
 

@@ -73,3 +73,46 @@ describe('module menu maintenance', () => {
     expect(directories[1].disabled).toBe(true);
   });
 });
+
+it('projects menu paths and destination names without changing their identities or raw titles', async () => {
+  const { createLanguageContext } = await import('@/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = {
+    id: 'preset-menu',
+    title: '平台管理',
+    schemeId: 'scheme',
+    $texts: {
+      title: {
+        source: {
+          sourceKind: 'CONFIG',
+          sourceId: 'config/menu/preset-menu/title',
+          sourceVersion: 'v1',
+          originalText: '平台管理',
+        },
+        languages: {
+          en: {
+            text: 'Platform administration',
+            requestedTag: 'en',
+            resourceTag: 'en',
+            missing: false,
+            fallback: false,
+          },
+        },
+      },
+    },
+  };
+  const tree = [
+    { record, children: [{ record: { id: 'custom', title: '平台管理', schemeId: 'scheme' }, children: [] }] },
+  ] as MenuTreeNode[];
+  expect(menuPlacements(tree, 'Scheme', language).map(({ path }) => path)).toEqual([
+    'Scheme / Platform administration',
+    'Scheme / Platform administration / 平台管理',
+  ]);
+  expect(menuDirectoryOptions(tree, false, language)[0]).toMatchObject({
+    value: 'preset-menu',
+    title: 'Platform administration',
+  });
+  language.setLanguage('zh-CN');
+  expect(menuPlacements(tree, '', language)[0]?.path).toBe('平台管理');
+  expect(record.title).toBe('平台管理');
+});

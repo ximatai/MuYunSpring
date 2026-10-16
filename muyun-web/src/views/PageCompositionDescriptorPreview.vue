@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { pageActionEntryTitle, pageActionEntryVisible } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
 import {
@@ -53,6 +54,8 @@ import { canPlaceActionInAnchor, type PageCompositionActionPlacement } from './p
 import { usePageCompositionPreviewDrag, type PreviewPlacementEntry } from './usePageCompositionPreviewDrag';
 import { usePageCompositionActionPreviewDrag } from './usePageCompositionActionPreviewDrag';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
 type PreviewMode = 'list' | 'query' | 'detail' | 'edit';
@@ -93,7 +96,12 @@ const previewSummaryText = computed(() =>
   (props.querySummaries ?? []).map((summary) => ({
     ...summary,
     title: summary.label,
-    value: summary.source === 'MATCHED_COUNT' ? '12' : summary.source === 'SUM' ? '1,280.00' : '示例值',
+    value:
+      summary.source === 'MATCHED_COUNT'
+        ? '12'
+        : summary.source === 'SUM'
+          ? '1,280.00'
+          : language.t('platform.screen.PageCompositionDescriptorPreview.sample-value', '示例值'),
   })),
 );
 function summaryFieldTitle(key: string, fieldName: string | undefined, kind: 'group' | 'sum') {
@@ -197,7 +205,7 @@ function externalPreviewValue(field: RecordFormFieldDescriptor) {
     case 'DECIMAL':
       return 128;
     default:
-      return '示例内容';
+      return language.t('platform.screen.PageCompositionDescriptorPreview.sample-content', '示例内容');
   }
 }
 const detailRecordWithTransient = computed<UiDataTableRecord>(() => {
@@ -249,7 +257,7 @@ const actionsAt = (anchor: PageCompositionActionPlacement['anchor']) =>
       )
       .map((placement) => {
         const action = props.moduleActions?.find((action) => action.actionCode === placement.actionCode);
-        return action ? { ...action, title: pageActionEntryTitle(placement) } : undefined;
+        return action ? { ...action, title: pageActionEntryTitle(placement, language) } : undefined;
       })
       .filter((action) => action !== undefined),
   );
@@ -307,6 +315,7 @@ function actionItems(actionCodes: readonly string[], anchor: PageCompositionActi
           (action) => action.actionCode === actionCode && action.category === 'CUSTOM',
         )?.title,
       },
+      language,
     ),
   }));
 }
@@ -373,7 +382,7 @@ const structure = computed<PageCompositionStructure>(() => {
 const formSections = computed(() => [
   {
     key: 'form',
-    title: '表单字段',
+    title: language.t('platform.screen.PageCompositionDescriptorPreview.form-fields', '表单字段'),
     container: { kind: 'form' } as CompositionContainer,
     fields: structure.value.form,
   },
@@ -398,7 +407,10 @@ const placementEntries = computed(() => {
     entries.set(`list:header:${field.fieldName}`, entry);
     entries.set(`list:field:${field.fieldName}`, entry);
   }
-  entries.set('list:empty', { title: '空列表', container: { kind: 'list' } });
+  entries.set('list:empty', {
+    title: language.t('platform.screen.PageCompositionDescriptorPreview.empty-list', '空列表'),
+    container: { kind: 'list' },
+  });
   if (mode === 'list') return entries;
   for (const section of formSections.value) {
     entries.set(`${mode}:container:${section.key}`, { title: section.title, container: section.container });
@@ -428,7 +440,9 @@ const placementEntries = computed(() => {
       inside: { kind: 'relation', relationId: relation.id },
     });
     entries.set(`${mode}:relation:${relation.relationCode}:end`, {
-      title: `${relation.title}末列`,
+      title: language.t('platform.screen.PageCompositionDescriptorPreview.end-of-value', '{value1}末列', {
+        value1: relation.title,
+      }),
       container: { kind: 'relation', relationId: relation.id },
     });
     for (const field of relation.fields)
@@ -440,7 +454,13 @@ const placementEntries = computed(() => {
           axis: 'x',
         });
   }
-  entries.set('relations:end', { title: '子表区域末尾', container: { kind: 'relations' } });
+  entries.set('relations:end', {
+    title: language.t(
+      'platform.screen.PageCompositionDescriptorPreview.end-of-child-table-area',
+      '子表区域末尾',
+    ),
+    container: { kind: 'relations' },
+  });
   return entries;
 });
 const { handleProps, groupOutline, columnOutline, feedback, transientPlacement, abandonPendingPlacement } =
@@ -676,14 +696,22 @@ function previewValue(field: ResolvedViewFieldDescriptor): unknown {
   }
   if (field.uiType === 'tagList') {
     return [
-      { id: 'tag-a', title: '示例标签 A', color: '#1677FF' },
-      { id: 'tag-b', title: '示例标签 B', color: '#52C41A' },
+      {
+        id: 'tag-a',
+        title: language.t('platform.screen.PageCompositionDescriptorPreview.sample-tag-a', '示例标签 A'),
+        color: '#1677FF',
+      },
+      {
+        id: 'tag-b',
+        title: language.t('platform.screen.PageCompositionDescriptorPreview.sample-tag-b', '示例标签 B'),
+        color: '#52C41A',
+      },
     ];
   }
   if (field.fieldControl?.rendererType === 'COLOR_PICKER' || field.uiType === 'colorPicker') {
     return '#1677FF';
   }
-  return '示例内容';
+  return language.t('platform.screen.PageCompositionDescriptorPreview.sample-content', '示例内容');
 }
 
 function relationColumns(relation: ResolvedDetailRelationDescriptor): UiDataTableColumn[] {
@@ -745,7 +773,9 @@ function relationPreviewValue(field: { fieldName: string; title?: string; valueT
   if (['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType ?? '')) return 96;
   if (field.valueType === 'DATE') return '2026-09-06';
   if (/(score|grade|amount|count|number)$/i.test(field.fieldName)) return 96;
-  return `示例${field.title ?? field.fieldName}`;
+  return language.t('platform.screen.PageCompositionDescriptorPreview.sample-value-label', '示例{value1}', {
+    value1: field.title ?? field.fieldName,
+  });
 }
 
 function relationFields(relation: ResolvedDetailRelationDescriptor) {
@@ -973,7 +1003,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
                 >
                 <UiActionButton
                   :disabled="action.bindingPending"
-                  :title="action.bindingPending ? '待绑定执行能力' : undefined"
+                  :title="
+                    action.bindingPending
+                      ? language.t(
+                          'platform.screen.PageCompositionDescriptorPreview.execution-capability-binding-pending',
+                          '待绑定执行能力',
+                        )
+                      : undefined
+                  "
                   :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
                   :icon-name="action.iconName"
                   >{{ action.title ?? action.actionCode }}</UiActionButton
@@ -1003,7 +1040,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
                 transientExternalField?.fieldName === column.key,
             }"
             type="button"
-            :title="`配置${column.title}`"
+            :title="
+              language.t('platform.screen.PageCompositionDescriptorPreview.configure-value', '配置{value1}', {
+                value1: column.title,
+              })
+            "
             :data-page-composition-layout-key="`list:field:${column.key}`"
             @click="emit('selectField', 'list', column.key)"
             @dblclick="emit('configureField', 'list', column.key)"
@@ -1014,7 +1055,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
               :record="listRecord"
               :column="listColumns.find((item) => item.key === column.key)!"
             />
-            <span v-else class="page-composer-external-field-preview">示例内容</span>
+            <span v-else class="page-composer-external-field-preview">{{
+              language.t('platform.screen.PageCompositionDescriptorPreview.sample-content', '示例内容')
+            }}</span>
           </button>
         </template>
         <template #beforeTable>
@@ -1024,7 +1067,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
             data-ui-drop-key="list:empty"
             :tabindex="acceptExternalDrop ? 0 : -1"
           >
-            <UiEmpty description="当前草稿尚未配置列表字段" />
+            <UiEmpty
+              :description="
+                language.t(
+                  'platform.screen.PageCompositionDescriptorPreview.the-current-draft-has-no-list-fields',
+                  '当前草稿尚未配置列表字段',
+                )
+              "
+            />
           </div>
         </template>
         <template #footer>
@@ -1038,13 +1088,32 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
                   summary.fieldName ? summaryFieldTitle(summary.key, summary.fieldName, 'sum') : undefined
                 "
                 :example-rows="[
-                  { value: 'supplier-a', label: '示例分组 A', count: 2, sum: 120 },
-                  { value: 'supplier-b', label: '示例分组 B', count: 1, sum: 80 },
+                  {
+                    value: 'supplier-a',
+                    label: language.t(
+                      'platform.screen.PageCompositionDescriptorPreview.sample-group-a',
+                      '示例分组 A',
+                    ),
+                    count: 2,
+                    sum: 120,
+                  },
+                  {
+                    value: 'supplier-b',
+                    label: language.t(
+                      'platform.screen.PageCompositionDescriptorPreview.sample-group-b',
+                      '示例分组 B',
+                    ),
+                    count: 1,
+                    sum: 80,
+                  },
                 ]"
               />
               <span v-else>
                 <span>{{ summary.title }}</span
-                ><strong>示例 {{ summary.value }}</strong>
+                ><strong
+                  >{{ language.t('platform.screen.PageCompositionDescriptorPreview.sample', '示例') }}
+                  {{ summary.value }}</strong
+                >
               </span>
             </template>
           </div>
@@ -1052,7 +1121,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       </RecordQueryListSurface>
     </section>
     <UiButton class="page-composer-summary-configure" size="small" @click="emit('configureSummaries')">
-      {{ previewSummaryText.length ? `汇总统计 · ${previewSummaryText.length} 项` : '配置汇总统计' }}
+      {{
+        previewSummaryText.length
+          ? language.t(
+              'platform.screen.PageCompositionDescriptorPreview.query-summaries-value',
+              '汇总统计 · {value1} 项',
+              { value1: previewSummaryText.length },
+            )
+          : language.t(
+              'platform.screen.PageCompositionDescriptorPreview.configure-query-summaries',
+              '配置汇总统计',
+            )
+      }}
     </UiButton>
   </template>
 
@@ -1132,7 +1212,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           >
           <UiActionButton
             :disabled="action.bindingPending"
-            :title="action.bindingPending ? '待绑定执行能力' : undefined"
+            :title="
+              action.bindingPending
+                ? language.t(
+                    'platform.screen.PageCompositionDescriptorPreview.execution-capability-binding-pending',
+                    '待绑定执行能力',
+                  )
+                : undefined
+            "
             :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
             :icon-name="action.iconName"
             >{{ action.title ?? action.actionCode }}</UiActionButton
@@ -1192,7 +1279,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           >
           <UiActionButton
             :disabled="action.bindingPending"
-            :title="action.bindingPending ? '待绑定执行能力' : undefined"
+            :title="
+              action.bindingPending
+                ? language.t(
+                    'platform.screen.PageCompositionDescriptorPreview.execution-capability-binding-pending',
+                    '待绑定执行能力',
+                  )
+                : undefined
+            "
             :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
             :icon-name="action.iconName"
             >{{ action.title ?? action.actionCode }}</UiActionButton
@@ -1200,7 +1294,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         </span>
       </TransitionGroup>
     </div>
-    <UiEmpty v-if="isDetailEmpty" description="当前草稿尚未配置详情字段或关联子表" />
+    <UiEmpty
+      v-if="isDetailEmpty"
+      :description="
+        language.t(
+          'platform.screen.PageCompositionDescriptorPreview.the-current-draft-has-no-details-fields-or-child-tables',
+          '当前草稿尚未配置详情字段或关联子表',
+        )
+      "
+    />
     <RecordDetailFields
       interaction-mode="selectable"
       :record="detailRecordWithTransient"
@@ -1271,7 +1373,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-key="detail:container:form"
       data-composer-target="detail:container:form"
     >
-      拖入字段
+      {{ language.t('platform.screen.PageCompositionDescriptorPreview.drop-fields-here', '拖入字段') }}
     </div>
     <RecordDetailExtensionSection
       v-for="relation in detailRelations"
@@ -1346,9 +1448,22 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         :data-composer-target="`detail:relation:${relation.code}:end`"
         :data-ui-drop-key="`detail:relation:${relation.code}:end`"
       >
-        拖入此子表的字段
+        {{
+          language.t(
+            'platform.screen.PageCompositionDescriptorPreview.drop-fields-from-this-child-table',
+            '拖入此子表的字段',
+          )
+        }}
       </div>
-      <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
+      <UiEmpty
+        v-if="!relation.listProjection?.fields?.length"
+        :description="
+          language.t(
+            'platform.screen.PageCompositionDescriptorPreview.no-child-table-display-fields-selected',
+            '尚未选择子表展示字段',
+          )
+        "
+      />
     </RecordDetailExtensionSection>
     <div
       v-if="acceptExternalDrop"
@@ -1357,7 +1472,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-key="relations:end"
       tabindex="0"
     >
-      拖入子表
+      {{ language.t('platform.screen.PageCompositionDescriptorPreview.drop-child-tables-here', '拖入子表') }}
     </div>
   </section>
 
@@ -1399,8 +1514,16 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-root
       tabindex="0"
     >
-      <UiActionButton disabled icon-name="close" title="模板固定入口：放弃编辑并退出表单"
-        >取消</UiActionButton
+      <UiActionButton
+        disabled
+        icon-name="close"
+        :title="
+          language.t(
+            'platform.screen.PageCompositionDescriptorPreview.template-entry-discard-editing-and-leave-the-form',
+            '模板固定入口：放弃编辑并退出表单',
+          )
+        "
+        >{{ language.t('platform.action.cancel', '取消') }}</UiActionButton
       >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
@@ -1431,7 +1554,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         </span>
       </TransitionGroup>
     </div>
-    <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
+    <UiEmpty
+      v-if="isEditEmpty"
+      :description="
+        language.t(
+          'platform.screen.PageCompositionDescriptorPreview.the-current-draft-has-no-edit-fields-or-child-tables',
+          '当前草稿尚未配置编辑字段或关联子表',
+        )
+      "
+    />
     <RecordFormGrid as="div" surface="record">
       <RecordFormFields
         mode="edit"
@@ -1467,7 +1598,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
               :data-composer-target="`edit:container:group:${group.id}`"
               :data-ui-drop-key="`edit:container:group:${group.id}`"
             >
-              拖入字段
+              {{
+                language.t('platform.screen.PageCompositionDescriptorPreview.drop-fields-here', '拖入字段')
+              }}
             </div>
           </template>
         </template>
@@ -1515,7 +1648,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           :data-composer-target="`edit:container:group:${group.id}`"
           :data-ui-drop-key="`edit:container:group:${group.id}`"
         >
-          拖入字段
+          {{ language.t('platform.screen.PageCompositionDescriptorPreview.drop-fields-here', '拖入字段') }}
         </div>
       </template>
       <div
@@ -1525,7 +1658,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         data-composer-target="edit:container:form"
         data-ui-drop-key="edit:container:form"
       >
-        拖入字段
+        {{ language.t('platform.screen.PageCompositionDescriptorPreview.drop-fields-here', '拖入字段') }}
       </div>
     </RecordFormGrid>
     <RecordDetailExtensionSection
@@ -1610,9 +1743,22 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         :data-composer-target="`edit:relation:${relation.code}:end`"
         :data-ui-drop-key="`edit:relation:${relation.code}:end`"
       >
-        拖入此子表的字段
+        {{
+          language.t(
+            'platform.screen.PageCompositionDescriptorPreview.drop-fields-from-this-child-table',
+            '拖入此子表的字段',
+          )
+        }}
       </div>
-      <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
+      <UiEmpty
+        v-if="!relation.listProjection?.fields?.length"
+        :description="
+          language.t(
+            'platform.screen.PageCompositionDescriptorPreview.no-child-table-display-fields-selected',
+            '尚未选择子表展示字段',
+          )
+        "
+      />
     </RecordDetailExtensionSection>
     <div
       v-if="acceptExternalDrop"
@@ -1621,7 +1767,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-key="relations:end"
       tabindex="0"
     >
-      拖入子表
+      {{ language.t('platform.screen.PageCompositionDescriptorPreview.drop-child-tables-here', '拖入子表') }}
     </div>
   </section>
 </template>

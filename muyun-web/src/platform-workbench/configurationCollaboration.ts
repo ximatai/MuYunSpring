@@ -1,5 +1,8 @@
 import { ref } from 'vue';
 import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   AssistantCapabilityUsageError,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
@@ -8,7 +11,7 @@ import {
 } from '@muyun/web-core';
 
 /** A task's collaboration preference is conversation state, never configuration or save authority. */
-export function createConfigurationCollaboration() {
+export function createConfigurationCollaboration(language: LanguageContext = platformLanguageContext) {
   const task = ref<AssistantConfigurationTask>();
   const revision = ref(0);
   function restore(value?: AssistantConfigurationTask) {
@@ -17,14 +20,26 @@ export function createConfigurationCollaboration() {
   }
   function parseMode(input: unknown, starting: boolean) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
-      throw new AssistantCapabilityUsageError('请选择本次配置的协作方式');
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.configurationCollaboration.select-a-collaboration-mode-for-this-configuration-task',
+          '请选择本次配置的协作方式',
+        ),
+      );
     const value = input as Record<string, unknown>;
     if (
       Object.keys(value).some((key) => !(starting ? ['goal', 'mode'] : ['mode']).includes(key)) ||
       (value.mode !== 'conversation' && value.mode !== 'visual' && !(starting && value.mode === undefined)) ||
       (starting && (typeof value.goal !== 'string' || !value.goal.trim() || value.goal.length > 200))
     )
-      throw new AssistantCapabilityUsageError('请提供配置目标和有效的协作方式');
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.configurationCollaboration.provide-a-configuration-goal-and-a-valid-collaboration-mode',
+          '请提供配置目标和有效的协作方式',
+        ),
+      );
     return {
       mode: (value.mode ?? 'visual') as AssistantConfigurationTask['mode'],
       goal: String(value.goal ?? '').trim(),
@@ -151,14 +166,23 @@ export function createConfigurationCollaboration() {
                 proposal.continuation ??
                 (task.value
                   ? {
-                      message:
+                      message: language.t(
+                        'platform.screen.configurationCollaboration.this-configuration-was-confirmed-successfully-verify-current-platform-facts-and',
                         '本次配置已确认完成。核实当前平台事实，继续用户已明确目标中的剩余事项；已保存内容不重建，新的保存仍须独立确认。现行配置是事实来源，需求方案是范围和验收依据；不因换页或方案候选状态重复确认已明确目标。用户只准备、比较、暂缓或取消的要求仍然有效，目标已完成时说明结果并停止。',
+                      ),
                       isCurrent: () => epoch === revision.value,
                     }
                   : undefined),
               isCurrent,
               async execute() {
-                if (!isCurrent()) throw new AssistantCapabilityUsageError('协作方式或任务已变化，请重新确认');
+                if (!isCurrent())
+                  throw new AssistantCapabilityUsageError(
+                    codeOperationErrorMessage(
+                      language,
+                      'platform.screen.configurationCollaboration.the-collaboration-mode-or-task-changed-confirm-again',
+                      '协作方式或任务已变化，请重新确认',
+                    ),
+                  );
                 return proposal.execute();
               },
             };

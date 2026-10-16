@@ -691,7 +691,7 @@ export async function runAssistantConversation(
       );
       // A summary is never an execution step, even if a provider ignores the empty tool catalog.
       if (output.toolCalls.length || output.selection || !output.text?.trim())
-        throw new Error('Invalid summary');
+        throw new AppError('Invalid summary', { code: 'ASSISTANT_INVALID_SUMMARY' });
       const summary = { output, results: [], contextChanged: false, appliedEffectCount: 0 };
       await options.onStep?.(summary);
       steps.push(summary);
@@ -710,18 +710,16 @@ export async function runAssistantConversation(
           );
         throw error;
       }
-      const message = error instanceof Error ? error.message : '';
+      const summaryFailureReasons = {
+        ASSISTANT_INVALID_SUMMARY: 'invalid-summary',
+        AI_MODEL_OUTPUT_TRUNCATED: 'truncated',
+        AI_MODEL_UNDECLARED_TOOL: 'undeclared-tool',
+        AI_PROVIDER_REQUEST_REJECTED: 'provider-rejected',
+      } as const;
       const reason =
-        message === '模型响应被截断，请缩短描述后重试'
-          ? 'truncated'
-          : message === 'AI model requested an undeclared tool' ||
-              message === 'assistant model returned an undeclared capability call'
-            ? 'undeclared-tool'
-            : message.startsWith('AI model request was rejected')
-              ? 'provider-rejected'
-              : message === 'Invalid summary'
-                ? 'invalid-summary'
-                : 'request-failed';
+        error instanceof AppError && Object.hasOwn(summaryFailureReasons, error.code)
+          ? summaryFailureReasons[error.code as keyof typeof summaryFailureReasons]
+          : 'request-failed';
       emitDiagnostic(options.onDiagnostic, { type: 'summary.completed', succeeded: false, reason });
     }
   }

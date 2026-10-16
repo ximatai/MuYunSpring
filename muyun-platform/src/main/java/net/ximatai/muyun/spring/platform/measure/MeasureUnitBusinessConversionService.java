@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -33,7 +34,9 @@ public class MeasureUnitBusinessConversionService {
                                                  String toCategoryAlias,
                                                  String toUnitCode) {
         if (value == null) {
-            throw new PlatformException("measure business conversion value must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-business-conversion.measure-business-conversion-value-must-not-be-null",
+                    "measure business conversion value must not be null"));
         }
         MeasureUnitConversionContext validContext = normalizeContext(context);
         UnitKey source = unitKey(validContext.applicationAlias(), fromCategoryAlias, fromUnitCode, true);
@@ -45,8 +48,9 @@ public class MeasureUnitBusinessConversionService {
         Map<UnitKey, List<Edge>> graph = graph(validContext);
         Path path = findBestPath(source, target, graph);
         if (path == null) {
-            throw new PlatformException("measure business conversion rule not found: "
-                    + source.label() + " -> " + target.label());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-business-conversion.measure-business-conversion-rule-not-found",
+                    "measure business conversion rule not found: {value1} -> {value2}"), Map.of("value1", String.valueOf(source.label()), "value2", String.valueOf(target.label())));
         }
         BigDecimal converted = value;
         for (Edge edge : path.edges()) {
@@ -174,7 +178,9 @@ public class MeasureUnitBusinessConversionService {
 
     private MeasureUnitConversionContext normalizeContext(MeasureUnitConversionContext context) {
         if (context == null) {
-            throw new PlatformException("measure conversion context must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-business-conversion.measure-conversion-context-must-not-be-null",
+                    "measure conversion context must not be null"));
         }
         String applicationAlias = PlatformNameRules.requireApplicationAlias(context.applicationAlias());
         String moduleAlias = context.moduleAlias() == null || context.moduleAlias().isBlank()

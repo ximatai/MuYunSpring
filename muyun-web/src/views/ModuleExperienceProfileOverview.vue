@@ -8,8 +8,10 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { useModuleContext } from '@muyun/web-core';
+import { useModuleContext, useLanguageContext } from '@muyun/web-core';
 import { UiActionButton, UiCheckbox, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModuleExperienceProfileOverview' });
 
@@ -34,82 +36,170 @@ const editing = ref(false);
 const profile = ref<ExperienceProfile>();
 const selectedMode = ref<ExperienceMode>('LIST_CARD');
 const selectedCapabilities = ref<string[]>([]);
-const modes: Array<{ mode: ExperienceMode; title: string; description: string }> = [
+const modes = computed<Array<{ mode: ExperienceMode; title: string; description: string }>>(() => [
   {
     mode: 'TREE_CARD',
-    title: '树 + 卡片',
-    description: '适合存在明确层级、需要在树中定位和调整顺序的业务对象。',
+    title: language.t('platform.screen.ModuleExperienceProfileOverview.tree-card', '树 + 卡片'),
+    description: language.t(
+      'platform.screen.ModuleExperienceProfileOverview.for-business-objects-with-a-clear-hierarchy-that-need-tree',
+      '适合存在明确层级、需要在树中定位和调整顺序的业务对象。',
+    ),
   },
   {
     mode: 'LIST_CARD',
-    title: '列表 + 卡片',
-    description: '适合平铺记录管理，以列表筛选、右侧详情处理日常操作。',
+    title: language.t('platform.screen.ModuleExperienceProfileOverview.list-card', '列表 + 卡片'),
+    description: language.t(
+      'platform.screen.ModuleExperienceProfileOverview.for-flat-records-managed-through-list-filters-and-a-detail',
+      '适合平铺记录管理，以列表筛选、右侧详情处理日常操作。',
+    ),
   },
   {
     mode: 'MICRO_LIST_CARD',
-    title: '微列表 + 卡片',
-    description: '适合记录量较少、以快速选择和轻量维护为主的配置对象。',
+    title: language.t('platform.screen.ModuleExperienceProfileOverview.compact-list-card', '微列表 + 卡片'),
+    description: language.t(
+      'platform.screen.ModuleExperienceProfileOverview.for-configuration-objects-with-few-records-that-need-quick-selection',
+      '适合记录量较少、以快速选择和轻量维护为主的配置对象。',
+    ),
   },
-];
-const recycleBinCapability: CapabilityFact = {
-  code: 'RECYCLE_BIN',
-  title: '回收站',
-  description: '查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。',
-};
-const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, CapabilityFact[]>> = {
-  TREE_CARD: {
-    required: [
-      { code: 'TREE', title: '树结构', description: '按父子层级组织记录，便于定位和管理。' },
-      { code: 'SORT', title: '排序', description: '按同级顺序展示记录，支持拖拽调整。' },
-    ],
-    recommended: [
-      {
-        code: 'DATA_SCOPE',
-        title: '数据权限',
-        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+]);
+const fallbackCapabilities = computed<Record<ExperienceMode, Record<CapabilityGroup, CapabilityFact[]>>>(
+  () => {
+    const recycleBinCapability: CapabilityFact = {
+      code: 'RECYCLE_BIN',
+      title: language.t('platform.screen.ModulePageHostRuntime.recycle-bin', '回收站'),
+      description: language.t(
+        'platform.screen.ModuleExperienceProfileOverview.find-and-restore-deleted-records-permanent-deletion-requires-separate-authorization',
+        '查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。',
+      ),
+    };
+    const approvalCapability: CapabilityFact = {
+      code: 'APPROVAL',
+      title: language.t('platform.workflow.approval', '审批'),
+      description: language.t(
+        'platform.screen.ModuleExperienceProfileOverview.configure-and-run-approval-workflows-the-runtime-maintains-approval-summaries',
+        '允许配置和驱动审批流程；审批摘要由运行态维护，启用后暂不支持关闭。',
+      ),
+    };
+    return {
+      TREE_CARD: {
+        required: [
+          {
+            code: 'TREE',
+            title: language.t('platform.screen.metadataEditorSession.tree-structure', '树结构'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.organize-records-in-a-parent-child-hierarchy-for-navigation-and',
+              '按父子层级组织记录，便于定位和管理。',
+            ),
+          },
+          {
+            code: 'SORT',
+            title: language.t('platform.screen.metadataEditorSession.sort', '排序'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.display-sibling-records-in-order-with-drag-and-drop-reordering',
+              '按同级顺序展示记录，支持拖拽调整。',
+            ),
+          },
+        ],
+        recommended: [
+          {
+            code: 'DATA_SCOPE',
+            title: language.t('platform.screen.metadataEditorSession.data-permissions', '数据权限'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.for-business-data-whose-visibility-depends-on-organization-role-or',
+              '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+            ),
+          },
+        ],
+        optional: [
+          {
+            code: 'ENABLE',
+            title: language.t('platform.screen.metadataEditorSession.enable-disable', '启停'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.control-whether-each-record-is-enabled',
+              '允许按记录控制可用状态。',
+            ),
+          },
+          recycleBinCapability,
+          approvalCapability,
+        ],
       },
-    ],
-    optional: [
-      { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
-      recycleBinCapability,
-    ],
-  },
-  LIST_CARD: {
-    required: [],
-    recommended: [
-      {
-        code: 'DATA_SCOPE',
-        title: '数据权限',
-        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+      LIST_CARD: {
+        required: [],
+        recommended: [
+          {
+            code: 'DATA_SCOPE',
+            title: language.t('platform.screen.metadataEditorSession.data-permissions', '数据权限'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.for-business-data-whose-visibility-depends-on-organization-role-or',
+              '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+            ),
+          },
+        ],
+        optional: [
+          {
+            code: 'SORT',
+            title: language.t('platform.screen.metadataEditorSession.sort', '排序'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.maintain-the-display-order-of-records-in-the-list',
+              '允许维护列表展示顺序。',
+            ),
+          },
+          {
+            code: 'ENABLE',
+            title: language.t('platform.screen.metadataEditorSession.enable-disable', '启停'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.control-whether-each-record-is-enabled',
+              '允许按记录控制可用状态。',
+            ),
+          },
+          recycleBinCapability,
+          approvalCapability,
+        ],
       },
-    ],
-    optional: [
-      { code: 'SORT', title: '排序', description: '允许维护列表展示顺序。' },
-      { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
-      recycleBinCapability,
-    ],
-  },
-  MICRO_LIST_CARD: {
-    required: [{ code: 'SORT', title: '排序', description: '微列表按稳定顺序呈现，支持轻量调整展示顺序。' }],
-    recommended: [
-      {
-        code: 'DATA_SCOPE',
-        title: '数据权限',
-        description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+      MICRO_LIST_CARD: {
+        required: [
+          {
+            code: 'SORT',
+            title: language.t('platform.screen.metadataEditorSession.sort', '排序'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.display-compact-lists-in-a-stable-order-with-simple-reordering',
+              '微列表按稳定顺序呈现，支持轻量调整展示顺序。',
+            ),
+          },
+        ],
+        recommended: [
+          {
+            code: 'DATA_SCOPE',
+            title: language.t('platform.screen.metadataEditorSession.data-permissions', '数据权限'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.for-business-data-whose-visibility-depends-on-organization-role-or',
+              '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
+            ),
+          },
+        ],
+        optional: [
+          {
+            code: 'ENABLE',
+            title: language.t('platform.screen.metadataEditorSession.enable-disable', '启停'),
+            description: language.t(
+              'platform.screen.ModuleExperienceProfileOverview.control-whether-each-record-is-enabled',
+              '允许按记录控制可用状态。',
+            ),
+          },
+          recycleBinCapability,
+          approvalCapability,
+        ],
       },
-    ],
-    optional: [
-      { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
-      recycleBinCapability,
-    ],
+    };
   },
-};
-const selectedModeDefinition = computed(() => modes.find((item) => item.mode === selectedMode.value)!);
+);
+const selectedModeDefinition = computed(() => modes.value.find((item) => item.mode === selectedMode.value)!);
 const selectedCapabilitySet = computed(() => new Set(selectedCapabilities.value));
 const requiredCapabilityCodes = computed(() => [
   ...capabilityGroups.value.required.map((fact) => fact.code),
   ...(profile.value?.publishedRequiredCapabilities ?? []),
   ...(profile.value?.mainCapabilities.includes('RECYCLE_BIN') ? ['RECYCLE_BIN'] : []),
+  ...(profile.value?.mainCapabilities.includes('APPROVAL') ? ['APPROVAL'] : []),
 ]);
 const requiredCapabilities = computed(() => {
   const modeOwned = new Set(['TREE']);
@@ -145,10 +235,13 @@ const isDirty = computed(
     Object.keys(capabilitySelections.value).length > 0 ||
     dataScopeChanged.value,
 );
-useWorkspaceViewUnsavedState('业务呈现方式', () => isDirty.value);
+useWorkspaceViewUnsavedState(
+  () => language.t('platform.unsaved-source.ModuleExperienceProfileOverview', '业务呈现方式'),
+  () => isDirty.value,
+);
 const capabilityGroups = computed(() => {
   const facts = profile.value?.mode === selectedMode.value ? profile.value.capabilities : undefined;
-  const fallback = fallbackCapabilities[selectedMode.value];
+  const fallback = fallbackCapabilities.value[selectedMode.value];
   return {
     required: facts?.required ?? fallback.required,
     recommended: facts?.recommended ?? fallback.recommended,
@@ -173,7 +266,7 @@ async function loadProfile() {
     selectedCapabilities.value = [...profile.value.mainCapabilities];
     editing.value = false;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'module-experience-profile', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'module-experience-profile', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -209,14 +302,23 @@ async function saveProfile() {
     editing.value = false;
     const activationFeedback = await refreshActivation?.(props.moduleAlias);
     await handlePlatformActionSuccess(
-      activationFeedback ?? { message: { text: '业务呈现方式已保存，生效状态待确认', type: 'INFO' } },
+      activationFeedback ?? {
+        message: {
+          text: language.t(
+            'platform.screen.ModuleExperienceProfileOverview.presentation-mode-saved-activation-needs-verification',
+            '业务呈现方式已保存，生效状态待确认',
+          ),
+          type: 'INFO',
+        },
+      },
       {
+        language,
         source: 'module-experience-profile',
         phase: 'action',
       },
     );
   } catch (cause) {
-    presentPlatformError(cause, { source: 'module-experience-profile', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'module-experience-profile', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -302,7 +404,10 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
 </script>
 
 <template>
-  <RecordDetailPanel title="概览" :subtitle="moduleTitle ?? moduleAlias">
+  <RecordDetailPanel
+    :title="language.t('platform.governance.tab.overview', '概览')"
+    :subtitle="moduleTitle ?? moduleAlias"
+  >
     <template #actions>
       <UiActionButton
         v-if="!editing"
@@ -310,30 +415,47 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
         :disabled="loading"
         data-testid="edit-overview"
         @click="beginEditing"
-        >编辑</UiActionButton
+        >{{ language.t('platform.action.edit', '编辑') }}</UiActionButton
       >
       <template v-else>
-        <UiActionButton :disabled="saving" data-testid="cancel-overview" @click="cancelEditing"
-          >取消</UiActionButton
-        >
+        <UiActionButton :disabled="saving" data-testid="cancel-overview" @click="cancelEditing">{{
+          language.t('platform.action.cancel', '取消')
+        }}</UiActionButton>
         <UiActionButton
           emphasis="primary"
           :disabled="loading"
           :loading="saving"
           data-testid="save-overview"
           @click="saveProfile"
-          >保存</UiActionButton
+          >{{ language.t('platform.action.save', '保存') }}</UiActionButton
         >
       </template>
     </template>
-    <UiSpin v-if="loading" tip="加载业务呈现方式" />
+    <UiSpin
+      v-if="loading"
+      :tip="
+        language.t(
+          'platform.screen.ModuleExperienceProfileOverview.loading-presentation-mode',
+          '加载业务呈现方式',
+        )
+      "
+    />
     <template v-else>
       <section class="module-experience-section">
         <RecordContentSectionHeading
-          title="业务呈现方式"
-          subtitle="决定模块管理页使用的导航与详情协作方式。"
+          :title="language.t('platform.unsaved-source.ModuleExperienceProfileOverview', '业务呈现方式')"
+          :subtitle="
+            language.t(
+              'platform.screen.ModuleExperienceProfileOverview.choose-how-navigation-and-details-work-together-on-the-module',
+              '决定模块管理页使用的导航与详情协作方式。',
+            )
+          "
         />
-        <div class="module-experience-mode-list" role="radiogroup" aria-label="业务呈现方式">
+        <div
+          class="module-experience-mode-list"
+          role="radiogroup"
+          :aria-label="language.t('platform.unsaved-source.ModuleExperienceProfileOverview', '业务呈现方式')"
+        >
           <button
             v-for="item in modes"
             :key="item.mode"
@@ -352,12 +474,25 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
       </section>
       <section class="module-experience-section">
         <RecordContentSectionHeading
-          title="能力边界"
-          :subtitle="`${selectedModeDefinition.title}下的能力约束。`"
+          :title="
+            language.t('platform.screen.ModuleExperienceProfileOverview.capability-constraints', '能力边界')
+          "
+          :subtitle="
+            language.t(
+              'platform.screen.ModuleExperienceProfileOverview.capability-constraints-for-value',
+              '{value1}下的能力约束。',
+              { value1: selectedModeDefinition.title },
+            )
+          "
         />
         <p v-if="profile?.publishedRequiredCapabilities?.length">
-          已发布页面仍依赖
-          {{ profile.publishedRequiredCapabilities.join('、') }}，这些能力会保留到新骨架发布后。
+          {{
+            language.t(
+              'platform.screen.ModuleExperienceProfileOverview.published-capability-dependencies',
+              '已发布页面仍依赖 {capabilities}，这些能力会保留到新骨架发布后。',
+              { capabilities: profile.publishedRequiredCapabilities.join(', ') },
+            )
+          }}
         </p>
         <div class="module-experience-capabilities">
           <section
@@ -366,16 +501,40 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
             class="module-experience-capability-group"
           >
             <RecordContentSectionHeading
-              :title="group === 'required' ? '必备能力' : group === 'recommended' ? '推荐能力' : '选配能力'"
+              :title="
+                group === 'required'
+                  ? language.t(
+                      'platform.screen.ModuleExperienceProfileOverview.required-capabilities',
+                      '必备能力',
+                    )
+                  : group === 'recommended'
+                    ? language.t(
+                        'platform.screen.ModuleExperienceProfileOverview.recommended-capabilities',
+                        '推荐能力',
+                      )
+                    : language.t(
+                        'platform.screen.ModuleExperienceProfileOverview.optional-capabilities',
+                        '选配能力',
+                      )
+              "
             />
             <UiEmpty
               v-if="!capabilityGroups[group].length"
               :description="
                 group === 'required'
-                  ? '该呈现方式没有额外必备能力'
+                  ? language.t(
+                      'platform.screen.ModuleExperienceProfileOverview.this-presentation-mode-has-no-additional-required-capabilities',
+                      '该呈现方式没有额外必备能力',
+                    )
                   : group === 'recommended'
-                    ? '当前没有推荐能力'
-                    : '当前没有选配能力'
+                    ? language.t(
+                        'platform.screen.ModuleExperienceProfileOverview.no-recommended-capabilities',
+                        '当前没有推荐能力',
+                      )
+                    : language.t(
+                        'platform.screen.ModuleExperienceProfileOverview.no-optional-capabilities',
+                        '当前没有选配能力',
+                      )
               "
             />
             <div v-else class="module-experience-capability-list">

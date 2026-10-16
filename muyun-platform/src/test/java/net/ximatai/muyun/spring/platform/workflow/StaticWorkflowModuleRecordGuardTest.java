@@ -27,13 +27,19 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class StaticWorkflowModuleRecordGuardTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     @Test
     void shouldPassWhenStaticCrudAbilityCanSelectRecord() {
         CrudAbility<?> ability = mock(CrudAbility.class);
         EntityContract record = mock(EntityContract.class);
         when(ability.getModuleAlias()).thenReturn("sales.contract");
         when(ability.select("record-1")).thenReturn(record);
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability));
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
 
@@ -54,7 +60,8 @@ class StaticWorkflowModuleRecordGuardTest {
             Supplier<?> supplier = invocation.getArgument(1);
             return supplier.get();
         });
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability));
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
 
@@ -77,7 +84,8 @@ class StaticWorkflowModuleRecordGuardTest {
             Supplier<?> supplier = invocation.getArgument(1);
             return supplier.get();
         });
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability));
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         try (ActionExecutionContextHolder.Scope ignored = ActionExecutionContextHolder.use(
                 ActionExecutionContext.ofPolicy("sales.contract", policy, Set.of("record-1"), java.util.Optional.empty()))) {
@@ -92,7 +100,8 @@ class StaticWorkflowModuleRecordGuardTest {
         CrudAbility<?> ability = mock(CrudAbility.class);
         when(ability.getModuleAlias()).thenReturn("sales.contract");
         when(ability.select("missing")).thenReturn(null);
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability));
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         assertThatThrownBy(() -> guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "missing")))
                 .isInstanceOf(PlatformException.class)
@@ -103,7 +112,8 @@ class StaticWorkflowModuleRecordGuardTest {
     void shouldSkipWhenNoStaticAbilityMatchesModuleAlias() {
         CrudAbility<?> ability = mock(CrudAbility.class);
         when(ability.getModuleAlias()).thenReturn("sales.contract");
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability));
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(ability), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
 
         guard.beforeSubmit(WorkflowSubmitRequest.approval("service.ticket", "record-1"));
 
@@ -113,7 +123,8 @@ class StaticWorkflowModuleRecordGuardTest {
 
     @Test
     void shouldSkipWhenNoStaticAbilitiesAreRegistered() {
-        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(null);
+        StaticWorkflowModuleRecordGuard guard = new StaticWorkflowModuleRecordGuard(List.of(), WorkflowTestSupport.submissionPolicies(),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
         CrudAbility<?> ability = mock(CrudAbility.class);
 
         guard.beforeSubmit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));

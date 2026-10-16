@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import java.util.ArrayList;
+
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
@@ -126,18 +129,18 @@ public final class ModuleUiDescriptorCompiler {
         validateListRelationExpansions(descriptor.page(), detailRelations);
         descriptor = AssistantFieldPolicyProjection.protectStatic(descriptor, definition);
         descriptor = FieldWriteRuleProjection.project(descriptor, FieldWriteRuleProjection.staticFields(definition));
-        return new ModuleUiCompilationResult(
-                descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
-                        .withDetailRelations(detailRelations),
-                readModel(definition, uiDefinition)
-        );
+        descriptor = descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
+                .withDetailRelations(detailRelations);
+        // Source ownership belongs to this Java declaration producer, not to the module-kind discriminator.
+        descriptor = descriptor.withSourceTexts(ModuleUiTextLocations.codeSources(descriptor));
+        return new ModuleUiCompilationResult(descriptor, readModel(definition, uiDefinition));
     }
 
     private static ResolvedModuleUiDescriptor withPageContextBindings(ResolvedModuleUiDescriptor descriptor,
                                                                        List<PageContextBindingDefinition> bindings) {
         if (bindings == null || bindings.isEmpty() || descriptor.page() == null) return descriptor;
         ResolvedPageNavigatorDescriptor navigator = descriptor.page().navigator();
-        List<ResolvedPageContextBindingDescriptor> merged = new java.util.ArrayList<>(
+        List<ResolvedPageContextBindingDescriptor> merged = new ArrayList<>(
                 navigator == null ? List.of() : navigator.contextBindings());
         bindings.stream().map(ResolvedPageContextBindingDescriptor::from).forEach(binding -> {
             if (!merged.contains(binding)) merged.add(binding);
@@ -344,7 +347,7 @@ public final class ModuleUiDescriptorCompiler {
                                 optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
                                 relationOptionFields, relationReferenceFields))).toList()
                         : List.of(),
-                List.of()
+                List.of(), definition.sourceTexts()
         );
     }
 
@@ -427,7 +430,7 @@ public final class ModuleUiDescriptorCompiler {
                 .map(ResolvedDetailRelationListField::fieldName).collect(java.util.stream.Collectors.toSet());
         Map<String, ResolvedViewFieldDescriptor> editorFields = relationEditorFields(descriptor, relation);
         Set<String> codes = new LinkedHashSet<>();
-        java.util.ArrayList<ResolvedRelationFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        ArrayList<ResolvedRelationFormComputeRuleDescriptor> resolved = new ArrayList<>();
         for (AggregateChildFormulaDefinition definition : relation.formComputeRules()) {
             if (!relation.code().equals(definition.relationCode())) {
                 throw new IllegalArgumentException("aggregate child formula relation must match detail relation: "
@@ -990,7 +993,7 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("form compute rules only support main-record fields: " + view.viewCode());
         }
         Set<String> codes = new LinkedHashSet<>();
-        java.util.ArrayList<ResolvedFormComputeRuleDescriptor> resolved = new java.util.ArrayList<>();
+        ArrayList<ResolvedFormComputeRuleDescriptor> resolved = new ArrayList<>();
         for (FormComputeRuleDefinition rule : view.formComputeRules()) {
             if (!codes.add(rule.code())) {
                 throw new IllegalArgumentException("duplicate form compute rule code: " + view.viewCode() + "." + rule.code());
@@ -1376,7 +1379,7 @@ public final class ModuleUiDescriptorCompiler {
         if (entities == null || entities.isEmpty()) {
             return List.of();
         }
-        java.util.ArrayList<ResolvedFileReferenceFieldDescriptor> resolved = new java.util.ArrayList<>();
+        ArrayList<ResolvedFileReferenceFieldDescriptor> resolved = new ArrayList<>();
         Set<ViewFieldRef> exposedFields = uiDefinition == null ? Set.of() : declaredViews(uiDefinition).stream()
                 .flatMap(view -> view.fields().stream()).map(ViewFieldDefinition::fieldRef).collect(java.util.stream.Collectors.toSet());
         for (int index = 0; index < entities.size(); index++) {
@@ -1447,22 +1450,22 @@ public final class ModuleUiDescriptorCompiler {
         if (modelClass == null) {
             return Map.of();
         }
-        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> declared =
+        java.util.stream.Stream<Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> declared =
                 StaticReferenceResolver.rules(modelClass).stream()
-                        .map(rule -> java.util.Map.entry(rule.plan().sourceField(), rule.plan()));
-        java.util.stream.Stream<java.util.Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> discriminated =
+                        .map(rule -> Map.entry(rule.plan().sourceField(), rule.plan()));
+        java.util.stream.Stream<Map.Entry<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan>> discriminated =
                 StaticReferenceResolver.discriminatedValuePlans(modelClass).stream()
                         .flatMap(plan -> plan.cases().stream())
                         .filter(plan -> plan.reference() != null)
-                        .map(plan -> java.util.Map.entry(plan.reference().sourceField(), plan.reference()));
-        java.util.stream.Stream<java.util.Map.Entry<String, ResolvedReferenceFieldDescriptor>> standardScope =
-                java.util.stream.Stream.of(java.util.Map.entry(StandardEntitySchema.TENANT_ID_FIELD,
+                        .map(plan -> Map.entry(plan.reference().sourceField(), plan.reference()));
+        java.util.stream.Stream<Map.Entry<String, ResolvedReferenceFieldDescriptor>> standardScope =
+                java.util.stream.Stream.of(Map.entry(StandardEntitySchema.TENANT_ID_FIELD,
                         new ResolvedReferenceFieldDescriptor("iam.tenant",
                                 net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                                 StandardEntitySchema.TENANT_TITLE_FIELD, pickerModeResolver.apply("iam.tenant"))));
         Map<String, ResolvedReferenceFieldDescriptor> declaredReferences = java.util.stream.Stream.concat(declared, discriminated)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        java.util.Map.Entry::getKey,
+                        Map.Entry::getKey,
                         entry -> {
                             net.ximatai.muyun.spring.ability.reference.ReferencePlan plan = entry.getValue();
                             return new ResolvedReferenceFieldDescriptor(plan.target().qualifiedName(), plan.cardinality(),
@@ -1483,8 +1486,8 @@ public final class ModuleUiDescriptorCompiler {
                 ));
         return java.util.stream.Stream.concat(declaredReferences.entrySet().stream(), standardScope)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        java.util.Map.Entry::getKey,
-                        java.util.Map.Entry::getValue,
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
                         (declaredReference, standardReference) -> declaredReference));
     }
 
@@ -1554,7 +1557,8 @@ public final class ModuleUiDescriptorCompiler {
             return java.util.Arrays.stream(type.getEnumConstants())
                     .map(value -> (CodeTitleEnum) value)
                     .map(value -> new OptionItem(value.getCode(), value.getTitle(), true,
-                            ((Enum) value).ordinal() + 1, null))
+                            ((Enum) value).ordinal() + 1, null,
+                            TextReference.code("enum/" + type.getName() + "/" + value.getCode() + "/title", value.getTitle())))
                     .toList();
         } catch (ClassNotFoundException error) {
             throw new IllegalArgumentException("enum option class is unavailable: " + binding.source(), error);
@@ -1618,12 +1622,12 @@ public final class ModuleUiDescriptorCompiler {
     private static void validateStaticGroupedListQuerySummaryFields(StaticModuleDefinition definition,
                                                                      ModuleUiDefinition uiDefinition) {
         if (!(uiDefinition.page() instanceof ListDetailCardPageDefinition page) || definition.entities().isEmpty()) return;
-        java.util.Map<String, net.ximatai.muyun.spring.common.option.OptionFieldDefinition> options =
+        Map<String, net.ximatai.muyun.spring.common.option.OptionFieldDefinition> options =
                 (definition.modelClass() == null ? List.<net.ximatai.muyun.spring.common.option.OptionFieldDefinition>of()
                         : OptionFieldResolver.resolve(definition.modelClass())).stream().collect(java.util.stream.Collectors.toMap(
                         net.ximatai.muyun.spring.common.option.OptionFieldDefinition::fieldName,
                         java.util.function.Function.identity()));
-        java.util.Map<String, ReferencePlan> references = (definition.modelClass() == null ? List.<ReferencePlan>of()
+        Map<String, ReferencePlan> references = (definition.modelClass() == null ? List.<ReferencePlan>of()
                 : StaticReferenceResolver.plans(definition.modelClass())).stream()
                 .collect(java.util.stream.Collectors.toMap(ReferencePlan::sourceField, java.util.function.Function.identity(),
                         (left, ignored) -> left));
@@ -1641,7 +1645,7 @@ public final class ModuleUiDescriptorCompiler {
     static ResolvedModuleUiDescriptor withListQuerySummaryTitles(ResolvedModuleUiDescriptor descriptor,
                                                                   List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> fields) {
         if (descriptor == null || descriptor.page() == null || descriptor.page().list() == null) return descriptor;
-        java.util.Map<String, String> titles = (fields == null ? List.<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition>of() : fields)
+        Map<String, String> titles = (fields == null ? List.<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition>of() : fields)
                 .stream().collect(java.util.stream.Collectors.toMap(
                         net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition::fieldName,
                         net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition::name, (left, ignoredTitle) -> left));
@@ -1658,7 +1662,7 @@ public final class ModuleUiDescriptorCompiler {
                 page.managedActions()));
     }
 
-    private static String title(java.util.Map<String, String> titles, String fieldName) {
+    private static String title(Map<String, String> titles, String fieldName) {
         if (fieldName == null) return null;
         return titles.getOrDefault(fieldName, fieldName);
     }
@@ -1823,7 +1827,7 @@ public final class ModuleUiDescriptorCompiler {
     }
 
     private static List<ViewDefinition> declaredViews(ModuleUiDefinition definition) {
-        java.util.ArrayList<ViewDefinition> values = new java.util.ArrayList<>();
+        ArrayList<ViewDefinition> values = new ArrayList<>();
         if (definition.defaultEditor() != null) values.add(definition.defaultEditor());
         definition.editorSurfaces().stream().map(EditorSurfaceDefinition::editor).forEach(values::add);
         if (definition.page() instanceof FlatManagementPageDefinition flat) {
@@ -1850,7 +1854,7 @@ public final class ModuleUiDescriptorCompiler {
     private static List<ViewFieldRef> pagePresentationFields(ModuleUiDefinition definition) {
         PageExplorerDefinition explorer = definition.page() instanceof FlatManagementPageDefinition flat ? flat.explorer()
                 : definition.page() instanceof TreeManagementPageDefinition tree ? tree.explorer() : null;
-        java.util.ArrayList<ViewFieldRef> fields = new java.util.ArrayList<>();
+        ArrayList<ViewFieldRef> fields = new ArrayList<>();
         if (definition.page() != null && definition.page().quickSearchFields() != null)
             definition.page().quickSearchFields().forEach(field -> fields.add(new ViewFieldRef(null, field, null)));
         if (explorer == null) return List.copyOf(fields);

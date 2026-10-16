@@ -135,6 +135,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         moduleAlias = "crm.change_" + suffix;
         PlatformModule module = new PlatformModule();
         module.setAlias(moduleAlias);
+        module.setTitle("变更测试业务 " + suffix);
         module.setModuleKind(ModuleKind.DYNAMIC);
         module.setApplicationAlias("crm");
         when(moduleService.select(moduleAlias)).thenReturn(module);
@@ -650,6 +651,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         String alias = moduleAlias + "_other";
         var module = new PlatformModule();
         module.setAlias(alias); module.setApplicationAlias("crm"); module.setModuleKind(ModuleKind.DYNAMIC);
+        module.setTitle("共享模型业务");
         when(moduleService.select(alias)).thenReturn(module);
         var relation = new ModuleMetadataRelation();
         relation.setModuleAlias(alias); relation.setMetadataId(metadata.getId());
@@ -1189,6 +1191,154 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .filteredOn(field -> field.fieldName().equals("parentId"))
                 .singleElement().extracting(field -> field.length()).isEqualTo(32);
         verify(refreshCoordinator).scheduleByMetadataId(metadata.getId());
+    }
+
+    @Test
+    void mainApprovalIntentPublishesManagedSummaryFieldsAndRealRuntimeCapability() {
+        String alias = "crm.approval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var module = new PlatformModule(); module.setAlias(alias); module.setApplicationAlias("crm");
+        module.setTitle("审批业务");
+        module.setModuleKind(ModuleKind.DYNAMIC); module.setMainCapabilityDeclarations(Set.of("APPROVAL"));
+        when(moduleService.select(alias)).thenReturn(module);
+        var created = orchestration.createMainMetadata(alias, new ModuleMainMetadataCreateCommand(
+                alias.substring(4), "审批业务", "public", "app_" + alias.substring(4), false));
+        assertThat(created.metadata().getCapabilityDeclarations()).containsExactly("APPROVAL");
+        assertApprovalPublication(alias, created.metadata());
+        var snapshot = new ModuleMetadataCapabilitySnapshotService(relationService, metadataService, fieldService)
+                .snapshot(alias, created.relation().getId());
+        assertThat(snapshot.capabilities()).filteredOn(fact -> fact.capability() == EntityCapability.APPROVAL)
+                .singleElement().satisfies(fact -> {
+                    assertThat(fact.enabled()).isTrue(); assertThat(fact.changeSetConfigurable()).isTrue();
+                    assertThat(fact.defaultKind()).isEqualTo("CONTEXT"); assertThat(fact.fieldContributions()).hasSize(5);
+                });
+        verify(refreshCoordinator).scheduleModules(List.of(alias));
+    }
+
+    @Test
+    void approvalChangeSetPublishesOnAnExistingModelWithoutLosingBusinessRecordsAndCannotBeDisabled() {
+        applyNewStringField("title", "title");
+        new JdbcTemplate(dataSource).update("INSERT INTO public." + metadata.getTableName()
+                + " (id, version, title) VALUES (?, ?, ?)", "preserved-business", 1, "保留业务");
+        Mockito.clearInvocations(refreshCoordinator);
+        var current = metadataService.select(metadata.getId());
+        var proposal = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relationId, current.getVersion(), Map.of(EntityCapability.APPROVAL, true), List.of())), List.of(), List.of());
+        var preview = modelPreview.preview(moduleAlias, proposal);
+        assertThat(preview.errors()).isEmpty();
+        assertThat(preview.fieldImpacts()).filteredOn(MetadataChangeSetFieldImpact::platformManaged).hasSize(5);
+        modelApply.apply(moduleAlias, new MetadataModelChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+        var published = metadataService.select(metadata.getId());
+        assertThat(published.getCapabilityDeclarations()).contains("APPROVAL");
+        assertApprovalPublication(moduleAlias, published);
+        assertThat(new JdbcTemplate(dataSource).queryForObject("SELECT title FROM public." + metadata.getTableName()
+                + " WHERE id = ?", String.class, "preserved-business")).isEqualTo("保留业务");
+        var disabled = previewService.preview(moduleAlias, relationId, new MetadataRelationChangeSetPreviewCommand(
+                published.getVersion(), Map.of(EntityCapability.APPROVAL, false), List.of()));
+        assertThat(disabled.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("NON_ADDITIVE_CAPABILITY");
+        verify(refreshCoordinator).scheduleModules(List.of(moduleAlias));
+    }
+
+    @Test
+    void approvalPublicationFailureRollsBackDeclarationsMetadataFieldsAndPhysicalColumns() {
+        var proposal = new MetadataRelationChangeSetPreviewCommand(metadata.getVersion(), Map.of(EntityCapability.APPROVAL, true), List.of());
+        var preview = previewService.preview(moduleAlias, relationId, proposal);
+        assertThat(preview.errors()).isEmpty(); schemaEnsureService.failAfterEnsure = true;
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint())))
+                .hasMessageContaining("forced schema failure");
+        assertThat(metadataService.select(metadata.getId()).getCapabilityDeclarations()).isNull();
+        for (var summary : net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields()) {
+            assertThat(columnExists(metadata.getTableName(), summary.columnName())).isFalse();
+            assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", summary.fieldName()))).isEmpty();
+        }
+        Mockito.verifyNoInteractions(refreshCoordinator);
+    }
+
+    @Test
+    void approvalSummaryFieldNamesAndColumnsCannotBeCreatedAsOrdinaryBusinessFields() {
+        for (var summary : net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields()) {
+            var proposal = proposal(summary.fieldName(), summary.columnName(), summary.type() == FieldType.TIMESTAMP ? "datetime" : "string", false);
+            assertThat(previewService.preview(moduleAlias, relationId, proposal).errors())
+                    .extracting(MetadataChangeSetValidationIssue::code).contains("CAPABILITY_FIELD_CONFLICT");
+        }
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()))).isEmpty();
+        Mockito.verifyNoInteractions(refreshCoordinator);
+    }
+
+    @Test
+    void existingAggregateMainCanEnableApprovalWithoutGrantingApprovalToItsChild() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var child = orchestration.createChildMetadata(moduleAlias, relationId, new ModuleChildMetadataCreateCommand(
+                "line_" + suffix, "业务明细", "public", "app_line_" + suffix));
+        var snapshot = new ModuleMetadataCapabilitySnapshotService(relationService, metadataService, fieldService);
+        assertThat(snapshot.snapshot(moduleAlias, relationId).capabilities())
+                .filteredOn(fact -> fact.capability() == EntityCapability.APPROVAL).singleElement()
+                .satisfies(fact -> assertThat(fact.changeSetConfigurable()).isTrue());
+        var current = metadataService.select(metadata.getId());
+        var proposal = new MetadataRelationChangeSetPreviewCommand(current.getVersion(), Map.of(EntityCapability.APPROVAL, true), List.of());
+        var preview = previewService.preview(moduleAlias, relationId, proposal);
+        assertThat(preview.errors()).isEmpty();
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+        assertApprovalPublication(moduleAlias, metadataService.select(metadata.getId()));
+        assertThat(entityCompiler.compile(child.metadata().getId()).capabilities()).doesNotContain(EntityCapability.APPROVAL);
+        assertThat(columnExists(child.metadata().getTableName(), "approval_instance_id")).isFalse();
+        var foreignKey = fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId())
+                .eq("fieldName", child.relation().getForeignKey())).getFirst();
+        assertThat(columnExists(child.metadata().getTableName(), foreignKey.getColumnName())).isTrue();
+        var rejected = previewService.preview(moduleAlias, child.relation().getId(), new MetadataRelationChangeSetPreviewCommand(
+                child.metadata().getVersion(), Map.of(EntityCapability.APPROVAL, true), List.of()));
+        assertThat(rejected.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("CHILD_CAPABILITY_UNSUPPORTED");
+    }
+
+    private void assertApprovalPublication(String alias, Metadata published) {
+        var summaryFields = net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields();
+        var fields = fieldService.list(Criteria.of().eq("metadataId", published.getId()));
+        for (var expected : summaryFields) {
+            assertThat(fields).filteredOn(field -> field.getFieldName().equals(expected.fieldName())).singleElement()
+                    .satisfies(field -> {
+                        assertThat(field.getSystemManaged()).isTrue(); assertThat(field.getFieldOwnership()).isEqualTo(MetadataFieldOwnership.STANDARD);
+                        assertThat(fieldCompiler.compile(field)).isEqualTo(expected);
+                    });
+            assertThat(columnExists(published.getTableName(), expected.columnName())).isTrue();
+            if (expected.type() == FieldType.STRING) assertThat(columnLength(published.getTableName(), expected.columnName())).isEqualTo(expected.length());
+            else assertThat(columnDataType(published.getTableName(), expected.columnName())).startsWith("timestamp");
+        }
+        var compiler = new net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler(moduleService,
+                metadataService, fieldService, fieldCompiler, referenceConfigs, relationService,
+                mock(MetadataViewService.class), mock(MetadataViewFieldService.class),
+                mock(net.ximatai.muyun.spring.platform.module.PlatformModuleActionService.class), mock(ModuleMetadataFormulaRuleService.class));
+        var definition = compiler.compile(alias);
+        assertThat(definition.entities().getFirst().capabilities()).contains(EntityCapability.APPROVAL, EntityCapability.WORKFLOW);
+        assertThat(definition.actions()).extracting(net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition::actionCode).contains("submitApproval");
+        try (var runtime = net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime.builder(operations).build()) {
+            runtime.register(definition);
+            assertThat(runtime.describe(alias).entities().getFirst().capabilities()).contains("APPROVAL", "WORKFLOW");
+            assertThat(runtime.entityService(alias, published.getAlias()).supportsApproval()).isTrue();
+            var records = new DynamicRecordService(runtime);
+            var record = records.newRecord(alias, published.getAlias());
+            if (definition.entities().getFirst().fields().stream().anyMatch(field -> field.fieldName().equals("title"))) {
+                record.setValue("title", "审批发布运行态契约");
+            }
+            String id = records.create(alias, published.getAlias(), record);
+            var submittedAt = java.time.Instant.parse("2026-10-07T01:02:03Z");
+            var completedAt = submittedAt.plusSeconds(60);
+            new JdbcTemplate(dataSource).update("UPDATE public." + published.getTableName()
+                            + " SET approval_instance_id = ?, approval_status = ?, approval_submitted_by = ?,"
+                            + " approval_submitted_at = ?, approval_completed_at = ? WHERE id = ?",
+                    "published-instance", "APPROVED", "published-user", java.sql.Timestamp.from(submittedAt),
+                    java.sql.Timestamp.from(completedAt), id);
+            var loaded = records.select(alias, published.getAlias(), id);
+            assertThat(loaded.getApprovalInstanceId()).isEqualTo("published-instance");
+            assertThat(loaded.getApprovalStatus()).isEqualTo("APPROVED");
+            assertThat(loaded.getApprovalSubmittedBy()).isEqualTo("published-user");
+            assertThat(loaded.getApprovalSubmittedAt()).isEqualTo(submittedAt);
+            assertThat(loaded.getApprovalCompletedAt()).isEqualTo(completedAt);
+            assertThat(records.list(alias, published.getAlias(), Criteria.of().eq("id", id),
+                    net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)))
+                    .singleElement().satisfies(row -> assertThat(row.getApprovalInstanceId()).isEqualTo("published-instance"));
+            assertThatThrownBy(() -> records.newRecord(alias, published.getAlias()).setValue("approvalStatus", "APPROVED"))
+                    .hasMessageContaining("platform managed");
+        }
     }
 
     @Test

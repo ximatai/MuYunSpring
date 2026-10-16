@@ -1,9 +1,17 @@
+import { selectionCodesOf } from './optionFieldOptions';
 import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
 import { resolveRecordEnabledStatusValue } from './recordFormFieldModel';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
+import {
+  recordPresentationLabel,
+  recordPresentationText,
+  presentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
 
@@ -23,15 +31,19 @@ export function resolveRecordDetailDisplayValue(
     optionItems?: OptionItemDescriptor[];
     /** Editable display defaults are not facts about an absent saved value. */
     draft?: boolean;
+    language?: LanguageContext;
   } = {},
 ) {
-  if (field.calculationPending) return '保存后计算';
+  const language = options.language ?? platformLanguageContext;
+  if (field.calculationPending) return language.t('platform.form.calculation-pending', '保存后计算');
   const emptyText = options.emptyText ?? '-';
   const value = record[field.fieldName];
   const customValue = options.displayOf?.(field.fieldName, value, record, field);
   if (isPresent(customValue)) {
     return String(customValue);
   }
+  if (!options.draft && recordPresentationText(record, field.fieldName))
+    return recordPresentationLabel(record, field.fieldName, language) ?? String(value);
   const scale = field.inputRequirements?.scale;
   if (
     field.valueType === 'DECIMAL' &&
@@ -49,10 +61,25 @@ export function resolveRecordDetailDisplayValue(
     }).format(value);
   }
   if (options.draft && field.controlType === 'enabledStatus') {
-    return resolveRecordEnabledStatusValue(value) ? '启用' : '停用';
+    return resolveRecordEnabledStatusValue(value)
+      ? language.t('platform.value.enabled', '启用')
+      : language.t('platform.value.disabled', '停用');
   }
   // Saved name projections have no identity binding to a newly computed draft code.
   const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
+  const items = field.optionItems ?? options.optionItems ?? [];
+  const codes = selectionCodesOf(value);
+  if (items.some((item) => item.titleText || item.titleSource)) {
+    if (!codes.length) return emptyText;
+    return codes
+      .map((code) => {
+        const item = items.find((candidate) => candidate.code === code);
+        return item
+          ? presentationLabel(item.title, item.titleText, options.language ?? platformLanguageContext)
+          : code;
+      })
+      .join(language.t('platform.list.separator', '、'));
+  }
   const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
     return String(optionTitle);
@@ -68,7 +95,7 @@ export function resolveRecordDetailDisplayValue(
       (item) => item.code === String(value),
     );
     if (option) {
-      return option.title;
+      return presentationLabel(option.title, option.titleText, options.language ?? platformLanguageContext);
     }
   }
   // `treeRootTitle` names the virtual root inside an editor picker. In a read-only detail,
@@ -77,30 +104,32 @@ export function resolveRecordDetailDisplayValue(
     return emptyText;
   }
   if (computedDraft && field.reference) {
-    return isPresent(value) ? '已选择（名称暂不可用）' : emptyText;
+    return isPresent(value)
+      ? language.t('platform.reference.selected-name-unavailable', '已选择（名称暂不可用）')
+      : emptyText;
   }
-  const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
+  const referenceTitle = readonlyReferenceSummaryOf(record, field.referenceTitleField, language);
   if (field.reference) {
-    const display = readonlyReferenceDisplay(field.reference, value, referenceTitle);
+    const display = readonlyReferenceDisplay(field.reference, value, referenceTitle, language);
     if (display !== undefined) return display || emptyText;
   }
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {
-    return referenceSummaryLabel(referenceTitle) ?? String(value ?? emptyText);
+    return referenceSummaryLabel(referenceTitle, language) ?? String(value ?? emptyText);
   }
   if (field.controlType === 'recordMultiPicker' && Array.isArray(referenceTitle)) {
     const summaryLabels = referenceTitle
       .filter(isReferenceSummary)
-      .map(referenceSummaryLabel)
+      .map((summary) => referenceSummaryLabel(summary, language))
       .filter((label): label is string => Boolean(label));
     if (summaryLabels.length > 0) {
-      return summaryLabels.join('、');
+      return summaryLabels.join(language.t('platform.list.separator', '、'));
     }
     const titles = referenceTitle.filter(
       (title): title is string | number | boolean =>
         typeof title === 'string' || typeof title === 'number' || typeof title === 'boolean',
     );
     if (titles.length > 0) {
-      return titles.join('、');
+      return titles.join(language.t('platform.list.separator', '、'));
     }
   }
   if (isPresent(referenceTitle)) {
@@ -113,7 +142,7 @@ export function resolveRecordDetailDisplayValue(
     return emptyText;
   }
   if (field.controlType === 'dateTimeInput' && (typeof value === 'string' || typeof value === 'number')) {
-    return formatPlatformDateTime(value).text;
+    return formatPlatformDateTime(value, { language }).text;
   }
   return String(value);
 }
@@ -130,8 +159,8 @@ function isReferenceSummary(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function referenceSummaryLabel(summary: Record<string, unknown>) {
-  const title = summary.title;
+function referenceSummaryLabel(summary: Record<string, unknown>, language: LanguageContext) {
+  const title = recordPresentationLabel(summary, 'title', language);
   const alias = summary.alias;
   if (isPresent(title) && isPresent(alias) && String(title) !== String(alias)) {
     return `${title} (${alias})`;

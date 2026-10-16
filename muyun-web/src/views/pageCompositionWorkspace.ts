@@ -1,3 +1,5 @@
+import { codeOperationErrorMessage } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowRef, type InjectionKey } from 'vue';
 import {
@@ -17,6 +19,7 @@ export function createPageCompositionWorkspace(
   enabled: () => boolean,
   openEditor?: (alias: string) => void,
   onFocus?: () => void,
+  language: LanguageContext = platformLanguageContext,
 ) {
   let owner = identity();
   const sessions = new Map<string, PageCompositionSession>();
@@ -43,6 +46,7 @@ export function createPageCompositionWorkspace(
         http,
         { moduleAlias, moduleTitle },
         {
+          language,
           valid: () => identity() === scope,
           active: () => active.value === value,
         },
@@ -143,21 +147,33 @@ export function createPageCompositionWorkspace(
               Array.isArray(input) ||
               Object.keys(input).some((key) => key !== 'moduleAlias')
             )
-              throw new OperationUsageError('请提供真实模块标识');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             const alias = (input as { moduleAlias?: unknown }).moduleAlias;
             if (
               typeof alias !== 'string' ||
               alias.length > 128 ||
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
             )
-              throw new OperationUsageError('请提供真实模块标识');
+              throw new OperationUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             return alias;
           },
           async execute(alias: string, context) {
             const retained = sessions.has(alias);
             const value = session(alias);
             // Loading belongs to the retained session; only focus is an invocation effect.
-            await waitForConfigurationEditor(() => !value.isMutating.value, context.signal);
+            await waitForConfigurationEditor(() => !value.isMutating.value, context.signal, language);
             const install = retained ? await value.prepareCatalogRefresh() : undefined;
             context.applyEffect(() => {
               install?.();

@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { MetadataField } from '@muyun/web-contracts';
 import type { OperationProposal } from '@muyun/web-core';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
@@ -147,7 +148,12 @@ export interface MetadataFieldCandidate {
   operation: 'ADD' | 'UPDATE';
   saved: false;
   expectedMetadataVersion: number;
-  changes: Array<{ property: string; before?: string | boolean; after?: string | boolean }>;
+  changes: Array<{
+    propertyKey: string;
+    property: string;
+    before?: string | boolean;
+    after?: string | boolean;
+  }>;
 }
 
 export type MetadataFieldPlanInput = Array<
@@ -156,6 +162,7 @@ export type MetadataFieldPlanInput = Array<
 
 /** Preparation validates without changing the editor; returned callbacks commit synchronously inside applyEffect. */
 export interface MetadataGovernanceEditor {
+  readonly language?: LanguageContext;
   prepareMainDraft?(input: { title: string }): () => unknown;
   prepareChildDraft?(input: { alias: string; title: string }): () => unknown;
   discardCandidate?(): void;
@@ -215,5 +222,41 @@ export interface MetadataGovernanceEditor {
     title: string;
     fieldSpecAlias: string;
     target: string;
+  };
+}
+
+export function metadataFieldPropertyTitles(
+  language: LanguageContext = platformLanguageContext,
+): Record<string, string> {
+  return {
+    title: language.t('platform.screen.MetadataGovernanceSurface.display-name', '显示名称'),
+    fieldName: language.t('platform.screen.MetadataGovernanceSurface.field-name-label', '字段名'),
+    columnName: language.t('platform.screen.MetadataGovernanceSurface.physical-column-name', '物理列名'),
+    fieldSpecAlias: language.t('platform.screen.MetadataGovernanceSurface.field-specification', '字段规格'),
+    required: language.t('platform.form.required-marker', '必填'),
+    uniqueField: language.t('platform.screen.MetadataGovernanceSurface.unique', '唯一'),
+    indexed: language.t('platform.screen.metadataGovernanceEditor.index', '索引'),
+    sortableField: language.t('platform.screen.metadataGovernanceEditor.allow-sorting', '允许排序'),
+    titleField: language.t('platform.screen.MetadataGovernanceSurface.title-field', '标题字段'),
+    enabled: language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用'),
+    referenceTarget: language.t('platform.screen.metadataGovernanceEditor.reference-target', '引用目标'),
+    affectMappings: language.t(
+      'platform.screen.metadataGovernanceEditor.fill-values-on-selection',
+      '选择回填',
+    ),
+    dictionaryApplicationAlias: language.t(
+      'platform.screen.metadataGovernanceEditor.dictionary-application',
+      '字典应用',
+    ),
+    dictionaryCategoryAlias: language.t(
+      'platform.screen.metadataGovernanceEditor.dictionary-category',
+      '字典类别',
+    ),
+    selectionMode: language.t('platform.screen.metadataGovernanceEditor.dictionary-selection', '字典选择'),
+    requireEnabled: language.t(
+      'platform.screen.metadataGovernanceEditor.enabled-state-requirement',
+      '启用限制',
+    ),
+    fixedDefault: language.t('platform.screen.MetadataGovernanceSurface.fixed-default-value', '固定默认值'),
   };
 }

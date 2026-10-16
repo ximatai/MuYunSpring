@@ -9,10 +9,15 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowTaskActionAvailabilityServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowNodeInstanceDao nodeDao = mock(WorkflowNodeInstanceDao.class);
@@ -143,6 +148,7 @@ class WorkflowTaskActionAvailabilityServiceTest {
         when(taskDao.findById("business-1")).thenReturn(business);
         when(taskDao.findById("notice-1")).thenReturn(notice);
         when(taskDao.findById("resubmit-1")).thenReturn(resubmit);
+        when(nodeDao.findById("node-1")).thenReturn(node());
         when(instanceDao.findById("instance-1")).thenReturn(
                 instance(WorkflowInstanceStatus.RUNNING, null),
                 instance(WorkflowInstanceStatus.RUNNING, null),
@@ -159,10 +165,13 @@ class WorkflowTaskActionAvailabilityServiceTest {
         WorkflowTask other = task("other-1", WorkflowTaskKind.BUSINESS, WorkflowTaskStatus.TODO);
         when(taskDao.findById("done-1")).thenReturn(done);
         when(taskDao.findById("other-1")).thenReturn(other);
+        when(instanceDao.findById("instance-1")).thenReturn(instance(WorkflowInstanceStatus.RUNNING, null));
+        when(nodeDao.findById("node-1")).thenReturn(node());
 
         assertThat(service.availableActions("done-1", "user-1")).isEmpty();
         assertThat(service.availableActions("other-1", "user-2")).isEmpty();
-        verifyNoInteractions(instanceDao, nodeDao);
+        verify(instanceDao, org.mockito.Mockito.times(2)).findById("instance-1");
+        verify(nodeDao, org.mockito.Mockito.times(2)).findById("node-1");
     }
 
     @Test

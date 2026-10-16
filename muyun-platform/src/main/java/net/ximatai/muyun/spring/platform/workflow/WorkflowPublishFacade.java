@@ -3,13 +3,15 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class WorkflowPublishFacade {
@@ -19,22 +21,20 @@ public class WorkflowPublishFacade {
     private final WorkflowVersionService versionService;
     private final WorkflowModuleActionContributor actionContributor;
     private final WorkflowNodeDefinitionDao nodeDefinitionDao;
+    private final WorkflowDesignService designs;
+    private final WorkflowDesignCompiler compiler;
 
-    public WorkflowPublishFacade(WorkflowDefinitionService definitionService,
-                                 WorkflowVersionService versionService,
-                                 WorkflowModuleActionContributor actionContributor) {
-        this(definitionService, versionService, actionContributor, null);
-    }
-
-    @Autowired
     public WorkflowPublishFacade(WorkflowDefinitionService definitionService,
                                  WorkflowVersionService versionService,
                                  WorkflowModuleActionContributor actionContributor,
-                                 WorkflowNodeDefinitionDao nodeDefinitionDao) {
+                                 WorkflowNodeDefinitionDao nodeDefinitionDao,
+                                 WorkflowDesignService designs, WorkflowDesignCompiler compiler) {
         this.definitionService = definitionService;
         this.versionService = versionService;
         this.actionContributor = actionContributor;
         this.nodeDefinitionDao = nodeDefinitionDao;
+        this.designs = designs;
+        this.compiler = compiler;
     }
 
     @Transactional
@@ -45,16 +45,30 @@ public class WorkflowPublishFacade {
     @Transactional
     public WorkflowVersion publish(String definitionId, String versionId, Integer expectedDefinitionVersion,
                                    Integer expectedWorkflowVersion, String operatorId) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition("workflow.definition",
+                net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse("system") + ":" + definitionId);
         WorkflowDefinition definition = requireDefinition(definitionId);
         WorkflowVersion version = requireVersion(versionId);
         requireExpectedVersion(definition, expectedDefinitionVersion, "workflow definition");
         requireExpectedVersion(version, expectedWorkflowVersion, "workflow version");
         if (!definition.getId().equals(version.getDefinitionId())) {
-            throw new PlatformException("workflow version does not belong to definition: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.the-version-does-not-belong-to-this-workflow-definition",
+                    "workflow version does not belong to definition: {value1}"), Map.of("value1", String.valueOf(versionId)));
         }
-        validateOvertimeDefinitions(version);
         if (version.getPublishStatus() != WorkflowPublishStatus.PUBLISHED) {
+        var design = designs.validate(definitionId, versionId);
+        validateOvertimeDefinitions(version);
+        for (var node : design.nodes()) {
+            Integer expectedNodeVersion = node.getVersion();
+            net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareUpdate(node, Instant.now());
+            if (nodeDefinitionDao.updateByIdAndVersion(node, expectedNodeVersion) == 0)
+                throw new OptimisticLockException("workflow node changed while publishing: " + node.getNodeKey());
+        }
             WorkflowVersion publishing = copyVersion(version);
+            publishing.setSnapshotText(compiler.serialize(design));
+            publishing.setSemanticJson(compiler.serialize(design));
+            publishing.setLayoutJson(design.layoutJson());
             publishing.setPublishStatus(WorkflowPublishStatus.PUBLISHED);
             publishing.setPublishedBy(operatorId == null || operatorId.isBlank() ? null : operatorId);
             publishing.setPublishedAt(Instant.now());
@@ -105,7 +119,9 @@ public class WorkflowPublishFacade {
     private WorkflowDefinition requireDefinition(String definitionId) {
         WorkflowDefinition definition = definitionService.select(definitionId);
         if (definition == null) {
-            throw new PlatformException("workflow definition not found: " + definitionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.workflow-definition-not-found",
+                    "workflow definition not found: {value1}"), Map.of("value1", String.valueOf(definitionId)));
         }
         return definition;
     }
@@ -113,7 +129,9 @@ public class WorkflowPublishFacade {
     private WorkflowVersion requireVersion(String versionId) {
         WorkflowVersion version = versionService.select(versionId);
         if (version == null) {
-            throw new PlatformException("workflow version not found: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.workflow-version-not-found",
+                    "workflow version not found: {value1}"), Map.of("value1", String.valueOf(versionId)));
         }
         return version;
     }
@@ -142,19 +160,23 @@ public class WorkflowPublishFacade {
         if (node.getWarningDurationMinutes() != null
                 && node.getOvertimeDurationMinutes() != null
                 && node.getOvertimeDurationMinutes() < node.getWarningDurationMinutes()) {
-            throw new PlatformException("workflow overtimeDurationMinutes must not be less than warningDurationMinutes: "
-                    + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.the-overtime-duration-must-not-be-shorter-than-the-warning-duration",
+                    "workflow overtimeDurationMinutes must not be less than warningDurationMinutes: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
         }
         if (node.getNodeType() != WorkflowNodeType.APPROVAL
                 && (node.getWarningDurationMinutes() != null || node.getOvertimeDurationMinutes() != null)) {
-            throw new PlatformException("workflow overtime durations are only supported on approval nodes: "
-                    + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.overtime-settings-are-only-supported-on-approval-nodes",
+                    "workflow overtime durations are only supported on approval nodes: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
         }
     }
 
     private void validatePositiveDuration(Integer value, String fieldName, WorkflowNodeDefinition node) {
         if (value != null && value <= 0) {
-            throw new PlatformException("workflow " + fieldName + " must be positive: " + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.the-workflow-setting-must-be-positive",
+                    "workflow {value1} must be positive: {value2}"), Map.of("value1", String.valueOf(fieldName), "value2", String.valueOf(node.getNodeKey())));
         }
     }
 

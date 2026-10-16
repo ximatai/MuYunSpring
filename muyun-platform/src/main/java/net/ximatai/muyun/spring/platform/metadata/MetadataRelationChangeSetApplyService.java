@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
@@ -83,21 +85,30 @@ public class MetadataRelationChangeSetApplyService {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         MetadataRelationChangeSetPreview preview = previewService.preview(validModuleAlias, relationId, command.proposal());
         if (!preview.valid()) {
-            throw new PlatformException("Metadata change-set validation failed: "
-                    + preview.errors().stream().map(MetadataChangeSetValidationIssue::code).toList());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-validation-failed",
+                    "Metadata change-set validation failed: {value1}"), Map.of("value1", String.valueOf(preview.errors().stream().map(MetadataChangeSetValidationIssue::code).toList())));
         }
         if (command.proposalFingerprint() == null || !command.proposalFingerprint().equals(preview.proposalFingerprint())) {
-            throw new PlatformException("Metadata change-set preview fingerprint is stale; preview again before publish");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-preview-fingerprint-is-stale-preview-again-before-publish",
+                    "Metadata change-set preview fingerprint is stale; preview again before publish"));
         }
         ModuleMetadataRelation relation = relationService.select(relationId);
         if (relation == null || !validModuleAlias.equals(relation.getModuleAlias())) {
-            throw new PlatformException("Metadata change-set relation is unavailable: " + relationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-relation-is-unavailable",
+                    "Metadata change-set relation is unavailable: {value1}"), Map.of("value1", String.valueOf(relationId)));
         }
         Metadata metadata = metadataService.select(relation.getMetadataId());
-        if (metadata == null) throw new PlatformException("Module relation points to missing metadata: " + relation.getMetadataId());
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.module-relation-points-to-missing-metadata",
+                "Module relation points to missing metadata: {value1}"), Map.of("value1", String.valueOf(relation.getMetadataId())));
         MetadataRelationChangeSetPlan plan = preview.plan();
         if (!java.util.Objects.equals(plan.expectedMetadataVersion(), metadata.getVersion())) {
-            throw new PlatformException("Metadata change-set is stale; reload and preview again");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-is-stale-reload-and-preview-again",
+                    "Metadata change-set is stale; reload and preview again"));
         }
 
         MetadataFieldPropertyMutationContext.run(() -> MetadataCapabilityGovernanceMutationContext.run(() -> {
@@ -113,7 +124,9 @@ public class MetadataRelationChangeSetApplyService {
     /** Enables the MAIN metadata's data-scope contract through the same schema/runtime publication boundary. */
     public void enableDataScope(String metadataId) {
         Metadata metadata = metadataService.select(metadataId);
-        if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.metadata-is-missing",
+                "Metadata is missing: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) return;
         MetadataCapabilityGovernanceMutationContext.run(() -> {
             metadata.setDataScopeEnabled(Boolean.TRUE);
@@ -137,11 +150,15 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Data-scope disabling is not configured");
         }
         Metadata metadata = metadataService.select(metadataId);
-        if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.metadata-is-missing",
+                "Metadata is missing: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         if (!Boolean.TRUE.equals(metadata.getDataScopeEnabled())) return;
         long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
-            throw new PlatformException("数据权限已用于 " + records + " 条业务数据，不能停用。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.data-permissions-are-in-use-and-cannot-be-disabled-record-count",
+                    "数据权限已用于 {value1} 条业务数据，不能停用。"), Map.of("value1", String.valueOf(records)));
         }
         EntityDefinition previous = entityDefinitionCompiler.compile(metadata);
         MetadataCapabilityGovernanceMutationContext.run(() -> {
@@ -161,7 +178,9 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Capability disabling is not configured");
         }
         Metadata metadata = metadataService.select(metadataId);
-        if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.metadata-is-missing",
+                "Metadata is missing: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", metadataId), ALL);
         Set<EntityCapability> capabilities = new LinkedHashSet<>(MetadataCapabilityCatalog.resolve(metadata,
                 RelationRole.MAIN, fields).capabilities());
@@ -170,10 +189,14 @@ public class MetadataRelationChangeSetApplyService {
                 .filter(field -> "enabled".equals(field.getFieldName()) && Boolean.TRUE.equals(field.getSystemManaged())
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("启停能力使用了非标准字段，不能通过模块能力停用。"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-relation-change-set-apply.enable-disable-uses-a-nonstandard-field-and-cannot-be-disabled-through-module",
+                        "启停能力使用了非标准字段，不能通过模块能力停用。")));
         long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
-            throw new PlatformException("启停能力已用于 " + records + " 条业务数据，不能停用。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.enable-disable-is-in-use-and-cannot-be-disabled-record-count",
+                    "启停能力已用于 {value1} 条业务数据，不能停用。"), Map.of("value1", String.valueOf(records)));
         }
         EntityDefinition previous = entityDefinitionCompiler.compile(metadata);
         capabilities.remove(EntityCapability.ENABLE);
@@ -194,23 +217,31 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Capability disabling is not configured");
         }
         Metadata metadata = metadataService.select(metadataId);
-        if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.metadata-is-missing",
+                "Metadata is missing: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", metadataId), ALL);
         Set<EntityCapability> capabilities = new LinkedHashSet<>(MetadataCapabilityCatalog.resolve(metadata,
                 RelationRole.MAIN, fields).capabilities());
         if (!capabilities.contains(EntityCapability.SORT)) return;
         if (capabilities.contains(EntityCapability.TREE)) {
-            throw new PlatformException("树结构依赖排序能力，不能单独停用排序。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.tree-structure-requires-sorting-sorting-cannot-be-disabled-on-its-own",
+                    "树结构依赖排序能力，不能单独停用排序。"));
         }
         MetadataField sortField = fields.stream()
                 .filter(field -> PlatformAbilityFields.SORT_FIELD.equals(field.getFieldName())
                         && Boolean.TRUE.equals(field.getSystemManaged())
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("排序能力使用了非标准字段，不能通过模块能力停用。"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-relation-change-set-apply.sorting-uses-a-nonstandard-field-and-cannot-be-disabled-through-module-capabilities",
+                        "排序能力使用了非标准字段，不能通过模块能力停用。")));
         long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
-            throw new PlatformException("排序能力已用于 " + records + " 条业务数据，不能停用。" );
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.sorting-is-in-use-and-cannot-be-disabled-record-count",
+                    "排序能力已用于 {value1} 条业务数据，不能停用。"), Map.of("value1", String.valueOf(records)));
         }
         EntityDefinition previous = entityDefinitionCompiler.compile(metadata);
         capabilities.remove(EntityCapability.SORT);
@@ -234,7 +265,9 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Capability disabling is not configured");
         }
         Metadata metadata = metadataService.select(metadataId);
-        if (metadata == null) throw new PlatformException("Metadata is missing: " + metadataId);
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-relation-change-set-apply.metadata-is-missing",
+                "Metadata is missing: {value1}"), Map.of("value1", String.valueOf(metadataId)));
         List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", metadataId), ALL);
         Set<EntityCapability> capabilities = new LinkedHashSet<>(MetadataCapabilityCatalog.resolve(metadata,
                 RelationRole.MAIN, fields).capabilities());
@@ -244,10 +277,14 @@ public class MetadataRelationChangeSetApplyService {
                         && Boolean.TRUE.equals(field.getSystemManaged())
                         && field.getFieldOwnership() == MetadataFieldOwnership.STANDARD)
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("树结构能力使用了非标准字段，不能通过模块能力停用。"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-relation-change-set-apply.tree-structure-uses-nonstandard-fields-and-cannot-be-disabled-through-module-capabilities",
+                        "树结构能力使用了非标准字段，不能通过模块能力停用。")));
         long records = lockedPhysicalRecordCount(moduleAlias, metadata);
         if (records > 0) {
-            throw new PlatformException("树结构能力已用于 " + records + " 条业务数据，不能停用。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.tree-structure-is-in-use-and-cannot-be-disabled-record-count",
+                    "树结构能力已用于 {value1} 条业务数据，不能停用。"), Map.of("value1", String.valueOf(records)));
         }
         EntityDefinition previous = entityDefinitionCompiler.compile(metadata);
         capabilities.remove(EntityCapability.TREE);
@@ -309,10 +346,14 @@ public class MetadataRelationChangeSetApplyService {
     private MetadataField updateBusinessField(Metadata metadata, MetadataFieldChangeSetPlan plan) {
         MetadataField existing = plan.fieldId() == null ? null : fieldService.select(plan.fieldId());
         if (existing == null || !metadata.getId().equals(existing.getMetadataId())) {
-            throw new PlatformException("Metadata change-set field update is stale: " + plan.fieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-field-update-is-stale",
+                    "Metadata change-set field update is stale: {value1}"), Map.of("value1", String.valueOf(plan.fieldId())));
         }
         if (!java.util.Objects.equals(plan.expectedFieldVersion(), existing.getVersion())) {
-            throw new PlatformException("Metadata change-set field version is stale: " + plan.fieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-field-version-is-stale",
+                    "Metadata change-set field version is stale: {value1}"), Map.of("value1", String.valueOf(plan.fieldId())));
         }
         MetadataField mutation = overlayBusinessAttributes(existing, requireField(plan.field()));
         fieldService.update(mutation);
@@ -330,8 +371,9 @@ public class MetadataRelationChangeSetApplyService {
             case MODULE_REFERENCE -> applyReferenceProperty(field, relation, property);
             case DICTIONARY -> applyDictionaryProperty(field, relation, property);
             case BASIC -> applyFixedDefault(field, relation, property.fixedDefault());
-            case LEGACY_LOCKED -> throw new PlatformException("Legacy metadata field property is read-only and cannot be published: "
-                    + field.getFieldName());
+            case LEGACY_LOCKED -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.legacy-metadata-field-property-is-read-only-and-cannot-be-published",
+                    "Legacy metadata field property is read-only and cannot be published: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
     }
 
@@ -399,7 +441,9 @@ public class MetadataRelationChangeSetApplyService {
 
     private void assertBindingVersion(Integer expected, Integer actual, String fieldName) {
         if (!java.util.Objects.equals(expected, actual)) {
-            throw new PlatformException("Metadata change-set field property version is stale: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-relation-change-set-apply.metadata-change-set-field-property-version-is-stale",
+                    "Metadata change-set field property version is stale: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
     }
 

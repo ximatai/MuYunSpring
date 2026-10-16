@@ -358,46 +358,61 @@ it('stages managed capabilities with an existing field batch and expires confirm
   });
 });
 
-it('publishes a capability-only candidate through the standard human confirmation', async () => {
-  const f = fixture();
-  const original = f.request.getMockImplementation()!;
-  f.request.mockImplementation(async (request) =>
-    request.path.endsWith('/capabilities')
-      ? {
-          capabilities: [
-            {
-              capability: 'TREE',
-              enabled: false,
-              configurable: true,
-              changeSetConfigurable: true,
-              reason: '',
-              fieldContributions: ['parentId', 'sortOrder'],
-              defaultKind: 'RUNTIME',
-              defaultDescription: '根节点',
-            },
-          ],
-        }
-      : original(request),
-  );
-  await f.select();
-  const view = f.workspace.session('demo.order').view;
-  view.selectCapability('TREE', true);
-  expect(f.workspace.session('demo.order').dirty.value).toBe(true);
-  vi.mocked(confirmAction).mockResolvedValueOnce(true);
-  await view.previewAndApply('基础能力');
-  const applies = f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'));
-  expect(applies).toHaveLength(1);
-  expect(applies[0][0].body).toMatchObject({
-    proposal: {
-      relationDrafts: [
-        {
-          capabilitySelections: { TREE: true },
-          fieldDrafts: [],
-        },
-      ],
-    },
-  });
-});
+it.each([
+  { capability: 'TREE', fieldContributions: ['parentId', 'sortOrder'] },
+  {
+    capability: 'APPROVAL',
+    fieldContributions: [
+      'approvalInstanceId',
+      'approvalStatus',
+      'approvalSubmittedBy',
+      'approvalSubmittedAt',
+      'approvalCompletedAt',
+    ],
+  },
+])(
+  'publishes a $capability-only candidate through the standard human confirmation',
+  async ({ capability, fieldContributions }) => {
+    const f = fixture();
+    const original = f.request.getMockImplementation()!;
+    f.request.mockImplementation(async (request) =>
+      request.path.endsWith('/capabilities')
+        ? {
+            capabilities: [
+              {
+                capability,
+                enabled: false,
+                configurable: true,
+                changeSetConfigurable: true,
+                reason: '',
+                fieldContributions,
+                defaultKind: 'RUNTIME',
+                defaultDescription: '根节点',
+              },
+            ],
+          }
+        : original(request),
+    );
+    await f.select();
+    const view = f.workspace.session('demo.order').view;
+    view.selectCapability(capability, true);
+    expect(f.workspace.session('demo.order').dirty.value).toBe(true);
+    vi.mocked(confirmAction).mockResolvedValueOnce(true);
+    await view.previewAndApply('基础能力');
+    const applies = f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'));
+    expect(applies).toHaveLength(1);
+    expect(applies[0][0].body).toMatchObject({
+      proposal: {
+        relationDrafts: [
+          {
+            capabilitySelections: { [capability]: true },
+            fieldDrafts: [],
+          },
+        ],
+      },
+    });
+  },
+);
 
 it('reads existing business constraints and staged field changes without writing configuration', async () => {
   const f = fixture();

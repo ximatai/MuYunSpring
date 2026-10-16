@@ -37,7 +37,9 @@ writeFileSync(
         '.': { types: './dist/types/consumer/index.d.ts', import: './dist/index.js' },
         './style.css': './dist/index.css',
       },
-      sideEffects: ['./dist/index.css'],
+      // Importing the runtime registers first-party page and workspace contributions.
+      // Consumers must retain these initializers as well as the explicit stylesheet.
+      sideEffects: true,
       peerDependencies: {
         vue: rootPackage.dependencies.vue,
         'ant-design-vue': rootPackage.dependencies['ant-design-vue'],

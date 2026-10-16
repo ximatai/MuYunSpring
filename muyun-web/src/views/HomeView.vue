@@ -1,8 +1,20 @@
+<script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+
+const language = useLanguageContext();
+</script>
 <template>
   <section class="home-view">
     <p class="home-eyebrow">Workspace</p>
-    <h2>请选择左侧菜单</h2>
-    <p>当前工作区已接入真实登录和菜单加载，业务页面将从后端菜单入口进入。</p>
+    <h2>{{ language.t('platform.screen.HomeView.select-a-menu-on-the-left', '请选择左侧菜单') }}</h2>
+    <p>
+      {{
+        language.t(
+          'platform.screen.HomeView.choose-a-feature-from-the-left-menu-to-get-started',
+          '从左侧菜单选择功能，即可开始工作。',
+        )
+      }}
+    </p>
   </section>
 </template>
 

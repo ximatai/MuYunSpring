@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
@@ -8,7 +10,6 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
@@ -74,8 +75,8 @@ public class DynamicModuleOverviewModeService {
         PlatformModule module = requireDynamicModule(moduleAlias);
         if (effectiveMode(module) != command.overviewMode() && revisions != null
                 && revisions.getObject().hasLegacyPublishedPage(module.getAlias())) {
-            throw BusinessExceptions.warning(
-                    "platform.page.mode-upgrade-required", "请先在页面配置中保存并发布新版骨架，再切换呈现方式；当前已发布页面仍使用旧模板。");
+            throw BusinessExceptions.warningText("platform.page.mode-upgrade-required",
+                TextReference.code("platform.page.mode-upgrade-required", "请先在页面配置中保存并发布新版骨架，再切换呈现方式；当前已发布页面仍使用旧模板。"));
         }
         if (revisions != null) {
             Map<EntityCapability, Boolean> selections = new java.util.LinkedHashMap<>();
@@ -121,7 +122,9 @@ public class DynamicModuleOverviewModeService {
         String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
         PlatformModule module = moduleService.select(alias);
         if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC) {
-            throw new PlatformException("Dynamic module overview mode requires dynamic module: " + alias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-module-overview-mode.dynamic-module-overview-mode-requires-dynamic-module",
+                    "Dynamic module overview mode requires dynamic module: {value1}"), Map.of("value1", String.valueOf(alias)));
         }
         return module;
     }
@@ -132,7 +135,9 @@ public class DynamicModuleOverviewModeService {
         if (relations.isEmpty()) return new MainMetadata(moduleAlias, null, null, null, configuredCapabilities(module));
         ModuleMetadataRelation relation = relations.getFirst();
         Metadata metadata = metadataService.select(relation.getMetadataId());
-        if (metadata == null) throw new PlatformException("Module MAIN metadata is missing: " + relations.getFirst().getMetadataId());
+        if (metadata == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.dynamic-module-overview-mode.module-main-metadata-is-missing",
+                "Module MAIN metadata is missing: {value1}"), Map.of("value1", String.valueOf(relations.getFirst().getMetadataId())));
         Set<EntityCapability> capabilities = new java.util.LinkedHashSet<>(MetadataCapabilityCatalog.resolve(metadata,
                 RelationRole.MAIN, fieldService.list(Criteria.of().eq("metadataId", metadata.getId()), ALL)).capabilities());
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE);
@@ -148,7 +153,9 @@ public class DynamicModuleOverviewModeService {
                 .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         if (main.relationId() == null) {
             if (command.expectedMainMetadataVersion() != null || !additions.isEmpty()) {
-                throw new PlatformException("Dynamic module has no MAIN metadata to configure capabilities");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-module-overview-mode.dynamic-module-has-no-main-metadata-to-configure-capabilities",
+                        "Dynamic module has no MAIN metadata to configure capabilities"));
             }
             return Set.of();
         }
@@ -156,7 +163,9 @@ public class DynamicModuleOverviewModeService {
                 command.expectedMainMetadataVersion(), additions, List.of());
         MetadataRelationChangeSetPreview preview = changeSetPreviewService.preview(moduleAlias, main.relationId(), proposal);
         if (!preview.valid()) {
-            throw new PlatformException("Metadata capability selection is invalid: " + preview.errors());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-module-overview-mode.metadata-capability-selection-is-invalid",
+                    "Metadata capability selection is invalid: {value1}"), Map.of("value1", String.valueOf(preview.errors())));
         }
         if (!additions.isEmpty()) {
             changeSetApplyService.apply(moduleAlias, main.relationId(),
@@ -192,7 +201,15 @@ public class DynamicModuleOverviewModeService {
         if (command.capabilitySelections() == null) return effectiveCapabilities;
         if (Boolean.FALSE.equals(command.capabilitySelections().get(EntityCapability.RECYCLE_BIN))
                 && main.capabilities().contains(EntityCapability.RECYCLE_BIN)) {
-            throw new PlatformException("回收站启用后暂不支持关闭，请保留已有删除记录的恢复入口。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-module-overview-mode.the-recycle-bin-cannot-be-disabled-once-enabled-keep-the-restore-entry",
+                    "回收站启用后暂不支持关闭，请保留已有删除记录的恢复入口。"));
+        }
+        if (Boolean.FALSE.equals(command.capabilitySelections().get(EntityCapability.APPROVAL))
+                && main.capabilities().contains(EntityCapability.APPROVAL)) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-module-overview-mode.approval-cannot-be-disabled-once-enabled-keep-approval-summaries-and-workflow-support",
+                    "审批能力启用后暂不支持关闭，请保留审批摘要及流程使用契约。"));
         }
         Set<EntityCapability> result = new java.util.LinkedHashSet<>(effectiveCapabilities);
         // JSON object member order is not a dependency order.  Remove dependent contracts first.
@@ -258,7 +275,9 @@ public class DynamicModuleOverviewModeService {
     private void validate(DynamicModuleOverviewMode mode, Set<EntityCapability> capabilities) {
         boolean tree = capabilities.contains(EntityCapability.TREE);
         if (mode == DynamicModuleOverviewMode.TREE_CARD && (!tree || !capabilities.contains(EntityCapability.SORT))) {
-            throw new PlatformException("TREE_CARD overview mode requires MAIN metadata TREE and SORT capabilities");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-module-overview-mode.tree-card-overview-mode-requires-main-metadata-tree-and-sort-capabilities",
+                    "TREE_CARD overview mode requires MAIN metadata TREE and SORT capabilities"));
         }
     }
 

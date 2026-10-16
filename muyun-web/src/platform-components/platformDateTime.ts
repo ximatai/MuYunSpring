@@ -1,8 +1,10 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 export type PlatformDateTimePrecision = 'minute' | 'second';
 
 export interface PlatformDateTimeOptions {
   emptyText?: string;
   locale?: string;
+  language?: LanguageContext;
   precision?: PlatformDateTimePrecision;
   timeZone?: string;
 }
@@ -16,7 +18,6 @@ export interface PlatformDateTimeDisplay {
 }
 
 const DEFAULT_EMPTY_TEXT = '-';
-const DEFAULT_LOCALE = 'zh-CN';
 
 export function resolveBrowserTimeZone() {
   try {
@@ -30,6 +31,7 @@ export function formatPlatformDateTime(
   value: string | number | Date | null | undefined,
   options: PlatformDateTimeOptions = {},
 ): PlatformDateTimeDisplay {
+  const language = options.language ?? platformLanguageContext;
   const emptyText = options.emptyText ?? DEFAULT_EMPTY_TEXT;
   if (value === null || value === undefined || value === '') {
     return {
@@ -54,11 +56,14 @@ export function formatPlatformDateTime(
   const datetime = date.toISOString();
   return {
     text: formatDateParts(date, {
-      locale: options.locale ?? DEFAULT_LOCALE,
+      locale: options.locale ?? language.languageTag.value,
       precision,
       timeZone,
     }),
-    title: `UTC: ${datetime}\n时区: ${timeZone}`,
+    title: language.t('platform.datetime.tooltip', 'UTC: {datetime}\n时区: {timeZone}', {
+      datetime,
+      timeZone,
+    }),
     datetime,
     timeZone,
     valid: true,

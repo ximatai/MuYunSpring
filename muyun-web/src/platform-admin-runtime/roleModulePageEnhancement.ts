@@ -11,36 +11,54 @@ const roleRecordActions: ModulePageRecordActionContribution[] = [
     key: 'role-bind-account',
     actionCode: 'accountRoleGrants',
     title: '绑定',
+    titleKey: 'platform.screen.RoleManagementView.assign',
     state: (record) => ({
       visible: record.assignmentType === 'account',
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '绑定用户', width: 'extraWide', component: RoleAccountGrantDrawerSurface });
+      openDrawer({
+        title: '绑定用户',
+        titleKey: 'platform.screen.RoleManagementView.assign-to-users',
+        width: 'extraWide',
+        component: RoleAccountGrantDrawerSurface,
+      });
     },
   },
   {
     key: 'role-bind-employment',
     actionCode: 'employmentRoleGrants',
     title: '绑定',
+    titleKey: 'platform.screen.RoleManagementView.assign',
     state: (record) => ({
       visible: record.assignmentType !== 'account',
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '绑定任职', width: 'extraWide', component: RoleEmploymentGrantDrawerSurface });
+      openDrawer({
+        title: '绑定任职',
+        titleKey: 'platform.screen.RoleManagementView.assign-to-positions',
+        width: 'extraWide',
+        component: RoleEmploymentGrantDrawerSurface,
+      });
     },
   },
   {
     key: 'role-authorize',
     actionCode: 'rolePermissions',
     title: '授权',
+    titleKey: 'platform.page-action.MANAGE_PERMISSIONS.title',
     state: (record) => ({
       visible: record.roleKind !== 'group',
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '角色授权', width: 'wide', component: RoleAuthorizationDrawerSurface });
+      openDrawer({
+        title: '角色授权',
+        titleKey: 'platform.unsaved-source.RoleAuthorizationView',
+        width: 'wide',
+        component: RoleAuthorizationDrawerSurface,
+      });
     },
   },
 ];

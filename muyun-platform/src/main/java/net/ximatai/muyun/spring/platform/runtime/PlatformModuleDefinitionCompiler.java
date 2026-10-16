@@ -47,6 +47,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityPolicy;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.ModuleActionDataAuthResolver;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
@@ -318,27 +319,13 @@ public class PlatformModuleDefinitionCompiler {
             if (field.isTitle()) {
                 capabilities.add(EntityCapability.REFERENCE);
             }
-            if (isApprovalField(field)) {
-                capabilities.add(EntityCapability.APPROVAL);
-            }
         }
         capabilities.addAll(capabilityResolution.capabilities());
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE);
         return capabilities;
     }
 
-    private boolean isApprovalField(FieldDefinition field) {
-        return PlatformAbilityFields.APPROVAL_INSTANCE_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_STATUS_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_BY_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_AT_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_COMPLETED_AT_FIELD.equals(field.fieldName())
-                || PlatformAbilityFields.APPROVAL_INSTANCE_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_STATUS_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_BY_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_SUBMITTED_AT_COLUMN.equals(field.columnName())
-                || PlatformAbilityFields.APPROVAL_COMPLETED_AT_COLUMN.equals(field.columnName());
-    }
+
 
     private EntityRelationDefinition childRelation(ModuleMetadataRelation relation, Map<String, Metadata> metadataById) {
         Metadata parent = metadataById.get(relation.getParentMetadataId());
@@ -691,7 +678,7 @@ public class PlatformModuleDefinitionCompiler {
                 null,
                 EntityActionExecutorType.SERVICE,
                 DynamicWorkflowActionExecutor.EXECUTOR_KEY
-        );
+        ).withTitleSource(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.workflow.action." + actionCode + ".title", title));
     }
 
     private EntityActionDefinition action(PlatformModuleAction action,
@@ -713,14 +700,15 @@ public class PlatformModuleDefinitionCompiler {
                 action.getCategory(),
                 action.effectiveAccessMode(),
                 action.effectiveActionAuth(),
-                action.effectiveDataAuth(),
+                ModuleActionDataAuthResolver.resolve(action,
+                        Boolean.TRUE.equals(metadataByAlias.get(entityAlias).getDataScopeEnabled())),
                 action.effectiveDefaultGrantPolicy(),
                 inheritedActionCode(action),
                 action.getAvailableExpression(),
                 action.getUnavailableMessage(),
                 action.getExecutorType(),
                 action.getExecutorKey()
-        );
+        ).withTitleSource(action.titleSource());
     }
 
     private String inheritedActionCode(PlatformModuleAction action) {

@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, inject, nextTick, ref, watch } from 'vue';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { MANAGEMENT_EXPLORER_COLUMN_CONTEXT } from './managementExplorerContext';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
 import RecordExplorerTools from './RecordExplorerTools.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordExplorerPanel' });
 
@@ -29,11 +32,17 @@ const props = withDefaults(
     refreshDisabled: false,
     subtitle: undefined,
     searchKeyword: '',
-    searchPlaceholder: '搜索名称、编码或 ID',
+    searchPlaceholder: undefined,
     searchable: true,
     collapseAction: true,
     utilityPlacement: 'header',
   },
+);
+
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.RecordExplorerPanel.searchPlaceholder', '搜索名称、编码或 ID'),
 );
 
 const emit = defineEmits<{
@@ -81,7 +90,10 @@ async function focusSearchInput() {
       :title="title"
       :subtitle="subtitle"
       :title-action-icon="refreshable && utilityPlacement === 'header' ? 'reload' : undefined"
-      :title-action-title="refreshTitle ?? `刷新${title}`"
+      :title-action-title="
+        refreshTitle ??
+        language.t('platform.screen.RecordExplorerPanel.refresh-value', '刷新{value1}', { value1: title })
+      "
       :title-action-disabled="refreshDisabled"
       @title-action="!refreshDisabled && emit('refresh')"
     >
@@ -98,7 +110,12 @@ async function focusSearchInput() {
             :search-expanded="searchExpanded"
             :refreshable="false"
             :refresh-disabled="refreshDisabled"
-            :refresh-title="refreshTitle ?? `刷新${title}`"
+            :refresh-title="
+              refreshTitle ??
+              language.t('platform.screen.RecordExplorerPanel.refresh-value', '刷新{value1}', {
+                value1: title,
+              })
+            "
             @search="toggleSearch"
             @refresh="emit('refresh')"
             ><slot name="utility-actions"
@@ -110,8 +127,16 @@ async function focusSearchInput() {
             icon-only
             size="small"
             type="text"
-            :title="`收起${title}`"
-            :aria-label="`收起${title}`"
+            :title="
+              language.t('platform.screen.RecordExplorerPanel.collapse-value', '收起{value1}', {
+                value1: title,
+              })
+            "
+            :aria-label="
+              language.t('platform.screen.RecordExplorerPanel.collapse-value', '收起{value1}', {
+                value1: title,
+              })
+            "
             @click="explorerColumn.collapse"
           />
           <slot name="actions" />
@@ -127,7 +152,10 @@ async function focusSearchInput() {
         :search-expanded="searchExpanded"
         :refreshable="refreshable"
         :refresh-disabled="refreshDisabled"
-        :refresh-title="refreshTitle ?? `刷新${title}`"
+        :refresh-title="
+          refreshTitle ??
+          language.t('platform.screen.RecordExplorerPanel.refresh-value', '刷新{value1}', { value1: title })
+        "
         @search="toggleSearch"
         @refresh="emit('refresh')"
       />
@@ -137,7 +165,7 @@ async function focusSearchInput() {
         <UiInput
           :value="searchKeyword"
           allow-clear
-          :placeholder="searchPlaceholder"
+          :placeholder="resolvedSearchPlaceholder"
           autofocus
           @update:value="emit('update:searchKeyword', $event)"
           @keydown.esc="handleSearchEscape"

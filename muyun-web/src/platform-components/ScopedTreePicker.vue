@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { normalizeError, userFacingErrorMessage, useLanguageContext } from '@muyun/web-core';
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   UiButton,
@@ -16,6 +18,8 @@ import {
   type ScopedTreePickerProvider,
 } from './scopedTreePickerModel';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'ScopedTreePicker' });
 
 const props = withDefaults(
@@ -32,12 +36,24 @@ const props = withDefaults(
   }>(),
   {
     value: undefined,
-    placeholder: '搜索并选择',
-    searchPlaceholder: '按名称、编码或路径搜索',
-    title: '选择记录',
+    placeholder: undefined,
+    searchPlaceholder: undefined,
+    title: undefined,
     disabled: false,
     inputHidden: false,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.form.search-select', '搜索并选择'),
+);
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.ScopedTreePicker.searchPlaceholder', '按名称、编码或路径搜索'),
+);
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.ScopedTreePicker.title', '选择记录'),
 );
 
 const emit = defineEmits<{
@@ -50,7 +66,7 @@ const keyword = ref('');
 const rootNodes = ref<UiTreeNode[]>([]);
 const expandedKeys = ref<string[]>([]);
 const rootLoading = ref(false);
-const error = ref<string>();
+const error = ref<() => string>();
 const draftId = ref<string>();
 const candidatesById = ref(new Map<string, ScopedTreePickerCandidate>());
 const treeReloadKey = ref(0);
@@ -71,7 +87,11 @@ const summary = computed(() => {
   if (!id) return '';
   const candidate = externalCandidate.value;
   if (!candidate) return id;
-  return candidate.unavailable ? `${candidate.title}（不可用）` : candidate.title;
+  return candidate.unavailable
+    ? language.t('platform.screen.ScopedTreePicker.value-unavailable', '{value1}（不可用）', {
+        value1: candidate.title,
+      })
+    : candidate.title;
 });
 
 watch(
@@ -152,7 +172,10 @@ async function reloadRoot() {
   } catch (cause) {
     if (controller.signal.aborted || requestVersion !== rootRequestVersion || !open.value) return;
     rootNodes.value = [];
-    error.value = cause instanceof Error ? cause.message : '树候选加载失败';
+    error.value = () =>
+      cause instanceof Error
+        ? userFacingErrorMessage(normalizeError(cause), language)
+        : language.t('platform.screen.ScopedTreePicker.could-not-load-tree-candidates', '树候选加载失败');
   } finally {
     if (requestVersion === rootRequestVersion) rootLoading.value = false;
   }
@@ -206,9 +229,9 @@ defineExpose({ open: openPicker });
     <UiSearchInput
       v-if="!inputHidden"
       :value="keyword"
-      :placeholder="placeholder"
+      :placeholder="resolvedPlaceholder"
       :disabled="disabled"
-      search-text="搜索"
+      :search-text="language.t('platform.reference-picker.search', '搜索')"
       @update:value="keyword = $event"
       @search="openPicker"
     />
@@ -216,7 +239,7 @@ defineExpose({ open: openPicker });
 
     <UiModal
       :open="open"
-      :title="title"
+      :title="resolvedTitle"
       :width="680"
       :confirm-disabled="rootLoading"
       :closable="!rootLoading"
@@ -226,20 +249,26 @@ defineExpose({ open: openPicker });
       <div class="scoped-tree-picker-dialog">
         <UiSearchInput
           :value="keyword"
-          :placeholder="searchPlaceholder"
+          :placeholder="resolvedSearchPlaceholder"
           :loading="rootLoading"
-          search-text="搜索"
+          :search-text="language.t('platform.reference-picker.search', '搜索')"
           @update:value="keyword = $event"
           @search="searchInDialog"
         />
         <div class="scoped-tree-picker-selection">
-          <span>当前选择</span>
-          <strong>{{ selectedCandidate?.title ?? '尚未选择' }}</strong>
-          <UiButton v-if="draftId" type="link" size="small" @click="draftId = undefined">清除</UiButton>
+          <span>{{ language.t('platform.screen.ScopedTreePicker.current-selection', '当前选择') }}</span>
+          <strong>{{
+            selectedCandidate?.title ?? language.t('platform.reference-picker.unselected', '尚未选择')
+          }}</strong>
+          <UiButton v-if="draftId" type="link" size="small" @click="draftId = undefined">{{
+            language.t('platform.screen.ScopedTreePicker.clear', '清除')
+          }}</UiButton>
         </div>
         <div v-if="error" class="scoped-tree-picker-error">
-          <UiError :message="error" />
-          <UiButton size="small" @click="reloadRoot">重试</UiButton>
+          <UiError :message="error()" />
+          <UiButton size="small" @click="reloadRoot">{{
+            language.t('platform.screen.ScopedTreePicker.retry', '重试')
+          }}</UiButton>
         </div>
         <UiTree
           :nodes="rootNodes"
@@ -248,7 +277,7 @@ defineExpose({ open: openPicker });
           :load-children="loadChildren"
           :reload-key="treeReloadKey"
           :min-loading-duration-ms="0"
-          empty-description="没有可选择的记录"
+          :empty-description="language.t('platform.reference-picker.empty', '没有可选择的记录')"
           @update:expanded-keys="expandedKeys = $event"
           @select="selectNode"
         />

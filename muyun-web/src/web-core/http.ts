@@ -1,4 +1,4 @@
-import type { RouteQueryValue } from '@muyun/web-contracts';
+import type { RouteQueryValue, TextPresentation } from '@muyun/web-contracts';
 import { AppError, platformErrorCodes, type ErrorTarget } from './errors';
 
 export interface RequestContext {
@@ -234,7 +234,34 @@ async function appErrorFromResponse(response: Response) {
     details: recordField(details, 'details') ?? (isRecord(details) ? details : undefined),
     messageArgs: recordField(details, 'messageArgs') ?? actionMessage?.messageArgs,
     actionMessage,
+    messageText: messageTextOf(details),
   });
+}
+
+function messageTextOf(details: unknown): TextPresentation | undefined {
+  if (!isRecord(details) || !isRecord(details.messageText)) return undefined;
+  const text = details.messageText;
+  if (!isRecord(text.source) || !isRecord(text.languages)) return undefined;
+  const source = text.source;
+  if (
+    (source.sourceKind !== 'CODE' && source.sourceKind !== 'CONFIG') ||
+    typeof source.sourceId !== 'string' ||
+    typeof source.sourceVersion !== 'string' ||
+    typeof source.originalText !== 'string'
+  )
+    return undefined;
+  if (
+    !Object.values(text.languages).every(
+      (resolution) =>
+        isRecord(resolution) &&
+        typeof resolution.text === 'string' &&
+        typeof resolution.requestedTag === 'string' &&
+        typeof resolution.missing === 'boolean' &&
+        typeof resolution.fallback === 'boolean',
+    )
+  )
+    return undefined;
+  return text as unknown as TextPresentation;
 }
 
 async function responseBody(response: Response) {

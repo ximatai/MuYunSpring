@@ -15,6 +15,8 @@ npm ci --prefix muyun-web
 npm run verify:consumer --prefix muyun-web
 ```
 
+消费包包含页面增强与工作区贡献的导入期注册；打包清单须保留这些 JavaScript 副作用，不能仅将 CSS 标记为有副作用。消费者契约会实际挂载角色范围导航和用户在线状态单元格，校验这些默认能力在宿主二次构建后仍可用。
+
 tarball 会生成在仓库的 `build/consumer-npm/`。消费者仓库不得提交本机路径或 tarball 本身。
 
 ## 日常联调：链接生成包
@@ -42,3 +44,20 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 公开契约，不依赖框架仓库的 `src/app` 宿主实现。
 
 正式 npm 发布后，本地 tarball 消费者验证仍保留，并作为发布前检查。
+
+## 宿主请求与认证恢复
+
+标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过
+`useModuleHttpClient()` 取得所属页面的客户端，不自行创建第二套连接配置；页面会话提供的
+`ModuleHttpProvider` 优先于应用默认配置。用户在线状态按该客户端隔离批次与缓存，页面最后一个
+观察者释放后取消订阅，已释放页面的晚返回不进入新页面缓存。
+
+默认 factory 可直接使用公开的 `createBackendHttpClient`，保留当前登录令牌、语言、流式请求和
+已提交数据变化分发。其 API 地址、备用开发令牌及 credentials 由宿主构建配置。宿主需要运行时
+地址、自定义认证头或传输策略时，可注入自己的 factory，内置辅助能力沿用同一客户端。
+
+消费应用使用默认客户端时，应通过公开的 `configureAuthenticationRecovery(handler)` 配置认证失效
+处理；回调收到错误和该请求实际使用的令牌，宿主应据此识别旧会话的晚返回，并决定是否恢复登录。
+返回 `true` 表示已全局处理；传入 `undefined` 解除处理器。匿名客户端不触发认证恢复。自定义
+`createHttpClient` 的宿主可直接使用其 `onAuthenticationRequired`，模块与辅助 API 共用该策略。
+实时连接仍由宿主通过 `connectAppRealtime` 显式传入连接参数并管理生命周期。

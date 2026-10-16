@@ -3,7 +3,13 @@ import { expect, it, vi } from 'vitest';
 import ConstructionPlanCard from '@/platform-workbench/ConstructionPlanCard.vue';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import { createConstructionPlanSession } from '@/platform-workbench/constructionPlanSession';
-import { AppError, createAssistantSurfaceRegistry, type ConstructionPlanClient } from '@muyun/web-core';
+import {
+  AppError,
+  createAssistantSurfaceRegistry,
+  createLanguageContext,
+  type LanguageContext,
+  type ConstructionPlanClient,
+} from '@muyun/web-core';
 import type { ConstructionPlanContent } from '@muyun/web-contracts';
 const content: ConstructionPlanContent = {
   title: '订单管理',
@@ -18,7 +24,7 @@ const content: ConstructionPlanContent = {
   decisions: [],
   acceptanceExamples: ['新增后可以查询'],
 };
-function fixture() {
+function fixture(language?: LanguageContext) {
   const client: ConstructionPlanClient = {
     task: vi.fn(),
     previewAcceptance: vi.fn(),
@@ -67,7 +73,12 @@ function fixture() {
       initializations: [],
     })),
   };
-  const session = createConstructionPlanSession(client, () => 'user');
+  const session = createConstructionPlanSession(
+    client,
+    () => 'user',
+    () => false,
+    language,
+  );
   return { client, session };
 }
 it.each([false, true])(
@@ -392,4 +403,136 @@ it('lets a business user edit rules, exclusions and relationships in the shared 
   expect(client.confirm).not.toHaveBeenCalled();
   expect(wrapper.text()).toContain('有未确认修改');
   wrapper.unmount();
+});
+
+it('keeps two construction owners isolated and switches fixed labels without changing a manual draft', async () => {
+  const english = createLanguageContext({ languageTag: 'en' });
+  const chinese = createLanguageContext({ languageTag: 'zh-CN' });
+  const a = fixture(english);
+  const b = fixture(chinese);
+  a.session.edit(content);
+  b.session.edit(content);
+  const proposal = a.session.prepare();
+  const first = mount(ConstructionPlanCard, { props: { session: a.session } });
+  const second = mount(ConstructionPlanCard, { props: { session: b.session } });
+  try {
+    expect(first.text()).toContain('Current construction design');
+    expect(first.text()).toContain('Current scope: 录入');
+    expect(first.text()).toContain('订单管理');
+    expect(second.text()).toContain('本次建设设计');
+    await first
+      .findAll('button')
+      .find((button) => button.text() === 'Edit business plan')!
+      .trigger('click');
+    await first.get('input').setValue('用户的新方案名称');
+    const generation = a.session.current().generation;
+    const candidate = structuredClone(a.session.current().candidate);
+    english.setLanguage('zh-CN');
+    await flushPromises();
+    expect(first.find('[aria-label="修改方案候选"]').exists()).toBe(true);
+    expect((first.get('input').element as HTMLInputElement).value).toBe('用户的新方案名称');
+    expect(a.session.current().generation).toBe(generation);
+    expect(a.session.current().candidate).toEqual(candidate);
+    expect(proposal.isCurrent()).toBe(false);
+    english.setLanguage('en');
+    await flushPromises();
+    expect(first.find('[aria-label="Edit plan candidate"]').exists()).toBe(true);
+    expect(second.text()).toContain('本次建设设计');
+    expect(a.client.confirm).not.toHaveBeenCalled();
+    expect(b.client.confirm).not.toHaveBeenCalled();
+    await first
+      .findAll('button')
+      .find((button) => button.text() === 'Update candidate for later confirmation')!
+      .trigger('click');
+    await flushPromises();
+    expect(a.session.current().candidate?.title).toBe('用户的新方案名称');
+    expect(a.session.current().candidate?.inScope).toEqual(['录入']);
+  } finally {
+    first.unmount();
+    second.unmount();
+  }
+});
+
+it('refreshes fixed task failures with the owner language without retrying a request', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { session, client } = fixture(language);
+  session.edit(content);
+  await session.prepare().execute();
+  vi.mocked(client.task).mockRejectedValue(new AppError('private provider body', { status: 500 }));
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('Actual construction progress is unavailable. Please try again.');
+    const count = vi.mocked(client.task).mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('实际建设进度暂时无法读取，请重试。');
+    expect(client.task).toHaveBeenCalledTimes(count);
+    expect(wrapper.text()).not.toContain('private provider body');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('renders safe failures in the current owner language without retrying requests', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { session, client } = fixture(language);
+  vi.mocked(client.list).mockRejectedValue(
+    new AppError('private provider body', { status: 500, code: 'INTERNAL_ERROR' }),
+  );
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  try {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Read saved plans')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain(
+      'A system error prevented the operation from completing',
+    );
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('系统异常');
+    expect(client.list).toHaveBeenCalledOnce();
+    expect(wrapper.text()).not.toContain('private provider body');
+    expect(client.confirm).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('refreshes local CODE validation errors after language changes without repeating the failed edit', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { session, client } = fixture(language);
+  session.edit(content);
+  const edit = vi.spyOn(session, 'editManually');
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  try {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Edit business plan')!
+      .trigger('click');
+    const generation = session.current().generation;
+    await wrapper.get('input').setValue('');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Update candidate for later confirmation')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('Plan text is empty or exceeds the length limit');
+    expect(edit).toHaveBeenCalledOnce();
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('方案文本为空或超出长度限制');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toBe('Plan text is empty or exceeds the length limit');
+    expect(edit).toHaveBeenCalledOnce();
+    expect(session.current().generation).toBe(generation);
+    expect(session.current().candidate).toEqual(content);
+    expect(client.confirm).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+    edit.mockRestore();
+  }
 });

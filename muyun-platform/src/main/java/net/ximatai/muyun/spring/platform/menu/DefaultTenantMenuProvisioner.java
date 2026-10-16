@@ -16,7 +16,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.Objects;
 
-public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
+public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner, org.springframework.core.Ordered {
     public static final String TENANT_ADMIN_SCHEME_ALIAS = "tenant_admin";
     public static final String TENANT_ADMIN_SCHEME_TITLE = "租户管理";
     private static final String SCHEME_ID_PREFIX = "tenant_menu_";
@@ -37,6 +37,8 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         reconcileTenantAdminMenus(tenantId);
     }
 
+    @Override public int getOrder() { return 100; }
+
     /**
      * Reconciles the system-provided default menu copy for an existing tenant.
      * Tenant-specific business menus are outside this method's scope.
@@ -49,6 +51,18 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
             collectDefaultMenuPaths(TreeAbility.ROOT_ID, defaultMenuIds);
             reconcileSystemMenuCopies(validTenantId, scheme.getId(), TreeAbility.ROOT_ID, true, defaultMenuIds);
         }
+    }
+
+    public static net.ximatai.muyun.spring.common.i18n.TextReference tenantAdminSchemeTitleBaseline() {
+        return net.ximatai.muyun.spring.common.i18n.TextReference.configured(
+                "config/preset/platform.menu_scheme/tenant_admin/title", TENANT_ADMIN_SCHEME_TITLE);
+    }
+
+    public static boolean isTenantAdminScheme(MenuScheme scheme) {
+        return scheme != null && scheme.getTenantId() != null && !scheme.getTenantId().isBlank()
+                && tenantAdminSchemeId(scheme.getTenantId()).equals(scheme.getId())
+                && TENANT_ADMIN_SCHEME_ALIAS.equals(scheme.getAlias())
+                && scheme.getScopeType() == MenuScopeType.TENANT && scheme.getOrganizationId() == null;
     }
 
     public static String tenantAdminSchemeId(String tenantId) {
@@ -234,7 +248,7 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
                 String.valueOf(source.getSortOrder())));
     }
 
-    private static String tenantMenuId(String tenantId, String sourceMenuId) {
+    public static String tenantMenuId(String tenantId, String sourceMenuId) {
         String validTenantId = requireText(tenantId, "tenantId");
         String validSourceMenuId = requireText(sourceMenuId, "sourceMenuId");
         String candidate = MENU_ID_PREFIX + validTenantId + "_" + shortHash(validSourceMenuId);

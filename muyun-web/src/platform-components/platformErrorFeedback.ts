@@ -2,6 +2,7 @@ import {
   normalizeError,
   resolveGlobalErrorPresentation,
   type AppError,
+  type LanguageContext,
   type ErrorUiContext,
   type GlobalErrorPresentation,
 } from '@muyun/web-core';
@@ -15,6 +16,7 @@ import {
 export interface PlatformErrorFeedbackContext {
   source?: string;
   phase?: 'load' | 'action' | 'validation' | 'authorization';
+  language?: LanguageContext;
   tone?: 'error' | 'success';
 }
 
@@ -23,7 +25,7 @@ export function presentPlatformError(cause: unknown, context: PlatformErrorFeedb
   if (error.globallyHandled) {
     return error;
   }
-  const presentation = resolveGlobalErrorPresentation(error, toErrorUiContext(context));
+  const presentation = resolveGlobalErrorPresentation(error, toErrorUiContext(context), context.language);
   presentGlobalErrorPresentation(presentation);
   return error;
 }
@@ -70,8 +72,7 @@ export function matchesPlatformActionErrorHandler<TContext>(
   return (
     error.details?.marker === handler.marker ||
     error.details?.reason === handler.marker ||
-    error.details?.errorKey === handler.marker ||
-    error.message.includes(handler.marker)
+    error.details?.errorKey === handler.marker
   );
 }
 

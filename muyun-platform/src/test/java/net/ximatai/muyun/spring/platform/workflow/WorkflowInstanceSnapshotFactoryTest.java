@@ -8,6 +8,11 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowInstanceSnapshotFactoryTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
     private final WorkflowInstanceSnapshotFactory factory = new WorkflowInstanceSnapshotFactory(
             new WorkflowInstanceStateService(), eventFactory);

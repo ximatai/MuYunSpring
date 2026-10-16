@@ -1,7 +1,9 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.databind.JsonNode;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,10 +55,14 @@ final class PlatformTaskBlockLayoutResolver {
             return List.of();
         }
         if (!checks.isArray()) {
-            throw new PlatformException("taskPanel.checks must be array");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-task-block-layout-resolver.taskpanel-checks-must-be-array",
+                    "taskPanel.checks must be array"));
         }
         if (checks.isEmpty()) {
-            throw new PlatformException("taskPanel.checks must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-task-block-layout-resolver.taskpanel-checks-must-not-be-empty",
+                    "taskPanel.checks must not be empty"));
         }
         ArrayList<PlatformTaskCheckBlock> resolved = new ArrayList<>();
         for (JsonNode check : checks) {
@@ -84,7 +90,9 @@ final class PlatformTaskBlockLayoutResolver {
         try {
             return PlatformTaskCheckType.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException exception) {
-            throw new PlatformException("Unsupported task check type: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-task-block-layout-resolver.unsupported-task-check-type",
+                    "Unsupported task check type: {value1}"), Map.of("value1", String.valueOf(value)));
         }
     }
 
@@ -102,7 +110,9 @@ final class PlatformTaskBlockLayoutResolver {
             return null;
         }
         if (!value.isInt() || value.asInt() <= 0) {
-            throw new PlatformException("taskPanel." + field + " must be positive integer");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-task-block-layout-resolver.taskpanel-must-be-positive-integer",
+                    "taskPanel.{value1} must be positive integer"), Map.of("value1", String.valueOf(field)));
         }
         return value.asInt();
     }

@@ -382,7 +382,7 @@ class PlatformModuleRuntimeContextServiceTest {
                 module("iam.organization", "组织管理", ModuleKind.STATIC)
         ));
         when(dynamicRecordService.describe("education.exam"))
-                .thenThrow(new ModuleDefinitionException("unknown module alias: education.exam"));
+                .thenThrow(new net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException("education.exam"));
         when(dynamicRecordService.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor(
                 "sales.contract", "合同", "contract", List.of(), List.of(), List.of(), List.of(), List.of()));
         PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
@@ -796,6 +796,10 @@ class PlatformModuleRuntimeContextServiceTest {
                 .containsExactly("title");
         assertThat(plan.querySchema().quickSearch().fields()).isEqualTo(!Boolean.FALSE.equals(searchable) ? List.of("title") : List.of());
         assertThat(plan.querySchema().quickSearch().enabled()).isEqualTo(!Boolean.FALSE.equals(searchable));
+        var titleSource = net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.metadataFieldTitle(
+                "sales.contract", "contract", "title", "Title");
+        assertThat(plan.querySchema().quickSearch().fieldSchemas()).allSatisfy(field ->
+                assertThat(field.titleSource()).isEqualTo(titleSource));
         assertThat(plan.uiDescriptor().page().explorer().titleField()).isEqualTo("title");
         assertThat(plan.uiDescriptor().page().template()).isEqualTo(template);
     }
@@ -1241,6 +1245,8 @@ class PlatformModuleRuntimeContextServiceTest {
                 .satisfies(action -> {
                     assertThat(action.authorized()).isTrue();
                     assertThat(action.title()).isEqualTo(PlatformAction.VIEW.title());
+                    assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CODE);
+                    assertThat(action.titleSource().sourceId()).isEqualTo(PlatformAction.VIEW.titleKey());
                     assertThat(action.permissionActionCode()).isEqualTo(PlatformAction.VIEW.permissionActionCode());
                     assertThat(action.actionAuth()).isFalse();
                     assertThat(action.authorizationDecision()).isEqualTo(ActionAuthorizationResult.DECISION_ALLOWED);
@@ -1402,6 +1408,11 @@ class PlatformModuleRuntimeContextServiceTest {
 
         PlatformModuleRuntimeContext context = service.context("sales.contract");
 
+        assertThat(context.actions()).allSatisfy(action -> {
+            assertThat(action.titleSource().sourceKind()).isEqualTo(net.ximatai.muyun.spring.common.i18n.TextReference.SourceKind.CONFIG);
+            assertThat(action.titleSource().originalText()).isEqualTo(action.title());
+            assertThat(action.titleSource().sourceId()).startsWith("config/action/sales.contract/");
+        });
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
                 .containsExactly("update", "view");
         assertThat(context.actions()).filteredOn(action -> "update".equals(action.actionCode()))
@@ -1653,7 +1664,8 @@ class PlatformModuleRuntimeContextServiceTest {
         when(dynamicRecordService.actionAuthorizationAvailability("sales.contract", "contract", "preview",
                 Set.of("contract-1"))).thenReturn(DynamicActionAvailability.available("preview"));
         when(dynamicRecordService.actionAvailability("sales.contract", "submit", record))
-                .thenReturn(DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交"));
+                .thenReturn(DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交",
+                        net.ximatai.muyun.spring.common.i18n.TextReference.configured("config/action/submit/reason", "只有草稿合同可以提交")));
         when(dynamicRecordService.actionAvailability("sales.contract", "preview", record))
                 .thenReturn(DynamicActionAvailability.available("preview"));
         ActiveTenantVerifier activeTenantVerifier = mock(ActiveTenantVerifier.class);
@@ -1674,9 +1686,15 @@ class PlatformModuleRuntimeContextServiceTest {
                 List.of()
         );
 
+        when(dynamicRecordService.recordActionAvailability("sales.contract", "contract", Set.of("submit", "preview"), List.of("contract-1")))
+                .thenReturn(List.of(new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordActionAvailability("contract-1", Map.of(
+                        "submit", DynamicActionAvailability.unavailable("submit", "只有草稿合同可以提交",
+                                net.ximatai.muyun.spring.common.i18n.TextReference.configured("config/action/submit/reason", "只有草稿合同可以提交")),
+                        "preview", DynamicActionAvailability.available("preview")))));
         PlatformRecordActionAvailability availability;
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             availability = service.recordActions("sales.contract", "contract-1");
+            assertThat(service.recordActions("sales.contract", List.of("contract-1"))).containsExactly(availability);
         }
 
         assertThat(availability.recordId()).isEqualTo("contract-1");
@@ -1687,12 +1705,60 @@ class PlatformModuleRuntimeContextServiceTest {
                 .satisfies(action -> {
                     assertThat(action.available()).isFalse();
                     assertThat(action.reason()).isEqualTo("只有草稿合同可以提交");
+                    assertThat(action.reasonSource().sourceId()).isEqualTo("config/action/submit/reason");
                 });
         assertThat(availability.actions()).filteredOn(action -> "preview".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> assertThat(action.available()).isTrue());
-        verify(activeTenantVerifier).verifyActiveTenant("tenant-a");
+        verify(activeTenantVerifier, org.mockito.Mockito.times(2)).verifyActiveTenant("tenant-a");
     }
+
+    @Test
+    void shouldProjectApprovalUpdateProtectionIntoSingleAndBatchRecordAvailability() {
+        PlatformModuleService moduleCatalog = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleCatalog.resolveVisibleModule("test.approval"))
+                .thenReturn(module("test.approval", "审批业务", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("test.approval"))).thenReturn(List.of());
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("test", "test.approval", "审批业务")
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.VIEW),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.UPDATE),
+                        StaticModuleActionDefinition.platformAction(PlatformAction.DELETE))).build();
+        ApprovalRecordAbility ability = mock(ApprovalRecordAbility.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        when(ability.getModuleAlias()).thenReturn("test.approval");
+        var records = new java.util.ArrayList<net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity>();
+        for (String status : List.of("processing", "approved", "rejected")) {
+            var record = new net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity() {};
+            record.setId(status); record.setApprovalStatus(status); records.add(record);
+            org.mockito.Mockito.doReturn(record).when(ability).select(status);
+        }
+        org.mockito.Mockito.doReturn(records).when(ability).list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class));
+        PlatformModuleRuntimeContextService runtimeContextService = new PlatformModuleRuntimeContextService(
+                moduleCatalog, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null, null, null, allowAllPolicy());
+        var service = new PlatformRecordActionAvailabilityService(runtimeContextService, null, null, List.of(ability),
+                List.of((module, action, id) -> java.util.Optional.of(RecordActionAvailabilityDecision.allow())));
+        var ids = List.of("processing", "approved", "rejected");
+        var batch = service.recordActions("test.approval", ids);
+        for (int index = 0; index < ids.size(); index++) {
+            String id = ids.get(index);
+            var single = service.recordActions("test.approval", id);
+            assertThat(single).isEqualTo(batch.get(index));
+            assertThat(single.actions()).filteredOn(action -> "update".equals(action.actionCode()))
+                    .singleElement().satisfies(action -> {
+                        assertThat(action.available()).isEqualTo("rejected".equals(id));
+                        if (!action.available()) {
+                            assertThat(action.reason()).contains("不可直接修改");
+                            assertThat(action.reasonSource().sourceId()).isEqualTo("platform.approval.update-unavailable");
+                        }
+                    });
+            assertThat(single.actions()).filteredOn(action -> !"update".equals(action.actionCode()))
+                    .allSatisfy(action -> assertThat(action.available()).isTrue());
+        }
+        // Non-update standard actions must not trigger extra reads for approval-only services.
+        for (String id : ids) org.mockito.Mockito.verify(ability, org.mockito.Mockito.times(1)).select(id);
+    }
+
+    private interface ApprovalRecordAbility extends net.ximatai.muyun.spring.ability.ApprovalAbility<net.ximatai.muyun.spring.common.model.standard.StandardApprovalEntity> {}
 
     @Test
     void shouldProjectPlatformManagedProtectionIntoStaticRecordActionAvailability() {

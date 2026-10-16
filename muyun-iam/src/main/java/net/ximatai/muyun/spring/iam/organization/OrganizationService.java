@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.iam.organization;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
@@ -54,7 +56,9 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
             String tenantId = requireActiveTenantMutationContext();
             Organization organization = selectActiveRaw(id);
             if (organization == null || !tenantId.equals(organization.getTenantId())) {
-                throw new PlatformException("Organization does not exist in current tenant: " + id);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "iam.rejection.organization.organization-does-not-exist-in-current-tenant",
+                        "Organization does not exist in current tenant: {value1}"), Map.of("value1", String.valueOf(id)));
             }
             notifyCreationProvisioners(tenantId, id);
             return null;

@@ -1,4 +1,11 @@
 import { ref } from 'vue';
+import {
+  normalizeError,
+  userFacingErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
+  type AppError,
+} from '@muyun/web-core';
 import { presentPlatformError } from '@muyun/platform-components';
 import type { QueryListRecord } from '@muyun/platform-components';
 import type { UserSessionView, WebBusinessRealtimeEvent } from '@muyun/web-contracts';
@@ -11,16 +18,20 @@ export interface UserSessionState {
   error?: string;
 }
 
+type StoredUserSessionState = UserSessionState & { failure?: AppError };
+
 interface UserSessionRowsOptions {
   context: ModuleContext<QueryListRecord>;
   source: string;
+  language?: LanguageContext;
 }
 
 /** IAM session state used by the standard list's business-owned row expansion. */
 export function useUserSessionRows(options: UserSessionRowsOptions) {
+  const language = options.language ?? platformLanguageContext;
   const sessionCollectionChanged = 'iam.user.session.collectionChanged';
   const expandedUserIds = ref<string[]>([]);
-  const states = ref<Record<string, UserSessionState>>({});
+  const states = ref<Record<string, StoredUserSessionState>>({});
   const refreshQueue = createRealtimeRefreshQueue<string>({
     load: async (run) => {
       await Promise.all(run.keys.map((userId) => loadNow(userId, run.isLatest)));
@@ -35,7 +46,7 @@ export function useUserSessionRows(options: UserSessionRowsOptions) {
     // Record actions are loaded immediately below. Before that request, `can`
     // is intentionally unknown rather than denied.
     if (options.context.can('sessions', userId) === false) return;
-    setState(userId, { ...userSessionState(userId), loading: true, error: undefined });
+    setState(userId, { ...userSessionState(userId), loading: true, error: undefined, failure: undefined });
     try {
       await options.context.recordActions(userId);
       const records = await options.context.http.request<UserSessionView[]>({
@@ -45,8 +56,9 @@ export function useUserSessionRows(options: UserSessionRowsOptions) {
       if (isLatest(userId)) setState(userId, { records, loading: false });
     } catch (cause) {
       if (!isLatest(userId)) return;
-      const error = presentPlatformError(cause, { source: `${options.source}-sessions`, phase: 'load' });
-      setState(userId, { ...userSessionState(userId), loading: false, error: error.message });
+      const failure = normalizeError(cause);
+      presentPlatformError(failure, { language, source: `${options.source}-sessions`, phase: 'load' });
+      setState(userId, { ...userSessionState(userId), loading: false, failure });
     }
   }
 
@@ -66,9 +78,9 @@ export function useUserSessionRows(options: UserSessionRowsOptions) {
   }
 
   function userSessionState(userId: string | undefined): UserSessionState {
-    return userId
-      ? (states.value[userId] ?? { records: [], loading: false })
-      : { records: [], loading: false };
+    const state = userId ? states.value[userId] : undefined;
+    if (!state) return { records: [], loading: false };
+    return state.failure ? { ...state, error: userFacingErrorMessage(state.failure, language) } : state;
   }
 
   function reset() {
@@ -77,7 +89,7 @@ export function useUserSessionRows(options: UserSessionRowsOptions) {
     states.value = {};
   }
 
-  function setState(userId: string, state: UserSessionState) {
+  function setState(userId: string, state: StoredUserSessionState) {
     states.value = { ...states.value, [userId]: state };
   }
 

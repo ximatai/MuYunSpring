@@ -25,6 +25,13 @@ public record StaticModuleActionDefinition(
         String executorKey,
         boolean formSupported
 ) {
+    /** Declaration-owned title: standard actions share their platform resource, custom actions belong to the module. */
+    public net.ximatai.muyun.spring.common.i18n.TextReference titleSource(String moduleAlias) {
+        if (category == EntityActionCategory.WORKFLOW && "submitApproval".equals(actionCode) && "提交审批".equals(title))
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.workflow.action.submitApproval.title", title);
+        return net.ximatai.muyun.spring.common.platform.PlatformActionTextSources.declared(moduleAlias, actionCode, title);
+    }
+
     public StaticModuleActionDefinition(String actionCode,
                                         String permissionActionCode,
                                         String title,

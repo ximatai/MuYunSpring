@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   UiActionButton,
@@ -8,6 +9,8 @@ import {
   type UiIconName,
 } from '@muyun/vue-ui-antdv';
 import { resolveHeaderActionLayout, type HeaderActionLevel } from './adaptiveHeaderActionLayout';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'AdaptiveHeaderActionBar' });
 
@@ -151,7 +154,9 @@ watch(
         @select="handleOverflowAction"
       >
         <template #default>
-          <UiActionButton>更多</UiActionButton>
+          <UiActionButton>{{
+            language.t('platform.screen.AdaptiveHeaderActionBar.more', '更多')
+          }}</UiActionButton>
         </template>
       </UiDropdown>
     </div>
@@ -165,7 +170,9 @@ watch(
         :icon-name="action.iconName"
         >{{ action.title }}</UiActionButton
       >
-      <UiActionButton data-header-more-measure>更多</UiActionButton>
+      <UiActionButton data-header-more-measure>{{
+        language.t('platform.screen.AdaptiveHeaderActionBar.more', '更多')
+      }}</UiActionButton>
     </div>
   </div>
 </template>

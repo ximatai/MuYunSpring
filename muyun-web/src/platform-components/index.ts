@@ -16,7 +16,12 @@ export { default as DateTimeText } from './DateTimeText.vue';
 export { default as FileSizeText } from './FileSizeText.vue';
 export { default as FileTransferUploader } from './FileTransferUploader.vue';
 export { default as SingleImageFileReferenceField } from './SingleImageFileReferenceField.vue';
-export { createBrowserFileTransferUpload, unwrapResponsePayload } from './fileTransferUpload';
+export {
+  createBrowserFileTransferUpload,
+  unwrapResponsePayload,
+  FileTransferUploadError,
+  FileTransferUploadCancelledError,
+} from './fileTransferUpload';
 export type {
   FileTransferUploadAccess,
   FileTransferUploadReceipt,
@@ -86,7 +91,11 @@ export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
 export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
 export { default as ReferencePicker } from './ReferencePicker.vue';
-export { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+export {
+  readonlyReferenceDisplay,
+  readonlyReferenceNameProjection,
+  readonlyReferenceSummaryOf,
+} from './readonlyReferenceDisplay';
 export { createQueryReferencePickerProvider } from './queryReferencePickerProvider';
 export {
   createSourceReferencePickerProvider,
@@ -345,3 +354,12 @@ export { referenceDisplayProjections } from './recordFormFieldModel';
 export { referencePickerDisplayTitle } from './referencePickerModel';
 
 export { queryNumericValueSchema } from './queryNumericValue';
+export { default as WorkflowRecordPanel } from './WorkflowRecordPanel.vue';
+export { default as WorkflowDiagram } from './WorkflowDiagram.vue';
+export { workflowTitle } from './workflowPresentation';
+
+export { default as WorkflowParticipantEditor } from './WorkflowParticipantEditor.vue';
+
+export { default as WorkflowBusinessTaskEditor } from './WorkflowBusinessTaskEditor.vue';
+
+export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.vue';

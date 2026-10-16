@@ -14,3 +14,5 @@ export * from './moduleContext';
 export * from './pageActionEntries';
 
 export * from './dataExchangeClient';
+
+export { displayModuleRuntime } from './runtimeContext';

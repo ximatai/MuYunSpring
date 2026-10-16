@@ -1,17 +1,32 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import type { ThemeSkinPreferenceFailure } from './themeSkinPreference';
+import { useLanguageContext } from '@muyun/web-core';
 import { UiModal, type UiThemeSkin, type UiThemeSkinId } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ThemeSkinPreferencesDialog' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     skins: readonly UiThemeSkin[];
     activeSkinId: UiThemeSkinId;
     saving?: boolean;
     error?: string;
+    failure?: ThemeSkinPreferenceFailure;
   }>(),
-  { saving: false, error: undefined },
+  { saving: false, error: undefined, failure: undefined },
+);
+
+const displayError = computed(() =>
+  props.failure === 'save-failed'
+    ? language.t(
+        'platform.screen.themeSkinPreference.could-not-save-the-appearance-preference-the-previous',
+        '皮肤保存失败，已恢复为之前的设置。',
+      )
+    : props.error,
 );
 
 const emit = defineEmits<{
@@ -43,20 +58,39 @@ function moveSkinFocus(event: KeyboardEvent, currentIndex: number) {
 <template>
   <UiModal
     :open="open"
-    title="偏好设置"
+    :title="language.t('platform.screen.ThemeSkinPreferencesDialog.preferences', '偏好设置')"
     :width="460"
-    :confirm-text="saving ? '保存中…' : '完成'"
+    :confirm-text="
+      saving
+        ? language.t('platform.screen.ThemeSkinPreferencesDialog.saving', '保存中…')
+        : language.t('platform.screen.ThemeSkinPreferencesDialog.done', '完成')
+    "
     :confirm-loading="saving"
     @confirm="emit('close')"
     @cancel="emit('close')"
   >
     <section class="theme-skin-preferences">
       <header>
-        <h2>工作台皮肤</h2>
-        <p>皮肤会同步保存到当前账号，并在下次启动时优先恢复。</p>
+        <h2>
+          {{ language.t('platform.screen.ThemeSkinPreferencesDialog.workbench-appearance', '工作台皮肤') }}
+        </h2>
+        <p>
+          {{
+            language.t(
+              'platform.screen.ThemeSkinPreferencesDialog.your-appearance-preference-is-saved-to-this-account',
+              '皮肤会同步保存到当前账号，并在下次启动时优先恢复。',
+            )
+          }}
+        </p>
       </header>
-      <p v-if="error" class="theme-skin-error" role="alert">{{ error }}</p>
-      <div class="theme-skin-grid" role="radiogroup" aria-label="工作台皮肤">
+      <p v-if="displayError" class="theme-skin-error" role="alert">{{ displayError }}</p>
+      <div
+        class="theme-skin-grid"
+        role="radiogroup"
+        :aria-label="
+          language.t('platform.screen.ThemeSkinPreferencesDialog.workbench-appearance', '工作台皮肤')
+        "
+      >
         <button
           v-for="(skin, index) in skins"
           :key="skin.id"
@@ -85,8 +119,10 @@ function moveSkinFocus(event: KeyboardEvent, currentIndex: number) {
             <i class="theme-skin-preview-toolbar" />
             <i class="theme-skin-preview-card" />
           </span>
-          <strong>{{ skin.title }}</strong>
-          <small>{{ skin.description }}</small>
+          <strong>{{ skin.titleKey ? language.t(skin.titleKey, skin.title) : skin.title }}</strong>
+          <small>{{
+            skin.descriptionKey ? language.t(skin.descriptionKey, skin.description) : skin.description
+          }}</small>
         </button>
       </div>
     </section>

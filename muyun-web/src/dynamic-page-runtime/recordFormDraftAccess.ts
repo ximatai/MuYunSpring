@@ -5,10 +5,12 @@ import type {
   RecordFormRecord,
   ReferencePickerCandidate,
 } from '@muyun/platform-components';
-import { DraftUpdateRejectedError, OperationUsageError } from '@muyun/web-core';
+import { DraftUpdateRejectedError, OperationUsageError, type LanguageContext } from '@muyun/web-core';
 
 /** Controlled access to an existing editor, including a row of an aggregate draft. */
 export interface RecordFormDraftAccess {
+  /** Display scope of the owning editor; never used as a business execution scope. */
+  readonly language?: LanguageContext;
   readonly editorMode: 'view' | 'create' | 'edit';
   readonly editingRecord?: RecordFormRecord;
   readonly selectedRecord?: RecordFormRecord;

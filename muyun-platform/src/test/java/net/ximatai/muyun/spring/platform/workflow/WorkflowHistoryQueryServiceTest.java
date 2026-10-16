@@ -20,6 +20,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowHistoryQueryServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowHistoryInstanceDao historyDao = mock(WorkflowHistoryInstanceDao.class);
     private final WorkflowArchiveService archiveService = mock(WorkflowArchiveService.class);
     private final WorkflowActionPolicyService actionPolicyService = mock(WorkflowActionPolicyService.class);

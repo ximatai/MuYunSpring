@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, defineComponent, h } from 'vue';
 import { WORKSPACE_NAVIGATION_DISABLED } from '@/platform-components/managementWorkspaceContext';
 import { config, flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,8 +6,16 @@ import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import {
+  AppError,
+  createLanguageContext,
+  provideLanguageContext,
+  translatedPresentation,
+  type ModuleRuntimeContext,
+  type HttpClient,
+  type ModuleContext,
+} from '@muyun/web-core';
+import type { WebQueryRequest, ResolvedPageListPersistentQueryControlDescriptor } from '@muyun/web-contracts';
 import type { RecordQueryListQueryController } from '@/platform-components/recordQueryListQueryController';
 
 const originalStubs = config.global.stubs;
@@ -19,6 +27,54 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('switches default table and filter labels without replacing raw records or repeating their query', async () => {
+    const requests: WebQueryRequest[] = [];
+    const raw = { id: 'record', title: '中文业务名称' };
+    const context = createContext(raw, requests);
+    const language = createLanguageContext({ languageTag: 'zh-CN' });
+    const original = {
+      moduleAlias: 'demo.note',
+      textBindings: {
+        '/uiDescriptor/page/list/fields/fields/0/label': {
+          source: {
+            sourceKind: 'CODE' as const,
+            sourceId: 'field/title',
+            sourceVersion: 'v1',
+            originalText: '标题',
+          },
+          languages: { en: { text: 'Title', requestedTag: 'en', missing: false, fallback: false } },
+        },
+      },
+      uiDescriptor: {
+        page: {
+          list: {
+            fields: {
+              viewKind: 'LIST',
+              viewCode: 'list',
+              fields: [{ fieldRef: { fieldName: 'title' }, label: '标题', valueType: 'STRING' }],
+            },
+          },
+        },
+      },
+    };
+    context.runtime.ready = Promise.resolve(original as unknown as ModuleRuntimeContext);
+    context.runtime.snapshot = () => original as unknown as ModuleRuntimeContext;
+    context.runtime.presentationSnapshot = () =>
+      translatedPresentation(original, language) as unknown as ModuleRuntimeContext;
+    const wrapper = shallowMount(RecordQueryListPanel, { props: { context, title: 'Records' } });
+    await flushPromises();
+    const surface = () => wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    expect(surface().props('columns')[0].title).toBe('标题');
+    const count = requests.length;
+    language.setLanguage('en');
+    await flushPromises();
+    expect(surface().props('columns')[0].title).toBe('Title');
+    expect(requests.length).toBe(count);
+    expect(surface().props('rows')[0].record.title).toBe('中文业务名称');
+    expect(raw.title).toBe('中文业务名称');
+    wrapper.unmount();
+  });
+
   it('refreshes the unfiltered recycle count after reloading a filtered recycle page', async () => {
     const context = createContext({ id: 'active' });
     context.abilities.has = () => true;
@@ -1555,3 +1611,163 @@ function createContext(
     },
   } as unknown as ModuleContext<QueryListRecord>;
 }
+
+it('continues basic list loading only for a structured unsupported-schema fact', async () => {
+  for (const [code, message, shouldQuery] of [
+    ['QUERY_SCHEMA_UNSUPPORTED', '此模块不支持高级查询', true],
+    ['APP_ERROR', 'query schema is not supported by misleading text', false],
+  ] as const) {
+    const queries: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note' }, queries);
+    context.crud.querySchema = async () => {
+      throw new AppError(message, { code });
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, { props: { context, title: '记录' } });
+    await flushPromises();
+    expect(queries.length > 0).toBe(shouldQuery);
+    wrapper.unmount();
+  }
+});
+
+it('translates declared contributed column headings while retaining rows and the loaded query', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requests: WebQueryRequest[] = [];
+  const raw = { id: 'record-original', title: '业务原名' };
+  const context = createContext(raw, requests);
+  const columns = [
+    { key: 'title', title: '在线状态', titleKey: 'platform.entry.online-status' },
+    { key: 'business', title: '在线状态' },
+  ];
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(RecordQueryListPanel, { context, columns, title: 'Records' });
+      },
+    }),
+    { global: { stubs: { RecordQueryListPanel: false } } },
+  );
+  await flushPromises();
+  const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+  const rows = surface.props('rows');
+  const count = requests.length;
+  expect(surface.props('columns').map((column: { title: string }) => column.title)).toEqual([
+    'Online status',
+    '在线状态',
+  ]);
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(surface.props('columns')[0].title).toBe('在线状态');
+  language.setLanguage('en');
+  await flushPromises();
+  expect(surface.props('columns')[0].title).toBe('Online status');
+  expect(surface.props('rows')).toBe(rows);
+  expect(requests.length).toBe(count);
+  expect(raw.title).toBe('业务原名');
+  expect(columns[0].title).toBe('在线状态');
+  wrapper.unmount();
+});
+
+it('switches sourced query and persistent labels while retaining an unapplied condition draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requests: WebQueryRequest[] = [];
+  const context = createContext({ id: 'note', status: 'OPEN' }, requests);
+  const titleText = {
+    source: {
+      sourceKind: 'CODE' as const,
+      sourceId: 'query/test/status/title',
+      sourceVersion: 'v1',
+      originalText: '状态',
+    },
+    languages: {
+      en: { text: 'Status', requestedTag: 'en', missing: false, fallback: false },
+      'zh-CN': { text: '状态', requestedTag: 'zh-CN', missing: false, fallback: false },
+    },
+  };
+  const querySchema = {
+    scopeName: 'demo.note',
+    quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+    fields: [
+      {
+        name: 'status',
+        title: '状态',
+        titleText,
+        valueType: 'STRING' as const,
+        operators: ['EQ' as const],
+        defaultOperator: 'EQ' as const,
+        persistentControl: {
+          id: 'status',
+          title: '状态',
+          titleText,
+          operator: 'EQ' as const,
+          defaultValues: [],
+        },
+      },
+    ],
+    externalCriteria: [],
+    defaultSorts: [],
+  };
+  const original = JSON.stringify(querySchema);
+  const overrides = ref<ResolvedPageListPersistentQueryControlDescriptor[]>();
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(RecordQueryListPanel, {
+            context,
+            title: 'Records',
+            querySchema,
+            persistentQueryControls: overrides.value,
+          });
+      },
+    }),
+    {
+      global: {
+        stubs: { RecordQueryListPanel: false, ManagementPanelHeader: false, QueryValueEditor: false },
+      },
+    },
+  );
+  try {
+    await flushPromises();
+    const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    const instance = editor.vm.$;
+    expect(editor.props('field').title).toBe('Status');
+    editor.vm.$emit('update:values', ['OPEN']);
+    await flushPromises();
+    const count = requests.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'QueryValueEditor' }).props('field').title).toBe('状态');
+    expect(wrapper.findComponent({ name: 'QueryValueEditor' }).vm.$).toBe(instance);
+    expect(editor.props('values')).toEqual(['OPEN']);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(editor.props('field').title).toBe('Status');
+    expect(editor.props('values')).toEqual(['OPEN']);
+    expect(requests.length).toBe(count);
+    wrapper
+      .find('.record-query-list-persistent-field-actions')
+      .findComponent({ name: 'UiButton' })
+      .vm.$emit('click');
+    await vi.waitFor(() => expect(requests.length).toBe(count + 1));
+    expect(requests.at(-1)?.criteria).toMatchObject({
+      children: [{ fieldName: 'status', values: ['OPEN'] }],
+    });
+    expect(JSON.stringify(querySchema)).toBe(original);
+    overrides.value = [
+      {
+        source: 'FIELD',
+        id: 'status',
+        title: '状态',
+        fieldName: 'status',
+        operator: 'EQ',
+        defaultValues: [],
+      },
+    ];
+    await flushPromises();
+    expect(wrapper.find('.record-query-list-persistent-field-label').text()).toBe('状态');
+  } finally {
+    wrapper.unmount();
+  }
+});

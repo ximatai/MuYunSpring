@@ -1,10 +1,12 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
@@ -63,7 +65,9 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
     /** Stable scope ids turn the generic DAO's primary-key upsert into an atomic last-write-wins save. */
     private PreferenceScope currentScope(PlatformUiClientType clientType, String preferenceKey) {
         CurrentUser user = CurrentUserContext.currentUser()
-                .orElseThrow(() -> new PlatformException("user preference requires current user"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.user-preference.user-preference-requires-current-user",
+                        "user preference requires current user")));
         PlatformUiClientType normalizedClientType = normalizeClientType(clientType);
         String normalizedPreferenceKey = normalizePreferenceKey(preferenceKey);
         String tenantId = currentTenantId(user);
@@ -84,7 +88,9 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
             return null;
         }
         if (user.tenantId() == null) {
-            throw new PlatformException("user preference requires tenant id for tenant user");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-requires-tenant-id-for-tenant-user",
+                    "user preference requires tenant id for tenant user"));
         }
         return user.tenantId();
     }
@@ -96,10 +102,14 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
     private String normalizePreferenceKey(String preferenceKey) {
         String normalized = requireText(preferenceKey, "preferenceKey");
         if (normalized.length() > 128) {
-            throw new PlatformException("user preference preferenceKey must not exceed 128 characters");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-preferencekey-must-not-exceed-128-characters",
+                    "user preference preferenceKey must not exceed 128 characters"));
         }
         if (!normalized.matches("[a-z][a-z0-9_]*(?:[.-][a-z][a-z0-9_]*)*")) {
-            throw new PlatformException("user preference preferenceKey must use lower-case dotted or dashed segments");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-preferencekey-must-use-lower-case-dotted-or-dashed-segments",
+                    "user preference preferenceKey must use lower-case dotted or dashed segments"));
         }
         return normalized;
     }
@@ -107,20 +117,25 @@ public class UserPreferenceService extends AbstractAbilityService<UserPreference
     private String requireValueJson(String valueJson) {
         String normalized = requireText(valueJson, "valueJson");
         if (normalized.getBytes(StandardCharsets.UTF_8).length > MAX_VALUE_JSON_BYTES) {
-            throw new PlatformException("user preference valueJson must not exceed "
-                    + MAX_VALUE_JSON_BYTES + " UTF-8 bytes");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-valuejson-must-not-exceed-utf-8-bytes",
+                    "user preference valueJson must not exceed {value1} UTF-8 bytes"), Map.of("value1", String.valueOf(MAX_VALUE_JSON_BYTES)));
         }
         try {
             OBJECT_MAPPER.readTree(normalized);
             return normalized;
         } catch (JsonProcessingException ex) {
-            throw new PlatformException("user preference valueJson must be valid JSON", ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-valuejson-must-be-valid-json",
+                    "user preference valueJson must be valid JSON"), Map.of(), ex);
         }
     }
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("user preference " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.user-preference.user-preference-must-not-be-blank",
+                    "user preference {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

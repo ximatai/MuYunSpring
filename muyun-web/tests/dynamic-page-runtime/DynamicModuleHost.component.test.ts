@@ -1,3 +1,4 @@
+import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, ref } from 'vue';
@@ -8,7 +9,14 @@ import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
 } from '@/dynamic-page-runtime/modulePageAssistantSurface';
-import { configureModuleContext, createHttpClient, createAssistantSurfaceRegistry } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createHttpClient,
+  createAssistantSurfaceRegistry,
+  createLanguageContext,
+  codeOperationErrorMessage,
+  provideLanguageContext,
+} from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
@@ -38,6 +46,125 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModulePageHostSession;
     delete config.global.stubs.ModulePageHostRuntime;
     delete config.global.stubs.ModuleHttpProvider;
+  });
+
+  it('switches an independently scoped draft between English and Chinese without changing its data or repeating requests', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      calls.push(path);
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'dynamic',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'crm.customer',
+            defaultEditor: {
+              fields: [
+                {
+                  fieldRef: { fieldName: 'name' },
+                  label: '原始业务字段',
+                  visible: { constant: true },
+                  valueType: 'STRING',
+                },
+                { fieldRef: { fieldName: 'organizationId' }, visible: { constant: true } },
+                {
+                  fieldRef: { fieldName: 'departmentId' },
+                  visible: { constant: true },
+                  reference: {
+                    targetModuleAlias: 'iam.department',
+                    cardinality: 'ONE',
+                    candidateDelivery: 'SOURCE_FIELD',
+                    pickerMode: 'TREE',
+                    candidateDependencies: [{ sourceField: 'organizationId', targetField: 'organizationId' }],
+                    resolvePath: '/crm.customer/references/departmentId/resolve',
+                  },
+                },
+              ],
+            },
+            page: { template: 'FLAT_MANAGEMENT', navigator: { levels: [] }, detail: {}, explorer: {} },
+          },
+        });
+      return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0 });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const Host = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(ModulePageHost, {
+            descriptor: {
+              pageType: 'dynamic-module',
+              openMode: 'dynamic-runner',
+              hostType: 'module-page-host',
+              title: '客户甲',
+              tabPolicy: { identity: 'by-menu' },
+              target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+            },
+          });
+      },
+    });
+    const wrapper = mount(Host, {
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordQueryListPanel: true,
+          RecordFormSurface: true,
+        },
+      },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(await session.createRootRecord()).toBe(true);
+    session.updateDraftFields(
+      [
+        { fieldName: 'name', value: '未保存业务值' },
+        { fieldName: 'organizationId', value: 'organization-1' },
+      ],
+      'user',
+    );
+    await flushPromises();
+    expect(session.detailTitle).toBe('Create 客户甲');
+    expect(session.recordCreationState()).toMatchObject({
+      ready: false,
+      reason: 'DRAFT_ACTIVE',
+      message: expect.stringContaining('An unsaved draft is open'),
+    });
+    const draft = { ...session.editingRecord };
+    const reference = session.referencePickerConfigs.departmentId!;
+    expect(reference.scopedTree?.title).toBe('Select department');
+    const referenceProvider = reference.provider;
+    const scopedProvider = reference.scopedTree?.provider;
+    const requestCount = calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(session.detailTitle).toBe('新建客户甲');
+    expect(session.recordCreationState()).toMatchObject({
+      ready: false,
+      reason: 'DRAFT_ACTIVE',
+      message: expect.stringContaining('可继续编辑'),
+    });
+    expect(session.editingRecord).toEqual(draft);
+    expect(session.formFields.get('name')?.label).toBe('原始业务字段');
+    expect(session.referencePickerConfigs.departmentId?.provider).toBe(referenceProvider);
+    expect(session.referencePickerConfigs.departmentId?.scopedTree?.provider).toBe(scopedProvider);
+    expect(session.referencePickerConfigs.departmentId?.scopedTree?.title).toBe('选择所属部门');
+    // Language refresh is allowed to read text bindings, never business records or candidates.
+    expect(
+      calls
+        .slice(requestCount)
+        .filter(
+          (path) => !/^\/platform\.module\/[^/]+\/(?:reference-)?context$/.test(new URL(path).pathname),
+        ),
+    ).toEqual([]);
+    expect(calls.some((path) => path.endsWith('/create'))).toBe(false);
+    wrapper.unmount();
   });
 
   it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'])(
@@ -160,6 +287,229 @@ describe('ModulePageHost', () => {
     configureModulePageEnhancements([]);
     window.localStorage.removeItem('muyun.preference.module-page.detail-surface.crm.customer');
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
+  });
+
+  it.each([false, true, null])(
+    'ordinary editor consumes record update availability (%s)',
+    async (available) => {
+      const calls: string[] = [];
+      globalThis.fetch = async (input) => {
+        const path = new Request(input).url;
+        calls.push(path);
+        if (path.endsWith('/context'))
+          return Response.json({
+            moduleAlias: 'crm.customer',
+            capabilities: [],
+            actions: [{ actionCode: 'update', authorized: true }],
+            uiDescriptor: { moduleAlias: 'crm.customer', page: page() },
+          });
+        if (path.endsWith('/actions/record-1'))
+          return Response.json({
+            actions:
+              available == null ? [] : [{ actionCode: 'update', available, reason: '记录当前不可编辑' }],
+          });
+        if (path.endsWith('/view/record-1'))
+          return Response.json({ id: 'record-1', title: '业务记录', version: 1 });
+        throw new Error(`Unexpected request: ${path}`);
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'module-page-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+      });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      await session.editRecord({ id: 'record-1', title: '业务记录', version: 1 });
+      expect(session.editorMode).toBe(available === true ? 'edit' : 'view');
+      expect(calls.filter((path) => path.endsWith('/actions/record-1'))).toHaveLength(1);
+      expect(calls.some((path) => path.endsWith('/view/record-1'))).toBe(available === true);
+      wrapper.unmount();
+    },
+  );
+
+  it('standard module sessions consume committed changes and defer workflow interactions without losing list state', async () => {
+    const { appDataChangeDispatcher } = await import('@/platform-admin-runtime/realtime');
+    let version = 1;
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'update', authorized: true },
+          ],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page() },
+        });
+      if (path.endsWith('/actions/record-1'))
+        return Response.json({ actions: [{ actionCode: 'update', available: version === 1 }] });
+      if (path.endsWith('/view/record-1'))
+        return Response.json({ id: 'record-1', title: `版本 ${version}`, version });
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrappers = [1, 2].map(() =>
+      shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'module-page-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+      }),
+    );
+    const settle = async () => {
+      await flushPromises();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushPromises();
+    };
+    await settle();
+    const sessions = wrappers.map(
+      (wrapper) =>
+        wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session') as ModulePageSessionView,
+    );
+    sessions.forEach((session) => session.handleRowAction({ key: 'view' }, { id: 'record-1', version: 1 }));
+    await settle();
+    sessions[0]!.updateWorkflowInteraction({ editing: true, busy: false, dirty: true });
+    const reloadKeys = sessions.map((session) => session.reloadKey);
+    version = 2;
+    const event = {
+      changeSetId: 'standard-session-committed',
+      changes: [{ type: 'record-updated', moduleAlias: 'crm.customer', recordId: 'record-1' }],
+    };
+    await appDataChangeDispatcher.dispatch(event);
+    await appDataChangeDispatcher.dispatch(event);
+    await settle();
+    expect(sessions[0]!.selectedRecord?.version).toBe(1);
+    expect(sessions[0]!.reloadKey).toBe(reloadKeys[0]);
+    expect(sessions[1]!.selectedRecord?.version).toBe(2);
+    expect(sessions[1]!.reloadKey).toBe(reloadKeys[1]! + 1);
+    expect(sessions[1]!.context.action('update', 'record-1')?.available).toBe(false);
+    sessions[0]!.updateWorkflowInteraction({ editing: false, busy: false, dirty: false });
+    await settle();
+    expect(sessions[0]!.selectedRecord?.version).toBe(2);
+    expect(sessions[0]!.reloadKey).toBe(reloadKeys[0]! + 1);
+    wrappers.forEach((wrapper) => wrapper.unmount());
+  });
+
+  it('collection changes keep retained details on the recycle-bin read path', async () => {
+    const { appDataChangeDispatcher } = await import('@/platform-admin-runtime/realtime');
+    const reads: string[] = [];
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: ['RECYCLE_BIN'],
+          actions: [],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page() },
+        });
+      reads.push(path);
+      if (path.endsWith('/recycle-bin/view/deleted-r'))
+        return Response.json({ id: 'deleted-r', title: '保留记录', deleted: true, version: 2 });
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    session.handleListModeChange('recycleBin');
+    await session.selectListDetailRecord({ id: 'deleted-r', deleted: true, version: 2 });
+    await flushPromises();
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'retained-collection-changed',
+      changes: [{ type: 'collection-changed', moduleAlias: 'crm.customer' }],
+    });
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await flushPromises();
+    expect(session.detailLoadFailed).toBe(false);
+    expect(session.selectedRecord?.title).toBe('保留记录');
+    expect(reads).toHaveLength(2);
+    expect(reads.every((path) => path.endsWith('/recycle-bin/view/deleted-r'))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('workflow changes refresh record actions before the ordinary editor can reopen', async () => {
+    let available = true;
+    let actionReads = 0;
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'update', authorized: true },
+          ],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page() },
+        });
+      if (path.endsWith('/actions/record-1')) {
+        actionReads += 1;
+        return Response.json({ actions: [{ actionCode: 'update', available }] });
+      }
+      if (path.endsWith('/view/record-1'))
+        return Response.json({ id: 'record-1', title: '业务记录', version: 1 });
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    session.handleRowAction({ key: 'view' }, { id: 'record-1', title: '业务记录', version: 1 });
+    await flushPromises();
+    await session.context.recordActions('record-1');
+    expect(session.context.action('update', 'record-1')?.available).toBe(true);
+    available = false;
+    session.handleWorkflowChanged();
+    await flushPromises();
+    expect(actionReads).toBe(2);
+    expect(session.context.action('update', 'record-1')?.available).toBe(false);
+    await session.editRecord({ id: 'record-1', title: '业务记录', version: 1 });
+    expect(session.editorMode).toBe('view');
+    wrapper.unmount();
   });
 
   it.each(['STATIC', 'DYNAMIC'])(
@@ -697,7 +1047,13 @@ describe('ModulePageHost', () => {
         });
       }
       if (request.url.endsWith('/crm.customer/actions/customer-1')) {
-        return Response.json({ recordId: 'customer-1', actions: [] });
+        return Response.json({
+          recordId: 'customer-1',
+          actions: [
+            { actionCode: 'update', available: true },
+            { actionCode: 'delete', available: true },
+          ],
+        });
       }
       if (request.url.endsWith('/crm.customer/view/customer-1')) {
         return Response.json({ id: 'customer-1', title: '客户一', version: 1 });
@@ -1918,7 +2274,8 @@ describe('ModulePageHost', () => {
 
       await flushPromises();
 
-      expect(wrapper.text()).toContain('页面入口不可用');
+      expect(wrapper.text()).toContain('系统异常，操作未完成');
+      expect(wrapper.text()).not.toContain('页面入口不可用');
       expect(wrapper.find('management-workspace-stub').exists()).toBe(false);
       expect(wrapper.find('tree-record-explorer-stub').exists()).toBe(false);
       expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);
@@ -2789,6 +3146,20 @@ describe('ModulePageHost', () => {
       props: ['context'],
       template: '<aside>范围树</aside>',
     };
+    const language = createLanguageContext({ languageTag: 'en' });
+    const source = codeOperationErrorMessage(language, 'iam.role.scope.platform', '平台角色').source;
+    const labelText = {
+      source,
+      languages: {
+        en: {
+          text: 'Platform roles',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+      },
+    };
     const requestHeaders: Headers[] = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -2798,7 +3169,23 @@ describe('ModulePageHost', () => {
           moduleAlias: 'crm.customer',
           capabilities: [],
           actions: [{ actionCode: 'create', authorized: true }],
-          uiDescriptor: { schemaVersion: '1', moduleAlias: 'crm.customer', page: page() },
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              list: {
+                fields: { viewCode: 'default_list', viewKind: 'LIST', fields: [] },
+                title: {
+                  program: {
+                    schemaVersion: 1,
+                    profile: 'PAGE_TEXT',
+                    referencedFields: ['selection.label'],
+                    root: { kind: 'FIELD', field: 'selection.label', arguments: [] },
+                  },
+                },
+              },
+            }),
+          },
         });
       }
       if (request.url.endsWith('/platform.menu/customer-menu/entry?clientType=WEB')) {
@@ -2821,13 +3208,23 @@ describe('ModulePageHost', () => {
           extension: {
             key: 'customer-scope-tree',
             component: ScopeTree,
-            selection: { kind: 'customerScope', initialKey: () => 'platform' },
+            selection: {
+              kind: 'customerScope',
+              initialKey: () => 'platform',
+              initialPresentation: () => ({ label: '平台角色', labelText }),
+            },
           },
         },
       },
     ]);
 
-    const wrapper = shallowMount(ModulePageHost, {
+    const Owner = defineComponent({
+      setup(_, { attrs }) {
+        provideLanguageContext(language);
+        return () => h(ModulePageHost, { descriptor: attrs.descriptor as StandardModulePageDescriptor });
+      },
+    });
+    const owner = shallowMount(Owner, {
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -2840,6 +3237,7 @@ describe('ModulePageHost', () => {
       },
       global: {
         stubs: {
+          ModulePageHost: false,
           ManagementWorkspace: { template: '<section><slot /></section>' },
           ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
           RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
@@ -2848,6 +3246,7 @@ describe('ModulePageHost', () => {
     });
     await flushPromises();
 
+    const wrapper = owner.findComponent(ModulePageHost);
     const extension = wrapper.findComponent({ name: 'ScopeTree' });
     expect(extension.exists()).toBe(true);
     expect(extension.props('context')).toEqual(
@@ -2865,6 +3264,20 @@ describe('ModulePageHost', () => {
         (headers) => headers.get('X-MuYun-Page-Selection') === '{"kind":"customerScope","key":"platform"}',
       ),
     ).toBe(true);
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(session.modulePageTitle).toBe('Platform roles');
+    const calls = requestHeaders.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(session.modulePageTitle).toBe('平台角色');
+    expect(requestHeaders.length).toBe(calls);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(session.modulePageTitle).toBe('Platform roles');
+    expect(requestHeaders.length).toBe(calls);
+    owner.unmount();
   });
 
   it.each([

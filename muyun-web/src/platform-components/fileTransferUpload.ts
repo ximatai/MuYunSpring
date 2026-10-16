@@ -1,3 +1,22 @@
+/** Cancellation is a transfer fact independent of its display text. */
+export class FileTransferUploadCancelledError extends Error {
+  constructor() {
+    super('上传已取消。');
+    this.name = 'FileTransferUploadCancelledError';
+  }
+}
+
+/** Transfer failures are facts; the consuming UI owns the translated explanation. */
+export class FileTransferUploadError extends Error {
+  constructor(
+    readonly reason: 'missing-address' | 'missing-transport' | 'network' | 'http',
+    readonly httpStatus?: number,
+  ) {
+    super(`File transfer failed: ${reason}${httpStatus === undefined ? '' : ` (${httpStatus})`}`);
+    this.name = 'FileTransferUploadError';
+  }
+}
+
 /**
  * The platform owns the browser-to-storage transfer mechanics, while an
  * application owns the authorization request. A caller may additionally run a
@@ -82,7 +101,7 @@ export function createBrowserFileTransferUpload(
   let request: XMLHttpRequest | undefined;
   const promise = new Promise<FileTransferUploadReceipt>((resolve, reject) => {
     if (!access.uploadUrl.trim()) {
-      reject(new Error('上传凭证未提供上传地址。'));
+      reject(new FileTransferUploadError('missing-address'));
       return;
     }
     request = new XMLHttpRequest();
@@ -92,12 +111,13 @@ export function createBrowserFileTransferUpload(
         onProgress?.(Math.round((event.loaded / event.total) * 100));
       }
     };
-    request.onerror = () => reject(new Error('文件服务网络连接失败。'));
-    request.onabort = () => reject(new Error('上传已取消。'));
+    request.onerror = () => reject(new FileTransferUploadError('network'));
+    request.onabort = () => reject(new FileTransferUploadCancelledError());
     request.onload = () => {
       const response = parseResponse(request?.responseText);
       if (!request || request.status < 200 || request.status >= 300) {
-        reject(new Error(responseMessage(response) ?? `文件服务上传失败（HTTP ${request?.status ?? 0}）。`));
+        const message = responseMessage(response);
+        reject(message ? new Error(message) : new FileTransferUploadError('http', request?.status ?? 0));
         return;
       }
       onProgress?.(100);

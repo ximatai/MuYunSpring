@@ -253,10 +253,10 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             response = objectMapper.readTree(payload);
         } catch (IOException exception) {
             // Jackson diagnostics can include response content; keep it out of exception chains.
-            throw new PlatformException(invalidMessage);
+            throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, invalidMessage);
         }
         if (response == null || !response.isObject()) {
-            throw new PlatformException(invalidMessage);
+            throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, invalidMessage);
         }
         if (response.hasNonNull("error")) {
             log.warn("AI provider rejected response transport=body httpStatus={} diagnostics={}",
@@ -450,7 +450,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
         private void accumulateToolCalls(JsonNode nodes) {
             if (nodes.isMissingNode() || nodes.isNull()) return;
-            if (!nodes.isArray()) throw new PlatformException("AI model returned invalid tool calls");
+            if (!nodes.isArray()) throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
             for (JsonNode node : nodes) {
                 int index = node.path("index").asInt(-1);
                 if (index < 0 || index >= MAX_TOOL_CALLS) {
@@ -465,7 +465,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 }
                 JsonNode function = node.path("function");
                 if (!function.isMissingNode() && !function.isNull()) {
-                    if (!function.isObject()) throw new PlatformException("AI model returned invalid tool calls");
+                    if (!function.isObject()) throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
                     String name = textOrNull(function.path("name"));
                     String arguments = textOrNull(function.path("arguments"));
                     if (name != null) {
@@ -514,7 +514,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     private static AiModelResponseException observedResponseFailure(RuntimeException failure, AiTokenUsage usage, Integer count) {
         // Provider ids and malformed values are never included in the public rejection.
         PlatformException rejection = failure instanceof PlatformException platformFailure ? platformFailure
-                : new PlatformException("AI model returned invalid tool calls");
+                : new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
         return new AiModelResponseException(rejection, usage, count);
     }
 
@@ -525,7 +525,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
         private AiToolCall toToolCall(List<AiToolDefinition> tools, List<String> indexedToolCodes) {
             if (id.isEmpty() || name.isEmpty() || arguments.isEmpty()) {
-                throw new PlatformException("AI model returned invalid tool calls");
+                throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
             }
             int toolIndex = providerToolIndex(name.toString(), tools, indexedToolCodes);
             JsonNode parsed = readJsonObject(arguments.toString(), "AI model returned invalid tool arguments");
@@ -537,7 +537,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
     private List<AiToolCall> toolCalls(JsonNode nodes, List<AiToolDefinition> tools, List<String> indexedToolCodes) {
         if (nodes == null || nodes.isMissingNode() || nodes.isNull()) return List.of();
-        if (!nodes.isArray()) throw new PlatformException("AI model returned invalid tool calls");
+        if (!nodes.isArray()) throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
         if (nodes.size() > MAX_TOOL_CALLS) throw new PlatformException("AI model returned too many tool calls");
         List<AiToolCall> result = new ArrayList<>();
         for (JsonNode node : nodes) {
@@ -546,7 +546,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             String name = textOrNull(function.path("name"));
             int index = providerToolIndex(name, tools, indexedToolCodes);
             String argumentsJson = textOrNull(function.path("arguments"));
-            if (id == null || argumentsJson == null) throw new PlatformException("AI model returned invalid tool calls");
+            if (id == null || argumentsJson == null) throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, "AI model returned invalid tool calls");
             if (argumentsJson.getBytes(StandardCharsets.UTF_8).length > MAX_TOOL_ARGUMENT_BYTES) {
                 throw new PlatformException("AI model returned oversized tool arguments");
             }
@@ -624,7 +624,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         } catch (IOException ignored) {
             // Provider arguments are untrusted; diagnostics may contain their content.
         }
-        throw new PlatformException(invalidMessage);
+        throw new PlatformException("AI_MODEL_INVALID_TOOL_CALL", 502, invalidMessage);
     }
 
     private int providerToolIndex(String name, List<AiToolDefinition> tools, List<String> indexedToolCodes) {

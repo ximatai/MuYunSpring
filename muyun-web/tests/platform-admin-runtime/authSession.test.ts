@@ -1,5 +1,5 @@
 import { assert, it } from 'vitest';
-import { AppError, platformErrorCodes } from '@/web-core/index.ts';
+import { createLanguageContext, AppError, platformErrorCodes } from '@/web-core/index.ts';
 import {
   clearAuthToken,
   effectiveAuthToken,
@@ -29,8 +29,12 @@ it('authentication recovery message resolves stable codes through the zh-CN dict
     '登录会话已过期，请重新登录',
   );
   assert.equal(
-    platformMessage(platformErrorCodes.authRequired, 'Session expired', 'en-US'),
-    'Session expired',
+    platformMessage(
+      platformErrorCodes.authRequired,
+      'Session expired',
+      createLanguageContext({ languageTag: 'en-US' }),
+    ),
+    'Your session is no longer valid. Please sign in again.',
   );
 });
 

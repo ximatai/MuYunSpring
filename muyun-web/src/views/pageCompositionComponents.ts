@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { generatedBusinessFieldName } from './metadataNaming';
 import type { ComponentDragPayload } from './pageCompositionDragPayload';
 import type { PageComposerField } from './pageCompositionDraftState';
@@ -64,26 +65,40 @@ type ComponentTree = {
 };
 
 /** Direct main-entity references only; child fields belong to their own metadata scope. */
-function fieldUsages(tree: ComponentTree): Array<{ field: string; area: string }> {
-  const usages = (tree.quickSearchFields ?? []).map((field) => ({ field, area: '快速查询' }));
+function fieldUsages(
+  tree: ComponentTree,
+  language: LanguageContext = platformLanguageContext,
+): Array<{ field: string; area: string }> {
+  const usages = (tree.quickSearchFields ?? []).map((field) => ({
+    field,
+    area: language.t('platform.screen.PageCompositionTree.quick-search', '快速查询'),
+  }));
   for (const summary of tree.querySummaries ?? [])
     for (const field of [summary.fieldName, summary.groupByField])
-      if (field) usages.push({ field, area: '汇总统计' });
+      if (field)
+        usages.push({
+          field,
+          area: language.t('platform.screen.PageCompositionEditor.query-summaries', '汇总统计'),
+        });
   const separate = tree.nodes?.some((node) => node.slot === 'detail');
   for (const node of tree.nodes ?? []) {
     if (node.slot === 'explorer') {
       for (const field of [node.titleField, node.secondaryField])
-        if (field) usages.push({ field, area: '导航' });
+        if (field)
+          usages.push({
+            field,
+            area: language.t('platform.screen.pageCompositionComponents.navigation', '导航'),
+          });
     }
     const area =
       node.slot === 'list'
-        ? '列表'
+        ? language.t('platform.page.composition.list', '列表')
         : node.slot === 'detail'
-          ? '详情'
+          ? language.t('platform.screen.PageCompositionEditor.details', '详情')
           : node.slot === 'form'
             ? separate
-              ? '表单'
-              : '详情 / 表单'
+              ? language.t('platform.screen.PageCompositionEditor.form', '表单')
+              : language.t('platform.screen.PageCompositionTree.details-form', '详情 / 表单')
             : undefined;
     if (!area) continue;
     for (const entry of [
@@ -96,9 +111,12 @@ function fieldUsages(tree: ComponentTree): Array<{ field: string; area: string }
 }
 
 /** Build once per draft change; field consumers share the same index. */
-export function componentFieldUsageIndex(treeJson: string): Map<string, string[]> {
+export function componentFieldUsageIndex(
+  treeJson: string,
+  language: LanguageContext = platformLanguageContext,
+): Map<string, string[]> {
   const index = new Map<string, string[]>();
-  for (const { field, area } of fieldUsages(JSON.parse(treeJson))) {
+  for (const { field, area } of fieldUsages(JSON.parse(treeJson), language)) {
     const areas = index.get(field) ?? [];
     if (!areas.includes(area)) areas.push(area);
     index.set(field, areas);
@@ -112,8 +130,12 @@ export function placedComponentFields(inputs: PendingComponentField[], treeJson:
   return inputs.filter((input) => index.has(`field${input.key}`));
 }
 
-export function componentFieldUsage(fieldName: string, treeJson: string): string[] {
-  return componentFieldUsageIndex(treeJson).get(fieldName) ?? [];
+export function componentFieldUsage(
+  fieldName: string,
+  treeJson: string,
+  language: LanguageContext = platformLanguageContext,
+): string[] {
+  return componentFieldUsageIndex(treeJson, language).get(fieldName) ?? [];
 }
 
 export function sameTitleFields(title: string, fieldId: string, fields: PageComposerField[]) {

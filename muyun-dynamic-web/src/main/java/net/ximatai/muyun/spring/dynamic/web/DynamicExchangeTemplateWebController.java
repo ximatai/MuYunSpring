@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation;
+
 import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -39,25 +41,26 @@ public class DynamicExchangeTemplateWebController {
     private final ActiveTenantVerifier activeTenantVerifier;
     private final DynamicExchangeTemplatePlanBuilder templatePlanBuilder;
     private final ExcelWorkbookPlanWriter workbookWriter;
+    private final ExcelWorkbookPresentation presentation;
 
     @Autowired
     public DynamicExchangeTemplateWebController(DynamicRecordService recordService,
-                                                ActiveTenantVerifier activeTenantVerifier,
-                                                OptionSourceRegistry optionSourceRegistry) {
+            ActiveTenantVerifier activeTenantVerifier, OptionSourceRegistry optionSourceRegistry,
+            ExcelWorkbookPresentation presentation) {
         this(recordService, activeTenantVerifier,
                 new DynamicExchangeTemplatePlanBuilder(optionSourceRegistry,
                         new DynamicRecordReferenceDropdownResolver(recordService)),
-                new ExcelWorkbookPlanWriter());
+                new ExcelWorkbookPlanWriter(), presentation);
     }
 
     DynamicExchangeTemplateWebController(DynamicRecordService recordService,
-                                         ActiveTenantVerifier activeTenantVerifier,
-                                         DynamicExchangeTemplatePlanBuilder templatePlanBuilder,
-                                         ExcelWorkbookPlanWriter workbookWriter) {
-        this.recordService = recordService;
-        this.activeTenantVerifier = activeTenantVerifier;
-        this.templatePlanBuilder = templatePlanBuilder;
-        this.workbookWriter = workbookWriter;
+            ActiveTenantVerifier activeTenantVerifier, DynamicExchangeTemplatePlanBuilder templatePlanBuilder,
+            ExcelWorkbookPlanWriter workbookWriter, ExcelWorkbookPresentation presentation) {
+        this.recordService = java.util.Objects.requireNonNull(recordService, "recordService");
+        this.activeTenantVerifier = java.util.Objects.requireNonNull(activeTenantVerifier, "activeTenantVerifier");
+        this.templatePlanBuilder = java.util.Objects.requireNonNull(templatePlanBuilder, "templatePlanBuilder");
+        this.workbookWriter = java.util.Objects.requireNonNull(workbookWriter, "workbookWriter");
+        this.presentation = java.util.Objects.requireNonNull(presentation, "presentation");
     }
 
     @PostMapping("/template")
@@ -77,6 +80,7 @@ public class DynamicExchangeTemplateWebController {
         DynamicModuleDescriptor descriptor = recordService.describe(moduleAlias);
         requireExchangeCapability(descriptor);
         ExcelWorkbookPlan plan = templatePlanBuilder.build(descriptor, templateOptions(request));
+        plan = presentation.project(plan, descriptor);
         byte[] bytes = workbookWriter.writeToBytes(plan);
         writeXlsx(response, moduleAlias.replace('.', '_') + "-exchange-template.xlsx", bytes);
     }

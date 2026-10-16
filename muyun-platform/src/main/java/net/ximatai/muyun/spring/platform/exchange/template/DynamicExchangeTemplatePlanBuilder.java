@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.template;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionItem;
@@ -128,8 +130,9 @@ public class DynamicExchangeTemplatePlanBuilder {
                                       DynamicExchangeTemplateOptions options) {
         List<ExcelColumnPlan> columns = buildColumns(entity, options);
         if (requireBusinessFields && columns.size() == 1) {
-            throw new PlatformException("dynamic exchange template main sheet requires business fields: "
-                    + entity.entityAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-exchange-template-plan-builder.dynamic-exchange-template-main-sheet-requires-business-fields",
+                    "dynamic exchange template main sheet requires business fields: {value1}"), Map.of("value1", String.valueOf(entity.entityAlias())));
         }
         return new ExcelSheetPlan(sheetNameOf(entity), entity.entityAlias(), main, columns);
     }
@@ -143,7 +146,7 @@ public class DynamicExchangeTemplatePlanBuilder {
                 false,
                 ExcelValueType.TEXT,
                 List.of()
-        ));
+        ).withTitle(ExcelExchangeProtocol.RELATE_ID_TITLE_SOURCE));
         for (DynamicFieldDescriptor field : entity.fields()) {
             if (field == null || isBlank(field.fieldName()) || hiddenCompanionFieldNames.contains(field.fieldName())
                     || PlatformFieldPolicy.isAudit(field.fieldName())) {
@@ -225,7 +228,9 @@ public class DynamicExchangeTemplatePlanBuilder {
                     .map(OptionItem::code)
                     .toList();
         } catch (RuntimeException ex) {
-            throw new PlatformException("dynamic exchange template option load failed: " + field.fieldName(), ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-exchange-template-plan-builder.dynamic-exchange-template-option-load-failed",
+                    "dynamic exchange template option load failed: {value1}"), Map.of("value1", String.valueOf(field.fieldName())), ex);
         }
     }
 
@@ -233,7 +238,9 @@ public class DynamicExchangeTemplatePlanBuilder {
         try {
             return referenceDropdownResolver.resolve(reference, limit);
         } catch (RuntimeException ex) {
-            throw new PlatformException("dynamic exchange template reference option load failed: " + fieldName, ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-exchange-template-plan-builder.dynamic-exchange-template-reference-option-load-failed",
+                    "dynamic exchange template reference option load failed: {value1}"), Map.of("value1", String.valueOf(fieldName)), ex);
         }
     }
 

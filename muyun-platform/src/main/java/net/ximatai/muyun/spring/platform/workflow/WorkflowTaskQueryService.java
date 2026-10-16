@@ -3,7 +3,8 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -30,8 +31,10 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> myTodo(String assigneeId, PageRequest pageRequest) {
-        String validAssigneeId = requireText(assigneeId, "workflow assignee id must not be blank");
-        List<WorkflowTask> tasks = taskDao.query(Criteria.of()
+        String validAssigneeId = requireText(assigneeId, TextReference.code(
+                "platform.rejection.workflow-task-query.select-a-task-assignee",
+                "workflow assignee id must not be blank"));
+        List<WorkflowTask> tasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 new PageRequest(0, Integer.MAX_VALUE), Sort.asc("dueAt"), Sort.desc("createdAt"))
                 .stream()
@@ -44,8 +47,10 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> myDone(String processorId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
-                        .eq("actualProcessorId", requireText(processorId, "workflow processor id must not be blank"))
+        return taskDao.query(WorkflowTenantScope.criteria()
+                        .eq("actualProcessorId", requireText(processorId, TextReference.code(
+                                "platform.rejection.workflow-task-query.select-a-task-processor",
+                                "workflow processor id must not be blank")))
                         .in("taskStatus", List.of(WorkflowTaskStatus.DONE, WorkflowTaskStatus.REJECTED,
                                 WorkflowTaskStatus.ROLLED_BACK, WorkflowTaskStatus.NOTICED,
                                 WorkflowTaskStatus.TRANSFERRED)),
@@ -53,22 +58,28 @@ public class WorkflowTaskQueryService {
     }
 
     public List<WorkflowTask> myNotice(String assigneeId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
-                        .eq("assigneeId", requireText(assigneeId, "workflow assignee id must not be blank"))
+        return taskDao.query(WorkflowTenantScope.criteria()
+                        .eq("assigneeId", requireText(assigneeId, TextReference.code(
+                                "platform.rejection.workflow-task-query.select-a-task-assignee",
+                                "workflow assignee id must not be blank")))
                         .eq("taskKind", WorkflowTaskKind.NOTICE)
                         .in("taskStatus", List.of(WorkflowTaskStatus.TODO, WorkflowTaskStatus.NOTICED)),
                 page(pageRequest), Sort.desc("createdAt"));
     }
 
     public List<WorkflowTask> instanceTasks(String instanceId, PageRequest pageRequest) {
-        return taskDao.query(Criteria.of()
-                        .eq("instanceId", requireText(instanceId, "workflow instance id must not be blank")),
+        return taskDao.query(WorkflowTenantScope.criteria()
+                        .eq("instanceId", requireText(instanceId, TextReference.code(
+                                "platform.rejection.workflow-task-query.select-a-workflow-instance",
+                                "workflow instance id must not be blank"))),
                 page(pageRequest), Sort.asc("createdAt"));
     }
 
     public List<WorkflowEvent> instanceEvents(String instanceId, PageRequest pageRequest) {
-        return eventDao.query(Criteria.of()
-                        .eq("instanceId", requireText(instanceId, "workflow instance id must not be blank")),
+        return eventDao.query(WorkflowTenantScope.criteria()
+                        .eq("instanceId", requireText(instanceId, TextReference.code(
+                                "platform.rejection.workflow-task-query.select-a-workflow-instance",
+                                "workflow instance id must not be blank"))),
                 page(pageRequest), Sort.asc("occurredAt"), Sort.asc("createdAt"));
     }
 
@@ -76,9 +87,9 @@ public class WorkflowTaskQueryService {
         return pageRequest == null ? PageRequest.of(1, 20) : pageRequest;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

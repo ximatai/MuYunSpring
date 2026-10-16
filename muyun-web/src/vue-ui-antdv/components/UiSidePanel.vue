@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, type CSSProperties } from 'vue';
+import { computed, inject, ref, onActivated, onDeactivated, type CSSProperties } from 'vue';
 import { Drawer as ADrawer } from 'ant-design-vue';
 import { resolveUiDrawerWidth, type UiDrawerWidth } from '../drawerWidth';
 import {
@@ -9,6 +9,7 @@ import {
   type UiDrawerDismissal,
   type UiDrawerDismissalOptions,
 } from '../drawerDismissal';
+import { useUiBlockingOverlayVisibility } from '../blockingOverlays';
 import { sidePanelHostKey, type UiSidePanelScope } from './sidePanelHost';
 
 defineOptions({ name: 'UiSidePanel', inheritAttrs: false });
@@ -16,6 +17,8 @@ defineOptions({ name: 'UiSidePanel', inheritAttrs: false });
 const props = withDefaults(
   defineProps<{
     open: boolean;
+    /** Inline surfaces stay in their owning workspace. */
+    renderMode?: 'inline' | 'portal';
     width?: UiDrawerWidth;
     dismissal?: UiDrawerDismissal;
     /** @deprecated Use `dismissal` and `beforeClose`. */
@@ -25,6 +28,7 @@ const props = withDefaults(
   }>(),
   {
     width: 'standard',
+    renderMode: 'portal',
     dismissal: undefined,
     closeOnOutside: false,
     beforeClose: undefined,
@@ -32,19 +36,34 @@ const props = withDefaults(
   },
 );
 
+const active = ref(true);
+onActivated(() => {
+  active.value = true;
+});
+onDeactivated(() => {
+  active.value = false;
+});
+const visibleOpen = computed(() => props.open && active.value);
+
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const container = computed(() => {
+  if (props.renderMode === 'inline') return false;
   if (props.scope === 'viewport') {
     return typeof document === 'undefined' ? false : document.body;
   }
   return sidePanelHost?.value ?? false;
 });
 const rootStyle = computed<CSSProperties>(() =>
-  props.scope === 'viewport'
+  props.renderMode !== 'inline' && props.scope === 'viewport'
     ? { position: 'fixed', inset: 0, zIndex: 6 }
     : { position: 'absolute', inset: 0, zIndex: 6 },
 );
-const resolvedWidth = computed(() => resolveUiDrawerWidth(props.width));
+const resolvedWidth = computed(() => {
+  const width = resolveUiDrawerWidth(props.width);
+  return props.renderMode === 'inline' ? `min(${width}px, calc(100% - 32px))` : `min(${width}px, 100%)`;
+});
+const overlayContent = ref<HTMLElement>();
+const updateOverlayVisibility = useUiBlockingOverlayVisibility(() => visibleOpen.value, overlayContent);
 const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
   dismissal: props.dismissal,
   closeOnOutside: props.closeOnOutside,
@@ -59,7 +78,8 @@ const emit = defineEmits<{
 }>();
 
 function handleAfterVisibleChange(visible: boolean) {
-  if (!visible) emit('afterClose');
+  updateOverlayVisibility(visible);
+  if (!visible && !props.open) emit('afterClose');
 }
 
 async function requestOutsideClose() {
@@ -71,7 +91,7 @@ async function requestOutsideClose() {
 
 <template>
   <ADrawer
-    :open="open"
+    :open="visibleOpen"
     placement="right"
     :width="resolvedWidth"
     :get-container="container"
@@ -88,6 +108,6 @@ async function requestOutsideClose() {
     @close="requestOutsideClose"
     @after-open-change="handleAfterVisibleChange"
   >
-    <slot />
+    <div ref="overlayContent" style="height: 100%"><slot /></div>
   </ADrawer>
 </template>

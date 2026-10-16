@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+const language = useLanguageContext();
 import { computed, ref, shallowRef, watch } from 'vue';
 import {
   createDataExchangeClient,
   normalizeError,
+  presentationLabel,
   type ModuleContext,
   type ImportParseResult,
   type ImportExecutionResult,
@@ -34,6 +37,7 @@ const matchFields = ref<Record<string, string>>({});
 const strategies = ref<Record<string, ImportDuplicateStrategy>>({});
 let revision = 0;
 const inputKey = ref(0);
+const uploadInput = ref<HTMLInputElement>();
 watch(
   () => [props.context, props.scopeKey],
   () => {
@@ -146,7 +150,10 @@ async function errors() {
 async function exportData() {
   const query = props.queryController?.snapshot();
   if (!canExport.value || query?.status !== 'ready' || query.mode !== 'normal' || !query.request) {
-    error.value = '请等待当前列表查询成功后再导出。';
+    error.value = language.t(
+      'platform.screen.ModuleDataExchangeSurface.wait-for-the-current-list-query-to',
+      '请等待当前列表查询成功后再导出。',
+    );
     return;
   }
   await run(async (client, current) => {
@@ -165,42 +172,77 @@ async function exportData() {
         clear();
         open = true;
       "
-      >导入数据</RecordPanelButton
+      >{{
+        language.t('platform.screen.ModuleDataExchangeSurface.import-data', '导入数据')
+      }}</RecordPanelButton
     >
-    <RecordPanelButton v-if="canExport" :disabled="disabled || busy" @click="exportData"
-      >导出当前查询</RecordPanelButton
-    >
+    <RecordPanelButton v-if="canExport" :disabled="disabled || busy" @click="exportData">{{
+      language.t('platform.screen.ModuleDataExchangeSurface.export-current-query', '导出当前查询')
+    }}</RecordPanelButton>
     <span v-if="error && !open" role="alert">{{ error }}</span>
     <UiModal
       :open="open"
-      title="批量导入数据"
+      :title="language.t('platform.screen.ModuleDataExchangeSurface.bulk-data-import', '批量导入数据')"
       width="680px"
-      :confirm-text="result ? '完成' : '确认导入'"
+      :confirm-text="
+        result
+          ? language.t('platform.screen.ModuleDataExchangeSurface.done', '完成')
+          : language.t('platform.screen.ModuleDataExchangeSurface.confirm-import', '确认导入')
+      "
       :confirm-loading="busy"
       :confirm-disabled="busy || (!result && !ready)"
       :closable="!busy"
       @cancel="open = false"
       @confirm="result ? (open = false) : execute()"
     >
-      <p>先下载模板填写数据，再上传核对。解析文件不会写入数据，确认导入后才执行。</p>
-      <RecordPanelButton :disabled="busy || disabled" @click="template">下载导入模板</RecordPanelButton>
+      <p>
+        {{
+          language.t(
+            'platform.screen.ModuleDataExchangeSurface.download-and-fill-in-the-template-then',
+            '先下载模板填写数据，再上传核对。解析文件不会写入数据，确认导入后才执行。',
+          )
+        }}
+      </p>
+      <RecordPanelButton :disabled="busy || disabled" @click="template">{{
+        language.t('platform.screen.ModuleDataExchangeSurface.download-import-template', '下载导入模板')
+      }}</RecordPanelButton>
       <p>
         <input
+          ref="uploadInput"
           :key="inputKey"
-          aria-label="上传导入文件"
+          :aria-label="
+            language.t('platform.screen.ModuleDataExchangeSurface.upload-import-file', '上传导入文件')
+          "
           type="file"
+          hidden
           accept=".xlsx"
           :disabled="busy || disabled"
           @change="upload"
         />
+        <RecordPanelButton :disabled="busy || disabled" @click="uploadInput?.click()">{{
+          language.t('platform.screen.ModuleDataExchangeSurface.upload-import-file', '上传导入文件')
+        }}</RecordPanelButton>
+        <span v-if="file"> {{ file.name }}</span>
       </p>
       <section v-for="sheet in parsed?.sheets" :key="sheet.entityAlias" class="import-sheet">
-        <strong>{{ sheet.sheetName }}（{{ sheet.main ? '主表' : '子表' }}，{{ sheet.rowCount }} 行）</strong>
+        <strong
+          >{{ sheet.sheetName }}（{{
+            sheet.main
+              ? language.t('platform.screen.ModuleDataExchangeSurface.main-sheet', '主表')
+              : language.t('platform.screen.ModuleDataExchangeSurface.child-sheet', '子表')
+          }}，{{
+            language.t('platform.screen.ModuleDataExchangeSurface.row-count', '', { count: sheet.rowCount })
+          }}）</strong
+        >
         <label
-          >匹配字段
+          >{{ language.t('platform.screen.ModuleDataExchangeSurface.matching-field', '匹配字段') }}
           <select
             v-model="matchFields[sheet.entityAlias]"
-            :aria-label="`${sheet.sheetName}匹配字段`"
+            :aria-label="
+              language.t('platform.screen.ModuleDataExchangeSurface.match-label', '', {
+                sheet: sheet.sheetName,
+              })
+            "
             :disabled="busy || Boolean(result)"
           >
             <option
@@ -213,38 +255,84 @@ async function exportData() {
           </select></label
         >
         <label
-          >已有记录
+          >{{ language.t('platform.screen.ModuleDataExchangeSurface.existing-records', '已有记录') }}
           <select
             v-model="strategies[sheet.entityAlias]"
-            :aria-label="`${sheet.sheetName}重复处理`"
+            :aria-label="
+              language.t('platform.screen.ModuleDataExchangeSurface.duplicate-label', '', {
+                sheet: sheet.sheetName,
+              })
+            "
             :disabled="busy || Boolean(result)"
           >
-            <option value="ERROR">报错，保留已有数据</option>
-            <option value="SKIP">跳过已有记录</option>
-            <option value="OVERWRITE">覆盖已有记录</option>
+            <option value="ERROR">
+              {{
+                language.t(
+                  'platform.screen.ModuleDataExchangeSurface.report-an-error-and-retain-existing-data',
+                  '报错，保留已有数据',
+                )
+              }}
+            </option>
+            <option value="SKIP">
+              {{
+                language.t('platform.screen.ModuleDataExchangeSurface.skip-existing-records', '跳过已有记录')
+              }}
+            </option>
+            <option value="OVERWRITE">
+              {{
+                language.t(
+                  'platform.screen.ModuleDataExchangeSurface.overwrite-existing-records',
+                  '覆盖已有记录',
+                )
+              }}
+            </option>
           </select></label
         >
       </section>
       <p v-if="parsed">
-        覆盖会修改匹配到的已有记录，请核对匹配字段和文件内容。错误文件保留出错组的完整数据；重传时各表选择“跳过已有记录”可保留已成功数据，需修改已有记录时再选择“覆盖”。
+        {{
+          language.t(
+            'platform.screen.ModuleDataExchangeSurface.overwrite-changes-matching-records-review-the-matching',
+            '覆盖会修改匹配到的已有记录，请核对匹配字段和文件内容。错误文件保留出错组的完整数据；重传时各表选择“跳过已有记录”可保留已成功数据，需修改已有记录时再选择“覆盖”。',
+          )
+        }}
       </p>
       <p v-if="error" role="alert">{{ error }}</p>
       <div v-if="result" role="status">
         <p>
-          {{ result.message }}：新增 {{ result.created }}，更新 {{ result.updated }}，跳过
-          {{ result.skipped }}，异常 {{ result.errorCount }} 项。
+          {{ presentationLabel(result.message, result.messageText, language) }}：{{
+            language.t('platform.screen.ModuleDataExchangeSurface.import-counts', '', {
+              created: result.created,
+              updated: result.updated,
+              skipped: result.skipped,
+              errors: result.errorCount,
+            })
+          }}
         </p>
         <p v-for="summary in result.summaries" :key="summary.entityAlias">
           {{
             parsed?.sheets.find((sheet) => sheet.entityAlias === summary.entityAlias)?.sheetName ??
             summary.entityAlias
-          }}：新增 {{ summary.created }}，更新 {{ summary.updated }}，跳过 {{ summary.skipped }}，异常
-          {{ summary.errors }} 项。
+          }}：{{
+            language.t('platform.screen.ModuleDataExchangeSurface.import-counts', '', {
+              created: summary.created,
+              updated: summary.updated,
+              skipped: summary.skipped,
+              errors: summary.errors,
+            })
+          }}
         </p>
-        <RecordPanelButton v-if="result.errorFileToken" :disabled="busy" @click="errors"
-          >下载错误文件</RecordPanelButton
-        >
-        <p>需要重试时，请修正文件并重新上传。</p>
+        <RecordPanelButton v-if="result.errorFileToken" :disabled="busy" @click="errors">{{
+          language.t('platform.screen.ModuleDataExchangeSurface.download-error-file', '下载错误文件')
+        }}</RecordPanelButton>
+        <p v-if="result.errorCount > 0">
+          {{
+            language.t(
+              'platform.screen.ModuleDataExchangeSurface.correct-the-file-and-upload-it-again',
+              '需要重试时，请修正文件并重新上传。',
+            )
+          }}
+        </p>
       </div>
     </UiModal>
   </div>

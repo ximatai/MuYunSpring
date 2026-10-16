@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import type {
   ResolvedDetailRelationDescriptor,
@@ -6,9 +7,11 @@ import type {
   ResolvedPageListRelationExpansionDescriptor,
   WebListResponse,
 } from '@muyun/web-contracts';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
+
 import { RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageListRelationExpansion' });
 
@@ -87,9 +90,29 @@ watch(
 
 <template>
   <section class="module-page-list-relation-expansion">
-    <RecordPanelState v-if="loading" loading loading-tip="加载关联记录" description="" />
-    <RecordPanelState v-else-if="failed" description="关联记录加载失败" />
-    <RecordPanelState v-else-if="rows.length === 0" description="暂无关联记录" />
+    <RecordPanelState
+      v-if="loading"
+      loading
+      :loading-tip="
+        language.t('platform.screen.ModulePageListRelationExpansion.loading-related-records', '加载关联记录')
+      "
+      description=""
+    />
+    <RecordPanelState
+      v-else-if="failed"
+      :description="
+        language.t(
+          'platform.screen.ModulePageListRelationExpansion.could-not-load-related-records',
+          '关联记录加载失败',
+        )
+      "
+    />
+    <RecordPanelState
+      v-else-if="rows.length === 0"
+      :description="
+        language.t('platform.screen.ModulePageListRelationExpansion.no-related-records', '暂无关联记录')
+      "
+    />
     <ModulePageDetailRelations
       v-else-if="parentRecord"
       :source-context="sourceContext"

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
 
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
@@ -77,7 +79,7 @@ class RecordGenerationRuleServiceTest {
     void shouldSyncActionWhenEnabledAndDisableWhenRuleDisabled() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModuleActionService actionService =
-                new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+                ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         moduleService.insert(module("sales.contract"));
         GenerationModuleActionContributor contributor =
                 new GenerationModuleActionContributor(new ModuleActionContributionRegistrar(actionService));

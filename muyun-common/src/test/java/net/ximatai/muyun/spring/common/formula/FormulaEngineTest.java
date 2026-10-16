@@ -21,6 +21,31 @@ class FormulaEngineTest {
     );
 
     @Test
+    void rejectsMissingOperandsAndMalformedFunctionArgumentsInsteadOfEvaluatingThemAsNull() {
+        for (String expression : List.of("{amount} >", "{amount} +", "{amount} =", "!", "-", "+", "()",
+                "{amount} > )", ",", "IF(true,, 1)", "IF(true, 1,)", "IF(true 1 2)", "{amount} = 1 WHEN")) {
+            assertThatThrownBy(() -> engine.evaluateValue(expression, FormulaRuntimeData.of(Map.of("amount", 200))))
+                    .as(expression).isInstanceOf(FormulaEvaluationException.class)
+                    .satisfies(error -> assertThat(((FormulaEvaluationException) error).code()).isEqualTo("FORMULA_PARSE_ERROR"));
+        }
+    }
+
+    @Test
+    void retainsBlankExpressionsExplicitNullAndNormalZeroArgumentFunctions() {
+        var data = FormulaRuntimeData.of(Map.of());
+        assertThat(engine.evaluateValue(" ", data)).isNull();
+        assertThat(engine.evaluateValue("null", data)).isNull();
+        assertThat(engine.evaluateValue("CONCAT()", data)).isEqualTo("");
+        assertThat(engine.evaluateValue("TODAY()", data)).isEqualTo("2026-06-01");
+        assertThat(engine.evaluateValue("NOW()", data)).isEqualTo("2026-06-01T02:03:04Z");
+        assertThat(engine.evaluateValue("IF(true, null, 1)", data)).isNull();
+        // A zero-argument predicate still reaches aggregate-specific validation.
+        assertThatThrownBy(() -> engine.evaluateValue("SUM({lines.amount}, WHERE())", data))
+                .isInstanceOf(FormulaEvaluationException.class)
+                .satisfies(error -> assertThat(((FormulaEvaluationException) error).code()).isEqualTo("FORMULA_AGGREGATE_CONDITION_INVALID"));
+    }
+
+    @Test
     void compilesAggregateRowCalculationsWithoutChangingMainOrCrossRowProfiles() {
         var program = engine.compileRowFormComputeProgram(
                 "{lines.amount} = ROUND({lines.quantity} * {lines.unitPrice}, 2)", "lines");

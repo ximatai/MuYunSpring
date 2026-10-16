@@ -29,6 +29,14 @@ class RuntimeAuditRecordServiceContractTest {
     private final TestMemoryDao<RuntimeAuditRecord> dao = new TestMemoryDao<>();
     private final RuntimeAuditRecordService service = new RuntimeAuditRecordService(dao);
 
+    @Test
+    void everyRuntimeEventTypeFitsThePersistedAuditProtocolField() throws Exception {
+        int length = RuntimeAuditRecord.class.getDeclaredField("eventType")
+                .getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class).length();
+        assertThat(java.util.Arrays.stream(RuntimeEventType.values()).map(Enum::name).toList())
+                .allSatisfy(name -> assertThat(name.length()).as(name).isLessThanOrEqualTo(length));
+    }
+
     @AfterEach
     void tearDown() {
         ActingContextHolder.clear();

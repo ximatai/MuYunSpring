@@ -18,6 +18,11 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 
 class WorkflowActionPolicyServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final ActionExecutionPolicyService executionPolicyService = mock(ActionExecutionPolicyService.class);
     private final WorkflowModuleRecordGuard recordGuard = mock(WorkflowModuleRecordGuard.class);
     private final WorkflowActionPolicyService service = new WorkflowActionPolicyService(

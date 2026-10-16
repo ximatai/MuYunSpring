@@ -15,14 +15,19 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowModuleTaskRuntimeServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowInstanceDao instanceDao = mock(WorkflowInstanceDao.class);
     private final WorkflowNodeInstanceDao nodeDao = mock(WorkflowNodeInstanceDao.class);
-    private final WorkflowTaskDefinitionDao taskDefinitionDao = mock(WorkflowTaskDefinitionDao.class);
+    private final WorkflowBusinessTaskResolver specifications = mock(WorkflowBusinessTaskResolver.class);
     private final WorkflowModuleTaskEvaluator evaluator = mock(WorkflowModuleTaskEvaluator.class);
     private final WorkflowTaskActionFacade taskActionFacade = mock(WorkflowTaskActionFacade.class);
     private final WorkflowModuleTaskRuntimeService service = new WorkflowModuleTaskRuntimeService(
-            taskDao, instanceDao, nodeDao, taskDefinitionDao, evaluator, taskActionFacade);
+            taskDao, instanceDao, nodeDao, specifications, new WorkflowTaskAssignmentPolicyService(), new WorkflowActionPolicyService(), evaluator, taskActionFacade);
 
     @Test
     void shouldPrepareModuleTaskProcessBundle() {
@@ -39,7 +44,7 @@ class WorkflowModuleTaskRuntimeServiceTest {
         assertThat(bundle.recordId()).isEqualTo("record-1");
         assertThat(bundle.completionPolicy()).isEqualTo(WorkflowModuleTaskCompletionPolicy.AFTER_ACTION_SUCCESS);
         assertThat(bundle.workflowTaskContext().workflowTaskId()).isEqualTo("task-1");
-        assertThat(bundle.workflowTaskContext().checkAndContinuePath()).contains("task-1");
+        assertThat(bundle.workflowTaskContext().completionPolicy()).isEqualTo(WorkflowModuleTaskCompletionPolicy.AFTER_ACTION_SUCCESS);
         assertThat(bundle.nextGuide()).isSameAs(guide);
     }
 
@@ -131,13 +136,14 @@ class WorkflowModuleTaskRuntimeServiceTest {
         WorkflowInstance instance = instance();
         WorkflowNodeInstance node = node();
         node.setTaskDefinitionId(null);
+        when(specifications.resolve(node)).thenThrow(new PlatformException("业务任务未配置完成策略"));
         when(taskDao.findById("task-1")).thenReturn(task);
         when(instanceDao.findById("instance-1")).thenReturn(instance);
         when(nodeDao.findById("node-1")).thenReturn(node);
 
         assertThatThrownBy(() -> service.prepare("task-1", "user-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("missing task definition");
+                .hasMessageContaining("业务任务未配置完成策略");
     }
 
     private void mockContext(WorkflowModuleTaskEvaluation evaluation) {
@@ -148,7 +154,7 @@ class WorkflowModuleTaskRuntimeServiceTest {
         when(taskDao.findById("task-1")).thenReturn(task);
         when(instanceDao.findById("instance-1")).thenReturn(instance);
         when(nodeDao.findById("node-1")).thenReturn(node);
-        when(taskDefinitionDao.findById("task-def-1")).thenReturn(definition);
+        when(specifications.resolve(node)).thenReturn(new WorkflowBusinessTaskSpec(definition, List.of(), List.of()));
         when(evaluator.evaluate(instance, node, task, definition)).thenReturn(evaluation);
     }
 

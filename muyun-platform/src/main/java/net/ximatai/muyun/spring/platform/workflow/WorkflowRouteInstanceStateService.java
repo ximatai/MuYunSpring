@@ -20,6 +20,8 @@ public class WorkflowRouteInstanceStateService {
             if (route == null || !traversedRouteKeys.contains(route.getRouteKey())) {
                 continue;
             }
+            if (route.getRouteStatus() == WorkflowRouteStatus.CLOSED || route.getRouteStatus() == WorkflowRouteStatus.DROPPED
+                    || route.getRouteStatus() == WorkflowRouteStatus.INEFFECTIVE) continue;
             route.setRouteStatus(WorkflowRouteStatus.EFFECTIVE);
             route.setSelectedBy(operatorId);
             route.setSelectedAt(now);

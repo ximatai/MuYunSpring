@@ -154,7 +154,9 @@ public class MetadataRelationChangeSetPreviewService {
             if (enabled && !current.contains(capability)) {
                 proposed.add(capability);
                 changed = true;
-                structureChanged |= !MetadataCapabilityCatalog.plan(Set.of(capability)).metadataFields().isEmpty();
+                // Approval adds MAIN summary fields without changing its child models or linkage.
+                structureChanged |= capability != EntityCapability.APPROVAL
+                        && !MetadataCapabilityCatalog.plan(Set.of(capability)).metadataFields().isEmpty();
             }
         }
         if (Boolean.TRUE.equals(selections.get(EntityCapability.TREE))

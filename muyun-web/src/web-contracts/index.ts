@@ -57,7 +57,31 @@ export interface WebDataChange {
 
 export type WebActionMessageType = 'SUCCESS' | 'INFO' | 'WARNING' | 'ERROR' | string;
 
+export interface TextReference {
+  sourceKind: 'CODE' | 'CONFIG';
+  sourceId: string;
+  sourceVersion: string;
+  originalText: string;
+}
+export interface TextPresentation {
+  source: TextReference;
+  languages: Record<
+    string,
+    { text: string; requestedTag: string; resourceTag?: string | null; missing: boolean; fallback: boolean }
+  >;
+}
+/** Read-only labels on explicitly opted-in configuration records. Raw fields remain authoritative. */
+export interface RecordTextPresentation {
+  $texts?: Readonly<Record<string, TextPresentation>>;
+}
+
+/** Server-issued addresses of display slots; never addresses of business record values. */
+export interface TextPresentationDocument {
+  textBindings?: Record<string, TextPresentation>;
+}
+
 export interface WebActionMessage {
+  textSource?: TextReference;
   code?: string;
   text?: string;
   type?: WebActionMessageType;
@@ -100,6 +124,7 @@ export interface WebUserNotification {
 
 /** Ephemeral business reminder. It is not a persisted inbox or an acknowledgement record. */
 export interface WebBusinessNotification {
+  textResources?: Record<string, TextPresentation>;
   id: string;
   code: string;
   title: string;
@@ -513,6 +538,8 @@ export function hasExecutableDetailRelationMutationContract(
 export type MenuEntryType = 'module' | 'route' | 'link';
 
 export interface MenuRecord extends StandardEnabledTreeEntity {
+  /** Display-only navigation resource; configuration reads continue to expose the original. */
+  titleText?: TextPresentation;
   /** Read-only hint from the target module; never maintained on menus. */
   moduleDescription?: string;
   id: string;
@@ -625,6 +652,7 @@ export interface PageDescriptorBase<
   openMode: TOpenMode;
   hostType: THostType;
   title?: string;
+  titleText?: TextPresentation;
   /** Defaults to flow when omitted, preserving ordinary route behaviour. */
   layout?: PageLayoutMode;
   menuId?: string;
@@ -828,6 +856,7 @@ export interface WebReferenceResolveRequest {
 export interface WebReferenceResolveItem {
   id: string;
   title?: string;
+  titleText?: TextPresentation;
   /** Public, source-declared candidate context; never an arbitrary projection dump. */
   subtitle?: string;
   matchedBy?: WebReferenceMatchMode;
@@ -889,6 +918,7 @@ export type QueryOperator =
 export interface QuerySchemaField {
   name: string;
   title?: string;
+  titleText?: TextPresentation;
   valueType: QueryValueType;
   operators: QueryOperator[];
   defaultOperator?: QueryOperator;
@@ -907,6 +937,7 @@ export interface QuerySchemaField {
 export interface QuerySchemaPersistentControl {
   id: string;
   title: string;
+  titleText?: TextPresentation;
   operator: QueryOperator;
   defaultValues?: unknown[];
 }
@@ -1160,6 +1191,8 @@ export interface ResolvedOptionFieldDescriptor {
 }
 
 export interface OptionItemDescriptor {
+  titleSource?: TextReference;
+  titleText?: TextPresentation;
   code: string;
   title: string;
   enabled: boolean;
@@ -1409,6 +1442,7 @@ export interface ResolvedFileReferenceFieldDescriptor {
 }
 
 export interface ResolvedModuleUiDescriptor {
+  sourceTexts?: Record<string, TextReference>;
   schemaVersion: string;
   moduleAlias: string;
   moduleKind?: 'STATIC' | 'DYNAMIC';
@@ -2037,3 +2071,41 @@ export type {
 export type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from './referenceTarget';
 
 export * from './operation';
+export type {
+  WorkflowTaskPreparation,
+  WorkflowConfigurationCatalog,
+  WorkflowDefinitionSelection,
+  WorkflowDefinitionCreate,
+  WorkflowAdminInstance,
+  WorkflowAdminTask,
+  WorkflowAdminInstanceQuery,
+  WorkflowAdminHistoryQuery,
+  WorkflowDefinition,
+  WorkflowHistoryInstance,
+  WorkflowVersion,
+  WorkflowNode,
+  WorkflowRoute,
+  WorkflowAddSignExplanation,
+  WorkflowDesign,
+  WorkflowInstance,
+  WorkflowTask,
+  WorkflowEvent,
+  WorkflowAction,
+  WorkflowStatus,
+  WorkflowRenderBundle,
+  WorkflowSubmitPreview,
+  WorkflowBranch,
+  WorkflowWorkbenchCard,
+  WorkflowWorkbenchFilters,
+} from './workflow';
+
+/** Shared directory labels; titles remain separate from business records and page-specific captions. */
+export interface ModuleTitleView {
+  moduleAlias: string;
+  title: string;
+  titleSource?: TextReference;
+  titleText?: TextPresentation;
+}
+export interface ModuleTitleCatalog {
+  modules: Record<string, ModuleTitleView>;
+}

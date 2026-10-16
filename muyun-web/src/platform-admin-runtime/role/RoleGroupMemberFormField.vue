@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiSelect } from '@muyun/vue-ui-antdv';
 import type { OptionValue, OptionValueList, Role } from '@muyun/web-contracts';
 import type { ModulePageFormContributionContext } from '@muyun/dynamic-page-runtime';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RoleGroupMemberFormField' });
 
@@ -24,7 +27,7 @@ const options = computed(() =>
   candidates.value
     .filter((role) => role.id && role.id !== currentRoleId.value)
     .map((role) => ({
-      label: `${role.title ?? role.id} / ${role.roleKind === 'dataGrant' ? '数据授权角色' : '标准角色'}`,
+      label: `${role.title ?? role.id} / ${role.roleKind === 'dataGrant' ? language.t('platform.screen.RoleManagementView.data-authorization-role', '数据授权角色') : language.t('platform.screen.RoleManagementView.standard-role', '标准角色')}`,
       value: role.id!,
       disabled:
         role.roleKind === 'dataGrant' &&
@@ -84,13 +87,15 @@ function parseRoleIds(value: unknown) {
 
 <template>
   <label v-if="groupRole" class="role-group-member-form-field">
-    <span>成员角色</span>
+    <span>{{ language.t('platform.screen.RoleManagementView.member-roles', '成员角色') }}</span>
     <UiSelect
       mode="multiple"
       :value="selectedRoleIds"
       :options="options"
       :loading="loading"
-      placeholder="请选择成员角色"
+      :placeholder="
+        language.t('platform.screen.RoleGroupMemberSelector.select-member-roles', '请选择成员角色')
+      "
       :disabled="context.mode === 'view'"
       allow-clear
       @update:value="updateValue"

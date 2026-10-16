@@ -59,9 +59,9 @@ class PlatformOpenApiCatalogServiceTest {
         assertThat(service.discover("tenant-a"))
                 .containsExactly(
                         new OpenApiModuleCatalogItem("crm.customer", "客户", "static",
-                                "/crm.customer/openapi"),
+                                "/crm.customer/openapi", staticReady.titleSource()),
                         new OpenApiModuleCatalogItem("crm.order", "订单", "dynamic",
-                                "/crm.order/openapi")
+                                "/crm.order/openapi", dynamicReady.titleSource())
                 );
         verify(registry).containsModule("crm.order");
         verify(registry).containsModule("crm.invoice");

@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.i18n.TextPresentation;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -57,14 +60,14 @@ public final class RoleScopeSelectionFacade {
         CurrentUser user = requireAuthorizedRoleQuery();
         if (user.system()) {
             return new RoleScopeSelectionDescriptor(
-                    List.of(new DirectSelection(PLATFORM_SELECTION_KEY, "平台角色")),
-                    List.of(new Navigation(TENANT_LIST_NAVIGATION_KEY, ScopeLevel.TENANT, "租户")));
+                    List.of(DirectSelection.declared("iam.role.scope.platform", PLATFORM_SELECTION_KEY, "平台角色")),
+                    List.of(Navigation.declared("iam.role.scope.tenants", TENANT_LIST_NAVIGATION_KEY, ScopeLevel.TENANT, "租户")));
         }
         String tenantId = requireTenantUserTenant(user);
         tenantService.requireActiveTenant(tenantId);
         return new RoleScopeSelectionDescriptor(
-                List.of(new DirectSelection(TENANT_PREFIX + tenantId, "当前租户")),
-                List.of(new Navigation(TENANT_PREFIX + tenantId, ScopeLevel.ORGANIZATION, "机构")));
+                List.of(DirectSelection.declared("iam.role.scope.current-tenant", TENANT_PREFIX + tenantId, "当前租户")),
+                List.of(Navigation.declared("iam.role.scope.organizations", TENANT_PREFIX + tenantId, ScopeLevel.ORGANIZATION, "机构")));
     }
 
     public WebPageResponse<Candidate> candidates(CandidateRequest request) {
@@ -221,10 +224,20 @@ public final class RoleScopeSelectionFacade {
         }
     }
 
-    public record DirectSelection(String selectionKey, String title) {
+    public record DirectSelection(String selectionKey, String title,
+            @JsonIgnore TextReference titleSource, TextPresentation titleText) {
+        public DirectSelection(String selectionKey, String title) { this(selectionKey, title, null, null); }
+        static DirectSelection declared(String sourceKey, String selectionKey, String title) {
+            return new DirectSelection(selectionKey, title, TextReference.code(sourceKey, title), null);
+        }
     }
 
-    public record Navigation(String navigationKey, ScopeLevel level, String title) {
+    public record Navigation(String navigationKey, ScopeLevel level, String title,
+            @JsonIgnore TextReference titleSource, TextPresentation titleText) {
+        public Navigation(String navigationKey, ScopeLevel level, String title) { this(navigationKey, level, title, null, null); }
+        static Navigation declared(String sourceKey, String navigationKey, ScopeLevel level, String title) {
+            return new Navigation(navigationKey, level, title, TextReference.code(sourceKey, title), null);
+        }
     }
 
     public record CandidateRequest(String navigationKey, String level, String keyword, String parentId,

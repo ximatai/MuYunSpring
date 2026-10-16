@@ -5,9 +5,6 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const sourceRoots = ['src', 'examples/business-web/src'];
 const allowedAntdvPrefix = 'src/vue-ui-antdv/';
-// RecordDetailDrawer is the page-owned drawer boundary. It uses ADrawer directly
-// so each business page can supply its own root DOM container without a global host.
-const allowedAntdvFiles = new Set(['src/platform-components/RecordDetailDrawer.vue']);
 const violations = [];
 const packageViolations = [];
 const layerViolations = [];
@@ -83,11 +80,7 @@ for (const sourceRoot of sourceRoots) {
       );
     }
 
-    if (
-      (usesAntdvPackage || usesAntdvTemplate) &&
-      !projectPath.startsWith(allowedAntdvPrefix) &&
-      !allowedAntdvFiles.has(projectPath)
-    ) {
+    if ((usesAntdvPackage || usesAntdvTemplate) && !projectPath.startsWith(allowedAntdvPrefix)) {
       violations.push(projectPath);
     }
 

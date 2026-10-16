@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import { RecordExpandedSubtable } from '@muyun/platform-components';
 import { UiDataTable } from '@muyun/vue-ui-antdv';
@@ -10,6 +11,8 @@ import type {
   UiDataTableSelection,
 } from '@muyun/vue-ui-antdv';
 import type { EmploymentSelectorItem } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'EmployeeEmploymentTable' });
 
@@ -42,19 +45,45 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:selectedIds': [value: Set<string>] }>();
 
 const expandedEmployeeKeys = ref<string[]>([]);
-const employeeColumns: UiDataTableColumn[] = [
-  { key: 'title', title: '职员', width: 160 },
-  { key: 'employeeNo', title: '工号', width: 140 },
-  { key: 'organizationTitle', title: '所属机构', width: 180 },
-  { key: 'employmentCount', title: '任职', width: 88, align: 'right' },
-  { key: 'selectedCount', title: '已选', width: 88, align: 'right' },
-];
-const employmentColumns: UiDataTableColumn[] = [
-  { key: 'position', title: '岗位', width: 160 },
-  { key: 'organization', title: '机构', width: 160 },
-  { key: 'department', title: '部门', width: 160 },
-  { key: 'primaryPosition', title: '主岗位', width: 88 },
-];
+const employeeColumns = computed<UiDataTableColumn[]>(() => [
+  { key: 'title', title: language.t('platform.screen.EmployeePicker.employee', '职员'), width: 160 },
+  {
+    key: 'employeeNo',
+    title: language.t('platform.screen.EmployeeEmploymentTable.employee-number', '工号'),
+    width: 140,
+  },
+  {
+    key: 'organizationTitle',
+    title: language.t('platform.user-picker.column.organization-name', '所属机构'),
+    width: 180,
+  },
+  {
+    key: 'employmentCount',
+    title: language.t('platform.screen.EmployeeEmploymentTable.position-assignments', '任职'),
+    width: 88,
+    align: 'right',
+  },
+  {
+    key: 'selectedCount',
+    title: language.t('platform.screen.EmployeeEmploymentTable.selected', '已选'),
+    width: 88,
+    align: 'right',
+  },
+]);
+const employmentColumns = computed<UiDataTableColumn[]>(() => [
+  {
+    key: 'position',
+    title: language.t('platform.screen.CurrentUserProfileDialog.position', '岗位'),
+    width: 160,
+  },
+  { key: 'organization', title: language.t('platform.user-picker.axis.organization', '机构'), width: 160 },
+  { key: 'department', title: language.t('platform.user-picker.axis.department', '部门'), width: 160 },
+  {
+    key: 'primaryPosition',
+    title: language.t('platform.screen.EmployeeEmploymentTable.primary-position', '主岗位'),
+    width: 88,
+  },
+]);
 
 const employees = computed<EmployeeEmploymentGroup[]>(() => {
   const grouped = new Map<string, EmployeeEmploymentGroup>();
@@ -79,8 +108,14 @@ function employeeCellValue(column: UiDataTableColumn, record: UiDataTableRecord)
   if (column.key === 'title') return employee.title;
   if (column.key === 'employeeNo') return employee.employeeNo ?? employee.employeeId;
   if (column.key === 'organizationTitle') return employee.organizationTitle ?? '-';
-  if (column.key === 'employmentCount') return `${employee.positions.length} 项`;
-  if (column.key === 'selectedCount') return `${selectedCount(employee)} 项`;
+  if (column.key === 'employmentCount')
+    return language.t('platform.screen.EmployeeEmploymentTable.value-items', '{value1} 项', {
+      value1: employee.positions.length,
+    });
+  if (column.key === 'selectedCount')
+    return language.t('platform.screen.EmployeeEmploymentTable.value-items', '{value1} 项', {
+      value1: selectedCount(employee),
+    });
   return '';
 }
 
@@ -89,7 +124,10 @@ function employmentCellValue(column: UiDataTableColumn, record: UiDataTableRecor
   if (column.key === 'position') return employment.positionTitle ?? employment.positionId;
   if (column.key === 'organization') return employment.organizationTitle ?? employment.organizationId;
   if (column.key === 'department') return employment.departmentTitle ?? employment.departmentId;
-  if (column.key === 'primaryPosition') return employment.primaryPosition ? '是' : '否';
+  if (column.key === 'primaryPosition')
+    return employment.primaryPosition
+      ? language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')
+      : language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否');
   return '';
 }
 
@@ -147,7 +185,9 @@ function toggleEmployeeExpanded(record: UiDataTableRecord) {
       {{ employeeCellValue(column, record) }}
     </template>
     <template #expandedRow="{ record }">
-      <RecordExpandedSubtable title="任职信息">
+      <RecordExpandedSubtable
+        :title="language.t('platform.screen.CurrentUserProfileDialog.employment-details', '任职信息')"
+      >
         <UiDataTable
           :columns="employmentColumns"
           :rows="(record as unknown as EmployeeEmploymentGroup).positions as unknown as UiDataTableRecord[]"

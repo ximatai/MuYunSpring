@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import type { HttpClient } from '@/web-core';
-import { createBusinessLogClient } from '@/views/businessLogClient';
+import { createLanguageContext, type HttpClient } from '@/web-core';
+import { businessLogStatisticTitle, createBusinessLogClient } from '@/views/businessLogClient';
 
 it('keeps the log identity projection nested when loading a detail', async () => {
   const request = vi.fn(async () => ({
@@ -128,4 +128,33 @@ it('loads and restores log operators through the source log module rather than i
     selectedRecords: [{ id: 'user-2', title: 'lisi', account: 'lisi' }],
     total: 1,
   });
+});
+
+it('declares metric label sources while preserving counts, page identities, and business titles', async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({ executionCount: 12, successCount: 10, complete: false })
+    .mockResolvedValueOnce({ pages: [{ pageKey: '业务页面原名', accessCount: 4 }, { accessCount: 2 }] });
+  const client = createBusinessLogClient({ request } as HttpClient, 'activity');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const metrics = await client.actionStatistics!({ page: { pageNum: 1, pageSize: 20 }, conditions: [] });
+  const pages = await client.pageAccessStatistics!({ page: { pageNum: 1, pageSize: 20 }, conditions: [] });
+  const execution = metrics.items[0]!;
+  expect(execution).toMatchObject({ key: 'executionCount', title: '执行次数', count: 12 });
+  expect(businessLogStatisticTitle(execution, language)).toBe('Execution count');
+  expect(metrics.complete).toBe(false);
+  expect(businessLogStatisticTitle(pages.items[0]!, language)).toBe('业务页面原名');
+  expect(businessLogStatisticTitle(pages.items[1]!, language)).toBe('Unknown page');
+  language.setLanguage('zh-CN');
+  expect(businessLogStatisticTitle(execution, language)).toBe('执行次数');
+  expect(execution.count).toBe(12);
+  expect(request).toHaveBeenCalledTimes(2);
+  language.setLanguage('en');
+  expect(businessLogStatisticTitle({ ...execution, title: '业务标题' }, language)).toBe('业务标题');
+  expect(
+    businessLogStatisticTitle(
+      { ...execution, titleSource: { ...execution.titleSource!, sourceVersion: 'stale' } },
+      language,
+    ),
+  ).toBe('执行次数');
 });

@@ -81,4 +81,10 @@ public class PlatformModule extends StandardEnabledTreeEntity implements Platfor
     public void setAlias(String alias) {
         setId(alias);
     }
+    /** Static registered modules retain declaration ownership; editable directory titles are configuration. */
+    public net.ximatai.muyun.spring.common.i18n.TextReference titleSource() {
+        return moduleKind == ModuleKind.STATIC && Boolean.TRUE.equals(systemManaged)
+                ? ModuleTitleView.declaredSource(getAlias(), getTitle()) : ModuleTitleView.configuredSource(getAlias(), getTitle());
+    }
+
 }

@@ -1,3 +1,5 @@
+import type { TextPresentation } from '@muyun/web-contracts';
+import { presentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 /**
  * Source-neutral candidate contract for records selected through an authorized
  * reference source. IDs are the only persisted value; projections are display
@@ -25,6 +27,7 @@ export interface ReferencePickerSourceIdentity {
 export interface ReferencePickerCandidate {
   id: ReferencePickerId;
   title: string;
+  titleText?: TextPresentation;
   /** The UI is displaying the persisted identifier because no business title was available. */
   identifierFallback?: boolean;
   subtitle?: string;
@@ -53,6 +56,8 @@ export interface ReferencePickerNavigationItem {
 export interface ReferencePickerNavigationAxis {
   id: string;
   title: string;
+  /** Deployed CODE resource for the axis heading; candidate titles remain business facts. */
+  titleKey?: string;
   dependsOn?: readonly string[];
   items: readonly ReferencePickerNavigationItem[];
 }
@@ -97,6 +102,8 @@ export interface ReferencePickerProvider<
 export interface ReferencePickerColumn {
   key: string;
   title: string;
+  /** Deployed CODE resource for the column heading, resolved in the consumer scope. */
+  titleKey?: string;
   width?: number;
 }
 
@@ -115,6 +122,7 @@ export interface ReferencePickerConfig {
 export interface ReferencePickerSelectionSummary {
   id: ReferencePickerId;
   title: string;
+  titleText?: TextPresentation;
   subtitle?: string;
   unavailable?: boolean;
 }
@@ -139,13 +147,19 @@ export function referencePickerSummary(candidate: ReferencePickerCandidate): Ref
   return {
     id: candidate.id,
     title: candidate.title,
+    titleText: candidate.titleText,
     subtitle: candidate.subtitle,
     unavailable: candidate.unavailable,
   };
 }
 
 export function referencePickerDisplayTitle(
-  candidate: Pick<ReferencePickerCandidate, 'title' | 'subtitle'>,
+  candidate: Pick<ReferencePickerCandidate, 'title' | 'subtitle' | 'titleText'>,
+  language: LanguageContext = platformLanguageContext,
 ): string {
-  return candidate.subtitle?.trim() ? `${candidate.title} · ${candidate.subtitle.trim()}` : candidate.title;
+  const title =
+    candidate.titleText?.source.originalText === candidate.title
+      ? presentationLabel(candidate.title, candidate.titleText, language)
+      : candidate.title;
+  return candidate.subtitle?.trim() ? `${title} · ${candidate.subtitle.trim()}` : title;
 }

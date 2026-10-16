@@ -430,14 +430,7 @@ function isRealtimeEnvelope(value: unknown): value is WebRealtimeEnvelope<unknow
 }
 
 function isAuthenticationErrorFrame(frame: StompErrorFrame | undefined) {
-  const message = `${frame?.headers?.message ?? ''}\n${frame?.body ?? ''}`.toLowerCase();
-  return (
-    message.includes('realtime authentication required') ||
-    message.includes('password change required') ||
-    message.includes('auth_required') ||
-    message.includes('auth expired') ||
-    message.includes('unauthorized')
-  );
+  return ['AUTH_REQUIRED', 'AUTH_EXPIRED', 'PASSWORD_CHANGE_REQUIRED'].includes(frame?.headers?.code ?? '');
 }
 
 function unsubscribeActive(subscription: TrackedSubscription<unknown>) {

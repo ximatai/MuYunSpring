@@ -8,6 +8,8 @@ server:
   servlet:
     context-path: ${MUYUN_API_CONTEXT_PATH:/api}
 muyun:
+  i18n:
+    enabled-languages: zh-CN,en,fr
   runtime:
     mode: development
   initial-admin:

@@ -1,11 +1,17 @@
 import { nextTick } from 'vue';
-import { AssistantCapabilityUsageError, type AssistantCapability } from '@muyun/web-core';
+import {
+  AssistantCapabilityUsageError,
+  platformLanguageContext,
+  type LanguageContext,
+  type AssistantCapability,
+} from '@muyun/web-core';
 import { createRecordFormAssistantCapabilities } from './recordFormAssistantCapabilities';
 import type { RelationDraftController, RelationDraftRegistry } from './relationDraftController';
 
 export function createRelationDraftAssistantCapabilities(
   registry: RelationDraftRegistry,
   contextRevision: () => string,
+  language?: LanguageContext,
 ) {
   let active:
     | {
@@ -22,6 +28,9 @@ export function createRelationDraftAssistantCapabilities(
       rowKey,
       capabilities: createRecordFormAssistantCapabilities(
         {
+          get language() {
+            return form.language ?? language ?? platformLanguageContext;
+          },
           get editorMode() {
             return form.editorMode;
           },
@@ -38,7 +47,7 @@ export function createRelationDraftAssistantCapabilities(
           updateDraftFields: (...args) => form.updateDraftFields(...args),
           updateDraftReference: (...args) => form.updateDraftReference(...args),
         },
-        { schemaDiscovery: 'eager' },
+        { schemaDiscovery: 'eager', language: form.language ?? language ?? platformLanguageContext },
       ),
     };
   };
@@ -99,9 +108,10 @@ export function createRelationDraftAssistantCapabilities(
         }, nextTick);
       const form = action !== 'remove-row' && selected ? controller.form(selected) : undefined;
       const describe = form
-        ? createRecordFormAssistantCapabilities(form, { resolveReferenceNames: false })().find(
-            (capability) => capability.descriptor.code === 'form.describe',
-          )
+        ? createRecordFormAssistantCapabilities(form, {
+            resolveReferenceNames: false,
+            language: form.language ?? language ?? platformLanguageContext,
+          })().find((capability) => capability.descriptor.code === 'form.describe')
         : undefined;
       const facts = describe ? await describe.execute({}, context) : undefined;
       const detailsOmitted = facts !== undefined && JSON.stringify(facts).length > 12000;
@@ -173,6 +183,7 @@ export function createRelationDraftAssistantCapabilities(
               if (!form) continue;
               const describe = createRecordFormAssistantCapabilities(form, {
                 resolveReferenceNames: false,
+                language: form.language ?? language ?? platformLanguageContext,
               })().find((capability) => capability.descriptor.code === 'form.describe');
               const facts = remaining > 0 && describe ? await describe.execute({}, context) : undefined;
               const cost = JSON.stringify(facts ?? {}).length;

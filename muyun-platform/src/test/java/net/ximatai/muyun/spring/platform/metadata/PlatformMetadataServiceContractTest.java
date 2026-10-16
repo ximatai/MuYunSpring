@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItem;
@@ -1294,6 +1296,42 @@ class PlatformMetadataServiceContractTest {
         config.setRequiredOnInsert(true);
         assertThatThrownBy(() -> fieldConfigService.insert(config))
                 .isInstanceOf(PlatformException.class).hasMessageContaining("System managed field cannot override write rules");
+    }
+
+    @Test
+    void moduleFieldHelperRejectionsRetainArgumentsAndTranslateWithoutSaving() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "amount", "amount", FieldType.INTEGER);
+        fieldService.insert(field);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+        long before = moduleFieldService.count(Criteria.of());
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        ModuleMetadataField normalized = moduleField(relationId, field.getId());
+        normalized.setTextNormalization(TextNormalization.TRIM);
+        ModuleMetadataField money = moduleField(relationId, field.getId());
+        money.setMoneyCurrencyMode(FieldMoneyMode.SELECTABLE);
+        money.setMoneyDefaultCurrencyCode("US");
+        money.setMoneyBaseCurrencyCode("CNY");
+        money.setMoneyRateTypeCode("SPOT");
+        for (var config : List.of(normalized, money)) {
+            assertThatThrownBy(() -> moduleFieldService.insert(config))
+                    .isInstanceOfSatisfying(PlatformException.class, error -> {
+                        boolean normalization = config == normalized;
+                        for (String language : List.of("en", "zh-CN", "en")) {
+                            assertThat(texts.resolve(error.textSource(), error.messageArgs(), language).text())
+                                    .isEqualTo(language.equals("en")
+                                            ? normalization ? "Text normalization requires text field: amount"
+                                                : "moneyDefaultCurrencyCode must be ISO 4217 alpha-3 code: US"
+                                            : normalization ? "文本规范化必须是文本字段：amount"
+                                                : "moneyDefaultCurrencyCode 必须是 ISO 4217 三位字母编码：US");
+                        }
+                        assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+                        assertThat(error.httpStatus()).isEqualTo(400);
+                    });
+            assertThat(moduleFieldService.count(Criteria.of())).isEqualTo(before);
+        }
     }
 
     @Test
@@ -2914,7 +2952,7 @@ class PlatformMetadataServiceContractTest {
 
     @Test
     void shouldGovernPortableBusinessRulesWithoutWritingOnTrialAndRunAppliedDefinitionOnSave() {
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new MemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new MemoryDao<>(), moduleService);
         ModuleMetadataFormulaRuleService formulaRules = new ModuleMetadataFormulaRuleService(new MemoryDao<>(), relationService,
                 fieldService, Optional.of(runtimeRefreshCoordinator));
         PlatformModuleDefinitionCompiler compiler = new PlatformModuleDefinitionCompiler(moduleService, metadataService,
@@ -2978,7 +3016,14 @@ class PlatformMetadataServiceContractTest {
         BusinessRulePreview malformed = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(
                 new BusinessRuleProposal("badRule", FormulaRuleKind.CALCULATION, "total", "{quantity} +", false, null))));
         assertThat(malformed.valid()).isFalse();
-        assertThat(malformed.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_FORM_COMPUTE_UNSUPPORTED");
+        assertThat(malformed.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_PARSE_ERROR");
+        String backendAggregate = "SUM({quantity})";
+        assertThat(new net.ximatai.muyun.spring.common.formula.FormulaEngine().evaluateValue(backendAggregate,
+                net.ximatai.muyun.spring.common.formula.FormulaRuntimeData.of(Map.of("quantity", 2)))).isEqualTo(2d);
+        BusinessRulePreview unsupported = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(
+                new BusinessRuleProposal("backendAggregate", FormulaRuleKind.CALCULATION, "total", backendAggregate, true, null))));
+        assertThat(unsupported.valid()).isFalse();
+        assertThat(unsupported.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_FORM_COMPUTE_UNSUPPORTED");
         assertThatThrownBy(() -> governance.apply("crm.quote", new BusinessRuleApplyCommand(List.of(calculation),
                 baseline.baselineFingerprint(), preview.proposalFingerprint()))).isInstanceOf(PlatformException.class)
                 .hasMessageContaining("stale");
@@ -3197,7 +3242,7 @@ class PlatformMetadataServiceContractTest {
 
     private PlatformModuleDefinitionCompiler moduleDefinitionCompiler() {
         PlatformModuleActionService actionService =
-                new PlatformModuleActionService(new MemoryDao<PlatformModuleAction>(), moduleService);
+                ModuleActionTestServices.withDeclaredDataPolicy(new MemoryDao<PlatformModuleAction>(), moduleService);
         ModuleMetadataFormulaRuleService formulaRuleService =
                 new ModuleMetadataFormulaRuleService(new MemoryDao<>(), relationService, fieldService);
         return new PlatformModuleDefinitionCompiler(

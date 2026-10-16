@@ -1,10 +1,15 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan;
+import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedSheet;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedWorkbook;
 import net.ximatai.muyun.spring.platform.exchange.reader.ExcelWorkbookParser;
@@ -29,8 +34,16 @@ public class DynamicImportFacade {
     private final DynamicImportExecutor executor;
     private final DynamicImportErrorWorkbookBuilder errorWorkbookBuilder;
     private final ExcelWorkbookPlanWriter workbookWriter;
+    private final ExcelWorkbookPresentation presentation;
 
     @Autowired
+    public DynamicImportFacade(DynamicRecordService recordService, ExcelWorkbookPresentation presentation,
+                               ObjectProvider<TextResolver> resolvers) {
+        this(new ExcelWorkbookParser(), new DynamicImportPlanBuilder(), new ImportWorkbookGrouper(),
+                new DynamicImportExecutor(recordService), new DynamicImportErrorWorkbookBuilder(resolvers.getIfAvailable()),
+                new ExcelWorkbookPlanWriter(), presentation);
+    }
+
     public DynamicImportFacade(DynamicRecordService recordService) {
         this(new ExcelWorkbookParser(),
                 new DynamicImportPlanBuilder(),
@@ -46,12 +59,20 @@ public class DynamicImportFacade {
                         DynamicImportExecutor executor,
                         DynamicImportErrorWorkbookBuilder errorWorkbookBuilder,
                         ExcelWorkbookPlanWriter workbookWriter) {
+        this(parser, planBuilder, grouper, executor, errorWorkbookBuilder, workbookWriter, null);
+    }
+
+    DynamicImportFacade(ExcelWorkbookParser parser, DynamicImportPlanBuilder planBuilder,
+                        ImportWorkbookGrouper grouper, DynamicImportExecutor executor,
+                        DynamicImportErrorWorkbookBuilder errorWorkbookBuilder, ExcelWorkbookPlanWriter workbookWriter,
+                        ExcelWorkbookPresentation presentation) {
         this.parser = Objects.requireNonNull(parser, "parser must not be null");
         this.planBuilder = Objects.requireNonNull(planBuilder, "planBuilder must not be null");
         this.grouper = Objects.requireNonNull(grouper, "grouper must not be null");
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         this.errorWorkbookBuilder = Objects.requireNonNull(errorWorkbookBuilder, "errorWorkbookBuilder must not be null");
         this.workbookWriter = Objects.requireNonNull(workbookWriter, "workbookWriter must not be null");
+        this.presentation = presentation;
     }
 
     public DynamicImportParseResult parse(DynamicModuleDescriptor descriptor, byte[] excelBytes) {
@@ -59,7 +80,9 @@ public class DynamicImportFacade {
             throw new PlatformException("dynamic import parse requires module descriptor");
         }
         if (excelBytes == null || excelBytes.length == 0) {
-            throw new PlatformException("dynamic import parse excel bytes must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import.dynamic-import-parse-excel-bytes-must-not-be-empty",
+                    "dynamic import parse excel bytes must not be empty"));
         }
         ParsedWorkbook workbook = parser.parse(excelBytes);
         DynamicImportPlan plan = planBuilder.build(descriptor, workbook, parsePlanCommand(descriptor, workbook));
@@ -76,7 +99,7 @@ public class DynamicImportFacade {
         GroupedWorkbook groupedWorkbook = grouper.group(plan, workbook);
         DynamicImportExecutionResult executionResult =
                 executor.execute(new ExecuteDynamicImportCommand(plan, groupedWorkbook));
-        byte[] errorWorkbookBytes = buildErrorWorkbookBytes(plan, executionResult, workbook);
+        byte[] errorWorkbookBytes = buildErrorWorkbookBytes(plan, executionResult, workbook, command.descriptor());
         return new DynamicImportResult(plan, groupedWorkbook, executionResult, errorWorkbookBytes);
     }
 
@@ -104,7 +127,9 @@ public class DynamicImportFacade {
         String mainEntityAlias = descriptor.mainEntityAlias();
         ParsedSheet mainSheet = sheetsByEntity.get(mainEntityAlias);
         if (mainSheet == null) {
-            throw new PlatformException("dynamic import main sheet not found: " + mainEntityAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import.dynamic-import-main-sheet-not-found",
+                    "dynamic import main sheet not found: {value1}"), Map.of("value1", String.valueOf(mainEntityAlias)));
         }
         List<BuildDynamicImportPlanCommand.ChildSheetCommand> childCommands = firstLevelChildEntityAliases(descriptor)
                 .stream()
@@ -147,8 +172,9 @@ public class DynamicImportFacade {
                 .map(column -> column.fieldName())
                 .filter(fieldName -> !ExcelExchangeProtocol.RELATE_ID_FIELD.equals(fieldName))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("dynamic import sheet has no business field: "
-                        + sheet.sheetName()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import.dynamic-import-sheet-has-no-business-field",
+                        "dynamic import sheet has no business field: {value1}"), Map.of("value1", String.valueOf(sheet.sheetName()))));
     }
 
     private String firstMatchKeyCandidate(DynamicImportPlan.SheetPlan sheet) {
@@ -156,8 +182,9 @@ public class DynamicImportFacade {
                 .filter(DynamicImportPlan.FieldPlan::matchKeyCandidate)
                 .map(DynamicImportPlan.FieldPlan::fieldName)
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("dynamic import sheet has no match key candidate: "
-                        + sheet.sheetName()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import.dynamic-import-sheet-has-no-match-key-candidate",
+                        "dynamic import sheet has no match key candidate: {value1}"), Map.of("value1", String.valueOf(sheet.sheetName()))));
     }
 
     private DynamicImportParseResult parseResult(DynamicImportPlan plan, ParsedWorkbook workbook) {
@@ -194,11 +221,12 @@ public class DynamicImportFacade {
 
     private byte[] buildErrorWorkbookBytes(DynamicImportPlan plan,
                                            DynamicImportExecutionResult executionResult,
-                                           ParsedWorkbook workbook) {
+                                           ParsedWorkbook workbook, DynamicModuleDescriptor descriptor) {
         if (executionResult.errorRows().isEmpty()) {
             return null;
         }
         ExcelWorkbookPlan errorWorkbook = errorWorkbookBuilder.buildRetryWorkbook(plan, executionResult.errorRows(), workbook);
+        if (presentation != null) errorWorkbook = presentation.project(errorWorkbook, descriptor);
         return workbookWriter.writeToBytes(errorWorkbook);
     }
 }

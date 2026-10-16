@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -9,7 +12,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
@@ -58,24 +60,30 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
         rejectDirectPublish(existing, template);
         rejectPublishedEdit(existing, template);
         normalizeAndValidate(template);
-        rejectChanged(existing, template, "Query template moduleAlias", PlatformQueryTemplate::getModuleAlias);
-        rejectChanged(existing, template, "Query template alias", PlatformQueryTemplate::getAlias);
+        rejectChangedText(existing, template, TextReference.code(
+                "platform.rejection.platform-query-template.query-template-modulealias-cannot-be-changed",
+                "Query template moduleAlias cannot be changed"), PlatformQueryTemplate::getModuleAlias);
+        rejectChangedText(existing, template, TextReference.code(
+                "platform.rejection.platform-query-template.query-template-alias-cannot-be-changed",
+                "Query template alias cannot be changed"), PlatformQueryTemplate::getAlias);
     }
 
     @Override
     public void beforeDelete(String id) {
         PlatformQueryTemplate existing = select(id);
         if (existing != null && Boolean.TRUE.equals(existing.getPublished())) {
-            throw BusinessExceptions.warning("platform.query-template.published-delete-denied",
-                    "Published query template cannot be deleted; unpublish first: " + id);
+            throw BusinessExceptions.warningText("platform.query-template.published-delete-denied", TextReference.code(
+                    "platform.rejection.platform-query-template.published-query-template-cannot-be-deleted-unpublish-first",
+                    "Published query template cannot be deleted; unpublish first: {value1}"), Map.of("value1", String.valueOf(id)));
         }
     }
 
     public PlatformQueryTemplate requireQueryTemplate(String id) {
         PlatformQueryTemplate template = id == null || id.isBlank() ? null : select(id);
         if (template == null) {
-            throw BusinessExceptions.warning("platform.query-template.not-found",
-                    "Query template requires existing config: " + id);
+            throw BusinessExceptions.warningText("platform.query-template.not-found", TextReference.code(
+                    "platform.rejection.platform-query-template.query-template-requires-existing-config",
+                    "Query template requires existing config: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return template;
     }
@@ -98,8 +106,9 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
         String moduleAlias = PlatformNameRules.requireModuleAlias(template.getModuleAlias());
         PlatformModule module = moduleService.resolveVisibleModule(moduleAlias);
         if (module == null) {
-            throw BusinessExceptions.warning("platform.query-template.module-not-found",
-                    "Query template requires existing module: " + moduleAlias);
+            throw BusinessExceptions.warningText("platform.query-template.module-not-found", TextReference.code(
+                    "platform.rejection.platform-query-template.query-template-requires-existing-module",
+                    "Query template requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         String alias = PlatformNameRules.requireIdentifier(template.getAlias(), "queryTemplateAlias");
         template.setModuleAlias(moduleAlias);
@@ -115,13 +124,15 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
         }
         rejectDuplicate(template, Criteria.of()
                         .eq("moduleAlias", moduleAlias)
-                        .eq("alias", alias),
-                "Query template alias must be unique in module: " + moduleAlias + "." + alias);
+                        .eq("alias", alias), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-query-template.query-template-alias-must-be-unique-in-module",
+                                "Query template alias must be unique in module: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(alias))));
         if (Boolean.TRUE.equals(template.getDefaultTemplate())) {
             rejectDuplicate(template, Criteria.of()
                             .eq("moduleAlias", moduleAlias)
-                            .eq("defaultTemplate", Boolean.TRUE),
-                    "Only one default query template is allowed for module: " + moduleAlias);
+                            .eq("defaultTemplate", Boolean.TRUE), () -> PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.platform-query-template.only-one-default-query-template-is-allowed-for-module",
+                                    "Only one default query template is allowed for module: {value1}"), Map.of("value1", String.valueOf(moduleAlias))));
         }
     }
 
@@ -138,15 +149,16 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
                 && Objects.equals(existing.getSortOrder(), updated.getSortOrder())) {
             return;
         }
-        throw BusinessExceptions.warning("platform.query-template.published-edit-denied",
-                "Published query template cannot be edited; unpublish first: " + existing.getId());
+        throw BusinessExceptions.warningText("platform.query-template.published-edit-denied", TextReference.code(
+                "platform.rejection.platform-query-template.published-query-template-cannot-be-edited-unpublish-first",
+                "Published query template cannot be edited; unpublish first: {value1}"), Map.of("value1", String.valueOf(existing.getId())));
     }
 
     private void rejectDirectPublish(PlatformQueryTemplate template) {
         if (Boolean.TRUE.equals(template.getPublished()) && !PlatformPageConfigPublishContext.active()) {
-            throw BusinessExceptions.warning("platform.query-template.direct-publish-denied",
-                    "Query template can only be published through publish service: "
-                    + template.getId());
+            throw BusinessExceptions.warningText("platform.query-template.direct-publish-denied", TextReference.code(
+                    "platform.rejection.platform-query-template.query-template-can-only-be-published-through-publish-service",
+                    "Query template can only be published through publish service: {value1}"), Map.of("value1", String.valueOf(template.getId())));
         }
     }
 
@@ -155,9 +167,9 @@ public class PlatformQueryTemplateService extends AbstractAbilityService<Platfor
             return;
         }
         if (existing == null || !Boolean.TRUE.equals(existing.getPublished())) {
-            throw BusinessExceptions.warning("platform.query-template.direct-publish-denied",
-                    "Query template can only be published through publish service: "
-                    + updated.getId());
+            throw BusinessExceptions.warningText("platform.query-template.direct-publish-denied", TextReference.code(
+                    "platform.rejection.platform-query-template.query-template-can-only-be-published-through-publish-service",
+                    "Query template can only be published through publish service: {value1}"), Map.of("value1", String.valueOf(updated.getId())));
         }
     }
 }

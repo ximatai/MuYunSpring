@@ -1,13 +1,36 @@
+import { platformLanguageContext, createCodeTextPresentation } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
 import type { AppWorkbenchNavigation } from '@/consumer/workbenchNavigation';
 import Workbench from '@/platform-workbench/Workbench.vue';
+import RecordDetailDrawer from '@/platform-components/RecordDetailDrawer.vue';
 import { useWorkbenchNavigation, type WorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
 import type { MenuTreeNode, WorkbenchStartupState } from '@/web-contracts';
 import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
+import {
+  clearWorkspaceViewUnsavedState,
+  registerWorkspaceViewUnsavedState,
+  workspaceViewUnsavedStateSources,
+} from '@/platform-workbench/workspaceViewUnsavedState';
+
+const discardFeedback = vi.hoisted(() => ({ confirm: vi.fn<() => Promise<boolean>>(), busy: vi.fn() }));
+vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/vue-ui-antdv')>()),
+  confirmAction: discardFeedback.confirm,
+  showErrorMessage: discardFeedback.busy,
+}));
+
+beforeEach(() => {
+  discardFeedback.confirm.mockReset().mockResolvedValue(false);
+  discardFeedback.busy.mockReset();
+});
+afterEach(() => {
+  clearWorkspaceViewUnsavedState('menu:A');
+  clearWorkspaceViewUnsavedState('menu:B');
+});
 
 const tabs = [
   {
@@ -45,7 +68,18 @@ const tabs = [
 function startup(): WorkbenchStartupState {
   return {
     session: { currentUser: { userId: 'u1', username: 'tester', tenantId: 'tenant', system: false } },
-    menus: [],
+    menus: tabs.map((tab) => ({
+      record: {
+        id: tab.target.menuId,
+        title: tab.title,
+        schemeId: 'test',
+        moduleAlias: 'test.workspace',
+        entryType: 'route',
+        openMode: 'tab',
+        route: tab.target.route,
+      },
+      children: [],
+    })),
     tabs: structuredClone(tabs),
     activeTabKey: 'menu:A',
   };
@@ -55,7 +89,7 @@ function mountShell() {
   return mount(AppWorkbenchShell, {
     props: {
       startup: startup(),
-      location: '/a',
+      location: tabs[0]!.fullPath,
       realtimeStatus: 'connected',
       themeAppearance: 'dark',
     },
@@ -75,7 +109,7 @@ function mountShellWithNavigation(loadMenus?: () => Promise<MenuTreeNode[]>) {
     props: {
       startup: startup(),
       loadMenus,
-      location: '/a',
+      location: tabs[0]!.fullPath,
       realtimeStatus: 'connected',
       themeAppearance: 'dark',
     },
@@ -238,11 +272,150 @@ it('replaces the current tab address and closes it into the fallback address', a
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
 
   expect(workbenchNavigation?.closeCurrentTab('/a')).toEqual({ created: false });
+  await flushPromises();
   await syncStartup(wrapper);
   state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
   expect(state.tabs?.some((tab) => tab.fullPath?.includes('/iam/users/form/user-1'))).toBe(false);
   expect(state.activeTabKey).toBe('menu:A');
   expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'replace' });
+  wrapper.unmount();
+});
+
+it('closes a clean current tab immediately and reports creation of a missing fallback', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  expect(navigation()?.closeCurrentTab('/new-fallback')).toEqual({ created: true });
+  const state = wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState;
+  expect(state.tabs?.some((tab) => tab.key === 'menu:A')).toBe(false);
+  expect(state.tabs?.find((tab) => tab.key === state.activeTabKey)?.fullPath).toBe('/new-fallback');
+  expect(discardFeedback.confirm).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
+it('protects public close-page navigation while a workspace mutation is in flight', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  registerWorkspaceViewUnsavedState(
+    'menu:A',
+    '业务保存',
+    () => false,
+    () => true,
+  );
+  navigation()?.closePage('menu:A');
+  await flushPromises();
+  expect(discardFeedback.busy).toHaveBeenCalledWith(expect.stringContaining('业务保存'));
+  expect(discardFeedback.confirm).not.toHaveBeenCalled();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toHaveLength(2);
+  wrapper.unmount();
+});
+
+it('keeps or closes a dirty tab according to the shared discard decision', async () => {
+  const wrapper = mountShell();
+  await flushPromises();
+  await syncStartup(wrapper);
+  registerWorkspaceViewUnsavedState('menu:A', '流程配置', () => true);
+  const workbench = wrapper.findComponent(Workbench);
+  workbench.vm.$emit('closeTab', 'menu:A');
+  await flushPromises();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toHaveLength(2);
+  expect(workspaceViewUnsavedStateSources('menu:A')).toEqual(['流程配置']);
+  discardFeedback.confirm.mockResolvedValue(true);
+  workbench.vm.$emit('closeTab', 'menu:A');
+  await flushPromises();
+  expect(
+    (wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs?.map((tab) => tab.key),
+  ).toEqual(['menu:B']);
+  expect(workspaceViewUnsavedStateSources('menu:A')).toEqual([]);
+  wrapper.unmount();
+});
+
+it('protects a batch close as one operation and rechecks mutations after confirmation', async () => {
+  const wrapper = mountShell();
+  await flushPromises();
+  await syncStartup(wrapper);
+  let busy = true;
+  registerWorkspaceViewUnsavedState('menu:A', '配置', () => true);
+  registerWorkspaceViewUnsavedState(
+    'menu:B',
+    '办理',
+    () => false,
+    () => busy,
+  );
+  const workbench = wrapper.findComponent(Workbench);
+  workbench.vm.$emit('closeTabs', ['menu:A', 'menu:B']);
+  await flushPromises();
+  expect(discardFeedback.confirm).not.toHaveBeenCalled();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toHaveLength(2);
+  busy = false;
+  let resolveConfirmation!: (confirmed: boolean) => void;
+  discardFeedback.confirm.mockReturnValue(
+    new Promise((resolve) => {
+      resolveConfirmation = resolve;
+    }),
+  );
+  workbench.vm.$emit('closeTabs', ['menu:A', 'menu:B']);
+  await flushPromises();
+  busy = true;
+  resolveConfirmation(true);
+  await flushPromises();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toHaveLength(2);
+  busy = false;
+  discardFeedback.confirm.mockResolvedValue(true);
+  workbench.vm.$emit('closeTabs', ['menu:A', 'menu:B']);
+  await flushPromises();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toEqual([]);
+  wrapper.unmount();
+});
+
+it('guards close-current-tab without changing its synchronous navigation result', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  registerWorkspaceViewUnsavedState('menu:A', '业务详情', () => true);
+  const previousNavigations = wrapper.emitted('navigate')?.length ?? 0;
+  expect(navigation()?.closeCurrentTab('/b')).toEqual({ created: false });
+  await flushPromises();
+  expect(wrapper.emitted('navigate')?.length ?? 0).toBe(previousNavigations);
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs).toHaveLength(2);
+  discardFeedback.confirm.mockResolvedValue(true);
+  expect(navigation()?.closeCurrentTab('/b')).toEqual({ created: false });
+  await flushPromises();
+  expect((wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).activeTabKey).toBe(
+    'menu:B',
+  );
+  expect(workspaceViewUnsavedStateSources('menu:A')).toEqual([]);
+  wrapper.unmount();
+});
+
+it('emits a page refresh only after its workspace state permits reconstruction', async () => {
+  const wrapper = mountShell();
+  await flushPromises();
+  await syncStartup(wrapper);
+  let busy = true;
+  registerWorkspaceViewUnsavedState(
+    'menu:A',
+    '记录编辑',
+    () => true,
+    () => busy,
+  );
+  const workbench = wrapper.findComponent(Workbench);
+  workbench.vm.$emit('refreshPage', 'menu:A');
+  await flushPromises();
+  expect(wrapper.emitted('refreshPage')).toBeUndefined();
+  busy = false;
+  workbench.vm.$emit('refreshPage', 'menu:A');
+  await flushPromises();
+  expect(discardFeedback.confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: '刷新页面', okText: '刷新' }),
+    platformLanguageContext,
+  );
+  expect(wrapper.emitted('refreshPage')).toBeUndefined();
+  discardFeedback.confirm.mockResolvedValue(true);
+  workbench.vm.$emit('refreshPage', 'menu:A');
+  await flushPromises();
+  expect(wrapper.emitted('refreshPage')).toEqual([['menu:A']]);
   wrapper.unmount();
 });
 
@@ -312,5 +485,52 @@ it('rejects an old menu response after the session has changed', async () => {
   const rejection = expect(pending).rejects.toThrow('登录状态已变化');
   resolve([]);
   await rejection;
+  wrapper.unmount();
+});
+
+it('provides a tab-scoped portal host to pages supplied through the public shell slot', async () => {
+  const wrapper = mount(AppWorkbenchShell, {
+    attachTo: document.body,
+    props: { startup: startup(), location: tabs[0]!.fullPath },
+    slots: { default: () => h(RecordDetailDrawer, { open: true, title: '采购办理' }) },
+    global: {
+      stubs: {
+        ADrawer: { name: 'ADrawer', props: ['getContainer'], template: '<section><slot /></section>' },
+      },
+    },
+  });
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'ADrawer' }).props('getContainer')).toBe(
+    wrapper.get('.tab-panel-host').element,
+  );
+  expect(wrapper.findComponent(RecordDetailDrawer).exists()).toBe(true);
+  wrapper.unmount();
+});
+
+it('lets an explicit tab rename replace a translated default title without changing page identity', async () => {
+  const { wrapper, navigation } = mountShellWithNavigation();
+  await flushPromises();
+  await syncStartup(wrapper);
+  const state = JSON.parse(JSON.stringify(wrapper.props('startup'))) as WorkbenchStartupState;
+  const tab = state.tabs![0]!;
+  tab.pageDescriptor = {
+    ...tab.pageDescriptor!,
+    title: '角色详情',
+    titleText: createCodeTextPresentation(
+      'platform.workspace-view.role-detail.title',
+      '角色详情',
+      platformLanguageContext,
+    ),
+  };
+  await wrapper.setProps({ startup: state });
+  const before = JSON.stringify(tab.pageDescriptor.target);
+  navigation()?.setTabName?.(tab.instanceKey!, '角色详情');
+  await syncStartup(wrapper);
+  const renamed = wrapper.props('startup').tabs![0]!;
+  expect(renamed.title).toBe('角色详情');
+  expect(renamed.pageDescriptor?.title).toBe('角色详情');
+  expect(renamed.pageDescriptor?.titleText).toBeUndefined();
+  expect(renamed.key).toBe(tab.key);
+  expect(JSON.stringify(renamed.pageDescriptor?.target)).toBe(before);
   wrapper.unmount();
 });

@@ -34,7 +34,7 @@ export function loadOptionFieldItems(
   });
   requests.set(requestKey, request);
   return request.catch((error) => {
-    requests?.delete(requestKey);
+    if (requests?.get(requestKey) === request) requests.delete(requestKey);
     throw error;
   });
 }

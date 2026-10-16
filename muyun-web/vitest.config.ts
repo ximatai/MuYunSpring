@@ -9,6 +9,7 @@ import {
   treeWheel,
 } from './tests/vue-ui-antdv/browserCommands.ts';
 import { createViteConfig } from './vite.config.ts';
+import { workflowCanvasDrag } from './tests/platform-components/workflowCanvasBrowserCommands.ts';
 
 export default mergeConfig(
   createViteConfig('test'),
@@ -32,12 +33,16 @@ export default mergeConfig(
     },
 
     test: {
+      // Bound Vue compilation and DOM-environment memory during full verification.
+      maxWorkers: 4,
       projects: [
         {
           extends: true,
 
           test: {
             name: 'browser',
+            // Real mouse gestures and animations need predictable frame scheduling.
+            fileParallelism: false,
             include: ['tests/**/*.browser.test.ts'],
             setupFiles: ['./tests/setup.ts'],
             browser: {
@@ -47,6 +52,7 @@ export default mergeConfig(
               provider: playwright(),
               instances: [{ browser: 'chromium' }],
               commands: {
+                workflowCanvasDrag,
                 treeGesture,
                 treeMove,
                 treeRelease,
@@ -72,6 +78,7 @@ export default mergeConfig(
             name: 'component',
             environment: 'jsdom',
             include: ['tests/**/*.component.test.ts'],
+            exclude: ['tests/consumer/packaged/**'],
             setupFiles: ['./tests/setup.ts'],
           },
         },

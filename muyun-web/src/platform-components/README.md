@@ -51,6 +51,8 @@ This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `
 
 抽屉使用 `UiSidePanel`、`RecordDetailDrawer` 或 `RecordModeDrawer`。宽度只能声明为 `compact`、`narrow`、`standard`、`wide`、`extraWide`；关闭策略声明为 `explicit`、`dismissible`、`guarded`。编辑态使用 `guarded` 并提供脏状态守卫，只读和实时浏览可使用 `dismissible`。`closeOnOutside` 仅为存量兼容，新增业务不得使用。
 
+`UiSidePanel` 统一承载 `inline` 和 `portal` 抽屉；页面只声明挂载方式和业务插槽。通知面板通过 adapter 的只读 `useUiBlockingOverlayState()` 消费可见阻塞浮层事实，在任一抽屉、弹窗或确认框可见及关闭动画期间暂缓展示，保留提醒队列，最后一个浮层关闭后恢复。保留在隐藏页签宿主中的抽屉不阻塞当前提醒；可见性观察和卸载清理由 adapter 负责，业务组件不查询 UI 库 DOM。提醒默认仅展示一张及队列总数，不可关闭提醒优先；用户可展开全部或收起为紧凑计数入口。收起仅改变展示，保留所有提醒与动作，后续消息和短暂空队列不会自动展开。
+
 草稿基线和保存状态由编辑会话持有，页面汇总主详情、导航器、局部编辑与引用详情的状态。工作台通过 `registerUnsavedState` 分别读取 `isDirty` 与可选 `isBusy`：未保存修改需要确认放弃，进行中的写操作则禁止关闭；不得用“正在编辑”代替真实脏状态。
 
 ## Management State Helpers

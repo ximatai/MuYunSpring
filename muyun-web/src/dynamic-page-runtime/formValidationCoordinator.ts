@@ -21,14 +21,17 @@ export class FormValidationCoordinator {
     this.rules = rules ?? [];
   }
 
-  validate(draft: FormulaRecord): FormValidationFailure | undefined {
+  validate(
+    draft: FormulaRecord,
+    displayRules: readonly ResolvedFormValidationRuleDescriptor[] = this.rules,
+  ): FormValidationFailure | undefined {
     for (const rule of this.rules) {
       if (!isWellFormedRule(rule)) continue;
       const passed = this.runtime.evaluateFormValidation(rule.program, draft);
       if (passed === false) {
         return {
           code: rule.code,
-          message: rule.message,
+          message: displayRules.find((display) => display.code === rule.code)?.message ?? rule.message,
           ...(rule.targetField ? { targetField: rule.targetField } : {}),
         };
       }

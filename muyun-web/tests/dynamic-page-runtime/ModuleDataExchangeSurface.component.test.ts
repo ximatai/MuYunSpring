@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
 import ModuleDataExchangeSurface from '@/dynamic-page-runtime/ModuleDataExchangeSurface.vue';
-import type { ModuleContext } from '@muyun/web-core';
+import { createLanguageContext, provideLanguageContext, type ModuleContext } from '@muyun/web-core';
+import { defineComponent, h } from 'vue';
 import type { RecordQueryListQueryController } from '@muyun/platform-components';
 
 const stubs = {
@@ -48,6 +49,69 @@ async function upload(wrapper: ReturnType<typeof mount>, name = 'orders.xlsx') {
   await flushPromises();
 }
 afterEach(() => vi.restoreAllMocks());
+
+it('switches a completed import receipt from its declared resource without repeating the import or changing counts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = '导入完成';
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(preview)
+    .mockResolvedValueOnce({
+      created: 1,
+      updated: 0,
+      skipped: 0,
+      errorCount: 0,
+      message: original,
+      messageText: {
+        source: {
+          sourceKind: 'CODE',
+          sourceId: 'exchange.import.completed',
+          sourceVersion: 'v1',
+          originalText: original,
+        },
+        languages: {
+          en: {
+            text: 'Import completed',
+            requestedTag: 'en',
+            resourceTag: 'en',
+            missing: false,
+            fallback: false,
+          },
+        },
+      },
+    });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ModuleDataExchangeSurface, { context: context(request), scopeKey: 'tenant-a' });
+      },
+    }),
+    { global: { stubs } },
+  );
+  await wrapper.get('button').trigger('click');
+  await upload(wrapper);
+  expect(wrapper.get('input').attributes('hidden')).toBeDefined();
+  expect(wrapper.text()).toContain('orders.xlsx');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === 'Confirm import')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[role="status"]').text()).toContain('Import completed');
+  expect(wrapper.get('[role="status"]').text()).not.toContain(
+    'Correct the file and upload it again to retry.',
+  );
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.get('[role="status"]').text()).toContain(original);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.get('[role="status"]').text()).toContain('Created 1, updated 0, skipped 0, errors 0.');
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(wrapper.findComponent(ModuleDataExchangeSurface).emitted('changed')).toHaveLength(1);
+  wrapper.unmount();
+});
 
 it('lets a user review both sheets, confirm once, read partial results and upload a corrected file', async () => {
   const request = vi

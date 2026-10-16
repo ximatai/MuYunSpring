@@ -1,4 +1,5 @@
 <script lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { provideRelationDraftRegistry } from './relationDraftController';
 import type { CrudRecordListBase, QueryListRecord } from '@muyun/platform-components';
 
@@ -12,6 +13,7 @@ import {
   RecordActionBar,
   RecordDetailExtensionSection,
   RecordDetailFields,
+  WorkflowRecordPanel,
   RecordExplorerPanel,
   RecordFormFields,
   RecordMetaSection,
@@ -57,6 +59,7 @@ export default defineComponent({
     RecordActionBar,
     RecordDetailExtensionSection,
     RecordDetailFields,
+    WorkflowRecordPanel,
     RecordExplorerPanel,
     RecordFormFields,
     RecordMetaSection,
@@ -93,6 +96,7 @@ export default defineComponent({
   },
   emits: ['retry'],
   setup(props, { emit }) {
+    const language = useLanguageContext();
     watch(
       () => props.session,
       (next, previous) => {
@@ -128,8 +132,13 @@ export default defineComponent({
     const businessVisible = computed(() => !props.pending && !props.businessError);
     return {
       businessVisible,
+      bindWorkflowPanel(panel: unknown) {
+        const workflow = panel as { mayLeave?: () => Promise<boolean> } | null;
+        props.session.setWorkflowLeaveGuard(workflow?.mayLeave ? () => workflow.mayLeave!() : undefined);
+      },
       retryBusinessSession: () => emit('retry'),
       ...sessionViewBindings(() => props.session),
+      language,
       handleFlatManagementLoaded: (records: CrudRecordListBase[]) =>
         props.session.handleFlatManagementLoaded(records as QueryListRecord[]),
       openFlatManagementRecord: (record: CrudRecordListBase) =>
@@ -153,7 +162,11 @@ export default defineComponent({
     class="module-tenant-recovery-workspace"
     :explorer-count="tenantScopeExplorerCount"
   >
-    <ManagementExplorerColumn collapsible title="租户" :has-selection="Boolean(tenantScopeId)">
+    <ManagementExplorerColumn
+      collapsible
+      :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
+      :has-selection="Boolean(tenantScopeId)"
+    >
       <TenantScopeExplorer
         :context="tenantScopeContext"
         :selected-id="tenantScopeId || undefined"
@@ -178,7 +191,14 @@ export default defineComponent({
     class="module-unsupported"
   >
     <template v-if="businessVisible">
-      <RecordPanelState description="当前模块尚未发布页面，请先发布页面配置。" />
+      <RecordPanelState
+        :description="
+          language.t(
+            'platform.screen.ModulePageHostRuntime.no-page-has-been-published-for-this-module-publish-its',
+            '当前模块尚未发布页面，请先发布页面配置。',
+          )
+        "
+      />
     </template>
   </section>
   <section
@@ -186,10 +206,16 @@ export default defineComponent({
     class="module-unsupported"
   >
     <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
-    <RecordPanelButton type="link" @click="retryBusinessSession">重试</RecordPanelButton>
+    <RecordPanelButton type="link" @click="retryBusinessSession">{{
+      language.t('platform.screen.ModulePageHostRuntime.retry', '重试')
+    }}</RecordPanelButton>
   </section>
   <section v-else-if="businessVisible && !props.recordOnly && !pageReady" class="module-unsupported">
-    <RecordPanelState loading loading-tip="加载页面入口" description="" />
+    <RecordPanelState
+      loading
+      :loading-tip="language.t('platform.screen.ModulePageHostRuntime.loading-page', '加载页面入口')"
+      description=""
+    />
   </section>
   <section
     v-else-if="!props.recordOnly && isListPage"
@@ -206,11 +232,17 @@ export default defineComponent({
       :explorer-title="
         businessVisible
           ? flatManagementRecycleBin.active.value
-            ? '回收站'
+            ? language.t('platform.screen.ModulePageHostRuntime.recycle-bin', '回收站')
             : (flatManagementContent?.explorerTitle ?? title)
-          : '业务页面'
+          : language.t('platform.screen.ModulePageHostRuntime.business-page', '业务页面')
       "
-      :refresh-title="`刷新${flatManagementRecycleBin.active.value ? '回收站' : (flatManagementContent?.explorerTitle ?? title)}`"
+      :refresh-title="
+        language.t('platform.screen.ModulePageHostRuntime.refresh-value', '刷新{value1}', {
+          value1: flatManagementRecycleBin.active.value
+            ? language.t('platform.screen.ModulePageHostRuntime.recycle-bin', '回收站')
+            : (flatManagementContent?.explorerTitle ?? title),
+        })
+      "
       :explorer-search-keyword="flatManagementSearchKeyword"
       :explorer-search-placeholder="flatManagementContent?.explorerSearchPlaceholder"
       :explorer-searchable="
@@ -372,12 +404,19 @@ export default defineComponent({
             :disabled="Boolean(flatManagementSearchKeyword.trim())"
             :title="
               flatManagementSearchKeyword.trim()
-                ? '清空搜索后可调整排序'
+                ? language.t(
+                    'platform.screen.ModulePageHostRuntime.clear-the-search-to-reorder-records',
+                    '清空搜索后可调整排序',
+                  )
                 : flatManagementSorting
-                  ? '结束排序'
-                  : '调整排序'
+                  ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+                  : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
             "
-            :aria-label="flatManagementSorting ? '结束排序' : '调整排序'"
+            :aria-label="
+              flatManagementSorting
+                ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+                : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
+            "
             @click="flatManagementSorting = !flatManagementSorting"
           />
           <ModuleActionButton
@@ -404,7 +443,9 @@ export default defineComponent({
             :query-quick-search-enabled="runtimePage?.quickSearchFields?.length !== 0"
             :external-query-values="navigatorListQueryValues"
             :empty-description="
-              flatManagementRecycleBin.active.value ? '回收站为空' : flatManagementContent?.emptyDescription
+              flatManagementRecycleBin.active.value
+                ? language.t('platform.screen.ModulePageHostRuntime.the-recycle-bin-is-empty', '回收站为空')
+                : flatManagementContent?.emptyDescription
             "
             :fallback-title="flatManagementContent?.fallbackTitle"
             :item-of="flatManagementItemOf"
@@ -448,8 +489,10 @@ export default defineComponent({
           v-if="detailWorkspaceAvailable"
           type="text"
           icon-name="open-in-new"
-          title="在新标签页打开"
-          aria-label="在新标签页打开"
+          :title="language.t('platform.screen.ModulePageHostRuntime.open-in-a-new-tab', '在新标签页打开')"
+          :aria-label="
+            language.t('platform.screen.ModulePageHostRuntime.open-in-a-new-tab', '在新标签页打开')
+          "
           @click="openDetailWorkspaceView"
         />
         <RecordActionBar
@@ -490,9 +533,27 @@ export default defineComponent({
           v-if="!selectedRecord && editorMode === 'view'"
           :description="flatManagementContent?.detailEmptyDescription ?? detailEmptyDescription"
         />
-        <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
-        <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
+        <RecordPanelState
+          v-else-if="detailLoading"
+          loading
+          :loading-tip="
+            language.t('platform.screen.ModulePageHostRuntime.loading-record-details', '加载记录详情')
+          "
+          description=""
+        />
+        <RecordPanelState
+          v-else-if="detailLoadFailed"
+          :description="
+            language.t(
+              'platform.screen.ModulePageHostRuntime.could-not-load-details-select-the-record-again',
+              '详情加载失败，请重新选择记录',
+            )
+          "
+        />
         <ModulePageRecordContent
+          :ref="bindWorkflowPanel"
+          @workflow-interaction-change="updateWorkflowInteraction"
+          @workflow-changed="handleWorkflowChanged"
           v-else-if="editingRecord"
           :context="context"
           :cross-module-http="rawContext.http"
@@ -504,7 +565,7 @@ export default defineComponent({
           :form-session-key="formSessionKey"
           :validation-request-key="formValidationRequestKey"
           :picker-configs="referencePickerConfigs"
-          :saving="detailActionBusy"
+          :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
           :ui-descriptor="runtimeUiDescriptor"
           :relations="executableDetailRelations"
           :relations-available="detailRelationsAvailable"
@@ -536,7 +597,7 @@ export default defineComponent({
     <ManagementWorkspace
       v-else-if="listDetailCardPage"
       class="module-list-detail-workspace"
-      :editing="editorMode !== 'view'"
+      :editing="editorMode !== 'view' || workflowInteraction.editing"
       :explorer-count="navigatorExplorerCount + tenantScopeExplorerCount"
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
@@ -545,7 +606,7 @@ export default defineComponent({
         v-if="tenantScopeExplorerVisible && tenantScopeContext"
         :key="'tenant-scope'"
         collapsible
-        title="租户"
+        :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
         :has-selection="Boolean(tenantScopeId)"
       >
         <TenantScopeExplorer
@@ -732,8 +793,8 @@ export default defineComponent({
             class="detail-surface-mode-button"
             type="text"
             icon-name="pin-off"
-            title="改为抽屉展示"
-            aria-label="改为抽屉展示"
+            :title="language.t('platform.screen.ModulePageHostRuntime.show-in-a-drawer', '改为抽屉展示')"
+            :aria-label="language.t('platform.screen.ModulePageHostRuntime.show-in-a-drawer', '改为抽屉展示')"
             @click="useDrawerDetailSurface"
           />
         </template>
@@ -744,7 +805,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -782,9 +843,27 @@ export default defineComponent({
             v-if="!selectedRecord && editorMode === 'view'"
             :description="detailEmptyDescription"
           />
-          <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
-          <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
+          <RecordPanelState
+            v-else-if="detailLoading"
+            loading
+            :loading-tip="
+              language.t('platform.screen.ModulePageHostRuntime.loading-record-details', '加载记录详情')
+            "
+            description=""
+          />
+          <RecordPanelState
+            v-else-if="detailLoadFailed"
+            :description="
+              language.t(
+                'platform.screen.ModulePageHostRuntime.could-not-load-details-select-the-record-again',
+                '详情加载失败，请重新选择记录',
+              )
+            "
+          />
           <ModulePageRecordContent
+            :ref="bindWorkflowPanel"
+            @workflow-interaction-change="updateWorkflowInteraction"
+            @workflow-changed="handleWorkflowChanged"
             v-else-if="editingRecord"
             :context="context"
             :cross-module-http="rawContext.http"
@@ -796,7 +875,7 @@ export default defineComponent({
             :form-session-key="formSessionKey"
             :validation-request-key="formValidationRequestKey"
             :picker-configs="referencePickerConfigs"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :relations-available="detailRelationsAvailable"
@@ -829,14 +908,14 @@ export default defineComponent({
     <ManagementWorkspace
       v-else-if="treeManagementPage || treeModule"
       class="module-tree-workspace"
-      :editing="editorMode !== 'view'"
+      :editing="editorMode !== 'view' || workflowInteraction.editing"
       :explorer-count="navigatorExplorerCount + tenantScopeExplorerCount + 1"
     >
       <ManagementExplorerColumn
         v-if="tenantScopeExplorerVisible && tenantScopeContext"
         :key="'tenant-scope'"
         collapsible
-        title="租户"
+        :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
         :has-selection="Boolean(tenantScopeId)"
       >
         <TenantScopeExplorer
@@ -927,7 +1006,11 @@ export default defineComponent({
       </ManagementExplorerColumn>
       <ManagementExplorerColumn>
         <RecordExplorerPanel
-          :title="businessVisible ? treePanelTitle : '业务页面'"
+          :title="
+            businessVisible
+              ? treePanelTitle
+              : language.t('platform.screen.ModulePageHostRuntime.business-page', '业务页面')
+          "
           :refreshable="businessVisible && (!managedPageActions || Boolean(explorerRefreshAction))"
           :refresh-disabled="
             managedPageActions &&
@@ -937,7 +1020,11 @@ export default defineComponent({
               context.can('query') !== true)
           "
           :subtitle="businessVisible ? mainTreeScopeContext : ''"
-          :refresh-title="`刷新${treePanelTitle}`"
+          :refresh-title="
+            language.t('platform.screen.ModulePageHostRuntime.refresh-value', '刷新{value1}', {
+              value1: treePanelTitle,
+            })
+          "
           :searchable="businessVisible && runtimePage?.quickSearchFields?.length !== 0"
           :search-keyword="treeSearchKeyword"
           :search-placeholder="listSearchPlaceholder"
@@ -965,12 +1052,19 @@ export default defineComponent({
                 :disabled="Boolean(treeSearchKeyword.trim())"
                 :title="
                   treeSearchKeyword.trim()
-                    ? '清空搜索后可调整排序'
+                    ? language.t(
+                        'platform.screen.ModulePageHostRuntime.clear-the-search-to-reorder-records',
+                        '清空搜索后可调整排序',
+                      )
                     : mainTreeSorting
-                      ? '结束排序'
-                      : '调整排序'
+                      ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+                      : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
                 "
-                :aria-label="mainTreeSorting ? '结束排序' : '调整排序'"
+                :aria-label="
+                  mainTreeSorting
+                    ? language.t('platform.screen.ModulePageHostRuntime.finish-reordering', '结束排序')
+                    : language.t('platform.screen.ModulePageHostRuntime.reorder', '调整排序')
+                "
                 @click="mainTreeSorting = !mainTreeSorting"
               />
               <ModuleActionButton
@@ -988,7 +1082,12 @@ export default defineComponent({
                 :context="context"
                 action-code="create"
                 icon-only
-                :title="runtimePage?.treeResource?.createTitle ?? `新建${treeRootTitle}`"
+                :title="
+                  runtimePage?.treeResource?.createTitle ??
+                  language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
+                    value1: treeRootTitle,
+                  })
+                "
                 @click="createRootRecord"
               />
             </template>
@@ -1056,7 +1155,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -1096,8 +1195,23 @@ export default defineComponent({
             v-if="!selectedRecord && editorMode === 'view'"
             :description="detailEmptyDescription"
           />
-          <RecordPanelState v-else-if="detailLoading" loading loading-tip="加载记录详情" description="" />
-          <RecordPanelState v-else-if="detailLoadFailed" description="详情加载失败，请重新选择记录" />
+          <RecordPanelState
+            v-else-if="detailLoading"
+            loading
+            :loading-tip="
+              language.t('platform.screen.ModulePageHostRuntime.loading-record-details', '加载记录详情')
+            "
+            description=""
+          />
+          <RecordPanelState
+            v-else-if="detailLoadFailed"
+            :description="
+              language.t(
+                'platform.screen.ModulePageHostRuntime.could-not-load-details-select-the-record-again',
+                '详情加载失败，请重新选择记录',
+              )
+            "
+          />
           <template v-else-if="editingRecord">
             <template v-if="editorMode === 'view'">
               <RecordDetailFields
@@ -1107,10 +1221,19 @@ export default defineComponent({
                 :file-transfer-context="context"
                 :exclude-field-names="['enabled']"
               />
+              <WorkflowRecordPanel
+                :ref="bindWorkflowPanel"
+                @interaction-change="updateWorkflowInteraction"
+                v-if="editingRecord.id && context.abilities.has('approval') === true"
+                :context="context"
+                :record-id="String(editingRecord.id)"
+                @changed="handleWorkflowChanged"
+                @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
+              />
               <RecordDetailExtensionSection
                 v-for="section in enhancementDetailSections"
                 :key="section.key"
-                :title="section.title"
+                :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
                 :subtitle="section.subtitle"
               >
                 <template v-if="section.subtitleComponent" #subtitle>
@@ -1278,8 +1401,10 @@ export default defineComponent({
           <RecordPanelButton
             type="text"
             icon-name="open-in-new"
-            title="在新标签页打开"
-            aria-label="在新标签页打开"
+            :title="language.t('platform.screen.ModulePageHostRuntime.open-in-a-new-tab', '在新标签页打开')"
+            :aria-label="
+              language.t('platform.screen.ModulePageHostRuntime.open-in-a-new-tab', '在新标签页打开')
+            "
             @click="openDetailWorkspaceView"
           />
         </template>
@@ -1288,8 +1413,10 @@ export default defineComponent({
             class="detail-surface-mode-button"
             type="text"
             icon-name="pin"
-            title="固定到右侧展示"
-            aria-label="固定到右侧展示"
+            :title="language.t('platform.screen.ModulePageHostRuntime.pin-to-the-right', '固定到右侧展示')"
+            :aria-label="
+              language.t('platform.screen.ModulePageHostRuntime.pin-to-the-right', '固定到右侧展示')
+            "
             @click="usePinnedDetailSurface"
           />
         </template>
@@ -1317,7 +1444,7 @@ export default defineComponent({
             :context="context"
             :record="selectedRecord"
             :mode="editorMode"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :active-action-key="activeDetailActionKey"
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
@@ -1345,6 +1472,9 @@ export default defineComponent({
               :context="recordViewContext(editingRecord)"
             />
             <ModulePageRecordContent
+              :ref="bindWorkflowPanel"
+              @workflow-interaction-change="updateWorkflowInteraction"
+              @workflow-changed="handleWorkflowChanged"
               v-else
               :context="context"
               :cross-module-http="rawContext.http"
@@ -1356,7 +1486,7 @@ export default defineComponent({
               :form-session-key="formSessionKey"
               :validation-request-key="formValidationRequestKey"
               :picker-configs="referencePickerConfigs"
-              :saving="detailActionBusy"
+              :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
               :ui-descriptor="runtimeUiDescriptor"
               :relations="executableDetailRelations"
               :relations-available="detailRelationsAvailable"
@@ -1376,6 +1506,9 @@ export default defineComponent({
         </template>
         <template #form>
           <ModulePageRecordContent
+            :ref="bindWorkflowPanel"
+            @workflow-interaction-change="updateWorkflowInteraction"
+            @workflow-changed="handleWorkflowChanged"
             v-if="editingRecord"
             :context="context"
             :cross-module-http="rawContext.http"
@@ -1387,7 +1520,7 @@ export default defineComponent({
             :form-session-key="formSessionKey"
             :validation-request-key="formValidationRequestKey"
             :picker-configs="referencePickerConfigs"
-            :saving="detailActionBusy"
+            :saving="detailActionBusy || workflowInteraction.editing || workflowInteraction.busy"
             :ui-descriptor="runtimeUiDescriptor"
             :relations="executableDetailRelations"
             :relations-available="detailRelationsAvailable"
@@ -1424,7 +1557,11 @@ export default defineComponent({
     <RecordDetailDrawer
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
-      :title="enhancementDrawer.definition.title"
+      :title="
+        enhancementDrawer.definition.titleKey
+          ? language.t(enhancementDrawer.definition.titleKey, enhancementDrawer.definition.title)
+          : enhancementDrawer.definition.title
+      "
       :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       :width="enhancementDrawer.definition.width"
@@ -1444,8 +1581,10 @@ export default defineComponent({
     </RecordDetailDrawer>
     <UiModal
       :open="localEditOpen"
-      :title="localEditBlock?.title ?? '局部编辑'"
-      confirm-text="保存"
+      :title="
+        localEditBlock?.title ?? language.t('platform.screen.ModulePageHostRuntime.partial-edit', '局部编辑')
+      "
+      :confirm-text="language.t('platform.action.save', '保存')"
       :width="localEditBlock?.width ?? 640"
       :confirm-loading="localEditSaving"
       @confirm="submitLocalEdit"

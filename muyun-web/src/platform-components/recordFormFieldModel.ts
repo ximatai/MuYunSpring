@@ -15,7 +15,7 @@ import type {
   UiRule,
   ViewFieldDefinition,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext, type ModuleContext } from '@muyun/web-core';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordPickerMode } from './recordPickerModel';
@@ -860,13 +860,17 @@ function normalizedInputValue(field: RecordFormFieldState, value: unknown): unkn
   return normalization === 'TRIM_TO_NULL' && javaBlank(trimmed) ? null : trimmed;
 }
 
-export function recordFormRequiredError(field: RecordFormFieldState, value: unknown): string | undefined {
+export function recordFormRequiredError(
+  field: RecordFormFieldState,
+  value: unknown,
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
   if (!field.required) return undefined;
   value = normalizedInputValue(field, value);
   return value == null ||
     (typeof value === 'string' && javaBlank(value)) ||
     (Array.isArray(value) && value.length === 0)
-    ? `请填写${field.label}`
+    ? language.t('platform.form.required', '请填写{label}', { label: field.label }) || `请填写${field.label}`
     : undefined;
 }
 
@@ -874,18 +878,28 @@ export function recordFormRequiredError(field: RecordFormFieldState, value: unkn
 export function recordFormInputConstraintError(
   field: RecordFormFieldState,
   value: unknown,
+  language: LanguageContext = platformLanguageContext,
 ): string | undefined {
   value = normalizedInputValue(field, value);
-  if (recordFormRequiredError(field, value)) return undefined;
+  if (recordFormRequiredError(field, value, language)) return undefined;
   const maxLength = field.inputRequirements?.maxLength;
   if (maxLength != null && typeof value === 'string' && [...value].length > maxLength)
-    return `${field.label}最多允许 ${maxLength} 个字符`;
+    return (
+      language.t('platform.form.max-length', '{label}最多允许 {count} 个字符', {
+        label: field.label,
+        count: maxLength,
+      }) || `${field.label}最多允许 ${maxLength} 个字符`
+    );
   const source = field.inputRequirements?.validationRegex;
   if (source && typeof value === 'string' && (value.length > 0 || !field.required)) {
     const pattern = portableFieldPattern(source);
     if (pattern) {
       const match = pattern.exec(value);
-      if (!match || match[0].length !== value.length) return `${field.label}格式不符合要求`;
+      if (!match || match[0].length !== value.length)
+        return (
+          language.t('platform.form.pattern', '{label}格式不符合要求', { label: field.label }) ||
+          `${field.label}格式不符合要求`
+        );
     }
   }
   return undefined;

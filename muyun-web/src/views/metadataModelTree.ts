@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { Metadata, MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts';
 import type { UiTreeDropEvent, UiTreeNode } from '@muyun/vue-ui-antdv';
 
@@ -26,7 +27,10 @@ export interface MetadataModelTreeInput {
  * strongly typed cards. The explorer title already states "元数据", so entity nodes are roots
  * rather than being wrapped in a redundant virtual node.
  */
-export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataModelTreeNode[] {
+export function buildMetadataModelTree(
+  input: MetadataModelTreeInput,
+  language: LanguageContext = platformLanguageContext,
+): MetadataModelTreeNode[] {
   const relationByMetadataId = new Map(
     input.relations
       .filter((relation): relation is ModuleMetadataRelation & { id: string; metadataId: string } =>
@@ -67,9 +71,16 @@ export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataM
     visiting.delete(relation.id);
     return {
       key: metadataNodeKey(relation.id),
-      title: metadata?.title || relation.relationAlias || relation.metadataId || '未命名元数据',
+      title:
+        metadata?.title ||
+        relation.relationAlias ||
+        relation.metadataId ||
+        language.t('platform.screen.metadataOrchestrationState.unnamed-metadata', '未命名元数据'),
       secondary: metadata?.alias || relation.relationAlias,
-      tag: normalizedRole(relation.relationRole) === 'MAIN' ? '主元数据' : '子元数据',
+      tag:
+        normalizedRole(relation.relationRole) === 'MAIN'
+          ? language.t('platform.screen.MetadataGovernanceSurface.main-metadata', '主元数据')
+          : language.t('platform.screen.MetadataGovernanceSurface.child-metadata-label', '子元数据'),
       isLeaf: false,
       modelKind: 'METADATA',
       relationId: relation.id,
@@ -86,9 +97,12 @@ export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataM
     const locked = input.fieldLocked(relation, field);
     return {
       key: fieldNodeKey(relation.id!, fieldId),
-      title: field.title || field.fieldName || '未命名字段',
+      title:
+        field.title ||
+        field.fieldName ||
+        language.t('platform.screen.metadataModelTree.unnamed-field', '未命名字段'),
       secondary: field.fieldName,
-      tag: locked ? '受保护' : undefined,
+      tag: locked ? language.t('platform.screen.metadataModelTree.protected', '受保护') : undefined,
       muted: locked,
       isLeaf: true,
       modelKind: 'FIELD',

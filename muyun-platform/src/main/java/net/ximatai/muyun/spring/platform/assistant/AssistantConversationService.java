@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -25,8 +26,10 @@ public class AssistantConversationService {
         this.conversations = Objects.requireNonNull(conversations);
     }
     public record OperationReceipt(String executionScopeKey, com.fasterxml.jackson.databind.JsonNode reference) {}
-    public record Message(String role, String text, OperationReceipt operationReceipt) {
-        public Message(String role, String text) { this(role, text, null); }
+    public record Message(String role, String text, OperationReceipt operationReceipt, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode controlText) {
+        public Message { if (controlText != null && controlText.isNull()) controlText = null; }
+        public Message(String role, String text) { this(role, text, null, null); }
+        public Message(String role, String text, OperationReceipt operationReceipt) { this(role, text, operationReceipt, null); }
     }
     public record ConfigurationTask(String goal, String mode) {}
     public record Content(String title, List<Message> messages, List<Message> history, String planId,
@@ -61,12 +64,14 @@ public class AssistantConversationService {
             requireOwner(row, scope);
             String boundPlan = snapshot(row).content().planId();
             if (boundPlan != null && !boundPlan.equals(command.content().planId()))
-                throw BusinessExceptions.warning("platform.assistant-conversation.plan-bound", "当前对话已关联一个建设目标，讨论其他独立目标请新建对话");
+                throw BusinessExceptions.warningText("platform.assistant-conversation.plan-bound",
+                TextReference.code("platform.assistant-conversation.plan-bound", "当前对话已关联一个建设目标，讨论其他独立目标请新建对话"));
             if (row.getContentJson().equals(json)) return snapshot(row);
         }
         int revision = row == null ? 0 : row.getVersion() + 1;
         if (revision != command.expectedRevision())
-            throw BusinessExceptions.warning("platform.assistant-conversation.stale", "会话已在其他窗口更新，请重新打开历史会话；当前内容保留");
+            throw BusinessExceptions.warningText("platform.assistant-conversation.stale",
+                TextReference.code("platform.assistant-conversation.stale", "会话已在其他窗口更新，请重新打开历史会话；当前内容保留"));
         try (var ignored = scope.tenant() == null ? TenantContext.system("personal assistant history") : TenantContext.use(scope.tenant())) {
             Instant now = Instant.now();
             if (row == null) {
@@ -130,6 +135,11 @@ public class AssistantConversationService {
             if (message == null || message.text() == null || message.text().length() > length ||
                     !("user".equals(message.role()) || "assistant".equals(message.role()) || "status".equals(message.role())))
                 throw new IllegalArgumentException("会话消息格式无效");
+            if (message.controlText() != null && !message.controlText().isNull()) {
+                if (!display || "user".equals(message.role()) || message.operationReceipt() != null)
+                    throw new IllegalArgumentException("Control text belongs only to platform display messages");
+                AssistantControlText.validate(message.controlText());
+            }
             if (message.operationReceipt() != null) {
                 if (!display || !"assistant".equals(message.role())) throw new IllegalArgumentException("操作查询引用只属于助手展示消息");
                 validateReceipt(message.operationReceipt());

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import DateTimeText from './DateTimeText.vue';
 import FileSizeText from './FileSizeText.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordTagList from './RecordTagList.vue';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
+import { readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import { useReferenceRecordDetailBrowser } from './referenceRecordDetailBrowser';
 import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
 import {
@@ -26,6 +28,7 @@ const props = withDefaults(
 );
 const referenceBrowser = useReferenceRecordDetailBrowser();
 const platformTimeZone = usePlatformTimeZoneContext();
+const language = useLanguageContext();
 
 const renderedValue = computed<unknown>(
   () => props.column.render?.(props.record) ?? props.cellRenderers[props.column.key]?.(props.record),
@@ -33,6 +36,7 @@ const renderedValue = computed<unknown>(
 const displayValue = computed(() =>
   resolveRecordQueryListDisplayValue(props.record, props.column, props.cellRenderers, {
     timeZone: platformTimeZone?.value,
+    language,
   }),
 );
 const dateTimeValue = computed(() =>
@@ -84,7 +88,7 @@ function fileSizePresentationValue(value: unknown) {
     ><ReadonlyReferenceValue
       :reference="column.reference"
       :value="record[column.key]"
-      :summary="column.titleField ? record[column.titleField] : record[`${column.key}Title`]"
+      :summary="readonlyReferenceSummaryOf(record, column.titleField ?? `${column.key}Title`, language)"
   /></span>
   <span
     v-else

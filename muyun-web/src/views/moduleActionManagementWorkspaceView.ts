@@ -16,7 +16,10 @@ export const moduleActionManagementWorkspaceView =
     component: defineAsyncComponent(() => import('./ModuleActionManagementView.vue')),
     layout: 'workspace',
     routeTitle: '模块管理',
+    routeTitleKey: 'platform.workspace-view.modules.route-title',
     presentations: ['tab'],
+    titleArgsOf: (input) => ({ module: input.moduleTitle ?? input.moduleAlias }),
+    titleKey: 'platform.workspace-view.actions.title',
     titleOf: (input) => `动作：${input.moduleTitle ?? input.moduleAlias}`,
     parentRouteQueryOf: () => ({}),
     parse(query) {

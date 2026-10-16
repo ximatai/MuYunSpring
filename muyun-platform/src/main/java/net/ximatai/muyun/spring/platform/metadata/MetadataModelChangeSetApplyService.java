@@ -1,7 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.stereotype.Service;
@@ -55,11 +56,14 @@ public class MetadataModelChangeSetApplyService {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         MetadataModelChangeSetPreview preview = previewService.preview(validModuleAlias, command.proposal());
         if (!preview.valid()) {
-            throw new PlatformException("Metadata model change-set validation failed: "
-                    + preview.errors().stream().map(MetadataChangeSetValidationIssue::code).toList());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-change-set-apply.metadata-model-change-set-validation-failed",
+                    "Metadata model change-set validation failed: {value1}"), Map.of("value1", String.valueOf(preview.errors().stream().map(MetadataChangeSetValidationIssue::code).toList())));
         }
         if (!Objects.equals(command.proposalFingerprint(), preview.proposalFingerprint())) {
-            throw new PlatformException("Metadata model change-set preview fingerprint is stale; preview again before publish");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-change-set-apply.metadata-model-change-set-preview-fingerprint-is-stale-preview-again-before-publish",
+                    "Metadata model change-set preview fingerprint is stale; preview again before publish"));
         }
 
         Map<String, ModuleMetadataRelation> relations = relations(preview.plan());
@@ -89,7 +93,9 @@ public class MetadataModelChangeSetApplyService {
     private void requireRelation(Map<String, ModuleMetadataRelation> relations, String relationId) {
         if (relations.containsKey(relationId)) return;
         ModuleMetadataRelation relation = relationService.select(relationId);
-        if (relation == null) throw new PlatformException("Metadata model relation is stale: " + relationId);
+        if (relation == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-model-change-set-apply.metadata-model-relation-is-stale",
+                "Metadata model relation is stale: {value1}"), Map.of("value1", String.valueOf(relationId)));
         relations.put(relationId, relation);
     }
 
@@ -101,7 +107,9 @@ public class MetadataModelChangeSetApplyService {
             assertRelationScope(relationPlan, relation);
             Metadata value = metadataService.select(relation.getMetadataId());
             if (value == null || !Objects.equals(value.getVersion(), relationPlan.changeSet().expectedMetadataVersion())) {
-                throw new PlatformException("Metadata model change-set is stale; reload and preview again");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-model-change-set-apply.metadata-model-change-set-is-stale-reload-and-preview-again",
+                        "Metadata model change-set is stale; reload and preview again"));
             }
             result.put(relationPlan.relationId(), value);
         }
@@ -115,7 +123,9 @@ public class MetadataModelChangeSetApplyService {
                 || plan.relationRole() != relation.getRelationRole()
                 || !Objects.equals(plan.parentMetadataId(), relation.getParentMetadataId())
                 || !Objects.equals(plan.foreignKey(), relation.getForeignKey())) {
-            throw new PlatformException("Metadata model relation scope is stale; reload and preview again");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-change-set-apply.metadata-model-relation-scope-is-stale-reload-and-preview-again",
+                    "Metadata model relation scope is stale; reload and preview again"));
         }
     }
 
@@ -135,7 +145,9 @@ public class MetadataModelChangeSetApplyService {
                 ModuleMetadataRelation relation = relations.get(entry.relationId());
                 if (!Objects.equals(relation.getVersion(), entry.expectedVersion())
                         || !Objects.equals(relation.getParentMetadataId(), plan.parentMetadataId())) {
-                    throw new PlatformException("Metadata model relation order is stale; reload and preview again");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-model-change-set-apply.metadata-model-relation-order-is-stale-reload-and-preview-again",
+                            "Metadata model relation order is stale; reload and preview again"));
                 }
                 relation.setSortOrder(entry.sortOrder());
                 relationService.update(relation);
@@ -151,7 +163,9 @@ public class MetadataModelChangeSetApplyService {
             for (MetadataModelFieldOrderPlan.Entry entry : plan.entries()) {
                 MetadataField field = fieldService.select(entry.fieldId());
                 if (!movable(field, relation) || !Objects.equals(field.getVersion(), entry.expectedVersion())) {
-                    throw new PlatformException("Metadata model field order is stale; reload and preview again");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-model-change-set-apply.metadata-model-field-order-is-stale-reload-and-preview-again",
+                            "Metadata model field order is stale; reload and preview again"));
                 }
                 field.setSortOrder(entry.sortOrder());
                 fieldService.update(field);
@@ -166,7 +180,9 @@ public class MetadataModelChangeSetApplyService {
                 || plan.relationRole() != relation.getRelationRole()
                 || !Objects.equals(plan.parentMetadataId(), relation.getParentMetadataId())
                 || !Objects.equals(plan.foreignKey(), relation.getForeignKey())) {
-            throw new PlatformException("Metadata model field order relation scope is stale; reload and preview again");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-model-change-set-apply.metadata-model-field-order-relation-scope-is-stale-reload-and-preview-again",
+                    "Metadata model field order relation scope is stale; reload and preview again"));
         }
     }
 

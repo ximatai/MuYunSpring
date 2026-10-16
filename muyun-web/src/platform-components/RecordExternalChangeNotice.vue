@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import { UiActionButton } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordExternalChangeNotice' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title?: string;
     message?: string;
@@ -11,11 +15,30 @@ withDefaults(
     dismissTitle?: string;
   }>(),
   {
-    title: '记录已发生变更',
-    message: '当前记录已被其他操作更新，建议重新加载后再继续编辑。',
-    reloadTitle: '重新加载',
-    dismissTitle: '继续编辑',
+    title: undefined,
+    message: undefined,
+    reloadTitle: undefined,
+    dismissTitle: undefined,
   },
+);
+
+const resolvedTitle = computed(
+  () => props.title ?? language.t('platform.screen.RecordExternalChangeNotice.title', '记录已发生变更'),
+);
+const resolvedMessage = computed(
+  () =>
+    props.message ??
+    language.t(
+      'platform.screen.RecordExternalChangeNotice.message',
+      '当前记录已被其他操作更新，建议重新加载后再继续编辑。',
+    ),
+);
+const resolvedReloadTitle = computed(
+  () => props.reloadTitle ?? language.t('platform.screen.RecordExternalChangeNotice.reload', '重新加载'),
+);
+const resolvedDismissTitle = computed(
+  () =>
+    props.dismissTitle ?? language.t('platform.screen.RecordExternalChangeNotice.dismissTitle', '继续编辑'),
 );
 
 const emit = defineEmits<{
@@ -27,15 +50,15 @@ const emit = defineEmits<{
 <template>
   <section class="record-external-change-notice" role="status">
     <div class="record-external-change-notice-content">
-      <strong>{{ title }}</strong>
-      <span>{{ message }}</span>
+      <strong>{{ resolvedTitle }}</strong>
+      <span>{{ resolvedMessage }}</span>
     </div>
     <div class="record-external-change-notice-actions">
       <UiActionButton density="compact" icon-name="reload" @click="emit('reload')">
-        {{ reloadTitle }}
+        {{ resolvedReloadTitle }}
       </UiActionButton>
       <UiActionButton density="compact" emphasis="quiet" @click="emit('dismiss')">
-        {{ dismissTitle }}
+        {{ resolvedDismissTitle }}
       </UiActionButton>
     </div>
   </section>

@@ -74,7 +74,7 @@ class WorkflowHistoryWebControllerTest {
                 "event-1", "instance-1", "node-1", "task-1", WorkflowEventType.TASK_COMPLETED, "approve",
                 "delegate-1", "代理人", "delegate-1", "代理人", true, WorkflowAssignmentKind.DELEGATED,
                 "principal-1", "原审批人", "principal-1", "原审批人", "delegate-1", "代理人", true,
-                "delegation-1", "{}", false, false, null, null, null)));
+                "delegation-1", "{}", false, false, "保留原文意见", null, null, null)));
 
         mvc.perform(get("/workflow/history/history-1/bundle"))
                 .andExpect(status().isOk())
@@ -95,6 +95,7 @@ class WorkflowHistoryWebControllerTest {
                 .andExpect(jsonPath("$.records[0].originType").value("ADD_SIGN"))
                 .andExpect(jsonPath("$.records[0].isAddSignRoute").value(true))
                 .andExpect(jsonPath("$.records[0].addSignSourceNodeKey").value("approve-source"))
+                .andExpect(jsonPath("$.records[0].reason").value("保留原文意见"))
                 .andExpect(jsonPath("$.records[0].operatorTitle").value("代理人"))
                 .andExpect(jsonPath("$.records[0].delegationPolicyId").value("delegation-1"));
     }

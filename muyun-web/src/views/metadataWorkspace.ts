@@ -1,3 +1,5 @@
+import { codeOperationErrorMessage } from '@muyun/web-core';
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { inject, provide, shallowReactive, shallowRef, type InjectionKey } from 'vue';
 import {
@@ -21,6 +23,7 @@ export function createMetadataWorkspace(
   openEditor?: (moduleAlias: string, moduleTitle?: string) => void,
   onFocus?: () => void,
   openPageEditor?: (moduleAlias: string, moduleTitle?: string) => void,
+  language: LanguageContext = platformLanguageContext,
 ) {
   let scope = identity();
   const sessions = new Map<string, MetadataEditorSession>();
@@ -45,9 +48,10 @@ export function createMetadataWorkspace(
     if (!sessions.has(moduleAlias)) {
       const owner = scope;
       const created = createMetadataEditorSession(http, {
+        language,
         moduleAlias,
         moduleTitle,
-        refreshActivation: (alias) => readModuleActivationFeedback(http, alias),
+        refreshActivation: (alias) => readModuleActivationFeedback(http, alias, language),
         onCommitted: (alias) => committedRevisions.set(alias, (committedRevisions.get(alias) ?? 0) + 1),
         valid: () => identity() === owner && sessions.get(moduleAlias) === created,
         confirmationScope: () => active.value === created,
@@ -128,7 +132,10 @@ export function createMetadataWorkspace(
           metadataConfiguration: active.value
             ? {
                 ...surface()!.describe(),
-                draftLifetime: '元数据候选保留在当前工作区，关闭页面可继续；刷新或切换身份后不会恢复。',
+                draftLifetime: language.t(
+                  'platform.screen.metadataWorkspace.metadata-candidates-remain-in-this-workspace-after-closing-the-page',
+                  '元数据候选保留在当前工作区，关闭页面可继续；刷新或切换身份后不会恢复。',
+                ),
               }
             : undefined,
         },
@@ -160,14 +167,26 @@ export function createMetadataWorkspace(
                 },
                 parseInput(input: unknown) {
                   if (!input || typeof input !== 'object' || Array.isArray(input))
-                    throw new AssistantCapabilityUsageError('请提供目录分页参数');
+                    throw new AssistantCapabilityUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.metadataWorkspace.provide-directory-pagination-parameters',
+                        '请提供目录分页参数',
+                      ),
+                    );
                   const value = input as Record<string, unknown>;
                   if (
                     Object.keys(value).some((key) => key !== 'offset') ||
                     (value.offset !== undefined &&
                       (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0))
                   )
-                    throw new AssistantCapabilityUsageError('目录分页位置无效');
+                    throw new AssistantCapabilityUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.constructionFields.invalid-catalog-pagination-offset',
+                        '目录分页位置无效',
+                      ),
+                    );
                   return Number(value.offset ?? 0);
                 },
                 async execute(offset: unknown) {
@@ -206,7 +225,13 @@ export function createMetadataWorkspace(
                 },
                 parseInput(input: unknown) {
                   if (!input || typeof input !== 'object' || Array.isArray(input))
-                    throw new AssistantCapabilityUsageError('请提供真实模块标识');
+                    throw new AssistantCapabilityUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                        '请提供真实模块标识',
+                      ),
+                    );
                   const value = input as Record<string, unknown>;
                   if (
                     Object.keys(value).some((key) => key !== 'moduleAlias') ||
@@ -214,7 +239,13 @@ export function createMetadataWorkspace(
                     value.moduleAlias.length > 128 ||
                     !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(value.moduleAlias)
                   )
-                    throw new AssistantCapabilityUsageError('请提供真实模块标识');
+                    throw new AssistantCapabilityUsageError(
+                      codeOperationErrorMessage(
+                        language,
+                        'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                        '请提供真实模块标识',
+                      ),
+                    );
                   return { moduleAlias: value.moduleAlias };
                 },
                 async execute(input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
@@ -250,7 +281,13 @@ export function createMetadataWorkspace(
           },
           parseInput(input) {
             if (!input || typeof input !== 'object' || Array.isArray(input))
-              throw new AssistantCapabilityUsageError('请提供模块标识');
+              throw new AssistantCapabilityUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-module-alias',
+                  '请提供模块标识',
+                ),
+              );
             const value = input as Record<string, unknown>;
             if (
               Object.keys(value).some((key) => !['moduleAlias', 'relationId', 'refresh'].includes(key)) ||
@@ -258,13 +295,29 @@ export function createMetadataWorkspace(
               value.moduleAlias.length > 128 ||
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(value.moduleAlias)
             )
-              throw new AssistantCapabilityUsageError('请提供真实模块标识');
+              throw new AssistantCapabilityUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.provide-a-real-module-alias',
+                  '请提供真实模块标识',
+                ),
+              );
             if ('relationId' in value)
               throw new AssistantCapabilityUsageError(
-                '选择模块时请省略 relationId；选定模块后通过 configuration.select-metadata-relation 选择实际存在的节点。',
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.omit-relationid-when-selecting-a-module-after-selecting-the-module',
+                  '选择模块时请省略 relationId；选定模块后通过 configuration.select-metadata-relation 选择实际存在的节点。',
+                ),
               );
             if (value.refresh !== undefined && typeof value.refresh !== 'boolean')
-              throw new AssistantCapabilityUsageError('刷新选项必须为布尔值');
+              throw new AssistantCapabilityUsageError(
+                codeOperationErrorMessage(
+                  language,
+                  'platform.screen.metadataWorkspace.the-refresh-option-must-be-a-boolean',
+                  '刷新选项必须为布尔值',
+                ),
+              );
             return {
               moduleAlias: value.moduleAlias,
               refresh: value.refresh === true,
@@ -291,12 +344,29 @@ export function createMetadataWorkspace(
           },
           present() {
             return {
-              title: `已选中配置对象：${active.value?.title.value ?? '当前模块'}`,
+              title: language.t(
+                'platform.screen.metadataWorkspace.configuration-object-selected-value',
+                '已选中配置对象：{value1}',
+                {
+                  value1:
+                    active.value?.title.value ??
+                    language.t('platform.screen.metadataWorkspace.current-module', '当前模块'),
+                },
+              ),
               lines: [
                 visible.value === active.value
-                  ? '共享编辑页当前可见。'
-                  : '当前仅在工作区选中对象，尚未打开对应编辑页。',
-                '本次选择不创建或保存配置，已有候选保留。',
+                  ? language.t(
+                      'platform.screen.metadataWorkspace.the-shared-editor-page-is-currently-visible',
+                      '共享编辑页当前可见。',
+                    )
+                  : language.t(
+                      'platform.screen.metadataWorkspace.the-object-is-selected-in-the-workspace-but-its-editor',
+                      '当前仅在工作区选中对象，尚未打开对应编辑页。',
+                    ),
+                language.t(
+                  'platform.screen.metadataWorkspace.this-selection-does-not-create-or-save-configuration-existing-candidates',
+                  '本次选择不创建或保存配置，已有候选保留。',
+                ),
               ],
             };
           },
@@ -327,6 +397,7 @@ export function createMetadataWorkspace(
                             await waitForConfigurationEditor(
                               () => visible.value === selected && editorReady(selected),
                               signal,
+                              language,
                             );
                             return settleNavigation(signal);
                           },
@@ -334,8 +405,17 @@ export function createMetadataWorkspace(
                         return { moduleAlias: selected.moduleAlias, opened: true, saved: false };
                       },
                       present: () => ({
-                        title: `已打开配置编辑页：${selected.title.value}`,
-                        lines: ['展示当前共享候选，尚未提交新的配置。'],
+                        title: language.t(
+                          'platform.screen.metadataWorkspace.configuration-editor-opened-value',
+                          '已打开配置编辑页：{value1}',
+                          { value1: selected.title.value },
+                        ),
+                        lines: [
+                          language.t(
+                            'platform.screen.metadataWorkspace.displays-the-current-shared-candidate-no-new-configuration-was-submitted',
+                            '展示当前共享候选，尚未提交新的配置。',
+                          ),
+                        ],
                       }),
                     },
                   ]
@@ -356,6 +436,7 @@ export function createMetadataWorkspace(
 export type MetadataWorkspace = ReturnType<typeof createMetadataWorkspace>;
 
 function metadataRelationSelectionCapability(target: MetadataEditorSession): AssistantCapability {
+  const language = target.language;
   const relationIds = target.relations.value.flatMap((relation) => (relation.id ? [relation.id] : []));
   return {
     effect: 'configuration-draft',
@@ -380,7 +461,13 @@ function metadataRelationSelectionCapability(target: MetadataEditorSession): Ass
         typeof value.relationId !== 'string' ||
         !relationIds.includes(value.relationId)
       )
-        throw new AssistantCapabilityUsageError('请选择当前模块目录中的真实元数据节点');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataWorkspace.select-a-real-metadata-node-from-the-current-module-directory',
+            '请选择当前模块目录中的真实元数据节点',
+          ),
+        );
       return { relationId: value.relationId };
     },
     async execute(input, context) {
@@ -388,7 +475,13 @@ function metadataRelationSelectionCapability(target: MetadataEditorSession): Ass
       if (target.adapter.summary().selectedRelation?.relationId === relationId)
         return { relationId, saved: false };
       if (target.dirty.value)
-        throw new AssistantCapabilityUsageError('请先保存或取消当前字段候选，再切换元数据');
+        throw new AssistantCapabilityUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.metadataEditorSession.save-or-cancel-the-current-field-candidate-before-switching-metadata-label',
+            '请先保存或取消当前字段候选，再切换元数据',
+          ),
+        );
       return context.applyEffect(() => {
         target.selectRelation(relationId);
         return { relationId, saved: false };

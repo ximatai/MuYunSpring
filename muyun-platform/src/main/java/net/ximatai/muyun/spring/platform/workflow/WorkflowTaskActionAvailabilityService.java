@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -61,11 +62,18 @@ public class WorkflowTaskActionAvailabilityService {
 
     public List<WorkflowTaskAvailableAction> availableActions(String taskId, String operatorId) {
         WorkflowTask task = requireTask(taskId);
-        if (task.getTaskStatus() != WorkflowTaskStatus.TODO || !assignmentPolicyService.canProcess(task, operatorId)) {
-            return List.of();
-        }
         WorkflowInstance instance = requireInstance(task);
         WorkflowNodeInstance node = task.getNodeInstanceId() == null ? null : nodeDao.findById(task.getNodeInstanceId());
+        if (task.getTaskStatus() == WorkflowTaskStatus.DONE && routeDao != null
+                && WorkflowApprovalRevocationPolicy.allowed(task, instance, node,
+                nodeDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL),
+                routeDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL),
+                taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL), operatorId))
+            return List.of(WorkflowTaskAvailableAction.of("revokeApprove", "撤销审批意见").requireReason(true).withTask(task, node, userTitles(task)));
+        if (task.getTaskStatus() != WorkflowTaskStatus.TODO || !assignmentPolicyService.canProcess(task, operatorId)) return List.of();
+        if (task.getTaskKind() != WorkflowTaskKind.NOTICE && task.getTaskKind() != WorkflowTaskKind.RESUBMIT
+                && (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || node == null
+                || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)) return List.of();
         List<WorkflowTaskAvailableAction> actions = new ArrayList<>();
         if (task.getTaskKind() == WorkflowTaskKind.APPROVAL) {
             actions.add(WorkflowTaskAvailableAction.of("approve", "通过"));
@@ -121,10 +129,14 @@ public class WorkflowTaskActionAvailabilityService {
     }
 
     private WorkflowTask requireTask(String taskId) {
-        String validTaskId = requireText(taskId, "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(validTaskId);
+        String validTaskId = requireText(taskId, TextReference.code(
+                "platform.rejection.workflow-task-action-availability.select-an-approval-task",
+                "workflow task id must not be blank"));
+        WorkflowTask task = WorkflowTenantScope.visible(taskDao.findById(validTaskId));
         if (task == null) {
-            throw new PlatformException("workflow task not found: " + validTaskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action-availability.approval-task-not-found",
+                    "workflow task not found: {value1}"), Map.of("value1", String.valueOf(validTaskId)));
         }
         return task;
     }
@@ -132,7 +144,9 @@ public class WorkflowTaskActionAvailabilityService {
     private WorkflowInstance requireInstance(WorkflowTask task) {
         WorkflowInstance instance = instanceDao.findById(task.getInstanceId());
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + task.getInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action-availability.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(task.getInstanceId())));
         }
         return instance;
     }
@@ -156,9 +170,9 @@ public class WorkflowTaskActionAvailabilityService {
                 .anyMatch(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE);
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

@@ -4,10 +4,17 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.ability.action.BusinessException;
+import net.ximatai.muyun.spring.ability.action.ActionMessageType;
+import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,18 +47,11 @@ public class WorkflowTaskActionService {
     private final WorkflowDelegationService delegationService;
     private final WorkflowDelegationCompletionNoticeService delegationCompletionNoticeService;
     private final WorkflowRuntimePluginDispatcher pluginDispatcher;
+    private final WorkflowModuleTaskEvaluator taskEvaluator;
+    private final WorkflowBusinessTaskResolver taskSpecifications;
+    private final WorkflowTaskCheckResultDao taskCheckResults;
 
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService) {
-        this(taskDao, instanceDao, nodeInstanceDao, null, eventDao, eventFactory,
-                approvalTaskPolicyService, new WorkflowActionPolicyService(), progressionService, Optional.empty(), null,
-                null, null);
-    }
+    private final ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals;
 
     @Autowired
     public WorkflowTaskActionService(WorkflowTaskDao taskDao,
@@ -66,7 +66,15 @@ public class WorkflowTaskActionService {
                                      Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
                                      WorkflowDelegationService delegationService,
                                      WorkflowDelegationCompletionNoticeService delegationCompletionNoticeService,
-                                     WorkflowRuntimePluginDispatcher pluginDispatcher) {
+                                     WorkflowRuntimePluginDispatcher pluginDispatcher,
+                                     WorkflowModuleTaskEvaluator taskEvaluator,
+                                     WorkflowBusinessTaskResolver taskSpecifications,
+                                     WorkflowTaskCheckResultDao taskCheckResults,
+                                     ObjectProvider<WorkflowAutomaticApprovalService> automaticApprovals) {
+        this.automaticApprovals = java.util.Objects.requireNonNull(automaticApprovals, "automaticApprovals");
+        this.taskEvaluator = java.util.Objects.requireNonNull(taskEvaluator, "taskEvaluator");
+        this.taskSpecifications = java.util.Objects.requireNonNull(taskSpecifications, "taskSpecifications");
+        this.taskCheckResults = java.util.Objects.requireNonNull(taskCheckResults, "taskCheckResults");
         this.taskDao = taskDao;
         this.instanceDao = instanceDao;
         this.nodeInstanceDao = nodeInstanceDao;
@@ -82,72 +90,36 @@ public class WorkflowTaskActionService {
         this.pluginDispatcher = pluginDispatcher == null ? new WorkflowRuntimePluginDispatcher(List.of()) : pluginDispatcher;
     }
 
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter, null, null,
-                null);
-    }
-
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                     WorkflowDelegationService delegationService) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter,
-                delegationService, null, null);
-    }
-
-    public WorkflowTaskActionService(WorkflowTaskDao taskDao,
-                                     WorkflowInstanceDao instanceDao,
-                                     WorkflowNodeInstanceDao nodeInstanceDao,
-                                     WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
-                                     WorkflowRuntimeEventFactory eventFactory,
-                                     WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
-                                     WorkflowActionPolicyService actionPolicyService,
-                                     WorkflowRuntimeProgressionService progressionService,
-                                     Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter,
-                                     WorkflowDelegationService delegationService,
-                                     WorkflowRuntimePluginDispatcher pluginDispatcher) {
-        this(taskDao, instanceDao, nodeInstanceDao, routeInstanceDao, eventDao, eventFactory,
-                approvalTaskPolicyService, actionPolicyService, progressionService, approvalSummaryWriter,
-                delegationService, null, pluginDispatcher);
+    @Transactional
+    public WorkflowTaskActionResult approve(WorkflowTaskActionRequest request) {
+        return approveInternal(request, false);
     }
 
     @Transactional
-    public WorkflowTaskActionResult approve(WorkflowTaskActionRequest request) {
+    public WorkflowTaskActionResult approveAutomatically(WorkflowTaskActionRequest request) {
+        return approveInternal(request, true);
+    }
+
+    private WorkflowTaskActionResult approveInternal(WorkflowTaskActionRequest request, boolean automatic) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
-            throw new PlatformException("workflow task is not an approval task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-an-approval-task",
+                    "workflow task is not an approval task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireInstance(task);
         WorkflowNodeInstance node = requireNode(task);
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
+        String reason = automatic ? null : request.reason();
         actionPolicyService.requireRuntimeAction(instance, "approve");
         actionPolicyService.requireTaskOperator(task, "approve", operatorId);
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_APPROVE, "approve",
-                operatorId, null, null, request.reason());
+                operatorId, null, null, reason);
         task.setTaskStatus(WorkflowTaskStatus.DONE);
         task.setActualProcessorId(operatorId);
-        task.setDecision("approve");
-        task.setResultMessage(request.reason());
+        task.setDecision(automatic ? "auto_approve" : "approve");
+        task.setResultMessage(reason);
         task.setCompletedAt(now);
         updateTask(task, now);
 
@@ -164,23 +136,111 @@ public class WorkflowTaskActionService {
                 skipPendingSiblings(instance, task, effectiveTasks, operatorId, now);
             }
         }
-        WorkflowEvent event = eventFactory.taskCompleted(instance, task, "approve", operatorId, request.reason(), now);
+        WorkflowEvent event = automatic
+                ? eventFactory.taskCompleted(instance, task, "auto_approve", operatorId,
+                        "同一办理人连续审批，按已发布规则自动通过", null, now)
+                : eventFactory.taskCompleted(instance, task, "approve", operatorId, reason, now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
             progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
                     request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
         }
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_APPROVE, "approve",
-                operatorId, null, null, request.reason());
+                operatorId, null, null, reason);
+        automaticApprovals.getObject().continueFor(instance.getId(), operatorId, now);
         return WorkflowTaskActionResult.of(task, node, instance, event);
+    }
+
+    @Transactional
+    public WorkflowTaskActionResult revokeApprove(WorkflowTaskActionRequest request) {
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, requireText(request == null ? null : request.taskId(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-an-approval-task",
+                "审批任务不能为空")));
+        if (task == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-task-action.approval-task-not-found",
+                "审批任务不存在"));
+        WorkflowInstance instance = requireInstance(task);
+        WorkflowNodeInstance node = requireNode(task);
+        String operator = operatorId(request);
+        var nodes = nodeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        var routes = requireRouteDao().query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        var tasks = taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL);
+        if (!WorkflowApprovalRevocationPolicy.allowed(task, instance, node, nodes, routes, tasks, operator))
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-approval-can-no-longer-be-revoked-because-downstream-processing-has-started",
+                    "审批意见已不能撤销：下游已办理、已跨越分支或审批已完成"));
+        requireText(request.reason(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-a-reason-for-revoking-approval",
+                "撤销审批必须填写原因"));
+        actionPolicyService.requireRuntimeAction(instance, "revokeApprove");
+        Instant now = operatedAt(request);
+        var skippedVotes = node.getNodeStatus() == WorkflowNodeStatus.COMPLETED
+                && (node.getApprovalMode() == null || node.getApprovalMode() == WorkflowApprovalMode.ANY || node.getApprovalMode() == WorkflowApprovalMode.RATIO)
+                ? tasks.stream().filter(item -> node.getId().equals(item.getNodeInstanceId())
+                && item.getTaskKind() == WorkflowTaskKind.APPROVAL && item.getTaskStatus() == WorkflowTaskStatus.SKIPPED
+                && "skip".equals(item.getDecision()) && node.getCompletedAt() != null
+                && node.getCompletedAt().equals(item.getCompletedAt())).toList() : List.<WorkflowTask>of();
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_REVOKE, "revokeApprove", operator, null, null, request.reason());
+        if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
+            var route = routes.stream().filter(item -> node.getNodeKey().equals(item.getSourceNodeKey())
+                    && item.getRouteStatus() == WorkflowRouteStatus.EFFECTIVE).findFirst().orElseThrow();
+            var next = nodes.stream().filter(item -> route.getTargetNodeKey().equals(item.getNodeKey())).findFirst().orElseThrow();
+            for (var downstream : tasks) if (next.getId().equals(downstream.getNodeInstanceId())
+                    && downstream.getTaskStatus() == WorkflowTaskStatus.TODO
+                    && (next.getActivatedAt() == null || downstream.getCreatedAt() == null
+                    || !downstream.getCreatedAt().isBefore(next.getActivatedAt()))) {
+                downstream.setTaskStatus(WorkflowTaskStatus.CANCELED); downstream.setDecision("revokeApprove");
+                downstream.setCompletedAt(now); updateTask(downstream, now);
+                eventDao.insert(eventFactory.taskCompleted(instance, downstream, "revokeApprove", operator, request.reason(), now));
+            }
+            resetNodeForRetry(next); updateNode(next, now);
+            resetRouteForRetry(route); updateRoute(route, now);
+            node.setNodeStatus(WorkflowNodeStatus.ACTIVE); node.setCompletedAt(null);
+        }
+        task.setTaskStatus(WorkflowTaskStatus.ROLLED_BACK); task.setDecision("revokeApprove");
+        task.setResultMessage(request.reason()); updateTask(task, now);
+        int remainingVotes = (int) tasks.stream().filter(item -> node.getId().equals(item.getNodeInstanceId())
+                && !task.getId().equals(item.getId()) && item.getTaskKind() == WorkflowTaskKind.APPROVAL
+                && item.getTaskStatus() == WorkflowTaskStatus.DONE).count();
+        node.setApprovedTaskCount(remainingVotes); node.setCompletedTaskCount(remainingVotes); updateNode(node, now);
+        WorkflowTask retry = approvalRetry(task, now);
+        for (var skipped : skippedVotes) {
+            var restored = approvalRetry(skipped, now);
+            eventDao.insert(eventFactory.taskCreated(instance, node, restored, operator, now));
+        }
+        var activeKeys = new java.util.LinkedHashSet<String>();
+        nodes.stream().filter(item -> !node.getId().equals(item.getId()) && item.getNodeStatus() == WorkflowNodeStatus.ACTIVE)
+                .map(WorkflowNodeInstance::getNodeKey).forEach(activeKeys::add);
+        activeKeys.add(node.getNodeKey());
+        instance.setCurrentNodeKeys(String.join(",", activeKeys)); instance.setLastActionCode("revokeApprove");
+        instance.setLastActionReason(request.reason()); instance.setLastOperatorId(operator); instance.setLastOperatedAt(now); updateInstance(instance, now);
+        WorkflowEvent event = eventFactory.taskCompleted(instance, task, "revokeApprove", operator, request.reason(), now);
+        eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance); eventDao.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_REVOKE, "revokeApprove", operator, null, null, request.reason());
+        return new WorkflowTaskActionResult(task, retry, node, instance, event);
+    }
+
+    private WorkflowTask approvalRetry(WorkflowTask source, Instant now) {
+        WorkflowTask retry = new WorkflowTask();
+        org.springframework.beans.BeanUtils.copyProperties(source, retry);
+        retry.setId(Ids.newId()); retry.setVersion(null);
+        retry.setCreatedAt(null); retry.setCreatedBy(null); retry.setUpdatedAt(null); retry.setUpdatedBy(null); retry.setTaskStatus(WorkflowTaskStatus.TODO);
+        retry.setParentTaskId(source.getId()); retry.setOriginTaskId(source.getOriginTaskId() == null ? source.getId() : source.getOriginTaskId());
+        retry.setActualProcessorId(null); retry.setDecision(null); retry.setCompletedAt(null); retry.setResultMessage(null);
+        EntityLifecycle.prepareInsert(retry, now); taskDao.insert(retry);
+        return retry;
     }
 
     @Transactional
     public WorkflowTaskActionResult forceApprove(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
-            throw new PlatformException("workflow force approve only supports approval task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.force-approval-is-only-available-for-approval-tasks",
+                    "workflow force approve only supports approval task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireRunningInstance(task);
         WorkflowNodeInstance node = requireNode(task);
@@ -212,6 +272,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "forceApprove", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
             progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
@@ -226,7 +287,9 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult reject(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
-            throw new PlatformException("workflow task is not an approval task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-an-approval-task",
+                    "workflow task is not an approval task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireInstance(task);
         WorkflowNodeInstance node = requireNode(task);
@@ -277,6 +340,7 @@ public class WorkflowTaskActionService {
         taskDao.insert(resubmitTask);
         WorkflowEvent event = eventFactory.taskRejected(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         eventDao.insert(eventFactory.taskCreated(instance, resubmitTask, operatorId, now));
         writeApprovalSummary(instance);
@@ -289,12 +353,16 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult rollback(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
-            throw new PlatformException("workflow task is not an approval task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-an-approval-task",
+                    "workflow task is not an approval task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireRunningInstance(task);
         WorkflowNodeInstance currentNode = requireNode(task);
         if (currentNode.getNodeType() != WorkflowNodeType.APPROVAL) {
-            throw new PlatformException("workflow rollback only supports approval node task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.only-approval-node-tasks-can-be-rolled-back",
+                    "workflow rollback only supports approval node task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
@@ -350,6 +418,7 @@ public class WorkflowTaskActionService {
         taskDao.insert(createdTask);
         WorkflowEvent event = eventFactory.nodeRolledBack(instance, currentNode, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         eventDao.insert(eventFactory.taskCreated(instance, previousNode, createdTask, operatorId, now));
         writeApprovalSummary(instance);
@@ -362,18 +431,23 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult resubmit(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.RESUBMIT) {
-            throw new PlatformException("workflow task is not a resubmit task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-a-resubmission-task",
+                    "workflow task is not a resubmit task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireInstance(task);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.REJECTED) {
-            throw new PlatformException("workflow instance is not rejected: " + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-workflow-is-not-rejected",
+                    "workflow instance is not rejected: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         WorkflowRejectResubmitMode mode = instance.getRejectResubmitMode() == null
                 ? WorkflowRejectResubmitMode.RESTART
                 : instance.getRejectResubmitMode();
         if (mode == WorkflowRejectResubmitMode.RESTART) {
-            throw new PlatformException("workflow restart resubmit requires new workflow submit entry: "
-                    + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.use-a-new-submission-to-restart-this-workflow",
+                    "workflow restart resubmit requires new workflow submit entry: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
@@ -386,8 +460,9 @@ public class WorkflowTaskActionService {
         task.setCompletedAt(now);
         updateTask(task, now);
         WorkflowNodeInstance node = rejectReturnNode(instance);
-        String assigneeId = requireText(instance.getRejectReturnOwnerId(),
-                "workflow reject return owner id must not be blank");
+        String assigneeId = requireText(instance.getRejectReturnOwnerId(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-a-rejection-return-owner",
+                "workflow reject return owner id must not be blank"));
         resetApprovalNodeForRetry(node, now);
         updateNode(node, now);
         instance.setInstanceStatus(WorkflowInstanceStatus.RUNNING);
@@ -406,6 +481,7 @@ public class WorkflowTaskActionService {
         updateInstance(instance, now);
         WorkflowEvent event = eventFactory.taskResubmitted(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         writeApprovalSummary(instance);
         return new WorkflowTaskActionResult(task, createdTask, node, instance, event);
     }
@@ -414,7 +490,9 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult completeBusinessTask(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.BUSINESS) {
-            throw new PlatformException("workflow task is not a business task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-a-business-task",
+                    "workflow task is not a business task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireInstance(task);
         WorkflowNodeInstance node = requireNode(task);
@@ -422,22 +500,53 @@ public class WorkflowTaskActionService {
         String operatorId = operatorId(request);
         actionPolicyService.requireRuntimeAction(instance, "complete");
         actionPolicyService.requireTaskOperator(task, "complete", operatorId);
+        if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING || node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-business-task-cannot-be-processed-in-its-current-state",
+                    "业务任务当前不能办理"));
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.BEFORE_COMPLETE, "complete",
+                operatorId, null, null, request.reason());
+        var specification = taskSpecifications.resolve(node);
+        var evaluation = taskEvaluator.evaluate(instance, node, task, specification.definition());
+        if (!evaluation.passed()) {
+            var message = evaluation.failureMessage() == null ? "业务任务尚未满足完成条件" : evaluation.failureMessage();
+            TextReference source = null;
+            if (evaluation.failureMessage() == null)
+                source = TextReference.code("platform.workflow.task.completion-not-met", message);
+            else if (evaluation.failureCheckKey() != null && !evaluation.failureCheckKey().isBlank()
+                    && instance.getWorkflowVersionId() != null && !instance.getWorkflowVersionId().isBlank()
+                    && node.getNodeKey() != null && !node.getNodeKey().isBlank())
+                source = ConfigurationTextSources.workflowCheckText(instance.getWorkflowVersionId(), node.getNodeKey(),
+                        evaluation.failureCheckKey(), "failureMessage", message);
+            throw new BusinessException("VALIDATION_FAILED", 400, message, ActionMessageType.ERROR,
+                    ErrorScope.empty(), List.of(), Map.of(), Map.of(), source);
+        }
+        for (var check : evaluation.checkResults()) {
+            EntityLifecycle.prepareInsert(check, now); taskCheckResults.insert(check);
+        }
+        task.setCheckStatus(evaluation.checkStatus());
         task.setTaskStatus(WorkflowTaskStatus.DONE);
         task.setActualProcessorId(operatorId);
         task.setDecision("complete");
         task.setResultMessage(request.reason());
         task.setCompletedAt(now);
         updateTask(task, now);
-        node.setNodeStatus(WorkflowNodeStatus.COMPLETED);
+        var remaining = nodeTasks(task).stream().filter(item -> !task.getId().equals(item.getId()))
+                .anyMatch(item -> item.getTaskStatus() == WorkflowTaskStatus.TODO);
         node.setCompletedTaskCount(value(node.getCompletedTaskCount()) + 1);
-        node.setCompletedAt(now);
+        if (!remaining) { node.setNodeStatus(WorkflowNodeStatus.COMPLETED); node.setCompletedAt(now); }
         updateNode(node, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "complete", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
-        progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
-                request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
+        if (!remaining) {
+            instance = progressionService.advanceFromNode(instance.getId(), node.getNodeKey(), operatorId, now,
+                    request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections()).instance();
+        }
+        dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_COMPLETE, "complete",
+                operatorId, null, null, request.reason());
         return WorkflowTaskActionResult.of(task, node, instance, event);
     }
 
@@ -445,7 +554,9 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult notice(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.NOTICE) {
-            throw new PlatformException("workflow task is not a notice task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-a-notification-task",
+                    "workflow task is not a notice task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireInstance(task);
         Instant now = operatedAt(request);
@@ -463,6 +574,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -488,13 +600,16 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
     @Transactional
     public WorkflowTaskActionResult transfer(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
-        String targetAssigneeId = requireText(request.targetAssigneeId(), "workflow target assignee id must not be blank");
+        String targetAssigneeId = requireText(request.targetAssigneeId(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-a-target-assignee",
+                "workflow target assignee id must not be blank"));
         WorkflowInstance instance = requireInstance(task);
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
@@ -519,6 +634,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.taskTransferred(instance, task, operatorId,
                 "transfer to " + targetAssigneeId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         dispatchTask(instance, node, createdTask, WorkflowRuntimePluginEventType.AFTER_TRANSFER, "transfer",
                 operatorId, targetAssigneeId, null, request.reason());
         return WorkflowTaskActionResult.transferred(task, createdTask, event);
@@ -528,15 +644,21 @@ public class WorkflowTaskActionService {
     public WorkflowTaskActionResult addSign(WorkflowTaskActionRequest request) {
         WorkflowTask task = requireTodoTask(request);
         if (task.getTaskKind() != WorkflowTaskKind.APPROVAL) {
-            throw new PlatformException("workflow add sign only supports approval task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approvers-can-only-be-added-to-an-approval-task",
+                    "workflow add sign only supports approval task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         WorkflowInstance instance = requireRunningInstance(task);
         WorkflowNodeInstance node = requireNode(task);
         if (node.getNodeType() != WorkflowNodeType.APPROVAL) {
-            throw new PlatformException("workflow add sign only supports approval node task: " + request.taskId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approvers-can-only-be-added-to-an-approval-node-task",
+                    "workflow add sign only supports approval node task: {value1}"), Map.of("value1", String.valueOf(request.taskId())));
         }
         if (node.getNodeStatus() != WorkflowNodeStatus.ACTIVE) {
-            throw new PlatformException("workflow add sign only supports active approval node: " + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approvers-can-only-be-added-to-an-active-approval-node",
+                    "workflow add sign only supports active approval node: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
         }
         Instant now = operatedAt(request);
         String operatorId = operatorId(request);
@@ -551,14 +673,17 @@ public class WorkflowTaskActionService {
                 ? outgoingCandidateRoutes(instance.getId(), node.getNodeKey())
                 : existingSegment.restoreOriginalOutgoingRoutes(node.getNodeKey());
         if (originalRoutes.isEmpty()) {
-            throw new PlatformException("workflow add sign requires candidate route after current node: "
-                    + node.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.a-candidate-route-after-the-current-node-is-required-to-add-approvers",
+                    "workflow add sign requires candidate route after current node: {value1}"), Map.of("value1", String.valueOf(node.getNodeKey())));
         }
         List<String> replacedRouteIds = existingSegment == null
                 ? originalRoutes.stream().map(WorkflowRouteInstance::getId).toList()
                 : existingSegment.routeIds();
         AddSignSegmentPlan plan = buildAddSignSegmentPlan(instance, node, originalRoutes, request.addSignSegment(),
                 existingSegment == null ? Set.of() : existingSegment.nodeIds(), operatorId, now);
+        validateAddSignManualTopology(instance.getId(), node.getNodeKey(), existingSegment,
+                Set.copyOf(replacedRouteIds), plan);
 
         if (existingSegment == null) {
             for (WorkflowRouteInstance route : originalRoutes) {
@@ -588,6 +713,7 @@ public class WorkflowTaskActionService {
                 addSignPayload(node.getNodeKey(), plan.addedNodeKeys(), replacedRouteIds, editMode,
                         request.semanticJson(), request.layoutJson()), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.addSign(task, node, instance, event, editMode,
                 plan.addedNodeKeys(), replacedRouteIds);
     }
@@ -622,6 +748,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskInvalidated(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -641,6 +768,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskCanceled(instance, task, operatorId, request.reason(), now);
         eventDao.insert(event);
+        WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
 
@@ -687,7 +815,9 @@ public class WorkflowTaskActionService {
         task.setAssignmentKind(WorkflowAssignmentKind.NORMAL);
         task.setOwnerId(instance.getStartedBy());
         task.setOriginalAssigneeId(instance.getStartedBy());
-        task.setAssigneeId(requireText(instance.getStartedBy(), "workflow started by must not be blank"));
+        task.setAssigneeId(requireText(instance.getStartedBy(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-a-workflow-initiator",
+                "workflow started by must not be blank")));
         task.setCheckStatus(WorkflowTaskCheckStatus.NO_CHECK);
         return task;
     }
@@ -704,7 +834,9 @@ public class WorkflowTaskActionService {
         task.setAssignmentKind(WorkflowAssignmentKind.NORMAL);
         task.setOwnerId(assigneeId);
         task.setOriginalAssigneeId(assigneeId);
-        task.setAssigneeId(requireText(assigneeId, "workflow approval assignee id must not be blank"));
+        task.setAssigneeId(requireText(assigneeId, TextReference.code(
+                "platform.rejection.workflow-task-action.select-an-approval-assignee",
+                "workflow approval assignee id must not be blank")));
         task.setCheckStatus(WorkflowTaskCheckStatus.NO_CHECK);
         applyDelegation(instance, task);
         return task;
@@ -747,36 +879,54 @@ public class WorkflowTaskActionService {
     }
 
     private WorkflowTask requireTodoTask(WorkflowTaskActionRequest request) {
-        String taskId = requireText(request == null ? null : request.taskId(), "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(taskId);
+        String taskId = requireText(request == null ? null : request.taskId(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-an-approval-task",
+                "workflow task id must not be blank"));
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, taskId);
         if (task == null) {
-            throw new PlatformException("workflow task not found: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approval-task-not-found-details",
+                    "workflow task not found: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         if (task.getTaskStatus() != WorkflowTaskStatus.TODO) {
-            throw new PlatformException("workflow task is not todo: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-task-is-no-longer-pending",
+                    "workflow task is not todo: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         return task;
     }
 
     private WorkflowTask requireNoticeReadTask(WorkflowTaskActionRequest request) {
-        String taskId = requireText(request == null ? null : request.taskId(), "workflow task id must not be blank");
-        WorkflowTask task = taskDao.findById(taskId);
+        String taskId = requireText(request == null ? null : request.taskId(), TextReference.code(
+                "platform.rejection.workflow-task-action.select-an-approval-task",
+                "workflow task id must not be blank"));
+        WorkflowTask task = WorkflowMutationLock.task(taskDao, taskId);
         if (task == null) {
-            throw new PlatformException("workflow task not found: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approval-task-not-found-details",
+                    "workflow task not found: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         if (task.getTaskKind() != WorkflowTaskKind.NOTICE) {
-            throw new PlatformException("workflow task is not a notice task: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-is-not-a-notification-task",
+                    "workflow task is not a notice task: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         if (task.getTaskStatus() != WorkflowTaskStatus.TODO && task.getTaskStatus() != WorkflowTaskStatus.NOTICED) {
-            throw new PlatformException("workflow notice task is not readable: " + taskId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-notification-task-is-not-readable",
+                    "workflow notice task is not readable: {value1}"), Map.of("value1", String.valueOf(taskId)));
         }
         return task;
     }
 
     private void requireNoticeOwner(WorkflowTask task, String operatorId) {
-        String validOperatorId = requireText(operatorId, "workflow operator id must not be blank");
+        String validOperatorId = requireText(operatorId, TextReference.code(
+                "platform.rejection.workflow-task-action.select-a-workflow-operator",
+                "workflow operator id must not be blank"));
         if (!validOperatorId.equals(task.getAssigneeId())) {
-            throw new PlatformException("workflow notice reader is not assignee: " + task.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.you-are-not-the-recipient-of-this-notification",
+                    "workflow notice reader is not assignee: {value1}"), Map.of("value1", String.valueOf(task.getId())));
         }
     }
 
@@ -800,7 +950,9 @@ public class WorkflowTaskActionService {
     private WorkflowInstance requireInstance(WorkflowTask task) {
         WorkflowInstance instance = instanceDao.findById(task.getInstanceId());
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + task.getInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(task.getInstanceId())));
         }
         return instance;
     }
@@ -808,7 +960,9 @@ public class WorkflowTaskActionService {
     private WorkflowInstance requireRunningInstance(WorkflowTask task) {
         WorkflowInstance instance = requireInstance(task);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING) {
-            throw new PlatformException("workflow instance is not running: " + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-workflow-is-not-running",
+                    "workflow instance is not running: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         return instance;
     }
@@ -816,7 +970,9 @@ public class WorkflowTaskActionService {
     private WorkflowNodeInstance requireNode(WorkflowTask task) {
         WorkflowNodeInstance node = nodeInstanceDao.findById(task.getNodeInstanceId());
         if (node == null) {
-            throw new PlatformException("workflow node instance not found: " + task.getNodeInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.workflow-node-instance-not-found",
+                    "workflow node instance not found: {value1}"), Map.of("value1", String.valueOf(task.getNodeInstanceId())));
         }
         return node;
     }
@@ -833,8 +989,9 @@ public class WorkflowTaskActionService {
                 .filter(nodeTask -> nodeTask.getTaskStatus() == WorkflowTaskStatus.TODO)
                 .count();
         if (todoApprovalCount > 1) {
-            throw new PlatformException("workflow add sign does not support multi todo approval tasks on one node: "
-                    + task.getNodeInstanceId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.approvers-cannot-be-added-while-this-node-has-multiple-pending-approval-tasks",
+                    "workflow add sign does not support multi todo approval tasks on one node: {value1}"), Map.of("value1", String.valueOf(task.getNodeInstanceId())));
         }
     }
 
@@ -848,8 +1005,9 @@ public class WorkflowTaskActionService {
         }
         for (WorkflowNodeInstance existingNode : existingNodes) {
             if (existingNode.getNodeStatus() != WorkflowNodeStatus.WAITING) {
-                throw new PlatformException("workflow add sign segment is already effective and cannot be edited: "
-                        + sourceNodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.this-approval-segment-is-already-active-and-cannot-be-edited",
+                        "workflow add sign segment is already effective and cannot be edited: {value1}"), Map.of("value1", String.valueOf(sourceNodeKey)));
             }
         }
         Set<String> nodeIds = existingNodes.stream()
@@ -859,8 +1017,9 @@ public class WorkflowTaskActionService {
                         .eq("instanceId", instanceId), ALL).stream()
                 .anyMatch(existingTask -> nodeIds.contains(existingTask.getNodeInstanceId()));
         if (hasTasks) {
-            throw new PlatformException("workflow add sign segment is already effective and cannot be edited: "
-                    + sourceNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.this-approval-segment-is-already-active-and-cannot-be-edited",
+                    "workflow add sign segment is already effective and cannot be edited: {value1}"), Map.of("value1", String.valueOf(sourceNodeKey)));
         }
         Set<String> nodeKeys = existingNodes.stream()
                 .map(WorkflowNodeInstance::getNodeKey)
@@ -870,7 +1029,9 @@ public class WorkflowTaskActionService {
                 .eq("addedByAddSign", true)
                 .eq("addSignSourceNodeKey", sourceNodeKey), ALL);
         if (existingRoutes.isEmpty()) {
-            throw new PlatformException("workflow add sign editable segment has no routes: " + sourceNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-editable-approval-segment-has-no-routes",
+                    "workflow add sign editable segment has no routes: {value1}"), Map.of("value1", String.valueOf(sourceNodeKey)));
         }
         return new EditableAddSignSegment(existingNodes, existingRoutes, nodeKeys);
     }
@@ -899,20 +1060,28 @@ public class WorkflowTaskActionService {
                                                        String operatorId,
                                                        Instant now) {
         if (segment == null) {
-            throw new PlatformException("workflow add sign segment must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.provide-an-approval-segment",
+                    "workflow add sign segment must not be null"));
         }
         if (segment.nodeDefinitions().isEmpty()) {
-            throw new PlatformException("workflow add sign segment must contain nodes");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.add-nodes-to-the-approval-segment",
+                    "workflow add sign segment must contain nodes"));
         }
         if (segment.linkDefinitions().isEmpty()) {
-            throw new PlatformException("workflow add sign segment must contain links");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.add-routes-to-the-approval-segment",
+                    "workflow add sign segment must contain links"));
         }
         if (originalRoutes.size() != 1) {
-            throw new PlatformException("workflow add sign only supports single original next node in first version: "
-                    + sourceNode.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.adding-approvers-requires-a-single-original-next-node",
+                    "workflow add sign only supports single original next node in first version: {value1}"), Map.of("value1", String.valueOf(sourceNode.getNodeKey())));
         }
-        String originalNextNodeKey = requireText(originalRoutes.getFirst().getTargetNodeKey(),
-                "workflow original next node key must not be blank");
+        String originalNextNodeKey = requireText(originalRoutes.getFirst().getTargetNodeKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-the-original-next-node-key",
+                "workflow original next node key must not be blank"));
         Set<String> existingNodeKeys = nodeInstanceDao.query(Criteria.of()
                         .eq("instanceId", instance.getId()), ALL).stream()
                 .filter(node -> ignoredExistingNodeIds == null || !ignoredExistingNodeIds.contains(node.getId()))
@@ -920,21 +1089,31 @@ public class WorkflowTaskActionService {
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         Map<String, WorkflowNodeDefinition> definitionsByKey = new LinkedHashMap<>();
         for (WorkflowNodeDefinition definition : segment.nodeDefinitions()) {
-            String nodeKey = requireText(definition.getNodeKey(), "workflow add sign node key must not be blank");
+            String nodeKey = requireText(definition.getNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-task-action.enter-a-key-for-the-added-node",
+                    "workflow add sign node key must not be blank"));
             if (definitionsByKey.containsKey(nodeKey)) {
-                throw new PlatformException("workflow add sign node key duplicated: " + nodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.duplicate-added-node-key",
+                        "workflow add sign node key duplicated: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
             }
             if (existingNodeKeys.contains(nodeKey)) {
-                throw new PlatformException("workflow add sign node key conflicts with instance node: " + nodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-node-key-conflicts-with-an-existing-node",
+                        "workflow add sign node key conflicts with instance node: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
             }
             validateAddSignNodeDefinition(definition);
             definitionsByKey.put(nodeKey, definition);
         }
         Set<String> routeKeys = new LinkedHashSet<>();
         for (WorkflowLinkDefinition definition : segment.linkDefinitions()) {
-            String routeKey = requireText(definition.getRouteKey(), "workflow add sign route key must not be blank");
+            String routeKey = requireText(definition.getRouteKey(), TextReference.code(
+                    "platform.rejection.workflow-task-action.enter-a-key-for-the-added-route",
+                    "workflow add sign route key must not be blank"));
             if (!routeKeys.add(routeKey)) {
-                throw new PlatformException("workflow add sign route key duplicated: " + routeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.duplicate-added-route-key",
+                        "workflow add sign route key duplicated: {value1}"), Map.of("value1", String.valueOf(routeKey)));
             }
         }
         validateAddSignSegmentGraph(sourceNode.getNodeKey(), originalNextNodeKey, definitionsByKey.keySet(),
@@ -949,6 +1128,43 @@ public class WorkflowTaskActionService {
                 nodes.stream().map(WorkflowNodeInstance::getNodeKey).toList());
     }
 
+    private void validateAddSignManualTopology(String instanceId, String sourceNodeKey,
+                                               EditableAddSignSegment existingSegment,
+                                               Set<String> replacedRouteIds, AddSignSegmentPlan plan) {
+        Set<String> replacedNodeIds = existingSegment == null ? Set.of() : existingSegment.nodeIds();
+        var nodes = new ArrayList<>(nodeInstanceDao.query(Criteria.of().eq("instanceId", instanceId), ALL).stream()
+                .filter(node -> !replacedNodeIds.contains(node.getId())).toList());
+        nodes.addAll(plan.nodes());
+        var routes = new ArrayList<>(requireRouteDao().query(Criteria.of().eq("instanceId", instanceId), ALL).stream()
+                .filter(route -> !replacedRouteIds.contains(route.getId()))
+                .filter(route -> route.getRouteStatus() == WorkflowRouteStatus.CANDIDATE
+                        || route.getRouteStatus() == WorkflowRouteStatus.EFFECTIVE
+                        || route.getRouteStatus() == WorkflowRouteStatus.CLOSED)
+                .filter(route -> route.getInvalidatedByActionId() == null && route.getInvalidatedAt() == null)
+                .toList());
+        routes.addAll(plan.routes());
+        var graph = WorkflowManualBranchFrontier.frozenGraph(nodes, routes);
+        var outgoing = new LinkedHashMap<String, List<String>>();
+        graph.nodes().keySet().forEach(key -> outgoing.put(key, graph.outgoing(key).stream()
+                .map(WorkflowLinkDefinition::getTargetNodeKey).toList()));
+        // Only downstream decisions can change; completed or pruned historical decisions have no new action boundary.
+        Set<String> affected = reachable(sourceNodeKey, outgoing);
+        for (var node : nodes) {
+            if (!affected.contains(node.getNodeKey()) || node.getNodeType() != WorkflowNodeType.BRANCH
+                    || node.getRouteMode() != WorkflowRouteMode.MANUAL
+                    || node.getNodeStatus() != WorkflowNodeStatus.WAITING && node.getNodeStatus() != WorkflowNodeStatus.ACTIVE)
+                continue;
+            try {
+                WorkflowDesignCompiler.validateManualSelectionTopology(graph, graph.requireNode(node.getNodeKey()));
+            } catch (PlatformException invalid) {
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.adding-approvers-would-invalidate-manual-branch-responsibility-adjust-the-segment",
+                        "加签会破坏手工分支的选路责任，请调整加签位置: {branchKey}（加签来源 {sourceKey}）"),
+                        Map.of("branchKey", node.getNodeKey(), "sourceKey", sourceNodeKey), invalid);
+            }
+        }
+    }
+
     private void validateAddSignSegmentGraph(String sourceNodeKey,
                                              String originalNextNodeKey,
                                              Set<String> addedNodeKeys,
@@ -961,32 +1177,49 @@ public class WorkflowTaskActionService {
         Map<String, List<String>> incoming = new LinkedHashMap<>();
         Set<String> edges = new LinkedHashSet<>();
         for (WorkflowLinkDefinition link : linkDefinitions) {
-            String source = requireText(link.getSourceNodeKey(), "workflow add sign link source must not be blank");
-            String target = requireText(link.getTargetNodeKey(), "workflow add sign link target must not be blank");
+            String source = requireText(link.getSourceNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-task-action.select-a-source-for-the-added-route",
+                    "workflow add sign link source must not be blank"));
+            String target = requireText(link.getTargetNodeKey(), TextReference.code(
+                    "platform.rejection.workflow-task-action.select-a-target-for-the-added-route",
+                    "workflow add sign link target must not be blank"));
             if (!allowed.contains(source) || !allowed.contains(target)) {
-                throw new PlatformException("workflow add sign link must stay inside local segment: "
-                        + source + " -> " + target);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-route-must-stay-within-this-segment",
+                        "workflow add sign link must stay inside local segment: {value1} -> {value2}"), Map.of("value1", String.valueOf(source), "value2", String.valueOf(target)));
             }
             if (sourceNodeKey.equals(target)) {
-                throw new PlatformException("workflow add sign link cannot target source node: " + target);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-route-cannot-return-to-the-source-node",
+                        "workflow add sign link cannot target source node: {value1}"), Map.of("value1", String.valueOf(target)));
             }
             if (originalNextNodeKey.equals(source)) {
-                throw new PlatformException("workflow add sign link cannot leave original next node: " + source);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-route-cannot-leave-the-original-next-node",
+                        "workflow add sign link cannot leave original next node: {value1}"), Map.of("value1", String.valueOf(source)));
             }
             if (sourceNodeKey.equals(source) && originalNextNodeKey.equals(target)) {
-                throw new PlatformException("workflow add sign segment cannot be empty direct route");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.an-approval-segment-cannot-consist-of-an-empty-direct-route",
+                        "workflow add sign segment cannot be empty direct route"));
             }
             if (!edges.add(source + "->" + target)) {
-                throw new PlatformException("workflow add sign link duplicated: " + source + " -> " + target);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.duplicate-added-route",
+                        "workflow add sign link duplicated: {value1} -> {value2}"), Map.of("value1", String.valueOf(source), "value2", String.valueOf(target)));
             }
             outgoing.computeIfAbsent(source, ignored -> new ArrayList<>()).add(target);
             incoming.computeIfAbsent(target, ignored -> new ArrayList<>()).add(source);
         }
         if (outgoing.getOrDefault(sourceNodeKey, List.of()).isEmpty()) {
-            throw new PlatformException("workflow add sign segment must have at least one entry from source node");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-approval-segment-needs-an-entry-route-from-the-source-node",
+                    "workflow add sign segment must have at least one entry from source node"));
         }
         if (incoming.getOrDefault(originalNextNodeKey, List.of()).size() != 1) {
-            throw new PlatformException("workflow add sign segment must have one exit to original next node");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-approval-segment-needs-one-exit-to-the-original-next-node",
+                    "workflow add sign segment must have one exit to original next node"));
         }
         Set<String> reachableFromSource = reachable(sourceNodeKey, outgoing);
         Map<String, List<String>> reverse = new LinkedHashMap<>();
@@ -998,17 +1231,20 @@ public class WorkflowTaskActionService {
         Set<String> canReachOriginalNext = reachable(originalNextNodeKey, reverse);
         for (String addedNodeKey : addedNodeKeys) {
             if (!reachableFromSource.contains(addedNodeKey)) {
-                throw new PlatformException("workflow add sign segment contains unreachable added node: "
-                        + addedNodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-approval-segment-contains-an-unreachable-node",
+                        "workflow add sign segment contains unreachable added node: {value1}"), Map.of("value1", String.valueOf(addedNodeKey)));
             }
             if (!canReachOriginalNext.contains(addedNodeKey)) {
-                throw new PlatformException("workflow add sign segment added node cannot reach original next node: "
-                        + addedNodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-node-cannot-reach-the-original-next-node",
+                        "workflow add sign segment added node cannot reach original next node: {value1}"), Map.of("value1", String.valueOf(addedNodeKey)));
             }
         }
         if (!reachableFromSource.contains(originalNextNodeKey)) {
-            throw new PlatformException("workflow add sign segment must return to original next node: "
-                    + originalNextNodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-approval-segment-must-return-to-the-original-next-node",
+                    "workflow add sign segment must return to original next node: {value1}"), Map.of("value1", String.valueOf(originalNextNodeKey)));
         }
         rejectAddSignSegmentCycles(sourceNodeKey, originalNextNodeKey, addedNodeKeys, outgoing);
     }
@@ -1018,23 +1254,20 @@ public class WorkflowTaskActionService {
         if (nodeType != WorkflowNodeType.APPROVAL
                 && nodeType != WorkflowNodeType.BRANCH
                 && nodeType != WorkflowNodeType.CONVERGE) {
-            throw new PlatformException("workflow add sign segment only supports approval, branch and converge nodes: "
-                    + definition.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.added-segments-only-support-approval-branch-and-merge-nodes",
+                    "workflow add sign segment only supports approval, branch and converge nodes: {value1}"), Map.of("value1", String.valueOf(definition.getNodeKey())));
         }
         if (nodeType != WorkflowNodeType.APPROVAL) {
             return;
         }
         String policy = definition.getParticipantPolicyText();
         if (policy == null || policy.isBlank()) {
-            throw new PlatformException("workflow add sign approval node participant policy is required: "
-                    + definition.getNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.configure-participants-for-the-added-approval-node",
+                    "workflow add sign approval node participant policy is required: {value1}"), Map.of("value1", String.valueOf(definition.getNodeKey())));
         }
-        WorkflowParticipantPolicyCodec.parse(policy, definition.getNodeKey())
-                .requireSingleUser(
-                        "workflow add sign participant policy user id must not be blank: "
-                                + definition.getNodeKey(),
-                        "workflow add sign participant policy only supports single user in first version: "
-                                + definition.getNodeKey());
+        WorkflowParticipantPolicyCodec.validate(policy, definition.getNodeKey());
     }
 
     private Set<String> reachable(String start, Map<String, List<String>> outgoing) {
@@ -1070,10 +1303,14 @@ public class WorkflowTaskActionService {
                                     Set<String> visiting) {
         if (!addedNodeKeys.contains(nodeKey) && !originalNextNodeKey.equals(nodeKey)) {
             if (!visiting.add(nodeKey)) {
-                throw new PlatformException("workflow add sign segment contains invalid cycle: " + nodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-added-approval-segment-contains-a-cycle",
+                        "workflow add sign segment contains invalid cycle: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
             }
         } else if (!visiting.add(nodeKey)) {
-            throw new PlatformException("workflow add sign segment contains invalid cycle: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-added-approval-segment-contains-a-cycle",
+                    "workflow add sign segment contains invalid cycle: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         }
         for (String next : outgoing.getOrDefault(nodeKey, List.of())) {
             if (visited.contains(next)) {
@@ -1094,7 +1331,9 @@ public class WorkflowTaskActionService {
         node.setId(Ids.newId());
         node.setTenantId(instance.getTenantId());
         node.setInstanceId(instance.getId());
-        node.setNodeKey(requireText(definition.getNodeKey(), "workflow add sign node key must not be blank"));
+        node.setNodeKey(requireText(definition.getNodeKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-a-key-for-the-added-node",
+                "workflow add sign node key must not be blank")));
         node.setNodeTitle(firstText(definition.getTitle(), definition.getNodeKey()));
         node.setNodeRunId(node.getNodeKey() + ":addSign:1");
         node.setNodeType(definition.getNodeType());
@@ -1136,12 +1375,16 @@ public class WorkflowTaskActionService {
         route.setId(Ids.newId());
         route.setTenantId(instance.getTenantId());
         route.setInstanceId(instance.getId());
-        route.setRouteKey(requireText(definition.getRouteKey(), "workflow add sign route key must not be blank"));
+        route.setRouteKey(requireText(definition.getRouteKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-a-key-for-the-added-route",
+                "workflow add sign route key must not be blank")));
         route.setRouteRunId(route.getRouteKey() + ":addSign:1");
-        route.setSourceNodeKey(requireText(definition.getSourceNodeKey(),
-                "workflow add sign route source node key must not be blank"));
-        route.setTargetNodeKey(requireText(definition.getTargetNodeKey(),
-                "workflow add sign route target node key must not be blank"));
+        route.setSourceNodeKey(requireText(definition.getSourceNodeKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-the-source-node-key-for-the-added-route",
+                "workflow add sign route source node key must not be blank")));
+        route.setTargetNodeKey(requireText(definition.getTargetNodeKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-the-target-node-key-for-the-added-route",
+                "workflow add sign route target node key must not be blank")));
         route.setRouteStatus(WorkflowRouteStatus.CANDIDATE);
         route.setDefaultRoute(definition.getDefaultRoute());
         route.setAddedByAddSign(true);
@@ -1234,8 +1477,9 @@ public class WorkflowTaskActionService {
             }
             if (!sameText(currentTask.getNodeInstanceId(), other.getNodeInstanceId())
                     && !target.containsResetNodeId(other.getNodeInstanceId())) {
-                throw new PlatformException("workflow rollback only supports single active node in first version: "
-                        + instanceId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.rollback-requires-a-single-active-node",
+                        "workflow rollback only supports single active node in first version: {value1}"), Map.of("value1", String.valueOf(instanceId)));
             }
         }
     }
@@ -1252,12 +1496,14 @@ public class WorkflowTaskActionService {
                     .eq("targetNodeKey", cursor.getNodeKey())
                     .eq("routeStatus", WorkflowRouteStatus.EFFECTIVE), ALL);
             if (incoming.isEmpty()) {
-                throw new PlatformException("workflow rollback previous approval node not found: "
-                        + currentNode.getNodeKey());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.previous-approval-node-not-found",
+                        "workflow rollback previous approval node not found: {value1}"), Map.of("value1", String.valueOf(currentNode.getNodeKey())));
             }
             if (incoming.size() != 1) {
-                throw new PlatformException("workflow rollback only supports linear effective route: "
-                        + currentNode.getNodeKey());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.rollback-requires-a-linear-active-route",
+                        "workflow rollback only supports linear effective route: {value1}"), Map.of("value1", String.valueOf(currentNode.getNodeKey())));
             }
             WorkflowRouteInstance route = incoming.get(0);
             rejectNestedRollbackRoute(route);
@@ -1265,8 +1511,9 @@ public class WorkflowTaskActionService {
                 if (branchScopeRoute == null) {
                     branchScopeRoute = route;
                 } else if (!sameRollbackBranchScope(branchScopeRoute, route)) {
-                    throw new PlatformException("workflow rollback only supports one branch domain: "
-                            + currentNode.getNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-task-action.only-one-branch-region-can-be-rolled-back",
+                            "workflow rollback only supports one branch domain: {value1}"), Map.of("value1", String.valueOf(currentNode.getNodeKey())));
                 }
             } else if (branchScopeRoute == null) {
                 rejectComplexRollbackRoute(route);
@@ -1275,12 +1522,14 @@ public class WorkflowTaskActionService {
             WorkflowNodeInstance source = singleNode(instanceId, route.getSourceNodeKey());
             if (source.getNodeType() == WorkflowNodeType.APPROVAL) {
                 if (branchScopeRoute != null && !crossedBranchBoundary) {
-                    throw new PlatformException("workflow rollback only supports branch domain to pre-branch node: "
-                            + source.getNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-task-action.this-branch-can-only-be-rolled-back-to-its-preceding-node",
+                            "workflow rollback only supports branch domain to pre-branch node: {value1}"), Map.of("value1", String.valueOf(source.getNodeKey())));
                 }
                 if (source.getNodeStatus() != WorkflowNodeStatus.COMPLETED) {
-                    throw new PlatformException("workflow rollback previous approval node is not completed: "
-                            + source.getNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-task-action.the-previous-approval-node-is-not-complete",
+                            "workflow rollback previous approval node is not completed: {value1}"), Map.of("value1", String.valueOf(source.getNodeKey())));
                 }
                 return branchScopeRoute == null
                         ? RollbackTarget.linear(source, pathRoutes, intermediateNodes)
@@ -1293,14 +1542,17 @@ public class WorkflowTaskActionService {
                         && sameText(source.getNodeKey(), branchScopeRoute.getBranchNodeKey())) {
                     crossedBranchBoundary = true;
                 } else {
-                    throw new PlatformException("workflow rollback only supports branch domain to pre-branch node: "
-                            + source.getNodeKey());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.workflow-task-action.this-branch-can-only-be-rolled-back-to-its-preceding-node",
+                            "workflow rollback only supports branch domain to pre-branch node: {value1}"), Map.of("value1", String.valueOf(source.getNodeKey())));
                 }
             }
             intermediateNodes.add(source);
             cursor = source;
         }
-        throw new PlatformException("workflow rollback path exceeded max depth: " + currentNode.getNodeKey());
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-task-action.the-rollback-path-exceeds-the-depth-limit",
+                "workflow rollback path exceeded max depth: {value1}"), Map.of("value1", String.valueOf(currentNode.getNodeKey())));
     }
 
     private WorkflowNodeInstance singleNode(String instanceId, String nodeKey) {
@@ -1308,7 +1560,9 @@ public class WorkflowTaskActionService {
                 .eq("instanceId", instanceId)
                 .eq("nodeKey", nodeKey), ALL);
         if (sources.size() != 1) {
-            throw new PlatformException("workflow rollback source node is not unique: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-rollback-source-node-is-not-unique",
+                    "workflow rollback source node is not unique: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         }
         return sources.get(0);
     }
@@ -1317,15 +1571,17 @@ public class WorkflowTaskActionService {
         if (hasText(route.getBranchNodeKey()) || hasText(route.getBranchRunId())
                 || hasText(route.getConvergeNodeKey()) || hasText(route.getConvergeRunId())
                 || hasText(route.getParentRouteId())) {
-            throw new PlatformException("workflow rollback only supports linear route in first version: "
-                    + route.getRouteKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.only-linear-routes-can-be-rolled-back",
+                    "workflow rollback only supports linear route in first version: {value1}"), Map.of("value1", String.valueOf(route.getRouteKey())));
         }
     }
 
     private void rejectNestedRollbackRoute(WorkflowRouteInstance route) {
         if (hasText(route.getParentRouteId()) || (route.getRouteDepth() != null && route.getRouteDepth() > 1)) {
-            throw new PlatformException("workflow rollback does not support nested branch route: "
-                    + route.getRouteKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.rollback-does-not-support-nested-branch-routes",
+                    "workflow rollback does not support nested branch route: {value1}"), Map.of("value1", String.valueOf(route.getRouteKey())));
         }
     }
 
@@ -1351,8 +1607,9 @@ public class WorkflowTaskActionService {
                 .toList();
         domainRoutes.forEach(this::rejectNestedRollbackRoute);
         if (domainRoutes.isEmpty()) {
-            throw new PlatformException("workflow rollback branch domain route not found: "
-                    + scopeRoute.getBranchNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.rollback-branch-route-not-found",
+                    "workflow rollback branch domain route not found: {value1}"), Map.of("value1", String.valueOf(scopeRoute.getBranchNodeKey())));
         }
         Set<String> nodeKeys = branchDomainNodeKeys(scopeRoute, domainRoutes);
         nodeKeys.remove(targetNodeKey);
@@ -1362,8 +1619,9 @@ public class WorkflowTaskActionService {
                 .filter(node -> nodeKeys.contains(node.getNodeKey()))
                 .toList();
         if (nodes.size() != nodeKeys.size()) {
-            throw new PlatformException("workflow rollback branch domain node not found: "
-                    + scopeRoute.getBranchNodeKey());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.rollback-branch-node-not-found",
+                    "workflow rollback branch domain node not found: {value1}"), Map.of("value1", String.valueOf(scopeRoute.getBranchNodeKey())));
         }
         return new RollbackBranchDomain(nodes, domainRoutes);
     }
@@ -1440,18 +1698,22 @@ public class WorkflowTaskActionService {
                 .map(task -> firstText(task.getActualProcessorId(), task.getAssigneeId(), task.getOwnerId()))
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("workflow rollback previous approval assignee not found: "
-                        + previousNode.getNodeKey()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.the-previous-approver-could-not-be-found",
+                        "workflow rollback previous approval assignee not found: {value1}"), Map.of("value1", String.valueOf(previousNode.getNodeKey()))));
     }
 
     private WorkflowNodeInstance rejectReturnNode(WorkflowInstance instance) {
-        String nodeKey = requireText(instance.getRejectReturnNodeKey(),
-                "workflow reject return node key must not be blank");
+        String nodeKey = requireText(instance.getRejectReturnNodeKey(), TextReference.code(
+                "platform.rejection.workflow-task-action.enter-a-rejection-return-node-key",
+                "workflow reject return node key must not be blank"));
         List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(Criteria.of()
                 .eq("instanceId", instance.getId())
                 .eq("nodeKey", nodeKey), ALL);
         if (nodes.size() != 1) {
-            throw new PlatformException("workflow reject return node is not unique: " + nodeKey);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.the-rejection-return-node-is-not-unique",
+                    "workflow reject return node is not unique: {value1}"), Map.of("value1", String.valueOf(nodeKey)));
         }
         return nodes.get(0);
     }
@@ -1537,7 +1799,10 @@ public class WorkflowTaskActionService {
         if (!Boolean.TRUE.equals(instance.getApprovalEnabled())) {
             return;
         }
-        approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+        String actionCode = "resubmit_return_to_me".equals(instance.getLastActionCode()) ? "resubmit" : instance.getLastActionCode();
+        WorkflowApprovalMutationScope.run(instance.getModuleAlias(), instance.getRecordId(), actionCode,
+                () -> approvalSummaryWriter.ifPresent(writer -> writer.writeSubmitted(new WorkflowApprovalSummary(
+                instance.getTenantId(),
                 instance.getModuleAlias(),
                 instance.getRecordId(),
                 instance.getId(),
@@ -1545,7 +1810,7 @@ public class WorkflowTaskActionService {
                 instance.getStartedBy(),
                 instance.getStartedAt(),
                 instance.getApprovalCompletedAt()
-        )));
+        ))));
     }
 
     private int countStatus(List<WorkflowTask> tasks, WorkflowTaskStatus status) {
@@ -1553,9 +1818,7 @@ public class WorkflowTaskActionService {
     }
 
     private int countCompleted(List<WorkflowTask> tasks) {
-        return (int) tasks.stream()
-                .filter(task -> task.getCompletedAt() != null || task.getTaskStatus() == WorkflowTaskStatus.DONE)
-                .count();
+        return countStatus(tasks, WorkflowTaskStatus.DONE);
     }
 
     private int value(Integer value) {
@@ -1576,9 +1839,9 @@ public class WorkflowTaskActionService {
         return request.operatedAt() == null ? Instant.now() : request.operatedAt();
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }
@@ -1699,8 +1962,9 @@ public class WorkflowTaskActionService {
                     .filter(route -> !nodeKeys.contains(route.getTargetNodeKey()))
                     .toList();
             if (exitRoutes.size() != 1) {
-                throw new PlatformException("workflow add sign replace only supports single editable exit route: "
-                        + sourceNodeKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-task-action.replacing-an-approval-segment-requires-a-single-editable-exit",
+                        "workflow add sign replace only supports single editable exit route: {value1}"), Map.of("value1", String.valueOf(sourceNodeKey)));
             }
             WorkflowRouteInstance exit = exitRoutes.getFirst();
             WorkflowRouteInstance restored = new WorkflowRouteInstance();

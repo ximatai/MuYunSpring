@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -98,7 +100,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         if (Boolean.TRUE.equals(field.getSystemManaged())
                 && (config.getRequiredOnInsert() != null || config.getRequiredOnUpdate() != null
                         || config.getTextNormalization() != null)) {
-            throw new PlatformException("System managed field cannot override write rules: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.system-managed-field-cannot-override-write-rules",
+                    "System managed field cannot override write rules: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         normalizeRelation(config, field);
         validateDictionaryDraft(config, field);
@@ -117,14 +121,19 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
             }
         }
         validateVirtualBehaviorBoundary(config, field);
-        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
-                "metadata field config must be unique in scope: " + config.getMetadataFieldId());
+        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-field-config.metadata-field-config-must-be-unique-in-scope",
+                "metadata field config must be unique in scope: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId()))));
     }
 
     @Override
     protected void validateBeforeUpdate(MetadataFieldConfig config, MetadataFieldConfig existing) {
-        rejectChanged(existing, config, "Metadata field", MetadataFieldConfig::getMetadataFieldId);
-        rejectChanged(existing, config, "Relation scope", MetadataFieldConfig::getRelationId);
+        rejectChangedText(existing, config, TextReference.code(
+                "platform.rejection.metadata-field-config.metadata-field-cannot-be-changed",
+                "Metadata field cannot be changed"), MetadataFieldConfig::getMetadataFieldId);
+        rejectChangedText(existing, config, TextReference.code(
+                "platform.rejection.metadata-field-config.relation-scope-cannot-be-changed",
+                "Relation scope cannot be changed"), MetadataFieldConfig::getRelationId);
     }
 
     @Override
@@ -139,8 +148,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
                 && protectionConfigService.definition(config.getMetadataFieldId()).hasStorageProtection()) {
             MetadataField field = requireField(config.getMetadataFieldId());
             if (fieldTypeService.requireFieldType(field.getFieldSpecAlias()).queryDefinition().queryable()) {
-                throw new PlatformException("Protected storage field cannot become queryable after removing its default config: "
-                        + config.getMetadataFieldId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-config.protected-storage-field-cannot-become-queryable-after-removing-its-default-config",
+                        "Protected storage field cannot become queryable after removing its default config: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
             }
         }
     }
@@ -263,18 +273,23 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         }
         ModuleMetadataRelation relation = relationService.select(config.getRelationId());
         if (relation == null) {
-            throw new PlatformException("Field config requires existing relation: " + config.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.field-config-requires-existing-relation",
+                    "Field config requires existing relation: {value1}"), Map.of("value1", String.valueOf(config.getRelationId())));
         }
         if (!field.getMetadataId().equals(relation.getMetadataId())) {
-            throw new PlatformException("Field config relation metadata mismatch: " + config.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.field-config-relation-metadata-mismatch",
+                    "Field config relation metadata mismatch: {value1}"), Map.of("value1", String.valueOf(config.getRelationId())));
         }
     }
 
     private void normalizeFieldShape(MetadataFieldConfig config, FieldSpec fieldType) {
         if (config.getRelationId() != null
                 && (config.getFieldLength() != null || config.getPrecision() != null || config.getScale() != null)) {
-            throw new PlatformException("Relation field config cannot override physical field shape: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.relation-field-config-cannot-override-physical-field-shape",
+                    "Relation field config cannot override physical field shape: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
         FieldShapeRules.validate(fieldType.getFieldType(), config.effectiveLength(fieldType),
                 config.effectivePrecision(fieldType), config.effectiveScale(fieldType), config.getMetadataFieldId());
@@ -306,7 +321,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         }
         Metadata metadata = metadataService.select(field.getMetadataId());
         if (metadata == null) {
-            throw new PlatformException("Metadata field requires existing metadata: " + field.getMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.metadata-field-requires-existing-metadata",
+                    "Metadata field requires existing metadata: {value1}"), Map.of("value1", String.valueOf(field.getMetadataId())));
         }
         String applicationAlias = hasApplication
                 ? PlatformNameRules.requireApplicationAlias(config.getDictionaryApplicationAlias())
@@ -344,8 +361,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
             return;
         }
         if (Boolean.TRUE.equals(config.getQueryable())) {
-            throw new PlatformException("Virtual metadata field cannot be queryable: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.virtual-metadata-field-cannot-be-queryable",
+                    "Virtual metadata field cannot be queryable: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
     }
 
@@ -357,8 +375,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         MetadataFieldConfig defaultConfig = config.getRelationId() == null
                 ? config : findByMetadataFieldId(config.getMetadataFieldId());
         if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable()) {
-            throw new PlatformException("Protected storage field cannot be queryable: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.protected-storage-field-cannot-be-queryable",
+                    "Protected storage field cannot be queryable: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
     }
 
@@ -378,15 +397,18 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         if (config.getDefaultValue() != null || config.getValidationRegex() != null
                 || !config.effectiveWriteRules(FieldWriteRules.NONE)
                         .equals(FieldWriteRules.NONE)) {
-            throw new PlatformException("Virtual metadata field cannot define default value or validation regex or write rules: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.virtual-metadata-field-cannot-define-default-value-or-validation-regex-or-write",
+                    "Virtual metadata field cannot define default value or validation regex or write rules: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
     }
 
     private MetadataField requireField(String metadataFieldId) {
         MetadataField field = metadataFieldId == null || metadataFieldId.isBlank() ? null : fieldService.select(metadataFieldId);
         if (field == null) {
-            throw new PlatformException("Field config requires existing metadata field: " + metadataFieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-config.field-config-requires-existing-metadata-field",
+                    "Field config requires existing metadata field: {value1}"), Map.of("value1", String.valueOf(metadataFieldId)));
         }
         return field;
     }

@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { UiButton } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineProps<{
   title: string;
@@ -22,7 +25,9 @@ const emit = defineEmits<{ search: []; refresh: [] }>();
       size="small"
       type="text"
       :selected="searchExpanded"
-      :title="`搜索${title}`"
+      :title="
+        language.t('platform.screen.RecordExplorerTools.search-value', '搜索{value1}', { value1: title })
+      "
       @click="emit('search')"
     />
     <UiButton

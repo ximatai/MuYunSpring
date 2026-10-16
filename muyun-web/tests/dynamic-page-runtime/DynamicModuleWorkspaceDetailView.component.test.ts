@@ -3,7 +3,14 @@ import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import DynamicModuleWorkspaceDetailView from '@/dynamic-page-runtime/DynamicModuleWorkspaceDetailView.vue';
 import { provideModulePageUnsavedStateHost } from '@/dynamic-page-runtime/modulePageUnsavedState';
-import { configureModuleContext, ModuleContextProvider, type HttpClient } from '@/web-core';
+import {
+  configureModuleContext,
+  createLanguageContext,
+  provideLanguageContext,
+  createModuleContext,
+  ModuleContextProvider,
+  type HttpClient,
+} from '@/web-core';
 
 const ReferenceDetailBrowserStub = defineComponent({
   name: 'ModuleReferenceRecordDetailBrowser',
@@ -66,7 +73,12 @@ it('reports nested reference record edits and mutations through the workspace st
   });
   await flushPromises();
 
-  expect(registerUnsavedState).toHaveBeenCalledWith('记录详情', expect.any(Function), expect.any(Function));
+  expect(registerUnsavedState).toHaveBeenCalledWith(
+    '记录详情',
+    expect.any(Function),
+    expect.any(Function),
+    expect.any(Function),
+  );
   expect(reportedDirty?.()).toBe(false);
   expect(reportedBusy?.()).toBe(false);
 
@@ -89,4 +101,261 @@ it('reports nested reference record edits and mutations through the workspace st
   expect(reportedBusy?.()).toBe(false);
   wrapper.unmount();
   expect(unregister).toHaveBeenCalledOnce();
+});
+
+it('refreshes ordinary record rights after workflow changes for an approval record without enable', async () => {
+  let locked = false;
+  const request = vi.fn(async (options: { path: string }) => {
+    if (options.path.endsWith('/context'))
+      return {
+        moduleAlias: 'education.purchase_request',
+        abilities: ['crud', 'approval'],
+        capabilities: [],
+        actions: [
+          { actionCode: 'view', authorized: true },
+          { actionCode: 'update', authorized: true },
+        ],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (options.path.endsWith('/actions/r'))
+      return {
+        recordId: 'r',
+        actions: [{ actionCode: 'update', available: !locked }],
+      };
+    if (options.path.endsWith('/view/r')) return { id: 'r', version: locked ? 2 : 1, title: '采购申请' };
+    throw new Error(`unexpected request: ${options.path}`);
+  });
+  const context = createModuleContext({
+    http: { request } as HttpClient,
+    moduleAlias: 'education.purchase_request',
+  });
+  await context.runtime.ready;
+  await context.recordActions('r');
+  const Harness = defineComponent({
+    setup: () => () =>
+      h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' })),
+  });
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    setup(_, { slots }) {
+      return () => h('section', [slots.actions?.(), slots.default?.()]);
+    },
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordDetailPanel: panel,
+        WorkflowRecordPanel: true,
+        RecordDetailFields: true,
+        RecordFormSurface: true,
+        RecordModeDrawer: true,
+        RecordMetaSection: true,
+        ModuleReferenceRecordDetailBrowser: true,
+        ModuleRecordDetailActions: true,
+      },
+    },
+  });
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(true);
+  const workflow = wrapper.findComponent({ name: 'WorkflowRecordPanel' });
+  locked = true;
+  workflow.vm.$emit('changed');
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(false);
+  locked = false;
+  wrapper.findComponent({ name: 'WorkflowRecordPanel' }).vm.$emit('changed');
+  await flushPromises();
+  expect(context.action('update', 'r')?.available).toBe(true);
+});
+
+it('reloads sibling workspace details and record rights from committed facts while protecting workflow drafts', async () => {
+  const { appDataChangeDispatcher } = await import('@/platform-admin-runtime/realtime');
+  let version = 1;
+  const request = vi.fn(async ({ path }: { path: string }) => {
+    if (path.endsWith('/context'))
+      return {
+        moduleAlias: 'education.purchase_request',
+        abilities: ['crud', 'approval'],
+        capabilities: [],
+        actions: [
+          { actionCode: 'view', authorized: true },
+          { actionCode: 'update', authorized: true },
+        ],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (path.endsWith('/view/r')) return { id: 'r', version, title: `采购版本 ${version}` };
+    if (path.endsWith('/actions/r'))
+      return { recordId: 'r', actions: [{ actionCode: 'update', available: version === 1 }] };
+    throw new Error(`unexpected request: ${path}`);
+  });
+  const contexts = [1, 2].map(() =>
+    createModuleContext({ http: { request } as HttpClient, moduleAlias: 'education.purchase_request' }),
+  );
+  await Promise.all(
+    contexts.map(async (context) => {
+      await context.runtime.ready;
+      await context.recordActions('r');
+    }),
+  );
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    props: ['title'],
+    setup(props, { slots }) {
+      return () => h('section', [h('h2', props.title), slots.actions?.(), slots.default?.()]);
+    },
+  });
+  const wrappers = contexts.map((context) =>
+    mount(
+      defineComponent({
+        setup: () => () =>
+          h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' })),
+      }),
+      {
+        global: {
+          stubs: {
+            RecordDetailPanel: panel,
+            WorkflowRecordPanel: true,
+            RecordDetailFields: true,
+            RecordFormSurface: true,
+            RecordModeDrawer: true,
+            RecordMetaSection: true,
+            ModuleReferenceRecordDetailBrowser: true,
+            ModuleRecordDetailActions: true,
+          },
+        },
+      },
+    ),
+  );
+  const settle = async () => {
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await flushPromises();
+  };
+  await settle();
+  const workflow = wrappers[0]!.findComponent({ name: 'WorkflowRecordPanel' });
+  workflow.vm.$emit('interaction-change', { editing: true, busy: false, dirty: true });
+  await flushPromises();
+  version = 2;
+  const event = {
+    changeSetId: 'workspace-task-completed',
+    changes: [{ type: 'record-updated', moduleAlias: 'education.purchase_request', recordId: 'r' }],
+  };
+  const readsBefore = request.mock.calls.filter(([options]) => options.path.endsWith('/view/r')).length;
+  await appDataChangeDispatcher.dispatch(event);
+  await appDataChangeDispatcher.dispatch(event);
+  await settle();
+  expect(request.mock.calls.filter(([options]) => options.path.endsWith('/view/r')).length).toBe(
+    readsBefore + 1,
+  );
+  expect(wrappers[0]!.text()).toContain('采购版本 1');
+  expect(wrappers[1]!.text()).toContain('采购版本 2');
+  expect(contexts[1]!.action('update', 'r')?.available).toBe(false);
+  workflow.vm.$emit('interaction-change', { editing: false, busy: false, dirty: false });
+  await settle();
+  expect(wrappers[0]!.text()).toContain('采购版本 2');
+  expect(contexts[0]!.action('update', 'r')?.available).toBe(false);
+  wrappers.forEach((wrapper) => wrapper.unmount());
+});
+
+it('switches the disabled enable-control reason without replacing the record or its authorization facts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const reason = '平台托管记录不可变更启用状态';
+  const decision = {
+    actionCode: 'disable',
+    available: false,
+    reason,
+    reasonText: {
+      source: {
+        sourceKind: 'CODE',
+        sourceId: 'platform.managed-record.toggle-unavailable',
+        sourceVersion: 'v1',
+        originalText: reason,
+      },
+      languages: {
+        en: {
+          text: 'The enabled state cannot be changed',
+          requestedTag: 'en',
+          resourceTag: 'en',
+          missing: false,
+          fallback: false,
+        },
+        'zh-CN': {
+          text: reason,
+          requestedTag: 'zh-CN',
+          resourceTag: 'zh-CN',
+          missing: false,
+          fallback: false,
+        },
+      },
+    },
+  };
+  const request = vi.fn(async ({ path }: { path: string }) => {
+    if (path.endsWith('/context'))
+      return {
+        moduleAlias: 'test.record',
+        abilities: ['crud', 'enable'],
+        capabilities: [],
+        actions: [
+          { actionCode: 'view', authorized: true },
+          { actionCode: 'disable', authorized: true },
+        ],
+        uiDescriptor: { page: { detail: {} } },
+      };
+    if (path.endsWith('/actions/r')) return { recordId: 'r', actions: [decision] };
+    if (path.endsWith('/view/r')) return { id: 'r', version: 1, title: 'Business original', enabled: true };
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  const context = createModuleContext({
+    moduleAlias: 'test.record',
+    language,
+    http: { request } as HttpClient,
+  });
+  await context.runtime.ready;
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(ModuleContextProvider, { context }, () => h(DynamicModuleWorkspaceDetailView, { recordId: 'r' }));
+    },
+  });
+  const panel = defineComponent({
+    name: 'RecordDetailPanel',
+    setup(_, { slots }) {
+      return () => h('section', [slots.status?.(), slots.default?.()]);
+    },
+  });
+  const status = defineComponent({
+    name: 'RecordStatusSwitch',
+    props: ['disabled', 'disabledReason'],
+    template: '<span />',
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordDetailPanel: panel,
+        RecordStatusSwitch: status,
+        RecordDetailFields: true,
+        RecordFormSurface: true,
+        RecordModeDrawer: true,
+        RecordMetaSection: true,
+        ModuleReferenceRecordDetailBrowser: true,
+        ModuleRecordDetailActions: true,
+      },
+    },
+  });
+  await flushPromises();
+  const control = wrapper.findComponent(status);
+  expect(control.props('disabled')).toBe(true);
+  expect(control.props('disabledReason')).toBe('The enabled state cannot be changed');
+  const count = request.mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(control.props('disabledReason')).toBe(reason);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(control.props('disabledReason')).toBe('The enabled state cannot be changed');
+  expect(control.props('disabled')).toBe(true);
+  expect(context.recordActionsSnapshot('r')?.actions[0]).toEqual(decision);
+  expect(request.mock.calls).toHaveLength(count);
+  wrapper.unmount();
 });

@@ -1,6 +1,11 @@
+import { createLanguageContext, codeOperationErrorMessage } from '@/web-core';
+import type { TextPresentation } from '@/web-contracts';
 import { describe, expect, it } from 'vitest';
 import {
   businessRuleChangeImpact,
+  businessRuleIssueMessage,
+  localizedPortableFormulaCapabilities,
+  businessRuleValidationHelpText,
   editableProposals,
   externalTrialInputFields,
   filterBusinessRuleFields,
@@ -263,4 +268,86 @@ describe('business-rule governance proposal mapping', () => {
       }),
     ).toBe('受保护引用字段不能读取');
   });
+});
+
+it('localizes owned function help while retaining DSL insertion and configured defaults', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = localizedPortableFormulaCapabilities(createLanguageContext({ languageTag: 'zh-CN' }));
+  const english = localizedPortableFormulaCapabilities(language);
+  expect(english.find((capability) => capability.id === 'TODAY')?.purpose).toBe('Today');
+  expect(english.find((capability) => capability.id === 'SUM')?.description).toContain('Sum child-table');
+  expect(
+    english.map(({ id, signature, example, insertion, firstParameterSelection }) => ({
+      id,
+      signature,
+      example,
+      insertion,
+      firstParameterSelection,
+    })),
+  ).toEqual(
+    original.map(({ id, signature, example, insertion, firstParameterSelection }) => ({
+      id,
+      signature,
+      example,
+      insertion,
+      firstParameterSelection,
+    })),
+  );
+  expect(newBusinessRule('VALIDATION', []).messageTemplate).toBe('不符合业务规则');
+  expect(businessRuleValidationHelpText(language)).toContain('saving is blocked');
+  language.setLanguage('zh-CN');
+  expect(businessRuleValidationHelpText(language)).toContain('阻止保存');
+});
+
+it('projects server-declared function resources without translating unknown help or mutating the directory', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const titleText: TextPresentation = {
+    source: {
+      sourceKind: 'CODE',
+      sourceId: 'platform.formula.function.TODAY.title',
+      sourceVersion: 'version-1',
+      originalText: '获取今天',
+    },
+    languages: {
+      en: {
+        text: 'Get current date',
+        requestedTag: 'en',
+        resourceTag: 'en',
+        missing: false,
+        fallback: false,
+      },
+    },
+  };
+  const entries = [
+    { name: 'TODAY', title: '获取今天', titleText, example: 'TODAY()' },
+    { name: 'CUSTOM', title: '客户公式', description: '业务原文说明' },
+  ];
+  const original = structuredClone(entries);
+  expect(normalizeFormulaCapabilities(entries, language)[0]?.purpose).toBe('Get current date');
+  expect(normalizeFormulaCapabilities(entries, language)[1]?.description).toBe('业务原文说明');
+  language.setLanguage('zh-CN');
+  expect(normalizeFormulaCapabilities(entries, language)[0]?.purpose).toBe('获取今天');
+  expect(entries).toEqual(original);
+});
+
+it('retains local issue facts and changes only their display language', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const source = codeOperationErrorMessage(
+    language,
+    'platform.screen.BusinessRuleGovernanceSurface.enter-an-expression',
+    '请补充表达式',
+  );
+  const issue = {
+    code: 'INCOMPLETE_RULE',
+    ruleCode: '用户规则编码',
+    message: source.message,
+    messageSources: [source],
+  };
+  expect(businessRuleIssueMessage(issue, language)).toBe('Enter an expression.');
+  language.setLanguage('zh-CN');
+  expect(businessRuleIssueMessage(issue, language)).toBe('请补充表达式');
+  expect(issue.message).toBe('Enter an expression.');
+  expect(businessRuleIssueMessage({ code: 'CUSTOM', message: '客户校验提示' }, language)).toBe(
+    '客户校验提示',
+  );
 });

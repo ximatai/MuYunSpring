@@ -1,12 +1,13 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -33,10 +34,14 @@ public class CodeValueMappingService extends StandardBusinessService<CodeValueMa
         }
         if (!Boolean.TRUE.equals(mapping.getDefaultMapping())
                 && (mapping.getSourceValue() == null || mapping.getSourceValue().isBlank())) {
-            throw new PlatformException("Code value mapping requires sourceValue");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-value-mapping.code-value-mapping-requires-sourcevalue",
+                    "Code value mapping requires sourceValue"));
         }
         if (mapping.getTargetValue() == null) {
-            throw new PlatformException("Code value mapping requires targetValue");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-value-mapping.code-value-mapping-requires-targetvalue",
+                    "Code value mapping requires targetValue"));
         }
         if (mapping.getTitle() == null || mapping.getTitle().isBlank()) {
             mapping.setTitle(mapping.getTargetValue());

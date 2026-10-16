@@ -40,7 +40,8 @@ public class PasswordPolicyRuleWebController extends WebSupport<PasswordPolicyRu
     @GetMapping("/active-global-rules")
     @ActionEndpoint(PlatformAction.QUERY)
     public List<PasswordPolicyPreviewRuleSnapshot> activeGlobalRuleSnapshots() {
-        return webScope(() -> service().activeGlobalRules().stream()
+        return webScope(() -> net.ximatai.muyun.spring.web.WebOutputSupport.records(
+                        service(), service().activeGlobalRules(), net.ximatai.muyun.spring.common.security.FieldOutputContext.LIST).stream()
                 .map(PasswordPolicyPreviewRuleSnapshot::from)
                 .toList());
     }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { useLanguageContext, type HttpClient } from '@muyun/web-core';
 import { onUnmounted, useSlots } from 'vue';
-import type { HttpClient } from '@muyun/web-core';
+
 import type { RecordFormRecord } from './recordFormFieldModel';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordDetailFields from './RecordDetailFields.vue';
@@ -12,13 +13,15 @@ import {
   type ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState,
 } from './referenceRecordDetailBrowser';
 
+const language = useLanguageContext();
+
 defineOptions({ name: 'ReferenceRecordDetailBrowser' });
 
 const props = withDefaults(
   defineProps<{ http?: HttpClient; browser?: ReferenceRecordDetailBrowserState; inlineAnchor?: boolean }>(),
   { http: undefined, browser: undefined, inlineAnchor: false },
 );
-const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http));
+const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http), language);
 const slots = useSlots();
 provideReferenceRecordDetailBrowser(browser);
 defineExpose({ browser });
@@ -79,20 +82,33 @@ const hasLoadedFullSurface = () =>
     <RecordPanelState
       v-if="browser.active.value?.loading"
       loading
-      loading-tip="加载记录详情"
+      :loading-tip="
+        language.t('platform.screen.ReferenceRecordDetailBrowser.loading-record-details', '加载记录详情')
+      "
       description=""
     />
     <RecordPanelState
       v-else-if="browser.active.value?.failed"
       :description="
         browser.active.value.failureKind === 'notFound'
-          ? '记录已不存在，或你已无权查看。'
-          : '详情暂时无法加载，请关闭后重试。'
+          ? language.t(
+              'platform.screen.ReferenceRecordDetailBrowser.this-record-no-longer-exists-or-you-no-longer-have',
+              '记录已不存在，或你已无权查看。',
+            )
+          : language.t(
+              'platform.screen.ReferenceRecordDetailBrowser.could-not-load-details-close-and-retry',
+              '详情暂时无法加载，请关闭后重试。',
+            )
       "
     />
     <RecordPanelState
       v-else-if="browser.active.value?.record && browser.fields.value.size === 0 && !$slots.detail"
-      description="当前模块未配置可展示的详情字段。"
+      :description="
+        language.t(
+          'platform.screen.ReferenceRecordDetailBrowser.no-detail-fields-are-configured-for-this-module',
+          '当前模块未配置可展示的详情字段。',
+        )
+      "
     />
     <slot
       v-else-if="browser.active.value?.record && browser.activeContext.value"

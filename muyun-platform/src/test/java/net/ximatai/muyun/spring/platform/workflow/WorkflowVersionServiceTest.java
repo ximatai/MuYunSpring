@@ -6,6 +6,11 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowVersionServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowDefinitionService definitionService = new WorkflowDefinitionService(new TestMemoryDao<>());
     private final WorkflowVersionService service = new WorkflowVersionService(new TestMemoryDao<>(),
             definitionService);

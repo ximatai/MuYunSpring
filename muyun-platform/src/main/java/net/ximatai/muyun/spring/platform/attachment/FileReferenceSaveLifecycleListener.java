@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.EntitySaveLifecycleListener;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
@@ -291,25 +293,35 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         if (value == null) return java.util.List.of();
         if (definition.maxFiles() == 1) {
             if (!(value instanceof String fileId)) {
-                throw new PlatformException("single file reference value must be a string: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.file-reference-save-lifecycle-listener.single-file-reference-value-must-be-a-string",
+                        "single file reference value must be a string: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             return fileId.isBlank() ? java.util.List.of() : java.util.List.of(fileId.trim());
         }
         if (!(value instanceof java.util.Collection<?> collection)) {
-            throw new PlatformException("multi-file reference value must be a collection: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.file-reference-save-lifecycle-listener.multi-file-reference-value-must-be-a-collection",
+                    "multi-file reference value must be a collection: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         java.util.List<String> fileIds = new java.util.ArrayList<>();
         for (Object item : collection) {
             if (!(item instanceof String fileId) || fileId.isBlank()) {
-                throw new PlatformException("multi-file reference must contain non-blank fileIds: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.file-reference-save-lifecycle-listener.multi-file-reference-must-contain-non-blank-fileids",
+                        "multi-file reference must contain non-blank fileIds: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             fileIds.add(fileId.trim());
         }
         if (fileIds.size() > definition.maxFiles()) {
-            throw new PlatformException("file reference exceeds max files: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.file-reference-save-lifecycle-listener.file-reference-exceeds-max-files",
+                    "file reference exceeds max files: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         if (new java.util.LinkedHashSet<>(fileIds).size() != fileIds.size()) {
-            throw new PlatformException("file reference must not contain duplicate fileIds: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.file-reference-save-lifecycle-listener.file-reference-must-not-contain-duplicate-fileids",
+                    "file reference must not contain duplicate fileIds: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         return fileIds;
     }

@@ -1,3 +1,4 @@
+import { platformLanguageContext, createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -885,6 +886,7 @@ it.each([
           lines: expect.arrayContaining([expect.stringContaining(targetValue)]),
         }),
       }),
+      platformLanguageContext,
     );
     if (input.kind === 'DICTIONARY')
       expect(confirmAction).toHaveBeenCalledWith(
@@ -893,6 +895,7 @@ it.each([
             lines: expect.arrayContaining([expect.stringContaining('MULTIPLE')]),
           }),
         }),
+        platformLanguageContext,
       );
     expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
   },
@@ -1258,6 +1261,7 @@ it('keeps the field editor open while save confirmation is pending', async () =>
         lines: expect.arrayContaining([expect.stringContaining('字段将增加普通索引。')]),
       }),
     }),
+    platformLanguageContext,
   );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);
@@ -1844,6 +1848,7 @@ it('keeps committed facts when activation refresh fails and includes warnings in
   await flushPromises();
   expect(confirmAction).toHaveBeenCalledWith(
     expect.objectContaining({ content: expect.stringContaining('注意：已有数据需要注意') }),
+    platformLanguageContext,
   );
   expect(request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'))).toHaveLength(1);
   expect(wrapper.findAll('[data-testid="action-button"]').some((button) => button.text() === '保存')).toBe(
@@ -2519,9 +2524,297 @@ it('shows metadata unknown recovery, retains a manual candidate and requires fre
   await flushPromises();
   expect(confirmAction).toHaveBeenLastCalledWith(
     expect.objectContaining({ content: expect.stringContaining('人工审阅后的名称') }),
+    platformLanguageContext,
   );
   expect(applies()).toHaveLength(2);
   expect(applies()[1]![0].body).toMatchObject({
     proposal: { relationDrafts: [{ fieldDrafts: [{ field: { title: '人工审阅后的名称' } }] }] },
   });
+});
+
+it('uses each metadata workspace language and preserves its candidate, confirmation and invocation scope across language changes', async () => {
+  const english = createLanguageContext({ languageTag: 'en' });
+  const chinese = createLanguageContext({ languageTag: 'zh-CN' });
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    english,
+  );
+  const other = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    chinese,
+  );
+  const shared = workspace.session('education.exam');
+  const chineseSession = other.session('education.exam');
+  await Promise.all([shared.ensureLoaded(), chineseSession.ensureLoaded()]);
+  workspace.focus(shared);
+  shared.view.startEditField(shared.view.state.allFields.value[0]!, { kind: 'BASIC' });
+  shared.view.fieldDraft.value.title = '业务填写的名称';
+  const prepared = await shared.adapter.prepareConfirmation!(new AbortController().signal);
+  const before = structuredClone(shared.adapter.proposal!());
+  const revision = shared.contextRevision.value;
+  const candidateRevision = shared.revision.value;
+  const confirmation = structuredClone(prepared.presentation);
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(english);
+      provideMetadataWorkspace(workspace);
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const requestCount = request.mock.calls.length;
+  expect(wrapper.text()).toContain('Fixed default value');
+  expect(wrapper.text()).not.toContain('固定默认值');
+  expect(shared.view.editorModeOptions.value.map((item) => item.label)).toEqual([
+    'Simple mode',
+    'Advanced mode',
+  ]);
+  expect(shared.view.fieldCreationItems.value[0]!.title).toBe('Basic field');
+  expect(shared.adapter.candidate!()?.changes).toContainEqual(
+    expect.objectContaining({ property: 'Display name', after: '业务填写的名称' }),
+  );
+  expect(chineseSession.view.fieldCreationItems.value[0]!.title).toBe('普通字段');
+  english.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain('固定默认值');
+  expect(shared.view.editorModeOptions.value[0]!.label).toBe('简单模式');
+  expect(shared.adapter.candidate!()?.changes).toContainEqual(
+    expect.objectContaining({ property: '显示名称', after: '业务填写的名称' }),
+  );
+  expect(shared.contextRevision.value).toBe(revision);
+  expect(shared.revision.value).toBe(candidateRevision);
+  expect(shared.adapter.proposal!()).toEqual(before);
+  expect(prepared.presentation).toEqual(confirmation);
+  expect(prepared.isCurrent()).toBe(true);
+  expect(shared.view.fieldDraft.value.title).toBe('业务填写的名称');
+  expect(request).toHaveBeenCalledTimes(requestCount);
+  english.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Fixed default value');
+  expect(prepared.isCurrent()).toBe(true);
+  shared.view.fieldDraft.value.required = !shared.view.fieldDraft.value.required;
+  expect(shared.contextRevision.value).toBeGreaterThan(revision);
+  expect(prepared.isCurrent()).toBe(false);
+});
+
+it('relocalizes failed option-directory feedback without repeating reads or changing the reference draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('/reference-target-modules')) throw new Error('diagnostic from directory');
+    return responseFor(options);
+  });
+  const http = { request } as HttpClient;
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  const shared = workspace.session('education.exam');
+  await shared.ensureLoaded();
+  shared.view.startCreateChildNode('MODULE_REFERENCE');
+  shared.view.updateFieldTitle('业务引用名称');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('The option directory failed to load. Cancel and retry.');
+  const draft = structuredClone({ ...shared.view.fieldDraft.value });
+  const requestCount = request.mock.calls.length;
+  const revision = shared.contextRevision.value;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('选项目录加载失败，请取消后重试。');
+  expect(shared.view.fieldDraft.value).toEqual(draft);
+  expect(shared.contextRevision.value).toBe(revision);
+  expect(request).toHaveBeenCalledTimes(requestCount);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(shared.view.choicesError.value).toBe('The option directory failed to load. Cancel and retry.');
+  shared.dispose();
+});
+
+it('expires old assistant facts when a formal refresh changes relationship field governance without changing field identity', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  let foreignKey = 'parentId';
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path === '/platform.module/education.exam/metadata-relations/query') {
+      const response = responseFor(options) as { records: Array<Record<string, unknown>> };
+      return {
+        ...response,
+        records: response.records.map((relation) =>
+          relation.id === 'rel-child' ? { ...relation, foreignKey } : relation,
+        ),
+      };
+    }
+    if (options.path === '/platform.metadata/meta-child/fields/query')
+      return {
+        records: [
+          {
+            id: 'parent',
+            fieldName: 'parentId',
+            columnName: 'parent_id',
+            title: '业务父记录',
+            fieldSpecAlias: 'string',
+            fieldOwnership: 'BUSINESS',
+            fieldForm: 'PHYSICAL',
+          },
+        ],
+        pages: 1,
+        totalKnown: true,
+      };
+    return responseFor(options);
+  });
+  const http = { request } as HttpClient;
+  configureModuleContext({ http });
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  const shared = workspace.session('education.exam');
+  await shared.ensureLoaded();
+  shared.selectRelation('rel-child');
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('governance-page');
+  registry.register({
+    pageInstanceKey: 'governance-page',
+    contextRevision: () => String(shared.contextRevision.value),
+    surface: createMetadataGovernanceAssistantSurface(shared.adapter, vi.fn()),
+  });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      provideMetadataWorkspace(workspace);
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'governance-page' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const originalField = { ...shared.view.state.allFields.value[0]! };
+  expect(shared.view.fieldEditableInSession(originalField)).toBe(false);
+  expect(shared.adapter.editableBasicFieldNames()).not.toContain('parentId');
+  const before = registry.snapshot()!.token;
+  const revision = shared.contextRevision.value;
+  foreignKey = 'otherId';
+  // This is the actual guarded read-state path, which does not toggle loading/workspaceReady.
+  await shared.ensureLoaded(true, (accept) => accept());
+  await flushPromises();
+  expect(shared.view.state.allFields.value[0]).toEqual(originalField);
+  expect(shared.view.fieldEditableInSession(originalField)).toBe(true);
+  expect(shared.adapter.editableBasicFieldNames()).toContain('parentId');
+  expect(shared.contextRevision.value).toBeGreaterThan(revision);
+  expect(registry.snapshot()!.token.contextRevision).not.toBe(before.contextRevision);
+  await expect(
+    registry.invoke(
+      { id: 'stale-governance', code: 'configuration.describe-metadata-model', input: {} },
+      before,
+    ),
+  ).rejects.toThrow('Assistant invocation no longer matches the active page context');
+  const current = registry.snapshot()!.token;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(registry.snapshot()!.token.contextRevision).toBe(current.contextRevision);
+});
+
+it('projects declared capability guidance in the workspace language without rereading or modifying candidates', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = '未填写 parentId 时，运行态写入根节点。';
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/capabilities')
+      ? {
+          capabilities: [
+            {
+              capability: 'TREE',
+              enabled: false,
+              configurable: true,
+              changeSetConfigurable: true,
+              reason: '能力由元数据声明驱动。',
+              fieldContributions: ['parentId'],
+              defaultKind: 'RUNTIME',
+              defaultDescription: original,
+              defaultDescriptionText: {
+                source: {
+                  sourceKind: 'CODE',
+                  sourceId: 'platform.metadata.capability.tree-default',
+                  sourceVersion: 'v1',
+                  originalText: original,
+                },
+                languages: {
+                  en: {
+                    text: 'When parentId is empty, the runtime assigns the root node.',
+                    requestedTag: 'en',
+                    resourceTag: 'en',
+                    missing: false,
+                    fallback: false,
+                  },
+                },
+              },
+            },
+            {
+              capability: 'ENABLE',
+              enabled: false,
+              configurable: false,
+              reason: '业务自己的提示',
+              fieldContributions: ['enabled'],
+              defaultKind: 'STATIC',
+              defaultDescription: '业务自己的默认说明',
+            },
+          ],
+        }
+      : responseFor(options),
+  );
+  const workspace = createMetadataWorkspace(
+    { request } as HttpClient,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    undefined,
+    language,
+  );
+  try {
+    const shared = workspace.session('education.exam');
+    await shared.ensureLoaded();
+    const before = structuredClone(shared.adapter.proposal!());
+    const revision = shared.contextRevision.value;
+    const reads = request.mock.calls.length;
+    expect(shared.view.capabilityItems.value[0]!.defaultDescription).toContain('root node');
+    expect(shared.view.capabilityItems.value[1]!.reason).toBe('业务自己的提示');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(shared.view.capabilityItems.value[0]!.defaultDescription).toBe(original);
+    expect(shared.view.capabilityItems.value[1]!.reason).toBe('业务自己的提示');
+    expect(shared.adapter.proposal!()).toEqual(before);
+    expect(shared.contextRevision.value).toBe(revision);
+    expect(request).toHaveBeenCalledTimes(reads);
+  } finally {
+    workspace.dispose();
+  }
 });

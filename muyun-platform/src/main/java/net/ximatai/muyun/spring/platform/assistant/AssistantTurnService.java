@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
+import net.ximatai.muyun.spring.common.i18n.LanguageContext;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -192,6 +194,9 @@ public class AssistantTurnService {
                 case "AI_PROVIDER_RATE_LIMITED" -> "provider-rate-limited";
                 case "AI_PROVIDER_UNAVAILABLE" -> "provider-unavailable";
                 case "AI_PROVIDER_REQUEST_REJECTED" -> "provider-rejected";
+                case "AI_MODEL_OUTPUT_TRUNCATED" -> "output-truncated";
+                case "AI_MODEL_OUTPUT_TRUNCATED_EMPTY" -> "output-truncated-empty";
+                case "AI_MODEL_INVALID_TOOL_CALL" -> "invalid-tool-call";
                 case "AI_MODEL_TIMEOUT" -> "response-timeout";
                 case "AI_MODEL_CONNECTION_FAILED" -> "connection-failed";
                 case "AI_MODEL_INCOMPLETE_RESPONSE" -> "incomplete-response";
@@ -206,19 +211,7 @@ public class AssistantTurnService {
             };
             if (reason != null) return reason;
         }
-        String message = error.getMessage();
-        if (message == null) return "unclassified";
-        return switch (message) {
-            case "模型响应被截断，请缩短描述后重试" -> "output-truncated";
-            case "模型本次回复在返回可用内容前中止，请稍后重试" -> "output-truncated-empty";
-            case "AI model response body timed out" -> "response-timeout";
-            case "AI model requested an undeclared tool",
-                 "assistant model returned an undeclared capability call" -> "undeclared-tool";
-            case "AI model structured stream ended before completion",
-                 "模型响应未完整结束，请重试" -> "incomplete-response";
-            case "AI model returned invalid tool calls", "AI model returned invalid tool arguments" -> "invalid-tool-call";
-            default -> message.startsWith("AI model request was rejected") ? "provider-rejected" : "unclassified";
-        };
+        return "unclassified";
     }
 
     private static String diagnosticFinishReason(String finishReason) {
@@ -275,7 +268,7 @@ public class AssistantTurnService {
         messages.add(new AiChatMessage(AiChatMessage.Role.SYSTEM,
                 (command.summaryOnly() ? budgetGuidance(command)
                         : AssistantPlatformKnowledge.appendTo(SYSTEM_PROMPT, command.context(), command.capabilities()) + budgetGuidance(command))
-                        + OBSERVATION_GUIDANCE));
+                        + OBSERVATION_GUIDANCE + interfaceLanguageGuidance()));
         command.history().stream().map(AssistantTurnService::toChatMessage).forEach(messages::add);
         messages.add(new AiChatMessage(AiChatMessage.Role.USER, command.results().isEmpty() ? payload : command.message()));
         for (AssistantCapabilityResult result : command.summaryOnly() ? List.<AssistantCapabilityResult>of() : command.results()) {
@@ -338,12 +331,13 @@ public class AssistantTurnService {
         if (!expectedFinishReason.equalsIgnoreCase(response.finishReason())) {
             if ("length".equalsIgnoreCase(response.finishReason()) && response.toolCalls().isEmpty()
                     && (response.text() == null || response.text().isBlank())) {
-                throw new PlatformException("模型本次回复在返回可用内容前中止，请稍后重试");
+                throw new PlatformException("AI_MODEL_OUTPUT_TRUNCATED_EMPTY", 502, "模型本次回复在返回可用内容前中止，请稍后重试");
             }
             String message = "length".equalsIgnoreCase(response.finishReason())
                     ? "模型响应被截断，请缩短描述后重试"
                     : "模型响应未完整结束，请重试";
-            throw new PlatformException(message);
+            throw new PlatformException("length".equalsIgnoreCase(response.finishReason())
+                    ? "AI_MODEL_OUTPUT_TRUNCATED" : "AI_MODEL_INCOMPLETE_RESPONSE", 502, message);
         }
         if ((response.text() == null || response.text().isBlank()) && response.toolCalls().isEmpty()
                 && command.results().stream().noneMatch(result -> result.errorCode() == null && ("read".equals(result.execution()) || "effect-applied".equals(result.execution())))) {
@@ -501,6 +495,12 @@ public class AssistantTurnService {
         if (result.errorCode() != null) observation.put("errorCode", result.errorCode());
         if (result.errorMessage() != null) observation.put("errorMessage", result.errorMessage());
         return observation;
+    }
+
+    private static String interfaceLanguageGuidance() {
+        String tag = LanguageContext.currentTag();
+        return tag == null ? "" : "\nInterface language: " + tag +
+                ". Use this language for presentation; preserve supplied business values, names, opinions, codes and identifiers.";
     }
 
     private String payload(AssistantTurnCommand command) {

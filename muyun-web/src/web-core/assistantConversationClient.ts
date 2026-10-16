@@ -3,6 +3,14 @@ import type { OperationReceiptReference, OperationPresentation } from '@muyun/we
 import type { HttpClient } from './http';
 import type { AssistantConversationMessage } from '@muyun/web-contracts';
 
+/** Display-only CODE text; never model history, command inputs or proof of execution. */
+export type AssistantControlText =
+  | {
+      source: import('@muyun/web-contracts').TextReference;
+      args?: Record<string, string | number | boolean | null | AssistantControlText>;
+    }
+  | { parts: Array<string | AssistantControlText> };
+
 export interface AssistantConfigurationTask {
   goal: string;
   mode: 'conversation' | 'visual';
@@ -15,6 +23,7 @@ export interface AssistantConversationContent {
   messages: Array<{
     role: 'user' | 'assistant' | 'status';
     text: string;
+    controlText?: AssistantControlText;
     operationReceipt?: { reference: OperationReceiptReference; executionScopeKey: string };
   }>;
   history: AssistantConversationMessage[];

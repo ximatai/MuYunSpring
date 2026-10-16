@@ -43,7 +43,11 @@ export {
   tryPageDescriptorFromUrl,
   withPageInstanceKey,
 } from './menuNavigation';
-export type { PageDescriptorResolveOptions, PageDescriptorUrlParseOptions } from './menuNavigation';
+export type {
+  ModuleNavigationTarget,
+  PageDescriptorResolveOptions,
+  PageDescriptorUrlParseOptions,
+} from './menuNavigation';
 export {
   buildWorkbenchMegaMenuModel,
   createWorkbenchMenuNodes,
@@ -55,3 +59,5 @@ export {
 export type { WorkbenchMegaMenuModel, WorkbenchMenuNode } from './menuTreeModel';
 export { presentWorkbenchRealtimeStatus } from './realtimeStatus';
 export type { WorkbenchRealtimeStatus, WorkbenchRealtimeStatusPresentation } from './realtimeStatus';
+
+export { default as LanguageSelector } from './LanguageSelector.vue';

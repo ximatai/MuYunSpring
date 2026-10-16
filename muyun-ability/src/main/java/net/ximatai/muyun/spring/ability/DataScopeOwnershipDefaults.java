@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.ability;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
@@ -41,7 +42,9 @@ final class DataScopeOwnershipDefaults {
             return null;
         }
         if (currentUser != null && !currentUser.userId().equals(actingContext.operator().userId())) {
-            throw new PlatformException("acting context operator does not match current user");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.data-scope-ownership-defaults.acting-context-operator-does-not-match-current-user",
+                    "acting context operator does not match current user"));
         }
         return actingContext.principal();
     }

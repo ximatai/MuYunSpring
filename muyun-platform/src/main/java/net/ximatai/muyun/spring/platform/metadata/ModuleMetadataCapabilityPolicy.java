@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -27,7 +29,9 @@ public final class ModuleMetadataCapabilityPolicy {
 
     public static void validateChildForeignKey(MetadataField field) {
         if (field.getFieldForm() != MetadataFieldForm.PHYSICAL) {
-            throw new PlatformException("Child relation foreign key must be a physical field: " + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-relation-foreign-key-must-be-a-physical-field",
+                    "Child relation foreign key must be a physical field: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
     }
 
@@ -39,17 +43,20 @@ public final class ModuleMetadataCapabilityPolicy {
             return;
         }
         if (!relation.getParentMetadataId().equals(config.getTargetMetadataId())) {
-            throw new PlatformException("Child relation foreign key must reference its parent metadata: "
-                    + relation.getRelationAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-relation-foreign-key-must-reference-its-parent-metadata",
+                    "Child relation foreign key must reference its parent metadata: {value1}"), Map.of("value1", String.valueOf(relation.getRelationAlias())));
         }
         if (config.getTargetModuleAlias() != null && !config.getTargetModuleAlias().isBlank()
                 && !relation.getModuleAlias().equals(config.getTargetModuleAlias())) {
-            throw new PlatformException("Child relation foreign key cannot reference another module: "
-                    + relation.getRelationAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-relation-foreign-key-cannot-reference-another-module",
+                    "Child relation foreign key cannot reference another module: {value1}"), Map.of("value1", String.valueOf(relation.getRelationAlias())));
         }
         if (config.getCardinality() != ReferenceCardinality.ONE) {
-            throw new PlatformException("Child relation foreign key must use ONE cardinality: "
-                    + relation.getRelationAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-relation-foreign-key-must-use-one-cardinality",
+                    "Child relation foreign key must use ONE cardinality: {value1}"), Map.of("value1", String.valueOf(relation.getRelationAlias())));
         }
     }
 
@@ -62,13 +69,19 @@ public final class ModuleMetadataCapabilityPolicy {
 
     public static void validateChildMetadataConfiguration(Metadata metadata) {
         if (metadata.getCapabilityDeclarations() != null && !metadata.getCapabilityDeclarations().isEmpty()) {
-            throw new PlatformException("Child metadata cannot declare module capability: " + metadata.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-metadata-cannot-declare-module-capability",
+                    "Child metadata cannot declare module capability: {value1}"), Map.of("value1", String.valueOf(metadata.getAlias())));
         }
         if (Boolean.TRUE.equals(metadata.getDataScopeEnabled())) {
-            throw new PlatformException("Child metadata cannot enable module data scope: " + metadata.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-metadata-cannot-enable-module-data-scope",
+                    "Child metadata cannot enable module data scope: {value1}"), Map.of("value1", String.valueOf(metadata.getAlias())));
         }
         if (metadata.getSortPartitionFields() != null && !metadata.getSortPartitionFields().isEmpty()) {
-            throw new PlatformException("Child metadata cannot configure sort partition fields: " + metadata.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-metadata-cannot-configure-sort-partition-fields",
+                    "Child metadata cannot configure sort partition fields: {value1}"), Map.of("value1", String.valueOf(metadata.getAlias())));
         }
     }
 
@@ -78,7 +91,9 @@ public final class ModuleMetadataCapabilityPolicy {
                 || PlatformAbilityFields.ENABLED_FIELD.equals(fieldName)
                 || PlatformAbilityFields.ENABLED_COLUMN.equals(columnName)
                 || isApprovalField(fieldName, columnName)) {
-            throw new PlatformException("Child metadata cannot enable reserved module capability field: " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-capability-policy.child-metadata-cannot-enable-reserved-module-capability-field",
+                    "Child metadata cannot enable reserved module capability field: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
     }
 

@@ -1,3 +1,4 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 export interface RecordPickerRecord {
   id?: string;
   parentId?: string;
@@ -17,39 +18,42 @@ export interface PickerConstraintContext<TRecord extends RecordPickerRecord> {
 export interface PickerConstraint<TRecord extends RecordPickerRecord> {
   code: string;
   message: string;
+  /** Fixed default explanation owned by the platform; custom caller messages remain unchanged. */
+  messageKey?: string;
   test(record: TRecord, context: PickerConstraintContext<TRecord>): boolean;
 }
 
 export function notRecordIds<TRecord extends RecordPickerRecord>(
   ids: Array<string | undefined>,
-  message = '不能选择当前记录',
+  message?: string,
 ): PickerConstraint<TRecord> {
   const excluded = new Set(ids.filter((id): id is string => Boolean(id)));
   return {
     code: 'not-record-ids',
-    message,
+    message: message ?? '不能选择当前记录',
+    ...(message === undefined ? { messageKey: 'platform.picker-constraint.current-record' } : {}),
     test: (record) => !record.id || !excluded.has(record.id),
   };
 }
 
 export function notDescendantOf<TRecord extends RecordPickerRecord>(
   ancestorId?: string,
-  message = '不能选择当前记录的下级',
+  message?: string,
 ): PickerConstraint<TRecord> {
   return {
     code: 'not-descendant',
-    message,
+    message: message ?? '不能选择当前记录的下级',
+    ...(message === undefined ? { messageKey: 'platform.picker-constraint.descendant' } : {}),
     test: (record, context) =>
       !record.id || !ancestorId || !isDescendant(record.id, ancestorId, context.records),
   };
 }
 
-export function enabledOnly<TRecord extends RecordPickerRecord>(
-  message = '停用记录不可选',
-): PickerConstraint<TRecord> {
+export function enabledOnly<TRecord extends RecordPickerRecord>(message?: string): PickerConstraint<TRecord> {
   return {
     code: 'enabled-only',
-    message,
+    message: message ?? '停用记录不可选',
+    ...(message === undefined ? { messageKey: 'platform.picker-constraint.disabled' } : {}),
     test: (record) => record.enabled !== false,
   };
 }
@@ -64,8 +68,10 @@ export function firstConstraintMessage<TRecord extends RecordPickerRecord>(
   record: TRecord,
   context: PickerConstraintContext<TRecord>,
   constraints: PickerConstraint<TRecord>[],
+  language: LanguageContext = platformLanguageContext,
 ) {
-  return constraints.find((constraint) => !constraint.test(record, context))?.message;
+  const failure = constraints.find((constraint) => !constraint.test(record, context));
+  return failure?.messageKey ? language.t(failure.messageKey, failure.message) : failure?.message;
 }
 
 function isDescendant<TRecord extends RecordPickerRecord>(

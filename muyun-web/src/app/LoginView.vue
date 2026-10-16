@@ -1,9 +1,20 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
+import { LanguageSelector } from '@muyun/platform-workbench';
 import { computed, onMounted, ref } from 'vue';
-import { AppError, platformErrorCodes, type AuthClient, type LoginContextClient } from '@muyun/web-core';
+import {
+  AppError,
+  platformErrorCodes,
+  normalizeError,
+  userFacingErrorMessage,
+  type AuthClient,
+  type LoginContextClient,
+} from '@muyun/web-core';
 import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'LoginView' });
 
@@ -29,17 +40,19 @@ const username = ref(
 );
 const password = ref(normalizeInitialValue(import.meta.env.VITE_MUYUN_LOGIN_PASSWORD));
 const submitting = ref(false);
-const formError = ref<string>();
+const formError = ref<() => string>();
 const passwordChangeRequired = ref(false);
 const pendingToken = ref<string>();
 const newPassword = ref('');
 const confirmPassword = ref('');
 const tenantBranding = ref<TenantBranding>();
 const loginContextLoading = ref(false);
-const loginContextError = ref<string>();
+const loginContextError = ref<() => string>();
 const canSubmit = computed(() => !tenantLocked || (!loginContextLoading.value && !loginContextError.value));
 const showLoginTitleArea = computed(() => tenantBranding.value?.mode !== 'logoOnly');
-const loginTitle = computed(() => tenantBranding.value?.title || '平台登录');
+const loginTitle = computed(
+  () => tenantBranding.value?.title || language.t('platform.screen.LoginView.platform-sign-in', '平台登录'),
+);
 const loginSubtitle = computed(() => tenantBranding.value?.subtitle);
 
 onMounted(async () => {
@@ -54,7 +67,11 @@ onMounted(async () => {
     const context = await props.loginContextClient.loginContext(tenantId.value);
     tenantBranding.value = context.branding;
   } catch {
-    loginContextError.value = '无法打开该租户的登录入口';
+    loginContextError.value = () =>
+      language.t(
+        'platform.screen.LoginView.unable-to-open-sign-in-for-this-tenant',
+        '无法打开该租户的登录入口',
+      );
   } finally {
     loginContextLoading.value = false;
   }
@@ -77,7 +94,7 @@ async function submit() {
     }
     emit('authenticated', result);
   } catch (cause) {
-    formError.value = loginErrorMessage(cause);
+    formError.value = () => loginErrorMessage(cause);
   } finally {
     submitting.value = false;
   }
@@ -86,32 +103,45 @@ async function submit() {
 function loginErrorMessage(cause: unknown) {
   if (cause instanceof AppError) {
     if (cause.status === 403) {
-      return '当前站点未获后端授权，请联系管理员配置访问来源';
+      return language.t(
+        'platform.screen.LoginView.this-site-is-not-authorized-by-the-server',
+        '当前站点未获后端授权，请联系管理员配置访问来源',
+      );
     }
     if (
       cause.code === platformErrorCodes.networkError ||
       cause.code === platformErrorCodes.httpError ||
       (cause.status ?? 0) >= 500
     ) {
-      return '无法访问后端，请检查服务状态或站点授权配置';
+      return language.t(
+        'platform.screen.LoginView.cannot-reach-the-server-check-its-status-and',
+        '无法访问后端，请检查服务状态或站点授权配置',
+      );
     }
     if (cause.code === platformErrorCodes.loginBadCredentials) {
-      return '用户名或密码错误';
+      return language.t('platform.screen.LoginView.incorrect-username-or-password', '用户名或密码错误');
     }
     return cause.message;
   }
-  return cause instanceof Error ? cause.message : '登录失败，请稍后重试';
+  return cause instanceof Error
+    ? cause.message
+    : language.t('platform.screen.LoginView.sign-in-failed-please-try-again-later', '登录失败，请稍后重试');
 }
 
 async function submitPasswordChange() {
   formError.value = undefined;
   if (!pendingToken.value) {
-    formError.value = '登录状态已失效，请重新登录';
+    formError.value = () =>
+      language.t(
+        'platform.screen.LoginView.your-session-is-no-longer-valid-please-sign',
+        '登录状态已失效，请重新登录',
+      );
     passwordChangeRequired.value = false;
     return;
   }
   if (newPassword.value !== confirmPassword.value) {
-    formError.value = '两次输入的新密码不一致';
+    formError.value = () =>
+      language.t('platform.screen.LoginView.the-new-passwords-do-not-match', '两次输入的新密码不一致');
     return;
   }
   submitting.value = true;
@@ -131,7 +161,10 @@ async function submitPasswordChange() {
     });
     emit('authenticated', result);
   } catch (cause) {
-    formError.value = cause instanceof Error ? cause.message : 'Password change failed';
+    formError.value = () =>
+      cause instanceof Error
+        ? userFacingErrorMessage(normalizeError(cause), language)
+        : language.t('platform.screen.LoginView.password-change-failed', '密码修改失败，请重试');
   } finally {
     submitting.value = false;
   }
@@ -139,6 +172,7 @@ async function submitPasswordChange() {
 </script>
 
 <template>
+  <div class="login-language"><LanguageSelector /></div>
   <main class="login-page">
     <section class="login-panel">
       <header>
@@ -153,20 +187,29 @@ async function submitPasswordChange() {
       </header>
 
       <p v-if="formError || error || loginContextError" class="login-error">
-        {{ formError || error || loginContextError }}
+        {{ formError?.() || error || loginContextError?.() }}
       </p>
 
       <form v-if="!passwordChangeRequired" class="login-form" @submit.prevent="submit">
         <label v-if="!tenantLocked">
-          <span>租户 ID</span>
-          <UiInput v-model:value="tenantId" autocomplete="organization" placeholder="留空进入系统工作区" />
+          <span>{{ language.t('platform.screen.LoginView.tenant-id', '租户 ID') }}</span>
+          <UiInput
+            v-model:value="tenantId"
+            autocomplete="organization"
+            :placeholder="
+              language.t(
+                'platform.screen.LoginView.leave-blank-to-enter-the-system-workspace',
+                '留空进入系统工作区',
+              )
+            "
+          />
         </label>
         <label>
-          <span>用户名</span>
+          <span>{{ language.t('platform.screen.LoginView.username', '用户名') }}</span>
           <UiInput v-model:value="username" autocomplete="username" required />
         </label>
         <label>
-          <span>密码</span>
+          <span>{{ language.t('platform.screen.LoginView.password', '密码') }}</span>
           <UiInput v-model:value="password" type="password" autocomplete="current-password" required />
         </label>
         <UiButton
@@ -176,21 +219,36 @@ async function submitPasswordChange() {
           :disabled="!canSubmit"
           :loading="submitting || loading || loginContextLoading"
         >
-          {{ submitting || loading ? '登录中' : '登录' }}
+          {{
+            submitting || loading
+              ? language.t('platform.screen.LoginView.signing-in', '登录中')
+              : language.t('platform.screen.LoginView.sign-in', '登录')
+          }}
         </UiButton>
       </form>
       <form v-else class="login-form" @submit.prevent="submitPasswordChange">
-        <p class="login-context">当前密码需要修改后才能进入系统</p>
+        <p class="login-context">
+          {{
+            language.t(
+              'platform.screen.LoginView.change-your-current-password-before-entering-the-system',
+              '当前密码需要修改后才能进入系统',
+            )
+          }}
+        </p>
         <label>
-          <span>新密码</span>
+          <span>{{ language.t('platform.screen.LoginView.new-password', '新密码') }}</span>
           <UiInput v-model:value="newPassword" type="password" autocomplete="new-password" required />
         </label>
         <label>
-          <span>确认新密码</span>
+          <span>{{ language.t('platform.screen.LoginView.confirm-new-password', '确认新密码') }}</span>
           <UiInput v-model:value="confirmPassword" type="password" autocomplete="new-password" required />
         </label>
         <UiButton class="login-submit" html-type="submit" type="primary" :loading="submitting || loading">
-          {{ submitting || loading ? '保存中' : '修改密码' }}
+          {{
+            submitting || loading
+              ? language.t('platform.screen.LoginView.saving', '保存中')
+              : language.t('platform.screen.LoginView.change-password', '修改密码')
+          }}
         </UiButton>
       </form>
     </section>
@@ -296,5 +354,14 @@ button:disabled {
   background: var(--muyun-support-disabled);
   color: var(--muyun-support-disabled-text);
   cursor: not-allowed;
+}
+</style>
+
+<style scoped>
+.login-language {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  min-width: 120px;
 }
 </style>

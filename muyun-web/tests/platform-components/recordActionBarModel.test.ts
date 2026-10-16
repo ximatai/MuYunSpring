@@ -1,6 +1,27 @@
 import { assert, it } from 'vitest';
 import { mergeRecordActions, resolveRecordActions } from '@/platform-components/recordActionBarModel.ts';
 
+it('standard edit follows a record restriction and explains it without hiding other permitted actions', () => {
+  const actions = resolveRecordActions(
+    {
+      action: (actionCode, recordId) => ({
+        actionCode,
+        available: recordId === 'record-1' && actionCode !== 'update',
+        reason: actionCode === 'update' ? '请通过当前任务办理指引更新' : undefined,
+      }),
+    },
+    [
+      { key: 'edit', actionCode: 'update', title: '编辑' },
+      { key: 'delete', actionCode: 'delete', title: '删除' },
+    ],
+    false,
+    'record-1',
+  );
+  assert.isTrue(actions[0].disabled);
+  assert.equal(actions[0].reason, '请通过当前任务办理指引更新');
+  assert.isFalse(actions[1].disabled);
+});
+
 it('resolveRecordActions filters invisible actions and applies authorization', () => {
   const actions = resolveRecordActions(
     {
@@ -205,4 +226,31 @@ it('mergeRecordActions inserts extension actions around standard anchors', () =>
     actions.map((action) => action.key),
     ['view', 'edit', 'bind', 'toggle', 'delete', 'audit'],
   );
+});
+
+it('resolves only declared action headings in the owner language while preserving identities and permission facts', async () => {
+  const { createLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const raw = [
+    {
+      key: 'configure',
+      actionCode: 'custom',
+      title: '配置应用',
+      titleKey: 'platform.entry.configure-applications',
+    },
+    { key: 'business', title: '配置应用' },
+  ];
+  const context = {
+    action: (actionCode: string) => ({ actionCode, available: false, reason: '业务限制原文' }),
+  };
+  const resolved = () => resolveRecordActions(context, raw, false, 'record-original', language);
+  assert.equal(resolved()[0].title, 'Configure applications');
+  assert.equal(resolved()[1].title, '配置应用');
+  assert.isTrue(resolved()[0].disabled);
+  assert.equal(resolved()[0].reason, '业务限制原文');
+  language.setLanguage('zh-CN');
+  assert.equal(resolved()[0].title, '配置应用');
+  language.setLanguage('en');
+  assert.equal(resolved()[0].key, 'configure');
+  assert.equal(raw[0].title, '配置应用');
 });

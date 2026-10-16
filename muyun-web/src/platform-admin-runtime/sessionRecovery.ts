@@ -1,8 +1,11 @@
 import type { AppError } from '@muyun/web-core';
 
-let authenticationRequiredHandler: ((error: AppError, token?: string) => boolean) | undefined;
+export type AuthenticationRecoveryHandler = (error: AppError, token?: string) => boolean | void;
 
-export function configureAuthenticationRecovery(handler: (error: AppError, token?: string) => boolean) {
+let authenticationRequiredHandler: AuthenticationRecoveryHandler | undefined;
+
+/** The host owns recovery; token identifies the request, including late failures after a new login. */
+export function configureAuthenticationRecovery(handler: AuthenticationRecoveryHandler | undefined) {
   authenticationRequiredHandler = handler;
 }
 

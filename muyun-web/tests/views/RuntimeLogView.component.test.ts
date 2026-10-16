@@ -1,7 +1,14 @@
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
 import { expect, it, vi } from 'vitest';
 import { RecordQueryListPanel } from '@muyun/platform-components';
-import { configureModuleContext, type StreamingHttpClient } from '@/web-core';
+import {
+  configureModuleContext,
+  createLanguageContext,
+  provideLanguageContext,
+  platformCodeTextReference,
+  type StreamingHttpClient,
+} from '@/web-core';
 import RuntimeLogView from '@/views/RuntimeLogView.vue';
 
 it('lists log files and opens the active file as an authenticated SSE stream', async () => {
@@ -85,3 +92,143 @@ it('lists log files and opens the active file as an authenticated SSE stream', a
   wrapper.unmount();
   expect(cancel).toHaveBeenCalledTimes(2);
 });
+
+it('changes live log labels and retained reset notices without reconnecting or rewriting log content', async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const cancel = vi.fn();
+  const stream = vi.fn(
+    async () =>
+      new ReadableStream<Uint8Array>({
+        start(value) {
+          controller = value;
+        },
+        cancel,
+      }),
+  );
+  const request = vi.fn(async () => ({}));
+  configureModuleContext({ http: { request, stream } as StreamingHttpClient });
+  const language = createLanguageContext({ languageTag: 'en' });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(RuntimeLogView);
+    },
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        RecordQueryListPanel: {
+          name: 'RecordQueryListPanel',
+          props: ['columns'],
+          template: '<section><slot name="operations" /></section>',
+        },
+        RecordDetailDrawer: {
+          props: ['open', 'subtitle'],
+          template:
+            '<section v-if="open"><p>{{ subtitle }}</p><slot /><slot name="header-actions" /></section>',
+        },
+        UiButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+        UiActionButton: { template: '<button><slot /></button>' },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(list.props('columns')[0].title).toBe('File name');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'View live logs')!
+      .trigger('click');
+    await flushPromises();
+    controller.enqueue(
+      new TextEncoder().encode(
+        'event: reset\ndata: {"fileName":"业务日志.log","text":"原始中文诊断\\n"}\n\n',
+      ),
+    );
+    await flushPromises();
+    expect(wrapper.text()).toContain('Log content was reset. Live updates are continuing.');
+    expect(wrapper.text()).toContain('原始中文诊断');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(list.props('columns')[0].title).toBe('文件名称');
+    expect(wrapper.text()).toContain('日志内容已重置，正在继续实时更新。');
+    expect(wrapper.text()).toContain('原始中文诊断');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Log content was reset. Live updates are continuing.');
+    expect(stream).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+  } finally {
+    wrapper.unmount();
+  }
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it.each(['declared', 'stale', 'wrong-original', 'unknown', 'legacy'] as const)(
+  'projects only a verified platform SSE error source (%s) without reconnecting',
+  async (kind) => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const stream = vi.fn(
+      async () =>
+        new ReadableStream<Uint8Array>({
+          start(value) {
+            controller = value;
+          },
+          cancel,
+        }),
+    );
+    configureModuleContext({ http: { request: async () => ({}), stream } as StreamingHttpClient });
+    const language = createLanguageContext({ languageTag: 'en' });
+    const source = platformCodeTextReference('platform.runtime-log.stream-interrupted')!;
+    const payload = {
+      code: 'RUNTIME_LOG_STREAM_INTERRUPTED',
+      message: '程序日志流已中断',
+      messageSource: source,
+    };
+    if (kind === 'stale') payload.messageSource = { ...source, sourceVersion: 'stale' };
+    if (kind === 'wrong-original') payload.message = '扩展程序诊断原文';
+    if (kind === 'unknown') payload.messageSource = { ...source, sourceId: 'custom.notice' };
+    if (kind === 'legacy') Reflect.deleteProperty(payload, 'messageSource');
+    const Harness = defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(RuntimeLogView);
+      },
+    });
+    const wrapper = mount(Harness, {
+      global: {
+        stubs: {
+          RecordQueryListPanel: { template: '<section><slot name="operations" /></section>' },
+          RecordDetailDrawer: {
+            props: ['open', 'subtitle'],
+            template: '<section v-if="open"><p>{{ subtitle }}</p><slot /></section>',
+          },
+          UiButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+        },
+      },
+    });
+    try {
+      await wrapper.find('button').trigger('click');
+      await flushPromises();
+      controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify(payload)}\n\n`));
+      await flushPromises();
+      expect(wrapper.text()).toContain(
+        kind === 'declared' ? 'The runtime log stream was interrupted.' : payload.message,
+      );
+      language.setLanguage('zh-CN');
+      await flushPromises();
+      expect(wrapper.text()).toContain(payload.message);
+      language.setLanguage('en');
+      await flushPromises();
+      expect(wrapper.text()).toContain(
+        kind === 'declared' ? 'The runtime log stream was interrupted.' : payload.message,
+      );
+      expect(stream).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

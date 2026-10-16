@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
+import { computed, ref, watch } from 'vue';
 import { UiSearchInput } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 /**
  * Standard compact entry for a value chosen from a larger candidate surface.
@@ -29,11 +32,18 @@ const props = withDefaults(
     unmatched: false,
     preserveDraft: false,
     selectionVersion: 0,
-    placeholder: '搜索并选择',
+    placeholder: undefined,
     invalid: false,
     disabled: false,
-    browseLabel: '打开候选选择',
+    browseLabel: undefined,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.form.search-select', '搜索并选择'),
+);
+const resolvedBrowseLabel = computed(
+  () => props.browseLabel ?? language.t('platform.screen.ObjectPickerInput.browseLabel', '打开候选选择'),
 );
 
 const emit = defineEmits<{
@@ -114,12 +124,12 @@ function completeDraft(event: FocusEvent) {
     :invalid="invalid"
     class="object-picker-input-control"
     :value="inputValue"
-    :placeholder="placeholder"
+    :placeholder="resolvedPlaceholder"
     :disabled="disabled"
     :linked="linked && !!value && inputValue === value"
     :unmatched="unmatched"
     search-icon-only
-    :aria-label="browseLabel"
+    :aria-label="resolvedBrowseLabel"
     @update:value="updateDraft"
     @search="browse"
     @dblclick="browseOnDoubleClick"

@@ -1,23 +1,34 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import {
+  presentationLabel,
+  useLanguageContext,
+  normalizeError,
+  userFacingErrorMessage,
+  type AppError,
+} from '@muyun/web-core';
+import { computed, onMounted, ref, shallowRef } from 'vue';
 import { presentPlatformError } from '@muyun/platform-components';
 import { createBackendHttpClient } from '../platform-admin-runtime/backendHttp';
 import { loadOpenApiCatalog, type OpenApiModuleCatalogItem } from '../platform-admin-runtime/moduleOpenApi';
 
+const language = useLanguageContext();
+
 const emit = defineEmits<{ open: [moduleAlias: string, title: string]; back: [] }>();
 const modules = ref<OpenApiModuleCatalogItem[]>([]);
 const loading = ref(false);
-const error = ref<string>();
+const failure = shallowRef<AppError>();
+const error = computed(() => (failure.value ? userFacingErrorMessage(failure.value, language) : undefined));
 
 onMounted(load);
 
 async function load() {
   loading.value = true;
-  error.value = undefined;
+  failure.value = undefined;
   try {
-    modules.value = await loadOpenApiCatalog(createBackendHttpClient());
+    modules.value = await loadOpenApiCatalog(createBackendHttpClient({ language }));
   } catch (cause) {
-    error.value = presentPlatformError(cause, { source: 'openapi-catalog', phase: 'load' }).message;
+    failure.value = normalizeError(cause);
+    presentPlatformError(cause, { language, source: 'openapi-catalog', phase: 'load' });
   } finally {
     loading.value = false;
   }
@@ -29,15 +40,26 @@ async function load() {
     <header>
       <div>
         <p>API Directory</p>
-        <h1>开放模块 API</h1>
-        <span>仅展示当前账号可见且已启用文档交付的模块。</span>
+        <h1>{{ language.t('platform.screen.OpenApiCatalogView.module-api-directory', '开放模块 API') }}</h1>
+        <span>{{
+          language.t(
+            'platform.screen.OpenApiCatalogView.shows-only-modules-visible-to-the-current-account-with-documentation',
+            '仅展示当前账号可见且已启用文档交付的模块。',
+          )
+        }}</span>
       </div>
-      <button type="button" @click="emit('back')">返回工作台</button>
+      <button type="button" @click="emit('back')">
+        {{ language.t('platform.screen.OpenApiCatalogView.back-to-workbench', '返回工作台') }}
+      </button>
     </header>
-    <p v-if="loading">正在读取 API 目录…</p>
+    <p v-if="loading">
+      {{ language.t('platform.screen.OpenApiCatalogView.loading-the-api-directory', '正在读取 API 目录…') }}
+    </p>
     <section v-else-if="error" class="error" role="alert">
       <p>{{ error }}</p>
-      <button type="button" @click="load">重试</button>
+      <button type="button" @click="load">
+        {{ language.t('platform.screen.WorkflowWorkbenchView.retry', '重试') }}
+      </button>
     </section>
     <section v-else class="module-grid">
       <button
@@ -46,11 +68,22 @@ async function load() {
         type="button"
         @click="emit('open', module.moduleAlias, module.title)"
       >
-        <span class="module-kind">{{ module.moduleKind === 'dynamic' ? '动态' : '静态' }}</span>
-        <strong>{{ module.title }}</strong>
+        <span class="module-kind">{{
+          module.moduleKind === 'dynamic'
+            ? language.t('platform.screen.OpenApiCatalogView.dynamic', '动态')
+            : language.t('platform.screen.OpenApiCatalogView.static', '静态')
+        }}</span>
+        <strong>{{ presentationLabel(module.title, module.titleText, language) }}</strong>
         <code>{{ module.moduleAlias }}</code>
       </button>
-      <p v-if="modules.length === 0">当前没有可访问的模块 API。</p>
+      <p v-if="modules.length === 0">
+        {{
+          language.t(
+            'platform.screen.OpenApiCatalogView.no-module-apis-are-currently-accessible',
+            '当前没有可访问的模块 API。',
+          )
+        }}
+      </p>
     </section>
   </main>
 </template>

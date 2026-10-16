@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -15,6 +17,7 @@ import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -148,8 +151,38 @@ final class DynamicRecordActionRuntime {
         return execute(moduleAlias, entityAlias, access.entityActionDescriptor(moduleAlias, entityAlias, actionCode), request);
     }
 
+    DynamicActionExecutionResult executeApprovalBusinessAction(String moduleAlias, String actionCode,
+                                                               String recordId, Map<String, Object> payload) {
+        String id = requireText(recordId, "recordId");
+        String entityAlias = access.mainEntityAlias(moduleAlias);
+        DynamicActionDescriptor action = access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
+        if (action.actionLevel() != EntityActionLevel.RECORD && action.actionLevel() != EntityActionLevel.ANY
+                || action.executorType() != EntityActionExecutorType.SERVICE
+                && action.executorType() != EntityActionExecutorType.GENERATE) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.approval-guidance-must-bind-a-domain-action-on-the-current-main-record",
+                    "审批业务指引必须绑定当前主记录的领域动作"));
+        }
+        DynamicEntityService service = access.entityService(moduleAlias, entityAlias);
+        DynamicRecord stored = service.selectActiveRaw(id);
+        String tenantId = TenantContext.currentTenantId().orElse(null);
+        if (stored == null || !Objects.equals(tenantId, stored.getTenantId()))
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.the-record-bound-to-the-approval-action-was-not-found-or-does",
+                    "审批业务动作绑定的记录不存在或不属于当前租户"));
+        try (var binding = new ApprovalBusinessUpdate(service, stored)) {
+            return execute(moduleAlias, entityAlias, action,
+                    DynamicActionExecutionRequest.id(id).withPayload(payload), binding);
+        }
+    }
+
     private DynamicActionExecutionResult execute(String moduleAlias, String entityAlias, DynamicActionDescriptor action,
                                                  DynamicActionExecutionRequest request) {
+        return execute(moduleAlias, entityAlias, action, request, null);
+    }
+
+    private DynamicActionExecutionResult execute(String moduleAlias, String entityAlias, DynamicActionDescriptor action,
+                                                 DynamicActionExecutionRequest request, ApprovalBusinessUpdate approvalBusiness) {
         DynamicActionExecutionRequest normalized = request == null ? DynamicActionExecutionRequest.empty() : request;
         ActionExecutionPolicy policy = access.actionPolicy(action);
         Set<String> recordIds = actionRecordIds(normalized);
@@ -174,7 +207,7 @@ final class DynamicRecordActionRuntime {
             result = access.withTenantScope(scope, () -> runtime.actionTransactionOperator()
                     .executeResult(context, () -> {
                         if (action.executorType() != EntityActionExecutorType.DIALOG) validateBeforeExecute(moduleAlias, entityAlias, scoped, context);
-                        DynamicActionResultBody body = executeValue(moduleAlias, entityAlias, action, scoped, context, traceId, policy);
+                        DynamicActionResultBody body = executeValue(moduleAlias, entityAlias, action, scoped, context, traceId, policy, approvalBusiness);
                         return new DynamicActionExecutionResult(context(moduleAlias, entityAlias, action, scoped, availability,
                                 body.value(), traceId, authorization), body.value(), body);
                     }));
@@ -193,10 +226,10 @@ final class DynamicRecordActionRuntime {
 
     private DynamicActionResultBody executeValue(String moduleAlias, String entityAlias, DynamicActionDescriptor action,
                                                   DynamicActionExecutionRequest request, DynamicActionExecutionContext context,
-                                                  String traceId, ActionExecutionPolicy policy) {
+                                                  String traceId, ActionExecutionPolicy policy, ApprovalBusinessUpdate approvalBusiness) {
         return switch (action.executorType()) {
             case STANDARD -> new DynamicStandardActionExecutor(queries, mutations, moduleAlias, entityAlias, traceId).execute(action.code(), request);
-            case SERVICE, GENERATE -> registeredAction(moduleAlias, entityAlias, action, request, context, traceId, policy);
+            case SERVICE, GENERATE -> registeredAction(moduleAlias, entityAlias, action, request, context, traceId, policy, approvalBusiness);
             case DIALOG -> DynamicActionResultBody.dialog(dialog(moduleAlias, action, request));
             default -> throw new DynamicActionExecutionException(
                     "dynamic action executor is not supported: " + action.executorType(), context);
@@ -205,10 +238,10 @@ final class DynamicRecordActionRuntime {
 
     private DynamicActionResultBody registeredAction(String moduleAlias, String entityAlias, DynamicActionDescriptor action,
                                                      DynamicActionExecutionRequest request, DynamicActionExecutionContext context,
-                                                     String traceId, ActionExecutionPolicy policy) {
+                                                     String traceId, ActionExecutionPolicy policy, ApprovalBusinessUpdate approvalBusiness) {
         try {
             DynamicActionExecutor executor = runtime.actionExecutorRegistry().require(action.executorKey());
-            Object value = executor.execute(context, request, operations(moduleAlias, entityAlias, traceId, policy));
+            Object value = executor.execute(context, request, operations(moduleAlias, entityAlias, traceId, policy, approvalBusiness));
             if (value instanceof DynamicActionResultBody body) return body;
             if (value instanceof FormActionResult<?> form) {
                 return DynamicActionResultBody.of(form).message(form.message());
@@ -221,7 +254,8 @@ final class DynamicRecordActionRuntime {
         }
     }
 
-    private DynamicActionOperations operations(String moduleAlias, String entityAlias, String traceId, ActionExecutionPolicy policy) {
+    private DynamicActionOperations operations(String moduleAlias, String entityAlias, String traceId, ActionExecutionPolicy policy,
+                                               ApprovalBusinessUpdate approvalBusiness) {
         return new DynamicActionOperations() {
             @Override public DynamicRecord newRecord() { return runtime.newRecord(moduleAlias, entityAlias); }
             @Override public DynamicRecord newRecord(String module, String entity) { return runtime.newRecord(module, entity); }
@@ -231,7 +265,12 @@ final class DynamicRecordActionRuntime {
             @Override public int update(DynamicRecord record) {
                 DataScopeCriteriaResult scope = access.requireRecordActionScope(moduleAlias, entityAlias, policy,
                         normalizeIds(record == null ? null : record.getId()), CurrentUserContext.currentUser());
-                return access.withTenantScope(scope, () -> mutations.update(moduleAlias, entityAlias, record, RuntimeMutationSource.ACTION, traceId, Map.of()));
+                return access.withTenantScope(scope, () -> {
+                    return approvalBusiness != null && approvalBusiness.matches(record)
+                            ? mutations.updateApprovalBusinessAction(moduleAlias, entityAlias, record, traceId, approvalBusiness.service,
+                                    () -> approvalBusiness.requireMatches(record))
+                            : mutations.update(moduleAlias, entityAlias, record, RuntimeMutationSource.ACTION, traceId, Map.of());
+                });
             }
             @Override public int delete(String id) {
                 DataScopeCriteriaResult scope = access.requireRecordActionScope(moduleAlias, entityAlias, policy,
@@ -241,6 +280,40 @@ final class DynamicRecordActionRuntime {
         };
     }
 
+    /** A retained operations object cannot retain task authority after its action returns. */
+    private static final class ApprovalBusinessUpdate implements AutoCloseable {
+        private final DynamicEntityService service;
+        private final net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition entity;
+        private final String recordId;
+        private final String tenantId;
+        private final Thread owner = Thread.currentThread();
+        private boolean active = true;
+
+        private ApprovalBusinessUpdate(DynamicEntityService service, DynamicRecord stored) {
+            this.service = service; this.entity = stored.getEntity();
+            this.recordId = stored.getId(); this.tenantId = stored.getTenantId();
+        }
+
+        boolean matches(DynamicRecord record) {
+            if (!active || Thread.currentThread() != owner || record == null
+                    || entity != record.getEntity() || !recordId.equals(record.getId())) return false;
+            if (!Objects.equals(tenantId, record.getTenantId())
+                    || !Objects.equals(tenantId, TenantContext.currentTenantId().orElse(null)))
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-record-action-runtime.the-tenant-bound-to-the-approval-action-cannot-be-changed",
+                        "审批业务动作绑定的租户不可修改"));
+            return true;
+        }
+
+        void requireMatches(DynamicRecord record) {
+            if (!matches(record)) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.the-record-bound-to-the-approval-action-cannot-be-changed",
+                    "审批业务动作绑定的记录不可修改"));
+        }
+
+        @Override public void close() { active = false; }
+    }
+
     private DynamicActionDialog dialog(String moduleAlias, DynamicActionDescriptor action, DynamicActionExecutionRequest request) {
         String key = requireText(action.executorKey(), "dialog executorKey");
         int separator = key.indexOf('#');
@@ -248,7 +321,9 @@ final class DynamicRecordActionRuntime {
         String submit = separator < 0 || separator == key.length() - 1 ? null : requireText(key.substring(separator + 1), "dialog submit actionCode");
         DynamicActionDescriptor submitAction = submit == null ? null : access.actionDescriptor(moduleAlias, submit);
         if (submitAction != null && submitAction.executorType() == EntityActionExecutorType.DIALOG) {
-            throw new PlatformException("dialog submit action must not be DIALOG: " + submit);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-action-runtime.dialog-submit-action-must-not-be-dialog",
+                    "dialog submit action must not be DIALOG: {value1}"), Map.of("value1", String.valueOf(submit)));
         }
         String recordId = request == null ? null : firstText(request.recordId(), request.record() == null ? null : request.record().getId());
         String path = submitAction == null ? null : submitPath(moduleAlias, submitAction, recordId);

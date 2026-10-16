@@ -141,4 +141,6 @@ export interface UiConfirmOptions {
   cancelText?: string;
   danger?: boolean;
   requiredText?: string;
+  /** Re-resolves display text on language changes; command safeguards remain captured once. */
+  presentation?: () => Pick<UiConfirmOptions, 'title' | 'content' | 'details' | 'okText' | 'cancelText'>;
 }

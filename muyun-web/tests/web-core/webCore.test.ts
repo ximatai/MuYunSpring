@@ -941,7 +941,7 @@ it('realtime client stops reconnecting on authentication errors', async () => {
   });
 
   await realtime.connect();
-  stomp.error({ headers: { message: 'realtime authentication required' } });
+  stomp.error({ headers: { code: 'AUTH_REQUIRED', message: '登录已失效' } });
   await Promise.resolve();
   await realtime.connect();
 
@@ -2019,4 +2019,22 @@ it('resolveGlobalErrorPresentation maps common failures to fixed global slots', 
     resolveGlobalErrorPresentation(new AppError('bad request', { status: 400 })).slot,
     'global-toast',
   );
+});
+
+it('does not classify realtime failures by localized or misleading message words', async () => {
+  const stomp = new FakeStompClient();
+  const realtime = createRealtimeClient({
+    clientFactory: (options) => {
+      stomp.options = options;
+      return stomp;
+    },
+  });
+  await realtime.connect();
+  stomp.error({
+    headers: { code: 'VALIDATION_FAILED', message: 'realtime authentication required' },
+    body: 'unauthorized',
+  });
+  await Promise.resolve();
+  assert.equal(realtime.state(), 'failed');
+  await realtime.disconnect();
 });

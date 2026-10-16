@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { Input as AInput, Popover as APopover } from 'ant-design-vue';
 import { ref, watch } from 'vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiColorPicker', inheritAttrs: false });
 
@@ -75,7 +78,9 @@ function commitDraft() {
     <APopover :trigger="props.disabled ? [] : 'click'" placement="bottomLeft">
       <template #content>
         <div class="ui-color-picker-panel">
-          <span class="ui-color-picker-caption">推荐颜色</span>
+          <span class="ui-color-picker-caption">{{
+            language.t('platform.screen.UiColorPicker.suggested-colors', '推荐颜色')
+          }}</span>
           <div class="ui-color-picker-palette">
             <button
               v-for="color in palette"
@@ -84,13 +89,15 @@ function commitDraft() {
               class="ui-color-picker-swatch"
               :class="{ selected: color === props.value }"
               :style="{ backgroundColor: color }"
-              :aria-label="`选择 ${color}`"
+              :aria-label="
+                language.t('platform.screen.UiColorPicker.select-value', '选择 {value1}', { value1: color })
+              "
               :disabled="props.disabled"
               @click="updateValue(color)"
             />
           </div>
           <label class="ui-color-picker-native">
-            <span>自定义</span>
+            <span>{{ language.t('platform.screen.UiColorPicker.custom', '自定义') }}</span>
             <input type="color" :value="props.value" :disabled="props.disabled" @input="updateNativeColor" />
           </label>
         </div>

@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.measure;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -46,20 +48,25 @@ public class MeasureUnitConversionService {
 
     private BigDecimal normalize(BigDecimal value, MeasureUnit unit) {
         if (value == null) {
-            throw new PlatformException("measure conversion value must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion.measure-conversion-value-must-not-be-null",
+                    "measure conversion value must not be null"));
         }
         return value.multiply(unit.getFactorToBase()).add(unit.getOffsetToBase());
     }
 
     private void requireValidBaseUnit(MeasureUnitCategory category) {
         if (category.getBaseUnitCode() == null || category.getBaseUnitCode().isBlank()) {
-            throw new PlatformException("measure unit category requires baseUnitCode: " + category.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion.measure-unit-category-requires-baseunitcode",
+                    "measure unit category requires baseUnitCode: {value1}"), Map.of("value1", String.valueOf(category.getAlias())));
         }
         MeasureUnit baseUnit = unitService.requireEnabledUnitInCategory(category, category.getBaseUnitCode());
         if (baseUnit.getFactorToBase().compareTo(BigDecimal.ONE) != 0
                 || baseUnit.getOffsetToBase().compareTo(BigDecimal.ZERO) != 0) {
-            throw new PlatformException("measure base unit must use factorToBase=1 and offsetToBase=0: "
-                    + category.getBaseUnitCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion.measure-base-unit-must-use-factortobase-1-and-offsettobase-0",
+                    "measure base unit must use factorToBase=1 and offsetToBase=0: {value1}"), Map.of("value1", String.valueOf(category.getBaseUnitCode())));
         }
     }
 

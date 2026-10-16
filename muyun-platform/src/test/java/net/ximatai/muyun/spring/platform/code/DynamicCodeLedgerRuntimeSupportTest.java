@@ -70,6 +70,37 @@ class DynamicCodeLedgerRuntimeSupportTest {
         assertThat(recycleService.selectByRuleId(rule.getId(), 10)).isEmpty();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            CodePreviewService.SOURCE_VALUE_MISSING, CodePreviewService.VALUE_MAPPING_MISSING})
+    void releaseFallbackUsesMachineCodeDespiteTranslatedMessage(String code) {
+        var preview = org.mockito.Mockito.mock(CodePreviewService.class);
+        org.mockito.Mockito.when(preview.previewDraft(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new PlatformException(code, 400, "来源值已不存在"));
+        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>());
+        var recycle = new CodeRecycleEntryService(new TestMemoryDao<>());
+        var support = new DynamicCodeLedgerRuntimeSupport(preview, ledger, recycle, clock);
+        var rule = rule();
+        support.releaseCode(rule, "SO-0001", null, Map.of(), "record-1",
+                CodeLedgerAction.RELEASED_BY_DELETE, LocalDateTime.now(clock));
+        assertThat(ledger.findByRuleAndValue(rule.getId(), "SO-0001").getBasisKey())
+                .isEqualTo(CodeSequenceState.DEFAULT_BUCKET);
+    }
+
+    @Test
+    void releaseDoesNotFallbackForMisleadingDiagnosticText() {
+        var preview = org.mockito.Mockito.mock(CodePreviewService.class);
+        org.mockito.Mockito.when(preview.previewDraft(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new PlatformException("Code segment source has no value: misleading"));
+        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>());
+        var support = new DynamicCodeLedgerRuntimeSupport(preview, ledger,
+                new CodeRecycleEntryService(new TestMemoryDao<>()), clock);
+        assertThatThrownBy(() -> support.releaseCode(rule(), "SO-0001", null, Map.of(), "record-1",
+                CodeLedgerAction.RELEASED_BY_DELETE, LocalDateTime.now(clock)))
+                .isInstanceOf(PlatformException.class);
+        assertThat(ledger.findByRuleAndValue("rule-1", "SO-0001")).isNull();
+    }
+
     private CodeRule rule() {
         CodeRule rule = new CodeRule();
         rule.setId("rule-1");

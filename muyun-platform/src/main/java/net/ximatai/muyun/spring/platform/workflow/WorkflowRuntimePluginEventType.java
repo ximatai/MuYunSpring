@@ -7,6 +7,8 @@ public enum WorkflowRuntimePluginEventType implements CodeTitleEnum {
     AFTER_SUBMIT("after_submit", "提交后"),
     BEFORE_APPROVE("before_approve", "同意前"),
     AFTER_APPROVE("after_approve", "同意后"),
+    BEFORE_COMPLETE("before_complete", "业务任务完成前"),
+    AFTER_COMPLETE("after_complete", "业务任务完成后"),
     BEFORE_TRANSFER("before_transfer", "转办前"),
     AFTER_TRANSFER("after_transfer", "转办后"),
     BEFORE_REJECT("before_reject", "驳回前"),

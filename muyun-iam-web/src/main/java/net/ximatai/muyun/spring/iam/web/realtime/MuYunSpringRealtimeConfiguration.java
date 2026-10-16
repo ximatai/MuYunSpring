@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.web.realtime;
 
+import net.ximatai.muyun.spring.common.i18n.LanguageCatalog;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
+
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
 import net.ximatai.muyun.spring.platform.web.realtime.BusinessRealtimeRecipientPolicyFactory;
 import net.ximatai.muyun.spring.platform.notification.BusinessNotificationDelivery;
@@ -47,6 +50,7 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.setErrorHandler(new PlatformStompErrorHandler());
         var endpoint = registry.addEndpoint("/ws/platform");
         List<String> allowedOrigins = corsProperties == null ? List.of() : corsProperties.getAllowedOrigins();
         if (allowedOrigins != null && !allowedOrigins.isEmpty()) {
@@ -92,8 +96,15 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Bean
     @ConditionalOnMissingBean(DataChangeRealtimePublisher.class)
-    public DataChangeRealtimePublisher dataChangeRealtimePublisher(RealtimeMessagePublisher messagePublisher) {
-        return new StompDataChangeRealtimePublisher(messagePublisher);
+    public DataChangeRealtimePublisher dataChangeRealtimePublisher(RealtimeMessagePublisher messagePublisher,
+            ObjectProvider<net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService> runtimeContexts) {
+        var fanOut = new OnlineUserDataChangeRealtimeFanOutPublisher(connectionRegistry, userSessionService,
+                messagePublisher, moduleAlias -> {
+                    var service = runtimeContexts.getIfAvailable();
+                    return service != null && service.context(moduleAlias).actions().stream()
+                            .anyMatch(action -> "query".equals(action.actionCode()) && action.authorized());
+                });
+        return new StompDataChangeRealtimePublisher(messagePublisher, fanOut);
     }
 
     @Bean
@@ -110,8 +121,10 @@ public class MuYunSpringRealtimeConfiguration implements WebSocketMessageBrokerC
 
     @Bean
     @ConditionalOnMissingBean(BusinessNotificationNotifier.class)
-    public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher) {
-        return new StompBusinessNotificationNotifier(messagePublisher);
+    public BusinessNotificationNotifier businessNotificationNotifier(RealtimeMessagePublisher messagePublisher,
+            org.springframework.beans.factory.ObjectProvider<TextResolver> texts,
+            org.springframework.beans.factory.ObjectProvider<LanguageCatalog> languages) {
+        return new StompBusinessNotificationNotifier(messagePublisher, texts::getObject, languages::getObject);
     }
 
     @Bean

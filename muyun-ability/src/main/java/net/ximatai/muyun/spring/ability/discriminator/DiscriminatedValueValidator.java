@@ -1,11 +1,13 @@
 package net.ximatai.muyun.spring.ability.discriminator;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.List;
 
@@ -31,14 +33,18 @@ public final class DiscriminatedValueValidator {
         Object discriminator = StaticReferenceResolver.readLoadedValue(record, plan.discriminatorField());
         DiscriminatedValueCasePlan branch = plan.caseFor(discriminator);
         if (branch == null) {
-            throw new PlatformException("discriminator value has no declared branch: " + plan.valueField());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.discriminated-value-validator.discriminator-value-has-no-declared-branch",
+                    "discriminator value has no declared branch: {value1}"), Map.of("value1", String.valueOf(plan.valueField())));
         }
         switch (branch.source()) {
             case FIXED -> StaticReferenceResolver.writeLoadedValue(record, plan.valueField(), branch.fixedValue());
             case FIELD -> {
                 Object value = StaticReferenceResolver.readLoadedValue(record, branch.sourceField());
                 if (value == null || String.valueOf(value).isBlank()) {
-                    throw new PlatformException("discriminator source field is required: " + branch.sourceField());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.discriminated-value-validator.discriminator-source-field-is-required",
+                            "discriminator source field is required: {value1}"), Map.of("value1", String.valueOf(branch.sourceField())));
                 }
                 StaticReferenceResolver.writeLoadedValue(record, plan.valueField(), value);
             }
@@ -48,7 +54,9 @@ public final class DiscriminatedValueValidator {
 
     private static void validateReference(Object record, String valueField, ReferencePlan reference) {
         List<String> values = reference.normalizeValues(StaticReferenceResolver.readLoadedValue(record, valueField));
-        if (values.isEmpty()) throw new PlatformException("discriminator reference value is required: " + valueField);
+        if (values.isEmpty()) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.discriminated-value-validator.discriminator-reference-value-is-required",
+                "discriminator reference value is required: {value1}"), Map.of("value1", String.valueOf(valueField)));
         ReferenceTarget target = reference.target();
         var ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElse(null);
         // A model-only unit test may deliberately run without the optional platform target catalog.

@@ -27,6 +27,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import net.ximatai.muyun.spring.ability.action.ActionMessage;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
 
 @RestControllerAdvice
 @ConditionalOnBean(DataChangeModuleAliasResolver.class)
@@ -56,6 +58,17 @@ public class ActionResultResponseAdvice implements ResponseBodyAdvice<Object> {
         this.moduleAliasResolver = moduleAliasResolver;
         this.objectMapper = objectMapper;
         this.dataChangeRealtimePublisher = dataChangeRealtimePublisher;
+    }
+
+    private TextResolver textResolver;
+
+    @Autowired(required = false)
+    void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
+
+    private ActionMessage presentationMessage(ActionMessage message) {
+        if (message == null || message.textSource() == null || textResolver == null) return message;
+        return new ActionMessage(message.code(), textResolver.resolve(message.textSource(), message.messageArgs()).text(),
+                message.type(), message.messageArgs(), message.textSource());
     }
 
     @Override
@@ -92,7 +105,7 @@ public class ActionResultResponseAdvice implements ResponseBodyAdvice<Object> {
                 sourceUser));
         ActionResultResponse actionResult = new ActionResultResponse(
                 body,
-                context.message(),
+                presentationMessage(context.message()),
                 changeSet.changeSetId(),
                 changeSet.changes()
         );

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.ability;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -87,7 +90,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     default void validateTreeSortScopeByFields(T left, T right, String message, String... fieldNames) {
         validateSortScopeByFields(left, right, message, fieldNames);
         if (!SortAbility.sameValue(left.getParentId(), right.getParentId())) {
-            throw new PlatformException("Tree sort can only move records within the same parent");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-sort-can-only-move-records-within-the-same-parent",
+                    "Tree sort can only move records within the same parent"));
         }
     }
 
@@ -101,7 +106,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     private void moveInTreeInTransaction(String id, String previousId, String nextId, String parentId) {
         T moving = select(id);
         if (moving == null) {
-            throw new PlatformException("Cannot move missing tree record: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.cannot-move-missing-tree-record",
+                    "Cannot move missing tree record: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         rejectSelfNeighbor(id, previousId);
         rejectSelfNeighbor(id, nextId);
@@ -143,7 +150,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     private void moveInTreeInTransaction(Criteria scopeCriteria, String id, String previousId, String nextId, String parentId) {
         T moving = selectInScope(scopeCriteria, id);
         if (moving == null) {
-            throw new PlatformException("Cannot move missing tree record: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.cannot-move-missing-tree-record",
+                    "Cannot move missing tree record: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         rejectSelfNeighbor(id, previousId);
         rejectSelfNeighbor(id, nextId);
@@ -152,7 +161,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         if (!SortAbility.sameValue(oldParentId, targetParentId)) {
             validateTreeMoveTarget(moving, targetParentId);
             moving.setParentId(targetParentId);
-            validateTreePlacementInScope(moving, scopeCriteria, "Tree parent must belong to the same scope");
+            validateTreePlacementInScopeOrThrow(moving, scopeCriteria, () -> PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.parent-scope",
+                    "Tree parent must belong to the same scope")));
         }
         List<T> siblings = sortedTreeSiblings(moving, scopeCriteria);
         List<String> orderedIds = new ArrayList<>();
@@ -223,7 +234,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
 
     private void rejectSelfNeighbor(String id, String neighborId) {
         if (neighborId != null && !neighborId.isBlank() && neighborId.equals(id)) {
-            throw new PlatformException("Tree move neighbor cannot be moving record: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-move-neighbor-cannot-be-moving-record",
+                    "Tree move neighbor cannot be moving record: {value1}"), Map.of("value1", String.valueOf(id)));
         }
     }
 
@@ -275,7 +288,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         }
         T neighbor = select(neighborId);
         if (neighbor == null) {
-            throw new PlatformException("Cannot move relative to missing tree record: " + neighborId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.cannot-move-relative-to-missing-tree-record",
+                    "Cannot move relative to missing tree record: {value1}"), Map.of("value1", String.valueOf(neighborId)));
         }
         return normalizeParentId(neighbor.getParentId());
     }
@@ -286,7 +301,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         }
         T neighbor = selectInScope(scopeCriteria, neighborId);
         if (neighbor == null) {
-            throw new PlatformException("Cannot move relative to missing tree record in scope: " + neighborId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.cannot-move-relative-to-missing-tree-record-in-scope",
+                    "Cannot move relative to missing tree record in scope: {value1}"), Map.of("value1", String.valueOf(neighborId)));
         }
         return normalizeParentId(neighbor.getParentId());
     }
@@ -297,7 +314,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         }
         T neighbor = select(neighborId);
         if (neighbor == null || !SortAbility.sameValue(normalizeParentId(neighbor.getParentId()), parentId)) {
-            throw new PlatformException("Tree move neighbor must belong to target parent: " + neighborId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-move-neighbor-must-belong-to-target-parent",
+                    "Tree move neighbor must belong to target parent: {value1}"), Map.of("value1", String.valueOf(neighborId)));
         }
     }
 
@@ -307,7 +326,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         }
         T neighbor = selectInScope(scopeCriteria, neighborId);
         if (neighbor == null || !SortAbility.sameValue(normalizeParentId(neighbor.getParentId()), parentId)) {
-            throw new PlatformException("Tree move neighbor must belong to target parent: " + neighborId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-move-neighbor-must-belong-to-target-parent",
+                    "Tree move neighbor must belong to target parent: {value1}"), Map.of("value1", String.valueOf(neighborId)));
         }
     }
 
@@ -315,14 +336,18 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         if (previousId != null && !previousId.isBlank()) {
             int previousIndex = orderedIds.indexOf(previousId);
             if (previousIndex < 0) {
-                throw new PlatformException("Cannot move after missing previous record: " + previousId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tree-ability.cannot-move-after-missing-previous-record",
+                        "Cannot move after missing previous record: {value1}"), Map.of("value1", String.valueOf(previousId)));
             }
             return previousIndex + 1;
         }
         if (nextId != null && !nextId.isBlank()) {
             int nextIndex = orderedIds.indexOf(nextId);
             if (nextIndex < 0) {
-                throw new PlatformException("Cannot move before missing next record: " + nextId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tree-ability.cannot-move-before-missing-next-record",
+                        "Cannot move before missing next record: {value1}"), Map.of("value1", String.valueOf(nextId)));
             }
             return nextIndex;
         }
@@ -351,7 +376,9 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         String parentId = current.getParentId();
         while (parentId != null && !parentId.isBlank() && !ROOT_ID.equals(parentId)) {
             if (!visited.add(parentId)) {
-                throw new PlatformException("Tree cycle detected while resolving ancestors: " + id);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tree-ability.tree-cycle-detected-while-resolving-ancestors",
+                        "Tree cycle detected while resolving ancestors: {value1}"), Map.of("value1", String.valueOf(id)));
             }
             T parent = selectActiveRaw(parentId);
             if (parent == null) {
@@ -405,14 +432,20 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
             return;
         }
         if (parentId.equals(id)) {
-            throw new PlatformException("Tree node cannot use itself as parent: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-node-cannot-use-itself-as-parent",
+                    "Tree node cannot use itself as parent: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         T parent = selectActiveRaw(parentId);
         if (parent == null) {
-            throw new PlatformException("Tree node cannot use missing parent: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-node-cannot-use-missing-parent",
+                    "Tree node cannot use missing parent: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
         if (ancestorIds(parentId).contains(id)) {
-            throw new PlatformException("Tree node cannot move under its descendant: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-node-cannot-move-under-its-descendant",
+                    "Tree node cannot move under its descendant: {value1}"), Map.of("value1", String.valueOf(id)));
         }
     }
 
@@ -421,13 +454,19 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
      * visible in the same business scope as the incoming node.
      */
     default void validateTreePlacementInScope(T entity, Criteria scopeCriteria, String message) {
+        validateTreePlacementInScopeOrThrow(entity, scopeCriteria, () -> new PlatformException(message));
+    }
+
+    /** Keeps scoped tree validation shared while the caller owns its rejection contract. */
+    default void validateTreePlacementInScopeOrThrow(T entity, Criteria scopeCriteria,
+                                                     java.util.function.Supplier<? extends RuntimeException> rejection) {
         String parentId = entity.getParentId();
         if (parentId == null || parentId.isBlank() || ROOT_ID.equals(parentId)) {
             return;
         }
         validateTreePlacementBase(entity);
         if (selectInScope(scopeCriteria, parentId) == null) {
-            throw new PlatformException(message);
+            throw java.util.Objects.requireNonNull(rejection, "rejection").get();
         }
     }
 
@@ -447,11 +486,15 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
 
     private void collectDescendantIds(Criteria scope, String parentId, List<String> result, Set<String> visited) {
         if (!visited.add(parentId)) {
-            throw new PlatformException("Tree cycle detected while resolving descendants: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tree-ability.tree-cycle-detected-while-resolving-descendants",
+                    "Tree cycle detected while resolving descendants: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
         for (T child : children(scope, parentId)) {
             if (visited.contains(child.getId())) {
-                throw new PlatformException("Tree cycle detected while resolving descendants: " + parentId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tree-ability.tree-cycle-detected-while-resolving-descendants",
+                        "Tree cycle detected while resolving descendants: {value1}"), Map.of("value1", String.valueOf(parentId)));
             }
             result.add(child.getId());
             collectDescendantIds(scope, child.getId(), result, visited);

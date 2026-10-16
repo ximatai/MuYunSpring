@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordMutationEvent;
 
@@ -14,7 +16,9 @@ final class RecordWriteBackTriggerPolicy {
 
     static EnumSet<RecordWriteBackTriggerMode> modes(RecordWriteBackRule rule) {
         if (rule == null) {
-            throw new PlatformException("Record write-back rule must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-trigger-policy.record-write-back-rule-must-not-be-null",
+                    "Record write-back rule must not be null"));
         }
         String modes = rule.getTriggerModes();
         if (modes == null || modes.isBlank()) {
@@ -30,15 +34,21 @@ final class RecordWriteBackTriggerPolicy {
                 try {
                     parsed.add(RecordWriteBackTriggerMode.valueOf(text));
                 } catch (IllegalArgumentException e) {
-                    throw new PlatformException("Record write-back trigger mode is invalid: " + text);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.record-write-back-trigger-policy.record-write-back-trigger-mode-is-invalid",
+                            "Record write-back trigger mode is invalid: {value1}"), Map.of("value1", String.valueOf(text)));
                 }
             }
         }
         if (parsed.isEmpty()) {
-            throw new PlatformException("Record write-back rule requires at least one trigger mode");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-trigger-policy.record-write-back-rule-requires-at-least-one-trigger-mode",
+                    "Record write-back rule requires at least one trigger mode"));
         }
         if (parsed.contains(RecordWriteBackTriggerMode.ALWAYS) && parsed.size() > 1) {
-            throw new PlatformException("Record write-back ALWAYS trigger mode cannot combine with state modes");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-trigger-policy.record-write-back-always-trigger-mode-cannot-combine-with-state-modes",
+                    "Record write-back ALWAYS trigger mode cannot combine with state modes"));
         }
         return parsed;
     }

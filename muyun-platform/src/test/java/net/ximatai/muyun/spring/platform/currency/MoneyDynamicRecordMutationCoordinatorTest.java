@@ -350,6 +350,17 @@ class MoneyDynamicRecordMutationCoordinatorTest {
                 .hasMessageContaining("entity=order")
                 .hasMessageContaining("field=amount")
                 .hasMessageContaining("Exchange rate requires effective rate")
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    var cause = (PlatformException) error.getCause();
+                    assertThat(error.textSource()).isNotNull().isEqualTo(cause.textSource());
+                    assertThat(error.messageArgs()).isEqualTo(cause.messageArgs());
+                    var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+                    var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "en").text()).startsWith("Exchange rate requires effective rate");
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "zh-CN").text()).startsWith("缺少有效汇率");
+                    assertThat(error.httpStatus()).isEqualTo(400);
+                    assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+                })
                 .cause()
                 .isInstanceOf(PlatformException.class);
     }

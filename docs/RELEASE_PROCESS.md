@@ -136,9 +136,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
 脚本只支持 PostgreSQL 的 `public` schema，包含旧字段目录表/列重命名、必填字段回填和旧
 `platform_metadata_field.field_type_alias` 的数据合并。执行成功后再部署当前版本；不要在应用运行期间执行。
 
-
-### npm 宿主部署配置
+## npm 宿主部署配置
 
 消费者包保留 `VITE_MUYUN_API_BASE_URL`、`VITE_MUYUN_AUTH_TOKEN` 和 `VITE_MUYUN_CREDENTIALS` 的环境变量引用，由业务宿主构建时解析。平台打包时不能把这些值提前固化为默认值、空值或打包机器的配置；平台内置角色、组织等页面与业务页面必须使用宿主指定的 API 地址。鉴权令牌仍优先使用平台当前登录会话，环境令牌仅沿用既有开发配置语义，不应在生产前端构建中填入长期凭据。
 
-`verify:consumer` 同时检查包内引用保留及临时消费者构建的地址解析，临时客户端探针只编译、不执行请求。
+`verify:consumer` 安装当前 tarball，用独立消费者的 Vite 再次构建公开 API，并通过 Vitest 执行产物，验证宿主地址、认证恢复、当前会话、匿名请求、credentials、语言、流式请求及提交结果分发。宿主请求装配契约见[前端本地消费者验证](frontend/LOCAL_CONSUMER.md)。

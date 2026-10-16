@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import java.util.Set;
@@ -119,8 +122,9 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
             }
         }
         if (revision == null || !Objects.equals(variant.getId(), revision.getVariantId())) {
-            throw BusinessExceptions.warning("platform.presentation-revision.not-found",
-                    "Presentation revision does not belong to variant: " + variantId + "." + revisionId);
+            throw BusinessExceptions.warningText("platform.presentation-revision.not-found", TextReference.code(
+                    "platform.rejection.platform-presentation-revision.presentation-revision-does-not-belong-to-variant",
+                    "Presentation revision does not belong to variant: {value1}.{value2}"), Map.of("value1", String.valueOf(variantId), "value2", String.valueOf(revisionId)));
         }
         return revision;
     }
@@ -137,8 +141,12 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         rejectPublishedContentMutation(existing, revision);
         normalizeAndValidate(revision);
         rejectDirectStatusTransition(existing, revision);
-        rejectChanged(existing, revision, "Presentation revision variant", PlatformPresentationRevision::getVariantId);
-        rejectChanged(existing, revision, "Presentation revision number", PlatformPresentationRevision::getRevisionNo);
+        rejectChangedText(existing, revision, TextReference.code(
+                "platform.rejection.platform-presentation-revision.presentation-revision-variant-cannot-be-changed",
+                "Presentation revision variant cannot be changed"), PlatformPresentationRevision::getVariantId);
+        rejectChangedText(existing, revision, TextReference.code(
+                "platform.rejection.platform-presentation-revision.presentation-revision-number-cannot-be-changed",
+                "Presentation revision number cannot be changed"), PlatformPresentationRevision::getRevisionNo);
     }
 
     @Override
@@ -155,13 +163,15 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         PlatformPresentationVariant variant = variantService.requireVisibleVariant(revision.getVariantId());
         revision.setVariantId(variant.getId());
         if (revision.getRevisionNo() == null || revision.getRevisionNo() <= 0) {
-            throw BusinessExceptions.warning("platform.presentation-revision.number-invalid",
-                    "Presentation revisionNo must be positive");
+            throw BusinessExceptions.warningText("platform.presentation-revision.number-invalid", TextReference.code(
+                    "platform.rejection.platform-presentation-revision.presentation-revisionno-must-be-positive",
+                    "Presentation revisionNo must be positive"));
         }
         revision.setTemplateAlias(PlatformNameRules.requireIdentifier(revision.getTemplateAlias(), "templateAlias"));
         if (revision.getTemplateVersion() == null || revision.getTemplateVersion() <= 0) {
-            throw BusinessExceptions.warning("platform.presentation-revision.template-version-invalid",
-                    "Presentation revision templateVersion must be positive");
+            throw BusinessExceptions.warningText("platform.presentation-revision.template-version-invalid", TextReference.code(
+                    "platform.rejection.platform-presentation-revision.presentation-revision-templateversion-must-be-positive",
+                    "Presentation revision templateVersion must be positive"));
         }
         if (revision.getStatus() == null) {
             revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
@@ -169,12 +179,14 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         if (revision.getTitle() == null || revision.getTitle().isBlank()) {
             revision.setTitle(variant.getTitle() + " v" + revision.getRevisionNo());
         }
-        rejectDuplicate(revision, Criteria.of().eq("variantId", variant.getId()).eq("revisionNo", revision.getRevisionNo()),
-                "Presentation revision number must be unique in variant");
+        rejectDuplicate(revision, Criteria.of().eq("variantId", variant.getId()).eq("revisionNo", revision.getRevisionNo()), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.platform-presentation-revision.presentation-revision-number-must-be-unique-in-variant",
+                "Presentation revision number must be unique in variant")));
         if (revision.getStatus() == PlatformPresentationRevisionStatus.PUBLISHED) {
             rejectDuplicate(revision, Criteria.of().eq("variantId", variant.getId())
-                            .eq("status", PlatformPresentationRevisionStatus.PUBLISHED),
-                    "Only one presentation revision can be published in a variant");
+                            .eq("status", PlatformPresentationRevisionStatus.PUBLISHED), () -> PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.platform-presentation-revision.only-one-presentation-revision-can-be-published-in-a-variant",
+                                    "Only one presentation revision can be published in a variant")));
         }
     }
 
@@ -186,8 +198,9 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         if (!Objects.equals(existing.getTemplateAlias(), incoming.getTemplateAlias())
                 || !Objects.equals(existing.getTemplateVersion(), incoming.getTemplateVersion())
                 || !Objects.equals(existing.getUiTreeJson(), incoming.getUiTreeJson())) {
-            throw BusinessExceptions.warning("platform.presentation-revision.published-content-mutation-denied",
-                    "Published or archived presentation revision template and UI tree cannot be changed; create a draft revision");
+            throw BusinessExceptions.warningText("platform.presentation-revision.published-content-mutation-denied", TextReference.code(
+                    "platform.rejection.platform-presentation-revision.published-or-archived-presentation-revision-template-and-ui-tree-cannot-be-changed",
+                    "Published or archived presentation revision template and UI tree cannot be changed; create a draft revision"));
         }
     }
 
@@ -197,16 +210,16 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
             return;
         }
         if (existing != null && !Objects.equals(existing.getStatus(), incoming.getStatus())) {
-            throw BusinessExceptions.warning("platform.presentation-revision.direct-status-transition-denied",
-                    "Presentation revision status can only be changed through presentation revision publish service: "
-                            + incoming.getId());
+            throw BusinessExceptions.warningText("platform.presentation-revision.direct-status-transition-denied", TextReference.code(
+                    "platform.rejection.platform-presentation-revision.presentation-revision-status-can-only-be-changed-through-presentation-revision-publish-service",
+                    "Presentation revision status can only be changed through presentation revision publish service: {value1}"), Map.of("value1", String.valueOf(incoming.getId())));
         }
         if (existing != null || incoming.getStatus() == PlatformPresentationRevisionStatus.DRAFT) {
             return;
         }
-        throw BusinessExceptions.warning("platform.presentation-revision.direct-publish-denied",
-                "Presentation revision can only be published through presentation revision publish service: "
-                        + incoming.getId());
+        throw BusinessExceptions.warningText("platform.presentation-revision.direct-publish-denied", TextReference.code(
+                "platform.rejection.platform-presentation-revision.presentation-revision-can-only-be-published-through-presentation-revision-publish-service",
+                "Presentation revision can only be published through presentation revision publish service: {value1}"), Map.of("value1", String.valueOf(incoming.getId())));
     }
 
     private void refreshPublishedPageExecution(PlatformPresentationRevision revision) {

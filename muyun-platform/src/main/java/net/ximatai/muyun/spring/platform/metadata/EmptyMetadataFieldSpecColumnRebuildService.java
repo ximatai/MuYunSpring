@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.builder.sql.SchemaBuildRules;
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
@@ -43,7 +45,9 @@ public class EmptyMetadataFieldSpecColumnRebuildService {
         long records = schemaFacts.countPhysicalRecords(validModuleAlias, metadata.getAlias(), Criteria.of());
         if (records > 0) {
             if (fieldSpecService.allowsDataSafeTarget(previousFieldSpecAlias, field.getFieldSpecAlias())) return;
-            throw new PlatformException("字段规格变更前元数据下新增了 " + records + " 条业务数据，请重新预检。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.empty-metadata-field-spec-column-rebuild.business-data-was-added-before-the-field-specification-change-run-the-preflight",
+                    "字段规格变更前元数据下新增了 {value1} 条业务数据，请重新预检。"), Map.of("value1", String.valueOf(records)));
         }
         String schema = PlatformNameRules.requireDatabaseName(metadata.getSchemaName(), "schemaName");
         String table = PlatformNameRules.requireDatabaseName(metadata.getTableName(), "tableName");

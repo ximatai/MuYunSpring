@@ -32,6 +32,21 @@ describe('FormValidationCoordinator', () => {
     expect(new FormValidationCoordinator([positiveAmount]).validate({ contractAmount: 1 })).toBeUndefined();
   });
 
+  it('uses a display message by rule identity while evaluating the original program', () => {
+    const display = {
+      ...positiveAmount,
+      message: 'Amount must be positive',
+      program: { ...positiveAmount.program, profile: 'FORM_COMPUTE' as const },
+    };
+    expect(
+      new FormValidationCoordinator([positiveAmount]).validate({ contractAmount: 0 }, [display])?.message,
+    ).toBe('Amount must be positive');
+    expect(
+      new FormValidationCoordinator([positiveAmount]).validate({ contractAmount: 1 }, [display]),
+    ).toBeUndefined();
+    expect(positiveAmount.message).toBe('合同金额必须大于 0');
+  });
+
   it('fails open for malformed descriptors so the server remains the authority', () => {
     const malformed: ResolvedFormValidationRuleDescriptor = {
       ...positiveAmount,

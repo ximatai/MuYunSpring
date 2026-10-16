@@ -210,3 +210,39 @@ it('separates untitled list operations from queries and wraps within a narrow ho
     wrapper.unmount();
   }
 });
+
+it('keeps embedded task and audit tables at content height inside a tall drawer', async () => {
+  await page.viewport(1920, 1080);
+  const wrapper = mount(
+    {
+      render: () =>
+        h('div', { style: 'height:800px;width:700px' }, [
+          h(RecordQueryListSurface, {
+            title: '当前待办',
+            embedded: true,
+            fillHeight: false,
+            columns: [{ key: 'name', title: '任务' }],
+            rows: [{ id: 'task', name: '采购复核' }],
+          }),
+          h('h4', '审计记录'),
+          h(RecordQueryListSurface, {
+            embedded: true,
+            fillHeight: false,
+            columns: [{ key: 'name', title: '操作' }],
+            rows: [{ id: 'audit', name: '已提交审批' }],
+          }),
+        ]),
+    },
+    { attachTo: document.body },
+  );
+  try {
+    const bounds = wrapper.element.getBoundingClientRect();
+    for (const surface of wrapper.findAll('.record-query-list-surface')) {
+      expect(surface.element.getBoundingClientRect().height).toBeLessThan(250);
+    }
+    expect(wrapper.get('h4').element.getBoundingClientRect().bottom - bounds.top).toBeLessThan(300);
+    expect(wrapper.findAll('tbody tr[data-row-key]')).toHaveLength(2);
+  } finally {
+    wrapper.unmount();
+  }
+});

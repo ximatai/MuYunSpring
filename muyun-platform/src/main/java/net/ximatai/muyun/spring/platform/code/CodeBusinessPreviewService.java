@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -38,10 +39,14 @@ public class CodeBusinessPreviewService {
                                                  LocalDateTime at,
                                                  Long sequenceValue) {
         if (moduleAlias == null || moduleAlias.isBlank()) {
-            throw new PlatformException("Code business preview requires moduleAlias");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-business-preview.code-business-preview-requires-modulealias",
+                    "Code business preview requires moduleAlias"));
         }
         if (entityAlias == null || entityAlias.isBlank()) {
-            throw new PlatformException("Code business preview requires entityAlias");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-business-preview.code-business-preview-requires-entityalias",
+                    "Code business preview requires entityAlias"));
         }
         LocalDateTime effectiveAt = at == null ? LocalDateTime.now(clock) : at;
         Map<String, Object> safeContext = context == null ? Map.of() : new LinkedHashMap<>(context);

@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import {
   RecordDetailExtensionSection,
   RecordDetailFields,
+  WorkflowRecordPanel,
   RecordMetaSection,
   type QueryListRecord,
   type RecordFormFieldPickerConfig,
@@ -20,6 +23,8 @@ import type {
 } from './modulePageEnhancements';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import RecordFormSurface from './RecordFormSurface.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageRecordContent' });
 
@@ -61,7 +66,12 @@ const emit = defineEmits<{
     options: Record<string, OptionItemDescriptor[]>,
   ];
   'relations-validity-change': [valid: boolean];
+  'workflow-interaction-change': [state: { editing: boolean; busy: boolean; dirty: boolean }];
+  'workflow-changed': [];
 }>();
+
+const workflowPanel = ref<{ mayLeave: () => Promise<boolean> }>();
+defineExpose({ mayLeave: () => workflowPanel.value?.mayLeave() ?? Promise.resolve(true) });
 
 function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
@@ -86,10 +96,18 @@ function updateChildren(
       :file-transfer-context="context"
       :exclude-field-names="['enabled']"
     />
+    <WorkflowRecordPanel
+      ref="workflowPanel"
+      @interaction-change="emit('workflow-interaction-change', $event)"
+      v-if="record.id && context.abilities.has('approval') === true"
+      :context="context"
+      :record-id="String(record.id)"
+      @changed="emit('workflow-changed')"
+    />
     <RecordDetailExtensionSection
       v-for="section in extensionSections"
       :key="section.key"
-      :title="section.title"
+      :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
       :subtitle="section.subtitle"
     >
       <template v-if="section.subtitleComponent" #subtitle>

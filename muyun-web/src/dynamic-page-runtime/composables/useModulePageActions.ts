@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { handlePlatformActionSuccess, presentPlatformError } from '@muyun/platform-components';
 
 /**
@@ -7,9 +8,11 @@ import { handlePlatformActionSuccess, presentPlatformError } from '@muyun/platfo
  * request, but an exception must never escape into the host render session.
  */
 export function useModulePageActions() {
+  const language = useLanguageContext();
   function presentActionSuccess(result: unknown, fallbackMessage: string, source = 'dynamic-module-action') {
     return handlePlatformActionSuccess(result, {
       source,
+      language,
       phase: 'action',
       fallbackMessage,
     });
@@ -26,6 +29,7 @@ export function useModulePageActions() {
       presentPlatformError(cause, {
         source: `module-page-enhancement:${contribution.key}`,
         phase: 'action',
+        language,
       });
       return false;
     }

@@ -574,7 +574,8 @@ class DynamicOpenApiGeneratorTest {
                         "DYNAMIC_DUPLICATE_CHECK_ERROR", "DYNAMIC_CONFLICT");
         assertThat(document.schemas()).doesNotContainKeys("DynamicWebError", "DynamicWebActionError");
         assertThat(document.schemas().get("PlatformWebError").properties())
-                .containsKeys("traceId", "code", "status", "message", "scope", "targets", "details");
+                .containsKeys("traceId", "code", "status", "message", "scope", "targets", "details",
+                        "actionMessage", "messageArgs", "textSource", "messageText");
         assertThat(document.schemas().get("PlatformWebError").required())
                 .containsExactly("traceId", "code", "status", "message", "targets", "details");
         assertThat(document.schemas().get("ErrorTarget").properties())

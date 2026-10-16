@@ -31,7 +31,7 @@ public final class WebAnnotationSupport {
         return findMergedInterfaceMethodAnnotation(containingClass, method, annotationType);
     }
 
-    static boolean hasMergedMethodOrTypeAnnotation(Method method,
+    public static boolean hasMergedMethodOrTypeAnnotation(Method method,
                                                    Class<?> containingClass,
                                                    Class<? extends Annotation> annotationType) {
         if (findMergedMethodAnnotation(method, containingClass, annotationType) != null) {

@@ -13,13 +13,22 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class WorkflowDefinitionSelectorTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowDefinitionService definitionService = new WorkflowDefinitionService(new TestMemoryDao<>());
     private final WorkflowVersionService versionService = new WorkflowVersionService(new TestMemoryDao<>(),
             definitionService);
     private final WorkflowNodeDefinitionDao nodeDao = mock(WorkflowNodeDefinitionDao.class);
     private final WorkflowLinkDefinitionDao linkDao = mock(WorkflowLinkDefinitionDao.class);
-    private final WorkflowDefinitionSelector selector = new WorkflowDefinitionSelector(
-            definitionService, versionService, nodeDao, linkDao);
+    private final WorkflowDefinitionSelector selector = new WorkflowDefinitionSelector(definitionService,
+                versionService,
+                nodeDao,
+                linkDao,
+                new WorkflowConditionService(WorkflowTestSupport.facts()),
+                java.util.Optional.empty());
 
     @Test
     void shouldSelectPublishedDefinitionLatestPublishedVersionAndRuntimeGraph() {
@@ -90,6 +99,28 @@ class WorkflowDefinitionSelectorTest {
         assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.approval("sales.contract", "c1")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("published workflow version not found");
+    }
+
+    @Test
+    void globalConfigurationMatchingReadsBusinessFactsInCallerTenantAndRestoresItsContext() {
+        var definition = definition("sales.contract", "global", true, WorkflowDefinitionStatus.PUBLISHED);
+        definition.setMatchExpression("{eligible} == true"); definitionService.insert(definition);
+        versionService.insert(version(definition, 1, WorkflowPublishStatus.PUBLISHED));
+        when(nodeDao.query(any(), any(), any())).thenReturn(List.of());
+        when(linkDao.query(any(), any(), any())).thenReturn(List.of());
+        var read = new java.util.concurrent.atomic.AtomicBoolean();
+        var scopedSelector = new WorkflowDefinitionSelector(definitionService, versionService, nodeDao, linkDao,
+                new WorkflowConditionService((module, id) -> {
+                    assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId()).contains("tenant-a");
+                    assertThat(module).isEqualTo("sales.contract"); assertThat(id).isEqualTo("c1");
+                    read.set(true); return java.util.Map.of("eligible", true);
+                }), java.util.Optional.empty());
+        try (var context = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant-a")) {
+            assertThat(scopedSelector.select(WorkflowSubmitRequest.approval("sales.contract", "c1")).definition().getId())
+                    .isEqualTo(definition.getId());
+            assertThat(read).isTrue();
+            assertThat(net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId()).contains("tenant-a");
+        }
     }
 
     private WorkflowDefinition definition(String moduleAlias, String alias, boolean approvalEnabled,

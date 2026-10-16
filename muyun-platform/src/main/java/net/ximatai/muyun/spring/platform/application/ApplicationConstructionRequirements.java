@@ -12,7 +12,9 @@ public final class ApplicationConstructionRequirements {
     private ApplicationConstructionRequirements() {}
     public enum Status { UNMAPPED, UNSUPPORTED, CONFIGURATION_MISSING, CONFIGURATION_MATCHED, MANUAL_RESPONSIBILITY }
     public record Evidence(ApplicationConstructionRequirement.Section section, int index, String statement,
-                           String objectKey, String fieldName, Status status, String explanation) {}
+                           String objectKey, String fieldName, Status status, String explanation, @com.fasterxml.jackson.annotation.JsonIgnore ApplicationConstructionText explanationSource) {
+        public Evidence(ApplicationConstructionRequirement.Section section, int index, String statement, String objectKey, String fieldName, Status status, String explanation) { this(section, index, statement, objectKey, fieldName, status, explanation, null); }
+    }
 
     public static List<String> source(ApplicationConstructionPlanContent content, ApplicationConstructionRequirement.Section section) {
         return switch (section) { case SCOPE -> content.inScope(); case RULE -> content.rules(); case RELATION -> content.relationships(); };
@@ -39,7 +41,8 @@ public final class ApplicationConstructionRequirements {
                 int index = i;
                 var bindings = content.requirements().stream().filter(item -> item.section() == section && item.index() == index).toList();
                 if (bindings.isEmpty()) {
-                    result.add(new Evidence(section, i, source.get(i), objectKey, "", Status.UNMAPPED, "尚未确认如何兑现；不能视为已实现"));
+                    var text = ApplicationConstructionText.code("requirement.unmapped", "尚未确认如何兑现；不能视为已实现");
+                    result.add(new Evidence(section, i, source.get(i), objectKey, "", Status.UNMAPPED, text.original(), text));
                     continue;
                 }
                 for (var binding : bindings) {

@@ -12,6 +12,12 @@ public record DynamicImportUploadResult(
         String message,
         String errorFileName,
         String errorFileToken,
-        Map<String, ImportEntityExecutionSummary> summaries
+        Map<String, ImportEntityExecutionSummary> summaries,
+        net.ximatai.muyun.spring.common.i18n.TextPresentation messageText
 ) {
+    public DynamicImportUploadResult(int created, int updated, int skipped, int errorCount, boolean partialSuccess,
+                                     String message, String errorFileName, String errorFileToken,
+                                     Map<String, ImportEntityExecutionSummary> summaries) {
+        this(created, updated, skipped, errorCount, partialSuccess, message, errorFileName, errorFileToken, summaries, null);
+    }
 }

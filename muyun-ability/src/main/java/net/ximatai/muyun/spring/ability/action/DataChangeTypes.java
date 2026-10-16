@@ -5,6 +5,8 @@ public final class DataChangeTypes {
     public static final String RECORD_UPDATED = "record-updated";
     public static final String RECORD_DELETED = "record-deleted";
     public static final String COLLECTION_CHANGED = "collection-changed";
+    public static final String MODULE_PAGE_CONFIGURATION_CHANGED = "module-page-configuration-changed";
+    public static final String CONFIGURATION_TRANSLATIONS_CHANGED = "configuration-translations-changed";
     private DataChangeTypes() {
     }
 }

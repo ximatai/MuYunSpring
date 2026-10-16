@@ -1,5 +1,6 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
-import { reactive } from 'vue';
+import { reactive, defineComponent, h } from 'vue';
+import { createLanguageContext, provideLanguageContext, createCodeTextPresentation } from '@/web-core';
 import { expect, it, vi } from 'vitest';
 import { AppError } from '@/web-core';
 import { missingReferencePickerDependencies } from '@/platform-components/referencePickerReadError';
@@ -1026,4 +1027,60 @@ it('shows belonging context for same-title candidates in dropdowns and the detai
     key: 'subtitle',
     title: '说明',
   });
+});
+
+it('reprojects configuration tree labels and selected names without duplicating context or rereading candidates', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.registerResources('en', { 'test.reference.config': 'Configuration' });
+  const candidate = {
+    id: 'config',
+    title: '配置',
+    subtitle: 'Public context',
+    titleText: createCodeTextPresentation('test.reference.config', '配置', language),
+  };
+  const source = provider({
+    resolve: vi.fn().mockResolvedValue([candidate]),
+    loadTree: vi.fn().mockResolvedValue([{ record: candidate }]),
+  });
+  const wrapper = shallowMount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () => h(ReferencePicker, { value: 'config', provider: source });
+      },
+    }),
+    {
+      global: { stubs: { ReferencePicker: false, UiModal: { template: '<section><slot /></section>' } } },
+    },
+  );
+  try {
+    await flushPromises();
+    const picker = wrapper.findComponent(ReferencePicker);
+    const input = picker.findComponent({ name: 'ObjectPickerInput' });
+    expect(input.props('value')).toBe('Configuration · Public context');
+    input.vm.$emit('browse', '');
+    await flushPromises();
+    const tree = picker.findComponent({ name: 'UiTree' });
+    expect(tree.props('nodes')[0]).toMatchObject({
+      key: 'config',
+      title: 'Configuration',
+      secondary: 'Public context',
+    });
+    const reads = vi.mocked(source.resolve).mock.calls.length;
+    const treeReads = vi.mocked(source.loadTree!).mock.calls.length;
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(input.props('value')).toBe('配置 · Public context');
+    expect(tree.props('nodes')[0]).toMatchObject({
+      key: 'config',
+      title: '配置',
+      secondary: 'Public context',
+    });
+    expect(source.resolve).toHaveBeenCalledTimes(reads);
+    expect(source.loadTree).toHaveBeenCalledTimes(treeReads);
+    expect(picker.emitted('update:value')).toBeUndefined();
+    expect(candidate.title).toBe('配置');
+  } finally {
+    wrapper.unmount();
+  }
 });

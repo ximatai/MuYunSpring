@@ -129,3 +129,109 @@ it('renders reference summaries in stored ID order without affecting dictionary 
   });
   expect(wrapper.find('.record-query-list-text').text()).toBe('');
 });
+
+it('uses the owning provider for option labels and never writes display text into record values', async () => {
+  const { mount } = await import('@vue/test-utils');
+  const { defineComponent, h } = await import('vue');
+  const { createLanguageContext, provideLanguageContext, platformLanguageContext } =
+    await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = { status: 'ATTENDED', statusTitle: '已参加' };
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () =>
+        h(RecordQueryListCell, {
+          record,
+          column: {
+            key: 'status',
+            title: '状态',
+            optionItems: [
+              {
+                code: 'ATTENDED',
+                title: '已参加',
+                enabled: true,
+                titleText: {
+                  source: {
+                    sourceKind: 'CODE',
+                    sourceId: 'test/status',
+                    sourceVersion: 'v1',
+                    originalText: '已参加',
+                  },
+                  languages: {
+                    en: {
+                      text: 'Attended',
+                      requestedTag: 'en',
+                      resourceTag: 'en',
+                      missing: false,
+                      fallback: false,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    expect(wrapper.text()).toBe('Attended');
+    expect(platformLanguageContext.languageTag.value).toBe('zh-CN');
+    language.setLanguage('zh-CN');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toBe('已参加');
+    expect(record).toEqual({ status: 'ATTENDED', statusTitle: '已参加' });
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('switches delivered configuration cell labels in the owning language without replacing record values', async () => {
+  const { mount } = await import('@vue/test-utils');
+  const { defineComponent, h } = await import('vue');
+  const { createLanguageContext, provideLanguageContext } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = {
+    id: 'configuration',
+    title: '配置名称',
+    $texts: {
+      title: {
+        source: {
+          sourceKind: 'CONFIG',
+          sourceId: 'configuration/title',
+          sourceVersion: 'v1',
+          originalText: '配置名称',
+        },
+        languages: {
+          en: {
+            text: 'Configuration name',
+            requestedTag: 'en',
+            resourceTag: 'en',
+            missing: false,
+            fallback: false,
+          },
+        },
+      },
+    },
+  };
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(RecordQueryListCell, { record, column: { key: 'title', title: 'Name' } });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    expect(wrapper.text()).toBe('Configuration name');
+    language.setLanguage('zh-CN');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toBe('配置名称');
+    language.setLanguage('en');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toBe('Configuration name');
+    expect(record.title).toBe('配置名称');
+  } finally {
+    wrapper.unmount();
+  }
+});

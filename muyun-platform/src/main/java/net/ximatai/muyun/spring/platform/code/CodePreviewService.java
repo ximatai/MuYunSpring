@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
@@ -18,6 +20,8 @@ import java.util.Objects;
 
 @Service
 public class CodePreviewService {
+    public static final String SOURCE_VALUE_MISSING = "platform.code.source-value-missing";
+    public static final String VALUE_MAPPING_MISSING = "platform.code.value-mapping-missing";
     private final FormulaEngine formulaEngine;
     private final Clock clock;
 
@@ -37,7 +41,9 @@ public class CodePreviewService {
 
     public CodePreviewResult previewDraft(PreviewCodeRuleCommand command) {
         if (command == null || command.rule() == null) {
-            throw new PlatformException("Code preview requires rule draft");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-preview-requires-rule-draft",
+                    "Code preview requires rule draft"));
         }
         CodeRule rule = command.rule();
         List<CodeRuleSegment> segments = rule.getSegments() == null ? List.of() : rule.getSegments().stream()
@@ -45,11 +51,15 @@ public class CodePreviewService {
                 .sorted(Comparator.comparing(CodeRuleSegment::getSortOrder, Comparator.nullsLast(Integer::compareTo)))
                 .toList();
         if (segments.isEmpty()) {
-            throw new PlatformException("Code rule has no segments to preview");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-rule-has-no-segments-to-preview",
+                    "Code rule has no segments to preview"));
         }
         if (segments.stream().anyMatch(segment -> segment.getSegmentType() == CodeSegmentType.SEQUENCE)
                 && rule.getSequencePolicy() == null) {
-            throw new PlatformException("Code rule with SEQUENCE segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-rule-with-sequence-segment-requires-sequencepolicy",
+                    "Code rule with SEQUENCE segment requires sequencePolicy"));
         }
 
         Map<String, Object> context = command.context() == null
@@ -86,7 +96,9 @@ public class CodePreviewService {
                                        LocalDateTime at,
                                        Long sequenceValue) {
         if (segment.getSegmentType() == null) {
-            throw new PlatformException("Code segment requires segmentType");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-segment-requires-segmenttype",
+                    "Code segment requires segmentType"));
         }
         return switch (segment.getSegmentType()) {
             case CONSTANT -> segment.getFixedValue();
@@ -116,7 +128,9 @@ public class CodePreviewService {
 
     private String formatSequence(CodeRuleSegment segment, CodeSequencePolicy policy, Long sequenceValue) {
         if (policy == null) {
-            throw new PlatformException("Code sequence segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-preview.code-sequence-segment-requires-sequencepolicy",
+                    "Code sequence segment requires sequencePolicy"));
         }
         long value = sequenceValue == null ? policy.getStartValue() == null ? 1L : policy.getStartValue() : sequenceValue;
         Integer length = segment.getLength() == null ? policy.getSequenceLength() : segment.getLength();
@@ -144,7 +158,7 @@ public class CodePreviewService {
                         .filter(mapping -> Boolean.TRUE.equals(mapping.getDefaultMapping()))
                         .map(CodeValueMapping::getTargetValue)
                         .findFirst()
-                        .orElseThrow(() -> new PlatformException("Code value mapping not found for source: " + sourceValue)));
+                        .orElseThrow(() -> new PlatformException(VALUE_MAPPING_MISSING, 400, "Code value mapping not found for source: " + sourceValue)));
     }
 
     private String evaluateFormula(CodeRuleSegment segment, Map<String, Object> context) {
@@ -160,7 +174,7 @@ public class CodePreviewService {
         return switch (policy) {
             case SKIP_SEGMENT -> null;
             case USE_DEFAULT -> segment.getFixedValue();
-            case ERROR -> throw new PlatformException("Code segment source has no value: " + segment.getSourceRef());
+            case ERROR -> throw new PlatformException(SOURCE_VALUE_MISSING, 400, "Code segment source has no value: " + segment.getSourceRef());
         };
     }
 

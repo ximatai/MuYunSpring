@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.department;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -65,7 +67,9 @@ public class DepartmentService extends TenantActiveScopedService<Department> imp
     public void moveInDepartmentTree(String id, String previousId, String nextId, String parentId) {
         Department moving = select(id);
         if (moving == null) {
-            throw new PlatformException("Cannot move missing department: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.department.cannot-move-missing-department",
+                    "Cannot move missing department: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         moveInTree(organizationScope(moving.getOrganizationId()), id, previousId, nextId, parentId);
     }

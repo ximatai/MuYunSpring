@@ -1,7 +1,14 @@
 <script setup lang="ts">
+import {
+  userFacingErrorMessage,
+  useLanguageContext,
+  normalizeError,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import { computed, onMounted, ref, watch } from 'vue';
 import { UiError, UiSelect, UiTreeSelect, type UiTreeSelectNode } from '@muyun/vue-ui-antdv';
-import { normalizeError, type ModuleContext } from '@muyun/web-core';
+
 import type { WebTreeNode } from '@muyun/web-contracts';
 import {
   firstConstraintMessage,
@@ -15,6 +22,8 @@ import {
   filterTreeRecords,
   flattenTreeRecords,
 } from './treeRecordModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordPicker' });
 
@@ -43,7 +52,7 @@ const props = withDefaults(
     resolveOptions: undefined,
     reloadKey: undefined,
     mode: 'auto',
-    placeholder: '请选择',
+    placeholder: undefined,
     invalid: false,
     disabled: false,
     allowClear: true,
@@ -52,6 +61,10 @@ const props = withDefaults(
     descriptionOf: undefined,
     filterOption: undefined,
   },
+);
+
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.screen.RecordPicker.placeholder', '请选择'),
 );
 
 const emit = defineEmits<{
@@ -64,7 +77,7 @@ const emit = defineEmits<{
   'selection-resolved': [record: RecordPickerRecord | undefined];
 }>();
 const loading = ref(false);
-const error = ref<string>();
+const error = ref<() => string>();
 const keyword = ref('');
 const tree = ref<WebTreeNode<RecordPickerRecord>[]>([]);
 const records = ref<RecordPickerRecord[]>([]);
@@ -123,7 +136,7 @@ async function loadRecords() {
     await loadListRecords();
     await resolveSelectedOption();
   } catch (cause) {
-    error.value = normalizeError(cause).message;
+    error.value = () => userFacingErrorMessage(normalizeError(cause), language);
   } finally {
     loading.value = false;
   }
@@ -172,7 +185,7 @@ async function loadListRecords() {
 }
 
 function recordTitle(record: RecordPickerRecord) {
-  return props.titleOf?.(record) ?? defaultTreeRecordTitle(record);
+  return props.titleOf?.(record) ?? defaultTreeRecordTitle(record, undefined, language);
 }
 function matchesKeyword(record: RecordPickerRecord, value: string) {
   const normalized = value.trim().toLowerCase();
@@ -192,7 +205,7 @@ function toTreeNode(node: WebTreeNode<RecordPickerRecord>): UiTreeSelectNode {
 function isRecordDisabled(record: RecordPickerRecord) {
   return (
     record.enabled === false ||
-    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints, language))
   );
 }
 function updateValue(value: string | number | (string | number)[] | null) {
@@ -217,7 +230,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :invalid="invalid"
     :value="value"
     :tree-data="treeData"
-    :placeholder="placeholder"
+    :placeholder="resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :show-search="true"
@@ -231,7 +244,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :invalid="invalid"
     :value="value"
     :options="listOptions"
-    :placeholder="placeholder"
+    :placeholder="resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :show-search="true"
@@ -240,7 +253,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
     @search="keyword = $event"
     @update:value="updateValue"
   />
-  <UiError v-if="error" class="record-picker-error" :message="error" />
+  <UiError v-if="error" class="record-picker-error" :message="error()" />
 </template>
 
 <style scoped>

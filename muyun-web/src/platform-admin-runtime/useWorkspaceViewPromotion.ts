@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, type MaybeRefOrGetter, toValue } from 'vue';
 import type { DrawerPromotion } from '@muyun/platform-components';
 import { useWorkbenchNavigation } from '@muyun/platform-workbench';
@@ -31,11 +32,12 @@ export function useWorkspaceViewPromotion<TInput extends WorkspaceViewInput>(opt
   onPromotionRejected?: () => void;
 }) {
   const navigation = useWorkbenchNavigation();
+  const language = useLanguageContext();
   return computed<DrawerPromotion | undefined>(() => {
     const input = toValue(options.input);
     if (!input || !canPromoteWorkspaceView(toValue(options.eligibility)) || !navigation) return undefined;
     return {
-      title: '固定为页签',
+      title: language.t('platform.workspace-view.pin-as-tab', '固定为页签'),
       promote: async () => {
         const accepted = await options.beforePromote?.(input);
         if (accepted === false) {
@@ -43,7 +45,7 @@ export function useWorkspaceViewPromotion<TInput extends WorkspaceViewInput>(opt
           return;
         }
         const result = navigation.openPage(
-          createWorkspaceViewDescriptor(options.view, input, 'tab', toValue(options.title)),
+          createWorkspaceViewDescriptor(options.view, input, 'tab', toValue(options.title), language),
         );
         options.onPromoted?.(result);
       },

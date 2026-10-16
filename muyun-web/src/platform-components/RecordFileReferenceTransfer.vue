@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import type { UiIconName } from '@muyun/vue-ui-antdv';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import FileTransferUploader from './FileTransferUploader.vue';
 import {
@@ -15,6 +16,8 @@ import {
   uploadedFileId,
 } from './fileReferenceTransfer';
 import type { FileTransferUploadReceipt } from './fileTransferUpload';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordFileReferenceTransfer' });
 
@@ -123,15 +126,18 @@ function releaseUploadedFile(fileId: string) {
       :key="fileId"
       class="record-file-reference-transfer__bound-file"
     >
-      <span>已绑定文件：{{ fileId }}</span>
+      <span
+        >{{ language.t('platform.screen.RecordFileReferenceTransfer.attached-files', '已绑定文件：')
+        }}{{ fileId }}</span
+      >
       <UiButton
         v-if="!disabled"
         class="record-file-reference-transfer__remove"
         type="text"
         danger
         icon-name="delete"
-        aria-label="移除文件"
-        title="移除文件"
+        :aria-label="language.t('platform.screen.RecordFileReferenceTransfer.remove-file', '移除文件')"
+        :title="language.t('platform.screen.RecordFileReferenceTransfer.remove-file', '移除文件')"
         @click="removeBoundFile(fileId)"
       />
     </span>
@@ -146,7 +152,14 @@ function releaseUploadedFile(fileId: string) {
     :max-files="definition.maxFiles"
     :existing-file-count="existingFileCount"
     :disabled="disabled || !definition.uploadAvailable"
-    :disabled-hint="definition.uploadAvailable ? disabledHint : '当前模块未配置文件上传策略'"
+    :disabled-hint="
+      definition.uploadAvailable
+        ? disabledHint
+        : language.t(
+            'platform.screen.RecordFileReferenceTransfer.no-file-upload-policy-is-configured-for-this-module',
+            '当前模块未配置文件上传策略',
+          )
+    "
     :dropzone-hint="dropzoneHint"
     :released-completed-file-ids="releasedUploadedFileIds"
     :completed-file-id="(receipt) => uploadedFileId(receipt.payload)"

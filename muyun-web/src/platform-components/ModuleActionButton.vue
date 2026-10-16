@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
-import type { ModuleContext } from '@muyun/web-core';
+
 import { UiActionButton, UiTooltip, type UiIconName } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModuleActionButton' });
 
@@ -71,7 +74,7 @@ const buttonDisabled = computed(
 const buttonTitle = computed(() => {
   if (buttonDisabled.value) {
     return actionAvailabilityLoading.value
-      ? '正在校验操作可用性'
+      ? language.t('platform.screen.ModuleActionButton.checking-action-availability', '正在校验操作可用性')
       : (action.value?.reason ?? props.title ?? action.value?.title);
   }
   return props.title ?? action.value?.title;

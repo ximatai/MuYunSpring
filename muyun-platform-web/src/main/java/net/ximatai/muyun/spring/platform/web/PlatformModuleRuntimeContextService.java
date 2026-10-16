@@ -34,7 +34,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
+import net.ximatai.muyun.spring.platform.localization.MetadataQuerySchemas;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
@@ -42,6 +42,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.UnknownDynamicModuleException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
@@ -307,7 +308,8 @@ public class PlatformModuleRuntimeContextService {
                 actions,
                 uiDescriptor,
                 moduleKind == ModuleKind.DYNAMIC || staticDefinition.map(StaticModuleDefinition::tenantRequired).orElse(false)
-        );
+        ).withTitleSource(module != null && java.util.Objects.equals(module.getTitle(), title) ? module.titleSource()
+                : staticDefinition.isPresent() ? net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource(validModuleAlias, title) : null);
     }
 
     /**
@@ -505,7 +507,7 @@ public class PlatformModuleRuntimeContextService {
                 .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
                 .filter(binding -> binding.source() != PageContextSource.SESSION)
                 .map(PageContextBindingDefinition::targetKey).distinct().toList();
-        QuerySchema querySchema = DynamicQuerySchemas.from(moduleAlias, mainEntity, quickSearchFields, externalCriteriaKeys);
+        QuerySchema querySchema = MetadataQuerySchemas.from(moduleAlias, mainEntity, quickSearchFields, externalCriteriaKeys);
         List<ModuleMutationFieldValidation> validations = formViewFields.stream()
                 .filter(field -> field.fieldRef().relationCode() == null)
                 .map(field -> new ModuleMutationFieldValidation(null, field.fieldRef().fieldName(),
@@ -569,7 +571,7 @@ public class PlatformModuleRuntimeContextService {
             dynamicRecordService.describe(moduleAlias);
             return true;
         } catch (ModuleDefinitionException exception) {
-            if (exception.getMessage() != null && exception.getMessage().startsWith("unknown module alias:")) {
+            if (exception instanceof UnknownDynamicModuleException) {
                 return false;
             }
             throw exception;
@@ -606,10 +608,10 @@ public class PlatformModuleRuntimeContextService {
         ResolvedModuleUiDescriptor descriptor = staticDefinition
                 .map(definition -> ModuleUiDescriptorCompiler.compile(definition, this::referencePickerMode))
                 .orElse(null);
-        return descriptor == null ? null : descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
-                .withFileReferences(descriptor.fileReferences().stream()
-                .map(reference -> withFieldAccess(moduleAlias, reference))
-                .toList());
+        return descriptor == null ? null : ModuleUiTextLocations.withConfiguredSources(
+                descriptor.withPage(resolvePage(moduleAlias, moduleKind, descriptor.page()))
+                        .withFileReferences(descriptor.fileReferences().stream()
+                                .map(reference -> withFieldAccess(moduleAlias, reference)).toList()), false);
     }
 
     private ResolvedModuleUiDescriptor dynamicUiDescriptor(String moduleAlias,
@@ -712,7 +714,7 @@ public class PlatformModuleRuntimeContextService {
         }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
-        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+        return ModuleUiTextLocations.withConfiguredSources(descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page())), true);
     }
 
     /**
@@ -907,7 +909,7 @@ public class PlatformModuleRuntimeContextService {
             var query = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract(
                     "/" + moduleAlias + "/view/{id}/associations/" + view.code() + "/query", null, null,
                     true, view.queryable(), projection,
-                    DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of()), false, null);
+                    MetadataQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of()), false, null);
             boolean aggregateChild = target.aggregateChild();
             var mutations = aggregateChild ? new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract(
                     true, true, true, PlatformAction.CREATE.code(), PlatformAction.UPDATE.code(), PlatformAction.DELETE.code()) : null;
@@ -970,7 +972,7 @@ public class PlatformModuleRuntimeContextService {
             contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
         }
         return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
-                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions());
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions(), definition.sourceTexts());
     }
 
     private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,
@@ -1471,7 +1473,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 action.isBindingPending(),
                 Boolean.TRUE.equals(action.getFormSupported())
-        );
+        ).withTitleSource(action.titleSource());
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, StaticModuleActionDefinition action) {
@@ -1498,7 +1500,7 @@ public class PlatformModuleRuntimeContextService {
                 authorization.decision(),
                 false,
                 action.formSupported()
-        );
+        ).withTitleSource(action.titleSource(moduleAlias));
     }
 
     private PlatformModuleRuntimeAction runtimeAction(String moduleAlias, DynamicActionDescriptor action) {
@@ -1518,7 +1520,7 @@ public class PlatformModuleRuntimeContextService {
                 action.executorKey(),
                 authorization.authorized(),
                 authorization.decision()
-        );
+        ).withTitleSource(action.titleSource() != null ? action.titleSource() : net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources.moduleActionTitle(moduleAlias, action.code(), action.title()));
     }
 
     private ActionExecutionPolicy policy(PlatformModuleAction action) {
@@ -1530,7 +1532,7 @@ public class PlatformModuleRuntimeContextService {
                 toPlatformLevel(action.getActionLevel()),
                 toAccessMode(action.effectiveAccessMode()),
                 action.effectiveActionAuth(),
-                action.effectiveDataAuth(),
+                actionService.effectiveDataAuth(action),
                 action.effectiveDefaultGrantPolicy(),
                 inheritActionCode(action.getActionCode(), permissionActionCode, action.effectiveActionAuth())
         );

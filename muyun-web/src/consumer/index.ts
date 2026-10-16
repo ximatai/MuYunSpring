@@ -104,6 +104,7 @@ export {
 } from '../platform-components/platformErrorFeedback';
 export {
   createBrowserFileTransferUpload,
+  FileTransferUploadCancelledError,
   unwrapResponsePayload,
 } from '../platform-components/fileTransferUpload';
 export type {
@@ -137,3 +138,6 @@ export type {
   ReferencePickerTreeNode,
   ReferencePickerValidity,
 } from '../platform-components/referencePickerModel';
+
+export { UiLanguageProvider, registerUiLanguageLocales } from '../vue-ui-antdv';
+export { default as LanguageSelector } from '../platform-workbench/LanguageSelector.vue';

@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.ability;
 
 import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -118,6 +120,13 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
     protected final void rejectChanged(String fieldName, Object existingValue, Object incomingValue) {
         if (!Objects.equals(existingValue, incomingValue)) {
             throw new PlatformException(fieldName + " cannot be changed");
+        }
+    }
+
+    /** Rejects an immutable-field change using the domain's complete display source. */
+    protected final <V> void rejectChangedText(T existing, T incoming, TextReference source, Function<T, V> valueReader) {
+        if (existing != null && !Objects.equals(valueReader.apply(existing), valueReader.apply(incoming))) {
+            throw PlatformErrors.badRequestText(source);
         }
     }
 

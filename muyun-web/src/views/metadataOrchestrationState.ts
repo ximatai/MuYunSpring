@@ -1,3 +1,4 @@
+import { recordPresentationLabel, platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { FieldSpec, Metadata, MetadataField, ModuleMetadataRelation } from '@muyun/web-contracts';
 import type { RecordExplorerItemDescriptor } from '../platform-components/recordExplorerItemModel';
@@ -92,7 +93,7 @@ export interface FieldSpecOption {
   label: string;
 }
 
-export function createMetadataOrchestrationState() {
+export function createMetadataOrchestrationState(language: LanguageContext = platformLanguageContext) {
   const relations = ref<ModuleMetadataRelation[]>([]);
   const metadataById = ref<Record<string, Metadata>>({});
   const selectedRelationId = ref<string>();
@@ -119,7 +120,7 @@ export function createMetadataOrchestrationState() {
       mode.value === 'create-dictionary-field' ||
       mode.value === 'edit-field',
   );
-  const fieldSpecOptions = computed(() => fieldSpecOptionListOf(fieldSpecs.value));
+  const fieldSpecOptions = computed(() => fieldSpecOptionListOf(fieldSpecs.value, language));
 
   function handleRelationsLoaded(loaded: ModuleMetadataRelation[]) {
     relations.value = loaded;
@@ -444,30 +445,54 @@ export function isValidFieldPropertyDraft(property: MetadataFieldPropertyDraft):
   return true;
 }
 
-export function metadataFieldPropertyLabel(kind: MetadataFieldPropertyKind): string {
+export function metadataFieldPropertyLabel(
+  kind: MetadataFieldPropertyKind,
+  language: LanguageContext = platformLanguageContext,
+): string {
   return {
-    BASIC: '普通字段',
-    MODULE_REFERENCE: '模块引用',
-    DICTIONARY: '数据字典',
-    LEGACY_LOCKED: '旧配置锁定',
+    BASIC: language.t('platform.screen.metadataEditorSession.basic-field', '普通字段'),
+    MODULE_REFERENCE: language.t('platform.screen.metadataEditorSession.module-reference', '模块引用'),
+    DICTIONARY: language.t('platform.screen.metadataEditorSession.data-dictionary', '数据字典'),
+    LEGACY_LOCKED: language.t(
+      'platform.screen.metadataOrchestrationState.legacy-configuration-locked',
+      '旧配置锁定',
+    ),
   }[kind];
 }
 
-export function metadataFieldPropertySummary(property: MetadataFieldPropertyDraft): string {
+export function metadataFieldPropertySummary(
+  property: MetadataFieldPropertyDraft,
+  language: LanguageContext = platformLanguageContext,
+): string {
   if (property.kind === 'MODULE_REFERENCE') {
     const reference = property.referenceConfig;
-    if (!reference?.targetModuleAlias) return '待配置目标模块';
+    if (!reference?.targetModuleAlias)
+      return language.t(
+        'platform.screen.metadataOrchestrationState.configure-target-module',
+        '待配置目标模块',
+      );
     const key = reference.targetKeyField || 'id';
     const label = reference.targetLabelField || 'title';
     return `${reference.targetModuleAlias} · ${key} → ${label}`;
   }
   if (property.kind === 'DICTIONARY') {
     const dictionary = property.dictionaryConfig;
-    if (!dictionary?.dictionaryCategoryAlias) return '待配置字典类别';
-    return `${dictionary.dictionaryApplicationAlias ?? '当前应用'} · ${dictionary.dictionaryCategoryAlias}`;
+    if (!dictionary?.dictionaryCategoryAlias)
+      return language.t(
+        'platform.screen.metadataOrchestrationState.configure-dictionary-category',
+        '待配置字典类别',
+      );
+    return `${dictionary.dictionaryApplicationAlias ?? language.t('platform.screen.metadataOrchestrationState.current-application', '当前应用')} · ${dictionary.dictionaryCategoryAlias}`;
   }
-  if (property.kind === 'LEGACY_LOCKED') return '旧链路配置，需在迁移流程中处理';
-  return '无附加业务绑定';
+  if (property.kind === 'LEGACY_LOCKED')
+    return language.t(
+      'platform.screen.metadataOrchestrationState.legacy-configuration-handle-it-through-the-migration-process',
+      '旧链路配置，需在迁移流程中处理',
+    );
+  return language.t(
+    'platform.screen.metadataOrchestrationState.no-additional-business-binding',
+    '无附加业务绑定',
+  );
 }
 
 /** Only business-owned physical fields are orchestrated; platform-managed fields stay hidden. */
@@ -482,40 +507,70 @@ export function isOrchestratableField(field: MetadataField): boolean {
   );
 }
 
-export function fieldSpecOptionListOf(specs: FieldSpec[]): FieldSpecOption[] {
+export function fieldSpecOptionListOf(
+  specs: FieldSpec[],
+  language: LanguageContext = platformLanguageContext,
+): FieldSpecOption[] {
   return specs
     .filter((item) => item.enabled !== false)
     .map((item) => ({
       value: item.alias ?? item.id ?? '',
-      label: item.title ?? item.alias ?? item.id ?? '未命名字段规格',
+      label:
+        recordPresentationLabel(item, 'title', language) ??
+        item.alias ??
+        item.id ??
+        language.t(
+          'platform.screen.metadataOrchestrationState.untitled-field-specification',
+          '未命名字段规格',
+        ),
     }))
     .filter((option) => option.value);
 }
 
 /** Filters a populated entity to the source specification's server-declared safe targets. */
-export function dataSafeFieldSpecOptions(specs: FieldSpec[], currentAlias?: string): FieldSpecOption[] {
+export function dataSafeFieldSpecOptions(
+  specs: FieldSpec[],
+  currentAlias?: string,
+  language: LanguageContext = platformLanguageContext,
+): FieldSpecOption[] {
   const source = specs.find((spec) => (spec.alias ?? spec.id) === currentAlias);
   const permittedAliases = new Set(
     [currentAlias, ...(source?.safeTargetFieldSpecAliases ?? [])].filter(Boolean),
   );
-  return fieldSpecOptionListOf(specs).filter((option) => permittedAliases.has(option.value));
+  return fieldSpecOptionListOf(specs, language).filter((option) => permittedAliases.has(option.value));
 }
 
 /** Use the catalog title for human-facing metadata surfaces; aliases remain stable machine identities. */
-export function fieldSpecDisplayLabel(fieldSpecAlias: string | undefined, specs: FieldSpec[]): string {
+export function fieldSpecDisplayLabel(
+  fieldSpecAlias: string | undefined,
+  specs: FieldSpec[],
+  language: LanguageContext = platformLanguageContext,
+): string {
   if (!fieldSpecAlias) return '';
+  const spec = specs.find((spec) => spec.alias === fieldSpecAlias || spec.id === fieldSpecAlias);
+  return spec ? (recordPresentationLabel(spec, 'title', language) ?? fieldSpecAlias) : fieldSpecAlias;
+}
+
+export function entityTitleOf(
+  relation: ModuleMetadataRelation,
+  metadata: Metadata | undefined,
+  language: LanguageContext = platformLanguageContext,
+): string {
   return (
-    specs.find((spec) => spec.alias === fieldSpecAlias || spec.id === fieldSpecAlias)?.title ?? fieldSpecAlias
+    metadata?.title ??
+    relation.relationAlias ??
+    language.t('platform.screen.metadataOrchestrationState.unnamed-metadata', '未命名元数据')
   );
 }
 
-export function entityTitleOf(relation: ModuleMetadataRelation, metadata: Metadata | undefined): string {
-  return metadata?.title ?? relation.relationAlias ?? '未命名元数据';
-}
-
-export function relationRoleTag(role: ModuleMetadataRelation['relationRole']): string | undefined {
-  if (isMainRelation(role)) return '主元数据';
-  if (role === 'CHILD' || role === 'child') return '子元数据';
+export function relationRoleTag(
+  role: ModuleMetadataRelation['relationRole'],
+  language: LanguageContext = platformLanguageContext,
+): string | undefined {
+  if (isMainRelation(role))
+    return language.t('platform.screen.MetadataGovernanceSurface.main-metadata', '主元数据');
+  if (role === 'CHILD' || role === 'child')
+    return language.t('platform.screen.MetadataGovernanceSurface.child-metadata-label', '子元数据');
   return undefined;
 }
 
@@ -527,13 +582,14 @@ export function isMainRelation(role: ModuleMetadataRelation['relationRole'] | un
 export function entityExplorerItem(
   relation: ModuleMetadataRelation,
   metadata: Metadata | undefined,
+  language: LanguageContext = platformLanguageContext,
 ): RecordExplorerItemDescriptor {
-  const title = entityTitleOf(relation, metadata);
+  const title = entityTitleOf(relation, metadata, language);
   const secondary = metadata?.alias ?? relation.relationAlias;
   return {
     title,
     secondary: secondary && secondary !== title ? secondary : undefined,
-    tag: relationRoleTag(relation.relationRole),
+    tag: relationRoleTag(relation.relationRole, language),
     muted: metadata?.enabled === false ? true : undefined,
   };
 }

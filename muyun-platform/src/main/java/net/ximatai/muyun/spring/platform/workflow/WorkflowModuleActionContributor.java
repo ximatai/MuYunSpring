@@ -11,7 +11,11 @@ import net.ximatai.muyun.spring.platform.module.ModuleActionBindingType;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContribution;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -21,12 +25,22 @@ import java.util.UUID;
 @Service
 public class WorkflowModuleActionContributor {
     private final ModuleActionContributionRegistrar actionRegistrar;
+    private final PlatformModuleService moduleService;
+    private final PlatformModuleActionService actionService;
 
-    public WorkflowModuleActionContributor(ModuleActionContributionRegistrar actionRegistrar) {
-        this.actionRegistrar = actionRegistrar;
+    public WorkflowModuleActionContributor(ModuleActionContributionRegistrar actionRegistrar,
+                                           PlatformModuleService moduleService, PlatformModuleActionService actionService) {
+        this.actionRegistrar = java.util.Objects.requireNonNull(actionRegistrar);
+        this.moduleService = java.util.Objects.requireNonNull(moduleService);
+        this.actionService = java.util.Objects.requireNonNull(actionService);
     }
 
+    @Transactional
     public void registerPublishedWorkflowAction(WorkflowDefinition definition, WorkflowVersion version) {
+        if (definition == null) return;
+        // Runtime actions form a global module directory shared by all workflow definitions and tenants.
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition(
+                "workflow.module.actions", PlatformNameRules.requireModuleAlias(definition.getModuleAlias()));
         actionRegistrar.registerAll(contributions(definition, version));
     }
 
@@ -90,7 +104,18 @@ public class WorkflowModuleActionContributor {
     private List<ModuleActionContribution> runtimeContributions(WorkflowDefinition definition, WorkflowVersion version) {
         String moduleAlias = PlatformNameRules.requireModuleAlias(definition.getModuleAlias());
         String sourceId = runtimeSourceId(moduleAlias);
-        return WorkflowActionPolicyService.RUNTIME_RECORD_ACTION_CODES.stream()
+        var module = moduleService.resolveVisibleModule(moduleAlias);
+        var actionCodes = new ArrayList<>(WorkflowActionPolicyService.RUNTIME_RECORD_ACTION_CODES);
+        // Static modules own their submit endpoint; dynamic approval needs a durable grantable action.
+        if (module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
+            var existing = actionService.findByModuleAliasAndActionCode(moduleAlias, "submitApproval");
+            boolean previouslyDeclared = existing != null
+                    && existing.getSourceType() == ModuleActionSourceType.WORKFLOW_RUNTIME
+                    && sourceId.equals(existing.getSourceId());
+            // Publishing a non-approval definition must preserve the module's submission declaration.
+            if (Boolean.TRUE.equals(definition.getApprovalEnabled()) || previouslyDeclared) actionCodes.add("submitApproval");
+        }
+        return actionCodes.stream()
                 .map(actionCode -> new ModuleActionContribution(
                         moduleAlias,
                         null,
@@ -124,6 +149,7 @@ public class WorkflowModuleActionContributor {
 
     private String runtimeTitle(String actionCode) {
         return switch (actionCode) {
+            case "submitApproval" -> "提交审批";
             case "approve" -> "Workflow Approve";
             case "reject" -> "Workflow Reject";
             case "rollback" -> "Workflow Rollback";

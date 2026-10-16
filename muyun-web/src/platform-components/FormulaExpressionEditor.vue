@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import { UiTokenInput } from '@muyun/vue-ui-antdv';
 import type { UiDragSource } from '@muyun/vue-ui-antdv';
@@ -7,6 +8,8 @@ import {
   type FormulaExpressionField,
   type FormulaExpressionFunction,
 } from './formulaExpressionTokens';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'FormulaExpressionEditor' });
 
@@ -45,7 +48,7 @@ defineExpose({ selection, focusSelection });
 <template>
   <UiTokenInput
     ref="tokenInput"
-    aria-label="公式"
+    :aria-label="language.t('platform.screen.FormulaExpressionEditor.formula', '公式')"
     :value="value"
     :tokens="tokens"
     :placeholder="placeholder"

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
@@ -21,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GenerationModuleActionContributorTest {
     private final PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
     private final PlatformModuleActionService actionService =
-            new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+            ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
     private final ModuleActionContributionRegistrar registrar = new ModuleActionContributionRegistrar(actionService);
     private final GenerationModuleActionContributor contributor = new GenerationModuleActionContributor(registrar);
 

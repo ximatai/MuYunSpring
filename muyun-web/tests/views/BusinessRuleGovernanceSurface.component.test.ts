@@ -8,6 +8,9 @@ import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AppError,
+  createLanguageContext,
+  provideLanguageContext,
+  type LanguageContext,
   configureModuleContext,
   provideAssistantSurfaceHost,
   createAssistantSurfaceRegistry,
@@ -278,6 +281,7 @@ function mountSurface(
   },
   registry?: AssistantSurfaceRegistry,
   workspace?: BusinessRuleWorkspace,
+  outerLanguage?: LanguageContext,
 ) {
   configureModuleContext({
     http: {
@@ -287,9 +291,10 @@ function mountSurface(
     },
   });
   const target =
-    registry || workspace
+    registry || workspace || outerLanguage
       ? defineComponent({
           setup() {
+            if (outerLanguage) provideLanguageContext(outerLanguage);
             if (registry)
               provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'rules-page' });
             if (workspace) provideBusinessRuleWorkspace(workspace);
@@ -1746,4 +1751,125 @@ it('hands off unknown submissions to a shared recovery view and retains the cand
     vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
   ).toHaveLength(1);
   workspace.dispose();
+});
+
+it('renders the workspace language rather than an unrelated outer language and preserves formula drafts', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const outerLanguage = createLanguageContext({ languageTag: 'zh-CN' });
+  const http = fakeHttp();
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    language,
+  );
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace, outerLanguage);
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('Add rule');
+    expect(wrapper.text()).not.toContain('新增规则');
+    await action(wrapper, 'Add rule').trigger('click');
+    wrapper
+      .findComponent(VisualFormulaEditor)
+      .vm.$emit('update:value', "{amount} = {quantity} * 2 + '业务常量'");
+    await flushPromises();
+    const session = workspace.session('education.exam');
+    const revision = session.revision.value;
+    const candidate = JSON.stringify(session.rules.value);
+    const calls = vi.mocked(http.request).mock.calls.length;
+    expect(wrapper.text()).toContain('Calculate');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('新增规则');
+    expect(wrapper.findComponent(VisualFormulaEditor).props('value')).toBe(
+      "{amount} = {quantity} * 2 + '业务常量'",
+    );
+    expect(JSON.stringify(session.rules.value)).toBe(candidate);
+    expect(session.revision.value).toBe(revision);
+    expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+    expect(outerLanguage.languageTag.value).toBe('zh-CN');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Add rule');
+  } finally {
+    workspace.dispose();
+  }
+});
+
+it('changes local incomplete-rule feedback without rerunning checks or modifying the new rule', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const http = fakeHttp();
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, undefined, language);
+  await flushPromises();
+  await action(wrapper, 'Add rule').trigger('click');
+  await action(wrapper, 'Save').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Enter an expression.');
+  const calls = vi.mocked(http.request).mock.calls.length;
+  language.setLanguage('zh-CN');
+  await flushPromises();
+  expect(wrapper.text()).toContain('请补充表达式');
+  expect(wrapper.text()).not.toContain('Enter an expression.');
+  expect(wrapper.findComponent(VisualFormulaEditor).props('value')).toBe('');
+  expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+  language.setLanguage('en');
+  await flushPromises();
+  expect(wrapper.text()).toContain('Enter an expression.');
+});
+
+it('refreshes a rejected precheck failure without submitting or replaying the failed precheck', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  const http = fakeHttp();
+  const base = vi.mocked(http.request).getMockImplementation()!;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/preview')) throw new Error('transport failed');
+    return base(options);
+  });
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+    undefined,
+    undefined,
+    language,
+  );
+  const session = workspace.session('education.exam');
+  await session.load();
+  session.adapter.revise({
+    code: 'validateCandidate',
+    kind: 'VALIDATION',
+    expression: 'true',
+    enabled: true,
+    messageTemplate: '业务填写的提示',
+  });
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace);
+  try {
+    await flushPromises();
+    await action(wrapper, '应用更改').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('规则预检失败，尚未提交；请重新检查后再应用');
+    const calls = vi.mocked(http.request).mock.calls.length;
+    const revision = session.revision.value;
+    const candidate = JSON.stringify(session.rules.value);
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain(
+      'Rule prechecks failed and nothing was submitted. Check the rules again before applying.',
+    );
+    expect(wrapper.text()).not.toContain('规则预检失败，尚未提交；请重新检查后再应用');
+    expect(session.submissionStatus.value).toBe('idle');
+    expect(session.revision.value).toBe(revision);
+    expect(JSON.stringify(session.rules.value)).toBe(candidate);
+    expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+    expect(vi.mocked(http.request).mock.calls.some(([options]) => options.path.endsWith('/apply'))).toBe(
+      false,
+    );
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('规则预检失败，尚未提交；请重新检查后再应用');
+  } finally {
+    workspace.dispose();
+  }
 });

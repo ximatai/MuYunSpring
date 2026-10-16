@@ -1,4 +1,9 @@
-import type { MenuClient, SessionClient } from '@muyun/web-core';
+import {
+  platformLanguageContext,
+  type LanguageContext,
+  type MenuClient,
+  type SessionClient,
+} from '@muyun/web-core';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -141,6 +146,7 @@ export function restoreWorkbenchStartupStateFromUrl(
   url: string,
   options: PageDescriptorResolveOptions = {},
   newInstance = false,
+  language: LanguageContext = platformLanguageContext,
 ): WorkbenchStartupState {
   if (url === '/' || url === '') {
     return state;
@@ -151,7 +157,7 @@ export function restoreWorkbenchStartupStateFromUrl(
   const descriptor = openApiModuleAlias
     ? createModuleOpenApiPageDescriptor(openApiModuleAlias)
     : isOpenApiCatalogPath(pathname)
-      ? createOpenApiCatalogPageDescriptor()
+      ? createOpenApiCatalogPageDescriptor(language)
       : tryPageDescriptorFromUrl(url, options);
   if (!descriptor) {
     return state;
@@ -163,7 +169,11 @@ export function restoreWorkbenchStartupStateFromUrl(
     explicitMenu && explicitTarget && explicitMenuOwnsDynamicDescriptor(explicitTarget, descriptor)
       ? { ...descriptor, title: explicitMenu.title }
       : descriptor;
-  const workspaceDescriptor = restoredWorkspaceViewDescriptor(descriptorWithExplicitMenuTitle);
+  const workspaceDescriptor = restoredWorkspaceViewDescriptor(
+    descriptorWithExplicitMenuTitle,
+    options.title,
+    language,
+  );
   const effectiveDescriptor = workspaceDescriptor ?? descriptorWithExplicitMenuTitle;
   const existingTabs = state.tabs ?? [];
   const existingWorkspaceTab = workspaceDescriptor
@@ -224,7 +234,11 @@ function existingWorkspaceTabFor(tabs: MenuTab[], descriptor: PageDescriptor): M
   );
 }
 
-function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {
+function restoredWorkspaceViewDescriptor(
+  descriptor: PageDescriptor,
+  explicitTitle: string | undefined,
+  language: LanguageContext,
+) {
   if (descriptor.pageType !== 'business-route') return undefined;
   const workspaceView = resolveWorkspaceView(descriptor);
   return workspaceView
@@ -232,7 +246,8 @@ function restoredWorkspaceViewDescriptor(descriptor: PageDescriptor) {
         workspaceView.view,
         workspaceView.input,
         workspaceView.presentation,
-        descriptor.title,
+        explicitTitle,
+        language,
       )
     : undefined;
 }
@@ -341,6 +356,7 @@ export function restoreLockedWorkbenchTabs(
   lockedTabs: MenuTab[],
   menus: MenuTreeNode[],
   options: PageDescriptorResolveOptions = {},
+  language: LanguageContext = platformLanguageContext,
 ): MenuTab[] {
   const availableMenus = new Map<string, { menu: MenuRecord; target: MenuNavigationTarget }>();
   collectTabMenus(menus, availableMenus);
@@ -355,7 +371,7 @@ export function restoreLockedWorkbenchTabs(
       return [createMenuTab(available.menu, available.target, options)];
     }
 
-    const workspaceTab = restoreLockedWorkspaceTab(tab);
+    const workspaceTab = restoreLockedWorkspaceTab(tab, language);
     if (!workspaceTab || restoredKeys.has(workspaceTab.key)) return [];
     restoredKeys.add(workspaceTab.key);
     return [workspaceTab];
@@ -372,10 +388,11 @@ export function restoreSessionWorkbenchTabs(
   tabs: MenuTab[],
   menus: MenuTreeNode[],
   options: PageDescriptorResolveOptions = {},
+  language: LanguageContext = platformLanguageContext,
 ): MenuTab[] {
   const restoredKeys = new Set<string>();
   return tabs.flatMap((tab) => {
-    const lockedRestored = restoreLockedWorkbenchTabs([tab], menus, options)[0];
+    const lockedRestored = restoreLockedWorkbenchTabs([tab], menus, options, language)[0];
     if (lockedRestored) {
       if (restoredKeys.has(lockedRestored.key)) return [];
       restoredKeys.add(lockedRestored.key);
@@ -398,14 +415,16 @@ function menuIdFromTabKey(key: string): string | undefined {
   return key.startsWith('menu:') ? key.slice('menu:'.length) || undefined : undefined;
 }
 
-function restoreLockedWorkspaceTab(tab: MenuTab): MenuTab | undefined {
+function restoreLockedWorkspaceTab(tab: MenuTab, language: LanguageContext): MenuTab | undefined {
   const descriptor = tab.pageDescriptor;
   if (descriptor?.pageType !== 'business-route') return undefined;
   const workspaceView = resolveWorkspaceView(descriptor);
   if (!workspaceView || workspaceView.presentation !== 'tab') return undefined;
   // Recreate title, URL and identity from the registered definition instead
   // of trusting a stale client-side snapshot.
-  return createDirectTab(createWorkspaceViewDescriptor(workspaceView.view, workspaceView.input, 'tab'));
+  return createDirectTab(
+    createWorkspaceViewDescriptor(workspaceView.view, workspaceView.input, 'tab', undefined, language),
+  );
 }
 
 export function updateLockedMenuTabs(lockedTabs: MenuTab[], tab: MenuTab): MenuTab[] {
@@ -555,7 +574,8 @@ function directTabTitleOf(descriptor: PageDescriptor): string {
   return descriptor.target.url;
 }
 
-function findMenuByDescriptor(
+/** Resolves the authoritative visible menu presentation for a page intent. */
+export function findMenuByDescriptor(
   nodes: WorkbenchStartupState['menus'],
   descriptor: PageDescriptor,
   options: PageDescriptorResolveOptions,
@@ -635,4 +655,17 @@ function findMenuById(nodes: WorkbenchStartupState['menus'], menuId: string): Me
   }
 
   return undefined;
+}
+
+/** An explicit caller title owns the label and replaces any default presentation resource. */
+export function withWorkbenchTabTitle(tab: MenuTab, title: string): MenuTab {
+  return {
+    ...tab,
+    title,
+    ...(tab.pageDescriptor
+      ? {
+          pageDescriptor: { ...tab.pageDescriptor, title, titleText: undefined },
+        }
+      : {}),
+  };
 }

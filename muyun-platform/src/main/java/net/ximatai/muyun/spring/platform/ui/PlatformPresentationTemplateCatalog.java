@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,19 +38,27 @@ public class PlatformPresentationTemplateCatalog {
             MANAGEMENT_ALIAS, List.of(MANAGEMENT, new PlatformPresentationTemplate(
                     MANAGEMENT_ALIAS, MODE_AWARE_VERSION, PlatformPresentationClientType.WEB,
                     java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                    "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                    "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MODE_AWARE_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MANAGED_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, SEPARATE_DETAIL_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":5,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
+                            "{\"template\":\"management\",\"templateVersion\":5,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"fields\":[]},{\"slot\":\"form\",\"fields\":[]}]}")));
 
     public record ManagementSkeleton(String mode, String title, String navigationTitle,
-                                     String fieldGroupTitle, boolean columns, int maxIdentityFields) {}
+                                     String fieldGroupTitle, boolean columns, int maxIdentityFields) {
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String titleKey() { return textKey("title"); }
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String navigationTitleKey() { return textKey("navigationTitle"); }
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String fieldGroupTitleKey() { return textKey("fieldGroupTitle"); }
+        private String textKey(String property) { return "platform.presentation.management." + mode + "." + property; }
+    }
 
     public static List<ManagementSkeleton> managementSkeletons() {
         return List.of(
@@ -70,16 +79,18 @@ public class PlatformPresentationTemplateCatalog {
                                                 PlatformPageContractType pageContractType) {
         PlatformPresentationTemplate template = TEMPLATES.getOrDefault(alias, List.of()).stream()
                 .filter(candidate -> candidate.version() == (version == null ? -1 : version))
-                .findFirst().orElseThrow(() -> BusinessExceptions.warning(
-                        "platform.presentation-template.not-found",
-                        "Presentation template is not registered: " + alias + " v" + version));
+                .findFirst().orElseThrow(() -> BusinessExceptions.warningText("platform.presentation-template.not-found", TextReference.code(
+                        "platform.rejection.platform-presentation-template-catalog.presentation-template-is-not-registered-v",
+                        "Presentation template is not registered: {value1} v{value2}"), Map.of("value1", String.valueOf(alias), "value2", String.valueOf(version))));
         if (template.clientType() != clientType) {
-            throw BusinessExceptions.warning("platform.presentation-template.client-unsupported",
-                    "Presentation template does not support client: " + clientType);
+            throw BusinessExceptions.warningText("platform.presentation-template.client-unsupported", TextReference.code(
+                    "platform.rejection.platform-presentation-template-catalog.presentation-template-does-not-support-client",
+                    "Presentation template does not support client: {value1}"), Map.of("value1", String.valueOf(clientType)));
         }
         if (!template.supportedPageContracts().contains(pageContractType)) {
-            throw BusinessExceptions.warning("platform.presentation-template.page-contract-unsupported",
-                    "Presentation template does not support page contract: " + pageContractType);
+            throw BusinessExceptions.warningText("platform.presentation-template.page-contract-unsupported", TextReference.code(
+                    "platform.rejection.platform-presentation-template-catalog.presentation-template-does-not-support-page-contract",
+                    "Presentation template does not support page contract: {value1}"), Map.of("value1", String.valueOf(pageContractType)));
         }
         return template;
     }
@@ -92,21 +103,24 @@ public class PlatformPresentationTemplateCatalog {
     /** Validates an unsaved tree against the same template schema used by publication. */
     public void validateUiTree(String uiTreeJson, PlatformPresentationTemplate template) {
         if (uiTreeJson == null || uiTreeJson.isBlank()) {
-            throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-required",
-                    "Presentation revision UI tree is required");
+            throw BusinessExceptions.warningText("platform.presentation-revision.ui-tree-required", TextReference.code(
+                    "platform.rejection.platform-presentation-template-catalog.presentation-revision-ui-tree-is-required",
+                    "Presentation revision UI tree is required"));
         }
         JsonNode root;
         try {
             root = OBJECT_MAPPER.readTree(uiTreeJson);
         } catch (JsonProcessingException exception) {
-            throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-invalid",
-                    "Presentation revision UI tree must be valid JSON");
+            throw BusinessExceptions.warningText("platform.presentation-revision.ui-tree-invalid", TextReference.code(
+                    "platform.rejection.platform-presentation-template-catalog.presentation-revision-ui-tree-must-be-valid-json",
+                    "Presentation revision UI tree must be valid JSON"));
         }
         if (root == null || !root.isObject() || !Objects.equals(template.alias(), root.path("template").asText())
                 || template.version() != root.path("templateVersion").asInt(-1)
                 || !root.path("nodes").isArray()) {
-            throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-template-mismatch",
-                    "Presentation revision UI tree does not match its template contract");
+            throw BusinessExceptions.warningText("platform.presentation-revision.ui-tree-template-mismatch", TextReference.code(
+                    "platform.rejection.platform-presentation-template-catalog.presentation-revision-ui-tree-does-not-match-its-template-contract",
+                    "Presentation revision UI tree does not match its template contract"));
         }
         if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION || template.version() == MANAGED_ACTION_VERSION || template.version() == SEPARATE_DETAIL_VERSION) {
             validateModeAwareTree(root);
@@ -203,7 +217,7 @@ public class PlatformPresentationTemplateCatalog {
         for (JsonNode node : root.path("nodes")) {
             String slot = node.path("slot").asText();
             if (!(Set.of("list", "form").contains(slot) || (separateDetail && "detail".equals(slot))) || !slots.add(slot)
-                    || !node.path("title").isTextual() || node.path("title").asText().isBlank()
+                    || (node.has("title") && (!node.path("title").isTextual() || node.path("title").asText().isBlank()))
                     || !node.path("fields").isArray()) {
                 throw invalidManagementTree();
             }
@@ -489,7 +503,8 @@ public class PlatformPresentationTemplateCatalog {
     }
 
     private static RuntimeException invalidManagementTree() {
-        return BusinessExceptions.warning("platform.presentation-revision.ui-tree-management-invalid",
-                "Management v1 UI tree contains an unsupported slot, field node, or component property");
+        return BusinessExceptions.warningText("platform.presentation-revision.ui-tree-management-invalid", TextReference.code(
+                "platform.rejection.platform-presentation-template-catalog.management-v1-ui-tree-contains-an-unsupported-slot-field-node-or-component",
+                "Management v1 UI tree contains an unsupported slot, field node, or component property"));
     }
 }

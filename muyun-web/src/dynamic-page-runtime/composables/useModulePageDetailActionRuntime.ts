@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, type Ref } from 'vue';
 import { recordDraftFingerprint } from '@muyun/platform-components';
 import type {
@@ -37,6 +38,7 @@ export interface ModulePageDetailActionRuntimeOptions {
  * templates never acquire request or authorization responsibilities.
  */
 export function useModulePageDetailActionRuntime(options: ModulePageDetailActionRuntimeOptions) {
+  const language = useLanguageContext();
   const supportedDetailActionBlocks = computed(() =>
     (options.pageBootstrap.value?.resolvedConfig.actionBlocks ?? []).filter(
       (block): block is PageBootstrapActionBlock => block.type === 'action',
@@ -187,7 +189,13 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
       }
       if (block.refreshStrategy?.list !== false) options.refreshList();
       closeLocalEditSession();
-      await options.presentSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-local-edit');
+      await options.presentSuccess(
+        result,
+        language.t('platform.screen.useModulePageDetailActionRuntime.value-completed', '{value1}成功', {
+          value1: block.title ?? block.actionCode,
+        }),
+        'module-local-edit',
+      );
       if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-local-edit');
     } catch (cause) {
       options.presentError(cause, 'module-local-edit');
@@ -212,7 +220,13 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
         refreshFailure = cause;
       }
       options.refreshList();
-      await options.presentSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-action-block');
+      await options.presentSuccess(
+        result,
+        language.t('platform.screen.useModulePageDetailActionRuntime.value-completed', '{value1}成功', {
+          value1: block.title ?? block.actionCode,
+        }),
+        'module-action-block',
+      );
       if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-action-block');
     } catch (cause) {
       options.presentError(cause, 'module-action-block');

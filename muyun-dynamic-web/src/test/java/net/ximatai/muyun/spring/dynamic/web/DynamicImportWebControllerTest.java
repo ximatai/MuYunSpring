@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.i18n.*;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -63,9 +65,14 @@ class DynamicImportWebControllerTest {
         importFacade = mock(DynamicImportFacade.class);
         errorFileService = new DynamicImportErrorFileService();
         activeTenantVerifier = mock(ActiveTenantVerifier.class);
+        var beans = new DefaultListableBeanFactory();
+        var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        beans.registerSingleton("catalog", catalog);
+        beans.registerSingleton("texts", TextResources.load(getClass().getClassLoader(), catalog));
         mvc = MockMvcBuilders
                 .standaloneSetup(new DynamicImportWebController(
-                        recordService, importFacade, errorFileService, activeTenantVerifier))
+                        recordService, importFacade, errorFileService, activeTenantVerifier,
+                        beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class)))
                 .setControllerAdvice(new PlatformWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
@@ -169,6 +176,9 @@ class DynamicImportWebControllerTest {
                 .andExpect(jsonPath("$.summaries.order.skipped").value(3))
                 .andExpect(jsonPath("$.summaries.order.errors").value(1))
                 .andExpect(jsonPath("$.partialSuccess").value(true))
+                .andExpect(jsonPath("$.messageText.source.sourceKind").value("CODE"))
+                .andExpect(jsonPath("$.messageText.languages.en.text").value("Import completed. Correct the errors and retry."))
+                .andExpect(jsonPath("$.messageText.languages['zh-CN'].text").value("导入完成，请修正异常数据后重试"))
                 .andExpect(jsonPath("$.errorFileName").value("sales_order-import-errors.xlsx"))
                 .andExpect(jsonPath("$.errorFileToken").isNotEmpty());
 

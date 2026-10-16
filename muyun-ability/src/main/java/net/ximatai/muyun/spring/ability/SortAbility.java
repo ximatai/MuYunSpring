@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.ability;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
@@ -39,21 +41,29 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
 
     private void reorderInTransaction(Criteria additionalScope, List<String> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
-            throw new PlatformException("Cannot reorder empty records");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-reorder-empty-records",
+                    "Cannot reorder empty records"));
         }
         Set<String> uniqueIds = new LinkedHashSet<>(orderedIds);
         if (uniqueIds.size() != orderedIds.size()) {
-            throw new PlatformException("Cannot reorder duplicate records");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-reorder-duplicate-records",
+                    "Cannot reorder duplicate records"));
         }
         T first = select(orderedIds.getFirst());
         if (first == null) {
-            throw new PlatformException("Cannot reorder missing record: " + orderedIds.getFirst());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-reorder-missing-record",
+                    "Cannot reorder missing record: {value1}"), Map.of("value1", String.valueOf(orderedIds.getFirst())));
         }
         List<T> entities = new ArrayList<>();
         for (String id : orderedIds) {
             T entity = select(id);
             if (entity == null) {
-                throw new PlatformException("Cannot reorder missing record: " + id);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.sort-ability.cannot-reorder-missing-record",
+                        "Cannot reorder missing record: {value1}"), Map.of("value1", String.valueOf(id)));
             }
             validateSortScope(first, entity);
             entities.add(entity);
@@ -66,7 +76,9 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
                 .map(SortCapable::getId)
                 .toList();
         if (!new LinkedHashSet<>(scopedIds).equals(uniqueIds)) {
-            throw new PlatformException("Cannot reorder partial records; orderedIds must cover complete scope");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-reorder-partial-records-orderedids-must-cover-complete-scope",
+                    "Cannot reorder partial records; orderedIds must cover complete scope"));
         }
         int order = SORT_STEP;
         for (T entity : entities) {
@@ -164,7 +176,9 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
             }
         }
         if (maxOrder > Integer.MAX_VALUE - SORT_STEP) {
-            throw new PlatformException("Cannot allocate sort order; sort scope is too large");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-allocate-sort-order-sort-scope-is-too-large",
+                    "Cannot allocate sort order; sort scope is too large"));
         }
         return maxOrder + SORT_STEP;
     }
@@ -180,7 +194,9 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
         T moving = select(id);
         T target = select(targetId);
         if (moving == null || target == null) {
-            throw new PlatformException("Cannot move missing record");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-move-missing-record",
+                    "Cannot move missing record"));
         }
         validateSortScope(moving, target);
         Criteria scope = sortScope(moving);
@@ -193,7 +209,9 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
         }
         int targetIndex = ids.indexOf(targetId);
         if (targetIndex < 0) {
-            throw new PlatformException("Cannot move before/after missing target: " + targetId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.sort-ability.cannot-move-before-after-missing-target",
+                    "Cannot move before/after missing target: {value1}"), Map.of("value1", String.valueOf(targetId)));
         }
         T previous = before ? previousRow(ids, targetIndex) : target;
         T next = before ? target : nextRow(ids, targetIndex);

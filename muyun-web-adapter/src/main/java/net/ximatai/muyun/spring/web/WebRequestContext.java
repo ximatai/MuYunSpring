@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.common.i18n.LanguageContext;
 import org.slf4j.MDC;
 
 import java.util.Objects;
@@ -14,17 +15,19 @@ import java.util.concurrent.Callable;
  * Explicit, short-lived request context snapshot for work dispatched from an authenticated Web request.
  *
  * <p>This type deliberately carries only the authenticated user, the verified effective tenant scope, and
- * the request trace. It does not carry action authorization or acting-delegation scopes: background
+ * the request trace and presentation language. It does not carry action authorization or acting-delegation scopes: background
  * work must not silently extend a request's authorization decision or delegation relationship.</p>
  */
 public final class WebRequestContext {
     private final CurrentUser currentUser;
     private final String traceId;
     private final String tenantId;
+    private final String languageTag;
 
     private WebRequestContext(CurrentUser currentUser, String traceId) {
         this.currentUser = Objects.requireNonNull(currentUser, "currentUser must not be null");
         this.traceId = traceId;
+        this.languageTag = LanguageContext.currentTag();
         this.tenantId = TenantContext.hasContext() ? TenantContext.currentTenantId().orElse(null)
                 : currentUser.tenantId();
     }
@@ -67,6 +70,7 @@ public final class WebRequestContext {
         try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(currentUser);
              TenantContext.Scope ignoredTenant = tenantScope();
              RequestTraceContext.Scope ignoredTrace = traceScope();
+             LanguageContext.Scope ignoredLanguage = LanguageContext.use(languageTag);
              MdcScope ignoredMdc = mdcScope()) {
             return task.call();
         }

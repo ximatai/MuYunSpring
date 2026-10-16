@@ -17,6 +17,9 @@ import java.time.Instant;
 @Table(name = "platform_workflow_task_check_result", comment = "Workflow task check result")
 @CompositeIndex(columns = {"task_id", "check_key", "check_run_id"}, unique = true)
 public class WorkflowTaskCheckResult extends StandardEntity {
+    /** Frozen authored display fact for the current evaluation; not persisted or used for checking. */
+    private transient String checkTitle;
+
     @Column(name = "task_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Workflow task id")
     private String taskId;
 

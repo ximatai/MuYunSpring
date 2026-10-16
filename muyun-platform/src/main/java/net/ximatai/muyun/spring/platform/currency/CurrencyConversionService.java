@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.currency;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -24,7 +25,9 @@ public class CurrencyConversionService {
                                       String rateTypeCode,
                                       LocalDate rateDate) {
         if (amount == null) {
-            throw new PlatformException("currency conversion amount must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency-conversion.currency-conversion-amount-must-not-be-null",
+                    "currency conversion amount must not be null"));
         }
         Currency fromCurrency = currencyService.requireEnabledCurrency(fromCurrencyCode);
         Currency toCurrency = currencyService.requireEnabledCurrency(toCurrencyCode);

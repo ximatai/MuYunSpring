@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, h, ref } from 'vue';
 import { Table as ATable } from 'ant-design-vue';
 import UiEmpty from './UiEmpty.vue';
@@ -11,6 +12,8 @@ import type {
   UiDataTableSelection,
 } from '../types';
 import type { TablePaginationConfig, TableProps } from 'ant-design-vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiDataTable', inheritAttrs: false });
 
@@ -52,13 +55,23 @@ const props = withDefaults(
     horizontalScroll: false,
     rowMuted: undefined,
     showActionColumn: false,
-    actionColumnTitle: '操作',
+    actionColumnTitle: undefined,
     actionColumnWidth: 92,
     actionColumnFixed: true,
     rowDraggable: false,
-    rowDragHandleTitle: '拖拽排序',
-    emptyDescription: '暂无记录',
+    rowDragHandleTitle: undefined,
+    emptyDescription: undefined,
   },
+);
+
+const resolvedActionColumnTitle = computed(
+  () => props.actionColumnTitle ?? language.t('platform.screen.UiDataTable.operation', '操作'),
+);
+const resolvedRowDragHandleTitle = computed(
+  () => props.rowDragHandleTitle ?? language.t('platform.screen.UiDataTable.rowDragHandleTitle', '拖拽排序'),
+);
+const resolvedEmptyDescription = computed(
+  () => props.emptyDescription ?? language.t('platform.screen.UiDataTable.emptyDescription', '暂无记录'),
 );
 
 const emit = defineEmits<{
@@ -101,8 +114,8 @@ const tableColumns = computed(() => {
                 class: 'ui-data-table-drag-handle',
                 draggable: canDragRow(record),
                 role: 'img',
-                'aria-label': props.rowDragHandleTitle,
-                title: props.rowDragHandleTitle,
+                'aria-label': resolvedRowDragHandleTitle.value,
+                title: resolvedRowDragHandleTitle.value,
                 onDragstart: (event: DragEvent) => handleDragStart(record, event),
                 onDragend: handleDragEnd,
               },
@@ -115,7 +128,7 @@ const tableColumns = computed(() => {
     ? []
     : [
         {
-          title: props.actionColumnTitle,
+          title: resolvedActionColumnTitle.value,
           key: '__actions',
           width: props.actionColumnWidth,
           align: 'right' as const,
@@ -292,7 +305,7 @@ function isRowDragHandleEvent(event: MouseEvent) {
     @expand="handleExpand"
   >
     <template #emptyText>
-      <UiEmpty :description="emptyDescription" />
+      <UiEmpty :description="resolvedEmptyDescription" />
     </template>
     <template v-if="$slots.expandedRow" #expandedRowRender="{ record }">
       <slot name="expandedRow" :record="record" :row-key="resolveRowKey(record)" />

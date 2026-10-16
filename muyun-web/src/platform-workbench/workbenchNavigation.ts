@@ -15,6 +15,7 @@ export interface WorkbenchNavigation {
   openMenu?(menu: MenuRecord): void;
   openRoute(path: string, options?: OpenRouteOptions): WorkbenchPageOpenResult;
   replaceRoute(path: string, options?: OpenRouteOptions): WorkbenchPageOpenResult;
+  /** Reports immediate execution only; protected closing finishes asynchronously after confirmation and does not report final fallback creation. */
   closeCurrentTab(fallbackPath: string): WorkbenchPageOpenResult;
   /** Opens a page and reports whether the target host was newly created. */
   openPage(descriptor: PageDescriptor): WorkbenchPageOpenResult;

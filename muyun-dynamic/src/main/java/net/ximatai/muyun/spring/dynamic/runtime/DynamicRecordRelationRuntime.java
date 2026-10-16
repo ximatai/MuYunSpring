@@ -1,12 +1,13 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -68,7 +69,9 @@ final class DynamicRecordRelationRuntime {
                                                   Sort... sorts) {
         DynamicAssociationViewDescriptor view = associationView(moduleAlias, entityAlias, viewCode);
         if (!view.queryable()) {
-            throw new PlatformException("dynamic association view is not queryable: " + moduleAlias + "." + viewCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-relation-runtime.dynamic-association-view-is-not-queryable",
+                    "dynamic association view is not queryable: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(viewCode)));
         }
         DynamicRecord source = requireAssociationSource(moduleAlias, entityAlias, sourceRecordId);
         Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
@@ -114,7 +117,9 @@ final class DynamicRecordRelationRuntime {
                                                              Criteria criteria) {
         DynamicAssociationViewDescriptor view = associationView(moduleAlias, entityAlias, viewCode);
         if (!view.queryable()) {
-            throw new PlatformException("dynamic association view is not queryable: " + moduleAlias + "." + viewCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-relation-runtime.dynamic-association-view-is-not-queryable",
+                    "dynamic association view is not queryable: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(viewCode)));
         }
         DynamicRecord source = requireAssociationSource(moduleAlias, entityAlias, sourceRecordId);
         Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
@@ -203,7 +208,9 @@ final class DynamicRecordRelationRuntime {
     private DynamicRecord requireAssociationSource(String moduleAlias, String entityAlias, String sourceRecordId) {
         DynamicRecord source = queries.select(moduleAlias, entityAlias, sourceRecordId);
         if (source == null) {
-            throw new PlatformException("dynamic association source record does not exist: " + sourceRecordId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-relation-runtime.dynamic-association-source-record-does-not-exist",
+                    "dynamic association source record does not exist: {value1}"), Map.of("value1", String.valueOf(sourceRecordId)));
         }
         return source;
     }

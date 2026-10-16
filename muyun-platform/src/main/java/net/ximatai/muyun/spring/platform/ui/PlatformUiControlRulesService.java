@@ -1,11 +1,12 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,7 +45,9 @@ public class PlatformUiControlRulesService extends AbstractAbilityService<Platfo
     public void replace(String moduleAlias, String baseline, List<UiControlRule> rules) {
         PlatformUiControlRules row = stored(moduleAlias);
         if (!Objects.equals(baseline, snapshot(row).baselineFingerprint()))
-            throw new PlatformException("界面规则已变更，请重新加载后再应用");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-control-rules.ui-rules-have-changed-reload-before-applying-them",
+                    "界面规则已变更，请重新加载后再应用"));
         try {
             String json = mapper.writeValueAsString(rules);
             if (row == null) {

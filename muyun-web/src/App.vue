@@ -27,6 +27,7 @@ import { type RouteLocationNormalizedLoaded } from 'vue-router';
 import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
   UiThemeProvider,
+  UiLanguageProvider,
   confirmAction,
   defaultUiThemeSkinId,
   uiThemeSkinById,
@@ -35,7 +36,6 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   presentPlatformError,
-  presentPlatformMessage,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
   BusinessNotificationPanel,
@@ -52,6 +52,8 @@ import {
   provideModuleContextConfig,
   StaleAssistantInvocationError,
   userPreferences,
+  platformLanguageContext,
+  loadLanguageCatalog,
   normalizeError,
   userFacingErrorMessage,
   type AppError,
@@ -80,6 +82,7 @@ import {
 } from './platform-admin-runtime/authSession';
 import { configureAuthenticationRecovery } from './platform-admin-runtime/sessionRecovery';
 import { platformMessage } from './app/platformMessage';
+import { businessNotificationPageDescriptor } from './app/businessNotificationNavigation';
 import { useWorkbenchMenuRefresh } from './app/useWorkbenchMenuRefresh';
 import { createWorkbenchMenuRefresh } from './app/workbenchMenuRefresh';
 import { provideCurrentUserContext } from './platform-admin-runtime/currentUserContext';
@@ -110,6 +113,7 @@ import {
   restoreSessionWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
+  withWorkbenchTabTitle,
 } from './app/workbenchStartup';
 import { getMenuNavigationTarget, withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
@@ -124,11 +128,11 @@ import {
   type OpenRouteOptions,
 } from './platform-workbench/workbenchNavigation';
 import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
+import { clearWorkspaceViewUnsavedState } from './platform-workbench/workspaceViewUnsavedState';
 import {
-  clearWorkspaceViewUnsavedState,
-  workspaceViewBusyStateSources,
-  workspaceViewUnsavedStateSources,
-} from './platform-workbench/workspaceViewUnsavedState';
+  confirmDiscardWorkspaceViewState,
+  hasWorkspaceViewDiscardProtection,
+} from './platform-workbench/workspaceViewDiscardGuard';
 import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
 import WorkspaceRouteView from './views/WorkspaceRouteView.vue';
 import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
@@ -140,6 +144,7 @@ import {
 import {
   restoreThemeSkinPreference,
   saveThemeSkinPreference,
+  type ThemeSkinPreferenceFailure,
   themeSkinPreferenceKey,
 } from './app/themeSkinPreference';
 
@@ -201,6 +206,10 @@ configureUserPreferenceBackend({
     }),
 });
 
+void loadLanguageCatalog(createBackendHttpClient({ withAuth: false }), platformLanguageContext).catch(
+  () => undefined,
+);
+
 const startup = ref<WorkbenchStartupState>();
 const assistantConversationClient = createAssistantConversationClient(createBackendHttpClient());
 const constructionPlanClient = createConstructionPlanClient(createBackendHttpClient());
@@ -243,6 +252,7 @@ const businessRuleWorkspace = createBusinessRuleWorkspace(
     pageCompositionWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const metadataWorkspace = createMetadataWorkspace(
   createBackendHttpClient(),
@@ -255,6 +265,7 @@ const metadataWorkspace = createMetadataWorkspace(
     moduleMenuWorkspace.clearFocus();
   },
   (alias, title) => openConfigurationEditor(alias, 'ui', title),
+  platformLanguageContext,
 );
 const pageCompositionWorkspace = createPageCompositionWorkspace(
   createBackendHttpClient(),
@@ -266,6 +277,7 @@ const pageCompositionWorkspace = createPageCompositionWorkspace(
     businessRuleWorkspace.clearFocus();
     moduleMenuWorkspace.clearFocus();
   },
+  platformLanguageContext,
 );
 const moduleMenuWorkspace = createModuleMenuWorkspace(
   createBackendHttpClient(),
@@ -278,6 +290,9 @@ const moduleMenuWorkspace = createModuleMenuWorkspace(
     pageCompositionWorkspace.clearFocus();
   },
   () => refreshWorkbenchMenus(),
+  undefined,
+  undefined,
+  platformLanguageContext,
 );
 provideModuleMenuWorkspace(moduleMenuWorkspace);
 providePageCompositionWorkspace(pageCompositionWorkspace);
@@ -383,15 +398,15 @@ const loginLoading = ref(false);
 const logoutLoading = ref(false);
 const changePasswordOpen = ref(false);
 const changePasswordSaving = ref(false);
-const changePasswordError = ref<string>();
+const changePasswordError = ref<() => string>();
 const profileOpen = ref(false);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
-const profileError = ref<string>();
+const profileError = ref<() => string>();
 const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
-const themeSkinError = ref<string>();
+const themeSkinFailure = ref<ThemeSkinPreferenceFailure>();
 const themeSkinId = ref<UiThemeSkinId>(
   uiThemeSkinById(userPreferences.get(themeSkinPreferenceKey, defaultUiThemeSkinId)).id,
 );
@@ -616,7 +631,7 @@ async function handleUserCommand(command: string) {
 }
 
 function openThemeSkinPreferences() {
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   themeSkinPreferencesOpen.value = true;
 }
 
@@ -644,7 +659,7 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   const previousSkinId = themeSkinId.value;
   themeSkinId.value = skinId;
   themeSkinSaving.value = true;
-  themeSkinError.value = undefined;
+  themeSkinFailure.value = undefined;
   if (usesMockStartup()) {
     await userPreferences.set(themeSkinPreferenceKey, skinId, { persistence: 'local' });
     themeSkinSaving.value = false;
@@ -652,12 +667,12 @@ async function selectThemeSkin(skinId: UiThemeSkinId) {
   }
   try {
     const result = await saveThemeSkinPreference(userPreferences, skinId, previousSkinId);
-    if (result.error) {
+    if (result.failure) {
       if (revision !== themeSkinPreferenceRevision) {
         return;
       }
       themeSkinId.value = result.skinId;
-      themeSkinError.value = result.error;
+      themeSkinFailure.value = result.failure;
     }
   } finally {
     themeSkinSaving.value = false;
@@ -689,10 +704,11 @@ async function openCurrentUserProfile() {
   try {
     profile.value = await authClient.currentProfile(token);
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'load',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileLoading.value = false;
   }
@@ -713,12 +729,16 @@ async function submitCurrentUserProfile(value: { mobile: string; email: string; 
   try {
     profile.value = await authClient.updateCurrentProfile(value, token);
     profileOpen.value = false;
-    presentPlatformSuccess('个人资料已保存', { source: 'current-user-profile', phase: 'action' });
+    presentPlatformSuccess(
+      platformLanguageContext.t('platform.screen.App.your-profile-has-been-saved', '个人资料已保存'),
+      { source: 'current-user-profile', phase: 'action' },
+    );
   } catch (cause) {
-    profileError.value = presentPlatformError(cause, {
+    const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
       phase: 'action',
-    }).message;
+    });
+    profileError.value = () => userFacingErrorMessage(failure);
   } finally {
     profileSaving.value = false;
   }
@@ -743,7 +763,11 @@ async function submitChangeOwnPassword() {
   }
   const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
   if (!token) {
-    changePasswordError.value = '登录已失效，请重新登录';
+    changePasswordError.value = () =>
+      platformLanguageContext.t(
+        'platform.screen.App.your-session-is-no-longer-valid-please-sign',
+        '登录已失效，请重新登录',
+      );
     return;
   }
   changePasswordSaving.value = true;
@@ -762,12 +786,15 @@ async function submitChangeOwnPassword() {
     confirmPassword.value = '';
     handleSecurityNotification({
       code: 'platform.security.password-changed',
-      message: '你的密码已修改，请重新登录',
+      message: platformLanguageContext.t(
+        'platform.screen.App.your-password-has-changed-please-sign-in-again',
+        '你的密码已修改，请重新登录',
+      ),
       logoutRequired: true,
     });
   } catch (cause) {
     const error = presentPlatformError(cause, { source: 'change-own-password-dialog', phase: 'action' });
-    changePasswordError.value = error.message;
+    changePasswordError.value = () => userFacingErrorMessage(error);
   } finally {
     changePasswordSaving.value = false;
   }
@@ -775,16 +802,25 @@ async function submitChangeOwnPassword() {
 
 function validateChangeOwnPassword() {
   if (!currentPassword.value.trim()) {
-    return '请输入当前密码';
+    return () =>
+      platformLanguageContext.t('platform.screen.App.enter-your-current-password', '请输入当前密码');
   }
   if (!newPassword.value.trim()) {
-    return '请输入新密码';
+    return () => platformLanguageContext.t('platform.screen.App.enter-your-new-password', '请输入新密码');
   }
   if (newPassword.value !== confirmPassword.value) {
-    return '两次输入的新密码不一致';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-passwords-do-not-match',
+        '两次输入的新密码不一致',
+      );
   }
   if (currentPassword.value === newPassword.value) {
-    return '新密码不能与当前密码相同';
+    return () =>
+      platformLanguageContext.t(
+        'platform.screen.App.the-new-password-must-differ-from-the-current',
+        '新密码不能与当前密码相同',
+      );
   }
   return undefined;
 }
@@ -891,28 +927,26 @@ async function executeBusinessNotificationAction(
 ) {
   try {
     if (action.kind === 'navigate') {
-      handleOpenPage({
-        pageType: 'dynamic-module',
-        openMode: 'dynamic-runner',
-        hostType: 'module-page-host',
-        target: {
-          moduleAlias: action.moduleAlias,
-          pageMode: action.pageMode ?? 'LIST',
-        },
-        params: { ...(action.query ?? {}), ...(action.recordId ? { recordId: action.recordId } : {}) },
-        tabPolicy: { identity: action.recordId ? 'by-params' : 'by-target', closable: true, cacheable: true },
-      });
+      handleOpenPage(
+        businessNotificationPageDescriptor(action, platformAdminRouteResolveOptions, startup.value?.menus),
+      );
     } else {
       if (action.confirmation) {
-        const confirmed = await confirmAction({
-          title: action.label,
-          content: action.confirmation,
-          danger: action.danger,
-        });
+        const confirmed = await confirmAction(
+          {
+            title: action.label,
+            content: action.confirmation,
+            danger: action.danger,
+          },
+          platformLanguageContext,
+        );
         if (!confirmed) return;
       }
       await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
-      presentPlatformSuccess('操作完成', { source: 'business-notification', phase: 'action' });
+      presentPlatformSuccess(
+        platformLanguageContext.t('platform.screen.App.operation-completed', '操作完成'),
+        { source: 'business-notification', phase: 'action' },
+      );
     }
     if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
   } catch (cause) {
@@ -1037,6 +1071,8 @@ function handleCloseCurrentTab(fallbackPath: string) {
   const current = startup.value;
   const currentTabKey = activeTabKey.value ?? current?.activeTabKey;
   if (!current || !currentTabKey) return { created: false };
+  if (!hasWorkspaceViewDiscardProtection([currentTabKey]))
+    return closeCurrentTabNow(fallbackPath, currentTabKey);
 
   // WorkbenchNavigation keeps a synchronous result contract for consumers,
   // while confirmation is asynchronous.  Start the guarded close here rather
@@ -1047,10 +1083,13 @@ function handleCloseCurrentTab(fallbackPath: string) {
 }
 
 async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
-  if (!(await confirmDiscardWorkspaceViewState([currentTabKey]))) return;
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey], 'close', platformLanguageContext))) return;
+  return closeCurrentTabNow(fallbackPath, currentTabKey);
+}
 
+function closeCurrentTabNow(fallbackPath: string, currentTabKey: string) {
   const current = startup.value;
-  if (!current || !(current.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
+  if (!current || !(current.tabs ?? []).some((tab) => tab.key === currentTabKey)) return { created: false };
   const result = closeMenuTab(current.tabs ?? [], activeTabKey.value, currentTabKey);
   scheduleTabPageStateDiscard([currentTabKey]);
   clearWorkspaceViewUnsavedState(currentTabKey);
@@ -1084,7 +1123,12 @@ function navigateWorkbenchRoute(
 ) {
   if (!state) return { created: false };
   const previousKeys = new Set((state.tabs ?? []).map((tab) => tab.key));
-  let next = restoreWorkbenchStartupStateFromUrl(state, url, platformAdminRouteResolveOptions, newInstance);
+  let next = restoreWorkbenchStartupStateFromUrl(
+    state,
+    url,
+    { ...platformAdminRouteResolveOptions, title: tabTitle },
+    newInstance,
+  );
   const replacement = next.tabs?.find((tab) => tab.key === next.activeTabKey);
   if (replaceCurrent && state.activeTabKey && replacement) {
     const currentTab = state.tabs?.find((tab) => tab.key === state.activeTabKey);
@@ -1119,7 +1163,7 @@ function navigateWorkbenchRoute(
     next = {
       ...next,
       tabs: (next.tabs ?? []).map((tab) =>
-        tab.key === next.activeTabKey ? { ...tab, title: tabTitle } : tab,
+        tab.key === next.activeTabKey ? withWorkbenchTabTitle(tab, tabTitle) : tab,
       ),
     };
   }
@@ -1159,7 +1203,9 @@ function handleSetTabName(instanceKey: string, name: string) {
   if (!current || !instanceKey || !title) return;
   startup.value = {
     ...current,
-    tabs: (current.tabs ?? []).map((tab) => (tab.instanceKey === instanceKey ? { ...tab, title } : tab)),
+    tabs: (current.tabs ?? []).map((tab) =>
+      tab.instanceKey === instanceKey ? withWorkbenchTabTitle(tab, title) : tab,
+    ),
   };
 }
 
@@ -1220,7 +1266,8 @@ function handleToggleTabLock(key: string) {
 }
 
 async function handleCloseTab(key: string) {
-  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key]))) return;
+  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key], 'close', platformLanguageContext)))
+    return;
   const current = startup.value;
   if (!current) return;
 
@@ -1239,7 +1286,12 @@ async function handleCloseTab(key: string) {
 }
 
 async function handleCloseTabs(keys: string[]) {
-  if (!startup.value || keys.length === 0 || !(await confirmDiscardWorkspaceViewState(keys))) return;
+  if (
+    !startup.value ||
+    keys.length === 0 ||
+    !(await confirmDiscardWorkspaceViewState(keys, 'close', platformLanguageContext))
+  )
+    return;
   const current = startup.value;
   if (!current) return;
   const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
@@ -1254,22 +1306,6 @@ async function handleCloseTabs(keys: string[]) {
   const nextLockedTabs = removeLockedMenuTabs(lockedTabs.value, keys);
   if (nextLockedTabs.length !== lockedTabs.value.length) updateLockedTabs(nextLockedTabs);
   syncBrowserUrl(startup.value, 'replace');
-}
-
-async function confirmDiscardWorkspaceViewState(keys: readonly string[]): Promise<boolean> {
-  const busySources = [...new Set(keys.flatMap(workspaceViewBusyStateSources))];
-  if (busySources.length > 0) {
-    presentPlatformMessage(`“${busySources.join('、')}”正在处理操作，请完成后再关闭。`);
-    return false;
-  }
-  const dirtySources = [...new Set(keys.flatMap(workspaceViewUnsavedStateSources))];
-  if (dirtySources.length === 0) return true;
-  const summary = dirtySources.join('、');
-  return confirmAction({
-    title: '关闭标签',
-    content: `“${summary}”存在未保存的更改，关闭后将丢失。是否继续？`,
-    okText: '关闭',
-  });
 }
 
 function handleChangeTab(key: string) {
@@ -1392,7 +1428,9 @@ function pageRefreshRevisionFor(tabKey: string | undefined) {
 }
 
 /** Rebuilds exactly the requested page instance without touching other cached tabs. */
-function refreshPage(tabKey: string) {
+async function refreshPage(tabKey: string) {
+  if (!(await confirmDiscardWorkspaceViewState([tabKey], 'refresh', platformLanguageContext))) return;
+  if (!(startup.value?.tabs ?? []).some((tab) => tab.key === tabKey)) return;
   pageRefreshRevisions.value = {
     ...pageRefreshRevisions.value,
     [tabKey]: pageRefreshRevisionFor(tabKey) + 1,
@@ -1459,47 +1497,62 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
 </script>
 
 <template>
-  <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
-    <LoginView
-      v-if="loginRequired"
-      :auth-client="authClient"
-      :login-context-client="loginContextClient"
-      :loading="loginLoading"
-      :error="error"
-      @authenticated="handleAuthenticated"
-    />
-    <Workbench
-      v-else
-      v-model:active-tab-key="activeTabKey"
-      :startup="startup"
-      :loading="loading"
-      :error="error"
-      :realtime-status="realtimeStatus"
-      :theme-appearance="activeThemeSkin.theme.appearance"
-      :locked-tab-keys="lockedTabKeys()"
-      :assistant-request-turn="assistantRequestTurn"
-      :construction-plan-client="constructionPlanClient"
-      :assistant-workspace-contribution="configurationWorkspace"
-      :assistant-conversation-client="assistantConversationClient"
-      :assistant-wait-for-page-ready="waitForAssistantPageReady"
-      @select-menu="handleSelectMenu"
-      @change-tab="handleChangeTab"
-      @close-tab="handleCloseTab"
-      @close-tabs="handleCloseTabs"
-      @toggle-tab-lock="handleToggleTabLock"
-      @reorder-tabs="handleReorderTabs"
-      @refresh-page="refreshPage"
-      @retry-load="!loading && loadWorkbench()"
-      @user-command="handleUserCommand"
-    >
-      <template #default>
-        <KeepAlive :max="pageCacheMax">
-          <component
-            :is="CachePageHost"
+  <UiLanguageProvider :context="platformLanguageContext" scope="global">
+    <UiThemeProvider :theme="activeThemeSkin.theme" scope="global">
+      <LoginView
+        v-if="loginRequired"
+        :auth-client="authClient"
+        :login-context-client="loginContextClient"
+        :loading="loginLoading"
+        :error="error"
+        @authenticated="handleAuthenticated"
+      />
+      <Workbench
+        v-else
+        v-model:active-tab-key="activeTabKey"
+        :startup="startup"
+        :loading="loading"
+        :error="error"
+        :realtime-status="realtimeStatus"
+        :theme-appearance="activeThemeSkin.theme.appearance"
+        :locked-tab-keys="lockedTabKeys()"
+        :assistant-request-turn="assistantRequestTurn"
+        :construction-plan-client="constructionPlanClient"
+        :assistant-workspace-contribution="configurationWorkspace"
+        :assistant-conversation-client="assistantConversationClient"
+        :assistant-wait-for-page-ready="waitForAssistantPageReady"
+        @select-menu="handleSelectMenu"
+        @change-tab="handleChangeTab"
+        @close-tab="handleCloseTab"
+        @close-tabs="handleCloseTabs"
+        @toggle-tab-lock="handleToggleTabLock"
+        @reorder-tabs="handleReorderTabs"
+        @refresh-page="refreshPage"
+        @retry-load="!loading && loadWorkbench()"
+        @user-command="handleUserCommand"
+      >
+        <template #default>
+          <KeepAlive :max="pageCacheMax">
+            <component
+              :is="CachePageHost"
+              v-if="
+                renderedPageRoute &&
+                renderedPageComponent &&
+                renderedPageRoute.meta.cacheable !== false &&
+                renderedTabMatchesRoute
+              "
+              :key="pageRuntimeCacheKey(renderedTabKey)"
+              :component="renderedPageComponent"
+              :route="renderedPageRoute"
+              :page-descriptor="pageDescriptorForTab(renderedTabKey)"
+              :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
+            />
+          </KeepAlive>
+          <StaticRoutePageHost
             v-if="
               renderedPageRoute &&
               renderedPageComponent &&
-              renderedPageRoute.meta.cacheable !== false &&
+              renderedPageRoute.meta.cacheable === false &&
               renderedTabMatchesRoute
             "
             :key="pageRuntimeCacheKey(renderedTabKey)"
@@ -1508,64 +1561,61 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
             :page-descriptor="pageDescriptorForTab(renderedTabKey)"
             :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
           />
-        </KeepAlive>
-        <StaticRoutePageHost
-          v-if="
-            renderedPageRoute &&
-            renderedPageComponent &&
-            renderedPageRoute.meta.cacheable === false &&
-            renderedTabMatchesRoute
-          "
-          :key="pageRuntimeCacheKey(renderedTabKey)"
-          :component="renderedPageComponent"
-          :route="renderedPageRoute"
-          :page-descriptor="pageDescriptorForTab(renderedTabKey)"
-          :refresh-revision="pageRefreshRevisionFor(renderedTabKey)"
-        />
-      </template>
-    </Workbench>
-    <ChangeOwnPasswordDialog
-      v-model:current-password="currentPassword"
-      v-model:new-password="newPassword"
-      v-model:confirm-password="confirmPassword"
-      :open="changePasswordOpen"
-      :saving="changePasswordSaving"
-      :error="changePasswordError"
-      @close="closeChangeOwnPasswordDialog"
-      @submit="submitChangeOwnPassword"
-    />
-    <CurrentUserProfileDialog
-      :open="profileOpen"
-      :profile="profile"
-      :loading="profileLoading"
-      :saving="profileSaving"
-      :error="profileError"
-      @close="closeCurrentUserProfile"
-      @submit="submitCurrentUserProfile"
-    />
-    <ThemeSkinPreferencesDialog
-      :open="themeSkinPreferencesOpen"
-      :skins="uiThemeSkins"
-      :active-skin-id="themeSkinId"
-      :saving="themeSkinSaving"
-      :error="themeSkinError"
-      @close="closeThemeSkinPreferences"
-      @select="selectThemeSkin"
-    />
-    <BusinessNotificationPanel
-      :notifications="businessNotifications"
-      :execute-action="executeBusinessNotificationAction"
-      @dismiss="dismissBusinessNotification"
-    />
-    <div v-if="securityNotification" class="security-notification-mask" role="presentation">
-      <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
-        <h2>需要重新登录</h2>
-        <p>{{ securityNotification.message }}</p>
-        <p class="security-notification-countdown">{{ securityLogoutCountdown }} 秒后自动返回登录页</p>
-        <button type="button" @click="forceLocalLogout">立即重新登录</button>
-      </section>
-    </div>
-  </UiThemeProvider>
+        </template>
+      </Workbench>
+      <ChangeOwnPasswordDialog
+        v-model:current-password="currentPassword"
+        v-model:new-password="newPassword"
+        v-model:confirm-password="confirmPassword"
+        :open="changePasswordOpen"
+        :saving="changePasswordSaving"
+        :error="changePasswordError?.()"
+        @close="closeChangeOwnPasswordDialog"
+        @submit="submitChangeOwnPassword"
+      />
+      <CurrentUserProfileDialog
+        :open="profileOpen"
+        :profile="profile"
+        :loading="profileLoading"
+        :saving="profileSaving"
+        :error="profileError?.()"
+        @close="closeCurrentUserProfile"
+        @submit="submitCurrentUserProfile"
+      />
+      <ThemeSkinPreferencesDialog
+        :open="themeSkinPreferencesOpen"
+        :skins="uiThemeSkins"
+        :active-skin-id="themeSkinId"
+        :saving="themeSkinSaving"
+        :failure="themeSkinFailure"
+        @close="closeThemeSkinPreferences"
+        @select="selectThemeSkin"
+      />
+      <BusinessNotificationPanel
+        :notifications="businessNotifications"
+        :execute-action="executeBusinessNotificationAction"
+        @dismiss="dismissBusinessNotification"
+      />
+      <div v-if="securityNotification" class="security-notification-mask" role="presentation">
+        <section class="security-notification-dialog" role="alertdialog" aria-modal="true">
+          <h2>{{ platformLanguageContext.t('platform.screen.App.sign-in-required', '需要重新登录') }}</h2>
+          <p>{{ platformLanguageContext.t(securityNotification.code, securityNotification.message) }}</p>
+          <p class="security-notification-countdown">
+            {{
+              platformLanguageContext.t(
+                'platform.security.logout-countdown',
+                '{seconds} 秒后自动返回登录页',
+                { seconds: securityLogoutCountdown },
+              )
+            }}
+          </p>
+          <button type="button" @click="forceLocalLogout">
+            {{ platformLanguageContext.t('platform.screen.App.sign-in-now', '立即重新登录') }}
+          </button>
+        </section>
+      </div>
+    </UiThemeProvider>
+  </UiLanguageProvider>
 </template>
 
 <style scoped>

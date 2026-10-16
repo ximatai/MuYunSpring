@@ -146,9 +146,16 @@ public class RelationProjectionReadService {
             Criteria criteria,
             PageRequest pageRequest,
             Sort... sorts) {
-        return queryList(definitions, definition, projection, criteria, pageRequest,
-                projection == null ? java.util.Set.of() : java.util.Set.copyOf(projection.internalReadFields()),
-                sorts);
+        return queryListWithInternalFields(definitions, definition, projection, criteria, pageRequest,
+                projection == null ? java.util.Set.of() : java.util.Set.copyOf(projection.internalReadFields()), sorts);
+    }
+
+    /** Delivers only the internal values required by a caller's post-read projection. */
+    public Optional<PageResult<Map<String, Object>>> queryListWithInternalFields(
+            java.util.List<StaticModuleDefinition> definitions, StaticModuleDefinition definition,
+            RecordReadProjection projection, Criteria criteria, PageRequest pageRequest,
+            java.util.Set<String> postReadFields, Sort... sorts) {
+        return queryList(definitions, definition, projection, criteria, pageRequest, postReadFields, sorts);
     }
 
     private Optional<PageResult<Map<String, Object>>> queryList(

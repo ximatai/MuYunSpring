@@ -25,10 +25,25 @@ it('adapts user candidates and source-owned navigation into the common reference
   });
   const picker = wrapper.findComponent({ name: 'ReferencePicker' });
   expect(picker.props('columns')).toEqual([
-    { key: 'account', title: '用户账号', width: 140 },
-    { key: 'employeeName', title: '职员姓名', width: 140 },
-    { key: 'organizationName', title: '所属机构', width: 150 },
-    { key: 'departmentName', title: '所属部门', width: 150 },
+    { key: 'account', titleKey: 'platform.user-picker.column.account', title: '用户账号', width: 140 },
+    {
+      key: 'employeeName',
+      titleKey: 'platform.user-picker.column.employee-name',
+      title: '职员姓名',
+      width: 140,
+    },
+    {
+      key: 'organizationName',
+      titleKey: 'platform.user-picker.column.organization-name',
+      title: '所属机构',
+      width: 150,
+    },
+    {
+      key: 'departmentName',
+      titleKey: 'platform.user-picker.column.department-name',
+      title: '所属部门',
+      width: 150,
+    },
   ]);
   const referenceProvider = picker.props('provider') as Pick<
     ReferencePickerProvider,

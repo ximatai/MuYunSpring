@@ -1,12 +1,13 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.ability.TreeAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
@@ -67,21 +68,69 @@ final class DynamicRecordMutationRuntime {
         }
     }
 
+    int writeApprovalState(String moduleAlias, String entityAlias, String id,
+                           net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy policy,
+                           net.ximatai.muyun.spring.ability.ApprovalState state) {
+        try (DynamicMutationContext context = DynamicMutationContext.open(clock, RuntimeMutationSource.SYSTEM,
+                null, Map.of("command", "approvalSummary"))) {
+            DynamicEntityService service = access.entityService(moduleAlias, entityAlias);
+            DynamicRecord before = service.selectActiveRaw(id);
+            int updated = service.writeApprovalState(id, policy, state);
+            if (updated > 0) {
+                DynamicRecord after = service.selectActiveRaw(id);
+                coordinator.afterMutation(event(DynamicRecordMutationEventType.AFTER_SAVE, moduleAlias, entityAlias,
+                        id, DynamicRecordSaveOperation.UPDATE, before, after, context));
+                eventPublisher.updated(new DynamicRecordEventPublisher.DynamicRecordEventContext(
+                        moduleAlias, entityAlias, null, TenantContext.currentTenantId().orElse(null), false,
+                        "workflow approval summary", RuntimeMutationSource.SYSTEM, 0, null, false), id);
+            }
+            return updated;
+        }
+    }
+
     int update(String moduleAlias, String entityAlias, DynamicRecord record,
                RuntimeMutationSource source, String traceId, Map<String, Object> metadata) {
+        return update(moduleAlias, entityAlias, record, source, traceId, metadata, false);
+    }
+
+    int updateApprovalBusiness(String moduleAlias, String entityAlias, DynamicRecord record) {
+        return update(moduleAlias, entityAlias, record, RuntimeMutationSource.BUSINESS, null,
+                Map.of("command", "approvalBusiness"), true);
+    }
+
+    int updateApprovalBusinessAction(String moduleAlias, String entityAlias, DynamicRecord record, String traceId,
+                                    DynamicEntityService boundService, Runnable validateBinding) {
+        return update(moduleAlias, entityAlias, record, RuntimeMutationSource.ACTION, traceId,
+                Map.of("command", "approvalBusiness"), true, Objects.requireNonNull(boundService, "boundService"),
+                Objects.requireNonNull(validateBinding, "validateBinding"));
+    }
+
+    private int update(String moduleAlias, String entityAlias, DynamicRecord record,
+               RuntimeMutationSource source, String traceId, Map<String, Object> metadata, boolean approvalBusiness) {
+        return update(moduleAlias, entityAlias, record, source, traceId, metadata, approvalBusiness, null, null);
+    }
+
+    private int update(String moduleAlias, String entityAlias, DynamicRecord record,
+               RuntimeMutationSource source, String traceId, Map<String, Object> metadata, boolean approvalBusiness,
+               DynamicEntityService boundService, Runnable validateBinding) {
         try (DynamicMutationContext context = DynamicMutationContext.open(clock, source, traceId, metadata)) {
             if (record == null) {
-                throw new PlatformException("dynamic record must not be null");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-record-mutation-runtime.dynamic-record-must-not-be-null",
+                        "dynamic record must not be null"));
             }
             DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
                     ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.UPDATE, ids(record.getId()))
                     : DataScopeCriteriaResult.unrestricted(Criteria.of());
-            DynamicRecord before = access.withTenantScope(scope,
-                    () -> access.entityService(moduleAlias, entityAlias).selectActiveRaw(record.getId()));
+            DynamicEntityService service = boundService == null ? access.entityService(moduleAlias, entityAlias) : boundService;
+            DynamicRecord before = access.withTenantScope(scope, () -> service.selectActiveRaw(record.getId()));
             coordinator.beforeUpdate(moduleAlias, entityAlias, before, record);
             List<ChildMutation> children = prepareChildrenForUpdate(moduleAlias, entityAlias, before, record);
             beforeChildren(moduleAlias, entityAlias, before, record, children);
-            int updated = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).update(record));
+            int updated = access.withTenantScope(scope, () -> {
+                if (validateBinding != null) validateBinding.run();
+                return approvalBusiness && service.supportsApproval() ? service.writeApprovalBusiness(record) : service.update(record);
+            });
             if (updated > 0) {
                 coordinator.afterUpdate(moduleAlias, entityAlias, before, record);
                 coordinator.afterMutation(event(DynamicRecordMutationEventType.AFTER_SAVE, moduleAlias, entityAlias,
@@ -320,7 +369,9 @@ final class DynamicRecordMutationRuntime {
 
     int updatePermissions(String module, String entity, RecordPermissionWrite write) {
         if (!access.supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) {
-            throw new PlatformException("数据权限能力未启用");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-mutation-runtime.data-permissions-are-not-enabled",
+                    "数据权限能力未启用"));
         }
         if (write == null || write.id() == null || write.id().isBlank()) {
             throw new IllegalArgumentException("permission write requires record id");
@@ -330,7 +381,9 @@ final class DynamicRecordMutationRuntime {
         DynamicRecord permissionRecord = access.withTenantScope(scope, () -> {
             DynamicRecord persisted = access.entityService(module, entity).selectActiveRaw(write.id());
             if (persisted == null) {
-                throw new PlatformException("记录不存在或无权限管理");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-record-mutation-runtime.the-record-was-not-found-or-you-cannot-manage-its-permissions",
+                        "记录不存在或无权限管理"));
             }
             if (write.version() == null || !write.version().equals(persisted.getVersion())) {
                 throw new OptimisticLockException("记录已变更，请重新打开权限管理");
@@ -366,7 +419,9 @@ final class DynamicRecordMutationRuntime {
         long visible = service.list(and(sortScope, idsCriteria), new PageRequest(0, explicitIds.size())).stream()
                 .map(DynamicRecord::getId).filter(explicitIds::contains).distinct().count();
         if (visible != explicitIds.size()) {
-            throw new PlatformException("record is outside tree sort scope: " + module + "." + entity);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-record-mutation-runtime.record-is-outside-tree-sort-scope",
+                    "record is outside tree sort scope: {value1}.{value2}"), Map.of("value1", String.valueOf(module), "value2", String.valueOf(entity)));
         }
     }
 

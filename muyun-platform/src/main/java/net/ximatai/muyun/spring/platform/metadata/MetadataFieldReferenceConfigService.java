@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -146,7 +149,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 if (!changesSource && !changesDestination) continue;
                 if (!Objects.equals(existing.getFieldName(), proposed.getFieldName())
                         || !Objects.equals(existing.getMetadataId(), proposed.getMetadataId())) {
-                    throw new PlatformException("字段仍被选择回填占用，请先移除映射：" + existing.getFieldName());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-field-reference-config.the-field-is-still-used-by-selection-backfill-remove-the-mapping-first",
+                            "字段仍被选择回填占用，请先移除映射：{value1}"), Map.of("value1", String.valueOf(existing.getFieldName())));
                 }
                 ReferenceTarget target = targetsStaticEntity(config)
                         ? ReferenceTargets.fromModuleAlias(config.getTargetModuleAlias()) : null;
@@ -164,8 +169,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         MetadataField sourceField = requireField(config.getMetadataFieldId(), "source metadata field");
         ModuleMetadataRelation sourceRelation = normalizeRelation(config, sourceField);
         validateDraft(config, sourceField, sourceRelation);
-        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
-                "metadata field reference config must be unique in scope: " + config.getMetadataFieldId());
+        rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.metadata-field-reference-config.metadata-field-reference-config-must-be-unique-in-scope",
+                "metadata field reference config must be unique in scope: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId()))));
     }
 
     /**
@@ -191,8 +197,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             config.setCardinality(ReferenceCardinality.ONE);
         }
         if (config.getCardinality() == ReferenceCardinality.MANY) {
-            throw new PlatformException("Metadata field reference currently supports ONE cardinality only: "
-                    + sourceField.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.metadata-field-reference-currently-supports-one-cardinality-only",
+                    "Metadata field reference currently supports ONE cardinality only: {value1}"), Map.of("value1", String.valueOf(sourceField.getFieldName())));
         }
         validateTargetKey(config, target);
         if (config.getTargetUnavailablePolicy() == null) {
@@ -233,8 +240,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         boolean enabled;
         if (targetsStaticEntity(config)) {
             enabled = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
-                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
-                            + target.qualifiedName())).supportsEnabledState();
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-field-reference-config.static-reference-target-is-not-registered",
+                            "Static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName())))).supportsEnabledState();
         } else {
             enabled = MetadataCapabilityCatalog.resolve(metadataService.select(config.getTargetMetadataId()), null,
                     fieldService.list(Criteria.of().eq("metadataId", config.getTargetMetadataId()), PageRequests.all()))
@@ -261,7 +269,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         for (ReferenceProjection projection : existing) {
             if (!output.equals(projection.outputField())) continue;
             if (!normalizedLabel.equals(projection.targetField())) {
-                throw new PlatformException("Reference label projection conflicts with standard output field: " + output);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.reference-label-projection-conflicts-with-standard-output-field",
+                        "Reference label projection conflicts with standard output field: {value1}"), Map.of("value1", String.valueOf(output)));
             }
         }
         java.util.ArrayList<String> mappings = new java.util.ArrayList<>();
@@ -275,8 +285,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private String defaultTargetLabelField(MetadataFieldReferenceConfig config, ReferenceTarget target) {
         if (targetsStaticEntity(config)) {
             ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
-                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
-                            + target.qualifiedName()));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-field-reference-config.static-reference-target-is-not-registered",
+                            "Static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName()))));
             return ability.referenceCandidateLabels().stream()
                     .filter(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::defaultField)
                     .map(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField::fieldName)
@@ -299,7 +310,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         }
         targetModuleAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         if (moduleService.select(targetModuleAlias) == null) {
-            throw new PlatformException("Reference config requires existing target module: " + targetModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-requires-existing-target-module",
+                    "Reference config requires existing target module: {value1}"), Map.of("value1", String.valueOf(targetModuleAlias)));
         }
         config.setTargetModuleAlias(targetModuleAlias);
     }
@@ -307,28 +320,36 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private ReferenceTarget resolveStaticTarget(MetadataFieldReferenceConfig config,
                                                  ModuleMetadataRelation sourceRelation) {
         if (config.getTargetMetadataId() != null) {
-            throw new PlatformException("Static reference target cannot declare target metadata: "
-                    + config.getTargetMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.static-reference-target-cannot-declare-target-metadata",
+                    "Static reference target cannot declare target metadata: {value1}"), Map.of("value1", String.valueOf(config.getTargetMetadataId())));
         }
         if (sourceRelation == null) {
-            throw new PlatformException("Static reference config must be relation-scoped: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.static-reference-config-must-be-relation-scoped",
+                    "Static reference config must be relation-scoped: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
         String targetModuleAlias = config.getTargetModuleAlias();
         if (targetModuleAlias == null) {
-            throw new PlatformException("Static reference config requires target module: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.static-reference-config-requires-target-module",
+                    "Static reference config requires target module: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
         PlatformModule targetPlatformModule = moduleService.select(targetModuleAlias);
         if (targetPlatformModule == null || targetPlatformModule.getModuleKind() != ModuleKind.STATIC) {
-            throw new PlatformException("Static reference config requires STATIC target module: " + targetModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.static-reference-config-requires-static-target-module",
+                    "Static reference config requires STATIC target module: {value1}"), Map.of("value1", String.valueOf(targetModuleAlias)));
         }
         ReferenceTarget target = ReferenceTargets.fromModuleAlias(targetModuleAlias);
         ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
-                .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
-                        + target.qualifiedName()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.static-reference-target-is-not-registered",
+                        "Static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName()))));
         if (!target.equals(ReferenceTargets.of(ability))) {
-            throw new PlatformException("Static reference target identity mismatch: " + target.qualifiedName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.static-reference-target-identity-mismatch",
+                    "Static reference target identity mismatch: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName())));
         }
         return target;
     }
@@ -337,12 +358,15 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                                                   MetadataField sourceField,
                                                   ModuleMetadataRelation sourceRelation) {
         if (config.getTargetMetadataId() == null) {
-            throw new PlatformException("Reference config requires target metadata or static target entity: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-requires-target-metadata-or-static-target-entity",
+                    "Reference config requires target metadata or static target entity: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
         Metadata targetMetadata = metadataService.select(config.getTargetMetadataId());
         if (targetMetadata == null) {
-            throw new PlatformException("Reference config requires existing target metadata: " + config.getTargetMetadataId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-requires-existing-target-metadata",
+                    "Reference config requires existing target metadata: {value1}"), Map.of("value1", String.valueOf(config.getTargetMetadataId())));
         }
         validateCrossModuleTarget(config, sourceRelation);
         validateTargetBinding(config, sourceField, sourceRelation);
@@ -379,8 +403,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                         return;
                     }
                     if (targetsStaticEntity(config)) {
-                        throw new PlatformException("Child relation foreign key cannot reference a static target: "
-                                + relation.getRelationAlias());
+                        throw PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.metadata-field-reference-config.child-relation-foreign-key-cannot-reference-a-static-target",
+                                "Child relation foreign key cannot reference a static target: {value1}"), Map.of("value1", String.valueOf(relation.getRelationAlias())));
                     }
                     ModuleMetadataCapabilityPolicy.validateChildForeignKeyReference(relation, sourceField, config);
                 });
@@ -411,10 +436,14 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         }
         ModuleMetadataRelation relation = relationService.select(config.getRelationId());
         if (relation == null) {
-            throw new PlatformException("Reference config requires existing relation: " + config.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-requires-existing-relation",
+                    "Reference config requires existing relation: {value1}"), Map.of("value1", String.valueOf(config.getRelationId())));
         }
         if (!field.getMetadataId().equals(relation.getMetadataId())) {
-            throw new PlatformException("Reference config relation metadata mismatch: " + config.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-relation-metadata-mismatch",
+                    "Reference config relation metadata mismatch: {value1}"), Map.of("value1", String.valueOf(config.getRelationId())));
         }
         return relation;
     }
@@ -426,8 +455,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             return;
         }
         if (sourceRelation == null) {
-            throw new PlatformException("Cross-module reference config must be relation-scoped: "
-                    + config.getMetadataFieldId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.cross-module-reference-config-must-be-relation-scoped",
+                    "Cross-module reference config must be relation-scoped: {value1}"), Map.of("value1", String.valueOf(config.getMetadataFieldId())));
         }
         if (targetModuleAlias.equals(sourceRelation.getModuleAlias())) {
             config.setTargetModuleAlias(null);
@@ -438,8 +468,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 .eq("metadataId", config.getTargetMetadataId())
                 .eq("relationRole", RelationRole.MAIN)) > 0;
         if (!targetIsMainMetadata) {
-            throw new PlatformException("Cross-module reference target must be the target module MAIN metadata: "
-                    + targetModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.cross-module-reference-target-must-be-the-target-module-main-metadata",
+                    "Cross-module reference target must be the target module MAIN metadata: {value1}"), Map.of("value1", String.valueOf(targetModuleAlias)));
         }
     }
 
@@ -461,8 +492,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             if (relationService.count(Criteria.of()
                     .eq("moduleAlias", targetModuleAlias)
                     .eq("metadataId", config.getTargetMetadataId())) <= 0) {
-                throw new PlatformException("Reference target metadata is not bound to module: "
-                        + targetModuleAlias + "." + config.getTargetMetadataId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.reference-target-metadata-is-not-bound-to-module",
+                        "Reference target metadata is not bound to module: {value1}.{value2}"), Map.of("value1", String.valueOf(targetModuleAlias), "value2", String.valueOf(config.getTargetMetadataId())));
             }
         }
     }
@@ -477,9 +509,11 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             PlatformNameRules.requireFieldName(projection.targetField(), "projection.targetField");
             PlatformNameRules.requireFieldName(projection.outputField(), "projection.outputField");
             requireTargetField(config, target, projection.targetField());
-            requireAvailableOutputField(sourceMetadataId, projection.outputField(), "reference projection output field");
+            requireAvailableOutputField(sourceMetadataId, projection.outputField());
             if (!outputFields.add(projection.outputField())) {
-                throw new PlatformException("Duplicate reference output field: " + projection.outputField());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.duplicate-reference-output-field",
+                        "Duplicate reference output field: {value1}"), Map.of("value1", String.valueOf(projection.outputField())));
             }
         }
     }
@@ -487,7 +521,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private void validateAffects(MetadataFieldReferenceConfig config, MetadataField source, ReferenceTarget target) {
         var mappings = config.affects();
         if (mappings.size() > 8 || (config.getAffectMappings() != null && config.getAffectMappings().length() > 512))
-            throw new PlatformException("最多配置八项选择回填，配置总长不得超过512字符");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.selection-backfill-allows-up-to-eight-mappings-and-512-characters-in-total",
+                    "最多配置八项选择回填，配置总长不得超过512字符"));
         Set<String> destinations = new LinkedHashSet<>();
         for (var mapping : mappings) {
             requireTargetField(config, target, mapping.referenceField());
@@ -496,19 +532,25 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             if (destination == null || destination.getFieldOwnership() != MetadataFieldOwnership.BUSINESS
                     || destination.getFieldForm() != MetadataFieldForm.PHYSICAL || Boolean.TRUE.equals(destination.getSystemManaged())
                     || STANDARD_FIELDS.contains(mapping.targetField()) || source.getFieldName().equals(mapping.targetField()))
-                throw new PlatformException("选择回填目标必须是当前实体已保存的普通业务字段：" + mapping.targetField());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.selection-backfill-targets-must-be-saved-business-fields-of-the-current-entity",
+                        "选择回填目标必须是当前实体已保存的普通业务字段：{value1}"), Map.of("value1", String.valueOf(mapping.targetField())));
             FieldType sourceType = affectSourceType(config, target, mapping.referenceField());
             FieldType destinationType = fieldTypeService.requireFieldType(destination.getFieldSpecAlias()).getFieldType();
             requireAffectAssignment(sourceType, destinationType, mapping.referenceField(), mapping.targetField());
             if (!destinations.add(mapping.targetField()))
-                throw new PlatformException("选择回填目标不能重复：" + mapping.targetField());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.selection-backfill-targets-must-be-unique",
+                        "选择回填目标不能重复：{value1}"), Map.of("value1", String.valueOf(mapping.targetField())));
         }
         config.setAffectMappings(MetadataFieldReferenceConfig.encodeProjections(MetadataFieldReferenceConfig.affectMappings(config)));
     }
 
     private static void requireAffectAssignment(FieldType source, FieldType destination, String from, String to) {
         if (!canAssignAffect(source, destination)) {
-            throw new PlatformException("选择回填字段类型不兼容：" + from + " → " + to);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.selection-backfill-field-types-are-incompatible",
+                    "选择回填字段类型不兼容：{value1} → {value2}"), Map.of("value1", String.valueOf(from), "value2", String.valueOf(to)));
         }
     }
 
@@ -556,13 +598,15 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (keyField == null || keyField.isBlank() || "id".equals(keyField)) return;
         if (targetsStaticEntity(config)) {
             ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
-                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
-                            + target.qualifiedName()));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-field-reference-config.static-reference-target-is-not-registered",
+                            "Static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName()))));
             net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey candidate =
                     ability.referenceCandidateKey(keyField);
             if (!candidate.readable() || !candidate.unique()) {
-                throw new PlatformException("Static reference target key must be a readable unique field: "
-                        + target.qualifiedName() + "." + keyField);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.static-reference-target-key-must-be-a-readable-unique-field",
+                        "Static reference target key must be a readable unique field: {value1}.{value2}"), Map.of("value1", String.valueOf(target.qualifiedName()), "value2", String.valueOf(keyField)));
             }
             return;
         }
@@ -571,8 +615,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                         .eq("fieldName", keyField), PageRequests.all())
                 .stream().findFirst().orElse(null);
         if (targetField == null || !Boolean.TRUE.equals(targetField.getUniqueField())) {
-            throw new PlatformException("Dynamic reference target key must use a unique target field: "
-                    + target.qualifiedName() + "." + keyField);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.dynamic-reference-target-key-must-use-a-unique-target-field",
+                    "Dynamic reference target key must use a unique target field: {value1}.{value2}"), Map.of("value1", String.valueOf(target.qualifiedName()), "value2", String.valueOf(keyField)));
         }
     }
 
@@ -581,8 +626,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                                     String targetFieldName) {
         if (targetsStaticEntity(config)) {
             ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
-                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
-                            + target.qualifiedName()));
+                    .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.metadata-field-reference-config.static-reference-target-is-not-registered",
+                            "Static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(target.qualifiedName()))));
             StaticReferenceResolver.requireReadableField(ability.modelClass(), targetFieldName,
                     "reference projection target");
             return;
@@ -590,16 +636,20 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (fieldService.count(Criteria.of()
                 .eq("metadataId", config.getTargetMetadataId())
                 .eq("fieldName", targetFieldName)) <= 0) {
-            throw new PlatformException("Reference projection requires existing target field: " + targetFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-projection-requires-existing-target-field",
+                    "Reference projection requires existing target field: {value1}"), Map.of("value1", String.valueOf(targetFieldName)));
         }
     }
 
-    private void requireAvailableOutputField(String sourceMetadataId, String outputField, String name) {
+    private void requireAvailableOutputField(String sourceMetadataId, String outputField) {
         if (STANDARD_FIELDS.contains(outputField)
                 || fieldService.count(Criteria.of()
                 .eq("metadataId", sourceMetadataId)
                 .eq("fieldName", outputField)) > 0) {
-            throw new PlatformException(name + " conflicts with source field: " + outputField);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.projection-output-conflict",
+                    "reference projection output field conflicts with source field: {value1}"), Map.of("value1", outputField));
         }
     }
 
@@ -614,7 +664,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private MetadataField requireField(String metadataFieldId, String name) {
         MetadataField field = metadataFieldId == null || metadataFieldId.isBlank() ? null : fieldService.select(metadataFieldId);
         if (field == null) {
-            throw new PlatformException("Reference config requires existing " + name + ": " + metadataFieldId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-field-reference-config.reference-config-requires-existing",
+                    "Reference config requires existing {value1}: {value2}"), Map.of("value1", String.valueOf(name), "value2", String.valueOf(metadataFieldId)));
         }
         return field;
     }

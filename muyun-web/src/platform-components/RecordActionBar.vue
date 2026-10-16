@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch, watchEffect } from 'vue';
-import type { ModuleContext } from '@muyun/web-core';
+
 import AdaptiveHeaderActionBar from './AdaptiveHeaderActionBar.vue';
 import { resolveRecordActions, type RecordActionItem } from './recordActionBarModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordActionBar' });
 
@@ -60,7 +63,9 @@ watchEffect(() => {
   }
 });
 
-const actionAvailabilityReason = '正在校验操作可用性';
+const actionAvailabilityReason = computed(() =>
+  language.t('platform.screen.RecordActionBar.checking-action-availability', '正在校验操作可用性'),
+);
 function actionLevelOf(action: RecordActionItem) {
   if (action.actionLevel) return action.actionLevel;
   if (action.primary) return 'primary';
@@ -76,12 +81,12 @@ const resolvedActions = computed(() => {
           ? {
               ...action,
               disabled: true,
-              disabledReason: action.disabledReason ?? actionAvailabilityReason,
+              disabledReason: action.disabledReason ?? actionAvailabilityReason.value,
             }
           : action,
       )
     : props.actions;
-  return resolveRecordActions(props.context, actions, props.loading, props.recordId);
+  return resolveRecordActions(props.context, actions, props.loading, props.recordId, language);
 });
 
 function handleClick(action: RecordActionItem, event: MouseEvent) {

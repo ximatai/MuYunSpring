@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
 import { readonlyReferenceDisplayItems } from './readonlyReferenceDisplay';
 import { useReferenceRecordDetailBrowser } from './referenceRecordDetailBrowser';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ReadonlyReferenceValue' });
 
@@ -18,7 +21,7 @@ const browser = useReferenceRecordDetailBrowser();
 const items = computed(() => {
   // Depend on target authorization without requesting it for every projected field.
   void browser?.revision.value;
-  return readonlyReferenceDisplayItems(props.reference, props.value, props.summary).map((item) => ({
+  return readonlyReferenceDisplayItems(props.reference, props.value, props.summary, language).map((item) => ({
     ...item,
     browseable: item.browseable && (browser?.canBrowse(props.reference.targetModuleAlias, item.id) ?? false),
   }));
@@ -37,7 +40,11 @@ function open(id: string) {
       v-if="item.browseable"
       type="button"
       class="readonly-reference-value__link"
-      :title="`查看 ${item.label}`"
+      :title="
+        language.t('platform.screen.ReadonlyReferenceValue.view-value', '查看 {value1}', {
+          value1: item.label,
+        })
+      "
       @click.stop="open(item.id)"
     >
       {{ item.label }}

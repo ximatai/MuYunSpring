@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { UiButton, UiDataTable, UiSearchInput, UiSelect } from '@muyun/vue-ui-antdv';
 import type {
@@ -9,6 +10,8 @@ import type {
 } from '@muyun/vue-ui-antdv';
 import type { Option, OptionValue, OptionValueList } from '@muyun/web-contracts';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordQueryListSurface' });
 
@@ -82,7 +85,7 @@ const props = withDefaults(
     actionColumnWidth: undefined,
     actionColumnFixed: true,
     rowDraggable: false,
-    rowDragHandleTitle: '拖拽排序',
+    rowDragHandleTitle: undefined,
     tableVisible: true,
     conditionsVisible: true,
     embedded: false,
@@ -98,6 +101,12 @@ const props = withDefaults(
   },
 );
 
+const resolvedRowDragHandleTitle = computed(
+  () =>
+    props.rowDragHandleTitle ??
+    language.t('platform.screen.RecordQueryListSurface.rowDragHandleTitle', '拖拽排序'),
+);
+
 const emit = defineEmits<{
   titleAction: [];
   'update:quickSearchValue': [value: string];
@@ -111,7 +120,12 @@ const emit = defineEmits<{
 }>();
 
 const pageSizeOptions = computed<Option[]>(() =>
-  props.pageSizeOptions.map((value) => ({ label: `${value} 条/页`, value })),
+  props.pageSizeOptions.map((value) => ({
+    label: language.t('platform.screen.RecordQueryListSurface.value-page', '{value1} 条/页', {
+      value1: value,
+    }),
+    value,
+  })),
 );
 
 function handlePageSizeChange(value: OptionValue | OptionValueList | null) {
@@ -140,6 +154,7 @@ defineSlots<{
     :class="{
       'is-embedded': embedded,
       'is-chrome-free': chromeFree,
+      'is-content-height': !fillHeight,
     }"
   >
     <ManagementPanelHeader
@@ -215,7 +230,7 @@ defineSlots<{
         :action-column-width="actionColumnWidth"
         :action-column-fixed="actionColumnFixed"
         :row-draggable="rowDraggable"
-        :row-drag-handle-title="rowDragHandleTitle"
+        :row-drag-handle-title="resolvedRowDragHandleTitle"
         @row-click="(record, event) => emit('rowClick', record, event)"
         @row-dblclick="(record, event) => emit('rowDblclick', record, event)"
         @row-expand="(record, expanded) => emit('rowExpand', record, expanded)"
@@ -237,7 +252,11 @@ defineSlots<{
     <footer v-if="$slots.footer || pageable" class="record-query-list-pagination">
       <div v-if="$slots.footer" class="record-query-list-footer-extensions"><slot name="footer" /></div>
       <div v-if="pageable" class="record-query-list-pagination-controls">
-        <span>{{ totalKnown ? '共' : '至少' }} {{ total }} 条</span>
+        <span>{{
+          totalKnown
+            ? language.t('platform.records.total', '共 {count} 条', { count: total })
+            : language.t('platform.records.lower-bound', '至少 {count} 条', { count: total })
+        }}</span>
         <UiSelect
           class="record-query-list-page-size"
           :value="pageSize"
@@ -248,16 +267,18 @@ defineSlots<{
         />
         <span class="record-query-list-page-navigation">
           <UiButton
-            aria-label="上一页"
-            title="上一页"
+            :aria-label="language.t('platform.screen.RecordQueryListSurface.previous-page', '上一页')"
+            :title="language.t('platform.screen.RecordQueryListSurface.previous-page', '上一页')"
             icon-name="left"
             :disabled="paginationDisabled || pageNum <= 1"
             @click="emit('pageChange', pageNum - 1)"
           />
-          <span>第 {{ pageNum }} / {{ pages }} 页</span>
+          <span>{{
+            language.t('platform.records.page-of', '第 {page} / {pages} 页', { page: pageNum, pages })
+          }}</span>
           <UiButton
-            aria-label="下一页"
-            title="下一页"
+            :aria-label="language.t('platform.screen.RecordQueryListSurface.next-page', '下一页')"
+            :title="language.t('platform.screen.RecordQueryListSurface.next-page', '下一页')"
             icon-name="right"
             :disabled="paginationDisabled || pageNum >= pages"
             @click="emit('pageChange', pageNum + 1)"
@@ -295,6 +316,16 @@ defineSlots<{
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.record-query-list-surface.is-content-height {
+  height: auto;
+  grid-template-rows: auto;
+  align-content: start;
+}
+
+.record-query-list-surface.is-content-height .record-query-list-table {
+  height: auto;
 }
 
 .record-query-list-surface.is-chrome-free {

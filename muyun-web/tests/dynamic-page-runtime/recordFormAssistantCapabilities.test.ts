@@ -1,3 +1,6 @@
+import { createRecordReferenceDisplay } from '@/dynamic-page-runtime/recordReferenceDisplay';
+import { createLanguageContext } from '@/web-core';
+import { recordFormAssistantFacts } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import { expect, it, vi } from 'vitest';
 import { createRecordFormAssistantCapabilities } from '@/dynamic-page-runtime/recordFormAssistantCapabilities';
 import {
@@ -209,4 +212,66 @@ it('reports a staged reference rejection as not-applied through the real registr
   });
   expect(result.results[0]!.error!.message).toContain('not editable');
   expect(view.editingRecord).toEqual({ quantity: '1', unitPrice: '8.80' });
+});
+
+it('uses the owning form language for live and explicit reads without changing fields or resolving on a language switch', async () => {
+  const original = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const view = { ...original.view, language };
+  const current = () =>
+    recordFormAssistantFacts(view).fields.find((field) => field.fieldName === 'productId')!;
+  expect(current().currentValue).toBe('Not selected');
+  view.editingRecord!.productId = 'product-id';
+  expect(current().currentValue).toBe('Selected (verify name when needed)');
+  const resolve = vi.mocked(view.referencePickerConfigs.productId!.provider!.resolve);
+  resolve.mockRejectedValue(new Error('private diagnostic'));
+  const describe = createRecordFormAssistantCapabilities(view)().find(
+    ({ descriptor }) => descriptor.code === 'form.describe',
+  )!;
+  const context = {
+    signal: new AbortController().signal,
+    isCurrent: () => true,
+    commitInternalState: <T>(commit: () => T) => commit(),
+    applyEffect: <T>(commit: () => T) => commit(),
+  };
+  const read = (await describe.execute({}, context)) as ReturnType<typeof recordFormAssistantFacts>;
+  expect(read.fields.find((field) => field.fieldName === 'productId')?.currentValue).toBe(
+    'Selected (name unavailable)',
+  );
+  language.setLanguage('zh-CN');
+  expect(current().currentValue).toBe('已选择（名称按需核实）');
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(view.editingRecord?.productId).toBe('product-id');
+  expect(view.updateDraftFields).not.toHaveBeenCalled();
+});
+
+it('formats observed candidate names in the owning language for assistant live facts without querying or editing', () => {
+  const { view, searchPage } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  const form = { ...view, language };
+  form.editingRecord!.productId = ['product-id', 'A001'];
+  const display = createRecordReferenceDisplay(form, form.contextRevision);
+  form.referenceDisplay = display.current;
+  const candidates = [
+    { id: 'product-id', title: 'Alice', affectPatch: { unitPrice: '99' } },
+    { id: 'A001', title: 'A001' },
+  ];
+  display.observe('productId', candidates);
+  const current = () =>
+    recordFormAssistantFacts(form).fields.find((field) => field.fieldName === 'productId')!.currentValue;
+  expect(current()).toBe('Alice, A001');
+  candidates[0]!.title = 'Mutated';
+  language.setLanguage('zh-CN');
+  expect(current()).toBe('Alice、A001');
+  language.setLanguage('en');
+  expect(current()).toBe('Alice, A001');
+  expect(searchPage).not.toHaveBeenCalled();
+  expect(form.referencePickerConfigs.productId!.provider!.resolve).not.toHaveBeenCalled();
+  expect(form.editingRecord).toEqual({ quantity: '1', unitPrice: '8.80', productId: ['product-id', 'A001'] });
+  expect(form.updateDraftFields).not.toHaveBeenCalled();
+  display.observe('productId', [
+    { id: 'product-id', title: 'Alice' },
+    { id: 'A001', title: 'A001', identifierFallback: true },
+  ]);
+  expect(current()).toBe('Selected (verify name when needed)');
 });

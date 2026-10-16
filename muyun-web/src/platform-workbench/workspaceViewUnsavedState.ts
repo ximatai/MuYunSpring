@@ -5,33 +5,37 @@
  * an in-flight mutation is owned by its session and blocks destruction outright.
  */
 interface WorkspaceViewStateSignal {
+  source: string;
   isDirty: () => boolean;
   isBusy?: () => boolean;
+  sourceTitle?: () => string;
 }
 
-const sourcesByPageKey = new Map<string, Map<string, WorkspaceViewStateSignal>>();
+const sourcesByPageKey = new Map<string, Map<symbol, WorkspaceViewStateSignal>>();
 
 export function registerWorkspaceViewUnsavedState(
   pageKey: string,
   source: string,
   isDirty: () => boolean,
   isBusy?: () => boolean,
+  sourceTitle?: () => string,
 ): () => void {
-  const sources = sourcesByPageKey.get(pageKey) ?? new Map<string, WorkspaceViewStateSignal>();
-  sources.set(source, { isDirty, isBusy });
+  const sources = sourcesByPageKey.get(pageKey) ?? new Map<symbol, WorkspaceViewStateSignal>();
+  const token = Symbol(source);
+  sources.set(token, { source, isDirty, isBusy, sourceTitle });
   sourcesByPageKey.set(pageKey, sources);
   return () => {
     const current = sourcesByPageKey.get(pageKey);
     if (!current) return;
-    current.delete(source);
+    current.delete(token);
     if (current.size === 0) sourcesByPageKey.delete(pageKey);
   };
 }
 
 export function workspaceViewUnsavedStateSources(pageKey: string): string[] {
-  return [...(sourcesByPageKey.get(pageKey) ?? new Map())].flatMap(([source, state]) => {
+  return [...(sourcesByPageKey.get(pageKey) ?? new Map())].flatMap(([, state]) => {
     try {
-      return state.isDirty() ? [source] : [];
+      return state.isDirty() ? [sourceTitleOf(state)] : [];
     } catch {
       // A failing optional signal must never prevent a user from leaving a page.
       return [];
@@ -41,9 +45,9 @@ export function workspaceViewUnsavedStateSources(pageKey: string): string[] {
 
 /** Sources with an in-flight mutation cannot be destroyed until their work completes. */
 export function workspaceViewBusyStateSources(pageKey: string): string[] {
-  return [...(sourcesByPageKey.get(pageKey) ?? new Map())].flatMap(([source, state]) => {
+  return [...(sourcesByPageKey.get(pageKey) ?? new Map())].flatMap(([, state]) => {
     try {
-      return state.isBusy?.() === true ? [source] : [];
+      return state.isBusy?.() === true ? [sourceTitleOf(state)] : [];
     } catch {
       return [];
     }
@@ -52,4 +56,13 @@ export function workspaceViewBusyStateSources(pageKey: string): string[] {
 
 export function clearWorkspaceViewUnsavedState(pageKey: string) {
   sourcesByPageKey.delete(pageKey);
+}
+
+/** A broken display callback must never drop the underlying draft or busy protection. */
+function sourceTitleOf(state: WorkspaceViewStateSignal) {
+  try {
+    return state.sourceTitle?.() ?? state.source;
+  } catch {
+    return state.source;
+  }
 }

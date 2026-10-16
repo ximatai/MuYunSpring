@@ -1,40 +1,33 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
-import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
+import java.util.Objects;
+import java.util.Map;
 
 @Service
 public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGuard {
-    public static final String SUBMIT_ACTION_CODE = "submit";
-    private static final ActionExecutionPolicy SUBMIT_POLICY = new ActionExecutionPolicy(
-            SUBMIT_ACTION_CODE,
-            PlatformActionLevel.RECORD,
-            ActionAccessMode.AUTH_REQUIRED,
-            true,
-            true,
-            ActionDefaultGrantPolicy.NONE,
-            null
-    );
-
     private final DynamicRecordService dynamicRecordService;
+    private final WorkflowSubmitActionPolicyResolver submissionPolicies;
 
-    public DynamicWorkflowModuleRecordGuard(DynamicRecordService dynamicRecordService) {
-        this.dynamicRecordService = dynamicRecordService;
+    public DynamicWorkflowModuleRecordGuard(DynamicRecordService dynamicRecordService,
+                                            WorkflowSubmitActionPolicyResolver submissionPolicies) {
+        this.dynamicRecordService = Objects.requireNonNull(dynamicRecordService, "dynamicRecordService");
+        this.submissionPolicies = Objects.requireNonNull(submissionPolicies, "submissionPolicies");
     }
 
     @Override
     public void beforeSubmit(WorkflowSubmitRequest request) {
-        requireRecordAction(request.moduleAlias(), request.recordId(), currentActionPolicy(request));
+        if (mainEntityAliasOrNull(request.moduleAlias()) != null) {
+            requireRecordAction(request.moduleAlias(), request.recordId(), submissionPolicies.resolve(request));
+        }
     }
 
     @Override
@@ -46,7 +39,9 @@ public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGua
         dynamicRecordService.requireRecordActionScope(moduleAlias, entityAlias, policy,
                 Set.of(recordId), CurrentUserContext.currentUser());
         if (dynamicRecordService.selectSystem(moduleAlias, entityAlias, recordId) == null) {
-            throw new PlatformException("dynamic record not found: " + moduleAlias + "." + recordId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-workflow-module-record-guard.record-not-found",
+                    "dynamic record not found: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(recordId)));
         }
     }
 
@@ -56,13 +51,5 @@ public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGua
         } catch (ModuleDefinitionException ignored) {
             return null;
         }
-    }
-
-    private ActionExecutionPolicy currentActionPolicy(WorkflowSubmitRequest request) {
-        return ActionExecutionContextHolder.current()
-                .filter(context -> request.moduleAlias().equals(context.moduleAlias()))
-                .filter(context -> !context.hasRecordContext() || context.recordIds().contains(request.recordId()))
-                .map(context -> context.actionPolicy())
-                .orElse(SUBMIT_POLICY);
     }
 }

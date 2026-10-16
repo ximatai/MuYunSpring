@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.menu;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -13,7 +16,6 @@ import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataOptions;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformConfigurationException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
@@ -33,6 +35,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 @Service
 public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<MenuScheme>,
         SoftDeleteAbility<MenuScheme>,
         EnableAbility<MenuScheme>,
         SortAbility<MenuScheme>,
@@ -159,27 +162,31 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
         switch (scheme.getScopeType()) {
             case SYSTEM -> {
                 if (!TenantContext.isSystem()) {
-                    throw BusinessExceptions.warning("platform.menu-scheme.system-context-required",
-                            "System menu scheme requires system context");
+                    throw BusinessExceptions.warningText("platform.menu-scheme.system-context-required", TextReference.code(
+                            "platform.rejection.menu-scheme.system-menu-scheme-requires-system-context",
+                            "System menu scheme requires system context"));
                 }
                 scheme.setTenantId(null);
                 scheme.setOrganizationId(null);
             }
             case TENANT -> {
                 if (scheme.getTenantId() == null || scheme.getTenantId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.menu-scheme.tenant-required",
-                            "Tenant menu scheme requires tenantId");
+                    throw BusinessExceptions.warningText("platform.menu-scheme.tenant-required", TextReference.code(
+                            "platform.rejection.menu-scheme.tenant-menu-scheme-requires-tenantid",
+                            "Tenant menu scheme requires tenantId"));
                 }
                 scheme.setOrganizationId(null);
             }
             case ORGANIZATION -> {
                 if (scheme.getTenantId() == null || scheme.getTenantId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.menu-scheme.organization-tenant-required",
-                            "Organization menu scheme requires tenantId");
+                    throw BusinessExceptions.warningText("platform.menu-scheme.organization-tenant-required", TextReference.code(
+                            "platform.rejection.menu-scheme.organization-menu-scheme-requires-tenantid",
+                            "Organization menu scheme requires tenantId"));
                 }
                 if (scheme.getOrganizationId() == null || scheme.getOrganizationId().isBlank()) {
-                    throw BusinessExceptions.warning("platform.menu-scheme.organization-required",
-                            "Organization menu scheme requires organizationId");
+                    throw BusinessExceptions.warningText("platform.menu-scheme.organization-required", TextReference.code(
+                            "platform.rejection.menu-scheme.organization-menu-scheme-requires-organizationid",
+                            "Organization menu scheme requires organizationId"));
                 }
             }
         }
@@ -190,14 +197,16 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
                         .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, scheme.getTenantId())
                         .eq("scopeType", scheme.getScopeType())
                         .eqNullable("organizationId", scheme.getOrganizationId())
-                        .eq("alias", scheme.getAlias()),
-                "menuSchemeAlias must be unique within scope: " + scheme.getAlias());
+                        .eq("alias", scheme.getAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.menu-scheme.menuschemealias-must-be-unique-within-scope",
+                                "menuSchemeAlias must be unique within scope: {value1}"), Map.of("value1", String.valueOf(scheme.getAlias()))));
     }
 
     private void rejectDeleteWhenMenusExist(String schemeId) {
         if (menusExist(schemeId)) {
-            throw BusinessExceptions.warning("platform.menu-scheme.delete-with-menus-denied",
-                    "Menu scheme cannot be deleted while menus exist: " + schemeId);
+            throw BusinessExceptions.warningText("platform.menu-scheme.delete-with-menus-denied", TextReference.code(
+                    "platform.rejection.menu-scheme.menu-scheme-cannot-be-deleted-while-menus-exist",
+                    "Menu scheme cannot be deleted while menus exist: {value1}"), Map.of("value1", String.valueOf(schemeId)));
         }
     }
 
@@ -212,8 +221,9 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
                 || !menusExist(existing.getId())) {
             return;
         }
-        throw BusinessExceptions.warning("platform.menu-scheme.tenant-change-with-menus-denied",
-                "Menu scheme tenant cannot be changed while menus exist: " + existing.getId());
+        throw BusinessExceptions.warningText("platform.menu-scheme.tenant-change-with-menus-denied", TextReference.code(
+                "platform.rejection.menu-scheme.menu-scheme-tenant-cannot-be-changed-while-menus-exist",
+                "Menu scheme tenant cannot be changed while menus exist: {value1}"), Map.of("value1", String.valueOf(existing.getId())));
     }
 
     private boolean menusExist(String schemeId) {
@@ -233,8 +243,9 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
             return;
         }
         if (!Objects.equals(existing.getAlias(), scheme.getAlias())) {
-            throw BusinessExceptions.warning("platform.menu-scheme.alias-immutable",
-                    "Menu scheme alias cannot be changed");
+            throw BusinessExceptions.warningText("platform.menu-scheme.alias-immutable", TextReference.code(
+                    "platform.rejection.menu-scheme.menu-scheme-alias-cannot-be-changed",
+                    "Menu scheme alias cannot be changed"));
         }
     }
 
@@ -253,7 +264,9 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
             return requireFirstEnabledSystemScheme();
         }
         if (user.tenantId() == null || user.tenantId().isBlank()) {
-            throw new PlatformException("current user tenant is required");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.menu-scheme.current-user-tenant-is-required",
+                    "current user tenant is required"));
         }
         if (user.organizationId() != null && !user.organizationId().isBlank()) {
             MenuScheme organizationScheme = firstOrganizationScheme(user.tenantId(), user.organizationId());
@@ -308,4 +321,5 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
                 Sort.asc("sortOrder"));
         return schemes.isEmpty() ? null : schemes.getFirst();
     }
+
 }

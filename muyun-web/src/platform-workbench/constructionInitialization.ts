@@ -1,5 +1,8 @@
 import { constructionObjectKeySchema, type ConstructionPlanState } from './constructionPlanGuard';
 import {
+  codeOperationErrorMessage,
+  platformLanguageContext,
+  type LanguageContext,
   AssistantCapabilityUsageError,
   type AssistantCapability,
   type ConstructionPlanClient,
@@ -9,16 +12,30 @@ import {
 export function createConstructionInitializationCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
+  language: LanguageContext = platformLanguageContext,
 ): AssistantCapability[] {
   function objectInput(input: unknown) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
-      throw new AssistantCapabilityUsageError('初始化参数无效');
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionInitialization.invalid-initialization-parameters',
+          '初始化参数无效',
+        ),
+      );
     return input as Record<string, unknown>;
   }
   function string(input: Record<string, unknown>, key: string, max: number) {
     const value = input[key];
     if (typeof value !== 'string' || !value.trim() || value.length > max)
-      throw new AssistantCapabilityUsageError(`初始化参数 ${key} 无效`);
+      throw new AssistantCapabilityUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.constructionInitialization.invalid-initialization-parameter-value',
+          '初始化参数 {value1} 无效',
+          { value1: key },
+        ),
+      );
     return value.trim();
   }
   return [
@@ -40,7 +57,14 @@ export function createConstructionInitializationCapabilities(
       },
       async execute(input) {
         const saved = current().saved;
-        if (!saved) throw new AssistantCapabilityUsageError('请先确认或恢复需求方案');
+        if (!saved)
+          throw new AssistantCapabilityUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.constructionInitialization.confirm-or-restore-the-requirements-plan-first',
+              '请先确认或恢复需求方案',
+            ),
+          );
         const result = await client.initialization(saved.planId, (input as { objectKey: string }).objectKey);
         return result ?? { status: 'NO_HISTORICAL_RECEIPT' };
       },

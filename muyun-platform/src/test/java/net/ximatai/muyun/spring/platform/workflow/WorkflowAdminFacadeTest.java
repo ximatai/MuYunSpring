@@ -11,6 +11,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowAdminFacadeTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowAdminService adminService = mock(WorkflowAdminService.class);
     private final WorkflowAdminFacade facade = new WorkflowAdminFacade(adminService);
 
@@ -21,7 +26,7 @@ class WorkflowAdminFacadeTest {
         WorkflowAdminActiveTaskView view = new WorkflowAdminActiveTaskView("task-1", "instance-1", "node-1",
                 "approve_1", "审批", WorkflowTaskKind.APPROVAL, WorkflowTaskStatus.TODO, "approver-1",
                 "审批人", null, null, WorkflowOvertimeStatus.NORMAL, true, WorkflowAssignmentKind.NORMAL,
-                "approver-1", "审批人", null, null, null, null, false, null, null, null, null, null, null);
+                "approver-1", "审批人", null, null, null, null, false, null, null, null, null, null, null, "version-1");
         when(adminService.currentTodoTasks("instance-1")).thenReturn(List.of(task));
         when(adminService.currentTodoTaskViews("instance-1")).thenReturn(List.of(view));
         WorkflowAdminInstanceQueryRequest queryRequest = WorkflowAdminInstanceQueryRequest.empty();
@@ -29,7 +34,7 @@ class WorkflowAdminFacadeTest {
                 "record-1", "definition-1", "version-1", 1, WorkflowInstanceStatus.RUNNING,
                 WorkflowApprovalStatus.PROCESSING, "starter-1", "发起人", null, List.of("approve_1"),
                 List.of("审批"), List.of("task-1"), List.of("approver-1"), List.of("审批人"),
-                WorkflowOvertimeStatus.NORMAL, null, null);
+                WorkflowOvertimeStatus.NORMAL, null, null, List.of());
         PageRequest pageRequest = PageRequest.of(1, 20);
         when(adminService.queryCurrentInstances(queryRequest, pageRequest))
                 .thenReturn(List.of(instanceView));

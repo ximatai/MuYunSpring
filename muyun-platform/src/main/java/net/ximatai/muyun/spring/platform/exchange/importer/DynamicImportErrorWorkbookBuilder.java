@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookMeta;
@@ -19,6 +21,13 @@ import java.util.Set;
 public class DynamicImportErrorWorkbookBuilder {
     public static final String ERROR_FIELD = "errorReason";
     public static final String ERROR_TITLE = "错误原因";
+    public static final TextReference ERROR_TITLE_SOURCE = TextReference.code("exchange.column.error-reason", ERROR_TITLE);
+    private static final TextReference RETRY_HINT = TextReference.code("exchange.import.retry-group-hint",
+            "同组重试数据；已成功记录请选择跳过，需更正已有记录时选择覆盖");
+    private final TextResolver resolver;
+
+    public DynamicImportErrorWorkbookBuilder() { this(null); }
+    public DynamicImportErrorWorkbookBuilder(TextResolver resolver) { this.resolver = resolver; }
 
     public ExcelWorkbookPlan build(DynamicImportPlan plan, List<ImportErrorRow> errorRows) {
         return build(plan, errorRows, null);
@@ -71,7 +80,7 @@ public class DynamicImportErrorWorkbookBuilder {
             parsed.columns().forEach(column -> columnIndexes.putIfAbsent(column.fieldName(), column.columnIndex()));
             Map<Map<String, String>, Set<String>> messagesByRow = new LinkedHashMap<>();
             for (ImportErrorRow error : bySheet.getOrDefault(sheet.sheetKey(), List.of())) {
-                messagesByRow.computeIfAbsent(error.rawValuesByFieldName(), ignored -> new LinkedHashSet<>()).add(error.message());
+                messagesByRow.computeIfAbsent(error.rawValuesByFieldName(), ignored -> new LinkedHashSet<>()).add(error.presentedMessage(resolver));
             }
             List<List<Object>> rows = new ArrayList<>();
             for (List<String> row : parsed.rows()) {
@@ -86,8 +95,8 @@ public class DynamicImportErrorWorkbookBuilder {
                 Set<String> messages = messagesByRow.getOrDefault(raw, Set.of());
                 if (!messages.isEmpty() || (group != null && affectedGroups.contains(group))) {
                     String message = messages.isEmpty()
-                            ? "同组重试数据；已成功记录请选择跳过，需更正已有记录时选择覆盖"
-                            : String.join("；", messages);
+                            ? resolver == null ? RETRY_HINT.originalText() : resolver.resolve(RETRY_HINT, Map.of()).text()
+                            : String.join("; ", messages);
                     rows.add(toWorkbookRow(sheet, new ImportErrorRow(sheet.sheetKey(), raw, message, group)));
                 }
             }
@@ -128,9 +137,10 @@ public class DynamicImportErrorWorkbookBuilder {
                 throw new PlatformException("dynamic import error workbook field conflicts with error column: "
                         + sheet.sheetKey() + "." + ERROR_FIELD);
             }
-            columns.add(new ExcelColumnPlan(field.fieldName(), field.title()));
+            var column = new ExcelColumnPlan(field.fieldName(), field.title());
+            columns.add(field.relateId() ? column.withTitle(ExcelExchangeProtocol.RELATE_ID_TITLE_SOURCE) : column);
         }
-        columns.add(new ExcelColumnPlan(ERROR_FIELD, ERROR_TITLE));
+        columns.add(new ExcelColumnPlan(ERROR_FIELD, ERROR_TITLE).withTitle(ERROR_TITLE_SOURCE));
         return columns;
     }
 
@@ -139,7 +149,7 @@ public class DynamicImportErrorWorkbookBuilder {
         for (DynamicImportPlan.FieldPlan field : sheet.fields()) {
             row.add(errorRow.rawValuesByFieldName().get(field.fieldName()));
         }
-        row.add(errorRow.message());
+        row.add(errorRow.presentedMessage(resolver));
         return row;
     }
 

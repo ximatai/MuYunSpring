@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -187,8 +188,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 if (!knownFields.contains(field)) throw new IllegalArgumentException("Unknown explorer field: " + field);
             }
         }
-        String searchPlaceholder = composition.listSearchPlaceholder() == null ? list.title()
-                : composition.listSearchPlaceholder();
+        String searchPlaceholder = composition.listSearchPlaceholder();
         DynamicModuleOverviewMode effectiveMode = composition.mode() != null ? composition.mode() : overviewMode == null
                 ? DynamicModuleOverviewMode.LIST_CARD : overviewMode;
         if (!composition.querySummaries().isEmpty() && effectiveMode != DynamicModuleOverviewMode.LIST_CARD) {
@@ -200,14 +200,39 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         ModulePageDefinition pageDefinition = switch (effectiveMode) {
             case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null), explorer, composition.quickSearchFields());
             case MICRO_LIST_CARD -> new FlatManagementPageDefinition(null,
-                    explorer != null ? explorer : new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
+                    explorer != null ? explorer : new PageExplorerDefinition(list.title() == null ? "记录导航" : list.title(), searchPlaceholder, null, null, null, "title", null, false),
                     detail, new PageTraitsDefinition(null), composition.quickSearchFields());
             case LIST_CARD -> new ListDetailCardPageDefinition(null,
                     new PageListDefinition(searchPlaceholder, listView, null, null, List.of(), composition.persistentQueryControls(),
                             composition.querySummaries()), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
         };
+        Map<String, TextReference> sources = new java.util.LinkedHashMap<>();
+        String prefix = "ui/" + page.getModuleAlias() + "/page/";
+        if (composition.listSearchPlaceholder() == null) {
+            sources.put(prefix + (effectiveMode == DynamicModuleOverviewMode.LIST_CARD ? "list" : "explorer") + "/searchPlaceholder",
+                    TextReference.code("platform.presentation.management.searchPlaceholder", "搜索名称、编码或 ID"));
+        }
+        if (list.title() == null && effectiveMode != DynamicModuleOverviewMode.LIST_CARD) {
+            String property = "explorer/title";
+            String original = effectiveMode == DynamicModuleOverviewMode.TREE_CARD ? "树导航" : "记录导航";
+            sources.put(prefix + property, TextReference.code(
+                    "platform.presentation.management." + effectiveMode.name() + ".navigationTitle", original));
+        }
+        sources.put(prefix + "detail/emptyDescription", TextReference.code(
+                "platform.presentation.management.selectRecord", "请选择记录"));
+        if (form.title() == null) sources.put(prefix + "detail/createTitle", TextReference.code(
+                "platform.presentation.management.createRecord", "新建记录"));
+        if (explorer != null || effectiveMode == DynamicModuleOverviewMode.MICRO_LIST_CARD) {
+            sources.put(prefix + "explorer/emptyDescription", TextReference.code(
+                    "platform.presentation.management.noRecords", "暂无记录"));
+            sources.put(prefix + "explorer/recordLabel", TextReference.code(
+                    "platform.presentation.management.record", "记录"));
+            sources.put(prefix + "explorer/fallbackTitle", TextReference.code(
+                    "platform.presentation.management.untitledRecord", "未命名记录"));
+        }
+        // View titles may be omitted: the platform owns the slot label; explicit titles remain configuration text.
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
-                null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions(), composition.managedActions());
+                null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions(), composition.managedActions(), sources);
     }
 
     private static List<PageDetailRelationDefinition> detailRelations(
@@ -385,7 +410,8 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             mode = DynamicModuleOverviewMode.valueOf(root.path("mode").asText());
             for (JsonNode node : root.path("nodes")) {
                 if ("explorer".equals(node.path("slot").asText())) {
-                    explorer = new PageExplorerDefinition(node.path("title").asText(),
+                    explorer = new PageExplorerDefinition(node.has("title") ? node.path("title").asText()
+                            : mode == DynamicModuleOverviewMode.TREE_CARD ? "树导航" : "记录导航",
                             root.path("props").path("list").path("searchPlaceholder").asText(null),
                             null, null, null, node.path("titleField").asText(), node.path("secondaryField").asText(null), false);
                 }
@@ -406,8 +432,8 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 throw new IllegalArgumentException("management page revision declares an unsupported slot: " + slot);
             }
             String title = node.path("title").asText(null);
-            if (title == null || title.isBlank()) {
-                throw new IllegalArgumentException("management " + slot + " slot requires a title");
+            if (node.has("title") && (title == null || title.isBlank())) {
+                throw new IllegalArgumentException("management " + slot + " slot title must not be blank");
             }
             JsonNode fieldNodes = node.path("fields");
             if (!fieldNodes.isArray()) {
@@ -425,7 +451,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (allFields.size() != fields.size() + groups.stream().mapToInt(group -> group.fields().size()).sum()) {
                 throw new IllegalArgumentException("management form slot contains duplicate fields");
             }
-            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups, !"list".equals(slot) ? PlatformPresentationTemplateCatalog.managementFormOrder(node) : List.of())) != null) {
+            if (slots.put(slot, new Slot(slot, title == null ? null : title.trim(), List.copyOf(fields), relations, groups, !"list".equals(slot) ? PlatformPresentationTemplateCatalog.managementFormOrder(node) : List.of())) != null) {
                 throw new IllegalArgumentException("management page revision declares duplicate " + slot + " slot");
             }
         }

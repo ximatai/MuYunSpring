@@ -85,7 +85,7 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
             if (net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema.fieldNames().contains(field.getKey()))
-                throw new IllegalArgumentException("请通过授权动作变更权限");
+                throw net.ximatai.muyun.spring.web.PlatformPermissionMutationGuard.violation();
             if (PlatformFieldPolicy.isAudit(field.getKey())
                     && !field.getValue().isNull()) {
                 record.putMutationMetadata("auditInput:" + field.getKey(), field.getValue().asText());

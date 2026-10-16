@@ -58,7 +58,7 @@ it('platform action error handler matches by code or marker facts', () => {
       marker: 'dictionaryCategory',
       handle: () => undefined,
     }),
-    true,
+    false,
   );
   assert.equal(
     matchesPlatformActionErrorHandler(codedError, {

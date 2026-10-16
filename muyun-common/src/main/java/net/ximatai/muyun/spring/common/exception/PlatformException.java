@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.common.exception;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -11,6 +12,7 @@ public class PlatformException extends RuntimeException {
     private final List<ErrorTarget> targets;
     private final Map<String, Object> details;
     private final Map<String, Object> messageArgs;
+    private final TextReference textSource;
 
     public PlatformException(String message) {
         this(PlatformErrorCodes.VALIDATION_FAILED, 400, message);
@@ -44,6 +46,18 @@ public class PlatformException extends RuntimeException {
                              List<ErrorTarget> targets,
                              Map<String, Object> details,
                              Map<String, Object> messageArgs) {
+        this(null, code, httpStatus, message, scope, targets, details, messageArgs);
+    }
+
+    protected PlatformException(TextReference textSource,
+                             String code,
+                             int httpStatus,
+                             String message,
+                             ErrorScope scope,
+                             List<ErrorTarget> targets,
+                             Map<String, Object> details,
+                             Map<String, Object> messageArgs) {
+        // Keep the existing no-cause constructor contract, including Throwable.initCause.
         super(message);
         this.code = normalizeCode(code);
         this.httpStatus = httpStatus;
@@ -51,6 +65,7 @@ public class PlatformException extends RuntimeException {
         this.targets = copyTargets(targets);
         this.details = details == null ? Map.of() : Map.copyOf(details);
         this.messageArgs = messageArgs == null ? Map.of() : Map.copyOf(messageArgs);
+        this.textSource = textSource;
     }
 
     public PlatformException(String code,
@@ -71,6 +86,18 @@ public class PlatformException extends RuntimeException {
                              List<ErrorTarget> targets,
                              Map<String, Object> details,
                              Map<String, Object> messageArgs) {
+        this(code, httpStatus, message, cause, scope, targets, details, messageArgs, null);
+    }
+
+    public PlatformException(String code,
+                             int httpStatus,
+                             String message,
+                             Throwable cause,
+                             ErrorScope scope,
+                             List<ErrorTarget> targets,
+                             Map<String, Object> details,
+                             Map<String, Object> messageArgs,
+                             TextReference textSource) {
         super(message, cause);
         this.code = normalizeCode(code);
         this.httpStatus = httpStatus;
@@ -78,6 +105,11 @@ public class PlatformException extends RuntimeException {
         this.targets = copyTargets(targets);
         this.details = details == null ? Map.of() : Map.copyOf(details);
         this.messageArgs = messageArgs == null ? Map.of() : Map.copyOf(messageArgs);
+        this.textSource = textSource;
+    }
+
+    public TextReference textSource() {
+        return textSource;
     }
 
     public String code() {

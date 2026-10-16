@@ -10,4 +10,10 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 public @interface BusinessMutation {
+    /**
+     * Module actions require their resolved action context by default. Endpoints whose domain
+     * service authorizes an indirect target (such as an assigned task) can collect mutation facts
+     * without a module action context. This flag never grants permission to execute the endpoint.
+     */
+    boolean actionContextRequired() default true;
 }

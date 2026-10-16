@@ -5,6 +5,25 @@ import RecordDetailFields from '@/platform-components/RecordDetailFields.vue';
 import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
 
 describe('RecordDetailFields', () => {
+  it.each([undefined, null, false, true])(
+    'renders business switches without lifecycle defaults: %s',
+    (value) => {
+      const wrapper = mount(RecordDetailFields, {
+        props: {
+          record: { delivered: value },
+          fields: new Map([
+            ['delivered', { fieldRef: { fieldName: 'delivered' }, label: '已到货', uiType: 'switch' }],
+          ]),
+        },
+      });
+      try {
+        expect(wrapper.get('[role="switch"]').attributes('aria-checked')).toBe(String(value === true));
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
   it('renders mixed groups in field order and removes headings when every member is hidden', async () => {
     const group = {
       groupCode: 'capacity',

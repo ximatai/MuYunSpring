@@ -10,6 +10,7 @@ import type {
   WebTreeNode,
 } from '@muyun/web-contracts';
 import type { HttpClient } from '../http';
+import { withoutRecordPresentation } from '../presentationTexts';
 
 export interface StaticRecordMutationResult<TRecord> extends WebActionResultFacts {
   record: TRecord;
@@ -106,7 +107,7 @@ export function createManagedDetailRelationClient<TRecord>(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${relationPath}/insert`,
-          body: record,
+          body: withoutRecordPresentation(record),
         }),
       ),
     update: async (id, record) =>
@@ -114,7 +115,7 @@ export function createManagedDetailRelationClient<TRecord>(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${relationPath}/update/${encodeURIComponent(id)}`,
-          body: record,
+          body: withoutRecordPresentation(record),
         }),
       ),
     delete: (id, request) =>
@@ -205,7 +206,7 @@ export function createStaticResourceCrudClient<TRecord>(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/insert`,
-          body: record,
+          body: withoutRecordPresentation(record),
           ...(options ? { headers: { 'X-Muyun-Save-Request': options.requestId } } : {}),
         }),
       ),
@@ -214,7 +215,7 @@ export function createStaticResourceCrudClient<TRecord>(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/update/${encodeURIComponent(id)}`,
-          body: record,
+          body: withoutRecordPresentation(record),
           ...(options ? { headers: { 'X-Muyun-Save-Request': options.requestId } } : {}),
         }),
       ),
@@ -412,6 +413,7 @@ export function normalizeModuleRecord<TRecord>(record: TRecord): TRecord {
   if (!isDynamicRecordWire(record)) return record;
   return {
     ...record.values,
+    ...('$texts' in record ? { $texts: record.$texts } : {}),
     ...normalizeModuleChildren(record.children),
     id: record.id,
     version: record.version,

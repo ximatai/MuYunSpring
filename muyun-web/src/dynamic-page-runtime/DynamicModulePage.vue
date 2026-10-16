@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref } from 'vue';
 import type { ActionContract, DynamicPageDescriptor, RecordData } from '@muyun/web-contracts';
 import { resolveDynamicActionReactions } from './actionReactions';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'DynamicModulePage' });
 
@@ -51,7 +54,7 @@ function executeAction(action: ActionContract) {
 
     <div class="runtime-grid">
       <article class="panel">
-        <h3>动态表单</h3>
+        <h3>{{ language.t('platform.screen.DynamicModulePage.dynamic-form', '动态表单') }}</h3>
         <dl>
           <template v-for="field in descriptor.form.fields" :key="field.name">
             <dt>{{ field.label }}</dt>
@@ -60,7 +63,7 @@ function executeAction(action: ActionContract) {
         </dl>
       </article>
       <article class="panel">
-        <h3>动态列表</h3>
+        <h3>{{ language.t('platform.screen.DynamicModulePage.dynamic-list', '动态列表') }}</h3>
         <table>
           <thead>
             <tr>
@@ -79,7 +82,7 @@ function executeAction(action: ActionContract) {
     </div>
 
     <article class="panel">
-      <h3>运行态输出</h3>
+      <h3>{{ language.t('platform.screen.DynamicModulePage.runtime-output', '运行态输出') }}</h3>
       <p>
         last action: <code>{{ lastAction }}</code>
       </p>

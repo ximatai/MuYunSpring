@@ -1,10 +1,14 @@
+import * as controlTexts from '@/platform-workbench/assistantControlText';
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnInput, AssistantTurnOutput } from '@muyun/web-contracts';
 import {
+  createLanguageContext,
+  provideLanguageContext,
+  platformLanguageContext,
   AppError,
   createAssistantSurfaceRegistry,
   AssistantCapabilityUsageError,
@@ -242,7 +246,7 @@ it('renders optional suggestions and submits a structured selection response', a
   expect(requestTurn).toHaveBeenNthCalledWith(
     2,
     expect.objectContaining({
-      message: '新增一条记录',
+      message: expect.stringContaining('帮我处理当前业务'),
       selectionResponse: {
         interactionId: 'selection-1',
         optionId: 'create',
@@ -253,6 +257,8 @@ it('renders optional suggestions and submits a structured selection response', a
     expect.any(Object),
   );
   expect(wrapper.text()).toContain('已选择：新增一条记录');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('你想先做哪一步？');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('新增一条记录');
   expect(wrapper.text()).toContain('我会继续新增记录');
 });
 
@@ -302,6 +308,9 @@ it('keeps free text available while a required choice can still be answered', as
   );
   expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
   expect(wrapper.text()).toContain('已选择：取消');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('帮我调整查询');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('确认应用当前查询条件吗？');
+  expect(requestTurn.mock.calls[1]![0].message).toContain('取消');
 });
 
 it.each(['free_text_allowed', 'selection_required'] as const)(
@@ -626,16 +635,16 @@ it('keeps successful operation feedback when the model follow-up fails', async (
 });
 
 it.each([
-  ['AI model response body timed out', '等待模型回复超时'],
-  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
-  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
-  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
-  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_OUTPUT_TRUNCATED_EMPTY', '模型服务未返回可用内容'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_MODEL_OUTPUT_TRUNCATED', '模型本次回复达到长度上限'],
 ])('retains a safe model failure reason after an applied draft: %s', async (message, expected) => {
   const requestTurn = vi
     .fn()
     .mockResolvedValueOnce({ toolCalls: [{ id: 'draft', code: 'form.patch-draft', input: {} }] })
-    .mockRejectedValueOnce(new Error(message));
+    .mockRejectedValueOnce(new AppError('任意服务端文案', { code: message, status: 502 }));
   const apply = vi.fn();
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
@@ -1023,7 +1032,10 @@ it('keeps failed required choices retryable without blocking a free-text recover
   await flushPromises();
   expect(requestTurn).toHaveBeenCalledTimes(3);
   expect(wrapper.text()).toContain('收到补充');
-  expect(requestTurn.mock.calls[2]![0].history).toContainEqual({ role: 'user', text: '租户甲' });
+  expect(requestTurn.mock.calls[2]![0].history).toContainEqual({
+    role: 'user',
+    text: requestTurn.mock.calls[1]![0].message,
+  });
   wrapper.unmount();
 });
 
@@ -1498,7 +1510,7 @@ it('restores persisted text after remount without reactivating old confirmation 
     .find((button) => button.text() === '新对话')!
     .trigger('click');
   await flushPromises();
-  expect(configurationCollaboration.task.value).toBeUndefined();
+  await vi.waitFor(() => expect(configurationCollaboration.task.value).toBeUndefined());
   expect(wrapper.find('[aria-label="本次配置协作方式"]').exists()).toBe(false);
   wrapper.unmount();
 });
@@ -1642,7 +1654,7 @@ it.each([false, true, 'denied'])(
     expect(JSON.stringify(requestTurn.mock.calls)).toContain('暂不修改或保存');
     expect(wrapper.text()).not.toContain('查看关联的已保存建设方案');
     await click('新对话');
-    expect(plan.current().planId).toBeUndefined();
+    await vi.waitFor(() => expect(plan.current().planId).toBeUndefined());
     expect(plan.current().candidate).toBeUndefined();
     wrapper.unmount();
   },
@@ -1714,18 +1726,18 @@ it('resumes the original request with a fresh budget without inventing a new use
 });
 
 it.each([
-  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
-  ['AI model response body timed out', '等待模型回复超时'],
-  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
-  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
-  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
-  ['本次内容预计超过模型上下文预算，尚未发送给模型', '本次内容预计超过模型上下文预算'],
-  ['本次输出预算超过模型容量，请调整配置', '本次输出预算超过模型容量'],
+  ['AI_MODEL_OUTPUT_TRUNCATED', '模型本次回复达到长度上限'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_OUTPUT_TRUNCATED_EMPTY', '模型服务未返回可用内容'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_CONTEXT_BUDGET_EXCEEDED', '本次内容超过模型上下文预算'],
+  ['AI_OUTPUT_BUDGET_EXCEEDED', '本次输出预算超过模型容量'],
 ])(
   'explains a known model interruption without suggesting that the business was saved: %s',
   async (failure, explanation) => {
     const requestTurn = vi.fn(async () => {
-      throw new Error(failure);
+      throw new AppError('任意服务端文案', { code: failure, status: 502 });
     });
     const wrapper = mount(WorkbenchAssistantPanel, {
       props: { open: true, registry: createRegistry(requestTurn) },
@@ -1734,7 +1746,7 @@ it.each([
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
     expect(wrapper.text()).toContain(explanation);
-    if (failure.startsWith('AI model request was rejected')) {
+    if (failure.startsWith('AI_PROVIDER_')) {
       expect(wrapper.text()).not.toContain('可以调整需求');
       expect(wrapper.text()).not.toContain(failure);
       expect(requestTurn).toHaveBeenCalledOnce();
@@ -1885,11 +1897,18 @@ it('keeps the same archived conversation across governance navigation and expire
   expect(write).not.toHaveBeenCalled();
 });
 
-it('continues in the same conversation after an agent opens a page in another execution scope', async () => {
+it('retains the initiating request through a selection and cross-scope navigation without retaining old observations', async () => {
   const registry = createAssistantSurfaceRegistry();
+  const goal = '登记客户甲，电话000-1015-1234，先准备草稿，不保存';
   const targetRequest = vi.fn<AssistantTurnRequester>(async () => ({
     text: '已准备好，请查看页面',
     toolCalls: [],
+  }));
+  const save = vi.fn<AssistantConversationClient['save']>(async (id, _scope, revision, content) => ({
+    id,
+    revision: revision + 1,
+    updatedAt: '',
+    content,
   }));
   registry.register({
     pageInstanceKey: 'governance',
@@ -1907,7 +1926,20 @@ it('continues in the same conversation after an agent opens a page in another ex
     contextRevision: () => 'stable',
     surface: {
       describe: () => ({ surface: 'test', facts: {} }),
-      requestTurn: async () => ({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
+      requestTurn: vi
+        .fn<AssistantTurnRequester>()
+        .mockResolvedValueOnce({
+          text: 'old scope observation must not be retained',
+          toolCalls: [],
+          selection: {
+            interactionId: 'choose-module',
+            prompt: '选择客户入口',
+            inputPolicy: 'selection_required',
+            presentation: 'options',
+            options: [{ id: 'customer', label: '客户登记入口' }],
+          },
+        })
+        .mockResolvedValueOnce({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
       capabilities: () => [
         {
           effect: 'page',
@@ -1926,14 +1958,75 @@ it('continues in the same conversation after an agent opens a page in another ex
     },
   });
   registry.activate('business');
-  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
-  await wrapper.get('textarea').setValue('帮我准备商品表单');
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry,
+      conversationClient: { list: vi.fn(async () => []), read: vi.fn(), save },
+    },
+  });
+  await wrapper.get('textarea').setValue(goal);
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
+  await wrapper.get('.assistant-selection__options button').trigger('click');
+  await flushPromises();
   await vi.waitFor(() => expect(targetRequest, wrapper.text()).toHaveBeenCalledOnce());
-  expect(wrapper.text()).toContain('帮我准备商品表单');
+  const selectedRequest = targetRequest.mock.calls[0]![0].message;
+  expect(selectedRequest).toContain(goal);
+  expect(selectedRequest).toContain('客户登记入口');
+  expect(selectedRequest).toContain('选择客户入口');
+  expect(selectedRequest).not.toContain('old scope observation');
+  expect(targetRequest.mock.calls[0]![0].history).toEqual([]);
+  expect(save.mock.calls.some(([, , , content]) => content.pendingRequest === selectedRequest)).toBe(true);
+  await wrapper.get('textarea').setValue('把电话改为000-1015-5678，仍然不要保存');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(targetRequest.mock.calls[1]![0].history).toContainEqual({ role: 'user', text: selectedRequest });
+  expect(wrapper.text()).toContain(goal);
   expect(wrapper.text()).toContain('已准备好，请查看页面');
   expect(wrapper.text()).not.toContain('本轮已暂停');
+  wrapper.unmount();
+});
+
+it('stops an oversized chain of choices without truncating the initiating goal or sending another request', async () => {
+  const goal = '原始业务要求' + '甲'.repeat(3_850);
+  const choice = (id: string, label: string): AssistantTurnOutput => ({
+    toolCalls: [],
+    selection: {
+      interactionId: id,
+      prompt: '请选择处理方式',
+      inputPolicy: 'selection_required',
+      presentation: 'options',
+      options: [{ id: 'choose', label }],
+    },
+  });
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce(choice('first', '先核对'))
+    .mockResolvedValueOnce(choice('second', '更详细的处理方式'.repeat(30)));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+  try {
+    await wrapper.get('textarea').setValue(goal);
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    await wrapper.get('.assistant-selection__options button').trigger('click');
+    await flushPromises();
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+    expect(requestTurn.mock.calls[1]![0].message).toContain(goal);
+    expect(requestTurn.mock.calls[1]![0].message).toContain('先核对');
+    await wrapper.get('.assistant-selection__options button').trigger('click');
+    await flushPromises();
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+    expect(requestTurn.mock.calls.every(([request]) => request.message.length <= 4_000)).toBe(true);
+    expect(wrapper.text()).toContain('需求与选择超过安全保留范围');
+    expect(wrapper.text()).toContain('已有结果保留，不会重复提交');
+    expect(wrapper.find('.assistant-selection__options').exists()).toBe(false);
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
 });
 
 it.each(['继续处理', '调整需求'])(
@@ -2523,6 +2616,7 @@ it('keeps display observations for later messages but clears them on new convers
     await wrapper.get('textarea').setValue(message);
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.find('.assistant-panel__working').exists()).toBe(false));
   };
   try {
     await submit('核实应用后继续');
@@ -2548,6 +2642,7 @@ it('keeps display observations for later messages but clears them on new convers
       .find((button) => button.text() === '新对话')!
       .trigger('click');
     await flushPromises();
+    await vi.waitFor(() => expect(wrapper.findAll('.assistant-message')).toHaveLength(0));
     await submit('查看当前页面');
     expect(JSON.stringify(requests.at(-1)!.history)).not.toContain('正式应用名称');
   } finally {
@@ -2614,4 +2709,217 @@ it('includes the final summary request in complete-round usage', async () => {
   expect(diagnostic).toContain('结果整理请求');
   expect(diagnostic).toContain('22 tokens（总量覆盖 13/13）');
   wrapper.unmount();
+});
+
+it('uses its own English scope and refreshes fixed failure text without replaying or translating the user draft', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private upstream diagnostic', { code: 'AI_MODEL_TIMEOUT', status: 504 });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    expect(wrapper.get('aside').attributes('aria-label')).toBe('AI assistant');
+    expect(wrapper.get('textarea').attributes('placeholder')).toBe('Describe what you want to accomplish');
+    await wrapper.get('textarea').setValue('原始用户需求');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(wrapper.text()).toContain('原始用户需求');
+    expect(wrapper.text()).not.toContain('private upstream diagnostic');
+    await wrapper.get('textarea').setValue('未发送草稿');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.get('textarea').element.value).toBe('未发送草稿');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Pending content was not submitted');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(platformLanguageContext.languageTag.value).toBe('zh-CN');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('localizes selection controls while retaining model prompts, option names and messages', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const requestTurn = vi.fn(async () => ({
+    text: '模型原始回复',
+    toolCalls: [],
+    selection: {
+      interactionId: 'choose',
+      prompt: '原始选择问题',
+      presentation: 'options' as const,
+      inputPolicy: 'free_text_allowed' as const,
+      options: [{ id: 'a', label: '原始业务名称' }],
+    },
+  }));
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry });
+    },
+  });
+  const wrapper = mount(Host);
+  try {
+    await wrapper.get('textarea').setValue('业务输入');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('模型原始回复');
+    expect(wrapper.text()).toContain('原始选择问题');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(wrapper.text()).toContain('You can also type something else');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('也可以继续输入其他内容');
+    expect(wrapper.text()).toContain('原始业务名称');
+    expect(requestTurn).toHaveBeenCalledOnce();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('saves, continues and restores fixed failure sources on LAN HTTP while preserving raw history', async () => {
+  const originalCrypto = globalThis.crypto;
+  vi.stubGlobal('crypto', { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved = JSON.parse(JSON.stringify({ id, revision: revision + 1, content, updatedAt: '2026-10-14' }));
+      return saved!;
+    }),
+    list: vi.fn(async () =>
+      saved ? [{ id: saved.id, title: saved.content.title, updatedAt: saved.updatedAt }] : [],
+    ),
+    read: vi.fn(async () => JSON.parse(JSON.stringify(saved))),
+  };
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const registry = createRegistry(requestTurn);
+  const Host = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(WorkbenchAssistantPanel, { open: true, registry, conversationClient: client });
+    },
+  });
+  const wrapper = mount(Host);
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === label)!
+      .trigger('click');
+    await flushPromises();
+  };
+  try {
+    await wrapper.get('textarea').setValue('用户需求原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(saved?.content.messages.some((message) => message.controlText)).toBe(true));
+    const rawFailure = saved!.content.messages.find((message) => message.controlText)!;
+    expect(rawFailure.text).toContain('等待模型回复超时');
+    expect(JSON.stringify(saved!.content.history)).not.toContain('controlText');
+    expect(JSON.stringify(rawFailure.controlText)).not.toContain('private diagnostic');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.text()).toContain('The model response timed out');
+    expect(wrapper.text()).not.toContain('等待模型回复超时');
+    expect(wrapper.text()).toContain(
+      'Please try again later.\nCheck the current page before continuing.\nPending content was not submitted',
+    );
+    expect(wrapper.text()).toContain('用户需求原文');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('等待模型回复超时');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮用户原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(saved!.content.messages.some((message) => message.text === '第二轮用户原文')).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    expect(saved!.content.messages.find((message) => message.controlText)!.text).toBe(rawFailure.text);
+    // A valid reference from an unknown version cannot partially relocalize the old control fact.
+    const packet = saved!.content.messages.find((message) => message.controlText)!.controlText!;
+    if (!('parts' in packet)) throw new Error('Missing failure parts');
+    const first = packet.parts[0];
+    if (!first || typeof first === 'string' || !('source' in first))
+      throw new Error('Missing failure source');
+    first.source.sourceId = 'platform.error.AI_FUTURE_UNKNOWN';
+    language.setLanguage('en');
+    await flushPromises();
+    await click('Conversation history');
+    await click('用户需求原文 · ' + new Date('2026-10-14').toLocaleString('en'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Conversation restored'));
+    await click('Show earlier messages');
+    expect(wrapper.findAll('.assistant-message--status').map((message) => message.text())).toContain(
+      rawFailure.text,
+    );
+    expect(requestTurn).toHaveBeenCalledTimes(2);
+  } finally {
+    wrapper.unmount();
+    vi.stubGlobal('crypto', originalCrypto);
+  }
+});
+
+it('keeps raw conversation save and later model turns available when optional source materialization fails', async () => {
+  const encoder = vi
+    .spyOn(controlTexts, 'archiveControlText')
+    .mockRejectedValueOnce(new Error('Invalid source'));
+  const requestTurn = vi.fn(async () => {
+    throw new AppError('private diagnostic', { code: 'AI_MODEL_TIMEOUT' });
+  });
+  const saved: import('@muyun/web-core').AssistantConversationContent[] = [];
+  const client: AssistantConversationClient = {
+    save: vi.fn(async (id, _scope, revision, content) => {
+      saved.push(JSON.parse(JSON.stringify(content)));
+      return { id, revision: revision + 1, content, updatedAt: '2026-10-14' };
+    }),
+    list: vi.fn(async () => []),
+    read: vi.fn(),
+  };
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+  });
+  try {
+    await wrapper.get('textarea').setValue('第一轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() =>
+      expect(
+        saved.some((content) =>
+          content.messages.some(
+            (message) => message.text.includes('等待模型回复超时') && !message.controlText,
+          ),
+        ),
+      ).toBe(true),
+    );
+    await vi.waitFor(() => expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined());
+    await wrapper.get('textarea').setValue('第二轮原文');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+    expect(JSON.stringify(saved)).not.toContain('private diagnostic');
+  } finally {
+    wrapper.unmount();
+    encoder.mockRestore();
+  }
 });

@@ -7,10 +7,11 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -19,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Map;
 
 @Service
 public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDelegation> {
@@ -39,7 +41,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     public void beforeUpdate(WorkflowDelegation delegation) {
         WorkflowDelegation existing = requireExisting(delegation.getId());
         if (Boolean.TRUE.equals(existing.getEnabled())) {
-            throw new PlatformException("enabled workflow delegation cannot be updated: " + delegation.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.disable-the-approval-delegation-before-editing-it",
+                    "enabled workflow delegation cannot be updated: {value1}"), Map.of("value1", String.valueOf(delegation.getId())));
         }
         delegation.setEnabled(Boolean.FALSE);
         normalizeAndValidate(delegation);
@@ -49,12 +53,16 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     public void beforeDelete(String id) {
         WorkflowDelegation existing = requireExisting(id);
         if (Boolean.TRUE.equals(existing.getEnabled())) {
-            throw new PlatformException("enabled workflow delegation cannot be deleted: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.disable-the-approval-delegation-before-deleting-it",
+                    "enabled workflow delegation cannot be deleted: {value1}"), Map.of("value1", String.valueOf(id)));
         }
     }
 
     public WorkflowDelegation insertForPrincipal(WorkflowDelegation delegation, String principalUserId) {
-        String currentPrincipal = requireText(principalUserId, "workflow delegation principal user id must not be blank");
+        String currentPrincipal = requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-principal",
+                "workflow delegation principal user id must not be blank"));
         delegation.setPrincipalUserId(currentPrincipal);
         String id = insert(delegation);
         return select(id);
@@ -62,9 +70,13 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
 
     public WorkflowDelegation updateForPrincipal(String id, WorkflowDelegation delegation, String principalUserId) {
         WorkflowDelegation existing = requireExisting(id);
-        String currentPrincipal = requireText(principalUserId, "workflow delegation principal user id must not be blank");
+        String currentPrincipal = requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-principal",
+                "workflow delegation principal user id must not be blank"));
         if (!currentPrincipal.equals(existing.getPrincipalUserId())) {
-            throw new PlatformException("workflow delegation does not belong to current principal: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.you-can-only-manage-your-own-approval-delegations",
+                    "workflow delegation does not belong to current principal: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         delegation.setId(id);
         delegation.setPrincipalUserId(currentPrincipal);
@@ -78,9 +90,13 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
 
     public int deleteForPrincipal(String id, Integer expectedVersion, String principalUserId) {
         WorkflowDelegation existing = requireExisting(id);
-        String currentPrincipal = requireText(principalUserId, "workflow delegation principal user id must not be blank");
+        String currentPrincipal = requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-principal",
+                "workflow delegation principal user id must not be blank"));
         if (!currentPrincipal.equals(existing.getPrincipalUserId())) {
-            throw new PlatformException("workflow delegation does not belong to current principal: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.you-can-only-manage-your-own-approval-delegations",
+                    "workflow delegation does not belong to current principal: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         requireExpectedVersion(existing, expectedVersion);
         return delete(id, expectedVersion);
@@ -148,8 +164,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     public PageResult<WorkflowDelegation> pageByPrincipal(String principalUserId, Criteria criteria,
                                                           PageRequest pageRequest) {
         Criteria scoped = criteria == null ? Criteria.of() : criteria;
-        scoped.eq("principalUserId", requireText(principalUserId,
-                "workflow delegation principal user id must not be blank"));
+        scoped.eq("principalUserId", requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-principal",
+                "workflow delegation principal user id must not be blank")));
         return pageQuery(scoped, page(pageRequest),
                 Sort.desc("updatedAt"), Sort.desc("createdAt"));
     }
@@ -161,14 +178,17 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     public PageResult<WorkflowDelegation> pageByDelegate(String delegateUserId, Criteria criteria,
                                                          PageRequest pageRequest) {
         Criteria scoped = criteria == null ? Criteria.of() : criteria;
-        scoped.eq("delegateUserId", requireText(delegateUserId,
-                "workflow delegation delegate user id must not be blank"));
+        scoped.eq("delegateUserId", requireText(delegateUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-delegate",
+                "workflow delegation delegate user id must not be blank")));
         return pageQuery(scoped, page(pageRequest),
                 Sort.desc("updatedAt"), Sort.desc("createdAt"));
     }
 
     public WorkflowDelegationMatch match(String principalUserId, String moduleAlias, String authOrgId) {
-        String validPrincipal = requireText(principalUserId, "workflow principal user id must not be blank");
+        String validPrincipal = requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-a-principal",
+                "workflow principal user id must not be blank"));
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         List<WorkflowDelegation> candidates = list(Criteria.of()
                         .eq("principalUserId", validPrincipal)
@@ -190,7 +210,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
                 .map(WorkflowDelegation::getDelegateUserId)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         if (delegates.size() > 1) {
-            throw new PlatformException("workflow delegation match conflict for principal: " + validPrincipal);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.conflicting-delegation-rules-match-this-principal",
+                    "workflow delegation match conflict for principal: {value1}"), Map.of("value1", String.valueOf(validPrincipal)));
         }
         WorkflowDelegation selected = strongest.stream()
                 .sorted(Comparator.comparing(WorkflowDelegation::getCreatedAt,
@@ -204,9 +226,13 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
 
     private WorkflowDelegation requirePrincipal(String id, String principalUserId) {
         WorkflowDelegation existing = requireExisting(id);
-        String currentPrincipal = requireText(principalUserId, "workflow delegation principal user id must not be blank");
+        String currentPrincipal = requireText(principalUserId, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-principal",
+                "workflow delegation principal user id must not be blank"));
         if (!currentPrincipal.equals(existing.getPrincipalUserId())) {
-            throw new PlatformException("workflow delegation does not belong to current principal: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.you-can-only-manage-your-own-approval-delegations",
+                    "workflow delegation does not belong to current principal: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return existing;
     }
@@ -245,7 +271,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
                     delegation.getModuleScopeType(), delegation.getModuleAliases())
                     && overlaps(other.getOrgScopeType(), other.getOrgIds(),
                     delegation.getOrgScopeType(), delegation.getOrgIds())) {
-                throw new PlatformException("workflow delegation enabled conflict: " + delegation.getPrincipalUserId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-delegation.an-enabled-approval-delegation-conflicts-with-this-rule",
+                        "workflow delegation enabled conflict: {value1}"), Map.of("value1", String.valueOf(delegation.getPrincipalUserId())));
             }
         }
     }
@@ -286,7 +314,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
 
     private void normalizeAndValidate(WorkflowDelegation delegation) {
         if (sameText(delegation.getPrincipalUserId(), delegation.getDelegateUserId())) {
-            throw new PlatformException("workflow delegation delegate must differ from principal");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.the-principal-and-delegate-must-be-different-people",
+                    "workflow delegation delegate must differ from principal"));
         }
         if (delegation.getPrincipalCanProcess() == null) {
             delegation.setPrincipalCanProcess(Boolean.FALSE);
@@ -297,7 +327,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
         delegation.setModuleAliases(normalizeModules(delegation.getModuleAliases()));
         if (delegation.getModuleScopeType() == WorkflowDelegationScopeType.INCLUDE
                 && delegation.getModuleAliases().isEmpty()) {
-            throw new PlatformException("workflow delegation moduleAliases are required for INCLUDE scope");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.select-modules-for-the-included-scope",
+                    "workflow delegation moduleAliases are required for INCLUDE scope"));
         }
         if (delegation.getOrgScopeType() == null) {
             delegation.setOrgScopeType(WorkflowDelegationScopeType.ALL);
@@ -305,7 +337,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
         delegation.setOrgIds(normalizeSet(delegation.getOrgIds()));
         if (delegation.getOrgScopeType() == WorkflowDelegationScopeType.INCLUDE
                 && delegation.getOrgIds().isEmpty()) {
-            throw new PlatformException("workflow delegation orgIds are required for INCLUDE scope");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.select-organizations-for-the-included-scope",
+                    "workflow delegation orgIds are required for INCLUDE scope"));
         }
     }
 
@@ -326,9 +360,13 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     }
 
     private WorkflowDelegation requireExisting(String id) {
-        WorkflowDelegation existing = selectActiveRaw(requireText(id, "workflow delegation id must not be blank"));
+        WorkflowDelegation existing = selectActiveRaw(requireText(id, TextReference.code(
+                "platform.rejection.workflow-delegation.select-an-approval-delegation-rule",
+                "workflow delegation id must not be blank")));
         if (existing == null) {
-            throw new PlatformException("workflow delegation not found: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-delegation.approval-delegation-not-found",
+                    "workflow delegation not found: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return existing;
     }
@@ -353,7 +391,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
         return CurrentUserContext.currentUser()
                 .map(user -> user.userId())
                 .filter(value -> value != null && !value.isBlank())
-                .orElseThrow(() -> new PlatformException("current user is required for workflow delegation"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-delegation.sign-in-before-managing-approval-delegation",
+                        "current user is required for workflow delegation")));
     }
 
     public String currentPrincipalUserId() {
@@ -368,9 +408,9 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
         return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value.trim();
     }

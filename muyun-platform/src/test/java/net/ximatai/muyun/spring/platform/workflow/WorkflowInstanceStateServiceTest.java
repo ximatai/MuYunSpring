@@ -8,6 +8,11 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowInstanceStateServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowInstanceStateService service = new WorkflowInstanceStateService();
 
     @Test
@@ -67,6 +72,19 @@ class WorkflowInstanceStateServiceTest {
         assertThat(instance.getInstanceStatus()).isEqualTo(WorkflowInstanceStatus.COMPLETED);
         assertThat(instance.getCompletedAt()).isEqualTo(Instant.parse("2026-06-05T02:00:00Z"));
         assertThat(instance.getCurrentNodeKeys()).isEmpty();
+    }
+
+    @Test
+    void globalConfigurationCreatesInstanceInTheSubmittingTenant() {
+        var shared = definition(false); shared.setTenantId(null);
+        try (var context = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant-business")) {
+            assertThat(service.startInstance(shared, version(), "record", "user", Instant.now(), "{}")
+                    .getTenantId()).isEqualTo("tenant-business");
+            assertThat(service.startInstance(definition(false), version(), "record", "user", Instant.now(), "{}")
+                    .getTenantId()).isEqualTo("tenant-1");
+        }
+        assertThat(service.startInstance(shared, version(), "record", "user", Instant.now(), "{}")
+                .getTenantId()).isNull();
     }
 
     private WorkflowDefinition definition(boolean approvalEnabled) {

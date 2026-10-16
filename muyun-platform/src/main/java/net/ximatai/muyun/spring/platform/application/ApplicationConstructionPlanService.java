@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.application;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -62,7 +63,8 @@ public class ApplicationConstructionPlanService {
         }
         public void requireOpen(String objectKey) {
             if ("DELIVERED".equals(constructionStatus) || objectKey != null && deliveredObjectKeys.contains(objectKey))
-                throw BusinessExceptions.warning("platform.construction-plan.delivered", "此业务已交付，请读取当前低代码治理配置进行改进；历史方案不再用于建设");
+                throw BusinessExceptions.warningText("platform.construction-plan.delivered",
+                TextReference.code("platform.construction-plan.delivered.history-plan", "此业务已交付，请读取当前低代码治理配置进行改进；历史方案不再用于建设"));
         }
     }
     public record ModuleBinding(String objectKey, String moduleAlias) {}
@@ -126,7 +128,8 @@ public class ApplicationConstructionPlanService {
         }
         int currentRevision = plan == null ? 0 : plan.getVersion() + 1;
         if (command.expectedRevision() != currentRevision)
-            throw BusinessExceptions.warning("platform.construction-plan.stale", "方案已被修改，请读取最新版本后重新确认");
+            throw BusinessExceptions.warningText("platform.construction-plan.stale",
+                TextReference.code("platform.construction-plan.stale", "方案已被修改，请读取最新版本后重新确认"));
         if (plan != null) {
             var current = read(planId);
             current.requireOpen(null);
@@ -166,8 +169,8 @@ public class ApplicationConstructionPlanService {
             var replacement = candidate.objects().stream().filter(object -> object.key().equals(key)).findFirst();
             if (!original.equals(replacement)
                     || !requirementMeanings(current.content(), key, current.initializations()).equals(requirementMeanings(candidate, key, current.initializations())))
-                throw BusinessExceptions.warning("platform.construction-plan.delivered",
-                        "已交付业务对象及其需求不能修改或移除，请读取当前低代码治理配置进行改进");
+                throw BusinessExceptions.warningText("platform.construction-plan.delivered",
+                TextReference.code("platform.construction-plan.delivered.objects", "已交付业务对象及其需求不能修改或移除，请读取当前低代码治理配置进行改进"));
         }
     }
 

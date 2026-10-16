@@ -51,18 +51,18 @@ public interface PlatformManagedProtectionAbility<T extends EntityContract & Pla
         if (PlatformAction.UPDATE.matches(actionCode)) {
             return allowsOrdinaryPlatformManagedUpdate()
                     ? Optional.empty()
-                    : Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可编辑"));
+                    : Optional.of(RecordActionAvailabilityDecision.unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-record.edit-unavailable", "平台托管记录不可编辑")));
         }
         if (PlatformAction.DELETE.matches(actionCode)) {
-            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可删除"));
+            return Optional.of(RecordActionAvailabilityDecision.unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-record.delete-unavailable", "平台托管记录不可删除")));
         }
         if ((PlatformAction.ENABLE.matches(actionCode) || PlatformAction.DISABLE.matches(actionCode))
                 && !editablePlatformManagedFields().contains(PlatformAbilityFields.ENABLED_FIELD)) {
-            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可变更启用状态"));
+            return Optional.of(RecordActionAvailabilityDecision.unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-record.toggle-unavailable", "平台托管记录不可变更启用状态")));
         }
         if (PlatformAction.SORT.matches(actionCode)
                 && !editablePlatformManagedFields().contains(PlatformAbilityFields.SORT_FIELD)) {
-            return Optional.of(RecordActionAvailabilityDecision.unavailable("平台托管记录不可调整排序"));
+            return Optional.of(RecordActionAvailabilityDecision.unavailableText(net.ximatai.muyun.spring.common.i18n.TextReference.code("platform.managed-record.sort-unavailable", "平台托管记录不可调整排序")));
         }
         return Optional.empty();
     }

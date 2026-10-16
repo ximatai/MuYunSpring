@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue';
 import type { DynamicRuntimeActivationStatus, WebActionResultEnvelope } from '@muyun/web-contracts';
 import { actionResultData, useModuleContext } from '@muyun/web-core';
 import { presentPlatformError, RecordStatusTag } from '@muyun/platform-components';
 import { moduleActivationFeedback, type ModuleActivationFeedback } from './moduleRuntimeActivation';
 import { UiActionButton, UiPopover } from '@muyun/vue-ui-antdv';
+
+const language = useLanguageContext();
 
 const props = defineProps<{ moduleAlias: string; reloadKey?: number }>();
 const context = useModuleContext({ moduleAlias: 'platform.module' });
@@ -26,15 +29,30 @@ const waiting = computed(() => {
 });
 const needsAttention = computed(() => loadFailed.value || status.value?.status === 'FAILED' || waiting.value);
 const label = computed(() =>
-  loadFailed.value ? '状态未知' : status.value?.status === 'FAILED' ? '生效失败' : '正在应用修改',
+  loadFailed.value
+    ? language.t('platform.screen.ModuleRuntimeActivationStatus.unknown-status', '状态未知')
+    : status.value?.status === 'FAILED'
+      ? language.t('platform.screen.ModuleRuntimeActivationStatus.activation-failed', '生效失败')
+      : language.t('platform.screen.ModuleRuntimeActivationStatus.applying-changes', '正在应用修改'),
 );
 const tone = computed(() =>
   loadFailed.value ? 'NEUTRAL' : status.value?.status === 'FAILED' ? 'DANGER' : 'WARNING',
 );
 const guidance = computed(() => {
-  if (loadFailed.value) return '暂时无法查询，请稍后重试。';
-  if (status.value?.status === 'FAILED') return '修改已保存，但未能生效。';
-  return '完成后将自动关闭提示。';
+  if (loadFailed.value)
+    return language.t(
+      'platform.screen.ModuleRuntimeActivationStatus.cannot-check-the-status-right-now-try-again-later',
+      '暂时无法查询，请稍后重试。',
+    );
+  if (status.value?.status === 'FAILED')
+    return language.t(
+      'platform.screen.ModuleRuntimeActivationStatus.the-changes-were-saved-but-activation-failed',
+      '修改已保存，但未能生效。',
+    );
+  return language.t(
+    'platform.screen.ModuleRuntimeActivationStatus.this-notice-will-close-when-activation-completes',
+    '完成后将自动关闭提示。',
+  );
 });
 const canRetry = computed(
   () =>
@@ -95,7 +113,7 @@ async function load(): Promise<ModuleActivationFeedback | undefined> {
     });
     if (sequence === requestSequence) {
       status.value = result;
-      return moduleActivationFeedback(result);
+      return moduleActivationFeedback(result, language);
     }
   } catch {
     if (sequence !== requestSequence) return;
@@ -128,7 +146,7 @@ async function retry() {
     }
   } catch (cause) {
     if (sequence !== requestSequence) return;
-    presentPlatformError(cause, { source: 'runtime-activation', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'runtime-activation', phase: 'action' });
     retrying.value = false;
     await load();
   } finally {
@@ -145,11 +163,18 @@ defineExpose({ refresh: load });
   <section
     v-if="needsAttention"
     class="module-runtime-activation"
-    aria-label="模块运行配置生效状态"
+    :aria-label="
+      language.t(
+        'platform.screen.ModuleRuntimeActivationStatus.module-runtime-configuration-activation-status',
+        '模块运行配置生效状态',
+      )
+    "
     aria-live="polite"
   >
     <div class="module-runtime-activation__summary">
-      <span class="module-runtime-activation__label">运行配置</span>
+      <span class="module-runtime-activation__label">{{
+        language.t('platform.screen.ModuleRuntimeActivationStatus.runtime-configuration', '运行配置')
+      }}</span>
       <RecordStatusTag :enabled="true" :enabled-label="label" :enabled-tone="tone" />
       <span class="module-runtime-activation__guidance">{{ guidance }}</span>
     </div>
@@ -160,7 +185,9 @@ defineExpose({ refresh: load });
         :disabled="loading || retrying"
         :loading="retrying"
         @click="retry"
-        >重试生效</UiActionButton
+        >{{
+          language.t('platform.screen.ModuleRuntimeActivationStatus.retry-activation', '重试生效')
+        }}</UiActionButton
       >
       <UiActionButton
         v-if="loadFailed"
@@ -168,25 +195,75 @@ defineExpose({ refresh: load });
         :disabled="loading || retrying"
         icon-name="reload"
         @click="load"
-        >重新查询</UiActionButton
+        >{{
+          language.t('platform.screen.ModuleRuntimeActivationStatus.check-again', '重新查询')
+        }}</UiActionButton
       >
       <UiPopover :key="moduleAlias" placement="bottomRight">
-        <UiActionButton density="compact" emphasis="quiet" title="查看诊断信息">
-          {{ status?.status === 'FAILED' ? '查看原因' : '诊断信息' }}
+        <UiActionButton
+          density="compact"
+          emphasis="quiet"
+          :title="language.t('platform.screen.WorkbenchAssistantPanel.show-diagnostics', '查看诊断信息')"
+        >
+          {{
+            status?.status === 'FAILED'
+              ? language.t('platform.screen.ModuleRuntimeActivationStatus.view-reason', '查看原因')
+              : language.t('platform.screen.ModuleRuntimeActivationStatus.diagnostics', '诊断信息')
+          }}
         </UiActionButton>
         <template #content>
           <div class="module-runtime-activation__details">
-            <strong>诊断信息</strong>
-            <p class="module-runtime-activation__scope">模块运行配置的生效情况</p>
-            <p v-if="loadFailed">状态查询失败，请重新查询。</p>
-            <p v-else-if="status?.status === 'FAILED'" class="module-runtime-activation__failure">
-              {{ status.failureMessage || '暂未提供失败原因，请重试或联系管理员。' }}
+            <strong>{{
+              language.t('platform.screen.ModuleRuntimeActivationStatus.diagnostics', '诊断信息')
+            }}</strong>
+            <p class="module-runtime-activation__scope">
+              {{
+                language.t(
+                  'platform.screen.ModuleRuntimeActivationStatus.activation-status-of-the-module-runtime-configuration',
+                  '模块运行配置的生效情况',
+                )
+              }}
             </p>
-            <p v-else-if="waiting">服务正在加载最新配置，状态将自动更新。</p>
+            <p v-if="loadFailed">
+              {{
+                language.t(
+                  'platform.screen.ModuleRuntimeActivationStatus.failed-to-check-the-status-check-again',
+                  '状态查询失败，请重新查询。',
+                )
+              }}
+            </p>
+            <p v-else-if="status?.status === 'FAILED'" class="module-runtime-activation__failure">
+              {{
+                status.failureMessage ||
+                language.t(
+                  'platform.screen.ModuleRuntimeActivationStatus.no-failure-reason-is-available-retry-or-contact-an-administrator',
+                  '暂未提供失败原因，请重试或联系管理员。',
+                )
+              }}
+            </p>
+            <p v-else-if="waiting">
+              {{
+                language.t(
+                  'platform.screen.ModuleRuntimeActivationStatus.the-service-is-loading-the-latest-configuration-the-status-will',
+                  '服务正在加载最新配置，状态将自动更新。',
+                )
+              }}
+            </p>
             <dl v-if="status" class="module-runtime-activation__versions">
-              <dt>配置版本</dt>
+              <dt>
+                {{
+                  language.t(
+                    'platform.screen.ModuleRuntimeActivationStatus.configuration-revision',
+                    '配置版本',
+                  )
+                }}
+              </dt>
               <dd>{{ status.desiredRevision ?? '—' }}</dd>
-              <dt>已加载版本</dt>
+              <dt>
+                {{
+                  language.t('platform.screen.ModuleRuntimeActivationStatus.loaded-revision', '已加载版本')
+                }}
+              </dt>
               <dd>{{ status.installedRevision ?? '—' }}</dd>
             </dl>
             <UiActionButton
@@ -195,7 +272,9 @@ defineExpose({ refresh: load });
               icon-name="reload"
               :disabled="loading || retrying"
               @click="load"
-              >刷新状态</UiActionButton
+              >{{
+                language.t('platform.screen.ModuleRuntimeActivationStatus.refresh-status', '刷新状态')
+              }}</UiActionButton
             >
           </div>
         </template>

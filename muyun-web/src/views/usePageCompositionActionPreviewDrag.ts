@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, shallowRef, useId, watch, type Ref } from 'vue';
 import {
   useUiDragSource,
@@ -25,6 +26,7 @@ export function usePageCompositionActionPreviewDrag(
     target: { anchor: Anchor; index: number },
   ) => void,
 ) {
+  const language = useLanguageContext();
   const instanceId = useId();
   const transientPlacement = shallowRef<{ actionCode: string; index: number }>();
   let committingPlacement = false;
@@ -143,7 +145,11 @@ export function usePageCompositionActionPreviewDrag(
       const resolved = {
         instanceId,
         kind: 'node' as const,
-        node: { key: key ?? `anchor:${anchor}`, title: key ?? '动作区域' },
+        node: {
+          key: key ?? `anchor:${anchor}`,
+          title:
+            key ?? language.t('platform.screen.usePageCompositionActionPreviewDrag.action-area', '动作区域'),
+        },
         position: (key ? dropPosition : 'inside') as 'before' | 'after' | 'inside',
       };
       if (source && enabled.value && canDrop(source)) {
@@ -226,8 +232,14 @@ export function usePageCompositionActionPreviewDrag(
     return {
       tabindex: enabled.value ? 0 : -1,
       role: 'button',
-      'aria-label': `拖动${title}`,
-      title: `拖动${title}；空格开始，方向键定位，回车放置，Esc 取消`,
+      'aria-label': language.t('platform.screen.usePageCompositionPreviewDrag.drag-value', '拖动{value1}', {
+        value1: title,
+      }),
+      title: language.t(
+        'platform.screen.usePageCompositionPreviewDrag.drag-value-space-to-start-arrow-keys-to-position-enter',
+        '拖动{value1}；空格开始，方向键定位，回车放置，Esc 取消',
+        { value1: title },
+      ),
       class: {
         'page-composition-action-preview__drag-handle': true,
         'is-dragging': draggingKey.value === actionCode,

@@ -1,24 +1,6 @@
-import { inject, onUnmounted, provide, type InjectionKey } from 'vue';
-
-/**
- * Optional host bridge for a dynamic page rendered as an independent workspace
- * view. The dynamic runtime only reports its local draft fact; the workbench
- * owns registration, confirmation and tab destruction.
- */
-export interface ModulePageUnsavedStateHost {
-  registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean): () => void;
-}
-
-const modulePageUnsavedStateHostKey: InjectionKey<ModulePageUnsavedStateHost | undefined> = Symbol(
-  'module-page-unsaved-state-host',
-);
-
-export function provideModulePageUnsavedStateHost(host: ModulePageUnsavedStateHost | undefined) {
-  provide(modulePageUnsavedStateHostKey, host);
-}
-
-export function useModulePageUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
-  const host = inject(modulePageUnsavedStateHostKey, undefined);
-  const unregister = host?.registerUnsavedState(source, isDirty, isBusy);
-  if (unregister) onUnmounted(unregister);
-}
+/** The module runtime and reusable record panels share the neutral draft-registration bridge. */
+export {
+  provideWorkspaceUnsavedStateRegistrar as provideModulePageUnsavedStateHost,
+  useWorkspaceViewUnsavedState as useModulePageUnsavedState,
+} from '@muyun/web-core';
+export type { WorkspaceUnsavedStateRegistrar as ModulePageUnsavedStateHost } from '@muyun/web-core';

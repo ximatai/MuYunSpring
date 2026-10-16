@@ -2008,6 +2008,94 @@ class DynamicRecordWebControllerTest {
         verify(mainEntity, never()).pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldCaptureFlatAggregateExpansionSourcesBeforeClippingReferenceIds(boolean retained) throws Exception {
+        objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        var texts = mock(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        var definition = module();
+        when(service.moduleDefinitions()).thenReturn(List.of(definition));
+        var child = new DynamicRecord(entity()); child.setId("child-1"); child.setVersion(4);
+        child.putProjectedValue("customerId", "target-1"); child.putProjectedValue("customerTitle", "原始名称");
+        if (retained) child.setDeletedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+        when(service.aggregateChildrenForView(MODULE, "parent-1", "lines")).thenReturn(List.of(child));
+        when(service.aggregateChildrenForRecycleBin(MODULE, "parent-1", "lines")).thenReturn(List.of(child));
+        when(service.aggregateExpansionOutputFields(MODULE, "lines", List.of("customerTitle")))
+                .thenReturn(List.of("customerTitle"));
+        var catalog = mock(ModuleExecutionPlanCatalog.class);
+        var plan = mock(ModuleExecutionPlan.class);
+        var descriptor = mock(net.ximatai.muyun.spring.platform.web.ResolvedModuleUiDescriptor.class);
+        var page = mock(net.ximatai.muyun.spring.platform.web.ResolvedModulePageDescriptor.class);
+        var list = mock(net.ximatai.muyun.spring.platform.web.ResolvedPageListDescriptor.class);
+        var relation = mock(net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor.class);
+        when(catalog.find(MODULE)).thenReturn(java.util.Optional.of(plan));
+        when(plan.uiDescriptor()).thenReturn(descriptor); when(descriptor.page()).thenReturn(page);
+        when(page.list()).thenReturn(list);
+        when(list.relationExpansions()).thenReturn(List.of(
+                new net.ximatai.muyun.spring.platform.web.ResolvedPageListRelationExpansionDescriptor("lines", List.of("customerTitle"))));
+        when(descriptor.detailRelations()).thenReturn(List.of(relation));
+        when(relation.code()).thenReturn("lines"); when(relation.embeddedField()).thenReturn("lines");
+        var controller = controllerFixture(service, activeTenantVerifier).executionPlans(catalog).build();
+        controller.setRecordTextPresentationService(texts);
+        var expansionMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        String path = retained ? "/{moduleAlias}/recycle-bin/view/parent-1/relations/lines/expansion"
+                : "/{moduleAlias}/view/parent-1/relations/lines/expansion";
+        var result = expansionMvc.perform(get(path, MODULE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("child-1"))
+                .andExpect(jsonPath("$.records[0].version").value(4))
+                .andExpect(jsonPath("$.records[0].customerTitle").value("原始名称"))
+                .andExpect(jsonPath("$.records[0].customerId").doesNotExist());
+        if (retained) {
+            result.andExpect(jsonPath("$.records[0].deletedAt").exists());
+            verify(service).aggregateChildrenForRecycleBin(MODULE, "parent-1", "lines");
+            verify(service, never()).aggregateChildrenForView(anyString(), anyString(), anyString());
+        } else {
+            verify(service).aggregateChildrenForView(MODULE, "parent-1", "lines");
+            verify(service, never()).aggregateChildrenForRecycleBin(anyString(), anyString(), anyString());
+        }
+        verify(texts).captureDynamicExpansionReferences(definition, List.of(child));
+        assertThat(child.getValues()).containsEntry("customerId", "target-1");
+    }
+
+    @Test
+    void shouldCaptureProjectionTitleSourcesBeforeRemovingTheirInternalReferenceIds() throws Exception {
+        var projection = mock(DynamicRelationProjectionReadService.class);
+        var texts = mock(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        var definition = module().toBuilder().references(List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition(
+                ENTITY, "customerId", "crm.customer", ReferenceCardinality.ONE,
+                List.of(new net.ximatai.muyun.spring.ability.reference.ReferenceProjection("title", "customerTitle"))))).build();
+        when(service.moduleDefinitions()).thenReturn(List.of(definition));
+        when(projection.resolveListOutputFields(eq(MODULE), eq(service), any())).thenReturn(Set.of("customerTitle"));
+        when(projection.describeListQuery(eq(MODULE), eq(service), any())).thenReturn(new ProjectionQueryDescriptor(
+                MODULE, "test", true, ProjectionQueryFallbackReason.NONE, Set.of("customerTitle"), Set.of("id"),
+                Set.of("customerTitle"), Set.of("customerTitle"), Set.of("id", "customerTitle"), List.of()));
+        var record = new DynamicRecord(entity()); record.setId("contract-1");
+        record.putProjectedValue("customerId", "customer-1"); record.putProjectedValue("customerTitle", "原始名称");
+        record.putProjectedValue("customerInternalCode", "internal");
+        when(projection.queryList(eq(MODULE), eq(service), any(), any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(java.util.Optional.of(PageResult.of(List.of(record), 1, PageRequest.of(1, 20))));
+        var controller = controllerFixture(service, activeTenantVerifier).projection(projection).build();
+        controller.setRecordTextPresentationService(texts);
+        var projectedMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        projectedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json").content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values.customerTitle").value("原始名称"))
+                .andExpect(jsonPath("$.records[0].values.customerId").doesNotExist())
+                .andExpect(jsonPath("$.records[0].values.customerInternalCode").doesNotExist());
+        verify(projection).queryList(eq(MODULE), eq(service), eq(Set.of("customerTitle", "customerId")),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class));
+        verify(texts).captureDynamicReferences(eq(definition), eq(List.of(record)));
+        assertThat(record.getValues().get("customerId")).isEqualTo("customer-1");
+    }
+
     @Test
     void shouldFallbackWhenDynamicSqlProjectionDoesNotSupportAllUiFields() throws Exception {
         DynamicRelationProjectionReadService projectionReadService = mock(DynamicRelationProjectionReadService.class);
@@ -3464,6 +3552,19 @@ class DynamicRecordWebControllerTest {
         source.setTenantId("tenant-b");
         when(service.select(MODULE, ENTITY, "contract-1")).thenReturn(source);
         AtomicReference<String> observedTenant = new AtomicReference<>();
+        var presentation = mock(net.ximatai.muyun.spring.platform.web.RecordTextPresentationService.class);
+        AtomicReference<String> presentationTenant = new AtomicReference<>();
+        when(presentation.projectReference(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            presentationTenant.set(TenantContext.currentTenantId().orElse(null));
+            return invocation.getArgument(2);
+        });
+        var controller = controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).build();
+        controller.setRecordTextPresentationService(presentation);
+        var scopedMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
         when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
                 .thenAnswer(ignored -> {
                     observedTenant.set(TenantContext.currentTenantId().orElse(null));
@@ -3471,7 +3572,7 @@ class DynamicRecordWebControllerTest {
                             DynamicReferenceResolveMode.QUERY, List.of(), List.of(), 0, 20, 0);
                 });
 
-        mvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
+        scopedMvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "mode", "QUERY",
@@ -3481,6 +3582,7 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk());
 
         assertThat(observedTenant.get()).isEqualTo("tenant-b");
+        assertThat(presentationTenant.get()).isEqualTo("tenant-b");
         verify(service).select(MODULE, ENTITY, "contract-1");
     }
 

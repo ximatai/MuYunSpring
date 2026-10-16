@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.currency;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
@@ -11,7 +13,6 @@ import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import org.springframework.stereotype.Service;
 
@@ -58,7 +59,9 @@ public class ExchangeRateTypeService extends StandardBusinessService<ExchangeRat
     public ExchangeRateType requireRateType(String rateTypeCode) {
         ExchangeRateType rateType = resolveRateType(rateTypeCode);
         if (rateType == null) {
-            throw new PlatformException("Exchange rate type requires existing type: " + rateTypeCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate-type.exchange-rate-type-requires-existing-type",
+                    "Exchange rate type requires existing type: {value1}"), Map.of("value1", String.valueOf(rateTypeCode)));
         }
         return rateType;
     }
@@ -66,7 +69,9 @@ public class ExchangeRateTypeService extends StandardBusinessService<ExchangeRat
     public ExchangeRateType requireEnabledRateType(String rateTypeCode) {
         ExchangeRateType rateType = requireRateType(rateTypeCode);
         if (!Boolean.TRUE.equals(rateType.getEnabled())) {
-            throw new PlatformException("Exchange rate type is disabled: " + rateTypeCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate-type.exchange-rate-type-is-disabled",
+                    "Exchange rate type is disabled: {value1}"), Map.of("value1", String.valueOf(rateTypeCode)));
         }
         return rateType;
     }
@@ -94,16 +99,22 @@ public class ExchangeRateTypeService extends StandardBusinessService<ExchangeRat
     }
 
     private void validateImmutableIdentity(ExchangeRateType rateType, ExchangeRateType existing) {
-        rejectChanged(existing, rateType, "Exchange rate type code", ExchangeRateType::getCode);
+        rejectChangedText(existing, rateType, TextReference.code(
+                "platform.rejection.exchange-rate-type.exchange-rate-type-code-cannot-be-changed",
+                "Exchange rate type code cannot be changed"), ExchangeRateType::getCode);
     }
 
     private String requireRateTypeCode(String value) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("exchangeRateTypeCode must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate-type.exchangeratetypecode-must-not-be-blank",
+                    "exchangeRateTypeCode must not be blank"));
         }
         String code = CurrencyCodeRules.normalizeRateTypeCode(value);
         if (!CurrencyCodeRules.isRateTypeCode(code)) {
-            throw new PlatformException("exchangeRateTypeCode must use upper snake code: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate-type.exchangeratetypecode-must-use-upper-snake-code",
+                    "exchangeRateTypeCode must use upper snake code: {value1}"), Map.of("value1", String.valueOf(value)));
         }
         return code;
     }

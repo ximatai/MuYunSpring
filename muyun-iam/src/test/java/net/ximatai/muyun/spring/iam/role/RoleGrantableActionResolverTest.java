@@ -15,6 +15,33 @@ import static org.mockito.Mockito.when;
 
 class RoleGrantableActionResolverTest {
     @Test
+    void grantDirectoryAndScopeVerifierUseTheSharedEffectivePolicy() {
+        var modules = mock(PlatformModuleService.class);
+        var actions = mock(PlatformModuleActionService.class);
+        var module = new PlatformModule();
+        module.setModuleKind(ModuleKind.DYNAMIC);
+        when(modules.resolveVisibleModule("sales.expense")).thenReturn(module);
+        var action = new PlatformModuleAction();
+        action.setModuleAlias("sales.expense");
+        action.setActionCode("approve");
+        action.setEnabled(true);
+        action.setActionAuth(true);
+        action.setDataAuth(true);
+        when(actions.listByModuleAliases(List.of("sales.expense"))).thenReturn(List.of(action));
+        var directory = new RoleGrantableActionResolver(modules, actions);
+        var verifier = new PlatformRoleActionGrantVerifier(modules, actions);
+
+        when(actions.effectiveDataAuth(action)).thenReturn(false);
+        assertThat(directory.resolve(List.of("sales.expense"))).singleElement()
+                .satisfies(grant -> assertThat(grant.dataAuth()).isFalse());
+        assertThat(verifier.requiresDataScope("sales.expense", "approve")).isFalse();
+        when(actions.effectiveDataAuth(action)).thenReturn(true);
+        assertThat(directory.resolve(List.of("sales.expense"))).singleElement()
+                .satisfies(grant -> assertThat(grant.dataAuth()).isTrue());
+        assertThat(verifier.requiresDataScope("sales.expense", "approve")).isTrue();
+    }
+
+    @Test
     void shouldNotFallBackToStaticDefaultsWhenGovernanceDisablesAllRegisteredActions() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService moduleActionService = mock(PlatformModuleActionService.class);

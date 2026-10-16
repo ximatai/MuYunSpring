@@ -1,18 +1,28 @@
 package net.ximatai.muyun.spring.ability.action;
 
 import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 public record ActionMessage(
         String code,
         String text,
         ActionMessageType type,
-        Map<String, Object> messageArgs
+        Map<String, Object> messageArgs,
+        TextReference textSource
 ) {
     public ActionMessage {
         code = normalize(code);
         text = normalize(text);
         type = type == null ? ActionMessageType.SUCCESS : type;
         messageArgs = messageArgs == null ? Map.of() : Map.copyOf(messageArgs);
+    }
+
+    public ActionMessage(String code, String text, ActionMessageType type, Map<String, Object> messageArgs) {
+        this(code, text, type, messageArgs, null);
+    }
+
+    public ActionMessage withTextSource(TextReference source) {
+        return new ActionMessage(code, text, type, messageArgs, source);
     }
 
     public ActionMessage(String code, String text, ActionMessageType type) {

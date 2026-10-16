@@ -1,7 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.databind.JsonNode;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
@@ -52,19 +53,27 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
                 : request;
         DynamicRecord record = normalized.record();
         if (record == null) {
-            throw new PlatformException("Local edit action requires record");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-action-requires-record",
+                    "Local edit action requires record"));
         }
         String recordId = firstText(normalized.recordId(), record.getId(), context.recordId());
         if (recordId == null) {
-            throw new PlatformException("Local edit action requires recordId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-action-requires-recordid",
+                    "Local edit action requires recordId"));
         }
         if (record.getVersion() == null) {
-            throw new PlatformException("Local edit action requires record.version");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-action-requires-record-version",
+                    "Local edit action requires record.version"));
         }
         record.setId(recordId);
         String uiConfigId = payloadText(normalized.payload(), "uiConfigId");
         if (uiConfigId == null) {
-            throw new PlatformException("Local edit action requires payload.uiConfigId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-action-requires-payload-uiconfigid",
+                    "Local edit action requires payload.uiConfigId"));
         }
         validateFields(context.moduleAlias(), context.actionCode(), uiConfigId, normalized, record);
         return DynamicActionResultBody.changedCount(operations.update(record));
@@ -79,8 +88,9 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
         PlatformUiConfig uiConfig = snapshot.uiConfigs().stream()
                 .filter(config -> Objects.equals(config.getId(), uiConfigId))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Local edit UI config is not published in module snapshot: "
-                        + uiConfigId));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-local-edit-action-executor.local-edit-ui-config-is-not-published-in-module-snapshot",
+                        "Local edit UI config is not published in module snapshot: {value1}"), Map.of("value1", String.valueOf(uiConfigId))));
         validateActionBinding(uiConfig, actionCode, uiConfigId);
         Map<String, FieldDefinition> fields = record.getEntity().fields().stream()
                 .collect(Collectors.toMap(FieldDefinition::fieldName, field -> field));
@@ -90,33 +100,44 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
                 .collect(Collectors.toMap(field -> {
                     ResolvedModuleMetadataField resolved = moduleFieldService.resolve(field.getModuleMetadataFieldId());
                     if (resolved.relationRole() != RelationRole.MAIN) {
-                        throw new PlatformException("Local edit only supports main record fields: "
-                                + resolved.relationAlias());
+                        throw PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.dynamic-local-edit-action-executor.local-edit-only-supports-main-record-fields",
+                                "Local edit only supports main record fields: {value1}"), Map.of("value1", String.valueOf(resolved.relationAlias())));
                     }
                     return resolved.fieldName();
                 }, field -> field, (left, right) -> left));
         Set<String> allowed = allowedFields(request, record);
         if (allowed.isEmpty()) {
-            throw new PlatformException("Local edit requires at least one field");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-requires-at-least-one-field",
+                    "Local edit requires at least one field"));
         }
         if (!editableFields.keySet().containsAll(allowed)) {
             LinkedHashSet<String> invalid = new LinkedHashSet<>(allowed);
             invalid.removeAll(editableFields.keySet());
-            throw new PlatformException("Local edit field is not allowed by UI config: " + invalid);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-field-is-not-allowed-by-ui-config",
+                    "Local edit field is not allowed by UI config: {value1}"), Map.of("value1", String.valueOf(invalid)));
         }
         for (String fieldName : allowed) {
             FieldDefinition field = fields.get(fieldName);
             if (field == null) {
-                throw new PlatformException("Local edit field is not defined: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-local-edit-action-executor.local-edit-field-is-not-defined",
+                        "Local edit field is not defined: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             PlatformUiConfigField uiField = editableFields.get(fieldName);
             if (Boolean.TRUE.equals(uiField.getReadOnly())) {
-                throw new PlatformException("Local edit field is read-only: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-local-edit-action-executor.local-edit-field-is-read-only",
+                        "Local edit field is read-only: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
             boolean required = Boolean.TRUE.equals(uiField.getRequiredOverride()) || field.isRequired();
             Object value = record.getValues().get(fieldName);
             if (required && (value == null || value instanceof String text && text.isBlank())) {
-                throw new PlatformException("Local edit required field is missing: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-local-edit-action-executor.local-edit-required-field-is-missing",
+                        "Local edit required field is missing: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
         }
     }
@@ -125,11 +146,14 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
                                        String actionCode,
                                        String uiConfigId) {
         if (actionCode == null || actionCode.isBlank()) {
-            throw new PlatformException("Local edit action binding is missing actionCode");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-action-binding-is-missing-actioncode",
+                    "Local edit action binding is missing actionCode"));
         }
         if (!hasLocalEditBinding(uiConfig, actionCode.trim())) {
-            throw new PlatformException("Local edit UI config is not bound to action: "
-                    + uiConfigId + "." + actionCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-ui-config-is-not-bound-to-action",
+                    "Local edit UI config is not bound to action: {value1}.{value2}"), Map.of("value1", String.valueOf(uiConfigId), "value2", String.valueOf(actionCode)));
         }
     }
 
@@ -165,7 +189,9 @@ public class DynamicLocalEditActionExecutor implements DynamicActionExecutor {
         if (!fields.containsAll(record.explicitFieldCodes())) {
             LinkedHashSet<String> extra = new LinkedHashSet<>(record.explicitFieldCodes());
             extra.removeAll(fields);
-            throw new PlatformException("Local edit record contains fields outside fieldNames: " + extra);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-local-edit-action-executor.local-edit-record-contains-fields-outside-fieldnames",
+                    "Local edit record contains fields outside fieldNames: {value1}"), Map.of("value1", String.valueOf(extra)));
         }
         return fields;
     }

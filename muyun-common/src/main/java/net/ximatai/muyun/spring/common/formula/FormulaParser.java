@@ -88,7 +88,7 @@ final class FormulaParser {
     private AstNode parsePrimary() {
         FormulaTokenizer.Token token = peek();
         if (token == null) {
-            return new AstNode();
+            throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "formula operand is missing");
         }
         if (token.type() == FormulaTokenizer.TokenType.VALUE) {
             String raw = token.value();
@@ -114,8 +114,7 @@ final class FormulaParser {
             next();
             return expression;
         }
-        next();
-        return new AstNode();
+        throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "unexpected formula operand token: " + token.value());
     }
 
     private OthersNode parseOthers() {
@@ -142,6 +141,11 @@ final class FormulaParser {
             args.add(parseAssignment());
             if (peek() != null && peek().type() == FormulaTokenizer.TokenType.COMMA) {
                 next();
+                if (peek() == null || peek().type() == FormulaTokenizer.TokenType.RPAREN) {
+                    throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "formula function argument is missing: " + name);
+                }
+            } else if (peek() != null && peek().type() != FormulaTokenizer.TokenType.RPAREN) {
+                throw new FormulaEvaluationException("FORMULA_PARSE_ERROR", "formula function arguments require a comma: " + name);
             }
         }
         if (peek() == null || peek().type() != FormulaTokenizer.TokenType.RPAREN) {

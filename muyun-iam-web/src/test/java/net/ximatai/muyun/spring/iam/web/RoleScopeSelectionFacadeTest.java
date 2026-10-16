@@ -50,8 +50,8 @@ class RoleScopeSelectionFacadeTest {
                 CurrentUser.systemUser("admin", "Admin"), facade::descriptor);
 
         assertThat(descriptor.directSelections())
-                .containsExactly(new RoleScopeSelectionFacade.DirectSelection("platform", "平台角色"));
-        assertThat(descriptor.navigations()).containsExactly(new RoleScopeSelectionFacade.Navigation(
+                .containsExactly(RoleScopeSelectionFacade.DirectSelection.declared("iam.role.scope.platform", "platform", "平台角色"));
+        assertThat(descriptor.navigations()).containsExactly(RoleScopeSelectionFacade.Navigation.declared("iam.role.scope.tenants",
                 RoleScopeSelectionFacade.TENANT_LIST_NAVIGATION_KEY,
                 RoleScopeSelectionFacade.ScopeLevel.TENANT, "租户"));
     }

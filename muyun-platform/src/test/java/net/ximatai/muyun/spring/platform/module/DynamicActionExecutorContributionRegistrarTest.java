@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
@@ -28,7 +30,7 @@ class DynamicActionExecutorContributionRegistrarTest {
         PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         modules.insert(module("sales.static", ModuleKind.STATIC));
         modules.insert(module("sales.dynamic", ModuleKind.DYNAMIC));
-        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules,
+        PlatformModuleActionService actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), modules,
                 Optional.empty(), Optional.of(new DynamicActionExecutorRegistry(List.of(new ConfigurableExecutor()))));
         for (String alias : List.of("sales.static", "sales.dynamic")) {
             var declaration = manualAction(alias);
@@ -58,7 +60,7 @@ class DynamicActionExecutorContributionRegistrarTest {
         module.setTitle("合同");
         module.setModuleKind(ModuleKind.STATIC);
         moduleService.insert(module);
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         when(applicationContext.getBeansOfType(DynamicActionExecutor.class))
                 .thenReturn(Map.of("testExecutor", new TestExecutor()));
@@ -78,7 +80,7 @@ class DynamicActionExecutorContributionRegistrarTest {
         PlatformModule dynamicModule = module("sales.dynamic", ModuleKind.DYNAMIC);
         moduleService.insert(staticModule);
         moduleService.insert(dynamicModule);
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(),
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(),
                 moduleService, Optional.empty(), Optional.of(new DynamicActionExecutorRegistry(
                 List.of(new ConfigurableExecutor()))));
 
@@ -105,7 +107,7 @@ class DynamicActionExecutorContributionRegistrarTest {
         module.setTitle("合同");
         module.setModuleKind(ModuleKind.DYNAMIC);
         moduleService.insert(module);
-        PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
+        PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(), moduleService);
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         when(applicationContext.getBeansOfType(DynamicActionExecutor.class))
                 .thenReturn(Map.of("testExecutor", new TestExecutor()), Map.of());

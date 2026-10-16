@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -36,7 +38,9 @@ public class ModuleMetadataFieldPropertySummaryService {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         ModuleMetadataRelation relation = relationService.select(relationId);
         if (relation == null || !validModuleAlias.equals(relation.getModuleAlias())) {
-            throw new PlatformException("metadata relation does not belong to module: " + validModuleAlias + "." + relationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-property-summary.metadata-relation-does-not-belong-to-module",
+                    "metadata relation does not belong to module: {value1}.{value2}"), Map.of("value1", String.valueOf(validModuleAlias), "value2", String.valueOf(relationId)));
         }
         java.util.Map<String, ModuleMetadataField> legacy = moduleFieldService.listByRelationId(relation.getId()).stream()
                 .collect(java.util.stream.Collectors.toMap(ModuleMetadataField::getMetadataFieldId, item -> item,
@@ -78,8 +82,9 @@ public class ModuleMetadataFieldPropertySummaryService {
         }
         MetadataFieldReferenceConfig reference = referenceConfigService.findForRelation(field.getId(), relation.getId());
         if (reference != null && dictionary != null && dictionary.hasDictionaryBinding()) {
-            throw new PlatformException("metadata field has conflicting reference and dictionary bindings: "
-                    + field.getFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-metadata-field-property-summary.metadata-field-has-conflicting-reference-and-dictionary-bindings",
+                    "metadata field has conflicting reference and dictionary bindings: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
         if (reference != null) {
             return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),

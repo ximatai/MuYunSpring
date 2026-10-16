@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import type { Metadata, MetadataField, ModuleMetadataRelation } from '@/web-contracts/index.ts';
 import {
   createMetadataOrchestrationState,
@@ -320,4 +320,37 @@ it('focus relation moves selection after creating main metadata', () => {
 
   assert.equal(state.selectedRelationId.value, 'rel-2');
   assert.equal(state.mode.value, 'view');
+});
+
+it('uses configuration presentation labels in field-spec choices without changing storage identities', async () => {
+  const { createLanguageContext } = await import('@/web-core');
+  const { fieldSpecOptionListOf, fieldSpecDisplayLabel } = await import('@/views/metadataOrchestrationState');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const spec = {
+    id: 'string',
+    alias: 'string',
+    title: '短文本',
+    $texts: {
+      title: {
+        source: {
+          sourceKind: 'CONFIG',
+          sourceId: 'config/record/platform.field_spec/string/title',
+          sourceVersion: 'v1',
+          originalText: '短文本',
+        },
+        languages: {
+          en: { text: 'Short text', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+        },
+      },
+    },
+  };
+  const specs = [spec, { id: 'custom', alias: 'custom', title: '短文本' }];
+  expect(fieldSpecOptionListOf(specs, language)).toEqual([
+    { value: 'string', label: 'Short text' },
+    { value: 'custom', label: '短文本' },
+  ]);
+  expect(fieldSpecDisplayLabel('string', specs, language)).toBe('Short text');
+  language.setLanguage('zh-CN');
+  expect(fieldSpecDisplayLabel('string', specs, language)).toBe('短文本');
+  expect(spec.title).toBe('短文本');
 });

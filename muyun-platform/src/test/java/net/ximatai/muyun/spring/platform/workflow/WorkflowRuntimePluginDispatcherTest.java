@@ -13,6 +13,11 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowRuntimePluginDispatcherTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     @BeforeEach
     void setUp() {
         clearTransactionState();

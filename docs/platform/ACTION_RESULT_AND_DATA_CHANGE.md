@@ -73,7 +73,9 @@
 public record ActionMessage(
         String code,
         String text,
-        ActionMessageType type
+        ActionMessageType type,
+        Map<String, Object> messageArgs,
+        TextReference textSource
 ) {
 }
 ```
@@ -166,7 +168,7 @@ throw BusinessExceptions.warning(
         "登录账号已被占用");
 ```
 
-统一异常处理器负责形成错误响应，并保留正确的 HTTP 状态。
+统一异常处理器负责形成错误响应，并保留正确的 HTTP 状态。需要翻译的业务失败可通过 `BusinessException(code, TextReference, messageType, messageArgs)` 声明原文来源及参数，完整构造也支持指定状态、作用域和目标。HTTP 展示层与成功回执共用文本解析契约，原异常和错误日志保留原文事实；稳定错误码、参数与目标不受语言影响。
 
 成功与失败可以复用 `ActionMessage` 结构，但不能混淆 HTTP 成功和失败语义。
 
@@ -495,3 +497,5 @@ Web Adapter
 | `PlatformWebError`                                          | 继续由异常处理链路返回，保留 HTTP 失败状态                                                                                                                      | 可复用 `ActionMessage` 结构表达业务错误性质                                  |
 
 项目未上线，不保留旧顶层 `record` 包装的过渡兼容。前端静态客户端只消费原始记录、原始计数或统一 `ActionResult`；计数型动作进入动作包装后通过 `data` 读取真实计数。
+
+通过任务等间接目标办理业务的接口，可声明 `@BusinessMutation(actionContextRequired = false)`，由领域服务校验身份、任务归属与真实业务动作权限，并在事务内产生变更事实。该声明只开启事实收集和标准结果交付，不提供授权，也不取代领域校验。业务接口默认仍要求已解析的模块动作上下文。

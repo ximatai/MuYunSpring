@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 
@@ -53,7 +54,9 @@ public class PasswordHashingService {
 
     private String requirePassword(String password) {
         if (password == null || password.isEmpty()) {
-            throw BusinessExceptions.warning("iam.user.password-empty", "password must not be empty");
+            throw BusinessExceptions.warningText("iam.user.password-empty", TextReference.code(
+                    "iam.rejection.password-hashing.password-must-not-be-empty",
+                    "password must not be empty"));
         }
         return password;
     }

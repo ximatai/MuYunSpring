@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  shallowRef,
   nextTick,
   ref,
   watch,
@@ -24,9 +25,16 @@ import {
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   OperationRejectedError,
+  AppError,
+  OperationUsageError,
+  codeOperationErrorMessage,
+  resolveOperationErrorMessage,
+  userFacingErrorMessage,
   useModuleContext,
   useAssistantSurfaceHost,
   createAssistantTurnRequester,
+  useLanguageContext,
+  provideLanguageContext,
 } from '@muyun/web-core';
 import {
   createBusinessRuleAssistantSurface,
@@ -57,7 +65,8 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   businessRuleChangeImpact,
-  businessRuleValidationHelp,
+  businessRuleIssueMessage,
+  businessRuleValidationHelpText,
   externalTrialInputFields,
   formulaTemplates,
   insertFormulaText,
@@ -70,7 +79,6 @@ import {
   aggregateFieldInsertionReason,
   businessRuleTrialValue,
   normalizeFormulaCapabilities,
-  portableFormulaCapabilities,
   type UiControlTarget,
   type BusinessRuleEditableField,
   type BusinessRuleFormulaCapability,
@@ -91,6 +99,8 @@ import { useBusinessRuleWorkspace } from './businessRuleWorkspace';
 import MetadataSourceTree from './MetadataSourceTree.vue';
 import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
 
+const inheritedLanguage = useLanguageContext();
+
 defineOptions({ name: 'BusinessRuleGovernanceSurface' });
 
 const props = defineProps<{
@@ -102,11 +112,16 @@ const props = defineProps<{
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const currentUser = useCurrentUserContext();
 const sharedWorkspace = useBusinessRuleWorkspace();
+const language = sharedWorkspace?.language ?? inheritedLanguage;
+provideLanguageContext(language);
 const localSessions = new Map<string, BusinessRuleSession>();
 const session = computed(() => {
   if (sharedWorkspace) return sharedWorkspace.session(props.moduleAlias);
   if (!localSessions.has(props.moduleAlias))
-    localSessions.set(props.moduleAlias, createBusinessRuleSession(moduleContext.http, props.moduleAlias));
+    localSessions.set(
+      props.moduleAlias,
+      createBusinessRuleSession(moduleContext.http, props.moduleAlias, undefined, undefined, language),
+    );
   return localSessions.get(props.moduleAlias)!;
 });
 const snapshot = computed(() => session.value.snapshot.value);
@@ -136,7 +151,11 @@ function controlEffect(elementKey: string, effect: keyof Pick<UiControlTarget, '
   return selectedRule.value?.targets?.find((target) => target.elementKey === elementKey)?.[effect] ?? false;
 }
 function ruleKindLabel(kind: BusinessRuleKind) {
-  return { CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[kind];
+  return {
+    CALCULATION: language.t('platform.screen.BusinessRuleGovernanceSurface.field-calculation', '字段计算'),
+    VALIDATION: language.t('platform.screen.BusinessRuleGovernanceSurface.save-validation', '保存校验'),
+    UI_CONTROL: language.t('platform.screen.BusinessRuleGovernanceSurface.ui-control', '界面控制'),
+  }[kind];
 }
 const selectedCode = ref<string>();
 const ruleDrawerOpen = ref(false);
@@ -188,7 +207,11 @@ const mainTrialChangedFields = computed(() =>
 );
 function childTableColumns(fields: BusinessRuleEditableField[]): UiDataTableColumn[] {
   return [
-    { key: '__rowNumber', title: '行号', width: 64 },
+    {
+      key: '__rowNumber',
+      title: language.t('platform.screen.BusinessRuleGovernanceSurface.row', '行号'),
+      width: 64,
+    },
     ...fields.map((field) => ({ key: field.fieldName, title: field.title, width: 140 })),
   ];
 }
@@ -203,7 +226,10 @@ function updateChildSample(relation: string, rowIndex: number, field: string, va
 }
 function trialValueText(value: unknown): string {
   if (value == null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'boolean')
+    return value
+      ? language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')
+      : language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否');
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 function childTrialValue(record: UiDataTableRecord, relation: string, field: string): string {
@@ -227,7 +253,10 @@ function typedChildSamples() {
   );
 }
 const capturedTrialInputs = ref<Record<string, unknown>>({});
-const applicationError = ref<string>();
+const applicationFailure = shallowRef<Error>();
+const applicationError = computed(() =>
+  applicationFailure.value ? ruleFailureMessage(applicationFailure.value) : undefined,
+);
 const applicationIssues = ref<BusinessRuleIssue[]>([]);
 const activeKind = ref<BusinessRuleKind>('CALCULATION');
 const selectedFieldNodeKey = ref<string>();
@@ -246,7 +275,17 @@ const trialTenantId = computed({
 });
 const trialTenants = ref<Array<{ id: string; title?: string; enabled?: boolean }>>([]);
 const trialTenantLoading = ref(false);
-const trialTenantError = ref('');
+const trialTenantFailure = shallowRef<Error>();
+const trialTenantError = computed(() =>
+  trialTenantFailure.value ? ruleFailureMessage(trialTenantFailure.value) : '',
+);
+function ruleFailureMessage(cause: Error) {
+  return cause instanceof OperationUsageError || cause instanceof OperationRejectedError
+    ? resolveOperationErrorMessage(cause, language)
+    : cause instanceof AppError
+      ? userFacingErrorMessage(cause, language)
+      : cause.message;
+}
 type FormulaTextAreaEditor = ComponentPublicInstance & {
   selection: () => { start: number; end: number };
   focusSelection: (start: number, end?: number) => void;
@@ -304,10 +343,32 @@ const pagedActiveRules = computed(() =>
   ),
 );
 const ruleListColumns = computed<RecordQueryListColumn[]>(() => [
-  { key: 'name', title: '业务名称', width: '22%', render: (record) => String(record.name ?? '') },
-  { key: 'summary', title: '目标字段或条件摘要', maxDisplayLines: 2 },
-  { key: 'enabled', title: '启用状态', type: 'enabledStatus', width: '96px', align: 'center' },
-  { key: 'changeState', title: '变更状态', width: '120px' },
+  {
+    key: 'name',
+    title: language.t('platform.screen.BusinessRuleGovernanceSurface.business-name', '业务名称'),
+    width: '22%',
+    render: (record) => String(record.name ?? ''),
+  },
+  {
+    key: 'summary',
+    title: language.t(
+      'platform.screen.BusinessRuleGovernanceSurface.target-field-or-condition',
+      '目标字段或条件摘要',
+    ),
+    maxDisplayLines: 2,
+  },
+  {
+    key: 'enabled',
+    title: language.t('platform.screen.RecordStatusSwitch.enabled-status', '启用状态'),
+    type: 'enabledStatus',
+    width: '96px',
+    align: 'center',
+  },
+  {
+    key: 'changeState',
+    title: language.t('platform.screen.BusinessRuleGovernanceSurface.change-status', '变更状态'),
+    width: '120px',
+  },
 ]);
 const ruleTableColumns = computed<UiDataTableColumn[]>(() => ruleListColumns.value);
 const ruleTableRows = computed<UiDataTableRecord[]>(() =>
@@ -316,7 +377,7 @@ const ruleTableRows = computed<UiDataTableRecord[]>(() =>
     name: ruleChoiceLabel(rule),
     summary: ruleSummary(rule),
     enabled: rule.enabled,
-    changeState: `${changedRuleCodes.value.has(rule.code) ? '未应用更改' : '已应用'}${isRuleIncomplete(rule) ? ' · 待完善' : ''}`,
+    changeState: `${changedRuleCodes.value.has(rule.code) ? language.t('platform.screen.BusinessRuleGovernanceSurface.unapplied-changes', '未应用更改') : language.t('platform.rules.applied', '已应用')}${isRuleIncomplete(rule) ? language.t('platform.screen.BusinessRuleGovernanceSurface.incomplete', ' · 待完善') : ''}`,
     code: rule.code,
   })),
 );
@@ -390,12 +451,11 @@ const fieldTreeNodes = computed(() => [
             .includes(fieldKeyword.value.trim().toLowerCase()),
       )
       .map(referenceFieldNode),
+    language,
   ),
 ]);
 const formulaCapabilities = computed(() =>
-  normalizeFormulaCapabilities(
-    props.formulaCapabilities ?? snapshot.value?.functions ?? portableFormulaCapabilities,
-  ),
+  normalizeFormulaCapabilities(props.formulaCapabilities ?? snapshot.value?.functions, language),
 );
 const functionCapabilityGroups = computed(() => {
   const groups = new Map<string, BusinessRuleFormulaCapability[]>();
@@ -408,7 +468,12 @@ const functionCapabilityGroups = computed(() => {
 });
 const hasUnsavedChanges = computed(() => session.value.dirty.value);
 const calculatorUnavailableReason = computed(() =>
-  calculationFields.value.length === 0 ? '当前模块没有可写的主表或明细字段，不能新增字段计算。' : undefined,
+  calculationFields.value.length === 0
+    ? language.t(
+        'platform.screen.BusinessRuleGovernanceSurface.this-module-has-no-writable-main-or-detail-fields-for',
+        '当前模块没有可写的主表或明细字段，不能新增字段计算。',
+      )
+    : undefined,
 );
 const externalInputFields = computed(() =>
   externalTrialInputFields(
@@ -431,7 +496,7 @@ const referenceTrialInputFields = computed(() => {
       const editable = editableFields.value.find((field) => field.fieldName === root);
       if (editable) return [editable];
       const catalog = catalogFields.value.get(root);
-      return catalog && !formulaFieldUnusableReason(catalog)
+      return catalog && !formulaFieldUnusableReason(catalog, language)
         ? [
             {
               fieldName: root,
@@ -466,9 +531,12 @@ const otherTrialFields = computed(() =>
 );
 const selectedRuleTemplates = computed(() =>
   selectedRule.value
-    ? formulaTemplates(selectedRule.value.kind, editableFields.value, selectedRule.value.targetField).filter(
-        (template) => selectedRule.value?.kind !== 'UI_CONTROL' || template.id === 'present-field',
-      )
+    ? formulaTemplates(
+        selectedRule.value.kind,
+        editableFields.value,
+        selectedRule.value.targetField,
+        language,
+      ).filter((template) => selectedRule.value?.kind !== 'UI_CONTROL' || template.id === 'present-field')
     : [],
 );
 const hasEnabledValidationRules = computed(() =>
@@ -487,11 +555,14 @@ const changedRuleCodes = computed(
   () => new Set([...changeImpact.value.added, ...changeImpact.value.modified].map((rule) => rule.code)),
 );
 const locatorFieldOptions = computed(() => [
-  { value: '__none__', label: '不定位字段' },
+  {
+    value: '__none__',
+    label: language.t('platform.screen.BusinessRuleGovernanceSurface.no-field-location', '不定位字段'),
+  },
   ...editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
 ]);
 useWorkspaceViewUnsavedState(
-  '业务规则',
+  () => language.t('platform.governance.tab.rules', '业务规则'),
   () => (!sharedWorkspace && hasUnsavedChanges.value) || !!newRuleDraft.value,
   () => applying.value,
 );
@@ -514,7 +585,7 @@ watch(referenceTrialRequiresTenant, (required) => {
   if (required && trialVisible.value && trialTenants.value.length === 0) void loadTrialTenants();
   if (!required) {
     trialTenantId.value = '';
-    trialTenantError.value = '';
+    trialTenantFailure.value = undefined;
   }
 });
 
@@ -533,14 +604,14 @@ function fieldLabel(field: BusinessRuleEditableField): string {
 function fieldTypeLabel(field: Pick<BusinessRuleEditableField, 'valueType'>): string {
   return (
     {
-      INTEGER: '整数',
-      LONG: '长整数',
-      DECIMAL: '数值',
-      STRING: '文本',
-      BOOLEAN: '布尔值',
-      DATE: '日期',
-      TIMESTAMP: '日期时间',
-      ZONED_TIMESTAMP: '日期时间',
+      INTEGER: language.t('platform.screen.BusinessRuleGovernanceSurface.integer', '整数'),
+      LONG: language.t('platform.screen.BusinessRuleGovernanceSurface.long-integer', '长整数'),
+      DECIMAL: language.t('platform.screen.BusinessRuleGovernanceSurface.number', '数值'),
+      STRING: language.t('platform.screen.BusinessRuleGovernanceSurface.text', '文本'),
+      BOOLEAN: language.t('platform.screen.BusinessRuleGovernanceSurface.boolean', '布尔值'),
+      DATE: language.t('platform.screen.BusinessRuleGovernanceSurface.date', '日期'),
+      TIMESTAMP: language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
+      ZONED_TIMESTAMP: language.t('platform.screen.BusinessRuleGovernanceSurface.date-and-time', '日期时间'),
     }[field.valueType] ?? field.valueType
   );
 }
@@ -552,13 +623,41 @@ function fieldTitle(fieldName: string): string {
 
 function ruleChoiceLabel(rule: BusinessRuleProposal): string {
   if (rule.kind === 'UI_CONTROL')
-    return `界面控制 · ${uiControlSnapshot.value?.forms.find((form) => form.key === rule.formKey)?.title ?? '未选择表单'} · ${rule.enabled ? '启用' : '停用'}`;
+    return language.t(
+      'platform.screen.BusinessRuleGovernanceSurface.ui-control-value-value',
+      '界面控制 · {value1} · {value2}',
+      {
+        value1:
+          uiControlSnapshot.value?.forms.find((form) => form.key === rule.formKey)?.title ??
+          language.t('platform.screen.BusinessRuleGovernanceSurface.no-form-selected', '未选择表单'),
+        value2: rule.enabled
+          ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用')
+          : language.t('platform.screen.WorkflowWorkbenchView.disabled', '停用'),
+      },
+    );
   const target = calculationFields.value.find((field) => field.fieldName === rule.targetField);
   const purpose =
     rule.kind === 'CALCULATION'
-      ? `计算${target?.title || rule.targetField || '未选择目标字段'}`
-      : `保存校验${target?.title || rule.targetField || '通用条件'}`;
-  return `${purpose} · ${rule.enabled ? '启用' : '停用'}`;
+      ? language.t('platform.screen.BusinessRuleGovernanceSurface.calculate-value', '计算{value1}', {
+          value1:
+            target?.title ||
+            rule.targetField ||
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.no-target-field-selected',
+              '未选择目标字段',
+            ),
+        })
+      : language.t(
+          'platform.screen.BusinessRuleGovernanceSurface.save-validation-value',
+          '保存校验{value1}',
+          {
+            value1:
+              target?.title ||
+              rule.targetField ||
+              language.t('platform.screen.BusinessRuleGovernanceSurface.general-condition', '通用条件'),
+          },
+        );
+  return `${purpose} · ${rule.enabled ? language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用') : language.t('platform.screen.WorkflowWorkbenchView.disabled', '停用')}`;
 }
 
 function isRuleIncomplete(rule: BusinessRuleProposal): boolean {
@@ -567,19 +666,47 @@ function isRuleIncomplete(rule: BusinessRuleProposal): boolean {
 
 function issueText(issue: BusinessRuleIssue): string {
   const field = editableFields.value.find((candidate) => candidate.fieldName === issue.field);
-  return field ? `${fieldLabel(field)}：${issue.message}` : issue.message;
+  const message = businessRuleIssueMessage(issue, language);
+  return field ? `${fieldLabel(field)}: ${message}` : message;
 }
 
 function ruleSummary(rule: BusinessRuleProposal): string {
-  if (rule.kind === 'UI_CONTROL') return `公式为真时，控制所选表单中的 ${rule.targets?.length ?? 0} 个元素。`;
+  if (rule.kind === 'UI_CONTROL')
+    return language.t(
+      'platform.screen.BusinessRuleGovernanceSurface.when-the-formula-is-true-control-value-elements-in-the',
+      '公式为真时，控制所选表单中的 {value1} 个元素。',
+      { value1: rule.targets?.length ?? 0 },
+    );
   const target = calculationFields.value.find((field) => field.fieldName === rule.targetField);
-  const targetText = target ? fieldLabel(target) : rule.targetField || '未定位字段';
+  const targetText = target
+    ? fieldLabel(target)
+    : rule.targetField ||
+      language.t('platform.screen.BusinessRuleGovernanceSurface.no-field-location-label', '未定位字段');
   const dependencies = referencedFormulaFields(rule.expression).map((name) => {
     const field = editableFields.value.find((candidate) => candidate.fieldName === name);
     return field ? fieldLabel(field) : fieldTitle(name);
   });
-  const action = rule.kind === 'CALCULATION' ? `计算并写入${targetText}` : `校验${targetText}`;
-  return `${action}：${presentableFormulaExpression(rule.expression, editableFields.value)}。依赖：${dependencies.length ? dependencies.join('、') : '无字段引用'}。`;
+  const action =
+    rule.kind === 'CALCULATION'
+      ? language.t(
+          'platform.screen.BusinessRuleGovernanceSurface.calculate-and-write-value',
+          '计算并写入{value1}',
+          { value1: targetText },
+        )
+      : language.t('platform.screen.BusinessRuleGovernanceSurface.validate-value', '校验{value1}', {
+          value1: targetText,
+        });
+  return language.t(
+    'platform.screen.BusinessRuleGovernanceSurface.value-value-dependencies-value',
+    '{value1}：{value2}。依赖：{value3}。',
+    {
+      value1: action,
+      value2: presentableFormulaExpression(rule.expression, editableFields.value),
+      value3: dependencies.length
+        ? dependencies.join('、')
+        : language.t('platform.screen.BusinessRuleGovernanceSurface.no-field-references', '无字段引用'),
+    },
+  );
 }
 
 function resetExecutionResults() {
@@ -587,7 +714,7 @@ function resetExecutionResults() {
   trialRequest += 1;
   trialRunning.value = false;
   trial.value = undefined;
-  applicationError.value = undefined;
+  applicationFailure.value = undefined;
   applicationIssues.value = [];
 }
 
@@ -673,6 +800,7 @@ function addRule(kind: BusinessRuleKind) {
   if (applying.value) return;
   if (kind === 'CALCULATION' && calculatorUnavailableReason.value) {
     presentPlatformMessage(calculatorUnavailableReason.value, {
+      language,
       source: 'business-rule-governance',
       phase: 'validation',
     });
@@ -784,7 +912,7 @@ function referenceDirectoryKey(moduleAlias: string, path: string) {
 }
 
 function referenceFieldNode(field: BusinessRuleReferenceField): UiTreeNode {
-  const reason = formulaFieldUnusableReason(field);
+  const reason = formulaFieldUnusableReason(field, language);
   const expandable = field.expandable === true && field.referenceCardinality === 'ONE';
   return metadataSourceFieldNode(
     {
@@ -799,6 +927,7 @@ function referenceFieldNode(field: BusinessRuleReferenceField): UiTreeNode {
       disabled: Boolean(reason) && !expandable,
       muted: Boolean(reason),
     },
+    language,
   );
 }
 
@@ -813,7 +942,7 @@ function formulaFieldPayload(field: BusinessRuleReferenceField) {
 
 function canDragFormulaField(node: UiTreeNode) {
   const field = fieldOfTreeKey(node.key);
-  return Boolean(field && !formulaFieldUnusableReason(field));
+  return Boolean(field && !formulaFieldUnusableReason(field, language));
 }
 
 function dragFormulaFieldPayload(node: UiTreeNode) {
@@ -835,20 +964,23 @@ function acceptsFormulaField(source: UiDragSource) {
     payload.moduleAlias === props.moduleAlias &&
     typeof payload.fieldName === 'string' &&
     field &&
-    !formulaFieldUnusableReason(field),
+    !formulaFieldUnusableReason(field, language),
   );
 }
 
 function insertFieldNode(node: UiTreeNode) {
   const field = fieldOfTreeKey(node.key);
   if (!selectedRule.value) {
-    presentPlatformMessage('请先在右侧选择或新建一条规则，再插入字段。', {
-      source: 'business-rule-governance',
-      phase: 'validation',
-    });
+    presentPlatformMessage(
+      language.t(
+        'platform.screen.BusinessRuleGovernanceSurface.select-or-create-a-rule-on-the-right-before-inserting',
+        '请先在右侧选择或新建一条规则，再插入字段。',
+      ),
+      { language, source: 'business-rule-governance', phase: 'validation' },
+    );
     return;
   }
-  if (!field || formulaFieldUnusableReason(field)) return;
+  if (!field || formulaFieldUnusableReason(field, language)) return;
   const selection =
     expressionSelectionOwner === selectedRule.value.code
       ? activeExpressionEditor.value?.selection?.()
@@ -860,9 +992,14 @@ function insertFieldNode(node: UiTreeNode) {
     selectedRule.value.kind === 'CALCULATION'
       ? (snapshot.value?.childFields ?? []).map((field) => field.fieldName)
       : [],
+    language,
   );
   if (aggregateReason) {
-    presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
+    presentPlatformMessage(aggregateReason, {
+      language,
+      source: 'business-rule-governance',
+      phase: 'validation',
+    });
     return;
   }
   insertExpressionText(`{${field.name}}`);
@@ -916,10 +1053,15 @@ function handleFormulaDrop(event: { source: UiDragSource; selection: { start: nu
         selectedRule.value?.kind === 'CALCULATION'
           ? (snapshot.value?.childFields ?? []).map((field) => field.fieldName)
           : [],
+        language,
       )
     : undefined;
   if (aggregateReason) {
-    presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
+    presentPlatformMessage(aggregateReason, {
+      language,
+      source: 'business-rule-governance',
+      phase: 'validation',
+    });
     return;
   }
   insertExpressionText(`{${payload.fieldName}}`, event.selection.start, event.selection.end);
@@ -977,7 +1119,7 @@ async function loadReferenceRoot(retry = false) {
   } catch (cause) {
     if (epoch !== referenceDirectoryEpoch || moduleAlias !== props.moduleAlias) return;
     referenceRootFailed.value = true;
-    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'business-rule-governance', phase: 'load' });
   } finally {
     if (epoch === referenceDirectoryEpoch && moduleAlias === props.moduleAlias)
       referenceRootLoading.value = false;
@@ -1102,7 +1244,7 @@ async function loadSnapshot() {
   referenceRootFailed.value = false;
   trialTenantRequest += 1;
   trialTenants.value = [];
-  trialTenantError.value = '';
+  trialTenantFailure.value = undefined;
   trialTenantLoading.value = false;
   try {
     if (!selected.applying.value) await selected.load(!selected.dirty.value);
@@ -1117,15 +1259,15 @@ async function loadSnapshot() {
     void ensureReferencePaths(snapshot.value?.referenceFields?.map((field) => field.path) ?? []);
   } catch (cause) {
     if (request !== loadRequest) return;
-    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'business-rule-governance', phase: 'load' });
   }
 }
 async function readCurrentRules() {
   try {
     await session.value.readCurrent();
-    applicationError.value = undefined;
+    applicationFailure.value = undefined;
   } catch (cause) {
-    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'business-rule-governance', phase: 'load' });
   }
 }
 function discardChanges() {
@@ -1147,6 +1289,10 @@ function selectTrialIssue(issue: BusinessRuleIssue) {
   selectIssueRule(issue);
 }
 
+function localIssueMessage(messageSources: NonNullable<BusinessRuleIssue['messageSources']>) {
+  return { messageSources, message: messageSources.map((source) => source.message).join('；') };
+}
+
 function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): BusinessRuleIssue[] {
   return proposals.flatMap((rule) => {
     if (rule.kind === 'UI_CONTROL' && (!rule.formKey || !rule.targets?.length))
@@ -1154,7 +1300,13 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
         {
           code: 'INCOMPLETE_RULE',
           ruleCode: rule.code,
-          message: '请选择表单，并为需要控制的元素勾选隐藏或只读',
+          ...localIssueMessage([
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.BusinessRuleGovernanceSurface.select-a-form-and-mark-the-elements-to-hide-or',
+              '请选择表单，并为需要控制的元素勾选隐藏或只读',
+            ),
+          ]),
         },
       ];
     const missingTarget = rule.kind === 'CALCULATION' && !rule.targetField?.trim();
@@ -1168,13 +1320,31 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
       {
         code: 'INCOMPLETE_RULE',
         ruleCode: rule.code,
-        message: [
-          missingTarget ? '请在公式中指定结果字段，例如：{amount} = {quantity} * {unitPrice}' : undefined,
-          missingExpression ? '请补充表达式' : undefined,
-          invalidTarget ? '等号左侧必须是当前记录的可写字段标识，请从字段目录选择' : undefined,
-        ]
-          .filter(Boolean)
-          .join('；'),
+        ...localIssueMessage(
+          [
+            missingTarget
+              ? codeOperationErrorMessage(
+                  language,
+                  'platform.screen.BusinessRuleGovernanceSurface.specify-the-result-field-in-the-formula-for-example-amount',
+                  '请在公式中指定结果字段，例如：{amount} = {quantity} * {unitPrice}',
+                )
+              : undefined,
+            missingExpression
+              ? codeOperationErrorMessage(
+                  language,
+                  'platform.screen.BusinessRuleGovernanceSurface.enter-an-expression',
+                  '请补充表达式',
+                )
+              : undefined,
+            invalidTarget
+              ? codeOperationErrorMessage(
+                  language,
+                  'platform.screen.BusinessRuleGovernanceSurface.the-left-side-of-the-equals-sign-must-be-a',
+                  '等号左侧必须是当前记录的可写字段标识，请从字段目录选择',
+                )
+              : undefined,
+          ].filter((source): source is NonNullable<typeof source> => !!source),
+        ),
       },
     ];
   });
@@ -1183,7 +1353,7 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
 async function applyRules(): Promise<boolean> {
   if (!snapshot.value || !hasUnsavedChanges.value || applying.value) return false;
   const selected = session.value;
-  applicationError.value = undefined;
+  applicationFailure.value = undefined;
   applicationIssues.value = incompleteRuleIssues(rules.value);
   if (applicationIssues.value.length) return false;
   try {
@@ -1195,12 +1365,15 @@ async function applyRules(): Promise<boolean> {
     resetExecutionResults();
     presentPlatformMessage(
       outcome?.synchronized === false
-        ? '业务规则已提交，界面尚未同步；请重新加载后继续编辑。'
-        : '业务规则已应用并同步生效。',
-      {
-        source: 'business-rule-governance',
-        phase: 'action',
-      },
+        ? language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.business-rules-were-submitted-but-the-view-has-not-synchronized',
+            '业务规则已提交，界面尚未同步；请重新加载后继续编辑。',
+          )
+        : language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.business-rules-have-been-applied-and-synchronized',
+            '业务规则已应用并同步生效。',
+          ),
+      { language, source: 'business-rule-governance', phase: 'action' },
     );
     return true;
   } catch (cause) {
@@ -1209,11 +1382,17 @@ async function applyRules(): Promise<boolean> {
       applicationIssues.value = cause.issues;
       return false;
     }
-    applicationError.value =
+    applicationFailure.value =
       cause instanceof OperationRejectedError
-        ? cause.message
-        : '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。';
-    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'action' });
+        ? cause
+        : new OperationUsageError(
+            codeOperationErrorMessage(
+              language,
+              'platform.screen.BusinessRuleGovernanceSurface.apply-failed-and-the-configuration-may-have-changed-reload-before',
+              '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。',
+            ),
+          );
+    presentPlatformError(cause, { language, source: 'business-rule-governance', phase: 'action' });
     return false;
   }
 }
@@ -1235,7 +1414,7 @@ async function loadTrialTenants(keyword = '') {
   if (!referenceTrialRequiresTenant.value) return;
   const request = ++trialTenantRequest;
   trialTenantLoading.value = true;
-  trialTenantError.value = '';
+  trialTenantFailure.value = undefined;
   try {
     const result = await moduleContext.http.request<{ records: typeof trialTenants.value }>({
       method: 'POST',
@@ -1245,7 +1424,16 @@ async function loadTrialTenants(keyword = '') {
     if (request === trialTenantRequest) trialTenants.value = result.records;
   } catch (cause) {
     if (request === trialTenantRequest)
-      trialTenantError.value = cause instanceof Error ? cause.message : '租户加载失败';
+      trialTenantFailure.value =
+        cause instanceof Error
+          ? cause
+          : new OperationUsageError(
+              codeOperationErrorMessage(
+                language,
+                'platform.screen.BusinessRuleGovernanceSurface.failed-to-load-tenants',
+                '租户加载失败',
+              ),
+            );
   } finally {
     if (request === trialTenantRequest) trialTenantLoading.value = false;
   }
@@ -1295,7 +1483,7 @@ async function runTrial() {
     capturedTrialInputs.value = values;
   } catch (cause) {
     if (request !== trialRequest || revision !== editRevision) return;
-    presentPlatformError(cause, { source: 'business-rule-governance', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'business-rule-governance', phase: 'action' });
   } finally {
     if (request === trialRequest) trialRunning.value = false;
   }
@@ -1373,35 +1561,79 @@ onUnmounted(deactivateAssistant);
 <template>
   <section class="business-rule-governance">
     <p v-if="sharedWorkspace && hasUnsavedChanges" role="status">
-      对话与页面共用这份未应用更改。关闭本页后仍可继续编辑；刷新工作区或切换身份后不会恢复。
+      {{
+        language.t(
+          'platform.screen.BusinessRuleGovernanceSurface.the-conversation-and-page-share-these-unapplied-changes-you-can',
+          '对话与页面共用这份未应用更改。关闭本页后仍可继续编辑；刷新工作区或切换身份后不会恢复。',
+        )
+      }}
     </p>
-    <UiSpin v-if="loading" class="business-rule-governance__state" tip="加载业务规则" />
+    <UiSpin
+      v-if="loading"
+      class="business-rule-governance__state"
+      :tip="
+        language.t('platform.screen.BusinessRuleGovernanceSurface.loading-business-rules', '加载业务规则')
+      "
+    />
     <div v-else-if="session.submissionStatus.value === 'unknown'" class="business-rule-governance__state">
-      <p role="status">原规则提交结果未知，候选已保留。请读取当前配置后重新审阅，不要重复提交。</p>
-      <UiButton @click="readCurrentRules">读取当前配置并保留候选</UiButton>
+      <p role="status">
+        {{
+          language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.the-previous-rule-submission-outcome-is-unknown-the-candidate-is',
+            '原规则提交结果未知，候选已保留。请读取当前配置后重新审阅，不要重复提交。',
+          )
+        }}
+      </p>
+      <UiButton @click="readCurrentRules">{{
+        language.t(
+          'platform.screen.MetadataGovernanceSurface.read-current-configuration-and-retain-candidate',
+          '读取当前配置并保留候选',
+        )
+      }}</UiButton>
     </div>
     <div v-else-if="loadFailed" class="business-rule-governance__state">
       <UiEmpty
         :description="
           session.committedNeedsReload.value
-            ? '业务规则已提交，界面同步失败；请重新加载后继续编辑，不要重复提交。'
-            : '业务规则加载失败'
+            ? language.t(
+                'platform.screen.BusinessRuleGovernanceSurface.business-rules-were-submitted-but-view-synchronization-failed-reload-before',
+                '业务规则已提交，界面同步失败；请重新加载后继续编辑，不要重复提交。',
+              )
+            : language.t(
+                'platform.screen.BusinessRuleGovernanceSurface.failed-to-load-business-rules',
+                '业务规则加载失败',
+              )
         "
       />
-      <UiButton @click="() => loadSnapshot()">重试</UiButton>
+      <UiButton @click="() => loadSnapshot()">{{
+        language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+      }}</UiButton>
     </div>
     <div v-else>
       <p v-if="session.submissionStatus.value === 'current-read'" role="status">
-        已读取当前配置，原提交结果仍未知。候选已保留；请重新审阅差异后决定是否应用。
+        {{
+          language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.the-current-configuration-has-been-read-but-the-previous-submission',
+            '已读取当前配置，原提交结果仍未知。候选已保留；请重新审阅差异后决定是否应用。',
+          )
+        }}
       </p>
       <div class="business-rule-governance__content">
         <RecordQueryListSurface
           class="business-rule-governance__rule-list-surface"
-          :title="ruleKindLabel(activeKind) + '规则'"
+          :title="
+            ruleKindLabel(activeKind) +
+            language.t('platform.screen.BusinessRuleGovernanceSurface.rules', '规则')
+          "
           :show-title="false"
           quick-search-visible
           :quick-search-value="ruleSearch"
-          quick-search-placeholder="搜索业务名称、目标字段或条件"
+          :quick-search-placeholder="
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.search-business-names-target-fields-or-conditions',
+              '搜索业务名称、目标字段或条件',
+            )
+          "
           :quick-search-disabled="applying"
           :columns="ruleTableColumns"
           :rows="ruleTableRows"
@@ -1412,7 +1644,7 @@ onUnmounted(deactivateAssistant);
           :selected-row-key="selectedCode"
           clickable-rows
           show-action-column
-          action-column-title="操作"
+          :action-column-title="language.t('platform.screen.RecordPermissionDialog.operation', '操作')"
           :action-column-width="120"
           :action-column-fixed="false"
           pageable
@@ -1435,13 +1667,17 @@ onUnmounted(deactivateAssistant);
         >
           <template #operations>
             <div v-if="hasUnsavedChanges" class="business-rule-governance__actions">
-              <span class="business-rule-governance__change-state"
-                >未应用 {{ unappliedChangeCount }} 项更改</span
-              >
-              <UiActionButton :disabled="applying" @click="discardChanges">放弃更改</UiActionButton>
-              <UiActionButton emphasis="primary" :loading="applying" @click="applyRules"
-                >应用更改</UiActionButton
-              >
+              <span class="business-rule-governance__change-state">{{
+                language.t('platform.rules.unapplied-count', '未应用 {count} 项更改', {
+                  count: unappliedChangeCount,
+                })
+              }}</span>
+              <UiActionButton :disabled="applying" @click="discardChanges">{{
+                language.t('platform.screen.useModulePageSession.discard-changes', '放弃更改')
+              }}</UiActionButton>
+              <UiActionButton emphasis="primary" :loading="applying" @click="applyRules">{{
+                language.t('platform.screen.BusinessRuleGovernanceSurface.apply-changes', '应用更改')
+              }}</UiActionButton>
             </div>
 
             <UiActionButton
@@ -1449,23 +1685,42 @@ onUnmounted(deactivateAssistant);
               :disabled="applying || (activeKind === 'CALCULATION' && Boolean(calculatorUnavailableReason))"
               :title="activeKind === 'CALCULATION' ? calculatorUnavailableReason : undefined"
               @click="addRule(activeKind)"
-              >新增规则</UiActionButton
+              >{{
+                language.t('platform.screen.BusinessRuleGovernanceSurface.add-rule', '新增规则')
+              }}</UiActionButton
             >
             <UiActionButton
               v-if="rules.some((rule) => rule.enabled && !isRuleIncomplete(rule))"
               :disabled="!snapshot || applying"
               @click="openTrial"
-              >试算整组规则</UiActionButton
+              >{{
+                language.t('platform.screen.BusinessRuleGovernanceSurface.try-all-rules', '试算整组规则')
+              }}</UiActionButton
             >
           </template>
           <template #persistentQueries>
             <RecordQueryEnumFilter
-              title="规则类型"
+              :title="language.t('platform.screen.BusinessRuleGovernanceSurface.rule-type', '规则类型')"
               :value="activeKind"
               :options="[
-                { value: 'CALCULATION', label: '字段计算' },
-                { value: 'VALIDATION', label: '保存校验' },
-                { value: 'UI_CONTROL', label: '界面控制' },
+                {
+                  value: 'CALCULATION',
+                  label: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.field-calculation',
+                    '字段计算',
+                  ),
+                },
+                {
+                  value: 'VALIDATION',
+                  label: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.save-validation',
+                    '保存校验',
+                  ),
+                },
+                {
+                  value: 'UI_CONTROL',
+                  label: language.t('platform.screen.BusinessRuleGovernanceSurface.ui-control', '界面控制'),
+                },
               ]"
               :disabled="applying"
               @update:value="selectRuleKind"
@@ -1478,22 +1733,31 @@ onUnmounted(deactivateAssistant);
             />
           </template>
           <template #rowActions="{ record }">
-            <UiActionButton density="compact" :disabled="applying" @click.stop="editRuleRow(record)"
-              >编辑</UiActionButton
-            >
+            <UiActionButton density="compact" :disabled="applying" @click.stop="editRuleRow(record)">{{
+              language.t('platform.action.edit', '编辑')
+            }}</UiActionButton>
             <UiActionButton
               density="compact"
               intent="danger"
               :disabled="applying"
               @click.stop="removeRuleRow(record)"
-              >删除</UiActionButton
+              >{{ language.t('platform.action.delete', '删除') }}</UiActionButton
             >
           </template>
           <template #beforeTable>
             <UiEmpty
               v-if="filteredActiveRules.length === 0"
               :description="
-                ruleSearch ? '没有匹配的规则。' : `暂无${ruleKindLabel(activeKind)}，可新增一条规则。`
+                ruleSearch
+                  ? language.t(
+                      'platform.screen.BusinessRuleGovernanceSurface.no-matching-rules',
+                      '没有匹配的规则。',
+                    )
+                  : language.t(
+                      'platform.screen.BusinessRuleGovernanceSurface.no-value-yet-add-a-rule-to-get-started',
+                      '暂无{value1}，可新增一条规则。',
+                      { value1: ruleKindLabel(activeKind) },
+                    )
               "
             />
           </template>
@@ -1503,13 +1767,23 @@ onUnmounted(deactivateAssistant);
           :open="ruleDrawerOpen"
           render-mode="inline"
           width="extraWide"
-          :title="newRuleDraft ? '新增规则' : selectedRule ? ruleChoiceLabel(selectedRule) : '规则编辑'"
-          close-title="返回规则列表"
+          :title="
+            newRuleDraft
+              ? language.t('platform.screen.BusinessRuleGovernanceSurface.add-rule', '新增规则')
+              : selectedRule
+                ? ruleChoiceLabel(selectedRule)
+                : language.t('platform.screen.BusinessRuleGovernanceSurface.rule-editor', '规则编辑')
+          "
+          :close-title="
+            language.t('platform.screen.BusinessRuleGovernanceSurface.back-to-rules', '返回规则列表')
+          "
           @close="closeRuleDrawer"
         >
           <template v-if="selectedRule" #title-actions>
             <UiSelect
-              aria-label="新建规则类型"
+              :aria-label="
+                language.t('platform.screen.BusinessRuleGovernanceSurface.new-rule-type', '新建规则类型')
+              "
               class="business-rule-governance__type-select"
               :value="selectedRule.kind"
               :allow-clear="false"
@@ -1517,18 +1791,30 @@ onUnmounted(deactivateAssistant);
               :options="[
                 {
                   value: 'CALCULATION',
-                  label: '字段计算',
+                  label: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.field-calculation',
+                    '字段计算',
+                  ),
                   disabled: Boolean(calculatorUnavailableReason),
                 },
-                { value: 'VALIDATION', label: '保存校验' },
-                { value: 'UI_CONTROL', label: '界面控制' },
+                {
+                  value: 'VALIDATION',
+                  label: language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.save-validation',
+                    '保存校验',
+                  ),
+                },
+                {
+                  value: 'UI_CONTROL',
+                  label: language.t('platform.screen.BusinessRuleGovernanceSurface.ui-control', '界面控制'),
+                },
               ]"
               @update:value="changeDraftKind"
             />
           </template>
           <template v-if="selectedRule" #header-actions>
             <label class="business-rule-governance__enabled-setting">
-              启用
+              {{ language.t('platform.screen.WorkflowWorkbenchView.enabled', '启用') }}
               <UiSwitch
                 :checked="selectedRule.enabled"
                 :disabled="applying"
@@ -1538,12 +1824,16 @@ onUnmounted(deactivateAssistant);
           </template>
           <template #operation>
             <template v-if="newRuleDraft">
-              <UiActionButton :disabled="applying" @click="closeRuleDrawer">取消</UiActionButton>
-              <UiActionButton emphasis="primary" :disabled="applying" @click="saveNewRule"
-                >保存</UiActionButton
-              >
+              <UiActionButton :disabled="applying" @click="closeRuleDrawer">{{
+                language.t('platform.action.cancel', '取消')
+              }}</UiActionButton>
+              <UiActionButton emphasis="primary" :disabled="applying" @click="saveNewRule">{{
+                language.t('platform.action.save', '保存')
+              }}</UiActionButton>
             </template>
-            <UiButton v-else type="primary" :disabled="applying" @click="closeRuleDrawer">完成编辑</UiButton>
+            <UiButton v-else type="primary" :disabled="applying" @click="closeRuleDrawer">{{
+              language.t('platform.screen.BusinessRuleGovernanceSurface.finish-editing', '完成编辑')
+            }}</UiButton>
           </template>
           <div v-if="selectedRule" class="business-rule-governance__drawer-body">
             <aside class="business-rule-governance__field-directory">
@@ -1557,7 +1847,12 @@ onUnmounted(deactivateAssistant);
                 :selected-key="selectedFieldNodeKey"
                 :loading="referenceRootLoading"
                 :unavailable="referenceRootFailed"
-                unavailable-description="字段目录加载失败，请刷新重试"
+                :unavailable-description="
+                  language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.failed-to-load-the-field-directory-refresh-and-try-again',
+                    '字段目录加载失败，请刷新重试',
+                  )
+                "
                 :refresh-disabled="referenceRootLoading || applying"
                 :load-children="loadReferenceChildren"
                 :draggable="!applying"
@@ -1575,11 +1870,15 @@ onUnmounted(deactivateAssistant);
                 class="business-rule-governance__flow-section"
               >
                 <label
-                  >表单
+                  >{{ language.t('platform.screen.PageCompositionEditor.form', '表单') }}
                   <UiSelect
-                    aria-label="控制表单"
+                    :aria-label="
+                      language.t('platform.screen.BusinessRuleGovernanceSurface.controlled-form', '控制表单')
+                    "
                     :value="selectedRule.formKey"
-                    placeholder="选择表单"
+                    :placeholder="
+                      language.t('platform.screen.BusinessRuleGovernanceSurface.select-a-form', '选择表单')
+                    "
                     :options="
                       (uiControlSnapshot?.forms ?? []).map((form) => ({ value: form.key, label: form.title }))
                     "
@@ -1587,13 +1886,22 @@ onUnmounted(deactivateAssistant);
                     @update:value="setControlForm"
                   />
                 </label>
-                <p v-if="!uiControlSnapshot?.forms?.length">当前模块还没有可用表单，请先配置并发布表单。</p>
+                <p v-if="!uiControlSnapshot?.forms?.length">
+                  {{
+                    language.t(
+                      'platform.screen.BusinessRuleGovernanceSurface.this-module-has-no-available-forms-configure-and-publish-a',
+                      '当前模块还没有可用表单，请先配置并发布表单。',
+                    )
+                  }}
+                </p>
               </section>
               <section
                 class="business-rule-governance__flow-section business-rule-governance__expression-step"
               >
                 <div class="business-rule-governance__formula-heading">
-                  <h2>公式</h2>
+                  <h2>
+                    {{ language.t('platform.screen.FormulaExpressionEditor.formula', '公式') }}
+                  </h2>
                 </div>
                 <section ref="functionPalette" class="business-rule-governance__function-panel">
                   <section v-for="group in functionCapabilityGroups" :key="group.category">
@@ -1634,9 +1942,16 @@ onUnmounted(deactivateAssistant);
                                 <span class="business-rule-governance__function-help-purpose">{{
                                   capability.description
                                 }}</span>
-                                <span class="business-rule-governance__function-help-label">使用示例</span>
+                                <span class="business-rule-governance__function-help-label">{{
+                                  language.t(
+                                    'platform.screen.BusinessRuleGovernanceSurface.example',
+                                    '使用示例',
+                                  )
+                                }}</span>
                                 <code>{{ capability.example }}</code>
-                                <span class="business-rule-governance__function-help-label">语法</span>
+                                <span class="business-rule-governance__function-help-label">{{
+                                  language.t('platform.screen.BusinessRuleGovernanceSurface.syntax', '语法')
+                                }}</span>
                                 <code>{{ capability.signature }}</code>
                                 <span v-for="parameter in capability.parameters" :key="parameter.name"
                                   >{{ parameter.name }}：{{ parameter.description }}</span
@@ -1647,8 +1962,20 @@ onUnmounted(deactivateAssistant);
                               size="small"
                               type="text"
                               class="business-rule-governance__function-help-trigger"
-                              :aria-label="`${functionPurpose(capability)}的帮助`"
-                              :title="`${functionPurpose(capability)}的帮助`"
+                              :aria-label="
+                                language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.help-for-value',
+                                  '{value1}的帮助',
+                                  { value1: functionPurpose(capability) },
+                                )
+                              "
+                              :title="
+                                language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.help-for-value',
+                                  '{value1}的帮助',
+                                  { value1: functionPurpose(capability) },
+                                )
+                              "
                             >
                               <UiIcon name="help" />
                             </UiButton>
@@ -1658,7 +1985,12 @@ onUnmounted(deactivateAssistant);
                     </div>
                   </section>
                   <p v-if="functionCapabilityGroups.length === 0" class="business-rule-governance__empty">
-                    未找到函数
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.no-functions-found',
+                        '未找到函数',
+                      )
+                    }}
                   </p>
                 </section>
 
@@ -1668,10 +2000,19 @@ onUnmounted(deactivateAssistant);
                       <label class="business-rule-governance__formula-input-label">
                         {{
                           selectedRule.kind === 'CALCULATION'
-                            ? '填写计算方式'
+                            ? language.t(
+                                'platform.screen.BusinessRuleGovernanceSurface.enter-a-calculation',
+                                '填写计算方式',
+                              )
                             : selectedRule.kind === 'UI_CONTROL'
-                              ? '填写触发界面控制的公式'
-                              : '填写允许保存的条件'
+                              ? language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.enter-the-formula-that-triggers-ui-control',
+                                  '填写触发界面控制的公式',
+                                )
+                              : language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.enter-the-condition-that-allows-saving',
+                                  '填写允许保存的条件',
+                                )
                         }}
                         <FormulaExpressionEditor
                           v-show="formulaMode === 'visual'"
@@ -1694,7 +2035,12 @@ onUnmounted(deactivateAssistant);
                               title: functionPurpose(item),
                             }))
                           "
-                          placeholder="拖入字段，或直接开始输入公式…"
+                          :placeholder="
+                            language.t(
+                              'platform.screen.BusinessRuleGovernanceSurface.drag-in-a-field-or-start-typing-a-formula',
+                              '拖入字段，或直接开始输入公式…',
+                            )
+                          "
                           :disabled="applying"
                           :accept-drop="acceptsFormulaItem"
                           @selection="rememberExpressionSelection"
@@ -1708,8 +2054,14 @@ onUnmounted(deactivateAssistant);
                           :value="selectedFormula"
                           :placeholder="
                             selectedRule.kind === 'CALCULATION'
-                              ? '例如：{amount} = {quantity} * {unitPrice}'
-                              : '从左侧插入字段，或点击上方常用函数'
+                              ? language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.for-example-amount-quantity-unitprice',
+                                  '例如：{amount} = {quantity} * {unitPrice}',
+                                )
+                              : language.t(
+                                  'platform.screen.BusinessRuleGovernanceSurface.insert-a-field-from-the-left-or-click-a-common',
+                                  '从左侧插入字段，或点击上方常用函数',
+                                )
                           "
                           :disabled="applying"
                           :accept-drop="acceptsFormulaItem"
@@ -1719,9 +2071,13 @@ onUnmounted(deactivateAssistant);
                         />
                       </label>
                       <div class="business-rule-governance__code-mode-toggle">
-                        <span>代码模式</span>
+                        <span>{{
+                          language.t('platform.screen.BusinessRuleGovernanceSurface.code-mode', '代码模式')
+                        }}</span>
                         <UiSwitch
-                          aria-label="代码模式"
+                          :aria-label="
+                            language.t('platform.screen.BusinessRuleGovernanceSurface.code-mode', '代码模式')
+                          "
                           size="small"
                           :checked="formulaMode === 'code'"
                           :disabled="applying"
@@ -1730,7 +2086,12 @@ onUnmounted(deactivateAssistant);
                       </div>
                     </div>
                     <p class="business-rule-governance__formula-hint">
-                      拖入字段或函数，直接输入 =、*、括号等符号。也可以双击左侧字段插入光标位置。
+                      {{
+                        language.t(
+                          'platform.screen.BusinessRuleGovernanceSurface.drag-in-fields-or-functions-and-type-symbols-such-as',
+                          '拖入字段或函数，直接输入 =、*、括号等符号。也可以双击左侧字段插入光标位置。',
+                        )
+                      }}
                     </p>
                     <p
                       v-if="
@@ -1738,15 +2099,32 @@ onUnmounted(deactivateAssistant);
                       "
                       class="business-rule-governance__cursor-help"
                     >
-                      引用字段由服务端读取，保存时计算；可先试算。
+                      {{
+                        language.t(
+                          'platform.screen.BusinessRuleGovernanceSurface.reference-fields-are-read-by-the-server-and-calculated-on',
+                          '引用字段由服务端读取，保存时计算；可先试算。',
+                        )
+                      }}
                     </p>
                   </section>
                 </div>
 
                 <section v-if="selectedRuleTemplates.length" class="business-rule-governance__templates">
-                  <h3>从示例开始</h3>
+                  <h3>
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.start-from-an-example',
+                        '从示例开始',
+                      )
+                    }}
+                  </h3>
                   <p v-if="selectedRule.expression.trim()" class="business-rule-governance__empty">
-                    已有表达式不会被模板覆盖；清空后可使用模板。
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.templates-do-not-overwrite-an-existing-expression-clear-it-to',
+                        '已有表达式不会被模板覆盖；清空后可使用模板。',
+                      )
+                    }}
                   </p>
                   <UiButton
                     v-for="template in selectedRuleTemplates"
@@ -1764,9 +2142,18 @@ onUnmounted(deactivateAssistant);
                 v-if="selectedRule.kind === 'UI_CONTROL'"
                 class="business-rule-governance__flow-section"
               >
-                <h2>控制界面</h2>
+                <h2>
+                  {{ language.t('platform.screen.BusinessRuleGovernanceSurface.control-the-ui', '控制界面') }}
+                </h2>
                 <template v-if="selectedControlForm">
-                  <p>公式为真时，对勾选的元素执行以下控制。</p>
+                  <p>
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.when-the-formula-is-true-apply-these-controls-to-the',
+                        '公式为真时，对勾选的元素执行以下控制。',
+                      )
+                    }}
+                  </p>
                   <div
                     v-for="element in selectedControlForm.elements"
                     :key="element.key"
@@ -1774,18 +2161,22 @@ onUnmounted(deactivateAssistant);
                   >
                     <span>{{ element.label }}</span>
                     <UiCheckbox
-                      :aria-label="element.label + '隐藏'"
+                      :aria-label="
+                        element.label + language.t('platform.screen.PageCompositionTree.hide', '隐藏')
+                      "
                       :checked="controlEffect(element.key, 'hide')"
                       :disabled="applying"
                       @update:checked="setControlEffect(element.key, 'hide', $event)"
-                      >隐藏</UiCheckbox
+                      >{{ language.t('platform.screen.PageCompositionTree.hide', '隐藏') }}</UiCheckbox
                     >
                     <UiCheckbox
-                      :aria-label="element.label + '只读'"
+                      :aria-label="
+                        element.label + language.t('platform.screen.metadataSourceTree.read-only', '只读')
+                      "
                       :checked="controlEffect(element.key, 'readOnly')"
                       :disabled="applying"
                       @update:checked="setControlEffect(element.key, 'readOnly', $event)"
-                      >只读</UiCheckbox
+                      >{{ language.t('platform.screen.metadataSourceTree.read-only', '只读') }}</UiCheckbox
                     >
                   </div>
                 </template>
@@ -1795,15 +2186,43 @@ onUnmounted(deactivateAssistant);
                 class="business-rule-governance__flow-section business-rule-governance__purpose"
               >
                 <div>
-                  <h2>未通过时的提示</h2>
-                  <p v-if="selectedRule.kind === 'VALIDATION'">{{ businessRuleValidationHelp }}</p>
-                  <p>保存校验针对主记录；检查明细时使用汇总函数，提示只能定位主记录字段。</p>
+                  <h2>
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.failure-message',
+                        '未通过时的提示',
+                      )
+                    }}
+                  </h2>
+                  <p v-if="selectedRule.kind === 'VALIDATION'">
+                    {{ businessRuleValidationHelpText(language) }}
+                  </p>
+                  <p>
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.save-validation-applies-to-the-main-record-use-aggregate-functions',
+                        '保存校验针对主记录；检查明细时使用汇总函数，提示只能定位主记录字段。',
+                      )
+                    }}
+                  </p>
                 </div>
                 <div class="business-rule-governance__rule-basics">
                   <details class="business-rule-governance__validation-location">
-                    <summary>提示位置（可选）</summary>
+                    <summary>
+                      {{
+                        language.t(
+                          'platform.screen.BusinessRuleGovernanceSurface.message-location-optional',
+                          '提示位置（可选）',
+                        )
+                      }}
+                    </summary>
                     <label>
-                      定位字段（可选）
+                      {{
+                        language.t(
+                          'platform.screen.BusinessRuleGovernanceSurface.field-location-optional',
+                          '定位字段（可选）',
+                        )
+                      }}
                       <UiSelect
                         :value="selectedRule.targetField || '__none__'"
                         :options="locatorFieldOptions"
@@ -1813,7 +2232,12 @@ onUnmounted(deactivateAssistant);
                     </label>
                   </details>
                   <label>
-                    失败提示
+                    {{
+                      language.t(
+                        'platform.screen.BusinessRuleGovernanceSurface.failure-message-label',
+                        '失败提示',
+                      )
+                    }}
                     <UiInput
                       :value="selectedRule.messageTemplate"
                       :disabled="applying"
@@ -1838,16 +2262,29 @@ onUnmounted(deactivateAssistant);
                 danger
                 :disabled="applying"
                 @click="removeSelectedRule"
-                >删除规则</UiButton
+                >{{
+                  language.t('platform.screen.BusinessRuleGovernanceSurface.delete-rule', '删除规则')
+                }}</UiButton
               >
             </div>
           </div>
         </RecordDetailDrawer>
 
         <section v-if="readonlyRuleList.length" class="business-rule-governance__readonly-summary">
-          <strong>保留的只读规则</strong>
+          <strong>{{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.retained-read-only-rules',
+              '保留的只读规则',
+            )
+          }}</strong>
           <span v-for="rule in readonlyRuleList" :key="rule.code"
-            >{{ rule.code }}：{{ rule.readOnlyReason || '当前规则不属于首期可编辑范围。' }}</span
+            >{{ rule.code }}：{{
+              rule.readOnlyReason ||
+              language.t(
+                'platform.screen.BusinessRuleGovernanceSurface.this-rule-is-outside-the-currently-editable-scope',
+                '当前规则不属于首期可编辑范围。',
+              )
+            }}</span
           >
         </section>
 
@@ -1856,7 +2293,11 @@ onUnmounted(deactivateAssistant);
           class="business-rule-governance__result"
           data-testid="business-rule-issues"
         >
-          <h3>无法应用更改</h3>
+          <h3>
+            {{
+              language.t('platform.screen.BusinessRuleGovernanceSurface.cannot-apply-changes', '无法应用更改')
+            }}
+          </h3>
           <ul>
             <li v-for="issue in applicationIssues" :key="`${issue.code}:${issue.ruleCode}:${issue.field}`">
               <button
@@ -1877,46 +2318,78 @@ onUnmounted(deactivateAssistant);
 
     <UiModal
       :open="trialVisible"
-      title="样例试算"
+      :title="language.t('platform.screen.BusinessRuleGovernanceSurface.sample-trial', '样例试算')"
       :width="childSampleGroups.length ? 960 : 680"
-      confirm-text="试算"
+      :confirm-text="language.t('platform.screen.BusinessRuleGovernanceSurface.try-rules', '试算')"
       :confirm-loading="trialRunning"
       :confirm-disabled="applying || !trialTenantReady"
       @confirm="runTrial"
       @cancel="trialVisible = false"
     >
-      <p>使用当前编辑中的整组启用规则试算，先完成字段计算，再执行校验；不会写入业务记录。</p>
+      <p>
+        {{
+          language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.try-the-full-set-of-enabled-rules-being-edited-field',
+            '使用当前编辑中的整组启用规则试算，先完成字段计算，再执行校验；不会写入业务记录。',
+          )
+        }}
+      </p>
       <label v-if="referenceTrialRequiresTenant" class="business-rule-governance__trial-tenant">
-        业务租户
+        {{ language.t('platform.screen.WorkflowWorkbenchView.business-tenant', '业务租户') }}
         <UiSelect
-          aria-label="业务租户"
+          :aria-label="language.t('platform.screen.WorkflowWorkbenchView.business-tenant', '业务租户')"
           :value="trialTenantId || undefined"
           :options="trialTenants.map((tenant) => ({ value: tenant.id, label: tenant.title ?? tenant.id }))"
           :loading="trialTenantLoading"
-          placeholder="请选择引用读取所在租户"
+          :placeholder="
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.select-a-tenant-for-reference-reads',
+              '请选择引用读取所在租户',
+            )
+          "
           show-search
           :filter-option="false"
           @search="loadTrialTenants"
           @update:value="changeTrialTenant"
         />
-        <span v-if="trialTenantLoading">加载租户中</span>
-        <span v-else-if="!trialTenantError && trialTenants.length === 0">没有可访问的活跃租户</span>
+        <span v-if="trialTenantLoading">{{
+          language.t('platform.screen.BusinessRuleGovernanceSurface.loading-tenants', '加载租户中')
+        }}</span>
+        <span v-else-if="!trialTenantError && trialTenants.length === 0">{{
+          language.t(
+            'platform.screen.TenantScopeExplorer.no-accessible-active-tenants',
+            '没有可访问的活跃租户',
+          )
+        }}</span>
       </label>
       <p v-if="trialTenantError" role="alert" class="business-rule-governance__error">
-        {{ trialTenantError }} <UiButton size="small" @click="loadTrialTenants()">重试加载租户</UiButton>
+        {{ trialTenantError }}
+        <UiButton size="small" @click="loadTrialTenants()">{{
+          language.t('platform.screen.BusinessRuleGovernanceSurface.retry-loading-tenants', '重试加载租户')
+        }}</UiButton>
       </p>
       <p
         v-if="referenceTrialRequiresTenant && !trialTenantReady"
         role="status"
         class="business-rule-governance__empty"
       >
-        请选择业务租户后再读取引用字段试算。
+        {{
+          language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.select-a-business-tenant-before-trying-rules-that-read-reference',
+            '请选择业务租户后再读取引用字段试算。',
+          )
+        }}
       </p>
       <p
         v-if="trialInputFields.length === 0 && childSampleGroups.length === 0"
         class="business-rule-governance__empty"
       >
-        当前启用规则没有需要输入的外部字段，可直接试算。
+        {{
+          language.t(
+            'platform.screen.BusinessRuleGovernanceSurface.the-enabled-rules-have-no-external-input-fields-you-can',
+            '当前启用规则没有需要输入的外部字段，可直接试算。',
+          )
+        }}
       </p>
       <div class="business-rule-governance__sample-grid">
         <label v-for="field in trialInputFields" :key="field.fieldName">
@@ -1924,13 +2397,18 @@ onUnmounted(deactivateAssistant);
           <small
             v-if="referenceTrialInputFields.some((candidate) => candidate.fieldName === field.fieldName)"
           >
-            请输入引用记录 ID；点路径字段由服务端读取。
+            {{
+              language.t(
+                'platform.screen.BusinessRuleGovernanceSurface.enter-a-referenced-record-id-dotted-path-fields-are-read',
+                '请输入引用记录 ID；点路径字段由服务端读取。',
+              )
+            }}
           </small>
           <UiSwitch
             v-if="field.valueType === 'BOOLEAN'"
             :checked="sampleBoolean(field)"
-            checked-text="是"
-            unchecked-text="否"
+            :checked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')"
+            :unchecked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否')"
             :disabled="applying"
             @update:checked="updateSampleValue(field, $event ? 'true' : 'false')"
           />
@@ -1944,15 +2422,22 @@ onUnmounted(deactivateAssistant);
         </label>
       </div>
       <details v-if="otherTrialFields.length" class="business-rule-governance__other-inputs">
-        <summary>其他字段（非当前启用规则的外部依赖）</summary>
+        <summary>
+          {{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.other-fields-not-external-dependencies-of-enabled-rules',
+              '其他字段（非当前启用规则的外部依赖）',
+            )
+          }}
+        </summary>
         <div class="business-rule-governance__sample-grid">
           <label v-for="field in otherTrialFields" :key="field.fieldName">
             {{ fieldLabel(field) }}
             <UiSwitch
               v-if="field.valueType === 'BOOLEAN'"
               :checked="sampleBoolean(field)"
-              checked-text="是"
-              unchecked-text="否"
+              :checked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')"
+              :unchecked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否')"
               :disabled="applying"
               @update:checked="updateSampleValue(field, $event ? 'true' : 'false')"
             />
@@ -1971,8 +2456,18 @@ onUnmounted(deactivateAssistant);
         :key="group.relation"
         class="business-rule-governance__editor"
       >
-        <strong>{{ group.fields[0]?.title.split(' · ')[0] || group.relation }} · 样例</strong>
-        <p>填写明细输入，试算会执行当前规则组中的明细计算与主表汇总，不保存记录。没有行表示空明细。</p>
+        <strong
+          >{{ group.fields[0]?.title.split(' · ')[0] || group.relation }}
+          {{ language.t('platform.screen.BusinessRuleGovernanceSurface.sample', '· 样例') }}</strong
+        >
+        <p>
+          {{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.enter-detail-samples-the-trial-runs-detail-calculations-and-main',
+              '填写明细输入，试算会执行当前规则组中的明细计算与主表汇总，不保存记录。没有行表示空明细。',
+            )
+          }}
+        </p>
         <UiDataTable
           :columns="group.columns"
           :rows="group.rows"
@@ -1980,7 +2475,9 @@ onUnmounted(deactivateAssistant);
           horizontal-scroll
           show-action-column
           :action-column-width="128"
-          empty-description="尚未添加样例行"
+          :empty-description="
+            language.t('platform.screen.BusinessRuleGovernanceSurface.no-sample-rows-added', '尚未添加样例行')
+          "
         >
           <template #cell="{ column, record }">
             <span v-if="column.key === '__rowNumber'">{{ record.rowNumber }}</span>
@@ -1990,15 +2487,21 @@ onUnmounted(deactivateAssistant);
             >
               <UiSwitch
                 v-if="field.valueType === 'BOOLEAN'"
-                :aria-label="`第 ${record.rowNumber} 行 · ${field.title}`"
+                :aria-label="
+                  language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.row-value-value',
+                    '第 {value1} 行 · {value2}',
+                    { value1: record.rowNumber, value2: field.title },
+                  )
+                "
                 :checked="
                   (record.values as Record<string, string>)[
                     field.fieldName.slice(group.relation.length + 1)
                   ] === 'true'
                 "
                 :disabled="applying"
-                checked-text="是"
-                unchecked-text="否"
+                :checked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.yes', '是')"
+                :unchecked-text="language.t('platform.screen.ManagedDetailRelationInlineSurface.no', '否')"
                 @update:checked="
                   updateChildSample(
                     group.relation,
@@ -2010,7 +2513,13 @@ onUnmounted(deactivateAssistant);
               />
               <UiInput
                 v-else
-                :aria-label="`第 ${record.rowNumber} 行 · ${field.title}`"
+                :aria-label="
+                  language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.row-value-value',
+                    '第 {value1} 行 · {value2}',
+                    { value1: record.rowNumber, value2: field.title },
+                  )
+                "
                 :value="
                   (record.values as Record<string, string>)[field.fieldName.slice(group.relation.length + 1)]
                 "
@@ -2029,7 +2538,9 @@ onUnmounted(deactivateAssistant);
                 sampleChildren[group.relation]?.splice(Number(record.id), 1);
                 invalidateTrial();
               "
-              >移除第 {{ record.rowNumber }} 行</UiButton
+              >{{
+                language.t('platform.rules.remove-row', '移除第 {row} 行', { row: record.rowNumber })
+              }}</UiButton
             >
           </template>
         </UiDataTable>
@@ -2039,11 +2550,20 @@ onUnmounted(deactivateAssistant);
             (sampleChildren[group.relation] ??= []).push({});
             invalidateTrial();
           "
-          >添加明细样例</UiButton
+          >{{
+            language.t('platform.screen.BusinessRuleGovernanceSurface.add-detail-sample', '添加明细样例')
+          }}</UiButton
         >
       </section>
       <section v-if="trial" class="business-rule-governance__result" data-testid="business-rule-trial">
-        <h3>本次输入、最终计算值与校验结果</h3>
+        <h3>
+          {{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.inputs-final-calculated-values-and-validation-results',
+              '本次输入、最终计算值与校验结果',
+            )
+          }}
+        </h3>
         <dl v-if="Object.keys(capturedTrialInputs).length">
           <template
             v-for="field in [...editableFields, ...referenceTrialInputFields].filter(
@@ -2052,23 +2572,41 @@ onUnmounted(deactivateAssistant);
             :key="field.fieldName"
           >
             <dt>{{ fieldLabel(field) }}</dt>
-            <dd>输入：{{ String(capturedTrialInputs[field.fieldName] ?? '') }}</dd>
+            <dd>
+              {{ language.t('platform.screen.BusinessRuleGovernanceSurface.input', '输入：')
+              }}{{ String(capturedTrialInputs[field.fieldName] ?? '') }}
+            </dd>
           </template>
         </dl>
         <dl v-if="mainTrialChangedFields.length">
           <template v-for="fieldName in mainTrialChangedFields" :key="fieldName">
             <dt>{{ fieldTitle(fieldName) }}</dt>
-            <dd>最终值：{{ trialValueText(businessRuleTrialValue(trial, fieldName)) }}</dd>
+            <dd>
+              {{ language.t('platform.screen.BusinessRuleGovernanceSurface.final-value', '最终值：')
+              }}{{ trialValueText(businessRuleTrialValue(trial, fieldName)) }}
+            </dd>
           </template>
         </dl>
         <section v-for="group in childTrialResults" :key="group.relation">
-          <h4>{{ group.title }} · 试算后明细（{{ group.rows.length }} 行）</h4>
+          <h4>
+            {{ group.title }}
+            {{
+              language.t('platform.rules.trial-detail-count', '· 试算后明细（{count} 行）', {
+                count: group.rows.length,
+              })
+            }}
+          </h4>
           <UiDataTable
             :columns="group.columns"
             :rows="group.rows"
             size="small"
             horizontal-scroll
-            empty-description="本次试算为空明细"
+            :empty-description="
+              language.t(
+                'platform.screen.BusinessRuleGovernanceSurface.the-trial-used-empty-details',
+                '本次试算为空明细',
+              )
+            "
           >
             <template #cell="{ column, record }">
               {{ childTrialValue(record, group.relation, column.key) }}
@@ -2079,13 +2617,36 @@ onUnmounted(deactivateAssistant);
           <template v-for="field in snapshot?.referenceFields ?? []" :key="field.path">
             <template v-if="field.path in (trial?.values ?? {})">
               <dt>{{ field.title }}（{{ field.path }}）</dt>
-              <dd>引用读取值：{{ String(trial?.values[field.path] ?? '') }}</dd>
+              <dd>
+                {{
+                  language.t(
+                    'platform.screen.BusinessRuleGovernanceSurface.reference-values',
+                    '引用读取值：',
+                  )
+                }}{{ String(trial?.values[field.path] ?? '') }}
+              </dd>
             </template>
           </template>
         </dl>
-        <p v-if="trial.errors.length">试算未通过。</p>
-        <p v-else-if="hasEnabledValidationRules">试算通过：未发现校验错误。</p>
-        <p v-else>试算完成：当前没有启用的业务校验。</p>
+        <p v-if="trial.errors.length">
+          {{ language.t('platform.screen.BusinessRuleGovernanceSurface.trial-failed', '试算未通过。') }}
+        </p>
+        <p v-else-if="hasEnabledValidationRules">
+          {{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.trial-passed-no-validation-errors-found',
+              '试算通过：未发现校验错误。',
+            )
+          }}
+        </p>
+        <p v-else>
+          {{
+            language.t(
+              'platform.screen.BusinessRuleGovernanceSurface.trial-completed-no-business-validations-are-enabled',
+              '试算完成：当前没有启用的业务校验。',
+            )
+          }}
+        </p>
         <ul v-if="trial.errors.length">
           <li v-for="error in trial.errors" :key="`${error.code}:${error.ruleCode}:${error.field}`">
             <button

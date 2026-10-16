@@ -1,3 +1,4 @@
+import { selectionCodesOf } from './optionFieldOptions';
 import type {
   OptionItemDescriptor,
   QuerySchemaField,
@@ -6,10 +7,16 @@ import type {
   ResolvedReferenceFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { Component } from 'vue';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { readonlyReferenceDisplay, readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { formatPlatformDateTime } from './platformDateTime';
 import { formatPlatformFileSize } from './platformFileSize';
+import {
+  presentationLabel,
+  recordPresentationLabel,
+  platformLanguageContext,
+  type LanguageContext,
+} from '@muyun/web-core';
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
@@ -22,6 +29,8 @@ export type StandardCrudRowActionKey = 'view' | 'edit' | 'delete';
 export interface RecordQueryListColumn {
   key: string;
   title: string;
+  /** Declared CODE resource for a contributed column heading. */
+  titleKey?: string;
   type?: 'text' | 'enabledStatus' | 'booleanStatus' | 'tagList' | 'datetime' | 'fileSize' | 'colorPicker';
   booleanStatus?: ResolvedViewFieldDescriptor['booleanStatus'];
   width?: string;
@@ -50,6 +59,7 @@ export interface RecordQueryListCellComponent {
 
 export interface RecordQueryListDisplayContext {
   timeZone?: string;
+  language?: LanguageContext;
 }
 
 /**
@@ -99,6 +109,7 @@ export function resolveRecordQueryListDisplayValue(
   cellRenderers: Record<string, (record: QueryListRecord) => string> = {},
   context: RecordQueryListDisplayContext = {},
 ) {
+  const language = context.language ?? platformLanguageContext;
   const rendered = column.render?.(record) ?? cellRenderers[column.key]?.(record);
   const rawValue = record[column.key];
   const presentationValue = rendered ?? rawValue;
@@ -107,8 +118,10 @@ export function resolveRecordQueryListDisplayValue(
       column.type === 'booleanStatus'
         ? resolveRecordBooleanStatusValue(record[column.key])
         : record[column.key] !== false;
-    if (enabled === true) return column.booleanStatus?.trueLabel ?? '启用';
-    if (enabled === false) return column.booleanStatus?.falseLabel ?? '停用';
+    if (enabled === true)
+      return column.booleanStatus?.trueLabel ?? language.t('platform.value.enabled', '启用');
+    if (enabled === false)
+      return column.booleanStatus?.falseLabel ?? language.t('platform.value.disabled', '停用');
     return '-';
   }
   if (column.type === 'tagList') {
@@ -124,7 +137,7 @@ export function resolveRecordQueryListDisplayValue(
       typeof presentationValue === 'number' ||
       rawValue instanceof Date)
   ) {
-    return formatPlatformDateTime(presentationValue, { timeZone: context.timeZone }).text;
+    return formatPlatformDateTime(presentationValue, { language, timeZone: context.timeZone }).text;
   }
   if (
     column.type === 'fileSize' &&
@@ -139,43 +152,45 @@ export function resolveRecordQueryListDisplayValue(
     const display = readonlyReferenceDisplay(
       column.reference,
       record[column.key],
-      column.titleField ? record[column.titleField] : record[`${column.key}Title`],
+      readonlyReferenceSummaryOf(record, column.titleField ?? `${column.key}Title`, language),
+      language,
     );
     if (display !== undefined) return display;
+  }
+  const sourcedOptions = column.optionItems?.filter((item) => item.titleText || item.titleSource);
+  if (sourcedOptions?.length) {
+    const codes = selectionCodesOf(rawValue);
+    if (codes.length && codes.every((code) => sourcedOptions.some((item) => item.code === code)))
+      return optionTitlesOf(rawValue, sourcedOptions, context.language).join('、');
   }
   const titleFields = [column.titleField, `${column.key}Title`].filter(
     (value, index, fields): value is string => Boolean(value) && fields.indexOf(value) === index,
   );
   for (const candidate of titleFields) {
     const titleValue = record[candidate];
-    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+    if (typeof titleValue === 'string' && titleValue.trim())
+      return recordPresentationLabel(record, candidate, language);
   }
   const value = rawValue;
-  const optionTitles = optionTitlesOf(value, column.optionItems);
+  const optionTitles = optionTitlesOf(value, column.optionItems, context.language);
   if (optionTitles.length > 0) return optionTitles.join('、');
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value ?? '');
+  if (typeof value === 'boolean')
+    return value ? language.t('platform.value.yes', '是') : language.t('platform.value.no', '否');
+  return typeof value === 'string'
+    ? recordPresentationLabel(record, column.key, language)
+    : String(value ?? '');
 }
 
-function optionTitlesOf(value: unknown, optionItems: RecordQueryListColumn['optionItems']): string[] {
+function optionTitlesOf(
+  value: unknown,
+  optionItems: RecordQueryListColumn['optionItems'],
+  language: LanguageContext = platformLanguageContext,
+): string[] {
   if (!optionItems?.length) return [];
-  return selectionCodesOf(value).map((code) => optionItems.find((item) => item.code === code)?.title ?? code);
-}
-
-function selectionCodesOf(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value !== 'string') return value == null ? [] : [String(value)];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {
-      // A scalar string may begin with "[".
-    }
-  }
-  return [value];
+  return selectionCodesOf(value).map((code) => {
+    const item = optionItems.find((item) => item.code === code);
+    return item ? presentationLabel(item.title, item.titleText, language) : code;
+  });
 }
 
 function columnType(

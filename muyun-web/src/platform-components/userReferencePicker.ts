@@ -17,10 +17,25 @@ import type {
 
 /** Identity-specific presentation stays here; the common picker only consumes projections. */
 export const userReferencePickerColumns: readonly ReferencePickerColumn[] = [
-  { key: 'account', title: '用户账号', width: 140 },
-  { key: 'employeeName', title: '职员姓名', width: 140 },
-  { key: 'organizationName', title: '所属机构', width: 150 },
-  { key: 'departmentName', title: '所属部门', width: 150 },
+  { key: 'account', titleKey: 'platform.user-picker.column.account', title: '用户账号', width: 140 },
+  {
+    key: 'employeeName',
+    titleKey: 'platform.user-picker.column.employee-name',
+    title: '职员姓名',
+    width: 140,
+  },
+  {
+    key: 'organizationName',
+    titleKey: 'platform.user-picker.column.organization-name',
+    title: '所属机构',
+    width: 150,
+  },
+  {
+    key: 'departmentName',
+    titleKey: 'platform.user-picker.column.department-name',
+    title: '所属部门',
+    width: 150,
+  },
 ];
 
 export interface UserReferencePickerConfig {
@@ -125,10 +140,26 @@ function axesOf(navigation: UserPickerNavigation, selections: readonly Reference
       (!selected.organizationId || item.organizationId === selected.organizationId),
   );
   return [
-    ...(navigation.showTenantNavigation ? [{ id: 'tenant', title: '租户', items: navigation.tenants }] : []),
-    { id: 'organization', title: '机构', dependsOn: ['tenant'], items: organizationItems },
+    ...(navigation.showTenantNavigation
+      ? [
+          {
+            id: 'tenant',
+            titleKey: 'platform.user-picker.axis.tenant',
+            title: '租户',
+            items: navigation.tenants,
+          },
+        ]
+      : []),
+    {
+      id: 'organization',
+      titleKey: 'platform.user-picker.axis.organization',
+      title: '机构',
+      dependsOn: ['tenant'],
+      items: organizationItems,
+    },
     {
       id: 'department',
+      titleKey: 'platform.user-picker.axis.department',
       title: '部门',
       dependsOn: ['tenant', 'organization'],
       items: departmentItems,

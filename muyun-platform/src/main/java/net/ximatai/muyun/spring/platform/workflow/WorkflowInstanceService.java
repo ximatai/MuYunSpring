@@ -1,13 +1,15 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import java.util.Map;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,7 +40,9 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
 
     private void normalizeAndValidate(WorkflowInstance instance) {
         if (instance.getVersionNo() == null || instance.getVersionNo() <= 0) {
-            throw new PlatformException("workflow version number must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-instance.the-workflow-version-number-must-be-positive",
+                    "workflow version number must be positive"));
         }
         instance.setModuleAlias(PlatformNameRules.requireModuleAlias(instance.getModuleAlias()));
         if (instance.getApprovalEnabled() == null) {
@@ -63,13 +67,17 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
                 .eq("approvalEnabled", Boolean.TRUE)
                 .eq("instanceStatus", WorkflowInstanceStatus.RUNNING));
         if (exists) {
-            throw new PlatformException("approval workflow already running for record: " + instance.getRecordId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-instance.an-approval-workflow-is-already-running-for-this-record",
+                    "approval workflow already running for record: {value1}"), Map.of("value1", String.valueOf(instance.getRecordId())));
         }
     }
 
     private void rejectApprovalStatusRollback(WorkflowInstance instance) {
         if (instance.getApprovalStatus() != WorkflowApprovalStatus.APPROVED) {
-            throw new PlatformException("approval status cannot rollback after approval completed");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-instance.approval-is-complete-its-status-cannot-be-rolled-back",
+                    "approval status cannot rollback after approval completed"));
         }
     }
 

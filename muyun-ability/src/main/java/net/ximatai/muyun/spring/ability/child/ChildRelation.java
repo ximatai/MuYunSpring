@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.ability.child;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -210,14 +213,18 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
                 continue;
             }
             if (!incomingIds.add(childId)) {
-                throw new PlatformException("Duplicate child id in relation payload: " + childId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.child-relation.duplicate-child-id-in-relation-payload",
+                        "Duplicate child id in relation payload: {value1}"), Map.of("value1", String.valueOf(childId)));
             }
             if (existingIds.contains(childId)) {
                 continue;
             }
             C loaded = childAbility.getDao().findById(childId);
             if (loaded != null) {
-                throw new PlatformException("Child record does not belong to parent " + parentId + ": " + childId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.child-relation.child-record-does-not-belong-to-parent",
+                        "Child record does not belong to parent {value1}: {value2}"), Map.of("value1", String.valueOf(parentId), "value2", String.valueOf(childId)));
             }
         }
     }

@@ -17,6 +17,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class QuerySchemaTest {
     @Test
+    void standardAuditLabelsDeclareCodeSourcesWhileExplicitTitlesRemainOwnedByTheirCaller() {
+        for (var policy : net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.auditFields()) {
+            var field = QueryDescriptors.field(TypedQueryRecord.class, policy.fieldName());
+            assertThat(field.titleSource()).isEqualTo(policy.titleSource());
+            assertThat(field.title()).isEqualTo(policy.title());
+            assertThat(field.withTitle("Custom audit label").titleSource()).isNull();
+            assertThat(field.withTitle("Custom audit label").title()).isEqualTo("Custom audit label");
+        }
+    }
+
+    @Test
+    void carriesDeclaredTitleSourcesThroughCopiesAndKeepsLiteralOverridesIndependent() {
+        var source = net.ximatai.muyun.spring.common.i18n.TextReference.code("test.query.name", "名称");
+        var field = QueryField.of("title", QueryOperator.EQ).withTitle(source).withQuickSearch().withSortable()
+                .withPersistentControl(QueryOperator.EQ).withDefaultOperator(QueryOperator.EQ)
+                .withReference(new QueryReference("test.module", ReferenceCardinality.ONE, "title"));
+        var schema = QuerySchema.from(QueryDescriptor.builder("test.module").field(field).build());
+        assertThat(schema.fields().getFirst().titleSource()).isEqualTo(source);
+        assertThat(schema.fields().getFirst().persistentControl().titleSource()).isEqualTo(source);
+        assertThat(schema.quickSearch().fieldSchemas().getFirst().titleSource()).isEqualTo(source);
+        assertThat(field.withTitle("客户自行维护的标题").titleSource()).isNull();
+        assertThat(QueryField.of("title", QueryOperator.EQ).withTitle("名称").titleSource()).isNull();
+        assertThat(schema.fields().getFirst().name()).isEqualTo("title");
+        assertThat(schema.fields().getFirst().operators()).containsExactly(QueryOperator.EQ);
+    }
+
+    @Test
     void shouldExposeDescriptorAsFrontendConsumableSchema() {
         QueryDescriptor descriptor = QueryDescriptor.builder("iam.employee")
                 .field(QueryField.of("employeeNo", QueryValueType.STRING, QueryOperator.EQ, QueryOperator.LIKE)

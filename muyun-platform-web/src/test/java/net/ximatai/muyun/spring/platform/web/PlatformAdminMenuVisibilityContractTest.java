@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.spring.platform.module.StaticModuleDefinitionRegistrar;
@@ -92,7 +94,7 @@ class PlatformAdminMenuVisibilityContractTest {
             new PasswordHashingService()
     );
     private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
-    private final PlatformModuleActionService moduleActionService = new PlatformModuleActionService(
+    private final PlatformModuleActionService moduleActionService = ModuleActionTestServices.withDeclaredDataPolicy(
             moduleActionDao,
             moduleService
     );

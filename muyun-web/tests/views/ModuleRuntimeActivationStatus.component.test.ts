@@ -1,7 +1,8 @@
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
 import { afterEach, expect, it, vi } from 'vitest';
 import ModuleRuntimeActivationStatus from '@/views/ModuleRuntimeActivationStatus.vue';
-import { resolveWebActionResult } from '@/web-core';
+import { resolveWebActionResult, createLanguageContext, provideLanguageContext } from '@/web-core';
 import type { ModuleActivationFeedback } from '@/views/moduleRuntimeActivation';
 import type { DynamicRuntimeActivationStatus } from '@/web-contracts';
 
@@ -220,3 +221,39 @@ it.each([
     expect(feedback.message.text).toContain(status === 'ACTIVE' ? '已生效' : '已保存');
   },
 );
+
+it('updates failed activation labels in the owner language without retrying or changing failure evidence', async () => {
+  const original = { ...state('FAILED'), failureMessage: '原始激活诊断' };
+  request.mockResolvedValue(original);
+  const language = createLanguageContext({ languageTag: 'en' });
+  const Harness = defineComponent({
+    setup() {
+      provideLanguageContext(language);
+      return () => h(ModuleRuntimeActivationStatus, { moduleAlias: 'sales.order' });
+    },
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        UiPopover: { template: '<section><slot /><slot name="content" /></section>' },
+        UiActionButton: { template: '<button><slot /></button>' },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('Activation failed');
+    expect(wrapper.text()).toContain('原始激活诊断');
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(wrapper.text()).toContain('生效失败');
+    expect(wrapper.text()).toContain('原始激活诊断');
+    language.setLanguage('en');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Activation failed');
+    expect(request).toHaveBeenCalledOnce();
+    expect(original).toMatchObject({ status: 'FAILED', desiredRevision: 3, failureMessage: '原始激活诊断' });
+  } finally {
+    wrapper.unmount();
+  }
+});

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
@@ -84,9 +86,12 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         PlatformUiConfigField existing = selectIncludingDeleted(field.getId());
         requireDraftUiConfig(existing == null ? field.getUiConfigId() : existing.getUiConfigId());
         normalizeAndValidate(field);
-        rejectChanged(existing, field, "UI config field config", PlatformUiConfigField::getUiConfigId);
-        rejectChanged(existing, field, "UI config field module field",
-                PlatformUiConfigField::getModuleMetadataFieldId);
+        rejectChangedText(existing, field, TextReference.code(
+                "platform.rejection.platform-ui-config-field.ui-config-field-config-cannot-be-changed",
+                "UI config field config cannot be changed"), PlatformUiConfigField::getUiConfigId);
+        rejectChangedText(existing, field, TextReference.code(
+                "platform.rejection.platform-ui-config-field.ui-config-field-module-field-cannot-be-changed",
+                "UI config field module field cannot be changed"), PlatformUiConfigField::getModuleMetadataFieldId);
     }
 
     @Override
@@ -130,8 +135,9 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
             FieldUiControl control = fieldUiTypeService.requireFieldUiControl(field.getFieldUiControlAlias());
             if (control.getRendererType() == ViewControlType.SELECT
                     || control.getRendererType() == ViewControlType.MULTI_SELECT) {
-                throw new PlatformException("Local edit field control requires an option/reference descriptor: "
-                        + uiConfigId + "." + field.getFieldUiControlAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-ui-config-field.local-edit-field-control-requires-an-option-reference-descriptor",
+                        "Local edit field control requires an option/reference descriptor: {value1}.{value2}"), Map.of("value1", String.valueOf(uiConfigId), "value2", String.valueOf(field.getFieldUiControlAlias())));
             }
         }
     }
@@ -150,8 +156,9 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         PlatformUiSet uiSet = uiSetService.requireUiSet(uiConfig.getUiSetId());
         ResolvedModuleMetadataField moduleField = moduleFieldService.resolve(field.getModuleMetadataFieldId());
         if (!Objects.equals(uiSet.getModuleAlias(), moduleField.moduleAlias())) {
-            throw new PlatformException("UI config field requires module field in the same module: "
-                    + uiSet.getModuleAlias() + "." + moduleField.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-requires-module-field-in-the-same-module",
+                    "UI config field requires module field in the same module: {value1}.{value2}"), Map.of("value1", String.valueOf(uiSet.getModuleAlias()), "value2", String.valueOf(moduleField.moduleAlias())));
         }
         normalizeUiType(field, moduleField);
         validateRequiredOverride(field, moduleField);
@@ -167,22 +174,28 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
             field.setColumnSpan(1);
         }
         if (field.getColumnSpan() < 1 || field.getColumnSpan() > 2) {
-            throw new PlatformException("UI config field columnSpan must be between 1 and 2");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-columnspan-must-be-between-1-and-2",
+                    "UI config field columnSpan must be between 1 and 2"));
         }
         if (field.getMaxDisplayLines() != null && field.getMaxDisplayLines() < 1) {
-            throw new PlatformException("UI config field maxDisplayLines must be at least 1");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-maxdisplaylines-must-be-at-least-1",
+                    "UI config field maxDisplayLines must be at least 1"));
         }
         if (field.getMaxDisplayLines() != null && uiSet.getSetType() != PlatformUiSetType.LIST) {
-            throw new PlatformException("UI config field maxDisplayLines is only supported by LIST UI sets");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-maxdisplaylines-is-only-supported-by-list-ui-sets",
+                    "UI config field maxDisplayLines is only supported by LIST UI sets"));
         }
         if (field.getTitle() == null || field.getTitle().isBlank()) {
             field.setTitle(moduleField.fieldTitle());
         }
         rejectDuplicate(field, Criteria.of()
                         .eq("uiConfigId", uiConfig.getId())
-                        .eq("moduleMetadataFieldId", moduleField.moduleMetadataFieldId()),
-                "UI config field must be unique in UI config: "
-                        + uiConfig.getId() + "." + moduleField.moduleMetadataFieldId());
+                        .eq("moduleMetadataFieldId", moduleField.moduleMetadataFieldId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.platform-ui-config-field.ui-config-field-must-be-unique-in-ui-config",
+                                "UI config field must be unique in UI config: {value1}.{value2}"), Map.of("value1", String.valueOf(uiConfig.getId()), "value2", String.valueOf(moduleField.moduleMetadataFieldId()))));
         field.setUiConfigId(uiConfig.getId());
         field.setModuleMetadataFieldId(moduleField.moduleMetadataFieldId());
     }
@@ -194,24 +207,29 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
             uiTypeAlias = fieldType.getDefaultUiControlAlias();
         }
         if (uiTypeAlias == null || uiTypeAlias.isBlank()) {
-            throw new PlatformException("Field UI type is required and field type has no default UI type: "
-                    + moduleField.fieldSpecAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.field-ui-type-is-required-and-field-type-has-no-default-ui",
+                    "Field UI type is required and field type has no default UI type: {value1}"), Map.of("value1", String.valueOf(moduleField.fieldSpecAlias())));
         }
         uiTypeAlias = PlatformNameRules.requireIdentifier(uiTypeAlias, "fieldUiControlAlias");
         FieldUiControl uiType = fieldUiTypeService.requireFieldUiControl(uiTypeAlias);
         if (!Boolean.TRUE.equals(uiType.getEnabled())) {
-            throw new PlatformException("Field UI control must be enabled: " + uiTypeAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.field-ui-control-must-be-enabled",
+                    "Field UI control must be enabled: {value1}"), Map.of("value1", String.valueOf(uiTypeAlias)));
         }
         if (fieldType.getUiControlAliases() != null && !fieldType.getUiControlAliases().isEmpty()) {
             if (!fieldType.getUiControlAliases().contains(uiTypeAlias)) {
-                throw new PlatformException("Field UI type is not allowed by field type: "
-                        + moduleField.fieldSpecAlias() + "." + uiTypeAlias);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-ui-config-field.field-ui-type-is-not-allowed-by-field-type",
+                        "Field UI type is not allowed by field type: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleField.fieldSpecAlias()), "value2", String.valueOf(uiTypeAlias)));
             }
         } else if (uiType.getDefaultFieldSpecAlias() != null
                 && !uiType.getDefaultFieldSpecAlias().isBlank()
                 && !Objects.equals(uiType.getDefaultFieldSpecAlias(), moduleField.fieldSpecAlias())) {
-            throw new PlatformException("Field UI type default field type mismatch: "
-                    + uiTypeAlias + "." + moduleField.fieldSpecAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.field-ui-type-default-field-type-mismatch",
+                    "Field UI type default field type mismatch: {value1}.{value2}"), Map.of("value1", String.valueOf(uiTypeAlias), "value2", String.valueOf(moduleField.fieldSpecAlias())));
         }
         field.setFieldUiControlAlias(uiTypeAlias);
     }
@@ -222,8 +240,9 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
         }
         MetadataField metadataField = metadataFieldService.select(moduleField.metadataFieldId());
         if (metadataField != null && Boolean.TRUE.equals(metadataField.getRequired())) {
-            throw new PlatformException("UI config field cannot weaken required metadata field: "
-                    + moduleField.fieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-cannot-weaken-required-metadata-field",
+                    "UI config field cannot weaken required metadata field: {value1}"), Map.of("value1", String.valueOf(moduleField.fieldName())));
         }
     }
 
@@ -242,21 +261,24 @@ public class PlatformUiConfigFieldService extends AbstractAbilityService<Platfor
                     .filter(reference -> !availableFields.contains(reference))
                     .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
             if (!unavailable.isEmpty()) {
-                throw new PlatformException("UI config field " + fieldName
-                        + " may only reference fields available in the same UI config and relation: " + unavailable);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-ui-config-field.ui-config-field-may-only-reference-fields-available-in-the-same-ui",
+                        "UI config field {value1} may only reference fields available in the same UI config and relation: {value2}"), Map.of("value1", String.valueOf(fieldName), "value2", String.valueOf(unavailable)));
             }
             return predicate.trim();
         } catch (FormulaEvaluationException exception) {
-            throw new PlatformException("UI config field " + fieldName + " must be a FormulaEngine WEB_UI predicate: "
-                    + exception.getMessage());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.ui-config-field-must-be-a-formulaengine-web-ui-predicate",
+                    "UI config field {value1} must be a FormulaEngine WEB_UI predicate: {value2}"), Map.of("value1", String.valueOf(fieldName), "value2", String.valueOf(exception.getMessage())));
         }
     }
 
     private void requireDraftUiConfig(String uiConfigId) {
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(uiConfigId);
         if (Boolean.TRUE.equals(uiConfig.getPublished())) {
-            throw new PlatformException("Published UI config fields cannot be edited; unpublish first: "
-                    + uiConfig.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-field.published-ui-config-fields-cannot-be-edited-unpublish-first",
+                    "Published UI config fields cannot be edited; unpublish first: {value1}"), Map.of("value1", String.valueOf(uiConfig.getId())));
         }
     }
 }

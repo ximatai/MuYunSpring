@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
@@ -20,7 +22,7 @@ class ModuleActionContributionRegistrarTest {
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformModuleAction> actionDao = new TestMemoryDao<>();
     private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
-    private final PlatformModuleActionService actionService = new PlatformModuleActionService(actionDao, moduleService);
+    private final PlatformModuleActionService actionService = ModuleActionTestServices.withDeclaredDataPolicy(actionDao, moduleService);
     private final ModuleActionContributionRegistrar registrar = new ModuleActionContributionRegistrar(actionService);
 
     @Test

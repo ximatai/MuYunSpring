@@ -931,6 +931,8 @@ it('restores one logical workspace tab from public URLs while retaining its inst
     moduleAlias: 'platform.module',
     component: { template: '<div />' },
     presentations: ['tab'] as const,
+    titleKey: 'platform.workspace-view.governance.title',
+    titleArgsOf: ({ moduleAlias }: { moduleAlias: string }) => ({ module: moduleAlias }),
     titleOf: ({ moduleAlias }: { moduleAlias: string }) => `低代码治理：${moduleAlias}`,
     tabIdentityParamsOf: ({ moduleAlias }: { moduleAlias: string }) => ({ moduleAlias }),
     parse: (query: Record<string, unknown>) => {
@@ -955,6 +957,8 @@ it('restores one logical workspace tab from public URLs while retaining its inst
     const first = metadata.tabs?.[0];
 
     assert.equal(metadata.tabs?.length, 1);
+    assert.equal(first?.title, '低代码治理：education.exam');
+    assert.equal(first?.pageDescriptor?.titleText?.languages.en?.text, 'Low-code governance: education.exam');
     assert.match(first?.instanceKey ?? '', /^[0-9a-f-]{36}$/i);
     assert.equal(first?.pageDescriptor?.params?.moduleAlias, 'education.exam');
     assert.notProperty(first?.pageDescriptor?.params ?? {}, 'governanceTab');
@@ -1222,4 +1226,59 @@ it('restoreWorkbenchStartupStateFromUrl does not trust a shared dynamic URL titl
 
   assert.equal(restored.tabs?.[0]?.title, '租户管理');
   assert.equal(restored.tabs?.[0]?.pageDescriptor?.title, '租户管理');
+});
+
+it('restores workspace and API titles from the owning application language resources', async () => {
+  const { createLanguageContext, presentationLabel } = await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  language.setCatalog({
+    ...language.catalog.value,
+    languages: [
+      ...language.catalog.value.languages,
+      { tag: 'de', nativeName: 'Deutsch', direction: 'ltr', fallbackTag: 'en' },
+    ],
+  });
+  language.registerResources('de', {
+    'consumer.device.title': 'Gerät {recordId}',
+    'platform.screen.OpenApiCatalogView.module-api-directory': 'Modul-API-Verzeichnis',
+  });
+  language.setLanguage('de');
+  const view = {
+    type: 'consumer.device.detail',
+    route: '/_workspace/consumer.device',
+    moduleAlias: 'consumer.device',
+    component: { template: '<div />' },
+    presentations: ['tab'] as const,
+    titleKey: 'consumer.device.title',
+    titleArgsOf: (input: { recordId: string }) => input,
+    titleOf: ({ recordId }: { recordId: string }) => `设备 ${recordId}`,
+    parse: (query: Record<string, unknown>) =>
+      typeof query.recordId === 'string' ? { recordId: query.recordId } : undefined,
+  };
+  configureWorkspaceViewContributions('owner-language-restore', [view]);
+  try {
+    const state = { session: { currentUser }, menus, tabs: [] };
+    const url =
+      '/_workspace/consumer.device?workspaceView=consumer.device.detail&workspacePresentation=tab&recordId=1';
+    const restored = restoreWorkbenchStartupStateFromUrl(state, url, {}, false, language);
+    const tab = restored.tabs![0]!;
+    const revision = language.revision.value;
+    for (const item of [
+      tab,
+      ...restoreLockedWorkbenchTabs([tab], menus, {}, language),
+      ...restoreSessionWorkbenchTabs([tab], menus, {}, language),
+    ]) {
+      assert.equal(item.title, '设备 1');
+      assert.equal(presentationLabel(item.title, item.pageDescriptor?.titleText, language), 'Gerät 1');
+    }
+    const api = restoreWorkbenchStartupStateFromUrl(state, '/openapi', {}, false, language).tabs![0]!;
+    assert.equal(
+      presentationLabel(api.title, api.pageDescriptor?.titleText, language),
+      'Modul-API-Verzeichnis',
+    );
+    assert.equal(language.languageTag.value, 'de');
+    assert.equal(language.revision.value, revision);
+  } finally {
+    configureWorkspaceViewContributions('owner-language-restore', []);
+  }
 });

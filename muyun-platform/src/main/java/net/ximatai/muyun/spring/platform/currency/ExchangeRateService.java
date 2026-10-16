@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.currency;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
@@ -9,7 +12,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 
@@ -78,8 +80,9 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
                                              LocalDate rateDate) {
         ExchangeRate rate = resolveEffectiveRate(fromCurrencyCode, toCurrencyCode, rateTypeCode, rateDate);
         if (rate == null) {
-            throw new PlatformException("Exchange rate requires effective rate: "
-                    + fromCurrencyCode + " -> " + toCurrencyCode + " " + rateTypeCode + " " + rateDate);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.exchange-rate-requires-effective-rate",
+                    "Exchange rate requires effective rate: {value1} -> {value2} {value3} {value4}"), Map.of("value1", String.valueOf(fromCurrencyCode), "value2", String.valueOf(toCurrencyCode), "value3", String.valueOf(rateTypeCode), "value4", String.valueOf(rateDate)));
         }
         return rate;
     }
@@ -93,7 +96,9 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
         Currency from = currencyService.requireEnabledCurrency(rate.getFromCurrencyCode());
         Currency to = currencyService.requireEnabledCurrency(rate.getToCurrencyCode());
         if (from.getCode().equals(to.getCode())) {
-            throw new PlatformException("exchange rate source and target currency must be different: " + from.getCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.exchange-rate-source-and-target-currency-must-be-different",
+                    "exchange rate source and target currency must be different: {value1}"), Map.of("value1", String.valueOf(from.getCode())));
         }
         ExchangeRateType rateType = rateTypeService.requireEnabledRateType(rate.getRateTypeCode());
         rate.setFromCurrencyCode(from.getCode());
@@ -101,7 +106,9 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
         rate.setRateTypeCode(rateType.getCode());
         rate.setEffectiveDate(requireRateDate(rate.getEffectiveDate()));
         if (rate.getRate() == null || rate.getRate().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new PlatformException("exchange rate value must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.exchange-rate-value-must-be-positive",
+                    "exchange rate value must be positive"));
         }
         if (rate.getSource() != null && rate.getSource().isBlank()) {
             rate.setSource(null);
@@ -109,10 +116,18 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
     }
 
     private void validateImmutableIdentity(ExchangeRate rate, ExchangeRate existing) {
-        rejectChanged(existing, rate, "Exchange rate source currency", ExchangeRate::getFromCurrencyCode);
-        rejectChanged(existing, rate, "Exchange rate target currency", ExchangeRate::getToCurrencyCode);
-        rejectChanged(existing, rate, "Exchange rate type", ExchangeRate::getRateTypeCode);
-        rejectChanged(existing, rate, "Exchange rate effective date", ExchangeRate::getEffectiveDate);
+        rejectChangedText(existing, rate, TextReference.code(
+                "platform.rejection.exchange-rate.exchange-rate-source-currency-cannot-be-changed",
+                "Exchange rate source currency cannot be changed"), ExchangeRate::getFromCurrencyCode);
+        rejectChangedText(existing, rate, TextReference.code(
+                "platform.rejection.exchange-rate.exchange-rate-target-currency-cannot-be-changed",
+                "Exchange rate target currency cannot be changed"), ExchangeRate::getToCurrencyCode);
+        rejectChangedText(existing, rate, TextReference.code(
+                "platform.rejection.exchange-rate.exchange-rate-type-cannot-be-changed",
+                "Exchange rate type cannot be changed"), ExchangeRate::getRateTypeCode);
+        rejectChangedText(existing, rate, TextReference.code(
+                "platform.rejection.exchange-rate.exchange-rate-effective-date-cannot-be-changed",
+                "Exchange rate effective date cannot be changed"), ExchangeRate::getEffectiveDate);
     }
 
     private ExchangeRate effectiveRate(List<ExchangeRate> rates, LocalDate rateDate) {
@@ -144,18 +159,24 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
 
     private String requireCurrencyCode(String value) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("currencyCode must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.currencycode-must-not-be-blank",
+                    "currencyCode must not be blank"));
         }
         String code = value.trim().toUpperCase();
         if (!code.matches("[A-Z]{3}")) {
-            throw new PlatformException("currencyCode must be ISO 4217 alpha-3 code: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.currencycode-must-be-iso-4217-alpha-3-code",
+                    "currencyCode must be ISO 4217 alpha-3 code: {value1}"), Map.of("value1", String.valueOf(value)));
         }
         return code;
     }
 
     private LocalDate requireRateDate(LocalDate rateDate) {
         if (rateDate == null) {
-            throw new PlatformException("exchange rate effectiveDate must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.exchange-rate.exchange-rate-effectivedate-must-not-be-null",
+                    "exchange rate effectiveDate must not be null"));
         }
         return rateDate;
     }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { useWorkspaceSortActivity } from './managementWorkspaceContext';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
@@ -12,7 +13,7 @@ import {
   type UiTreeNode,
   type UiTreeChangeReason,
 } from '@muyun/vue-ui-antdv';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 import { sortPartitionKey } from './sortPartitionKey';
@@ -27,6 +28,8 @@ import {
 } from './treeRecordModel';
 import { presentPlatformError } from './platformErrorFeedback';
 import type { RecordTreeQueryController } from './recordTreeQueryController';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'TreeRecordExplorer' });
 
@@ -71,10 +74,10 @@ const props = withDefaults(
     keyword: undefined,
     searchMode: 'always',
     searchTrigger: 'inline',
-    searchPlaceholder: '搜索名称、编码或 ID',
-    emptyDescription: '暂无记录',
-    loadingTip: '加载树形记录',
-    fallbackTitle: '未命名记录',
+    searchPlaceholder: undefined,
+    emptyDescription: undefined,
+    loadingTip: undefined,
+    fallbackTitle: undefined,
     titleOf: undefined,
     secondaryOf: undefined,
     itemOf: undefined,
@@ -86,6 +89,22 @@ const props = withDefaults(
     sortPartitionFields: undefined,
     sorting: false,
   },
+);
+
+const resolvedSearchPlaceholder = computed(
+  () =>
+    props.searchPlaceholder ??
+    language.t('platform.screen.TreeRecordExplorer.searchPlaceholder', '搜索名称、编码或 ID'),
+);
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ?? language.t('platform.screen.TreeRecordExplorer.emptyDescription', '暂无记录'),
+);
+const resolvedLoadingTip = computed(
+  () => props.loadingTip ?? language.t('platform.screen.TreeRecordExplorer.loadingTip', '加载树形记录'),
+);
+const resolvedFallbackTitle = computed(
+  () => props.fallbackTitle ?? language.t('platform.screen.TreeRecordExplorer.untitled-record', '未命名记录'),
 );
 
 const emit = defineEmits<{
@@ -304,7 +323,7 @@ async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: s
       emit('loaded', []);
     }
     commitTreeSemanticState(tree.value, true);
-    presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'tree-record-explorer', phase: 'load' });
   } finally {
     if (requestSeq === treeRequestSeq) {
       loading.value = false;
@@ -367,7 +386,9 @@ function waitForQuerySettlement(signal?: AbortSignal) {
 
 function recordTitle(record: TreeRecordBase) {
   const item = props.itemOf?.(record);
-  return item?.title ?? props.titleOf?.(record) ?? defaultTreeRecordTitle(record, props.fallbackTitle);
+  return (
+    item?.title ?? props.titleOf?.(record) ?? defaultTreeRecordTitle(record, resolvedFallbackTitle.value)
+  );
 }
 
 function matchesKeyword(record: TreeRecordBase, normalized: string) {
@@ -479,7 +500,7 @@ async function handleDropForSort(event: UiTreeDropEvent) {
     await loadTree('interaction', move.request.parentId);
     emit('sorted');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'tree-record-explorer', phase: 'action' });
   } finally {
     sortingRequest.value = false;
   }
@@ -542,7 +563,10 @@ function toUiTreeNode(node: WebTreeNode<TreeRecordBase>): UiTreeNode {
     key: record.id ?? '',
     title: item?.title ?? recordTitle(record),
     secondary: item?.secondary ?? props.secondaryOf?.(record),
-    tag: item?.tag ?? props.tagOf?.(record) ?? (record.enabled === false ? '停用' : undefined),
+    tag:
+      item?.tag ??
+      props.tagOf?.(record) ??
+      (record.enabled === false ? language.t('platform.value.disabled', '停用') : undefined),
     muted: item?.muted ?? props.mutedOf?.(record) ?? record.enabled === false,
     actions: item?.actions ?? props.actionsOf?.(record),
     isLeaf: node.children.length === 0,
@@ -562,7 +586,7 @@ defineExpose({ openSearch, toggleSearch });
           v-model:value="localKeyword"
           allow-clear
           :autofocus="searchMode === 'collapsible'"
-          :placeholder="searchPlaceholder"
+          :placeholder="resolvedSearchPlaceholder"
           @blur="handleSearchBlur"
         />
         <UiButton
@@ -570,14 +594,16 @@ defineExpose({ openSearch, toggleSearch });
           class="tree-record-search-trigger"
           icon-name="search"
           type="text"
-          title="搜索"
+          :title="language.t('platform.reference-picker.search', '搜索')"
           @click="openSearch"
         />
       </div>
     </Transition>
-    <UiButton v-if="loadError" type="text" @click="loadTree()">重新加载</UiButton>
-    <UiSpin v-if="loading && nodes.length === 0" :tip="loadingTip" />
-    <UiEmpty v-else-if="nodes.length === 0" :description="emptyDescription" />
+    <UiButton v-if="loadError" type="text" @click="loadTree()">{{
+      language.t('platform.screen.TreeRecordExplorer.reload', '重新加载')
+    }}</UiButton>
+    <UiSpin v-if="loading && nodes.length === 0" :tip="resolvedLoadingTip" />
+    <UiEmpty v-else-if="nodes.length === 0" :description="resolvedEmptyDescription" />
     <UiTree
       v-else
       v-model:expanded-keys="expandedKeys"

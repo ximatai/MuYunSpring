@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -45,7 +46,8 @@ public class PlatformPresentationRevisionPublishService {
     @Transactional
     public PlatformPresentationRevision saveAndPublish(String revisionId, PlatformPresentationRevision changes) {
         if (changes.getVersion() == null) {
-            throw BusinessExceptions.warning("platform.presentation-revision.version-required", "保存页面需要版本信息，请重新加载后重试");
+            throw BusinessExceptions.warningText("platform.presentation-revision.version-required",
+                TextReference.code("platform.presentation-revision.version-required", "保存页面需要版本信息，请重新加载后重试"));
         }
         PlatformPresentationRevision candidate = requireRevision(revisionId);
         candidate.setVersion(changes.getVersion());
@@ -60,18 +62,21 @@ public class PlatformPresentationRevisionPublishService {
     public PlatformPresentationRevision publish(String revisionId) {
         PlatformPresentationRevision candidate = requireRevision(revisionId);
         if (!Boolean.TRUE.equals(candidate.getEnabled())) {
-            throw BusinessExceptions.warning("platform.presentation-revision.publish-disabled",
-                    "Presentation revision must be enabled before publishing: " + revisionId);
+            throw BusinessExceptions.warningText("platform.presentation-revision.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-revision-must-be-enabled-before-publishing",
+                    "Presentation revision must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(revisionId)));
         }
         PlatformPresentationVariant variant = variantService.requireVisibleVariant(candidate.getVariantId());
         if (!Boolean.TRUE.equals(variant.getEnabled())) {
-            throw BusinessExceptions.warning("platform.presentation-variant.publish-disabled",
-                    "Presentation variant must be enabled before publishing: " + candidate.getVariantId());
+            throw BusinessExceptions.warningText("platform.presentation-variant.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-variant-must-be-enabled-before-publishing",
+                    "Presentation variant must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(candidate.getVariantId())));
         }
         PlatformPageDefinition page = pageService.requireVisiblePage(variant.getPageId());
         if (!Boolean.TRUE.equals(page.getEnabled())) {
-            throw BusinessExceptions.warning("platform.page-definition.publish-disabled",
-                    "Page definition must be enabled before publishing: " + page.getId());
+            throw BusinessExceptions.warningText("platform.page-definition.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.page-definition-must-be-enabled-before-publishing",
+                    "Page definition must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(page.getId())));
         }
         PlatformPresentationTemplate template = templateCatalog.require(candidate.getTemplateAlias(),
                 candidate.getTemplateVersion(), variant.getClientType(), page.getContractType());
@@ -85,8 +90,9 @@ public class PlatformPresentationRevisionPublishService {
             variantService.update(copyForPublicationLease(variant));
             PlatformPresentationRevision publicationCandidate = requireRevision(revisionId);
             if (!Boolean.TRUE.equals(publicationCandidate.getEnabled())) {
-                throw BusinessExceptions.warning("platform.presentation-revision.publish-disabled",
-                        "Presentation revision must be enabled before publishing: " + revisionId);
+                throw BusinessExceptions.warningText("platform.presentation-revision.publish-disabled", TextReference.code(
+                        "platform.rejection.platform-presentation-revision-publish.presentation-revision-must-be-enabled-before-publishing",
+                        "Presentation revision must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(revisionId)));
             }
             template = templateCatalog.require(publicationCandidate.getTemplateAlias(), publicationCandidate.getTemplateVersion(),
                     variant.getClientType(), page.getContractType());
@@ -124,15 +130,13 @@ public class PlatformPresentationRevisionPublishService {
                 var action = actions.get(code);
                 if (action == null) continue;
                 String title = action.getTitle() == null ? code : action.getTitle();
-                if (action.isBindingPending()) throw BusinessExceptions.warning(
-                        "platform.presentation-revision.action-binding-pending",
-                        "动作“" + title + "”尚未绑定执行能力，请绑定后再发布");
+                if (action.isBindingPending()) throw BusinessExceptions.warningText("platform.presentation-revision.action-binding-pending",
+                        TextReference.code("platform.presentation-revision.action-binding-pending", "动作“{title}”尚未绑定执行能力，请绑定后再发布"), Map.of("title", title));
                 if ("form".equalsIgnoreCase(entry.path("anchor").asText())
                         && action.getCategory() == net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory.CUSTOM
                         && !Boolean.TRUE.equals(action.getFormSupported())) {
-                    throw BusinessExceptions.warning(
-                            "platform.presentation-revision.action-form-context-unsupported",
-                            "动作“" + title + "”不支持表单上下文，无法发布到表单区域");
+                    throw BusinessExceptions.warningText("platform.presentation-revision.action-form-context-unsupported",
+                        TextReference.code("platform.presentation-revision.action-form-context-unsupported", "动作“{title}”不支持表单上下文，无法发布到表单区域"), Map.of("title", title));
                 }
             }
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
@@ -159,8 +163,9 @@ public class PlatformPresentationRevisionPublishService {
         PlatformPresentationRevision revision = revisionId == null || revisionId.isBlank() ? null
                 : revisionService.select(revisionId);
         if (revision == null) {
-            throw BusinessExceptions.warning("platform.presentation-revision.not-found",
-                    "Presentation revision is not found: " + revisionId);
+            throw BusinessExceptions.warningText("platform.presentation-revision.not-found", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-revision-is-not-found",
+                    "Presentation revision is not found: {value1}"), Map.of("value1", String.valueOf(revisionId)));
         }
         return revision;
     }

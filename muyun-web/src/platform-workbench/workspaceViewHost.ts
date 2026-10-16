@@ -1,3 +1,4 @@
+import { provideWorkspaceUnsavedStateRegistrar } from '@muyun/web-core';
 import { inject, provide, type InjectionKey } from 'vue';
 import type { RouteQueryValue } from '@muyun/web-contracts';
 import type { WorkspaceViewPresentation } from './workspaceViewContract';
@@ -8,7 +9,12 @@ export interface WorkspaceViewHost {
   /** Replaces URL-restorable state without creating another workbench tab. */
   replaceQuery(query: Record<string, RouteQueryValue | undefined>): void;
   /** Registers a local draft signal used only when the owning workbench tab closes. */
-  registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean): () => void;
+  registerUnsavedState(
+    source: string,
+    isDirty: () => boolean,
+    isBusy?: () => boolean,
+    sourceTitle?: () => string,
+  ): () => void;
   dismiss(): void;
   /** Closes the current independent workbench view. */
   close(): void;
@@ -18,6 +24,7 @@ const workspaceViewHostKey: InjectionKey<WorkspaceViewHost> = Symbol('workspace-
 
 export function provideWorkspaceViewHost(host: WorkspaceViewHost) {
   provide(workspaceViewHostKey, host);
+  provideWorkspaceUnsavedStateRegistrar(host);
 }
 
 export function useWorkspaceViewHost() {

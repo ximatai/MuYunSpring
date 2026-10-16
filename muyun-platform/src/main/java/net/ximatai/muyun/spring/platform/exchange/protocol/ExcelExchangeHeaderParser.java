@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.exchange.protocol;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedColumn;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedSheet;
 
@@ -13,10 +15,14 @@ public class ExcelExchangeHeaderParser {
                              List<String> displayHeader,
                              List<List<String>> rows) {
         if (technicalHeader == null || technicalHeader.isEmpty()) {
-            throw new PlatformException("exchange technical header must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-exchange-header-parser.exchange-technical-header-must-not-be-empty",
+                    "exchange technical header must not be empty"));
         }
         if (displayHeader == null || displayHeader.isEmpty()) {
-            throw new PlatformException("exchange display header must not be empty");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-exchange-header-parser.exchange-display-header-must-not-be-empty",
+                    "exchange display header must not be empty"));
         }
 
         String entityAlias = null;
@@ -32,7 +38,9 @@ public class ExcelExchangeHeaderParser {
                 if (entityAlias == null) {
                     entityAlias = parsedField.entityAlias();
                 } else if (!entityAlias.equals(parsedField.entityAlias())) {
-                    throw new PlatformException("exchange sheet mixes multiple entity aliases: " + sheetName);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.excel-exchange-header-parser.exchange-sheet-mixes-multiple-entity-aliases",
+                            "exchange sheet mixes multiple entity aliases: {value1}"), Map.of("value1", String.valueOf(sheetName)));
                 }
             }
             String title = index < displayHeader.size() ? displayHeader.get(index) : null;
@@ -44,7 +52,9 @@ public class ExcelExchangeHeaderParser {
             ));
         }
         if (entityAlias == null) {
-            throw new PlatformException("exchange sheet requires at least one business field column: " + sheetName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-exchange-header-parser.exchange-sheet-requires-at-least-one-business-field-column",
+                    "exchange sheet requires at least one business field column: {value1}"), Map.of("value1", String.valueOf(sheetName)));
         }
         return new ParsedSheet(sheetName, entityAlias, columns, rows);
     }

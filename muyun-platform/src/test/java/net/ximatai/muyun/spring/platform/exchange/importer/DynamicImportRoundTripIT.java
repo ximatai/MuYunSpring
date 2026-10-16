@@ -91,6 +91,9 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation workbookPresentation;
+
     @Test
     void unpagedExportWritesEveryMatchingRowAndExcludesOtherTenants() throws Exception {
         String module = module();
@@ -102,7 +105,7 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
                             List.of(new ExcelColumnPlan("relateId", "关联标识"), new ExcelColumnPlan("orderNo", "订单号")), rows))));
             assertThat(imports.importWorkbook(command(module, file, ImportDuplicateStrategy.ERROR))
                     .executionResult().created()).isEqualTo(25);
-            var exports = new DynamicExportFacade(records, null);
+            var exports = new DynamicExportFacade(records, null, workbookPresentation);
             var all = new DynamicExportCommand(
                     records.describe(module), Criteria.of(), new PageRequest(0, Integer.MAX_VALUE), List.of());
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(exports.exportWorkbook(all)))) {
@@ -171,6 +174,10 @@ class DynamicImportRoundTripIT extends PlatformPostgresIntegrationTest {
     }
     @SpringBootConfiguration @EnableAutoConfiguration @EnableTransactionManagement
     static class TestApplication {
+        @Bean net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation workbookPresentation(
+                org.springframework.beans.factory.ObjectProvider<net.ximatai.muyun.spring.common.i18n.TextResolver> texts) {
+            return new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPresentation(texts);
+        }
         @Bean DataSource dataSource() {
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                     .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();

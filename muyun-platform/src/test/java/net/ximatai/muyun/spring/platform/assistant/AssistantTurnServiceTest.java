@@ -33,6 +33,21 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @Test
+    void usesTheFormalInterfaceLanguageWhileKeepingBusinessFactsVerbatim() {
+        var gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse("ready", List.of(), "stop", "r"));
+        var command = new AssistantTurnCommand("Review this record", List.of(), Map.of("facts", Map.of("title", "张三的申请", "status", "ATTENDED")), List.of(), List.of(), null);
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("system", "System"));
+             var language = net.ximatai.muyun.spring.common.i18n.LanguageContext.use("en")) {
+            new AssistantTurnService(gateway, new ObjectMapper()).turn(command);
+        }
+        var capture = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(capture.capture());
+        assertThat(capture.getValue().messages().getFirst().content()).contains("Interface language: en", "preserve supplied business values");
+        assertThat(capture.getValue().messages().getLast().content()).contains("张三的申请", "ATTENDED");
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void rejectsUndeclaredNeutralCallsWithOnlyCurrentDiscoveryHints(boolean known) {
@@ -191,10 +206,12 @@ class AssistantTurnServiceTest {
 
     @Test
     void failureDiagnosticsClassifyLimitsWithoutLoggingUntrustedMessages() {
-        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("模型响应被截断，请缩短描述后重试")))
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("AI_MODEL_OUTPUT_TRUNCATED", 502, "任意显示文案")))
                 .isEqualTo("output-truncated");
-        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("AI model response body timed out")))
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("AI_MODEL_TIMEOUT", 504, "任意显示文案")))
                 .isEqualTo("response-timeout");
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("AI model request was rejected: misleading")))
+                .isEqualTo("unclassified");
         assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("private provider payload")))
                 .isEqualTo("unclassified");
     }
@@ -436,7 +453,8 @@ class AssistantTurnServiceTest {
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
             assertThatThrownBy(() -> service.turn(command))
-                    .isInstanceOf(PlatformException.class)
+                    .isInstanceOfSatisfying(PlatformException.class, error ->
+                            assertThat(error.code()).isEqualTo("AI_MODEL_OUTPUT_TRUNCATED_EMPTY"))
                     .hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
             assertThatThrownBy(() -> service.stream(command, new AssistantTurnStreamConsumer() {
                 @Override
@@ -447,7 +465,8 @@ class AssistantTurnServiceTest {
                 public void onComplete(AssistantTurnResult response) {
                     throw new AssertionError("truncated responses must not complete");
                 }
-            })).isInstanceOf(PlatformException.class).hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
+            })).isInstanceOfSatisfying(PlatformException.class, error ->
+                            assertThat(error.code()).isEqualTo("AI_MODEL_OUTPUT_TRUNCATED_EMPTY")).hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
         }
     }
 

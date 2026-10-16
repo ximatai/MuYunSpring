@@ -1,27 +1,43 @@
-import { ref } from 'vue';
+import { onScopeDispose, ref } from 'vue';
+import { useModuleHttpClient, type HttpClient } from '@muyun/web-core';
 import type { UserSessionStatusView, WebBusinessRealtimeEvent } from '@muyun/web-contracts';
 import { presentPlatformError } from '@muyun/platform-components';
-import { createBackendHttpClient } from '../backendHttp';
 import { subscribeAppBusinessEvents } from '../realtime';
 
 const sessionCollectionChanged = 'iam.user.session.collectionChanged';
-const statuses = ref<Record<string, UserSessionStatusView>>({});
-const pendingUserIds = new Set<string>();
-let scheduled = false;
-let realtimeSubscribed = false;
+const stores = new WeakMap<HttpClient, ReturnType<typeof createStatusStore>>();
 
-/**
- * IAM-owned batch status cache for the standard user list. It deliberately
- * remains outside the generic module runner: "online" is a user-session fact,
- * not a platform record field.
- */
+/** IAM session facts are batched within the owning page's immutable transport. */
 export function useUserOnlineStatusStore() {
-  ensureRealtimeSubscription();
+  const http = useModuleHttpClient();
+  let store = stores.get(http);
+  if (!store) {
+    store = createStatusStore(http);
+    stores.set(http, store);
+  }
+  const current = store;
+  current.users += 1;
+  onScopeDispose(() => {
+    if (--current.users === 0) {
+      current.dispose();
+      stores.delete(http);
+    }
+  });
+  return { observe: current.observe, statusOf: current.statusOf, refresh: current.refresh };
+}
+
+function createStatusStore(http: HttpClient) {
+  const statuses = ref<Record<string, UserSessionStatusView>>({});
+  const pendingUserIds = new Set<string>();
+  let scheduled = false;
+  let disposed = false;
+  const subscription = subscribeAppBusinessEvents((event) => {
+    if (isUserSessionChange(event)) refresh(event.recordId);
+  });
 
   function observe(userId: string | undefined) {
     if (!userId || statuses.value[userId]) return;
-    pendingUserIds.add(userId);
-    scheduleLoad();
+    refresh(userId);
   }
 
   function statusOf(userId: string | undefined) {
@@ -29,51 +45,47 @@ export function useUserOnlineStatusStore() {
   }
 
   function refresh(userId: string | undefined) {
-    if (!userId) return;
+    if (!userId || disposed) return;
     pendingUserIds.add(userId);
-    scheduleLoad();
-  }
-
-  return { observe, statusOf, refresh };
-}
-
-function ensureRealtimeSubscription() {
-  if (realtimeSubscribed) return;
-  realtimeSubscribed = true;
-  subscribeAppBusinessEvents((event) => {
-    if (isUserSessionChange(event)) {
-      pendingUserIds.add(event.recordId);
-      scheduleLoad();
-    }
-  });
-}
-
-function scheduleLoad() {
-  if (scheduled) return;
-  scheduled = true;
-  queueMicrotask(() => {
-    scheduled = false;
-    void loadPending();
-  });
-}
-
-async function loadPending() {
-  const userIds = Array.from(pendingUserIds);
-  pendingUserIds.clear();
-  if (userIds.length === 0) return;
-  try {
-    const loaded = await createBackendHttpClient().request<UserSessionStatusView[]>({
-      method: 'POST',
-      path: '/iam.user/sessions/status',
-      body: { userIds },
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      if (!disposed) void loadPending();
     });
-    statuses.value = {
-      ...statuses.value,
-      ...Object.fromEntries(loaded.map((status) => [status.userId, status])),
-    };
-  } catch (cause) {
-    presentPlatformError(cause, { source: 'iam-user-online-status', phase: 'load' });
   }
+
+  async function loadPending() {
+    const userIds = Array.from(pendingUserIds);
+    pendingUserIds.clear();
+    if (userIds.length === 0) return;
+    try {
+      const loaded = await http.request<UserSessionStatusView[]>({
+        method: 'POST',
+        path: '/iam.user/sessions/status',
+        body: { userIds },
+      });
+      if (disposed) return;
+      statuses.value = {
+        ...statuses.value,
+        ...Object.fromEntries(loaded.map((status) => [status.userId, status])),
+      };
+    } catch (cause) {
+      if (!disposed) presentPlatformError(cause, { source: 'iam-user-online-status', phase: 'load' });
+    }
+  }
+
+  return {
+    users: 0,
+    observe,
+    statusOf,
+    refresh,
+    dispose() {
+      disposed = true;
+      pendingUserIds.clear();
+      subscription.unsubscribe();
+    },
+  };
 }
 
 function isUserSessionChange(event: WebBusinessRealtimeEvent) {

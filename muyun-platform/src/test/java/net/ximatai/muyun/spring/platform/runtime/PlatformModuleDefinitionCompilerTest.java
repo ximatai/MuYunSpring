@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryFieldValueValidator;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 
@@ -81,6 +82,7 @@ import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -148,7 +150,11 @@ class PlatformModuleDefinitionCompilerTest {
     private final MetadataViewFieldService viewFieldService =
             new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);
     private final PlatformModuleActionService actionService =
-            new PlatformModuleActionService(actionDao, moduleService);
+            new PlatformModuleActionService(actionDao, moduleService, Optional.empty(), Optional.empty(),
+                    TestBeanProviders.of(net.ximatai.muyun.spring.platform.module.ModuleActionDataAuthResolver.class,
+                            new net.ximatai.muyun.spring.platform.module.ModuleActionDataAuthResolver(moduleService,
+                                    relationService, metadataService,
+                                    new net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog(List.of()))));
     private final ModuleMetadataFormulaRuleService formulaRuleService =
             new ModuleMetadataFormulaRuleService(formulaRuleDao, relationService, fieldService);
     private final ModuleMetadataFieldService moduleFieldService =
@@ -860,6 +866,26 @@ class PlatformModuleDefinitionCompilerTest {
     }
 
     @Test
+    void declaredApprovalPublishesCanonicalFieldsAndAnExplicitEmptyDeclarationDoesNotInferItFromFields() {
+        moduleService.insert(module("sales.contract", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("sales", "contract"));
+        relationService.insert(mainRelation("sales.contract", metadataId));
+        var governed = metadataService.select(metadataId); governed.setCapabilityDeclarations(Set.of("APPROVAL"));
+        metadataDao.updateById(governed);
+        var definition = compiler.compile("sales.contract");
+        assertThat(definition.entities().getFirst().capabilities()).contains(EntityCapability.APPROVAL, EntityCapability.WORKFLOW);
+        assertThat(definition.entities().getFirst().fields())
+                .containsAll(net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields());
+        assertThat(definition.actions()).extracting(action -> action.actionCode()).containsExactly("submitApproval");
+        fieldService.insert(field(metadataId, PlatformAbilityFields.APPROVAL_STATUS_FIELD,
+                PlatformAbilityFields.APPROVAL_STATUS_COLUMN, FieldType.STRING));
+        governed.setCapabilityDeclarations(Set.of()); metadataDao.updateById(governed);
+        definition = compiler.compile("sales.contract");
+        assertThat(definition.entities().getFirst().capabilities()).doesNotContain(EntityCapability.APPROVAL, EntityCapability.WORKFLOW);
+        assertThat(definition.actions()).isEmpty();
+    }
+
+    @Test
     void shouldKeepConfiguredWorkflowActionWhenActionCodeConflictsWithAssembly() {
         moduleService.insert(module("sales.contract", ModuleKind.DYNAMIC));
         String metadataId = metadataService.insert(metadata("sales", "contract"));
@@ -934,6 +960,53 @@ class PlatformModuleDefinitionCompilerTest {
         assertThatThrownBy(() -> compiler.compile("crm.customer"))
                 .isInstanceOf(net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException.class)
                 .hasMessageContaining("data auth action requires DATA_SCOPE capability");
+    }
+
+    @Test
+    void workflowRuntimeDefaultsFollowEntityDataScopeWithoutIgnoringExplicitOverrides() {
+        for (boolean scoped : List.of(false, true)) {
+            String alias = "expense_" + scoped;
+            String moduleAlias = "sales." + alias;
+            moduleService.insert(module(moduleAlias, ModuleKind.DYNAMIC));
+            String metadataId = metadataService.insert(metadata("sales", alias));
+            var declared = metadataService.select(metadataId);
+            declared.setCapabilityDeclarations(java.util.Set.of("APPROVAL"));
+            declared.setDataScopeEnabled(scoped);
+            metadataDao.updateById(declared);
+            fieldService.insert(titleField(metadataId));
+            relationService.insert(mainRelation(moduleAlias, metadataId));
+            var runtimeAction = moduleAction(moduleAlias, null, "approve");
+            runtimeAction.setCategory(EntityActionCategory.WORKFLOW);
+            runtimeAction.setActionLevel(EntityActionLevel.RECORD);
+            runtimeAction.setExecutorType(EntityActionExecutorType.SERVICE);
+            runtimeAction.setExecutorKey(DynamicWorkflowActionExecutor.EXECUTOR_KEY);
+            runtimeAction.setDataAuth(true);
+            String actionId = actionService.insert(runtimeAction);
+            runtimeAction = actionService.select(actionId);
+            runtimeAction.setSystemManaged(true);
+            runtimeAction.setSourceType(net.ximatai.muyun.spring.platform.module.ModuleActionSourceType.WORKFLOW_RUNTIME);
+            actionDao.updateById(runtimeAction);
+
+            assertThat(compiler.compile(moduleAlias).actions().stream()
+                    .filter(action -> action.actionCode().equals("approve")).findFirst()).get()
+                    .satisfies(action -> {
+                        assertThat(action.dataAuth()).isEqualTo(scoped);
+                        assertThat(action.actionAuth()).isTrue();
+                    });
+
+            assertThat(actionService.effectiveDataAuth(runtimeAction)).isEqualTo(scoped);
+            assertThat(actionService.requireExecutionPolicy(moduleAlias, "approve").dataAuth()).isEqualTo(scoped);
+            runtimeAction.setDataAuthOverride(!scoped);
+            actionDao.updateById(runtimeAction);
+            if (scoped) {
+                assertThat(compiler.compile(moduleAlias).actions().stream()
+                        .filter(action -> action.actionCode().equals("approve")).findFirst()).get()
+                        .satisfies(action -> assertThat(action.dataAuth()).isFalse());
+            } else {
+                assertThatThrownBy(() -> compiler.compile(moduleAlias))
+                        .hasMessageContaining("data auth action requires DATA_SCOPE capability");
+            }
+        }
     }
 
     @Test

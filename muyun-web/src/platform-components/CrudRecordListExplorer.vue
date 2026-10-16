@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  canQueryRecycleBin,
+  hasRecycleBinAbility,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { useWorkspaceSortActivity } from './managementWorkspaceContext';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
@@ -8,7 +14,7 @@ import {
   type UiTreeChangeReason,
   type UiRecordInlineAction,
 } from '@muyun/vue-ui-antdv';
-import { canQueryRecycleBin, hasRecycleBinAbility, type ModuleContext } from '@muyun/web-core';
+
 import RecordListExplorer, { type RecordListExplorerRecord } from './RecordListExplorer.vue';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
 import { defaultCrudRecordListTitle, type CrudRecordListBase } from './crudRecordListModel';
@@ -20,6 +26,8 @@ import type {
   RecordQueryListQueryController,
   RecordQueryListQuerySnapshot,
 } from './recordQueryListQueryController';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -61,9 +69,9 @@ const props = withDefaults(
     navigatorHostModuleAlias: undefined,
     navigatorTargetLevelKey: undefined,
     keyword: '',
-    emptyDescription: '暂无记录',
-    loadingTip: '加载记录列表',
-    fallbackTitle: '未命名记录',
+    emptyDescription: undefined,
+    loadingTip: undefined,
+    fallbackTitle: undefined,
     titleOf: undefined,
     subtitleOf: undefined,
     itemOf: undefined,
@@ -74,6 +82,19 @@ const props = withDefaults(
     sorting: false,
     queryQuickSearchEnabled: false,
   },
+);
+
+const resolvedEmptyDescription = computed(
+  () =>
+    props.emptyDescription ??
+    language.t('platform.screen.CrudRecordListExplorer.emptyDescription', '暂无记录'),
+);
+const resolvedLoadingTip = computed(
+  () => props.loadingTip ?? language.t('platform.screen.CrudRecordListExplorer.loadingTip', '加载记录列表'),
+);
+const resolvedFallbackTitle = computed(
+  () =>
+    props.fallbackTitle ?? language.t('platform.screen.CrudRecordListExplorer.untitled-record', '未命名记录'),
 );
 
 const emit = defineEmits<{
@@ -110,6 +131,7 @@ interface QueryControllerSettlement {
 }
 const queryControllerSettlements = new Set<QueryControllerSettlement>();
 const recycleBinState = useRecycleBinState({
+  language,
   context: () => props.context,
   recordTitle: (record) => recordTitle(record),
 });
@@ -269,7 +291,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     if (requestSeq !== recordsRequestSeq) return;
     loadError.value = true;
     if (reason === 'reset') emit('loaded', []);
-    presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'crud-record-list-explorer', phase: 'load' });
   } finally {
     if (requestSeq === recordsRequestSeq) loading.value = false;
   }
@@ -282,7 +304,9 @@ function changePage(nextPage: number) {
 
 function recordTitle(record: CrudRecordListBase) {
   const item = props.itemOf?.(record);
-  return item?.title ?? props.titleOf?.(record) ?? defaultCrudRecordListTitle(record, props.fallbackTitle);
+  return (
+    item?.title ?? props.titleOf?.(record) ?? defaultCrudRecordListTitle(record, resolvedFallbackTitle.value)
+  );
 }
 
 function recordCode(record: CrudRecordListBase) {
@@ -300,12 +324,16 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   const rows = matchingRecords.slice(0, 20).map((record) => ({
     ...(record.id == null ? {} : { id: String(record.id) }),
     cells: [
-      { fieldName: 'title', title: '标题', value: recordTitle(record).slice(0, 500) },
+      {
+        fieldName: 'title',
+        title: language.t('platform.screen.CrudRecordListExplorer.title', '标题'),
+        value: recordTitle(record).slice(0, 500),
+      },
       ...(recordCode(record)
         ? [
             {
               fieldName: 'secondary',
-              title: '辅助标识',
+              title: language.t('platform.screen.CrudRecordListExplorer.secondary-identifier', '辅助标识'),
               value: String(recordCode(record)).slice(0, 500),
             },
           ]
@@ -322,8 +350,16 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
     status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
     quickSearchEnabled: props.mode === 'normal' && !loadError.value && props.queryQuickSearchEnabled,
     quickSearchFields: [
-      { name: 'title', title: '标题', valueType: 'STRING' },
-      { name: 'secondary', title: '辅助标识', valueType: 'STRING' },
+      {
+        name: 'title',
+        title: language.t('platform.screen.CrudRecordListExplorer.title', '标题'),
+        valueType: 'STRING',
+      },
+      {
+        name: 'secondary',
+        title: language.t('platform.screen.CrudRecordListExplorer.secondary-identifier', '辅助标识'),
+        valueType: 'STRING',
+      },
     ],
     ...(keyword ? { appliedQuickSearch: keyword } : {}),
     pageNum: pageNum.value,
@@ -416,11 +452,11 @@ function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
       ? [
           {
             key: 'restore',
-            title: '恢复',
+            title: language.t('platform.screen.CrudRecordListExplorer.restore', '恢复'),
             iconName: 'reload' as const,
             showLabel: true,
             disabled: !item.restorable || recycleBinState.acting.value,
-            disabledReason: recycleBinRestoreUnavailableReason(item),
+            disabledReason: recycleBinRestoreUnavailableReason(item, language),
           },
         ]
       : []),
@@ -428,7 +464,7 @@ function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
       ? [
           {
             key: 'purge',
-            title: '彻底删除',
+            title: language.t('platform.screen.CrudRecordListExplorer.permanently-delete', '彻底删除'),
             iconName: 'delete' as const,
             danger: true,
             disabled: recycleBinState.acting.value,
@@ -482,7 +518,7 @@ async function handleSort(event: {
     await loadRecords('interaction');
     emit('sorted');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'crud-record-list-explorer', phase: 'action' });
   } finally {
     sortingRequest.value = false;
   }
@@ -493,11 +529,18 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
   if (!item) return;
   const title = recycleBinState.recordTitleOf(item);
   if (action.key === 'restore') {
-    const confirmed = await confirmAction({
-      title: '恢复记录',
-      content: `确认恢复「${title}」及其关联资源？`,
-      okText: '恢复',
-    });
+    const confirmed = await confirmAction(
+      {
+        title: language.t('platform.screen.CrudRecordListExplorer.restore-record', '恢复记录'),
+        content: language.t(
+          'platform.screen.CrudRecordListExplorer.restore-value-and-its-related-resources',
+          '确认恢复「{value1}」及其关联资源？',
+          { value1: title },
+        ),
+        okText: language.t('platform.screen.CrudRecordListExplorer.restore', '恢复'),
+      },
+      language,
+    );
     if (confirmed && (await recycleBinState.restore(item, false))) {
       emit('restored');
       await loadRecords('interaction');
@@ -505,13 +548,20 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
     return;
   }
   if (action.key === 'purge') {
-    const confirmed = await confirmAction({
-      title: '彻底删除',
-      content: `彻底删除后数据不可恢复。确认彻底删除「${title}」及其关联资源？`,
-      okText: '彻底删除',
-      danger: true,
-      requiredText: title,
-    });
+    const confirmed = await confirmAction(
+      {
+        title: language.t('platform.screen.CrudRecordListExplorer.permanently-delete', '彻底删除'),
+        content: language.t(
+          'platform.screen.CrudRecordListExplorer.this-cannot-be-undone-permanently-delete-value-and-its-related',
+          '彻底删除后数据不可恢复。确认彻底删除「{value1}」及其关联资源？',
+          { value1: title },
+        ),
+        okText: language.t('platform.screen.CrudRecordListExplorer.permanently-delete', '彻底删除'),
+        danger: true,
+        requiredText: title,
+      },
+      language,
+    );
     if (confirmed && (await recycleBinState.purge(item, false))) {
       await loadRecords('interaction');
     }
@@ -521,15 +571,17 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 
 <template>
   <div class="crud-record-list-explorer">
-    <UiButton v-if="loadError" type="text" @click="loadRecords()">重新加载</UiButton>
-    <UiSpin v-if="loading && records.length === 0" :tip="loadingTip" />
+    <UiButton v-if="loadError" type="text" @click="loadRecords()">{{
+      language.t('platform.screen.CrudRecordListExplorer.reload', '重新加载')
+    }}</UiButton>
+    <UiSpin v-if="loading && records.length === 0" :tip="resolvedLoadingTip" />
     <RecordListExplorer
       v-else
       :records="listRecords"
       :change-reason="changeReason"
       :selected-id="selectedId"
       :key-of="(record) => record.id"
-      :empty-description="emptyDescription"
+      :empty-description="resolvedEmptyDescription"
       :title-of="(record) => recordTitle(record as CrudRecordListBase)"
       :code-of="(record) => recordCode(record as CrudRecordListBase)"
       :item-of="(record) => itemOf?.(record as CrudRecordListBase)"
@@ -544,18 +596,22 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       @sort="handleSort"
     />
     <footer v-if="loadedTotal !== undefined" class="crud-record-list-pagination">
-      <span>{{ loadedTotalKnown ? '共' : '至少' }} {{ loadedTotal }} 条</span>
+      <span>{{
+        loadedTotalKnown
+          ? language.t('platform.records.total', '共 {count} 条', { count: loadedTotal })
+          : language.t('platform.records.lower-bound', '至少 {count} 条', { count: loadedTotal })
+      }}</span>
       <UiButton
-        aria-label="上一页"
-        title="上一页"
+        :aria-label="language.t('platform.screen.CrudRecordListExplorer.previous-page', '上一页')"
+        :title="language.t('platform.screen.CrudRecordListExplorer.previous-page', '上一页')"
         icon-name="left"
         :disabled="loading || sortingRequest || pageNum <= 1"
         @click="changePage(pageNum - 1)"
       />
-      <span>第 {{ pageNum }} 页</span>
+      <span>{{ language.t('platform.records.page', '第 {page} 页', { page: pageNum }) }}</span>
       <UiButton
-        aria-label="下一页"
-        title="下一页"
+        :aria-label="language.t('platform.screen.CrudRecordListExplorer.next-page', '下一页')"
+        :title="language.t('platform.screen.CrudRecordListExplorer.next-page', '下一页')"
         icon-name="right"
         :disabled="loading || sortingRequest || pageNum >= pages"
         @click="changePage(pageNum + 1)"

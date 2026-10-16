@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { Form as AForm, FormItem as AFormItem } from 'ant-design-vue';
 import { resolveFieldComponent } from '../registry';
@@ -10,6 +11,8 @@ import type {
   Primitive,
   RecordData,
 } from '@muyun/web-contracts';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiForm', inheritAttrs: false });
 
@@ -86,7 +89,18 @@ const visibleFields = computed(() => props.contract.fields.filter(isVisible));
       :key="field.name"
       :label="field.label"
       :name="field.name"
-      :rules="isRequired(field) ? [{ required: true, message: `请填写${field.label}` }] : undefined"
+      :rules="
+        isRequired(field)
+          ? [
+              {
+                required: true,
+                message: language.t('platform.screen.UiForm.enter-value', '请填写{value1}', {
+                  value1: field.label,
+                }),
+              },
+            ]
+          : undefined
+      "
     >
       <component
         :is="resolveFieldComponent(field.kind)"
@@ -102,7 +116,9 @@ const visibleFields = computed(() => props.contract.fields.filter(isVisible));
     </AFormItem>
 
     <AFormItem>
-      <UiButton type="primary" html-type="submit">{{ submitText ?? '保存' }}</UiButton>
+      <UiButton type="primary" html-type="submit">{{
+        submitText ?? language.t('platform.action.save', '保存')
+      }}</UiButton>
     </AFormItem>
   </AForm>
 </template>

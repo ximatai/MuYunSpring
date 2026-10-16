@@ -17,6 +17,8 @@ export {
 export type { PlatformAdminRoute } from './platformAdminRoutes';
 export { provideCurrentUserContext, useCurrentUserContext } from './currentUserContext';
 export { createBackendHttpClient } from './backendHttp';
+export { configureAuthenticationRecovery } from './sessionRecovery';
+export type { AuthenticationRecoveryHandler } from './sessionRecovery';
 // Realtime is an App-level capability: consuming applications own the shell
 // lifecycle, while the platform owns the connection protocol and subscriptions.
 export {
@@ -24,7 +26,6 @@ export {
   disconnectAppRealtime,
   subscribeAppBusinessEvents,
   subscribeAppDataChanges,
-  subscribeAppModuleDataChanges,
 } from './realtime';
 export type { AppRealtimeConnection, AppRealtimeOptions } from './realtime';
 export {

@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiTagList, type UiTagListItem } from '@muyun/vue-ui-antdv';
 import type { Application, TenantApplication, WebPageResponse } from '@muyun/web-contracts';
 import { presentPlatformError } from '@muyun/platform-components';
 import type { ModulePageDetailSectionContext } from '@muyun/dynamic-page-runtime';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'TenantApplicationsDetailSection' });
 
@@ -64,7 +67,7 @@ async function load() {
     }
   } catch (error) {
     if (revision === loadRevision) {
-      presentPlatformError(error, { source: 'tenant-applications-detail', phase: 'load' });
+      presentPlatformError(error, { language, source: 'tenant-applications-detail', phase: 'load' });
     }
   } finally {
     if (revision === loadRevision) loading.value = false;
@@ -79,8 +82,15 @@ function tenantApplicationsPath(tenantId: string, suffix: 'query' | 'configure')
 <template>
   <section class="tenant-applications-detail">
     <div class="tenant-applications-summary">
-      <span v-if="loading" class="tenant-applications-status">正在加载…</span>
-      <UiTagList v-else :items="applicationTags" :max-visible="8" empty-text="暂无记录" />
+      <span v-if="loading" class="tenant-applications-status">{{
+        language.t('platform.screen.WorkflowAdministrationView.loading', '正在加载…')
+      }}</span>
+      <UiTagList
+        v-else
+        :items="applicationTags"
+        :max-visible="8"
+        :empty-text="language.t('platform.screen.CrudRecordListExplorer.emptyDescription', '暂无记录')"
+      />
     </div>
   </section>
 </template>

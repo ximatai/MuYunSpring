@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
@@ -69,7 +71,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 public class DynamicEntityService implements
-        CrudAbility<DynamicRecord>,
+        net.ximatai.muyun.spring.ability.ApprovalAbility<DynamicRecord>,
         FieldWriteRulesProvider<DynamicRecord>,
         RecycleBinAbility<DynamicRecord>,
         ChildAbility<DynamicRecord>,
@@ -175,6 +177,18 @@ public class DynamicEntityService implements
                 dao.getEntity(), module);
     }
 
+    @Override
+    public boolean supportsApproval() {
+        return dao.getEntity().supports(EntityCapability.APPROVAL);
+    }
+
+    @Override
+    public DynamicRecord copyForApprovalMutation(DynamicRecord record) {
+        DynamicRecord draft = record.copy();
+        record.getChildren().keySet().forEach(key -> draft.setChildren(key, null));
+        return draft;
+    }
+
     private static Function<String, DynamicEntityService> unsupportedRelationResolver() {
         return entityAlias -> {
             throw new IllegalStateException("dynamic relation service resolver is not configured");
@@ -235,12 +249,16 @@ public class DynamicEntityService implements
         if (!action.enabled()) {
             return DynamicActionAvailability.unavailable(action.actionCode(), disabledActionMessage(action));
         }
+        DynamicRecord existing = record != null && record.getId() != null && !record.getId().isBlank()
+                && (action.hasAvailabilityCondition() || supportsApproval()
+                    && net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.matches(action.actionCode()))
+                ? activeRaw(record.getId()) : null;
+        var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), existing);
+        if (approval.isPresent() && !approval.get().available())
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason(), approval.get().reasonSource());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }
-        DynamicRecord existing = record != null && record.getId() != null && !record.getId().isBlank()
-                ? activeRaw(record.getId())
-                : null;
         return new DynamicActionAvailabilityRuntime(dao.getEntity(), module).evaluate(action, record, existing);
     }
 
@@ -253,6 +271,9 @@ public class DynamicEntityService implements
         if (!action.enabled()) {
             return DynamicActionAvailability.unavailable(action.actionCode(), disabledActionMessage(action));
         }
+        var approval = ordinaryApprovalRecordActionAvailability(action.actionCode(), record);
+        if (approval.isPresent() && !approval.get().available())
+            return DynamicActionAvailability.unavailable(action.actionCode(), approval.get().reason(), approval.get().reasonSource());
         if (!action.hasAvailabilityCondition()) {
             return DynamicActionAvailability.available(action.actionCode());
         }
@@ -468,7 +489,9 @@ public class DynamicEntityService implements
             }
         }
         if (maxOrder > Integer.MAX_VALUE - SortAbility.SORT_STEP) {
-            throw new PlatformException("Cannot allocate dynamic sort order; sort scope is too large");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-entity.cannot-allocate-dynamic-sort-order-sort-scope-is-too-large",
+                    "Cannot allocate dynamic sort order; sort scope is too large"));
         }
         return maxOrder + SortAbility.SORT_STEP;
     }
@@ -682,7 +705,9 @@ public class DynamicEntityService implements
             public void requireSamePartition(DynamicRecord left, DynamicRecord right) {
                 if (dao.getEntity().supports(EntityCapability.TREE)
                         && !SortAbility.sameValue(left.parentId(), right.parentId())) {
-                    throw new PlatformException("Tree sort can only move records within the same parent");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.dynamic-entity.tree-sort-can-only-move-records-within-the-same-parent",
+                            "Tree sort can only move records within the same parent"));
                 }
                 validateBusinessSortPartition(left, right);
             }
@@ -692,7 +717,9 @@ public class DynamicEntityService implements
     private void validateBusinessSortPartition(DynamicRecord left, DynamicRecord right) {
         for (String fieldName : dao.getEntity().sortPartitionFields()) {
             if (!SortAbility.sameValue(left.getValue(fieldName), right.getValue(fieldName))) {
-                throw new PlatformException("Sort can only move records within the same partition: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-entity.sort-can-only-move-records-within-the-same-partition",
+                        "Sort can only move records within the same partition: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
         }
     }

@@ -5,11 +5,7 @@ import {
   type WebCommittedChangeSet,
   type WebDataChange,
 } from '@muyun/web-contracts';
-import {
-  subscribeAppBusinessEvents,
-  subscribeAppDataChanges,
-  subscribeAppModuleDataChanges,
-} from './realtime';
+import { subscribeAppBusinessEvents, subscribeAppDataChanges } from './realtime';
 
 export interface PageRealtimeSubscription {
   unsubscribe(): void;
@@ -86,10 +82,6 @@ export function usePageDataChangeHandler(
   usePageRealtimeSubscription(() => subscribeAppDataChanges(handler));
 }
 
-export function usePageModuleDataChanges(moduleAlias: string) {
-  usePageRealtimeSubscription(() => subscribeAppModuleDataChanges(moduleAlias));
-}
-
 export function usePageBusinessEventHandler(
   handler: (event: WebBusinessRealtimeEvent) => void | Promise<void>,
 ) {
@@ -101,18 +93,7 @@ export function usePageBusinessEvent(options: PageBusinessEventOptions) {
 }
 
 export function usePageDataChange(options: PageDataChangeOptions) {
-  usePageRealtimeSubscription(() => {
-    const dataChangeSubscription = subscribeAppDataChanges(createPageDataChangeHandler(options));
-    const moduleSubscription = options.moduleAlias
-      ? subscribeAppModuleDataChanges(options.moduleAlias)
-      : undefined;
-    return {
-      unsubscribe() {
-        dataChangeSubscription.unsubscribe();
-        moduleSubscription?.unsubscribe();
-      },
-    };
-  });
+  usePageRealtimeSubscription(() => subscribeAppDataChanges(createPageDataChangeHandler(options)));
 }
 
 export function usePageRecordExternalChange(

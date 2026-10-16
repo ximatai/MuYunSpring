@@ -1,11 +1,13 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReference;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationFieldPathReferenceResolver;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceContributor;
@@ -163,7 +165,9 @@ public class PresentationConfigurationReferences {
             }
             return false;
         } catch (JsonProcessingException | IllegalArgumentException exception) {
-            throw new PlatformException("页面修订“" + revision.getTitle() + "”结构无法解析，请修复页面配置后再删除元数据。", exception);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.presentation-configuration-references.page-revision-could-not-be-parsed-repair-the-page-configuration-before-deleting",
+                    "页面修订“{value1}”结构无法解析，请修复页面配置后再删除元数据。"), Map.of("value1", String.valueOf(revision.getTitle())), exception);
         }
     }
 

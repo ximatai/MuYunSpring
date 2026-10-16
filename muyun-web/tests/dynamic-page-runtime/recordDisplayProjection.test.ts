@@ -1,6 +1,9 @@
+import { createSourceReferencePickerProvider } from '@/platform-components/sourceReferencePickerProvider';
+import { createLanguageContext } from '@/web-core';
 import { expect, it, vi } from 'vitest';
 import {
   recordFieldDisplay,
+  recordReferenceDisplay,
   resolvedRecordFieldDisplay,
   recordRelationProjection,
 } from '@/dynamic-page-runtime/recordDisplayProjection';
@@ -275,7 +278,8 @@ it('uses business column titles and loaded scoped option labels for confirmation
   } as unknown as ResolvedModuleUiDescriptor;
   const detail = {
     ...relation,
-    queryContract: { listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] } },
+    queryContract: { listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '原文状态' }] } },
+    listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] },
   } as ResolvedDetailRelationDescriptor;
   const result = recordRelationProjection(
     ui,
@@ -450,4 +454,176 @@ it('pairs editor-issued row keys with current draft values without granting stal
       includeBaseline: true,
     })[0]!.savedRows![0],
   ).not.toHaveProperty('rowKey');
+});
+
+it('projects reference availability as a fact while preserving a business name equal to the old placeholder', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const field = resolveRecordFormFieldState('ownerId', {
+    fields: new Map([
+      [
+        'ownerId',
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' },
+        },
+      ],
+    ]),
+  });
+  field.referenceTitleField = 'ownerTitle';
+  const missing = { ownerId: 'private-id' };
+  expect(recordReferenceDisplay(field, missing, false, language)).toBeUndefined();
+  expect(recordFieldDisplay(field, missing, undefined, false, language)).toBe('Selected (name unavailable)');
+  const titled = { ...missing, ownerTitle: '已选择（名称暂不可用）' };
+  expect(recordReferenceDisplay(field, titled, false, language)).toBe(titled.ownerTitle);
+  expect(recordFieldDisplay(field, titled, undefined, false, language)).toBe(titled.ownerTitle);
+  language.setLanguage('zh-CN');
+  expect(recordFieldDisplay(field, missing, undefined, false, language)).toBe('已选择（名称暂不可用）');
+  expect(recordReferenceDisplay(field, titled, false, language)).toBe(titled.ownerTitle);
+  expect(titled).toEqual({ ownerId: 'private-id', ownerTitle: '已选择（名称暂不可用）' });
+});
+
+it('uses scoped language for resolved reference suffixes and separators without exposing missing IDs', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const field = resolveRecordFormFieldState('ownerId', {
+    fields: new Map([
+      [
+        'ownerId',
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'MANY' },
+        },
+      ],
+    ]),
+  });
+  const resolve = vi.fn().mockResolvedValue([{ id: 'one', title: '原始名称', unavailable: true }]);
+  field.pickerConfig = { provider: { resolve } } as unknown as typeof field.pickerConfig;
+  const record = { ownerId: ['one', 'private-id'] };
+  expect(await resolvedRecordFieldDisplay(field, record, undefined, language)).toBe(
+    '原始名称 (unavailable), Selected (name unavailable)',
+  );
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(resolve).toHaveBeenCalledWith(['one', 'private-id']);
+  expect(record).toEqual({ ownerId: ['one', 'private-id'] });
+});
+
+it('never substitutes multiple raw IDs for absent names and retains an authorized name equal to its ID', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const state = resolveRecordFormFieldState('owners', {
+    fields: new Map([
+      [
+        'owners',
+        {
+          fieldRef: { fieldName: 'owners' },
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'MANY' },
+        },
+      ],
+    ]),
+  });
+  state.referenceTitleField = 'ownerTitles';
+  const missing = { owners: ['private-a', 'private-b'], ownerTitles: [] };
+  expect(recordReferenceDisplay(state, missing, false, language)).toBeUndefined();
+  expect(recordFieldDisplay(state, missing, undefined, false, language)).toBe('Selected (name unavailable)');
+  expect(recordFieldDisplay(state, { owners: '[]' }, undefined, false, language)).toBe('Not selected');
+  expect(
+    recordFieldDisplay(
+      state,
+      { owners: ['a', 'b'], ownerTitles: ['Alice', 'Bob'] },
+      undefined,
+      false,
+      language,
+    ),
+  ).toBe('Alice, Bob');
+  const single = {
+    ...state,
+    fieldName: 'owner',
+    reference: { ...state.reference!, cardinality: 'ONE' as const },
+    referenceTitleField: 'ownerTitle',
+  };
+  expect(
+    recordReferenceDisplay(
+      single,
+      { owner: 'A001', ownerTitle: { id: 'A001', title: 'A001' } },
+      false,
+      language,
+    ),
+  ).toBe('A001');
+  expect(
+    recordFieldDisplay(
+      single,
+      { owner: 'A001', ownerTitle: { id: 'A001', title: 'A001' } },
+      undefined,
+      false,
+      language,
+    ),
+  ).toBe('A001');
+  expect(missing).toEqual({ owners: ['private-a', 'private-b'], ownerTitles: [] });
+});
+
+it.each([true, false])(
+  'reads an actual source provider name fact instead of comparing the displayed name to its ID (%s)',
+  async (named) => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const record = { owner: 'A001' };
+    const reference = {
+      targetModuleAlias: 'iam.user',
+      cardinality: 'ONE' as const,
+      resolvePath: '/crm.customer/references/owner/resolve',
+    };
+    const resolve = vi
+      .fn()
+      .mockResolvedValue({ results: [{ item: { id: 'A001', ...(named ? { title: 'A001' } : {}) } }] });
+    const provider = createSourceReferencePickerProvider({
+      sourceModuleAlias: 'crm.customer',
+      fieldName: 'owner',
+      reference,
+      resolver: () => ({ resolve }),
+      formValues: () => record,
+      source: () => undefined,
+    });
+    const field = resolveRecordFormFieldState('owner', {
+      fields: new Map([['owner', { fieldRef: { fieldName: 'owner' }, reference }]]),
+    });
+    field.pickerConfig = { provider } as unknown as typeof field.pickerConfig;
+    expect(await resolvedRecordFieldDisplay(field, record, undefined, language)).toBe(
+      named ? 'A001' : 'Selected (name unavailable)',
+    );
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith(
+      'owner',
+      expect.objectContaining({ mode: 'TRANSLATE', values: ['A001'], formValues: record }),
+    );
+    expect(record).toEqual({ owner: 'A001' });
+  },
+);
+
+it('keeps a declared virtual tree root empty without treating an ordinary root-like business ID as virtual', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const field = resolveRecordFormFieldState('parentId', {
+    fields: new Map([
+      [
+        'parentId',
+        {
+          fieldRef: { fieldName: 'parentId' },
+          reference: { targetModuleAlias: 'iam.department', cardinality: 'ONE' },
+          treeRootTitle: '根部门',
+        },
+      ],
+    ]),
+  });
+  field.referenceTitleField = 'parentTitle';
+  expect(
+    recordFieldDisplay(field, { parentId: 'root', parentTitle: 'virtual label' }, undefined, false, language),
+  ).toBe('Not selected');
+  expect(
+    recordReferenceDisplay(field, { parentId: 'root', parentTitle: 'virtual label' }, false, language),
+  ).toBeUndefined();
+  expect(
+    recordFieldDisplay(
+      field,
+      { parentId: 'business-root', parentTitle: '业务根节点' },
+      undefined,
+      false,
+      language,
+    ),
+  ).toBe('业务根节点');
 });

@@ -1,3 +1,4 @@
+import { createLanguageContext } from '@/web-core';
 import { expect, it } from 'vitest';
 import { recordCreationReadiness } from '@/dynamic-page-runtime/recordCreationReadiness';
 
@@ -34,4 +35,17 @@ it('explains that an existing draft remains editable while another creation is b
     reason: 'DRAFT_ACTIVE',
     message: expect.stringContaining('可继续编辑'),
   });
+});
+
+it('keeps the same blocking facts when scoped language changes', () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const state = { ...ready, editing: true };
+  const before = recordCreationReadiness(state, language);
+  expect(before.message).toContain('An unsaved draft is open');
+  language.setLanguage('zh-CN');
+  const after = recordCreationReadiness(state, language);
+  expect(after.reason).toBe(before.reason);
+  expect(after.ready).toBe(false);
+  expect(after.message).toContain('可继续编辑');
+  expect(state).toEqual({ ...ready, editing: true });
 });

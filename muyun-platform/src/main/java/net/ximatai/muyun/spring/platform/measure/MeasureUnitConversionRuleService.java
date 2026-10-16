@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -10,7 +12,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -97,20 +98,26 @@ public class MeasureUnitConversionRuleService extends StandardBusinessService<Me
         unitService.requireVisibleUnit(rule.getApplicationAlias(), rule.getToCategoryAlias(), rule.getToUnitCode());
         if (rule.getFromCategoryAlias().equals(rule.getToCategoryAlias())
                 && rule.getFromUnitCode().equals(rule.getToUnitCode())) {
-            throw new PlatformException("measure conversion rule source and target must be different");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-source-and-target-must-be-different",
+                    "measure conversion rule source and target must be different"));
         }
         if (rule.getFactor() == null) {
             rule.setFactor(BigDecimal.ONE);
         }
         if (rule.getFactor().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new PlatformException("measure conversion rule factor must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-factor-must-be-positive",
+                    "measure conversion rule factor must be positive"));
         }
         if (rule.getPriority() == null) {
             rule.setPriority(0);
         }
         if (rule.getEffectiveFrom() != null && rule.getEffectiveTo() != null
                 && !rule.getEffectiveFrom().isBefore(rule.getEffectiveTo())) {
-            throw new PlatformException("measure conversion rule effectiveFrom must be before effectiveTo");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-effectivefrom-must-be-before-effectiveto",
+                    "measure conversion rule effectiveFrom must be before effectiveTo"));
         }
         validateNoOverlappingRule(rule);
     }
@@ -131,22 +138,42 @@ public class MeasureUnitConversionRuleService extends StandardBusinessService<Me
                 rule.setModuleAlias(PlatformNameRules.requireModuleAlias(rule.getModuleAlias()));
                 rule.setContextObjectType(requireCode(rule.getContextObjectType(), "contextObjectType"));
                 if (rule.getContextObjectId() == null || rule.getContextObjectId().isBlank()) {
-                    throw new PlatformException("measure conversion rule contextObjectId must not be blank");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-contextobjectid-must-not-be-blank",
+                            "measure conversion rule contextObjectId must not be blank"));
                 }
             }
         }
     }
 
     private void validateImmutableIdentity(MeasureUnitConversionRule rule, MeasureUnitConversionRule existing) {
-        rejectChanged(existing, rule, "Measure conversion rule application", MeasureUnitConversionRule::getApplicationAlias);
-        rejectChanged(existing, rule, "Measure conversion rule scope type", MeasureUnitConversionRule::getScopeType);
-        rejectChanged(existing, rule, "Measure conversion rule module", MeasureUnitConversionRule::getModuleAlias);
-        rejectChanged(existing, rule, "Measure conversion rule context type", MeasureUnitConversionRule::getContextObjectType);
-        rejectChanged(existing, rule, "Measure conversion rule context id", MeasureUnitConversionRule::getContextObjectId);
-        rejectChanged(existing, rule, "Measure conversion rule source category", MeasureUnitConversionRule::getFromCategoryAlias);
-        rejectChanged(existing, rule, "Measure conversion rule source unit", MeasureUnitConversionRule::getFromUnitCode);
-        rejectChanged(existing, rule, "Measure conversion rule target category", MeasureUnitConversionRule::getToCategoryAlias);
-        rejectChanged(existing, rule, "Measure conversion rule target unit", MeasureUnitConversionRule::getToUnitCode);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-application-cannot-be-changed",
+                "Measure conversion rule application cannot be changed"), MeasureUnitConversionRule::getApplicationAlias);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-scope-type-cannot-be-changed",
+                "Measure conversion rule scope type cannot be changed"), MeasureUnitConversionRule::getScopeType);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-module-cannot-be-changed",
+                "Measure conversion rule module cannot be changed"), MeasureUnitConversionRule::getModuleAlias);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-context-type-cannot-be-changed",
+                "Measure conversion rule context type cannot be changed"), MeasureUnitConversionRule::getContextObjectType);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-context-id-cannot-be-changed",
+                "Measure conversion rule context id cannot be changed"), MeasureUnitConversionRule::getContextObjectId);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-source-category-cannot-be-changed",
+                "Measure conversion rule source category cannot be changed"), MeasureUnitConversionRule::getFromCategoryAlias);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-source-unit-cannot-be-changed",
+                "Measure conversion rule source unit cannot be changed"), MeasureUnitConversionRule::getFromUnitCode);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-target-category-cannot-be-changed",
+                "Measure conversion rule target category cannot be changed"), MeasureUnitConversionRule::getToCategoryAlias);
+        rejectChangedText(existing, rule, TextReference.code(
+                "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-target-unit-cannot-be-changed",
+                "Measure conversion rule target unit cannot be changed"), MeasureUnitConversionRule::getToUnitCode);
     }
 
     private boolean isApplicable(MeasureUnitConversionRule rule,
@@ -189,7 +216,9 @@ public class MeasureUnitConversionRuleService extends StandardBusinessService<Me
 
     private MeasureUnitConversionContext normalizeContext(MeasureUnitConversionContext context) {
         if (context == null) {
-            throw new PlatformException("measure conversion context must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-conversion-rule.measure-conversion-context-must-not-be-null",
+                    "measure conversion context must not be null"));
         }
         String applicationAlias = PlatformNameRules.requireApplicationAlias(context.applicationAlias());
         String moduleAlias = context.moduleAlias() == null || context.moduleAlias().isBlank()
@@ -217,10 +246,14 @@ public class MeasureUnitConversionRuleService extends StandardBusinessService<Me
                 continue;
             }
             if (sameDirection(existing, rule)) {
-                throw new PlatformException("measure conversion rule already exists in overlapping effective window");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.measure-unit-conversion-rule.measure-conversion-rule-already-exists-in-overlapping-effective-window",
+                        "measure conversion rule already exists in overlapping effective window"));
             }
             if (reverseDirection(existing, rule)) {
-                throw new PlatformException("measure conversion reverse rule conflicts in overlapping effective window");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.measure-unit-conversion-rule.measure-conversion-reverse-rule-conflicts-in-overlapping-effective-window",
+                        "measure conversion reverse rule conflicts in overlapping effective window"));
             }
         }
     }

@@ -3,7 +3,8 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,7 +62,7 @@ public class WorkflowAdminService {
         WorkflowAdminInstanceQueryRequest normalized = request == null
                 ? WorkflowAdminInstanceQueryRequest.empty()
                 : request;
-        Criteria criteria = Criteria.of()
+        Criteria criteria = WorkflowTenantScope.criteria()
                 .eq("instanceStatus", normalized.instanceStatus() == null
                         ? WorkflowInstanceStatus.RUNNING
                         : normalized.instanceStatus());
@@ -90,7 +91,7 @@ public class WorkflowAdminService {
     public List<WorkflowTask> currentTodoTasks(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_TODO_TASK_QUERY_ACTION);
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt"));
@@ -99,14 +100,14 @@ public class WorkflowAdminService {
     public List<WorkflowAdminActiveTaskView> currentTodoTaskViews(String instanceId) {
         WorkflowInstance instance = requireRunningInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_FORCE_APPROVE_ACTION);
-        return taskDao.query(Criteria.of()
+        return taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskKind", WorkflowTaskKind.APPROVAL)
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt")).stream()
                 .filter(task -> task.getTaskKind() == WorkflowTaskKind.APPROVAL)
                 .filter(task -> task.getTaskStatus() == WorkflowTaskStatus.TODO)
-                .map(task -> toActiveTaskView(task, userTitles(List.of(task))))
+                .map(task -> toActiveTaskView(task, userTitles(List.of(task)), instance.getWorkflowVersionId()))
                 .filter(view -> view != null)
                 .toList();
     }
@@ -127,11 +128,11 @@ public class WorkflowAdminService {
     }
 
     public WorkflowRuntimeRenderBundle renderCurrentBundle(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowNodeInstance> nodes = nodeInstanceDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowRouteInstance> routes = routeInstanceDao.query(Criteria.of().eq("instanceId", instance.getId()),
+        List<WorkflowRouteInstance> routes = routeInstanceDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
         return new WorkflowRuntimeRenderBundle("RUNTIME", instance, nodes, routes);
     }
@@ -141,16 +142,30 @@ public class WorkflowAdminService {
     }
 
     public List<WorkflowEvent> currentEvents(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        return eventDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL,
+        return eventDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL,
                 Sort.asc("occurredAt"), Sort.asc("createdAt"));
     }
 
+    public List<WorkflowHistoryEventView> currentEventViews(String instanceId) {
+        var events = currentEvents(instanceId);
+        var tasks = currentTasks(instanceId);
+        var bundle = renderCurrentBundle(instanceId);
+        var titles = userTitles(tasks, events.stream().map(WorkflowEvent::getOperatorId).toArray(String[]::new));
+        var byTask = tasks.stream().collect(java.util.stream.Collectors.toMap(WorkflowTask::getId, task -> task));
+        var byId = bundle.nodes().stream().collect(java.util.stream.Collectors.toMap(WorkflowNodeInstance::getId, node -> node));
+        var byKey = bundle.nodes().stream().collect(java.util.stream.Collectors.toMap(WorkflowNodeInstance::getNodeKey, node -> node));
+        var routes = new java.util.LinkedHashMap<String, WorkflowRouteInstance>();
+        for (var route : bundle.routes()) { routes.put(route.getId(), route); routes.put(route.getRouteKey(), route); }
+        return events.stream().map(event -> WorkflowHistoryEventView.from(event, byTask.get(event.getTaskId()),
+                byId, byKey, routes, titles)).toList();
+    }
+
     public List<WorkflowTask> currentTasks(String instanceId) {
-        WorkflowInstance instance = requireRunningInstance(instanceId);
+        WorkflowInstance instance = requireInstance(instanceId);
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
-        return taskDao.query(Criteria.of().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
+        return taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()), ALL, Sort.asc("createdAt"));
     }
 
     public List<WorkflowHistoryInstance> queryHistory(String moduleAlias, String recordId, PageRequest pageRequest) {
@@ -179,7 +194,7 @@ public class WorkflowAdminService {
         return historyQueryService.deleteHistory(historyInstanceId);
     }
 
-    private WorkflowAdminActiveTaskView toActiveTaskView(WorkflowTask task, Map<String, String> userTitles) {
+    private WorkflowAdminActiveTaskView toActiveTaskView(WorkflowTask task, Map<String, String> userTitles, String workflowVersionId) {
         if (task == null || task.getNodeInstanceId() == null || task.getNodeInstanceId().isBlank()) {
             return null;
         }
@@ -189,15 +204,15 @@ public class WorkflowAdminService {
                 || node.getNodeType() != WorkflowNodeType.APPROVAL) {
             return null;
         }
-        return WorkflowAdminActiveTaskView.from(task, node, userTitles);
+        return WorkflowAdminActiveTaskView.from(task, node, userTitles, workflowVersionId);
     }
 
     private WorkflowAdminInstanceView toInstanceView(WorkflowInstance instance) {
-        List<WorkflowTask> todoTasks = taskDao.query(Criteria.of()
+        List<WorkflowTask> todoTasks = taskDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("taskStatus", WorkflowTaskStatus.TODO),
                 ALL, Sort.asc("createdAt"));
-        List<WorkflowNodeInstance> activeNodes = nodeInstanceDao.query(Criteria.of()
+        List<WorkflowNodeInstance> activeNodes = nodeInstanceDao.query(WorkflowTenantScope.criteria()
                         .eq("instanceId", instance.getId())
                         .eq("nodeStatus", WorkflowNodeStatus.ACTIVE),
                 ALL, Sort.asc("createdAt"));
@@ -240,7 +255,8 @@ public class WorkflowAdminService {
                 titles(currentAssigneeIds, userTitles),
                 aggregateOvertimeStatus(activeNodes),
                 instance.getUpdatedAt(),
-                instance.getLastOperatedAt());
+                instance.getLastOperatedAt(),
+                activeNodes.stream().map(node -> new WorkflowNodeTitleView(node.getNodeKey(), nodeTitle(node), Boolean.TRUE.equals(node.getAddedByAddSign()))).toList());
     }
 
     private WorkflowOvertimeStatus aggregateOvertimeStatus(List<WorkflowNodeInstance> nodes) {
@@ -344,23 +360,29 @@ public class WorkflowAdminService {
     private WorkflowInstance requireRunningInstance(String instanceId) {
         WorkflowInstance instance = requireInstance(instanceId);
         if (instance.getInstanceStatus() != WorkflowInstanceStatus.RUNNING) {
-            throw new PlatformException("workflow instance is not running: " + instance.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-admin.the-workflow-is-not-running",
+                    "workflow instance is not running: {value1}"), Map.of("value1", String.valueOf(instance.getId())));
         }
         return instance;
     }
 
     private WorkflowInstance requireInstance(String instanceId) {
-        String validInstanceId = requireText(instanceId, "workflow instance id must not be blank");
-        WorkflowInstance instance = instanceDao.findById(validInstanceId);
+        String validInstanceId = requireText(instanceId, TextReference.code(
+                "platform.rejection.workflow-admin.select-a-workflow-instance",
+                "workflow instance id must not be blank"));
+        WorkflowInstance instance = WorkflowTenantScope.visible(instanceDao.findById(validInstanceId));
         if (instance == null) {
-            throw new PlatformException("workflow instance not found: " + validInstanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-admin.workflow-instance-not-found",
+                    "workflow instance not found: {value1}"), Map.of("value1", String.valueOf(validInstanceId)));
         }
         return instance;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

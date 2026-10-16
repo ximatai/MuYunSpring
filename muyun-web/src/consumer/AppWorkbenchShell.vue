@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type {
   MenuNavigationTarget,
@@ -34,11 +35,19 @@ import {
   restoreLockedWorkbenchTabs,
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
+  withWorkbenchTabTitle,
 } from '../app/workbenchStartup';
 import { restoreLockedTabPreference, saveLockedTabPreference } from '../app/lockedTabPreference';
 import { workbenchRouteWriteFor } from '../app/workbenchRouteSync';
 import { syncModulePageWorkspaceViewContributions } from '../platform-workbench/modulePageWorkspaceViews';
+import { clearWorkspaceViewUnsavedState } from '../platform-workbench/workspaceViewUnsavedState';
+import {
+  confirmDiscardWorkspaceViewState,
+  hasWorkspaceViewDiscardProtection,
+} from '../platform-workbench/workspaceViewDiscardGuard';
 import type { AppWorkbenchNavigation } from './workbenchNavigation';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'AppWorkbenchShell' });
 
@@ -84,7 +93,13 @@ provideWorkbenchNavigation({
     ? async () => {
         const session = props.startup.session;
         const records = await props.loadMenus!();
-        if (!isMounted || session !== props.startup.session) throw new Error('登录状态已变化，请重试');
+        if (!isMounted || session !== props.startup.session)
+          throw new Error(
+            language.t(
+              'platform.screen.AppWorkbenchShell.your-sign-in-state-has-changed-please-try',
+              '登录状态已变化，请重试',
+            ),
+          );
         emit('update:startup', { ...props.startup, menus: records });
         return records;
       }
@@ -137,19 +152,29 @@ function changeTab(key: string) {
   update({ ...props.startup, activeTabKey: key }, 'push');
 }
 
-function closeTab(key: string) {
+async function refreshPage(key: string) {
+  if (!(await confirmDiscardWorkspaceViewState([key], 'refresh', language)) || !isMounted) return;
+  if (!(props.startup.tabs ?? []).some((tab) => tab.key === key)) return;
+  emit('refreshPage', key);
+}
+
+async function closeTab(key: string) {
+  if (!(await confirmDiscardWorkspaceViewState([key], 'close', language)) || !isMounted) return;
   const result = closeMenuTab(props.startup.tabs ?? [], props.startup.activeTabKey, key);
   if (lockedTabs.value.some((tab) => tab.key === key)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [key]));
   }
   update({ ...props.startup, tabs: result.tabs, activeTabKey: result.activeTabKey }, 'replace');
+  clearWorkspaceViewUnsavedState(key);
 }
 
-function closeTabs(keys: string[]) {
+async function closeTabs(keys: string[]) {
+  if (!(await confirmDiscardWorkspaceViewState(keys, 'close', language)) || !isMounted) return;
   const result = closeMenuTabs(props.startup.tabs ?? [], props.startup.activeTabKey, keys);
   const lockedKeys = keys.filter((key) => lockedTabs.value.some((tab) => tab.key === key));
   if (lockedKeys.length > 0) persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, lockedKeys));
   update({ ...props.startup, tabs: result.tabs, activeTabKey: result.activeTabKey }, 'replace');
+  keys.forEach(clearWorkspaceViewUnsavedState);
 }
 
 function reorderTabs(keys: string[]) {
@@ -228,7 +253,13 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   const fullPath = routeUrlWithOpenOptions(path, options);
   if (!currentTabKey || !currentTab)
     return navigateRoute(fullPath, 'replace', props.startup, options.tabTitle);
-  const restored = restoreWorkbenchStartupStateFromUrl(props.startup, fullPath, props.resolveOptions);
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    props.startup,
+    fullPath,
+    { ...props.resolveOptions, title: options.tabTitle ?? props.resolveOptions.title },
+    false,
+    language,
+  );
   const replacement = restored.tabs?.find((tab) => tab.key === restored.activeTabKey);
   if (!replacement) return { created: false };
   const pageDescriptor =
@@ -258,12 +289,26 @@ function replaceRoute(path: string, options: OpenRouteOptions = {}) {
   return { created: false };
 }
 
+/** The synchronous result describes immediate navigation; a guarded close finishes after confirmation. */
 function closeCurrentTab(fallbackPath: string) {
   const currentTabKey = props.startup.activeTabKey;
-  const result = currentTabKey
-    ? closeMenuTab(props.startup.tabs ?? [], currentTabKey, currentTabKey)
-    : { tabs: props.startup.tabs ?? [], activeTabKey: props.startup.activeTabKey };
-  if (currentTabKey && lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
+  if (!currentTabKey) return navigateRoute(routeUrlWithOpenOptions(fallbackPath), 'replace', props.startup);
+  if (!hasWorkspaceViewDiscardProtection([currentTabKey]))
+    return closeCurrentTabNow(fallbackPath, currentTabKey);
+  void closeCurrentTabAfterConfirm(fallbackPath, currentTabKey);
+  return { created: false };
+}
+
+async function closeCurrentTabAfterConfirm(fallbackPath: string, currentTabKey: string) {
+  if (!(await confirmDiscardWorkspaceViewState([currentTabKey], 'close', language)) || !isMounted) return;
+  if (!(props.startup.tabs ?? []).some((tab) => tab.key === currentTabKey)) return;
+  return closeCurrentTabNow(fallbackPath, currentTabKey);
+}
+
+function closeCurrentTabNow(fallbackPath: string, currentTabKey: string) {
+  const result = closeMenuTab(props.startup.tabs ?? [], props.startup.activeTabKey, currentTabKey);
+  clearWorkspaceViewUnsavedState(currentTabKey);
+  if (lockedTabs.value.some((tab) => tab.key === currentTabKey)) {
     persistLockedTabs(removeLockedMenuTabs(lockedTabs.value, [currentTabKey]));
   }
   const fallback = result.tabs.find((tab) => {
@@ -297,12 +342,13 @@ function navigateRoute(
       title: tabTitle ?? props.resolveOptions.title,
     },
     newInstance,
+    language,
   );
   if (tabTitle && restored.activeTabKey) {
     restored = {
       ...restored,
       tabs: (restored.tabs ?? []).map((tab) =>
-        tab.key === restored.activeTabKey ? { ...tab, title: tabTitle } : tab,
+        tab.key === restored.activeTabKey ? withWorkbenchTabTitle(tab, tabTitle) : tab,
       ),
     };
   }
@@ -316,7 +362,7 @@ function setTabName(instanceKey: string, name: string) {
   update({
     ...props.startup,
     tabs: (props.startup.tabs ?? []).map((tab) =>
-      tab.instanceKey === instanceKey ? { ...tab, title } : tab,
+      tab.instanceKey === instanceKey ? withWorkbenchTabTitle(tab, title) : tab,
     ),
   });
 }
@@ -351,7 +397,7 @@ function syncBrowserUrl(state: WorkbenchStartupState, mode: 'push' | 'replace') 
 }
 
 function restoreFromLocation(location: string) {
-  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions));
+  update(restoreWorkbenchStartupStateFromUrl(props.startup, location, props.resolveOptions, false, language));
 }
 
 async function restoreLockedTabs() {
@@ -361,6 +407,7 @@ async function restoreLockedTabs() {
       await restoreLockedTabPreference(userPreferences),
       props.startup.menus,
       props.resolveOptions,
+      language,
     );
     if (!isMounted || restoreRevision !== lockedTabPreferenceRevision) return;
     lockedTabs.value = restoredLockedTabs;
@@ -391,7 +438,7 @@ async function restoreLockedTabs() {
     @close-tabs="closeTabs"
     @reorder-tabs="reorderTabs"
     @toggle-tab-lock="toggleTabLock"
-    @refresh-page="emit('refreshPage', $event)"
+    @refresh-page="refreshPage"
     @user-command="emit('userCommand', $event)"
     @retry-load="emit('retryLoad')"
   >

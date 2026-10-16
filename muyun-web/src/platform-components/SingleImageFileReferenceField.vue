@@ -1,11 +1,20 @@
 <script setup lang="ts">
+import {
+  normalizeError,
+  userFacingErrorMessage,
+  useLanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import { computed, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 import RecordFileReferenceTransfer from './RecordFileReferenceTransfer.vue';
 import { fileReferenceIds, issueFileReferenceAccess } from './fileReferenceTransfer';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'SingleImageFileReferenceField' });
 
@@ -28,9 +37,13 @@ const emit = defineEmits<{ 'update:value': [value: string | undefined] }>();
 const fileId = computed(() => fileReferenceIds(props.value)[0]);
 const previewUrl = ref<string>();
 const previewLoading = ref(false);
-const previewError = ref<string>();
+const previewError = ref<() => string>();
 let previewRevision = 0;
-const uploadText = computed(() => (fileId.value ? '替换图片' : '选择图片上传'));
+const uploadText = computed(() =>
+  fileId.value
+    ? language.t('platform.screen.SingleImageFileReferenceField.replace-image', '替换图片')
+    : language.t('platform.screen.SingleImageFileReferenceField.select-image-to-upload', '选择图片上传'),
+);
 
 watch(
   [fileId, () => props.formSessionKey],
@@ -67,7 +80,13 @@ async function loadPreview(
     if (revision === previewRevision) previewUrl.value = url;
   } catch (error) {
     if (revision === previewRevision) {
-      previewError.value = error instanceof Error ? error.message : '图片预览加载失败。';
+      previewError.value = () =>
+        error instanceof Error
+          ? userFacingErrorMessage(normalizeError(error), language)
+          : language.t(
+              'platform.screen.SingleImageFileReferenceField.could-not-load-the-image-preview',
+              '图片预览加载失败。',
+            );
     }
   } finally {
     if (revision === previewRevision) previewLoading.value = false;
@@ -130,8 +149,8 @@ function browserViewUrl(url: string) {
             size="small"
             icon-name="download"
             icon-only
-            title="下载"
-            aria-label="下载"
+            :title="language.t('platform.screen.SingleImageFileReferenceField.download', '下载')"
+            :aria-label="language.t('platform.screen.SingleImageFileReferenceField.download', '下载')"
             @click="download"
           />
         </template>
@@ -149,7 +168,9 @@ function browserViewUrl(url: string) {
           upload-button-type="text"
           upload-button-size="small"
           upload-button-icon-name="swap"
-          upload-button-title="替换图片"
+          :upload-button-title="
+            language.t('platform.screen.SingleImageFileReferenceField.replace-image', '替换图片')
+          "
           :show-completed-upload-items="false"
           :release-completed-upload-on-bind="true"
           :upload-advisory="uploadAdvisory"
@@ -163,8 +184,8 @@ function browserViewUrl(url: string) {
           danger
           icon-name="delete"
           icon-only
-          title="清除"
-          aria-label="清除"
+          :title="language.t('platform.screen.SingleImageFileReferenceField.clear', '清除')"
+          :aria-label="language.t('platform.screen.SingleImageFileReferenceField.clear', '清除')"
           @click="clearImage"
         />
       </div>
@@ -194,18 +215,45 @@ function browserViewUrl(url: string) {
       :class="{ 'has-image': !!previewUrl }"
       type="button"
       :disabled="!definition.readAvailable || previewLoading"
-      title="点击查看原图"
-      aria-label="点击查看原图"
+      :title="language.t('platform.screen.SingleImageFileReferenceField.view-original-image', '点击查看原图')"
+      :aria-label="
+        language.t('platform.screen.SingleImageFileReferenceField.view-original-image', '点击查看原图')
+      "
       @click="viewOriginal"
     >
-      <img v-if="previewUrl" :src="previewUrl" alt="已上传图片预览" />
+      <img
+        v-if="previewUrl"
+        :src="previewUrl"
+        :alt="
+          language.t('platform.screen.SingleImageFileReferenceField.uploaded-image-preview', '已上传图片预览')
+        "
+      />
       <template v-else>
         <span class="single-image-file-reference-field__state-icon" aria-hidden="true">{{
           fileId ? '◫' : '+'
         }}</span>
-        <strong>{{ previewLoading ? '正在加载预览' : fileId ? '预览暂不可用' : '尚未配置图片' }}</strong>
+        <strong>{{
+          previewLoading
+            ? language.t('platform.screen.SingleImageFileReferenceField.loading-preview', '正在加载预览')
+            : fileId
+              ? language.t(
+                  'platform.screen.SingleImageFileReferenceField.preview-unavailable',
+                  '预览暂不可用',
+                )
+              : language.t(
+                  'platform.screen.SingleImageFileReferenceField.no-image-configured',
+                  '尚未配置图片',
+                )
+        }}</strong>
         <span>{{
-          previewLoading ? '请稍候' : (previewError ?? uploadHint ?? '可上传 PNG、JPG、GIF 或 WebP 图片')
+          previewLoading
+            ? language.t('platform.screen.SingleImageFileReferenceField.please-wait', '请稍候')
+            : (previewError?.() ??
+              uploadHint ??
+              language.t(
+                'platform.screen.SingleImageFileReferenceField.upload-a-png-jpg-gif-or-webp-image',
+                '可上传 PNG、JPG、GIF 或 WebP 图片',
+              ))
         }}</span>
       </template>
     </button>

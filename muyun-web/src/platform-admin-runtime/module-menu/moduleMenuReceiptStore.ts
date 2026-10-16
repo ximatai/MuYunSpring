@@ -1,4 +1,5 @@
 import { OperationUsageError, userPreferences, type UserPreferenceStore } from '@muyun/web-core';
+import { platformLanguageContext, codeOperationErrorMessage, type LanguageContext } from '@muyun/web-core';
 import type { OperationReceiptReference } from '@muyun/web-contracts';
 import type { ModuleMenuReceiptStore } from './moduleMenuSession';
 
@@ -11,16 +12,31 @@ export function createModuleMenuReceiptStore(
   valid: () => boolean,
   preferences: UserPreferenceStore = userPreferences,
   pointerStorage?: MenuReceiptPointerStorage,
+  language: LanguageContext = platformLanguageContext,
 ): ModuleMenuReceiptStore {
   const pointerKey = `muyun.menu-pending.${JSON.stringify([identity, moduleAlias])}`;
   const options = { persistence: 'backend' as const };
   let requestId: string | undefined;
   function storage() {
-    if (!valid()) throw new OperationUsageError('菜单编辑身份已变化');
+    if (!valid())
+      throw new OperationUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.moduleMenuReceiptStore.the-menu-editing-identity-has-changed',
+          '菜单编辑身份已变化',
+        ),
+      );
     return pointerStorage ?? window.sessionStorage;
   }
   function referenceKey(id: string) {
-    if (!/^[a-zA-Z0-9-]{16,80}$/.test(id)) throw new OperationUsageError('原入口查询标识无效');
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(id))
+      throw new OperationUsageError(
+        codeOperationErrorMessage(
+          language,
+          'platform.screen.moduleMenuReceiptStore.the-original-entry-lookup-reference-is-invalid',
+          '原入口查询标识无效',
+        ),
+      );
     // Preference segments must begin with a letter; request identities never share a mutable key.
     return `menu.pending.r${id.toLowerCase().replaceAll('-', '')}`;
   }
@@ -33,11 +49,25 @@ export function createModuleMenuReceiptStore(
         undefined,
         options,
       );
-      if (!reference) throw new OperationUsageError('原入口查询引用暂不可读取，请核实后重试');
+      if (!reference)
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.moduleMenuReceiptStore.the-original-entry-lookup-reference-cannot-be-read-right-now',
+            '原入口查询引用暂不可读取，请核实后重试',
+          ),
+        );
       return reference;
     },
     async save(reference) {
-      if (reference.kind !== 'record-save') throw new OperationUsageError('原入口查询标识无效');
+      if (reference.kind !== 'record-save')
+        throw new OperationUsageError(
+          codeOperationErrorMessage(
+            language,
+            'platform.screen.moduleMenuReceiptStore.the-original-entry-lookup-reference-is-invalid',
+            '原入口查询标识无效',
+          ),
+        );
       const pointer = storage();
       requestId = reference.requestId;
       await preferences.set(referenceKey(requestId), reference, options);

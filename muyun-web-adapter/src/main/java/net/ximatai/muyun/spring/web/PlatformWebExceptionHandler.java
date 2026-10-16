@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.web;
 
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
+import net.ximatai.muyun.spring.common.model.constraint.FieldInputViolationException;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.i18n.TextResolver;
 import net.ximatai.muyun.spring.ability.action.ActionMessage;
 import net.ximatai.muyun.spring.ability.action.ActionMessageType;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
@@ -73,22 +76,36 @@ public class PlatformWebExceptionHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<PlatformWebError> handleUnreadableRequestBody(HttpMessageNotReadableException exception) {
-        return badRequest("请求体格式错误", exception);
+        return badRequestText("platform.error.request-body-invalid", "请求体格式错误", java.util.List.of(), exception);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<PlatformWebError> handleArgumentTypeMismatch(MethodArgumentTypeMismatchException exception) {
-        return badRequest("请求参数格式错误", ErrorTarget.field(exception.getName()), exception);
+        return badRequestText("platform.error.request-parameter-invalid", "请求参数格式错误", java.util.List.of(ErrorTarget.field(exception.getName())), exception);
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<PlatformWebError> handleMissingRequestParameter(MissingServletRequestParameterException exception) {
-        return badRequest("缺少必要请求参数", ErrorTarget.field(exception.getParameterName()), exception);
+        return badRequestText("platform.error.request-parameter-missing", "缺少必要请求参数", java.util.List.of(ErrorTarget.field(exception.getParameterName())), exception);
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<PlatformWebError> handleMissingRequestPart(MissingServletRequestPartException exception) {
-        return badRequest("缺少必要请求部分", ErrorTarget.field(exception.getRequestPartName()), exception);
+        return badRequestText("platform.error.request-part-missing", "缺少必要请求部分", java.util.List.of(ErrorTarget.field(exception.getRequestPartName())), exception);
+    }
+
+    @ExceptionHandler(FieldInputViolationException.class)
+    public ResponseEntity<PlatformWebError> handleFieldInputViolation(FieldInputViolationException exception) {
+        String key = exception.constraint() == FieldInputViolationException.Constraint.REQUIRED
+                ? "platform.validation.required" : "platform.validation.non-null";
+        String original = exception.constraint() == FieldInputViolationException.Constraint.REQUIRED
+                ? "请填写必填项" : "此字段不能为空";
+        var base = PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400, original);
+        var error = new PlatformWebError(base.traceId(), PlatformErrorCodes.VALIDATION_FAILED, 400, original,
+                ActionMessage.warning(PlatformErrorCodes.VALIDATION_FAILED, original), null,
+                java.util.List.of(ErrorTarget.field(exception.fieldName())), java.util.Map.of(),
+                java.util.Map.of("fieldName", exception.fieldName()));
+        return recorded(ResponseEntity.badRequest().body(error.withTextSource(TextReference.code(key, original))), exception);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -104,7 +121,7 @@ public class PlatformWebExceptionHandler {
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<PlatformWebError> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
         return recorded(ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
-                .body(PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 405, "不支持的请求方法")), exception);
+                .body(PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 405, "不支持的请求方法").withTextSource(TextReference.code("platform.error.method-not-supported", "不支持的请求方法"))), exception);
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
@@ -112,12 +129,12 @@ public class PlatformWebExceptionHandler {
         ActionMessage actionMessage = ActionMessage.warning(PlatformErrorCodes.VALIDATION_FAILED, "不支持的请求媒体类型");
         return recorded(ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
                 .body(PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 415,
-                        "不支持的请求媒体类型", actionMessage)), exception);
+                        "不支持的请求媒体类型", actionMessage).withTextSource(TextReference.code("platform.error.media-type-not-supported", "不支持的请求媒体类型"))), exception);
     }
 
     @ExceptionHandler(HttpMessageConversionException.class)
     public ResponseEntity<PlatformWebError> handleMessageConversion(HttpMessageConversionException exception) {
-        return badRequest("请求参数格式错误", exception);
+        return badRequestText("platform.error.request-parameter-invalid", "请求参数格式错误", java.util.List.of(), exception);
     }
 
     /** The response is already unusable after a client disconnect, so no error body can be written. */
@@ -130,13 +147,13 @@ public class PlatformWebExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<PlatformWebError> handleNoHandler(NoHandlerFoundException exception) {
         return recorded(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(PlatformWebError.of(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404, "请求资源不存在")), exception);
+                .body(PlatformWebError.of(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404, "请求资源不存在").withTextSource(TextReference.code("platform.error.resource-not-found", "请求资源不存在"))), exception);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<PlatformWebError> handleNoResource(NoResourceFoundException exception) {
         return recorded(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(PlatformWebError.of(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404, "请求资源不存在")), exception);
+                .body(PlatformWebError.of(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404, "请求资源不存在").withTextSource(TextReference.code("platform.error.resource-not-found", "请求资源不存在"))), exception);
     }
 
     @ExceptionHandler(OptimisticLockException.class)
@@ -146,7 +163,7 @@ public class PlatformWebExceptionHandler {
                 "数据已被更新，请刷新后重试");
         return recorded(ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(PlatformWebError.of(PlatformErrorCodes.CONFLICT_VERSION, 409,
-                        "数据已被更新，请刷新后重试", actionMessage)), exception);
+                        "数据已被更新，请刷新后重试", actionMessage).withTextSource(TextReference.code("platform.error.version-conflict", "数据已被更新，请刷新后重试"))), exception);
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -169,10 +186,12 @@ public class PlatformWebExceptionHandler {
                     MDC.get("traceId"), MDC.get("endpointId"));
             PlatformException translated = new PlatformException(violation.code(), violation.status(),
                     violation.message(), null, violation.targets(), java.util.Map.of());
-            return platformError(translated, ActionMessageType.WARNING, exception);
+            var action = ActionMessage.warning(translated.code(), translated.getMessage());
+            return recorded(ResponseEntity.status(translated.httpStatus()).body(
+                    PlatformWebError.of(translated).withActionMessage(action).withTextSource(violation.textSource())), exception);
         }
         PlatformWebError error = PlatformWebError.of(PlatformErrorCodes.INTERNAL_ERROR, 500,
-                "系统暂时不可用，请稍后重试");
+                "系统暂时不可用，请稍后重试").withTextSource(TextReference.code("platform.error.internal", "系统暂时不可用，请稍后重试"));
         log.error("Unhandled platform web exception, traceId={}, endpointId={}",
                 error.traceId(), MDC.get("endpointId"), exception);
         return recorded(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error), exception);
@@ -201,35 +220,31 @@ public class PlatformWebExceptionHandler {
                 .body(PlatformWebError.of(exception).withActionMessage(actionMessage)), cause);
     }
 
-    private ResponseEntity<PlatformWebError> badRequest(String message) {
-        return badRequest(message, java.util.List.of(), null);
+    private ResponseEntity<PlatformWebError> badRequestText(String key, String message,
+                                                            java.util.List<ErrorTarget> targets, Throwable cause) {
+        var exception = PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, message, targets);
+        return recorded(ResponseEntity.badRequest().body(PlatformWebError.of(exception)
+                .withActionMessage(ActionMessage.warning(exception.code(), message))
+                .withTextSource(TextReference.code(key, message))), cause);
     }
 
-    private ResponseEntity<PlatformWebError> badRequest(String message, ErrorTarget target) {
-        return badRequest(message, java.util.List.of(target), null);
-    }
+    private TextResolver textResolver;
+    private net.ximatai.muyun.spring.common.i18n.LanguageCatalog languageCatalog;
 
-    private ResponseEntity<PlatformWebError> badRequest(String message, java.util.List<ErrorTarget> targets) {
-        return badRequest(message, targets, null);
-    }
+    @Autowired(required = false)
+    void setLanguageCatalog(net.ximatai.muyun.spring.common.i18n.LanguageCatalog catalog) { this.languageCatalog = catalog; }
 
-    private ResponseEntity<PlatformWebError> badRequest(String message, Throwable cause) {
-        return badRequest(message, java.util.List.of(), cause);
-    }
+    @Autowired(required = false)
+    void setTextResolver(TextResolver resolver) { this.textResolver = resolver; }
 
-    private ResponseEntity<PlatformWebError> badRequest(String message, ErrorTarget target, Throwable cause) {
-        return badRequest(message, java.util.List.of(target), cause);
-    }
-
-    private ResponseEntity<PlatformWebError> badRequest(String message, java.util.List<ErrorTarget> targets,
-                                                         Throwable cause) {
-        PlatformException exception = PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, message, targets);
-        return platformError(exception, ActionMessageType.WARNING, cause == null ? exception : cause);
+    private PlatformWebError presentationError(PlatformWebError original) {
+        return original == null ? null : original.presented(textResolver, languageCatalog);
     }
 
     private ResponseEntity<PlatformWebError> recorded(ResponseEntity<PlatformWebError> response, Throwable exception) {
         requestErrorLogRecorder.recordException(response.getBody(), exception);
-        return response;
+        return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
+                .body(presentationError(response.getBody()));
     }
 
 }

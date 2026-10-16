@@ -82,7 +82,7 @@ UI adapter 的职责不是重写成熟 UI 库。下拉菜单、模态框、抽�
 
 当前 `UiDropdown` 是统一菜单浮层门面，内部复用 Ant Design Vue `Dropdown` 与 `Menu`；`UiModal` 是受控对话框门面，负责打开状态、标题、确认/取消和提交态；`UiSidePanel` 是非模态上下文侧栏门面，内部复用 Ant Design Vue `Drawer`。业务页面与平台组件不得直接组合 Ant Design Vue 的对应组件。
 
-`UiSidePanel` 的承载范围必须显式表达：默认 `tab`，由 Workbench 为每个 tab 提供的 `UiSidePanelHost` 承载，只覆盖当前 tab 内容区；Host 必须位于页面留白与滚动容器之外，确保抽屉边界贴合 tab 内容边界而非页内业务面板。只有跨 tab 的全局治理任务才能显式使用 `viewport`。业务页面不得用自身的 `position`、高度或 overflow 偶然决定抽屉覆盖浏览器还是 tab。
+`UiSidePanel` 的承载范围必须显式表达：默认 `tab`，由 Workbench 为每个 tab 提供的 `UiSidePanelHost` 承载，只覆盖当前 tab 内容区；公开 Workbench 插槽具有默认 Host；内置缓存路由页在缓存单元内提供独立 Host，停用时隐藏抽屉而保留业务草稿，恢复时继续当前会话。Host 必须位于页面留白与滚动容器之外，确保抽屉边界贴合 tab 内容边界而非页内业务面板。只有跨 tab 的全局治理任务才能显式使用 `viewport`。业务页面不得用自身的 `position`、高度或 overflow 偶然决定抽屉覆盖浏览器还是 tab。
 
 ## 组件语义先于 UI 结构
 

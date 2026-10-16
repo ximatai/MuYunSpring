@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.currency;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMoneyDefinition;
@@ -90,10 +93,11 @@ public class MoneyDynamicRecordMutationCoordinator implements DynamicRecordMutat
             try {
                 normalizeMoneyField(incoming, before, parent, create, field, money);
             } catch (PlatformException ex) {
-                throw new PlatformException("money normalization failed: module=" + moduleAlias
+                throw new PlatformException(net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.VALIDATION_FAILED, 400, "money normalization failed: module=" + moduleAlias
                         + ", entity=" + entityAlias
                         + ", field=" + field.fieldName()
-                        + "; " + ex.getMessage(), ex);
+                        + "; " + ex.getMessage(), ex, net.ximatai.muyun.spring.common.exception.ErrorScope.empty(),
+                        java.util.List.of(), Map.of(), ex.messageArgs(), ex.textSource());
             }
         }
     }
@@ -163,8 +167,9 @@ public class MoneyDynamicRecordMutationCoordinator implements DynamicRecordMutat
         String currencyCode = stringValue(incoming.getPlatformValues().get(currencyFieldName));
         if (currencyExplicitlySet && currencyCode == null) {
             if (money.currencyRequired()) {
-                throw new PlatformException("money currency field must not be blank when money amount exists: "
-                        + currencyFieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.money-dynamic-record-mutation-coordinator.money-currency-field-must-not-be-blank-when-money-amount-exists",
+                        "money currency field must not be blank when money amount exists: {value1}"), Map.of("value1", String.valueOf(currencyFieldName)));
             }
             return null;
         }
@@ -176,8 +181,9 @@ public class MoneyDynamicRecordMutationCoordinator implements DynamicRecordMutat
             incoming.putGeneratedValue(currencyFieldName, currencyCode);
         }
         if (currencyCode == null && money.currencyRequired()) {
-            throw new PlatformException("money currency field is required when money amount exists: "
-                    + currencyFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.money-dynamic-record-mutation-coordinator.money-currency-field-is-required-when-money-amount-exists",
+                    "money currency field is required when money amount exists: {value1}"), Map.of("value1", String.valueOf(currencyFieldName)));
         }
         if (currencyCode == null) {
             return null;

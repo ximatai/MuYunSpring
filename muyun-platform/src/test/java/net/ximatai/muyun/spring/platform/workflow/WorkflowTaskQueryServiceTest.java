@@ -14,6 +14,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 class WorkflowTaskQueryServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final WorkflowTaskDao taskDao = mock(WorkflowTaskDao.class);
     private final WorkflowEventDao eventDao = mock(WorkflowEventDao.class);
     private final WorkflowTaskQueryService service = new WorkflowTaskQueryService(taskDao, eventDao);

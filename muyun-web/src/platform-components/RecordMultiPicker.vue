@@ -1,7 +1,14 @@
 <script setup lang="ts">
+import {
+  userFacingErrorMessage,
+  useLanguageContext,
+  normalizeError,
+  type ModuleContext,
+} from '@muyun/web-core';
+
 import { computed, onMounted, ref, watch } from 'vue';
 import { UiSelect, UiTreeSelect } from '@muyun/vue-ui-antdv';
-import { normalizeError, type ModuleContext } from '@muyun/web-core';
+
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
 import { firstConstraintMessage } from './recordPickerConstraints';
@@ -12,6 +19,8 @@ import {
   filterTreeRecords,
   flattenTreeRecords,
 } from './treeRecordModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'RecordMultiPicker' });
 
@@ -47,7 +56,7 @@ const props = withDefaults(
     resolveOptions: undefined,
     reloadKey: undefined,
     mode: 'auto',
-    placeholder: '请选择',
+    placeholder: undefined,
     invalid: false,
     disabled: false,
     allowClear: true,
@@ -58,6 +67,10 @@ const props = withDefaults(
   },
 );
 
+const resolvedPlaceholder = computed(
+  () => props.placeholder ?? language.t('platform.screen.RecordMultiPicker.placeholder', '请选择'),
+);
+
 const emit = defineEmits<{
   'update:value': [value: string[]];
   select: [records: RecordPickerRecord[]];
@@ -66,7 +79,7 @@ const loading = ref(false);
 const tree = ref<WebTreeNode<RecordPickerRecord>[]>([]);
 const records = ref<RecordPickerRecord[]>([]);
 const actualMode = ref<Exclude<RecordPickerMode, 'auto'>>('list');
-const error = ref<string>();
+const error = ref<() => string>();
 const keyword = ref('');
 const pickerContext = computed(() => ({ records: records.value }));
 
@@ -122,7 +135,7 @@ async function loadRecords() {
     }
     await resolveSelectedOptions();
   } catch (cause) {
-    error.value = normalizeError(cause).message;
+    error.value = () => userFacingErrorMessage(normalizeError(cause), language);
   } finally {
     loading.value = false;
   }
@@ -136,7 +149,7 @@ async function resolveSelectedOptions() {
 }
 
 function recordTitle(record: RecordPickerRecord) {
-  return props.titleOf?.(record) ?? defaultTreeRecordTitle(record);
+  return props.titleOf?.(record) ?? defaultTreeRecordTitle(record, undefined, language);
 }
 
 function matchesKeyword(record: RecordPickerRecord, value: string) {
@@ -150,7 +163,7 @@ function matchesKeyword(record: RecordPickerRecord, value: string) {
 function isDisabled(record: RecordPickerRecord) {
   return (
     record.enabled === false ||
-    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints))
+    Boolean(firstConstraintMessage(record, pickerContext.value, props.constraints, language))
   );
 }
 
@@ -181,7 +194,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :value="value"
     :tree-data="treeData"
     mode="multiple"
-    :placeholder="error ?? placeholder"
+    :placeholder="error?.() ?? resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :show-search="true"
@@ -196,7 +209,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
     :value="value"
     :options="listOptions"
     mode="multiple"
-    :placeholder="error ?? placeholder"
+    :placeholder="error?.() ?? resolvedPlaceholder"
     :disabled="disabled"
     :allow-clear="allowClear"
     :show-search="true"

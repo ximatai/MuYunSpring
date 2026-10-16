@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import {
+  useLanguageContext,
+  createModuleContext,
+  refreshWorkflowRecordActions,
+  useModuleContext,
+} from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
-import { createModuleContext, useModuleContext } from '@muyun/web-core';
+
 import {
   confirmAction,
   handlePlatformActionSuccess,
@@ -11,6 +17,7 @@ import {
   provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
   RecordDetailFields,
+  WorkflowRecordPanel,
   RecordDetailPanel,
   RecordMetaSection,
   RecordModeDrawer,
@@ -36,21 +43,25 @@ import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
+import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
 import { applyReferenceRecordProjection } from './referenceRecordProjection';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
 
 const props = defineProps<{ recordId: string }>();
 const emit = defineEmits<{ 'close-workspace': [] }>();
 const context = useModuleContext<QueryListRecord>();
-const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(context.http);
+const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(context.http, language);
 provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, saving, togglingEnabled } = detail;
-const referenceRecordDetailInteraction = ref({ busy: false, dirty: false });
+const workflowInteraction = ref({ editing: false, busy: false, dirty: false });
+const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
 useModulePageUnsavedState(
-  '记录详情',
+  () => language.t('platform.screen.useModulePageSession.record-details', '记录详情'),
   () => isDirty.value || referenceRecordDetailInteraction.value.dirty,
   () => saving.value || togglingEnabled.value || referenceRecordDetailInteraction.value.busy,
 );
@@ -119,7 +130,9 @@ watch(
     if (visible && id != null) {
       void context
         .recordActions(String(id))
-        .catch((cause) => presentPlatformError(cause, { source: 'module-status', phase: 'authorization' }));
+        .catch((cause) =>
+          presentPlatformError(cause, { language, source: 'module-status', phase: 'authorization' }),
+        );
     }
   },
 );
@@ -131,6 +144,8 @@ const canToggleEnabled = computed(() => {
     mode.value !== 'view' ||
     loading.value ||
     loadFailed.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
     togglingEnabled.value
   ) {
     return false;
@@ -144,9 +159,7 @@ const toggleEnabledDisabledReason = computed(() => {
   const value = record.value;
   if (!value?.id || canToggleEnabled.value) return undefined;
   const actionCode = value.enabled === false ? 'enable' : 'disable';
-  return context
-    .recordActionsSnapshot(String(value.id))
-    ?.actions.find((item) => item.actionCode === actionCode)?.reason;
+  return context.action(actionCode, String(value.id))?.reason;
 });
 
 watch(
@@ -168,14 +181,53 @@ async function loadRecord() {
   } catch (cause) {
     if (revision !== loadRevision) return;
     detail.failLoad();
-    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'module-workspace-detail', phase: 'load' });
   } finally {
     if (revision === loadRevision) detail.finishLoad();
   }
 }
 
+useModuleRecordDataChanges({
+  moduleAlias: context.moduleAlias,
+  recordId: () => props.recordId,
+  blocked: () =>
+    mode.value !== 'view' ||
+    loading.value ||
+    saving.value ||
+    togglingEnabled.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
+    referenceRecordDetailInteraction.value.editing ||
+    referenceRecordDetailInteraction.value.busy,
+  invalidate: (ids) => context.invalidateRecordActions?.(ids),
+  refreshList: () => undefined,
+  refreshRecord: async (id, isCurrent) => {
+    await refreshWorkflowRecordActions(context, id).catch((cause) =>
+      presentPlatformError(cause, { language, source: 'module-data-change', phase: 'authorization' }),
+    );
+    if (!isCurrent()) return false;
+    await loadRecord();
+    return true;
+  },
+  onError: (cause) => presentPlatformError(cause, { language, source: 'module-data-change', phase: 'load' }),
+});
+
+async function handleWorkflowChanged() {
+  await refreshWorkflowRecordActions(context, props.recordId).catch((cause) =>
+    presentPlatformError(cause, { language, source: 'module-workflow-change', phase: 'authorization' }),
+  );
+  refreshModulePageList(context.moduleAlias);
+  await loadRecord();
+}
+
 function editRecord() {
-  if (context.can('update') !== true) return;
+  if (
+    saving.value ||
+    workflowInteraction.value.editing ||
+    workflowInteraction.value.busy ||
+    context.can('update') !== true
+  )
+    return;
   detail.beginEdit();
 }
 
@@ -191,7 +243,7 @@ async function cancelEditing() {
     detail.resolveLoad(await context.crud.view(id));
   } catch (cause) {
     detail.failLoad();
-    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'load' });
+    presentPlatformError(cause, { language, source: 'module-workspace-detail', phase: 'load' });
   } finally {
     detail.finishLoad();
   }
@@ -199,12 +251,21 @@ async function cancelEditing() {
 
 async function confirmDiscardEditing() {
   if (!isDirty.value) return true;
-  return confirmAction({
-    title: '放弃未保存的修改',
-    content: '当前记录存在未保存的修改，取消后将丢失。是否继续？',
-    okText: '放弃修改',
-    danger: true,
-  });
+  return confirmAction(
+    {
+      title: language.t(
+        'platform.screen.DynamicModuleWorkspaceDetailView.discard-unsaved-changes',
+        '放弃未保存的修改',
+      ),
+      content: language.t(
+        'platform.screen.DynamicModuleWorkspaceDetailView.this-record-has-unsaved-changes-that-will-be-lost-continue',
+        '当前记录存在未保存的修改，取消后将丢失。是否继续？',
+      ),
+      okText: language.t('platform.screen.DynamicModuleWorkspaceDetailView.discard-changes', '放弃修改'),
+      danger: true,
+    },
+    language,
+  );
 }
 
 function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
@@ -212,8 +273,12 @@ function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
   draft.value = { ...draft.value, [fieldName]: value };
 }
 
-function updateReferenceRecordDetailInteraction(state: { busy: boolean; dirty?: boolean }) {
-  referenceRecordDetailInteraction.value = { busy: state.busy, dirty: state.dirty === true };
+function updateReferenceRecordDetailInteraction(state: { editing: boolean; busy: boolean; dirty?: boolean }) {
+  referenceRecordDetailInteraction.value = {
+    editing: state.editing,
+    busy: state.busy,
+    dirty: state.dirty === true,
+  };
 }
 
 function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
@@ -250,13 +315,16 @@ async function saveRecord() {
     await handlePlatformActionSuccess(result, {
       source: 'module-workspace-detail',
       phase: 'action',
-      fallbackMessage: '保存成功',
+      fallbackMessage: language.t(
+        'platform.screen.DynamicModuleWorkspaceDetailView.saved-successfully',
+        '保存成功',
+      ),
     });
     if (refreshFailure) {
-      presentPlatformError(refreshFailure, { source: 'module-workspace-detail', phase: 'load' });
+      presentPlatformError(refreshFailure, { language, source: 'module-workspace-detail', phase: 'load' });
     }
   } catch (cause) {
-    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'module-workspace-detail', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -269,12 +337,19 @@ async function deleteRecord() {
   if (!current || !id || version === undefined || saving.value) return;
   try {
     if (
-      !(await confirmAction({
-        title: '删除记录',
-        content: `确认删除「${title.value}」？`,
-        okText: '删除',
-        danger: true,
-      }))
+      !(await confirmAction(
+        {
+          title: language.t('platform.screen.DynamicModuleWorkspaceDetailView.delete-record', '删除记录'),
+          content: language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.delete-value',
+            '确认删除「{value1}」？',
+            { value1: title.value },
+          ),
+          okText: language.t('platform.action.delete', '删除'),
+          danger: true,
+        },
+        language,
+      ))
     ) {
       return;
     }
@@ -285,11 +360,14 @@ async function deleteRecord() {
     await handlePlatformActionSuccess(result, {
       source: 'module-workspace-detail',
       phase: 'action',
-      fallbackMessage: '删除成功',
+      fallbackMessage: language.t(
+        'platform.screen.DynamicModuleWorkspaceDetailView.deleted-successfully',
+        '删除成功',
+      ),
     });
     emit('close-workspace');
   } catch (cause) {
-    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'module-workspace-detail', phase: 'action' });
   } finally {
     saving.value = false;
   }
@@ -309,7 +387,11 @@ async function executeDetailAction<TContext>(
   try {
     await contribution.run(actionContext);
   } catch (cause) {
-    presentPlatformError(cause, { source: `module-workspace-detail:${contribution.key}`, phase: 'action' });
+    presentPlatformError(cause, {
+      language,
+      source: `module-workspace-detail:${contribution.key}`,
+      phase: 'action',
+    });
   }
 }
 
@@ -320,11 +402,23 @@ function modulePageActionContext(record?: QueryListRecord): ModulePageActionCont
     reload: loadRecord,
     openDrawer: (definition: ModulePageDrawer) => openEnhancementDrawer(definition, record),
     openWorkspaceTab: (view, input) => {
-      if (!modulePageNavigation) throw new Error('模块页面工作视图需要 Workbench 导航承载');
+      if (!modulePageNavigation)
+        throw new Error(
+          language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.a-module-page-work-view-requires-workbench-navigation',
+            '模块页面工作视图需要 Workbench 导航承载',
+          ),
+        );
       modulePageNavigation.openWorkspaceTab(view, input);
     },
     openPage: (descriptor) => {
-      if (!modulePageNavigation) throw new Error('模块页面跳转需要 Workbench 导航承载');
+      if (!modulePageNavigation)
+        throw new Error(
+          language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.module-page-navigation-requires-workbench-navigation',
+            '模块页面跳转需要 Workbench 导航承载',
+          ),
+        );
       modulePageNavigation.openPage(descriptor);
     },
   };
@@ -346,10 +440,12 @@ async function toggleEnabled() {
     await handlePlatformActionSuccess(result, {
       source: 'module-workspace-detail',
       phase: 'action',
-      fallbackMessage: enabling ? '已启用' : '已停用',
+      fallbackMessage: enabling
+        ? language.t('platform.screen.DynamicModuleWorkspaceDetailView.enabled', '已启用')
+        : language.t('platform.workflow.disabled', '已停用'),
     });
   } catch (cause) {
-    presentPlatformError(cause, { source: 'module-workspace-detail', phase: 'action' });
+    presentPlatformError(cause, { language, source: 'module-workspace-detail', phase: 'action' });
   } finally {
     togglingEnabled.value = false;
   }
@@ -364,7 +460,7 @@ async function toggleEnabled() {
           :context="context"
           :record="record"
           :mode="mode"
-          :saving="saving"
+          :saving="saving || workflowInteraction.editing || workflowInteraction.busy"
           :detail-loading="loading"
           :detail-load-failed="loadFailed"
           :actions="detailActions"
@@ -379,7 +475,7 @@ async function toggleEnabled() {
         <RecordStatusSwitch
           v-if="showStatusSwitch && mode === 'view' && record"
           :enabled="record.enabled !== false"
-          :disabled="!canToggleEnabled"
+          :disabled="!canToggleEnabled || workflowInteraction.editing || workflowInteraction.busy"
           :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
@@ -387,9 +483,35 @@ async function toggleEnabled() {
         />
       </template>
 
-      <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
-      <RecordPanelState v-else-if="loadFailed" description="记录已不存在，或你已无权查看。" />
-      <RecordPanelState v-else-if="!record" description="记录已删除。" />
+      <RecordPanelState
+        v-if="loading"
+        loading
+        :loading-tip="
+          language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.loading-record-details',
+            '加载记录详情',
+          )
+        "
+        description=""
+      />
+      <RecordPanelState
+        v-else-if="loadFailed"
+        :description="
+          language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.this-record-no-longer-exists-or-you-no-longer-have',
+            '记录已不存在，或你已无权查看。',
+          )
+        "
+      />
+      <RecordPanelState
+        v-else-if="!record"
+        :description="
+          language.t(
+            'platform.screen.DynamicModuleWorkspaceDetailView.this-record-has-been-deleted',
+            '记录已删除。',
+          )
+        "
+      />
       <template v-else-if="draft">
         <RecordDetailFields
           v-if="mode === 'view'"
@@ -415,10 +537,18 @@ async function toggleEnabled() {
           />
         </div>
         <template v-if="mode === 'view'">
+          <WorkflowRecordPanel
+            @interaction-change="workflowInteraction = $event"
+            v-if="record.id && context.abilities.has('approval') === true"
+            :context="context"
+            :record-id="String(record.id)"
+            @changed="handleWorkflowChanged"
+            @edit="editRecord"
+          />
           <RecordDetailExtensionSection
             v-for="section in detailSections"
             :key="section.key"
-            :title="section.title"
+            :title="section.titleKey ? language.t(section.titleKey, section.title) : section.title"
             :subtitle="section.subtitle"
           >
             <template v-if="section.subtitleComponent" #subtitle>
@@ -433,7 +563,11 @@ async function toggleEnabled() {
     <RecordModeDrawer
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
-      :title="enhancementDrawer.definition.title"
+      :title="
+        enhancementDrawer.definition.titleKey
+          ? language.t(enhancementDrawer.definition.titleKey, enhancementDrawer.definition.title)
+          : enhancementDrawer.definition.title
+      "
       :width="enhancementDrawer.definition.width"
       :container="workspaceElement ?? null"
       mode="view"

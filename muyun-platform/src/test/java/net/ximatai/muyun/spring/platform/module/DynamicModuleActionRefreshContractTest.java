@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.platform.support.ModuleActionTestServices;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
@@ -33,7 +35,7 @@ class DynamicModuleActionRefreshContractTest {
     private final ModuleMetadataRelationService relations = mock(ModuleMetadataRelationService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator coordinator = new PlatformDynamicRuntimeRefreshCoordinator(
             runtime, relations, mock(ModuleMetadataFieldService.class), mock(MetadataViewService.class));
-    private final PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(),
+    private final PlatformModuleActionService actions = ModuleActionTestServices.withDeclaredDataPolicy(new TestMemoryDao<>(),
             modules, Optional.of(coordinator));
     private final DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(modules,
             new ModuleActionContributionRegistrar(actions));

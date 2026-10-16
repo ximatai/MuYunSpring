@@ -17,7 +17,8 @@ class MetadataCapabilityCatalogTest {
         assertThat(contract.inheritedFields()).isEqualTo(
                 net.ximatai.muyun.spring.common.schema.StandardEntitySchema.fieldNames());
         assertThat(contract.declarableCapabilities()).isEqualTo(MetadataCapabilityCatalog.plan(
-                Set.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN)));
+                Set.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN,
+                        EntityCapability.APPROVAL)));
         assertThat(contract.recordName().accepts("title", "title", "STRING")).isTrue();
         assertThat(contract.recordName().accepts("customerName", "customer_name", "STRING")).isFalse();
         assertThat(contract.recordName().accepts("title", "title", "TEXT")).isFalse();
@@ -75,6 +76,29 @@ class MetadataCapabilityCatalogTest {
         assertThatThrownBy(() -> MetadataCapabilityCatalog.resolve(metadata, RelationRole.CHILD, List.of()))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("Child metadata cannot declare");
+    }
+
+    @Test
+    void approvalDeclarationOwnsFiveCanonicalSummaryFieldsAndOnlyLegacyUsesFieldInference() {
+        Metadata governed = metadata(); governed.setCapabilityDeclarations(Set.of("APPROVAL"));
+        var resolution = MetadataCapabilityCatalog.resolve(governed, RelationRole.MAIN, List.of());
+        assertThat(resolution.capabilities()).containsExactly(EntityCapability.APPROVAL);
+        assertThat(resolution.plan().metadataFields()).extracting(ModuleMetadataCapabilityFieldContribution::fieldName)
+                .containsExactly("approvalInstanceId", "approvalStatus", "approvalSubmittedBy", "approvalSubmittedAt", "approvalCompletedAt");
+        assertThat(MetadataCapabilityCatalog.mergeDeclaredMetadataFields(resolution, List.of()))
+                .isEqualTo(net.ximatai.muyun.spring.dynamic.metadata.DynamicAbilityFields.approvalFields());
+        assertThat(MetadataCapabilityCatalog.isMutableInFirstRelease(EntityCapability.APPROVAL)).isTrue();
+        assertThatThrownBy(() -> MetadataCapabilityCatalog.resolve(governed, RelationRole.CHILD, List.of()))
+                .hasMessageContaining("Child metadata cannot declare");
+        var saved = field("approvalStatus", "approval_status");
+        assertThat(MetadataCapabilityCatalog.resolve(metadata(), RelationRole.MAIN, List.of(saved)).capabilities())
+                .contains(EntityCapability.APPROVAL);
+        governed.setCapabilityDeclarations(Set.of());
+        assertThat(MetadataCapabilityCatalog.resolve(governed, RelationRole.MAIN, List.of(saved)).capabilities())
+                .doesNotContain(EntityCapability.APPROVAL);
+        saved.setFieldOwnership(MetadataFieldOwnership.STANDARD); saved.setSystemManaged(true); saved.setFieldSpecAlias("string");
+        assertThat(MetadataCapabilityCatalog.managedDefinition(saved).length())
+                .isEqualTo(net.ximatai.muyun.spring.common.schema.PlatformAbilityFields.APPROVAL_STATUS_LENGTH);
     }
 
     @Test

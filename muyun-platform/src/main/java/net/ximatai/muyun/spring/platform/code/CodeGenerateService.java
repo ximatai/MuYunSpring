@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -60,8 +62,9 @@ public class CodeGenerateService {
                 at
         ));
         if (resolved == null) {
-            throw new PlatformException("No code rule resolved for target: "
-                    + command.moduleAlias() + "/" + command.entityAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-generate.no-code-rule-resolved-for-target",
+                    "No code rule resolved for target: {value1}/{value2}"), Map.of("value1", String.valueOf(command.moduleAlias()), "value2", String.valueOf(command.entityAlias())));
         }
         return generateResolved(resolved, context, at, command.uniquenessChecker());
     }
@@ -72,15 +75,21 @@ public class CodeGenerateService {
                                                 CodeValueUniquenessChecker uniquenessChecker) {
         CodeRule rule = resolved.rule();
         if (rule.getMode() == CodeMode.MANUAL) {
-            throw new PlatformException("MANUAL code rule does not support automatic generation");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-generate.manual-code-rule-does-not-support-automatic-generation",
+                    "MANUAL code rule does not support automatic generation"));
         }
         List<CodeRuleSegment> segments = orderedSegments(rule);
         if (segments.isEmpty()) {
-            throw new PlatformException("Code rule has no segments to generate");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-generate.code-rule-has-no-segments-to-generate",
+                    "Code rule has no segments to generate"));
         }
         boolean hasSequence = segments.stream().anyMatch(segment -> segment.getSegmentType() == CodeSegmentType.SEQUENCE);
         if (hasSequence && rule.getSequencePolicy() == null) {
-            throw new PlatformException("Code rule with SEQUENCE segment requires sequencePolicy");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-generate.code-rule-with-sequence-segment-requires-sequencepolicy",
+                    "Code rule with SEQUENCE segment requires sequencePolicy"));
         }
         String basisKey = hasSequence ? buildBasisKey(rule, context, at) : CodeSequenceState.DEFAULT_BUCKET;
         String periodKey = hasSequence ? sequenceStateService.periodKey(rule.getSequencePolicy(), at) : CodeSequenceState.DEFAULT_BUCKET;
@@ -124,7 +133,9 @@ public class CodeGenerateService {
                     return result;
                 }
                 if (!hasSequence || retry >= DEFAULT_DUPLICATE_RETRY - 1) {
-                    throw new PlatformException("Generated code already exists: " + rendered.value());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.code-generate.generated-code-already-exists",
+                            "Generated code already exists: {value1}"), Map.of("value1", String.valueOf(rendered.value())));
                 }
                 retry++;
             }
@@ -152,7 +163,9 @@ public class CodeGenerateService {
         if (isDuplicate(uniquenessChecker, resolved, entry.getRecycledValue(), context)) {
             entry.setStatus(CodeRecycleStatus.AVAILABLE);
             recycleEntryService.update(entry);
-            throw new PlatformException("Generated code already exists: " + entry.getRecycledValue());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-generate.generated-code-already-exists",
+                    "Generated code already exists: {value1}"), Map.of("value1", String.valueOf(entry.getRecycledValue())));
         }
         return new GenerateCodeResult(
                 entry.getRecycledValue(),

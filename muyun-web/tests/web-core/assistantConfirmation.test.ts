@@ -1,5 +1,7 @@
+import { createLanguageContext, codeOperationErrorMessage, OperationUsageError } from '@muyun/web-core';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  restoreAssistantOperationReceipt,
   createAssistantOperationConfirmation,
   AssistantOperationRejectedError,
   type AssistantOperationProposal,
@@ -174,4 +176,74 @@ it('freezes the explicit model summary without falling back to human presentatio
   const explicit = createAssistantOperationConfirmation(proposal, scope, () => 10);
   proposal.modelSummary = '后来改写的摘要';
   expect(explicit.modelSummary).toBe('保存当前表单，尚未执行。');
+});
+
+it('refreshes owned fixed confirmation text while preserving captured proposal text, rejection evidence and execution count', async () => {
+  const { proposal, scope } = fixture();
+  const language = createLanguageContext({ languageTag: 'en' });
+  proposal.execute = vi.fn().mockRejectedValue(new AssistantOperationRejectedError('业务校验原文'));
+  const confirmation = createAssistantOperationConfirmation(proposal, scope, () => 10, language);
+  expect(confirmation.confirmLabel).toBe('Confirm save');
+  expect(confirmation.modelSummary).toBe(
+    'An operation is awaiting user confirmation and has not been executed.',
+  );
+  await confirmation.confirm();
+  expect(confirmation.result).toEqual({ title: 'Operation not submitted', lines: ['业务校验原文'] });
+  language.setLanguage('zh-CN');
+  expect(confirmation.confirmLabel).toBe('确认保存');
+  expect(confirmation.result).toEqual({ title: '操作未提交', lines: ['业务校验原文'] });
+  expect(confirmation.presentation.title).toBe('保存确认');
+  expect(proposal.execute).toHaveBeenCalledOnce();
+});
+
+it('refreshes recovered receipt instructions in the owner scope without restoring a submission path', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const lookup = vi.fn(async () => undefined);
+  const receipt = restoreAssistantOperationReceipt(
+    { kind: 'record-save', moduleAlias: 'test.record', requestId: 'stable' },
+    lookup,
+    () => true,
+    language,
+  );
+  expect(receipt.presentation.title).toBe('Verify historical operation');
+  language.setLanguage('zh-CN');
+  expect(receipt.presentation.title).toBe('核实历史操作');
+  await receipt.confirm();
+  expect(lookup).not.toHaveBeenCalled();
+  await receipt.check();
+  expect(lookup).toHaveBeenCalledOnce();
+  expect(receipt.state).toBe('unknown');
+});
+
+it('refreshes a declared rejection without replaying its command or changing the reviewed proposal', async () => {
+  const language = createLanguageContext({ languageTag: 'zh-CN' });
+  const failure = new AssistantOperationRejectedError(
+    codeOperationErrorMessage(
+      language,
+      'platform.screen.businessRuleSession.rule-prechecks-failed-and-nothing-was-submitted-check-the-rules',
+      '规则预检失败，尚未提交；请重新检查后再应用',
+    ),
+  );
+  expect(failure).not.toBeInstanceOf(OperationUsageError);
+  const { proposal, scope } = fixture();
+  proposal.execute = vi.fn(async () => {
+    throw failure;
+  });
+  const reviewed = structuredClone(proposal.presentation);
+  const confirmation = createAssistantOperationConfirmation(proposal, scope, () => 10, language);
+  await confirmation.confirm();
+  expect(confirmation.state).toBe('rejected');
+  expect(confirmation.result?.lines).toEqual(['规则预检失败，尚未提交；请重新检查后再应用']);
+  language.setLanguage('en');
+  expect(confirmation.result).toEqual({
+    title: 'Operation not submitted',
+    lines: ['Rule prechecks failed and nothing was submitted. Check the rules again before applying.'],
+  });
+  expect(confirmation.state).toBe('rejected');
+  expect(confirmation.presentation).toEqual(reviewed);
+  await confirmation.check();
+  expect(proposal.execute).toHaveBeenCalledOnce();
+  expect(proposal.lookup).not.toHaveBeenCalled();
+  language.setLanguage('zh-CN');
+  expect(confirmation.result?.lines).toEqual(['规则预检失败，尚未提交；请重新检查后再应用']);
 });

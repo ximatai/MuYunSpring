@@ -8,6 +8,11 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowArchiveServiceTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private final MemoryWorkflowInstanceDao instanceDao = new MemoryWorkflowInstanceDao();
     private final MemoryWorkflowNodeInstanceDao nodeDao = new MemoryWorkflowNodeInstanceDao();
     private final MemoryWorkflowRouteInstanceDao routeDao = new MemoryWorkflowRouteInstanceDao();
@@ -51,6 +56,7 @@ class WorkflowArchiveServiceTest {
         assertThat(snapshot.routes().getFirst().getSelectedReason()).isEqualTo("choose manual route");
         assertThat(snapshot.tasks()).extracting(WorkflowTask::getId).containsExactly("task-1");
         assertThat(snapshot.events()).extracting(WorkflowEvent::getId).containsExactly("event-1");
+        assertThat(snapshot.events().getFirst().getReason()).isEqualTo("保留原文意见");
     }
 
     private WorkflowInstance instance() {
@@ -114,6 +120,7 @@ class WorkflowArchiveServiceTest {
         event.setInstanceId("instance-1");
         event.setEventType(WorkflowEventType.INSTANCE_REVOKED);
         event.setActionCode("revoke");
+        event.setReason("保留原文意见");
         event.setOccurredAt(Instant.parse("2026-06-05T04:00:00Z"));
         return event;
     }

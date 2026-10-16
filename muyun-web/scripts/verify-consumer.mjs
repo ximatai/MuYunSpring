@@ -75,28 +75,45 @@ try {
       throw new Error(`消费者包提前固化了宿主配置：${key}`);
     }
   }
-  // Keep the platform-owned client reachable in this disposable consumer build.
-  // This probe is compiled only; it never sends a request.
-  const consumerMain = join(temporaryExampleRoot, 'src', 'main.ts');
-  writeFileSync(
-    consumerMain,
-    `${readFileSync(consumerMain, 'utf8')}\nimport { createBackendHttpClient } from '@ximatai/muyun-web-app';\nvoid createBackendHttpClient({ withAuth: false }).request({ path: '/consumer-contract' });\n`,
-  );
+  const contractFixtures = join(webRoot, 'tests', 'consumer', 'packaged');
+  cpSync(join(contractFixtures, 'host.mjs'), join(temporaryExampleRoot, 'src', 'consumer-contract.ts'));
+  cpSync(join(contractFixtures, 'vite.config.ts'), join(temporaryExampleRoot, 'vite.contract.config.ts'));
   execFileSync(process.execPath, [process.env.npm_execpath, 'run', 'build'], {
     cwd: temporaryExampleRoot,
     env: { ...process.env, VITE_MUYUN_API_BASE_URL: '/consumer-api-contract' },
     stdio: 'inherit',
   });
-  const hostJavascript = readdirSync(join(temporaryExampleRoot, 'dist', 'assets'))
-    .filter((name) => name.endsWith('.js'))
-    .map((name) => readFileSync(join(temporaryExampleRoot, 'dist', 'assets', name), 'utf8'))
-    .join('\n');
-  if (
-    !hostJavascript.includes('/consumer-api-contract') ||
-    hostJavascript.includes('import.meta.env.VITE_MUYUN_API_BASE_URL')
-  ) {
-    throw new Error('宿主构建没有解析平台组件的 API 地址配置');
-  }
+  execFileSync(
+    process.execPath,
+    [
+      join(temporaryExampleRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+      'build',
+      '--config',
+      'vite.contract.config.ts',
+    ],
+    {
+      cwd: temporaryExampleRoot,
+      env: {
+        ...process.env,
+        VITE_MUYUN_API_BASE_URL: '/consumer-api-contract',
+        VITE_MUYUN_AUTH_TOKEN: 'consumer-environment-token',
+        VITE_MUYUN_CREDENTIALS: 'include',
+      },
+      stdio: 'inherit',
+    },
+  );
+  execFileSync(
+    process.execPath,
+    [join(webRoot, 'node_modules', 'vitest', 'vitest.mjs'), 'run', '--config', 'vitest.consumer.config.ts'],
+    {
+      cwd: webRoot,
+      env: {
+        ...process.env,
+        MUYUN_CONSUMER_CONTRACT_BUNDLE: join(temporaryExampleRoot, 'contract-dist', 'consumer-contract.js'),
+      },
+      stdio: 'inherit',
+    },
+  );
 } finally {
   rmSync(temporaryExampleRoot, { recursive: true, force: true });
 }

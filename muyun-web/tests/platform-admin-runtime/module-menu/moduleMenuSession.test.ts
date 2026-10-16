@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AppError } from '@/web-core';
+import { AppError, createLanguageContext, type LanguageContext } from '@/web-core';
 import {
   createModuleMenuSession,
   availableDirectories,
@@ -8,7 +8,7 @@ import {
 } from '@/platform-admin-runtime/module-menu/moduleMenuSession';
 import type { MenuRecord, MenuTreeNode, MenuScheme, OperationReceiptReference } from '@/web-contracts';
 
-function setup(receipts?: ModuleMenuReceiptStore) {
+function setup(receipts?: ModuleMenuReceiptStore, language?: LanguageContext) {
   let valid = true;
   let active = true;
   const client = {
@@ -38,6 +38,7 @@ function setup(receipts?: ModuleMenuReceiptStore) {
     },
     receipts ?? { restore: async () => undefined, save: async () => {}, clear: async () => {} },
     client.visible,
+    language,
   );
   return {
     session,
@@ -378,4 +379,75 @@ describe('shared standard menu candidate', () => {
     ] as MenuTreeNode[];
     expect(availableDirectories(tree).map((value) => value.menu.id)).toEqual(['d']);
   });
+});
+
+it('updates retained failures and saved audience without changing a draft, reviewed proposal, or request identity', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const t = setup(undefined, language);
+  t.client.schemes.mockResolvedValue([
+    { id: 'a', title: '业务菜单', enabled: true, scopeType: 'tenant', tenantId: '租户原值' },
+  ]);
+  await t.session.load();
+  await t.session.update({ title: '人工菜单原名' });
+  await t.session.update({ title: 'x'.repeat(121) });
+  expect(t.session.error.value).toBe('The menu name must not exceed 120 characters.');
+  const revision = t.session.revision.value;
+  const reads = t.client.context.mock.calls.length;
+  language.setLanguage('zh-CN');
+  expect(t.session.error.value).toBe('菜单名称不能超过120个字符');
+  expect(t.session.title.value).toBe('人工菜单原名');
+  expect(t.session.revision.value).toBe(revision);
+  expect(t.client.context).toHaveBeenCalledTimes(reads);
+  language.setLanguage('en');
+  const proposal = await t.session.prepare();
+  const reviewed = JSON.stringify(proposal.presentation);
+  const preparedRevision = t.session.revision.value;
+  language.setLanguage('zh-CN');
+  expect(proposal.isCurrent()).toBe(true);
+  expect(JSON.stringify(proposal.presentation)).toBe(reviewed);
+  expect(t.session.revision.value).toBe(preparedRevision);
+  await proposal.execute();
+  expect(t.client.insert).toHaveBeenCalledOnce();
+  expect(t.client.insert.mock.calls[0]?.[1]).toMatchObject({
+    title: '人工菜单原名',
+    schemeId: 'a',
+    parentId: 'root',
+    openMode: 'tab',
+  });
+  const saved = t.session.saved.value;
+  expect(t.session.savedAudience.value).toBe('租户 租户原值 的用户');
+  const calls = t.client.context.mock.calls.length;
+  language.setLanguage('en');
+  expect(t.session.savedAudience.value).toBe('Users in tenant 租户原值');
+  expect(t.session.saved.value).toBe(saved);
+  expect(t.client.context).toHaveBeenCalledTimes(calls);
+  expect(t.client.insert).toHaveBeenCalledOnce();
+});
+
+it('relocalizes unresolved-save feedback without replaying a write or looking up the receipt', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const t = setup(undefined, language);
+  await t.session.load();
+  const proposal = await t.session.prepare();
+  t.client.insert.mockRejectedValueOnce(new Error('lost connection'));
+  await expect(proposal.execute()).rejects.toThrow('lost connection');
+  expect(t.session.resultUnknown.value).toBe(true);
+  expect(t.session.error.value).toBe(
+    'The save result is unresolved. Check the original request result without adding the entry again.',
+  );
+  const revision = t.session.revision.value;
+  language.setLanguage('zh-CN');
+  expect(t.session.error.value).toBe('保存结果尚未确定，请查询原请求结果，勿重复添加。');
+  language.setLanguage('en');
+  expect(t.session.error.value).toBe(
+    'The save result is unresolved. Check the original request result without adding the entry again.',
+  );
+  expect(t.session.revision.value).toBe(revision);
+  expect(t.session.resultUnknown.value).toBe(true);
+  expect(t.client.insert).toHaveBeenCalledOnce();
+  expect(t.client.receipt).not.toHaveBeenCalled();
+  const reference = proposal.receiptReference;
+  expect(reference?.kind).toBe('record-save');
+  if (reference?.kind !== 'record-save') throw new Error('Expected a menu save receipt');
+  expect(reference.requestId).toBe(t.client.insert.mock.calls[0]?.[2]);
 });

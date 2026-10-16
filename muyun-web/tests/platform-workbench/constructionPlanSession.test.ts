@@ -3,8 +3,15 @@ import {
   createConstructionPlanSession,
   parseConstructionPlan,
   constructionPlanBindings,
+  createConstructionPlanContentSchema,
+  presentConstructionPlan,
 } from '@/platform-workbench/constructionPlanSession';
 import {
+  createLanguageContext,
+  OperationUsageError,
+  DraftUpdateRejectedError,
+  resolveOperationErrorMessage,
+  type LanguageContext,
   createAssistantOperationConfirmation,
   createAssistantSurfaceRegistry,
   type ConstructionPlanClient,
@@ -24,7 +31,7 @@ const content: ConstructionPlanContent = {
   decisions: [{ statement: '第一版不做库存', source: 'RECOMMENDATION' }],
   acceptanceExamples: ['可以录入并查看一张订单'],
 };
-function fixture(canGovern = false) {
+function fixture(canGovern = false, language?: LanguageContext) {
   let identity = 'user-a';
   let snapshot: ConstructionPlanSnapshot;
   const client: ConstructionPlanClient = {
@@ -84,6 +91,7 @@ function fixture(canGovern = false) {
     client,
     () => identity,
     () => canGovern,
+    language,
   );
   return {
     session,
@@ -704,3 +712,116 @@ it('does not use partial revision to bypass manual reconciliation or an unknown 
   expect(session.current()).toEqual(before);
   expect(client.confirm).toHaveBeenCalledOnce();
 });
+
+it('uses the current owner language for schema guidance, validation and display while preserving source data', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const { session, client } = fixture(true, language);
+  expect(() => parseConstructionPlan(null, language)).toThrow('Invalid plan format');
+  session.edit(content);
+  const generation = session.current().generation;
+  const proposal = session.prepare();
+  const reviewed = structuredClone(proposal.presentation);
+  expect(proposal.confirmLabel).toBe('Confirm the current plan');
+  expect(presentConstructionPlan(content, language).lines).toContain('Current scope: 订单录入');
+  const schema = createConstructionPlanContentSchema(language);
+  expect(JSON.stringify(schema)).toContain('Record only unresolved questions');
+  expect(JSON.stringify(schema)).not.toContain('未决问题');
+  const capability = session.capabilities().find((item) => item.descriptor.code === 'construction.propose')!;
+  expect(JSON.stringify(capability.descriptor.inputSchema)).toContain('Current scope');
+  language.setLanguage('zh-CN');
+  expect(() => parseConstructionPlan(null, language)).toThrow('方案格式无效');
+  expect(session.current().generation).toBe(generation);
+  expect(session.current().candidate).toEqual(content);
+  expect(proposal.isCurrent()).toBe(true);
+  expect(proposal.presentation).toEqual(reviewed);
+  expect(
+    JSON.stringify(
+      session.capabilities().find((item) => item.descriptor.code === 'construction.propose')!.descriptor
+        .inputSchema,
+    ),
+  ).toContain('本期范围');
+  await proposal.execute();
+  expect(client.confirm).toHaveBeenCalledOnce();
+  expect(vi.mocked(client.confirm).mock.calls[0]![1].content).toEqual(content);
+  expect(session.current().saved?.revision).toBe(1);
+});
+
+it.each([
+  { inScope: [], index: 0, mode: 'MANUAL', fieldName: '', zh: '本版该部分为空', en: 'this section is empty' },
+  {
+    inScope: ['业务范围原文'],
+    index: 1,
+    mode: 'MANUAL',
+    fieldName: '',
+    zh: '有效索引为 0 至 0',
+    en: 'valid indices are 0 through 0',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'FIELD',
+    fieldName: 'Invalid',
+    zh: '请填字段名',
+    en: 'enter a field name',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'CHILD',
+    fieldName: 'lines.amount',
+    zh: '只填直接子关系标识',
+    en: 'enter only a direct child relation identifier',
+  },
+  {
+    inScope: ['业务范围原文'],
+    index: 0,
+    mode: 'MANUAL',
+    fieldName: 'title',
+    zh: '必须填空字符串',
+    en: 'enter an empty string',
+  },
+])(
+  'relocalizes the complete requirement validation without replaying a rejected edit: $mode/$index/$fieldName',
+  (scenario) => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const { session, client } = fixture(false, language);
+    session.edit(content);
+    const before = structuredClone(session.current());
+    const rejected = {
+      ...content,
+      inScope: scenario.inScope,
+      requirements: [
+        {
+          section: 'SCOPE',
+          index: scenario.index,
+          objectKey: 'order',
+          mode: scenario.mode,
+          fieldName: scenario.fieldName,
+          explanation: '业务说明原文',
+        },
+      ],
+    };
+    let failure: unknown;
+    try {
+      session.edit(rejected);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(OperationUsageError);
+    const wrapped = new DraftUpdateRejectedError(failure as OperationUsageError);
+    const snapshotMessage = wrapped.message;
+    expect(snapshotMessage).toContain(scenario.en);
+    expect(snapshotMessage).not.toMatch(/[\u3400-\u9fff]/u);
+    language.setLanguage('zh-CN');
+    const chinese = resolveOperationErrorMessage(wrapped, language);
+    expect(chinese).toContain(scenario.zh);
+    expect(chinese).not.toContain(scenario.en);
+    expect(chinese).toContain('requirements[0].');
+    language.setLanguage('en');
+    expect(resolveOperationErrorMessage(wrapped, language)).toBe(snapshotMessage);
+    expect(wrapped.message).toBe(snapshotMessage);
+    expect(session.current()).toEqual(before);
+    expect(rejected.requirements[0]!.explanation).toBe('业务说明原文');
+    expect(client.confirm).not.toHaveBeenCalled();
+  },
+);

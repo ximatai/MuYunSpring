@@ -9,6 +9,11 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowRuntimeEventFactoryTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installWorkflowMutationHost() { WorkflowTestMutationHost.install(); }
+    @org.junit.jupiter.api.AfterEach
+    void resetWorkflowMutationHost() { WorkflowTestMutationHost.reset(); }
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final WorkflowRuntimeEventFactory factory = new WorkflowRuntimeEventFactory();
@@ -49,6 +54,23 @@ class WorkflowRuntimeEventFactoryTest {
         assertThat(payload.path("isAddSignRoute").asBoolean()).isTrue();
         assertThat(payload.path("addSignSourceNodeKey").asText()).isEqualTo("approve");
         assertThat(payload.path("closedReason").asText()).isEqualTo("workflow route replaced by addSign");
+    }
+
+    @Test
+    void storesOriginalOpinionsIndependentlyOfSystemDiagnostics() {
+        Instant now = Instant.parse("2026-06-05T03:00:00Z");
+        String reason = "workflow task completed";
+        assertThat(factory.taskCompleted(instance(), null, "approve", "user-1", reason, now).getReason())
+                .isEqualTo(reason);
+        assertThat(factory.taskCompleted(instance(), null, "approve", "user-1", null, now).getReason()).isNull();
+        assertThat(factory.taskTransferred(instance(), null, "user-1", "transfer to user-2", reason, now).getReason())
+                .isEqualTo(reason);
+        assertThat(factory.addSign(instance(), null, null, "user-1", reason, "{}", now).getReason()).isEqualTo(reason);
+        assertThat(factory.instanceTerminated(instance(), "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(factory.taskCanceled(instance(), null, "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(factory.taskInvalidated(instance(), null, "user-1", reason, now).getReason()).isEqualTo(reason);
+        assertThat(WorkflowHistoryEventView.from(factory.taskCompleted(instance(), null, "approve", "user-1", reason, now), null).reason())
+                .isEqualTo(reason);
     }
 
     private WorkflowInstance instance() {

@@ -1,5 +1,7 @@
+import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import {
   AssistantCapabilityUsageError,
+  OperationUsageError,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   type AssistantCapability,
@@ -11,6 +13,7 @@ import type { PageComposerFieldProperties } from './pageCompositionDraftState';
 import type { PageCompositionCandidateInput } from './pageCompositionCandidate';
 
 export interface PageCompositionAssistantAdapter {
+  readonly language?: LanguageContext;
   describe(): { moduleAlias: string; title?: string; editable: boolean; [key: string]: unknown };
   relations?(input: { relationCode?: string; offset: number }): unknown;
   candidate(): { changes: string[]; [key: string]: unknown };
@@ -25,6 +28,7 @@ export function createPageCompositionAssistantSurface(
   requestTurn: AssistantTurnRequester,
   contributedCapabilities: () => AssistantCapability[] = () => [],
 ): AssistantSurface {
+  const language = adapter.language ?? platformLanguageContext;
   let prepared: AssistantOperationProposal | undefined;
   const read = (code: string, description: string, value: () => unknown): AssistantCapability => ({
     effect: 'read',
@@ -58,7 +62,10 @@ export function createPageCompositionAssistantSurface(
                   prepared = {
                     ...adapter.prepareEditing!(),
                     continuation: {
-                      message: '页面编辑已准备，请核实当前草稿并继续本次用户需求，发布仍需确认。',
+                      message: language.t(
+                        'platform.screen.pageCompositionAssistantSurface.page-editing-is-prepared-verify-the-current-draft-and-continue',
+                        '页面编辑已准备，请核实当前草稿并继续本次用户需求，发布仍需确认。',
+                      ),
                       isCurrent: () => adapter.describe().editable,
                     },
                   };
@@ -159,7 +166,11 @@ export function createPageCompositionAssistantSurface(
                 } catch (cause) {
                   if (cause instanceof AssistantCapabilityUsageError) throw cause;
                   throw new AssistantCapabilityUsageError(
-                    cause instanceof Error ? cause.message : 'Invalid page candidate',
+                    cause instanceof OperationUsageError
+                      ? (cause.textMessage ?? cause.message)
+                      : cause instanceof Error
+                        ? cause.message
+                        : 'Invalid page candidate',
                   );
                 }
                 return context.applyEffect(commit);
@@ -184,9 +195,20 @@ export function createPageCompositionAssistantSurface(
         },
         present(result) {
           return {
-            title: '页面候选预检（尚未生效）',
+            title: language.t(
+              'platform.screen.pageCompositionAssistantSurface.page-candidate-precheck-not-active',
+              '页面候选预检（尚未生效）',
+            ),
             lines: [
-              result.valid ? '模板校验通过，仍需人工保存并生效。' : '模板校验未通过。',
+              result.valid
+                ? language.t(
+                    'platform.screen.pageCompositionAssistantSurface.template-validation-passed-human-save-and-activation-are-still-required',
+                    '模板校验通过，仍需人工保存并生效。',
+                  )
+                : language.t(
+                    'platform.screen.pageCompositionAssistantSurface.template-validation-failed',
+                    '模板校验未通过。',
+                  ),
               ...result.errors.slice(0, 8),
               ...result.candidate.changes.slice(0, 10),
             ].map((line) => line.slice(0, 500)),

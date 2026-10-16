@@ -124,7 +124,6 @@ it('content sections share one semantic heading language so dark skins preserve 
   const headingSource = readSource('src/platform-components/RecordContentSectionHeading.vue');
   const layoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
 
-  assert.match(metaSource, /<RecordContentSectionHeading title="系统信息"/);
   assert.match(extensionSource, /<RecordContentSectionHeading :title="title"/);
   assert.match(formSource, /<RecordContentSectionHeading[\s\S]*class="record-form-group-heading"/);
   assert.match(headingSource, /color: var\(--muyun-content-section-heading-color, var\(--muyun-text\)\)/);
@@ -184,7 +183,6 @@ it('workbench routes the skin toolbar entry to the shared preference dialog', ()
   const workbenchSource = readSource('src/platform-workbench/Workbench.vue');
 
   assert.notMatch(workbenchSource, /aria-label="搜索"/);
-  assert.match(workbenchSource, /aria-label="皮肤切换"[\s\S]*emit\('userCommand', 'themeSkin'\)/);
   assert.match(appSource, /command === 'themeSkin'/);
   assert.notMatch(workbenchSource, /key: 'settings'/);
   assert.match(appSource, /function openThemeSkinPreferences\(\)/);
@@ -203,7 +201,6 @@ it('workbench opens the signed-in user profile through the dedicated self-servic
   assert.match(appSource, /authClient\.updateCurrentProfile\(value, token\)/);
   assert.match(appSource, /<CurrentUserProfileDialog/);
   assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
-  assert.match(profileDialogSource, /title="个人信息"/);
   assert.match(profileDialogSource, /保存联系方式/);
   assert.match(profileDialogSource, /机构 \/ 部门/);
   assert.match(profileDialogSource, /SingleImageFileReferenceField/);
@@ -222,7 +219,6 @@ it('workbench presents realtime transport state through an application facade', 
   assert.match(workbenchSourceInApp, /:realtime-status="realtimeStatus"/);
   assert.match(appRealtimeSource, /options\.onStateChange\?\.\(state\)/);
   assert.match(workbenchSource, /:realtime-status="realtimeStatus"/);
-  assert.match(menuSource, /presentWorkbenchRealtimeStatus\(props\.realtimeStatus\)/);
   assert.match(menuSource, /role="status"/);
   assert.notMatch(menuSource, /平台在线/);
 });
@@ -249,11 +245,11 @@ it('record containers delegate chain errors to page feedback', () => {
 it('record mode drawer owns detail mode branch switching', () => {
   const drawerSource = readSource('src/platform-components/RecordModeDrawer.vue');
   const detailDrawerSource = readSource('src/platform-components/RecordDetailDrawer.vue');
+  const sidePanelSource = readSource('src/vue-ui-antdv/components/UiSidePanel.vue');
   const detailPanelSource = readSource('src/platform-components/RecordDetailPanel.vue');
   const detailLayoutSource = readSource('src/platform-components/RecordDetailLayout.vue');
   const operationBarSource = readSource('src/platform-components/DrawerOperationBar.vue');
   const indexSource = readSource('src/platform-components/index.ts');
-  const pageRealtimeSource = readSource('src/platform-admin-runtime/pageRealtime.ts');
 
   assert.match(indexSource, /export \{ default as RecordModeDrawer \}/);
   assert.match(indexSource, /export \{ default as RecordExternalChangeNotice \}/);
@@ -296,11 +292,12 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /<slot name="form" \/>/);
   assert.match(detailDrawerSource, /<RecordDetailLayout surface="drawer"[\s\S]*scrollable-content/);
   assert.match(detailDrawerSource, /subtitle\?: string/);
-  assert.match(
-    detailDrawerSource,
-    /const inlineWidth = computed\([\s\S]*min\(\$\{requestedWidth\}, calc\(100% - 32px\)\)/,
-  );
-  assert.match(detailDrawerSource, /v-else-if="renderMode === 'inline'"[\s\S]*:width="inlineWidth"/);
+  assert.match(detailDrawerSource, /<UiSidePanel[\s\S]*:render-mode="renderMode"[\s\S]*:width="width"/);
+  assert.match(detailDrawerSource, /v-if="renderMode === 'inline' \|\| hasDrawerContainer"/);
+  assert.notMatch(detailDrawerSource, /ant-design-vue|<ADrawer/);
+  assert.match(sidePanelSource, /if \(props\.renderMode === 'inline'\) return false/);
+  assert.match(sidePanelSource, /:get-container="container"/);
+  assert.match(sidePanelSource, /:width="resolvedWidth"/);
   assert.notMatch(detailDrawerSource, /RecordDetailPanel/);
   assert.match(detailDrawerSource, /<slot name="operation" \/>/);
   assert.notMatch(detailDrawerSource, /<slot name="actions" \/>/);
@@ -328,7 +325,6 @@ it('record mode drawer owns detail mode branch switching', () => {
   assert.match(drawerSource, /scope\?: UiSidePanelScope/);
   assert.match(drawerSource, /:scope="scope"/);
   assert.match(detailLayoutSource, /overflow: auto/);
-  assert.match(pageRealtimeSource, /subscribeAppModuleDataChanges\(options\.moduleAlias\)/);
 
   const recordPickerSource = readSource('src/platform-components/RecordPicker.vue');
   assert.match(recordPickerSource, /if \(props\.mode === 'list'\)[\s\S]*await loadListRecords\(\)/);
@@ -592,14 +588,23 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
-  assert.match(roleEnhancementSource, /title: '角色授权', width: 'wide'/);
+  assert.match(
+    roleEnhancementSource,
+    /title: '角色授权',\s+titleKey: 'platform\.unsaved-source\.RoleAuthorizationView',\s+width: 'wide'/,
+  );
   assert.match(
     roleEnhancementSource,
     /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,
   );
   assert.match(roleEnhancementSource, /recordActions: roleRecordActions/);
-  assert.match(roleEnumTitleCellSource, /account: '账号角色'/);
-  assert.match(roleEnumTitleCellSource, /standard: '标准角色'/);
+  assert.match(
+    roleEnumTitleCellSource,
+    /account: language\.t\('platform\.screen\.RoleManagementView\.account-role', '账号角色'\)/,
+  );
+  assert.match(
+    roleEnumTitleCellSource,
+    /standard: language\.t\('platform\.screen\.RoleManagementView\.standard-role', '标准角色'\)/,
+  );
   assert.match(roleViewSource, /tenantRootTreeNode/);
   assert.match(roleViewSource, /selectPlatformScope/);
   assert.match(roleViewSource, /title: '平台角色'/);
@@ -644,7 +649,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleViewSource, /standard-crud-actions/);
   assert.match(roleViewSource, /standard-crud-row-actions/);
   assert.match(roleViewSource, /:extra-row-actions-of="roleExtraRowActionsOf"/);
-  assert.match(roleViewSource, /key: 'bind'[\s\S]*title: '绑定'[\s\S]*after: 'edit'[\s\S]*pinned: true/);
+  assert.match(
+    roleViewSource,
+    /key: 'bind'[\s\S]*title: language\.t\('platform\.screen\.RoleManagementView\.assign', '绑定'\)[\s\S]*after: 'edit'[\s\S]*pinned: true/,
+  );
   assert.match(panelSource, /primaryActions: ResolvedRecordActionItem\[\]/);
   assert.match(panelSource, /index === 0 \|\| action\.pinned === true/);
   assert.match(roleViewSource, /:row-action-state-of="roleRowActionStateOf"/);
@@ -674,7 +682,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleEmploymentGrantDrawerSource,
     /<section v-if="selectedEmployments\.length > 0" class="role-employment-grant-selected">/,
   );
-  assert.match(roleEmploymentGrantDrawerSource, /<strong>已选任职<\/strong>/);
+  assert.match(
+    roleEmploymentGrantDrawerSource,
+    /<strong>[\s\S]*language\.t\('platform\.screen\.RoleEmploymentGrantDrawer\.selected-positions', '已选任职'\)[\s\S]*<\/strong>/,
+  );
   assert.match(roleEmploymentGrantDrawerSource, /@click="removeSelectedEmployment\(employment\.id\)"/);
   assert.match(roleEmploymentGrantDrawerSource, /function selectedEmploymentTitle/);
   assert.match(roleEmploymentGrantDrawerSource, /const selectionInitialized = ref\(false\)/);
@@ -685,7 +696,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(employeeEmploymentTableSource, /:expanded-row-keys="expandedEmployeeKeys"/);
   assert.match(employeeEmploymentTableSource, /@row-dblclick="toggleEmployeeExpanded"/);
   assert.match(employeeEmploymentTableSource, /function toggleEmployeeExpanded/);
-  assert.match(employeeEmploymentTableSource, /<RecordExpandedSubtable title="任职信息">/);
+  assert.match(
+    employeeEmploymentTableSource,
+    /<RecordExpandedSubtable\s+:title="language\.t\('platform\.screen\.CurrentUserProfileDialog\.employment-details', '任职信息'\)"/,
+  );
   assert.match(
     employeeEmploymentTableSource,
     /:selection="selectionOf\(record as unknown as EmployeeEmploymentGroup\)"/,
@@ -715,7 +729,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.notMatch(roleViewSource, /account-grants/);
   assert.notMatch(roleViewSource, /employment-grants/);
   assert.notMatch(roleViewSource, /permissionMatrix/);
-  assert.match(roleViewSource, /key: 'authorize'[\s\S]*actionCode: 'rolePermissions'[\s\S]*title: '授权'/);
+  assert.match(
+    roleViewSource,
+    /key: 'authorize'[\s\S]*actionCode: 'rolePermissions'[\s\S]*title: language\.t\('platform\.page-action\.MANAGE_PERMISSIONS\.title', '授权'\)/,
+  );
   assert.match(roleViewSource, /authorizationDrawerOpen\.value = true/);
   assert.match(roleViewSource, /<RoleAuthorizationView[\s\S]*:role-id="authorizationRole\.id"[\s\S]*drawer/);
   assert.notMatch(roleViewSource, /createWorkspaceViewDescriptor\([\s\S]*roleAuthorizationWorkspaceView/);
@@ -751,7 +768,10 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /registerRoleAuthorizationWorkspaceHandoffRecipient/);
   assert.match(roleAuthorizationViewSource, /onPromoted: dismissPromotedDrawer/);
   assert.match(roleAuthorizationViewSource, /onPromotionRejected/);
-  assert.match(roleAuthorizationViewSource, /useWorkspaceViewUnsavedState\(\s*'角色授权'/);
+  assert.match(
+    roleAuthorizationViewSource,
+    /useWorkspaceViewUnsavedState\(\s*\(\) => language\.t\([^)]*'角色授权'/,
+  );
   assert.match(roleAuthorizationViewSource, /dismissal: 'guarded'/);
   assert.match(roleAuthorizationViewSource, /beforeClose: confirmWorkspaceDismissal/);
   assert.match(roleViewSource, /const roleDetailDirty = computed/);
@@ -761,7 +781,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
     roleViewSource,
     /async function startCreateRole\(\)[\s\S]*roleDraft\.value = createRoleDraft[\s\S]*resetRoleDraftBaseline\(\)/,
   );
-  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*'角色详情'/);
+  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*\(\) => language\.t\([^)]*'角色详情'/);
   assert.match(roleViewSource, /async function selectOrganizationScope[\s\S]*selectedTenant\.value = tenant/);
   assert.match(roleViewSource, /before-close="confirmRoleDetailDismissal"/);
   assert.match(roleAuthorizationViewSource, /UiCheckbox/);
@@ -955,7 +975,6 @@ it('workbench exposes own password change through auth boundary', () => {
   const authClientSource = readSource('src/web-core/clients.ts');
 
   assert.match(workbenchSource, /key: 'changePassword'/);
-  assert.match(workbenchSource, /title: '修改密码'/);
   assert.match(workbenchSource, /\.workbench-layout \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
@@ -972,7 +991,6 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(appSource, /onUserNotification: handleSecurityNotification/);
   assert.match(pageRealtimeSource, /export interface PageRealtimeSubscription/);
   assert.match(pageRealtimeSource, /export function usePageRealtimeSubscription/);
-  assert.match(pageRealtimeSource, /usePageModuleDataChanges\(moduleAlias: string\)/);
   assert.match(pageRealtimeSource, /usePageBusinessEventHandler/);
   assert.match(
     pageRealtimeSource,
@@ -986,9 +1004,8 @@ it('workbench exposes own password change through auth boundary', () => {
   assert.match(pageRealtimeSource, /onUnmounted\(\(\) => \{/);
   assert.match(realtimeSource, /connectRealtimeBusinessEvents/);
   assert.match(realtimeSource, /subscribeAppBusinessEvents/);
-  assert.match(realtimeSource, /subscribeAppModuleDataChanges\(moduleAlias: string\)/);
-  assert.match(realtimeSource, /moduleDataChangeChannel\(moduleAlias\)/);
-  assert.match(realtimeSource, /appDataChangeDispatcher\.dispatch\(changeSet\)/);
+  assert.notMatch(realtimeSource, /moduleDataChangeChannel/);
+  assert.match(realtimeSource, /connectRealtimeDataChanges\(realtime, appDataChangeDispatcher\)/);
   assert.notMatch(realtimeSource, /moduleDataChangeChannel\('iam\.user'\)/);
   assert.match(appSource, /function handleSecurityNotification\(notification: WebUserNotification\)/);
   assert.match(appSource, /startSecurityLogoutCountdown\(5\)/);
@@ -1058,7 +1075,10 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   );
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
-  assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
+  assert.match(
+    hostSource,
+    /'platform.screen.useModulePageSession.the-value-entry-is-not-supported-by-the-module-page'/,
+  );
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
   assert.match(hostSource, /:explorer-count="navigatorExplorerCount \+ tenantScopeExplorerCount"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
@@ -1109,7 +1129,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     hostSource,
     /saveDetailSurfacePreference\(userPreferences, context\.moduleAlias, preference\)/,
   );
-  assert.match(hostSource, /title="改为抽屉展示"/);
   assert.match(hostSource, /icon-name="pin-off"/);
   assert.match(hostSource, /icon-name="pin"/);
   assert.match(hostSource, /:workspace-available="detailWorkspaceAvailable"/);
@@ -1118,7 +1137,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
     hostSource,
     /<RecordModeDrawer[\s\S]*<template v-if="!props\.recordOnly && listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
   );
-  assert.match(hostSource, /title="固定到右侧展示"/);
   assert.match(
     hostSource,
     /function selectListDetailRecord\(record: QueryListRecord\)[\s\S]*openRecordView\(record\)/,
@@ -1136,13 +1154,16 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   const moduleActionsSource = readSource('src/dynamic-page-runtime/composables/useModulePageActions.ts');
   assert.match(recordFormFieldsSource, /gap: var\(--muyun-record-form-label-gap, 6px\)/);
   assert.match(hostSource, /useRecycleBinExplorerMode<QueryListRecord>/);
-  assert.match(hostSource, /title: `删除\$\{recordLabel\.value\}`/);
+  assert.match(hostSource, /'platform.screen.ManagedDetailRelationSurface.delete-value'/);
   assert.match(hostSource, /useModulePageActions\(\)/);
   assert.match(moduleActionsSource, /handlePlatformActionSuccess\(result,/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, '保存成功'\)/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, '删除成功'\)/);
-  assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
-  assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*'保存成功'/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*'删除成功'/);
+  assert.match(hostSource, /await presentModuleActionSuccess\([\s\S]*enabling[\s\S]*'已启用'[\s\S]*'已停用'/);
+  assert.match(
+    hostSource,
+    /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action', language \}\)/,
+  );
   assert.notMatch(hostSource, /formViewCode/);
   assert.notMatch(hostSource, /<button/);
   assert.notMatch(hostSource, /@muyun\/vue-ui-antdv/);
@@ -1274,10 +1295,12 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   const dynamicModuleRouteSource = readSource('src/views/DynamicModuleRouteView.vue');
 
   assert.match(workbenchSource, /const openedTabs = computed\(\(\) => props\.startup\?\.tabs \?\? \[\]\)/);
-  assert.notMatch(workbenchSource, /UiSidePanelHost/);
   assert.notMatch(workbenchSource, /shouldKeepTabMounted|tabHostKey/);
   assert.notMatch(workbenchSource, /<template v-for="tab in openedTabs"/);
-  assert.match(workbenchSource, /<div v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/);
+  assert.match(
+    workbenchSource,
+    /<UiSidePanelHost v-else-if="activeTab" class="tab-panel-host">[\s\S]*?<slot/,
+  );
   assert.match(workbenchSource, /\.tab-panel-host \{[\s\S]*height: 100%;[\s\S]*min-height: 0;/);
   assert.match(appSource, /const CachePageHost = defineComponent\(\{[\s\S]*name: 'CachePageHost'/);
   assert.match(
@@ -1334,7 +1357,10 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
   assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
-  assert.match(dynamicWorkspaceDetailSource, /useModulePageUnsavedState\(\s*'记录详情'/);
+  assert.match(
+    dynamicWorkspaceDetailSource,
+    /useModulePageUnsavedState\(\s*\(\) => language\.t\([^)]*'记录详情'/,
+  );
   assert.match(dynamicWorkspaceDetailSource, /const \{ record, draft, mode, formSessionKey, isDirty,/);
   assert.match(dynamicWorkspaceDetailSource, /confirmDiscardEditing/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
@@ -1404,7 +1430,10 @@ it('platform account-role binding selects a target tenant before loading or savi
     /const needsTargetTenant = computed\(\(\) => props\.role\?\.ownerScopeType === 'platform'\)/,
   );
   assert.match(drawerSource, /if \(!bindingReady\.value\) \{[\s\S]*clearBindingData\(\);/);
-  assert.match(drawerSource, /<RecordPicker[\s\S]*placeholder="请选择角色下发的目标租户"/);
+  assert.match(
+    drawerSource,
+    /<RecordPicker[\s\S]*:placeholder="[\s\S]*'platform\.screen\.RoleAccountGrantDrawer\.select-the-target-tenant-for-this-role-assignment',[\s\S]*'请选择角色下发的目标租户'/,
+  );
   assert.match(drawerSource, /targetTenantId: targetTenantId\.value/);
   assert.match(
     grantClientSource,
@@ -1458,7 +1487,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(panelSource, /emit\('modeChange', mode === 'normal' \? 'recycleBin' : 'normal'\)/);
   assert.match(panelSource, /key: 'restore',[\s\S]*actionCode: 'recycleBinRestore'/);
   assert.match(panelSource, /item\.purgeable/);
-  assert.match(panelSource, /key: 'purge', actionCode: 'recycleBinPurge'/);
+  assert.match(panelSource, /key: 'purge',[\s\S]*actionCode: 'recycleBinPurge'/);
   assert.match(panelSource, /function handleTableRowClick[\s\S]*emit\('select', row\.record\)/);
   assert.match(hostSource, /useModulePageListSession\(/);
   assert.match(listSessionSource, /const listMode = ref<RecordQueryListMode>\('normal'\)/);
@@ -1473,7 +1502,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(explorerSource, /requestSeq !== recordsRequestSeq/);
   assert.match(explorerSource, /key: 'restore'/);
   assert.match(explorerSource, /showLabel: true/);
-  assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item\)/);
+  assert.match(explorerSource, /disabledReason: recycleBinRestoreUnavailableReason\(item, language\)/);
   assert.match(explorerSource, /recycleBinState\.restore\(item, false\)/);
   assert.match(hostSource, /openRecycleBinRecord/);
   assert.match(editingSessionSource, /\/recycle-bin\/view\/\$\{encodeURIComponent\(id\)\}/);

@@ -52,6 +52,76 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
         return new AssistantConversationService.Command(revision,
                 new AssistantConversationService.Content("订单管理", List.of(message), List.of(message), null, null, null, null));
     }
+    @Test void persistsBoundedCodePresentationOnlyInDisplayMessages() {
+        as("owner", "tenant", () -> {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var reference = net.ximatai.muyun.spring.common.i18n.TextReference.code(
+                    "platform.error.AI_MODEL_TIMEOUT", "等待模型回复超时，请稍后重试。");
+            var fragment = json.createObjectNode();
+            fragment.set("source", json.valueToTree(reference));
+            var presentation = json.createObjectNode();
+            presentation.putArray("parts").add(fragment).add(" ").add(fragment.deepCopy());
+            var user = new AssistantConversationService.Message("user", "用户原始需求");
+            var status = new AssistantConversationService.Message("status", "归档原始提示", null, presentation);
+            var content = new AssistantConversationService.Content("原始标题", List.of(user, status),
+                    List.of(user), null, null, null, "scope");
+            String id = UUID.randomUUID().toString().replace("-", "");
+            service.save(id, "scope", new AssistantConversationService.Command(0, content));
+            var restored = service.read(id, "scope").content();
+            assertThat(restored.messages().get(1).controlText()).isEqualTo(presentation);
+            assertThat(restored.messages().get(1).text()).isEqualTo("归档原始提示");
+            assertThat(restored.history()).containsExactly(user);
+            assertThat(service.save(id, "scope", new AssistantConversationService.Command(1, content)).revision()).isEqualTo(1);
+            var fallback = new AssistantConversationService.Message("assistant", "平台兜底原文", null, presentation);
+            service.save(id, "scope", new AssistantConversationService.Command(1,
+                    new AssistantConversationService.Content("原始标题", List.of(user, fallback),
+                            List.of(user), null, null, null, "scope")));
+            for (String role : List.of("user", "status")) {
+                var invalid = new AssistantConversationService.Message(role, "伪造元数据", null, presentation);
+                var invalidContent = new AssistantConversationService.Content("原始标题",
+                        "user".equals(role) ? List.of(invalid) : List.of(user),
+                        "user".equals(role) ? List.of(user) : List.of(invalid), null, null, null, "scope");
+                assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(2, invalidContent)))
+                        .hasMessageContaining("Control text belongs only");
+            }
+            assertThat(service.read(id, "scope").content().messages().get(1).text()).isEqualTo("平台兜底原文");
+            return null;
+        });
+    }
+    @Test void rejectsMalformedUnboundedAndNonCodeControlPresentationBeforeWriting() {
+        as("owner", "tenant", () -> {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var reference = net.ximatai.muyun.spring.common.i18n.TextReference.code(
+                    "platform.error.AI_MODEL_TIMEOUT", "等待模型回复超时，请稍后重试。");
+            var valid = json.createObjectNode();
+            valid.set("source", json.valueToTree(reference));
+            var badVersion = valid.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) badVersion.get("source")).put("sourceVersion", "sha256-" + "0".repeat(64));
+            var config = valid.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) config.get("source")).put("sourceKind", "CONFIG");
+            var execute = valid.deepCopy().put("execute", "submit");
+            var large = valid.deepCopy();
+            large.putObject("args").put("value1", "x".repeat(4001));
+            var deep = valid.deepCopy();
+            for (int depth = 0; depth < 5; depth++) {
+                var next = json.createObjectNode(); next.putArray("parts").add(deep); deep = next;
+            }
+            var broad = json.createObjectNode();
+            var parts = broad.putArray("parts");
+            for (int index = 0; index < 33; index++) parts.add(valid.deepCopy());
+            String id = UUID.randomUUID().toString().replace("-", "");
+            var plainReplacement = json.createObjectNode(); plainReplacement.putArray("parts").add("different display");
+            for (var presentation : List.of(badVersion, config, execute, large, deep, broad, plainReplacement)) {
+                var message = new AssistantConversationService.Message("status", "原文", null, presentation);
+                var content = new AssistantConversationService.Content("原始标题", List.of(message),
+                        List.of(), null, null, null, "scope");
+                assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(0, content)))
+                        .hasMessageContaining("Invalid assistant control text");
+            }
+            assertThat(service.list("scope", 1)).extracting(AssistantConversationService.Summary::id).doesNotContain(id);
+            return null;
+        });
+    }
     @Test void persistsHistoryWithOwnerScopeAndOptimisticConcurrency() {
         String id = UUID.randomUUID().toString().replace("-", "");
         as("owner", "tenant", () -> {

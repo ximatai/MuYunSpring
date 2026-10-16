@@ -1,3 +1,4 @@
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, ref, watch, type Ref } from 'vue';
 import {
   resolveRecordFormFieldState,
@@ -32,6 +33,7 @@ interface UseModulePageFormContributionRuntimeOptions {
  * state or an arbitrary transport. Read queries stay on the host context.
  */
 export function useModulePageFormContributionRuntime(options: UseModulePageFormContributionRuntimeOptions) {
+  const language = useLanguageContext();
   const validityByContribution = ref(new Map<string, ModulePageFormContributionValidity>());
   const valid = computed(() =>
     [...validityByContribution.value.values()].every((validity) => validity.valid),
@@ -59,16 +61,35 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
       setField(fieldName, value) {
         const target = stateSnapshot().fields.find((candidate) => candidate.fieldName === fieldName);
         if (!target) {
-          throw new Error(`表单增强不能写入未声明字段：${fieldName}`);
+          throw new Error(
+            language.t(
+              'platform.screen.useModulePageFormContributionRuntime.a-form-enhancement-cannot-write-an-undeclared-field-value',
+              '表单增强不能写入未声明字段：{value1}',
+              { value1: fieldName },
+            ),
+          );
         }
         if (target.readOnly) {
-          throw new Error(`表单增强不能写入只读字段：${fieldName}`);
+          throw new Error(
+            language.t(
+              'platform.screen.useModulePageFormContributionRuntime.a-form-enhancement-cannot-write-a-read-only-field-value',
+              '表单增强不能写入只读字段：{value1}',
+              { value1: fieldName },
+            ),
+          );
         }
         options.setField(fieldName, value);
       },
       queryRecords(request) {
         if (!options.queryRecords) {
-          return Promise.reject(new Error('当前表单宿主未提供受控读取能力'));
+          return Promise.reject(
+            new Error(
+              language.t(
+                'platform.screen.useModulePageFormContributionRuntime.the-current-form-host-provides-no-controlled-read-capability',
+                '当前表单宿主未提供受控读取能力',
+              ),
+            ),
+          );
         }
         return options.queryRecords(request);
       },

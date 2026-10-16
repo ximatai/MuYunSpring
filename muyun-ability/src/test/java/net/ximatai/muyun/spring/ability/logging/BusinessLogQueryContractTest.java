@@ -40,7 +40,8 @@ class BusinessLogQueryContractTest {
                     assertThat(field.reference()).isEqualTo(new net.ximatai.muyun.spring.ability.query.QuerySchema.Reference(
                             "iam.user", net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE, "username"));
                     assertThat(field.persistentControl()).isEqualTo(new net.ximatai.muyun.spring.ability.query.QuerySchema.PersistentControl(
-                            "operatorId", "操作用户", QueryOperator.EQ, List.of()));
+                            "operatorId", "操作用户", QueryOperator.EQ, List.of(),
+                            net.ximatai.muyun.spring.common.i18n.TextReference.code("query/business-log/operatorId/title", "操作用户")));
                 });
         assertThat(BusinessLogQueryContract.forProfile(BusinessLogQueryProfile.LOGIN_AUDIT).schema().fields())
                 .filteredOn(field -> field.name().equals("occurredAt"))

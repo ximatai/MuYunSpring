@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
 import { UiEmpty, UiIcon, UiInput } from '@muyun/vue-ui-antdv';
 import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
@@ -43,7 +44,7 @@ const props = withDefaults(
   }>(),
   {
     selectedMenuId: undefined,
-    tenantLabel: '系统工作区',
+    tenantLabel: undefined,
     logoSrc: undefined,
     showTitleArea: true,
     brandTitle: 'MuYun',
@@ -107,14 +108,17 @@ const sidebarSubmenuAnchorTop = ref(0);
 const sidebarSubmenuAnchorHeight = ref(29);
 const hoverClickIntent = createMenuHoverClickIntent(MENU_HOVER_CLICK_GRACE_PERIOD);
 
-const menuNodes = computed(() => createWorkbenchMenuNodes(props.menus));
+const language = useLanguageContext();
+const menuNodes = computed(() => createWorkbenchMenuNodes(props.menus, language));
 const filteredMenus = computed(() => filterWorkbenchMenuNodes(menuNodes.value, menuFilter.value));
 const selectedMenuPath = computed(() =>
   props.selectedMenuId ? findWorkbenchMenuPath(menuNodes.value, props.selectedMenuId) : [],
 );
 const selectedRootMenuId = computed(() => selectedMenuPath.value[0]?.record.id);
 const selectedMenuPathIds = computed(() => selectedMenuPath.value.map((node) => node.record.id));
-const realtimeStatusPresentation = computed(() => presentWorkbenchRealtimeStatus(props.realtimeStatus));
+const realtimeStatusPresentation = computed(() =>
+  presentWorkbenchRealtimeStatus(props.realtimeStatus, language),
+);
 const activeRootNode = computed(() => {
   const node = activeRootMenuId.value
     ? findWorkbenchMenuNodeById(filteredMenus.value, activeRootMenuId.value)
@@ -813,7 +817,9 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
           <WorkbenchBrandControl
             v-if="!isCompact"
             presentation="expanded"
-            :tenant-label="tenantLabel"
+            :tenant-label="
+              tenantLabel ?? language.t('platform.screen.Workbench.system-workspace', '系统工作区')
+            "
             :logo-src="logoSrc"
             :show-title-area="showTitleArea"
             :brand-title="brandTitle"
@@ -831,11 +837,14 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
             type="search"
             allow-clear
             :placeholder="searchPlaceholder"
-            aria-label="搜索菜单"
+            :aria-label="language.t('platform.screen.WorkbenchMenu.search-menus', '搜索菜单')"
           />
         </div>
 
-        <nav class="root-menu" aria-label="主导航">
+        <nav
+          class="root-menu"
+          :aria-label="language.t('platform.screen.WorkbenchMenu.main-navigation', '主导航')"
+        >
           <div v-if="filteredMenus.length > 0" class="root-menu-list">
             <template v-for="node in filteredMenus" :key="node.record.id">
               <div
@@ -860,7 +869,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                 <button
                   class="root-menu-item-trigger"
                   type="button"
-                  :aria-label="`${activeRootNode?.record.id === node.record.id ? '收起' : '展开'}${node.record.title}下级菜单`"
+                  :aria-label="
+                    language.t(
+                      activeRootNode?.record.id === node.record.id
+                        ? 'platform.menu.collapse-children'
+                        : 'platform.menu.expand-children',
+                      activeRootNode?.record.id === node.record.id
+                        ? '收起{title}下级菜单'
+                        : '展开{title}下级菜单',
+                      { title: node.record.title },
+                    )
+                  "
                   :aria-expanded="activeRootNode?.record.id === node.record.id"
                   aria-controls="workbench-mega-panel"
                   @click.stop="toggleRootMenu(node, $event)"
@@ -938,7 +957,10 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               </div>
             </template>
           </div>
-          <UiEmpty v-else description="暂无菜单" />
+          <UiEmpty
+            v-else
+            :description="language.t('platform.screen.WorkbenchMenu.no-menus-available', '暂无菜单')"
+          />
         </nav>
 
         <div v-if="isCompact" class="compact-menu-tools">
@@ -949,7 +971,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               type="search"
               allow-clear
               :placeholder="searchPlaceholder"
-              aria-label="搜索菜单"
+              :aria-label="language.t('platform.screen.WorkbenchMenu.search-menus', '搜索菜单')"
             />
           </div>
         </div>
@@ -1067,7 +1089,15 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                       :aria-current="isSelectedMenu(entry) ? 'page' : undefined"
                       :aria-label="
                         !entry.navigable && entry.hasChildren
-                          ? `${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`
+                          ? language.t(
+                              activeDeepRootNode?.record.id === entry.record.id
+                                ? 'platform.menu.collapse-children'
+                                : 'platform.menu.expand-children',
+                              activeDeepRootNode?.record.id === entry.record.id
+                                ? '收起{title}下级菜单'
+                                : '展开{title}下级菜单',
+                              { title: entry.record.title },
+                            )
                           : undefined
                       "
                       :aria-expanded="
@@ -1091,7 +1121,17 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
                       v-if="entry.hasChildren && entry.navigable"
                       class="mega-entry-trigger"
                       type="button"
-                      :aria-label="`${activeDeepRootNode?.record.id === entry.record.id ? '收起' : '展开'}${entry.record.title}下级菜单`"
+                      :aria-label="
+                        language.t(
+                          activeDeepRootNode?.record.id === entry.record.id
+                            ? 'platform.menu.collapse-children'
+                            : 'platform.menu.expand-children',
+                          activeDeepRootNode?.record.id === entry.record.id
+                            ? '收起{title}下级菜单'
+                            : '展开{title}下级菜单',
+                          { title: entry.record.title },
+                        )
+                      "
                       :aria-expanded="activeDeepRootNode?.record.id === entry.record.id"
                       aria-controls="workbench-mega-deep-panel"
                       @click.stop="toggleDeepRoot(entry)"
@@ -1118,7 +1158,14 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
               @mouseenter="handleMenuEnter"
               @keydown.esc.stop="closeDeepRoot"
             >
-              <ul class="mega-deep-tree" :aria-label="`${activeDeepRootNode.record.title}下级菜单`">
+              <ul
+                class="mega-deep-tree"
+                :aria-label="
+                  language.t('platform.menu.children', '{title}下级菜单', {
+                    title: activeDeepRootNode.record.title,
+                  })
+                "
+              >
                 <WorkbenchMenuTree
                   v-for="child in activeDeepRootNode.children"
                   :key="child.record.id"
@@ -1140,7 +1187,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
         id="workbench-sidebar-submenu-panel"
         ref="sidebarSubmenuPanel"
         class="sidebar-submenu-panel"
-        aria-label="下级菜单"
+        :aria-label="language.t('platform.screen.WorkbenchMenu.submenus', '下级菜单')"
         :style="{
           '--sidebar-submenu-top': `${sidebarSubmenuTop}px`,
           '--sidebar-submenu-left': `${sidebarSubmenuLeft}px`,

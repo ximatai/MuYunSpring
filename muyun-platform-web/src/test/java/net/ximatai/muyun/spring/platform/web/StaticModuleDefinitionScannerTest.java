@@ -121,6 +121,33 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void personalWorkflowEntryPublishesOnlyLoginRequiredIamMenuAndSelfQuery() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(net.ximatai.muyun.spring.iam.web.WorkflowWorkbenchWebController.class,
+                    () -> new net.ximatai.muyun.spring.iam.web.WorkflowWorkbenchWebController(
+                            mock(net.ximatai.muyun.spring.platform.workflow.WorkflowRuntimeReadFacade.class)));
+            context.refresh();
+            var definition = new StaticModuleDefinitionScanner(context).scan().getFirst();
+            assertThat(definition.applicationAlias()).isEqualTo("iam");
+            assertThat(definition.moduleAlias()).isEqualTo("iam.workflow_workbench");
+            assertThat(definition.entryRoute()).isEqualTo("/workflow/workbench");
+            assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode).containsExactlyInAnyOrder("menu", "query");
+            assertThat(definition.actions()).allSatisfy(action -> {
+                assertThat(action.accessMode()).isEqualTo(EntityActionAccessMode.LOGIN_REQUIRED);
+                var policy = action.executionPolicy();
+                assertThat(policy.accessMode()).isEqualTo(net.ximatai.muyun.spring.common.platform.ActionAccessMode.LOGIN_REQUIRED);
+                assertThat(policy.actionAuth()).isFalse();
+                assertThat(policy.dataAuth()).isFalse();
+            });
+            assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("query"))
+                    .singleElement().satisfies(action -> {
+                        assertThat(action.actionAuth()).isFalse();
+                        assertThat(action.dataAuth()).isFalse();
+                    });
+        }
+    }
+
+    @Test
     void shouldPreservePageActionsAcrossStaticContributions() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(ContributedActionTargetWeb.class);
@@ -344,9 +371,9 @@ class StaticModuleDefinitionScannerTest {
                         .singleElement()
                         .satisfies(action -> assertCustomRecordAction(action, "employeeDelegatedToMe", "职员受托代办"));
                 assertThat(definition.references()).extracting(StaticReferenceDefinition::code)
-                        .containsExactly("organization", "department");
+                        .containsExactly("organization", "department", "supervisor_employee");
                 assertThat(definition.references()).extracting(StaticReferenceDefinition::targetModuleAlias)
-                        .containsExactly("iam.organization", "iam.department");
+                        .containsExactly("iam.organization", "iam.department", "iam.employee");
                 assertThat(definition.readProjections()).extracting(StaticModuleReadProjectionDefinition::path)
                         .containsExactly("organization.title", null, null);
                 assertThat(definition.readProjections()).filteredOn(projection -> projection.referencePath() != null)
@@ -378,7 +405,7 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.viewKind()).isEqualTo(ModuleViewKind.FORM);
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("organizationId", "departmentId", "employeeNo", "title",
-                                            "gender", "mobile", "email", "enabled");
+                                            "gender", "mobile", "email", "supervisorEmployeeId", "enabled");
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("departmentId"))
                                     .singleElement()
                                     .satisfies(field -> assertThat(field.uiType()).isEqualTo("recordPicker"));
@@ -1024,9 +1051,9 @@ class StaticModuleDefinitionScannerTest {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(WorkflowDefinitionWebController.class,
                     () -> withService(
-                            new WorkflowDefinitionWebController(
-                                    mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class),
-                                    mock(WorkflowPublishFacade.class)),
+                            new WorkflowDefinitionWebController(mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class),
+                mock(WorkflowPublishFacade.class),
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class)),
                             mock(WorkflowDefinitionService.class)));
             context.registerBean(WorkflowVersionWebController.class,
                     () -> new WorkflowVersionWebController(mock(WorkflowDefinitionService.class)));
@@ -1041,7 +1068,9 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get(WorkflowDefinitionService.MODULE_ALIAS).actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("create", "view", "update", "delete", "query", "sort",
-                            "publishWorkflowDefinition", "disableWorkflowDefinition", "archiveWorkflowDefinition");
+                            "publishWorkflowDefinition", "disableWorkflowDefinition", "archiveWorkflowDefinition",
+                            "upgradeWorkflowDefinition", "editWorkflowDesign", "validateWorkflowDesign",
+                            "configureWorkflowSelection", "viewWorkflowDesign");
             assertThat(byAlias.get(WorkflowVersionService.MODULE_ALIAS).actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("create", "view", "update", "delete", "query");

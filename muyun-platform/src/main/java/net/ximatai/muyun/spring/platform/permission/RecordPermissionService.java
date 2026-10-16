@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.permission;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
@@ -19,7 +21,6 @@ import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.capability.DataScopeCapable;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
@@ -53,16 +54,24 @@ public class RecordPermissionService {
     private <T extends EntityContract> RecordPermissionAccess<T> requireRecord(CrudAbility<T> service, String id) {
         boolean enabled = service instanceof RecordPermissionPersistence<?> source
                 ? source.supportsRecordPermissions() : service instanceof DataScopeAbility<?>;
-        if (!enabled) throw new PlatformException("数据权限能力未启用");
+        if (!enabled) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-permission.data-permissions-are-not-enabled",
+                "数据权限能力未启用"));
         authorization.requireRecordAction(ActionExecutionContext.ofPlatformAction(service.getModuleAlias(),
                 PlatformAction.MANAGE_PERMISSIONS, Set.of(id), CurrentUserContext.currentUser()));
         DataScopeFieldMapping mapping = service instanceof DataScopeAbility<?> scoped
                 ? scoped.dataScopeFieldMapping() : DataScopeFieldMapping.STANDARD;
-        if (!DataScopeFieldMapping.STANDARD.equals(mapping)) throw new PlatformException("业务归属映射不支持通用权限变更");
+        if (!DataScopeFieldMapping.STANDARD.equals(mapping)) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-permission.business-ownership-mapping-does-not-support-general-permission-changes",
+                "业务归属映射不支持通用权限变更"));
         RecordPermissionAccess<T> access = selectForPermissionAction(service, id);
         T record = access.record();
-        if (record == null) throw new PlatformException("记录不存在或无权限管理");
-        if (!(record instanceof DataScopeCapable)) throw new PlatformException("记录未启用数据权限能力");
+        if (record == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-permission.the-record-was-not-found-or-you-cannot-manage-its-permissions",
+                "记录不存在或无权限管理"));
+        if (!(record instanceof DataScopeCapable)) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-permission.data-permissions-are-not-enabled-for-this-record",
+                "记录未启用数据权限能力"));
         return access;
     }
 
@@ -128,7 +137,9 @@ public class RecordPermissionService {
 
         List<String> ids = command.userIds();
         if (ids.isEmpty()) {
-            throw new PlatformException("目标人员不可用或不在可选范围内");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-permission.the-selected-person-is-unavailable-or-outside-the-allowed-scope",
+                    "目标人员不可用或不在可选范围内"));
         }
 
         Criteria criteria = candidateCriteria(record).in("id", ids);
@@ -138,7 +149,9 @@ public class RecordPermissionService {
                 .distinct()
                 .count();
         if (availableCount != new HashSet<>(ids).size()) {
-            throw new PlatformException("目标人员不可用或不在可选范围内");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-permission.the-selected-person-is-unavailable-or-outside-the-allowed-scope",
+                    "目标人员不可用或不在可选范围内"));
         }
 
     }
@@ -167,7 +180,9 @@ public class RecordPermissionService {
 
     private ReferenceAbility<?> users() {
         return PlatformAbilityRuntime.referenceTargetResolver().resolve(ReferenceTarget.parse("iam.user"))
-                .orElseThrow(() -> new PlatformException("用户引用能力不可用"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-permission.user-references-are-unavailable",
+                        "用户引用能力不可用")));
     }
 
     private RecordPermissionState state(EntityContract entity) {

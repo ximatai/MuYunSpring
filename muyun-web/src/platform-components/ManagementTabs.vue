@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useLanguageContext } from '@muyun/web-core';
+
+const language = useLanguageContext();
 defineOptions({ name: 'ManagementTabs' });
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     tabs: Array<{ key: string; title: string }>;
     activeKey?: string;
@@ -9,7 +13,11 @@ withDefaults(
     label?: string;
     appearance?: 'section' | 'header';
   }>(),
-  { label: '视图切换', appearance: 'section' },
+  { label: undefined, appearance: 'section' },
+);
+
+const resolvedLabel = computed(
+  () => props.label ?? language.t('platform.screen.ManagementTabs.label', '视图切换'),
 );
 
 const emit = defineEmits<{
@@ -23,7 +31,7 @@ const emit = defineEmits<{
     class="management-tabs"
     :class="{ 'management-tabs--header': appearance === 'header' }"
     role="tablist"
-    :aria-label="label"
+    :aria-label="resolvedLabel"
   >
     <button
       v-for="tab in tabs"

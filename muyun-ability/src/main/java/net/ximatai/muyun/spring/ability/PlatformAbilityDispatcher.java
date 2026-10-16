@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
+import net.ximatai.muyun.spring.ability.deletion.RecordDeletionGuard;
 import net.ximatai.muyun.spring.ability.deletion.DeletionMode;
 import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
@@ -24,6 +25,8 @@ final class PlatformAbilityDispatcher {
     private static final MainRecordFormulaExecutor mainRecordFormulaExecutor = new MainRecordFormulaExecutor();
     private static volatile StaticOptionFieldValueValidator staticOptionFieldValueValidator =
             StaticOptionFieldValueValidator.NONE;
+    private static volatile RecordDeletionGuard recordDeletionGuard =
+            RecordDeletionGuard.NONE;
     private static volatile DeletionLifecycleListener deletionLifecycleListener = DeletionLifecycleListener.NONE;
     private static volatile MutationTransactionOperator mutationTransactionOperator = MutationTransactionOperator.NONE;
     private static volatile ReferenceDeletionGuard referenceDeletionGuard = ReferenceDeletionGuard.NONE;
@@ -61,6 +64,14 @@ final class PlatformAbilityDispatcher {
 
     static void resetStaticOptionFieldValueValidator() {
         staticOptionFieldValueValidator = StaticOptionFieldValueValidator.NONE;
+    }
+
+    static void setRecordDeletionGuard(RecordDeletionGuard guard) {
+        recordDeletionGuard = java.util.Objects.requireNonNull(guard, "guard");
+    }
+
+    static void validateRecordDeletion(CrudAbility<?> ability, EntityContract record) {
+        if (record != null) recordDeletionGuard.validate(ability, record);
     }
 
     static void setDeletionLifecycleListener(DeletionLifecycleListener listener) {
@@ -228,6 +239,8 @@ final class PlatformAbilityDispatcher {
                                                                 T existing,
                                                                 T entity,
                                                                 boolean update) {
+        ApprovalMutationSupport.retain(ability, entity, existing);
+        ApprovalMutationSupport.requireEditable(ability, entity, existing);
         // Discriminated fields may derive a persisted value from the selected branch. Normalize
         // them before generic option/reference checks so every later write validator sees one
         // coherent record, regardless of whether the declaration is static or dynamic.
@@ -241,6 +254,7 @@ final class PlatformAbilityDispatcher {
         runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);
         entitySaveLifecycleListener.beforeSave(ability, existing, entity);
+        ApprovalMutationSupport.retain(ability, entity, existing);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

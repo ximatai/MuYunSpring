@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.action.ActionMessageReporter;
@@ -83,8 +84,8 @@ public class EmployeeAccountService extends TenantActiveScopedService<EmployeeAc
     public AccountProvisionResult provisionAccount(String employeeId, UserAccount account) {
         String validEmployeeId = Preconditions.requireText(employeeId, "employeeId");
         if (accountOfEmployee(validEmployeeId) != null) {
-            throw BusinessExceptions.warning("iam.employee-account.already-bound",
-                    "该职员已绑定账号");
+            throw BusinessExceptions.warningText("iam.employee-account.already-bound",
+                TextReference.code("iam.employee-account.already-bound", "该职员已绑定账号"));
         }
         employeeService.requireEnabled(validEmployeeId, "employee is not active: " + validEmployeeId);
         UserAccount user = normalizeProvisionUser(account);

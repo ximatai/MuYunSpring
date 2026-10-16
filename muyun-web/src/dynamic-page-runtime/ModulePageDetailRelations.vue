@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type HttpClient, type ModuleContext } from '@muyun/web-core';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import { computed, ref, watch } from 'vue';
 import {
@@ -10,9 +11,11 @@ import {
 } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
-import type { HttpClient, ModuleContext } from '@muyun/web-core';
+
 import ManagedDetailRelationSurface from './ManagedDetailRelationSurface.vue';
 import ManagedDetailRelationInlineSurface from './ManagedDetailRelationInlineSurface.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModulePageDetailRelations' });
 
@@ -179,16 +182,30 @@ watch(
       #actions
     >
       <span v-if="(removedCounts[relation.code] ?? 0) > 0" class="managed-relation-pending-removal">
-        已移除 {{ removedCounts[relation.code] }} 项
-        <RecordPanelButton type="link" @click="requestUndoRemove(relation.code)">撤销</RecordPanelButton>
+        {{
+          language.t('platform.relations.removed-count', '已移除 {count} 项', {
+            count: removedCounts[relation.code],
+          })
+        }}
+        <RecordPanelButton type="link" @click="requestUndoRemove(relation.code)">{{
+          language.t('platform.screen.ModulePageDetailRelations.undo', '撤销')
+        }}</RecordPanelButton>
       </span>
       <RecordPanelButton
         v-if="relationCreateAllowed(relation)"
         class="managed-relation-add-button"
         type="text"
         icon-name="plus"
-        :title="`新增${relation.title ?? relation.code}`"
-        :aria-label="`新增${relation.title ?? relation.code}`"
+        :title="
+          language.t('platform.screen.ModulePageDetailRelations.add-value', '新增{value1}', {
+            value1: relation.title ?? relation.code,
+          })
+        "
+        :aria-label="
+          language.t('platform.screen.ModulePageDetailRelations.add-value', '新增{value1}', {
+            value1: relation.title ?? relation.code,
+          })
+        "
         @click="requestAdd(relation.code)"
       />
       <RecordPanelButton
@@ -198,8 +215,20 @@ watch(
         danger
         icon-name="minus"
         :disabled="(selectedCounts[relation.code] ?? 0) === 0"
-        :title="`移除选中的${relation.title ?? relation.code}`"
-        :aria-label="`移除选中的${relation.title ?? relation.code}`"
+        :title="
+          language.t(
+            'platform.screen.ModulePageDetailRelations.remove-selected-value',
+            '移除选中的{value1}',
+            { value1: relation.title ?? relation.code },
+          )
+        "
+        :aria-label="
+          language.t(
+            'platform.screen.ModulePageDetailRelations.remove-selected-value',
+            '移除选中的{value1}',
+            { value1: relation.title ?? relation.code },
+          )
+        "
         @click="requestRemove(relation.code)"
       />
       <RecordPanelButton
@@ -207,8 +236,16 @@ watch(
         class="managed-relation-add-button"
         type="text"
         icon-name="delete"
-        :title="`${relation.title ?? relation.code}回收站`"
-        :aria-label="`${relation.title ?? relation.code}回收站`"
+        :title="
+          language.t('platform.screen.ModulePageDetailRelations.value-recycle-bin', '{value1}回收站', {
+            value1: relation.title ?? relation.code,
+          })
+        "
+        :aria-label="
+          language.t('platform.screen.ModulePageDetailRelations.value-recycle-bin', '{value1}回收站', {
+            value1: relation.title ?? relation.code,
+          })
+        "
         @click="requestRecycleBin(relation.code)"
       />
     </template>

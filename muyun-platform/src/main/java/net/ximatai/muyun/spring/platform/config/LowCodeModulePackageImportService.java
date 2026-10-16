@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.config;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -27,7 +29,9 @@ public class LowCodeModulePackageImportService {
     public LowCodeModulePackageImportDraft prepareDraft(LowCodeModulePackage modulePackage) {
         LowCodePackageDryRunResult dryRunResult = exchangeService.dryRunImport(modulePackage);
         if (dryRunResult.blocked()) {
-            throw new PlatformException("low code package import dry-run is blocked: " + modulePackage.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-import.low-code-package-import-dry-run-is-blocked",
+                    "low code package import dry-run is blocked: {value1}"), Map.of("value1", String.valueOf(modulePackage.moduleAlias())));
         }
         LowCodeModuleConfigVersion current = versionService.currentVersion(modulePackage.moduleAlias());
         return new LowCodeModulePackageImportDraft(
@@ -46,10 +50,14 @@ public class LowCodeModulePackageImportService {
             throw new IllegalArgumentException("import draft must not be null");
         }
         if (!draft.dryRunPassed()) {
-            throw new PlatformException("low code package import draft is not ready to archive: " + draft.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-import.low-code-package-import-draft-is-not-ready-to-archive",
+                    "low code package import draft is not ready to archive: {value1}"), Map.of("value1", String.valueOf(draft.moduleAlias())));
         }
         if (draft.mode() != LowCodePackageMode.MODULE_FULL) {
-            throw new PlatformException("only MODULE_FULL import draft can be archived: " + draft.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-import.only-module-full-import-draft-can-be-archived",
+                    "only MODULE_FULL import draft can be archived: {value1}"), Map.of("value1", String.valueOf(draft.moduleAlias())));
         }
         rejectStaleDraft(draft);
         return archiveFacade.archive(draft.modulePackage(), operatorId, remark);
@@ -59,7 +67,9 @@ public class LowCodeModulePackageImportService {
         LowCodeModuleConfigVersion current = versionService.currentVersion(draft.moduleAlias());
         String currentVersionId = current == null ? null : current.getId();
         if (!java.util.Objects.equals(currentVersionId, draft.baseVersionId())) {
-            throw new PlatformException("low code package import draft base version is stale: " + draft.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.low-code-module-package-import.low-code-package-import-draft-base-version-is-stale",
+                    "low code package import draft base version is stale: {value1}"), Map.of("value1", String.valueOf(draft.moduleAlias())));
         }
     }
 }

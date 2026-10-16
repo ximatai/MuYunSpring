@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import { RecordActionBar, type RecordActionItem, type QueryListRecord } from '@muyun/platform-components';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { ModulePageRecordActionContribution } from './modulePageEnhancements';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'ModuleRecordDetailActions' });
 
@@ -84,7 +87,9 @@ const headerActions = computed<RecordActionItem[]>(() => {
     return [
       {
         key: '__platform-check-save',
-        title: props.checkingSave ? '核实中' : '核实保存结果',
+        title: props.checkingSave
+          ? language.t('platform.screen.ModuleRecordDetailActions.checking', '核实中')
+          : language.t('platform.action.check-save', '核实保存结果'),
         actionLevel: 'primary',
         disabled: props.checkingSave,
         loading: props.checkingSave,
@@ -93,12 +98,19 @@ const headerActions = computed<RecordActionItem[]>(() => {
   }
   if (formActive.value) {
     return [
-      { key: '__platform-cancel', title: '取消', actionLevel: 'standard', disabled: props.saving },
+      {
+        key: '__platform-cancel',
+        title: language.t('platform.action.cancel', '取消'),
+        actionLevel: 'standard',
+        disabled: props.saving,
+      },
       ...(!props.managedActions
         ? [
             {
               key: '__platform-save',
-              title: props.saving ? '保存中' : '保存',
+              title: props.saving
+                ? language.t('platform.action.saving', '保存中')
+                : language.t('platform.action.save', '保存'),
               actionLevel: 'primary' as const,
               loading: props.saving,
               disabled: !saveAvailable.value,
@@ -120,7 +132,10 @@ const headerActions = computed<RecordActionItem[]>(() => {
       ? [
           {
             key: '__platform-workspace',
-            title: '在新标签页打开',
+            title: language.t(
+              'platform.screen.ModuleRecordDetailActions.open-in-a-new-tab',
+              '在新标签页打开',
+            ),
             actionLevel: 'secondary' as const,
             iconName: 'open-in-new' as const,
           },
@@ -136,7 +151,7 @@ const headerActions = computed<RecordActionItem[]>(() => {
   if (props.createChildAvailable) {
     actions.push({
       key: '__platform-create-child',
-      title: '新建子项',
+      title: language.t('platform.screen.ModuleRecordDetailActions.create-child', '新建子项'),
       actionLevel: 'primary' as const,
       iconName: 'plus',
       disabled: props.createChildDisabled,
@@ -147,14 +162,14 @@ const headerActions = computed<RecordActionItem[]>(() => {
       {
         key: '__platform-edit',
         actionCode: 'update',
-        title: '编辑',
+        title: language.t('platform.action.edit', '编辑'),
         actionLevel: 'standard',
         disabled: !props.record || props.saving,
       },
       {
         key: '__platform-delete',
         actionCode: 'delete',
-        title: '删除',
+        title: language.t('platform.action.delete', '删除'),
         actionLevel: 'secondary',
         danger: true,
         loading: props.activeActionKey === '__platform-delete' || props.activeActionKey === 'delete',

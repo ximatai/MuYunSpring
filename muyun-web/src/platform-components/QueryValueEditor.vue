@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { computed, ref, watch } from 'vue';
 import { UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import type {
@@ -8,13 +9,15 @@ import type {
   QueryOperator,
   QuerySchemaField,
 } from '@muyun/web-contracts';
-import type { ModuleContext } from '@muyun/web-core';
+
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import RecordPicker from './RecordPicker.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import ReferencePicker from './ReferencePicker.vue';
 import { createQueryReferencePickerProvider } from './queryReferencePickerProvider';
 import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'QueryValueEditor' });
 
@@ -48,21 +51,45 @@ const emit = defineEmits<{
   submit: [];
 }>();
 
-const booleanOptions: Option[] = [
-  { label: '是', value: 'true' },
-  { label: '否', value: 'false' },
-];
+const booleanOptions = computed<Option[]>(() => [
+  { label: language.t('platform.screen.QueryValueEditor.yes', '是'), value: 'true' },
+  { label: language.t('platform.screen.QueryValueEditor.no', '否'), value: 'false' },
+]);
 
 const targetReferencePicker = ref<ReferencePickerConfig>();
 const targetReferencePending = ref(false);
 const referencePickerValidity = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
 let targetReferenceRequest = 0;
-const resolvedReferencePicker = computed(() => props.referencePicker ?? targetReferencePicker.value);
+const resolvedReferencePicker = computed(
+  () =>
+    props.referencePicker ??
+    (targetReferencePicker.value
+      ? {
+          ...targetReferencePicker.value,
+          title: language.t('platform.screen.QueryValueEditor.select-value', '选择{value1}', {
+            value1: props.field.title ?? props.field.name,
+          }),
+          placeholder: language.t('platform.screen.QueryValueEditor.search-value', '搜索{value1}', {
+            value1: props.field.title ?? props.field.name,
+          }),
+          searchPlaceholder: language.t('platform.screen.QueryValueEditor.search-value', '搜索{value1}', {
+            value1: props.field.title ?? props.field.name,
+          }),
+        }
+      : undefined),
+);
 const referencePickerKey = computed(() => `${props.field.name}:${props.operator}`);
 const reportedReferenceValidity = computed<ReferencePickerValidity>(() => {
   if (isValueLess()) return { valid: true, status: 'ready' };
   if (targetReferencePending.value) {
-    return { valid: false, status: 'resolving', message: '正在加载引用能力' };
+    return {
+      valid: false,
+      status: 'resolving',
+      message: language.t(
+        'platform.screen.QueryValueEditor.loading-reference-capabilities',
+        '正在加载引用能力',
+      ),
+    };
   }
   return resolvedReferencePicker.value ? referencePickerValidity.value : { valid: true, status: 'ready' };
 });
@@ -96,9 +123,6 @@ async function resolveTargetReferencePicker() {
     if (!context.abilities.tryTree()) {
       targetReferencePicker.value = {
         provider: createQueryReferencePickerProvider({ http: context.http, reference }),
-        title: `选择${props.field.title ?? props.field.name}`,
-        placeholder: `搜索${props.field.title ?? props.field.name}`,
-        searchPlaceholder: `搜索${props.field.title ?? props.field.name}`,
       };
     }
   } catch {
@@ -228,20 +252,25 @@ function referenceTitle(record: RecordPickerRecord) {
   const label = labelField ? (record as Record<string, unknown>)[labelField] : undefined;
   return typeof label === 'string' && label.trim()
     ? label
-    : (record.title ?? record.code ?? record.id ?? '未命名记录');
+    : (record.title ??
+        record.code ??
+        record.id ??
+        language.t('platform.screen.QueryValueEditor.untitled-record', '未命名记录'));
 }
 </script>
 
 <template>
   <div class="query-value-editor">
-    <span v-if="isValueLess()" class="query-value-editor-empty">无需输入值</span>
+    <span v-if="isValueLess()" class="query-value-editor-empty">{{
+      language.t('platform.screen.QueryValueEditor.no-value-required', '无需输入值')
+    }}</span>
     <UiSelect
       v-else-if="field.valueType === 'BOOLEAN'"
       :value="values[0] === true ? 'true' : values[0] === false ? 'false' : undefined"
       :options="booleanOptions"
       :disabled="disabled"
       allow-clear
-      placeholder="全部"
+      :placeholder="language.t('platform.screen.QueryValueEditor.all', '全部')"
       @update:value="updateBoolean"
     />
     <UiSelect
@@ -252,7 +281,11 @@ function referenceTitle(record: RecordPickerRecord) {
       :loading="loading"
       :disabled="disabled"
       allow-clear
-      :placeholder="isMultiple() ? '选择一个或多个值' : '选择值'"
+      :placeholder="
+        isMultiple()
+          ? language.t('platform.screen.QueryValueEditor.select-one-or-more-values', '选择一个或多个值')
+          : language.t('platform.screen.QueryValueEditor.select-a-value', '选择值')
+      "
       @update:value="updateOptions"
     />
     <ReferencePicker
@@ -276,7 +309,9 @@ function referenceTitle(record: RecordPickerRecord) {
       v-else-if="field.reference && targetReferencePending"
       value=""
       disabled
-      placeholder="正在加载引用能力"
+      :placeholder="
+        language.t('platform.screen.QueryValueEditor.loading-reference-capabilities', '正在加载引用能力')
+      "
     />
     <RecordMultiPicker
       v-else-if="field.reference && referenceContext && isMultiple()"
@@ -300,8 +335,12 @@ function referenceTitle(record: RecordPickerRecord) {
         :type="inputType()"
         :step="inputStep()"
         :disabled="disabled"
-        :aria-label="`${field.title ?? field.name}开始`"
-        placeholder="起始"
+        :aria-label="
+          language.t('platform.screen.QueryValueEditor.value-start', '{value1}开始', {
+            value1: field.title ?? field.name,
+          })
+        "
+        :placeholder="language.t('platform.screen.QueryValueEditor.start', '起始')"
         @keydown="submitOnEnter"
         @update:value="updateScalar(0, $event)"
       />
@@ -310,8 +349,12 @@ function referenceTitle(record: RecordPickerRecord) {
         :type="inputType()"
         :step="inputStep()"
         :disabled="disabled"
-        :aria-label="`${field.title ?? field.name}结束`"
-        placeholder="结束"
+        :aria-label="
+          language.t('platform.screen.QueryValueEditor.value-end', '{value1}结束', {
+            value1: field.title ?? field.name,
+          })
+        "
+        :placeholder="language.t('platform.workflow.end', '结束')"
         @keydown="submitOnEnter"
         @update:value="updateScalar(1, $event)"
       />
@@ -320,7 +363,12 @@ function referenceTitle(record: RecordPickerRecord) {
       v-else-if="isMultiple()"
       :value="values.map(String).join(', ')"
       :disabled="disabled"
-      placeholder="多个值用逗号分隔"
+      :placeholder="
+        language.t(
+          'platform.screen.QueryValueEditor.separate-multiple-values-with-commas',
+          '多个值用逗号分隔',
+        )
+      "
       @keydown="submitOnEnter"
       @update:value="updateDelimited"
     />
@@ -331,7 +379,7 @@ function referenceTitle(record: RecordPickerRecord) {
       :step="inputStep()"
       :disabled="disabled"
       :aria-label="field.title ?? field.name"
-      placeholder="请输入条件值"
+      :placeholder="language.t('platform.screen.QueryValueEditor.enter-a-condition-value', '请输入条件值')"
       @keydown="submitOnEnter"
       @update:value="updateScalar(0, $event)"
     />

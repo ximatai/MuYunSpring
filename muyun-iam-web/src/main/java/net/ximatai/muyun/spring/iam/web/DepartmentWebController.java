@@ -72,6 +72,7 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
                         .field("parentId", field -> field.label("上级部门").recordPicker())
                         .field("code", field -> field.label("部门编码").required())
                         .field("title", field -> field.label("部门名称").required())
+                        .field("managerEmployeeId", field -> field.label("部门负责人").recordPicker())
                         .field("enabled", field -> field.label("启用状态").enabledStatus())))
                 .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();

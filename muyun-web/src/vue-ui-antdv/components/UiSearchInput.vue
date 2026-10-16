@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, h } from 'vue';
 import { Button as AButton, InputSearch as AInputSearch } from 'ant-design-vue';
 import { SearchOutlined } from '@ant-design/icons-vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'UiSearchInput', inheritAttrs: false });
 
@@ -41,7 +44,7 @@ const enterButton = computed(() =>
           tabindex: -1,
           disabled: props.disabled,
           loading: props.loading,
-          'aria-label': '搜索并选择',
+          'aria-label': language.t('platform.form.search-select', '搜索并选择'),
         },
         { default: () => h(SearchOutlined) },
       )

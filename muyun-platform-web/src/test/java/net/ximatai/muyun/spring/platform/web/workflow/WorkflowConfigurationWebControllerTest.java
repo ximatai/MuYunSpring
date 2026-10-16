@@ -48,7 +48,9 @@ class WorkflowConfigurationWebControllerTest {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         WorkflowPublishFacade publishFacade = mock(WorkflowPublishFacade.class);
-        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(moduleService, publishFacade);
+        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(moduleService,
+                publishFacade,
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class));
         ReflectionTestUtils.setField(controller, "service", definitionService);
         when(moduleService.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract"));
         WorkflowDefinition inserted = definition("def-1", "sales.contract", WorkflowDefinitionStatus.DRAFT);
@@ -84,8 +86,9 @@ class WorkflowConfigurationWebControllerTest {
     void shouldRejectWorkflowDefinitionInsertWhenPathModuleDoesNotExist() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
-        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(
-                moduleService, mock(WorkflowPublishFacade.class));
+        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(moduleService,
+                mock(WorkflowPublishFacade.class),
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class));
         ReflectionTestUtils.setField(controller, "service", definitionService);
         when(moduleService.resolveVisibleModule("sales.ghost")).thenReturn(null);
 
@@ -99,8 +102,9 @@ class WorkflowConfigurationWebControllerTest {
     @Test
     void shouldRejectEditingPublishedWorkflowDefinitionThroughCrudPath() {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
-        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(
-                mock(PlatformModuleService.class), mock(WorkflowPublishFacade.class));
+        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(mock(PlatformModuleService.class),
+                mock(WorkflowPublishFacade.class),
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class));
         ReflectionTestUtils.setField(controller, "service", definitionService);
         when(definitionService.select("def-1")).thenReturn(
                 definition("def-1", "sales.contract", WorkflowDefinitionStatus.PUBLISHED));
@@ -152,7 +156,9 @@ class WorkflowConfigurationWebControllerTest {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         WorkflowPublishFacade publishFacade = mock(WorkflowPublishFacade.class);
-        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(moduleService, publishFacade);
+        WorkflowDefinitionWebController controller = new WorkflowDefinitionWebController(moduleService,
+                publishFacade,
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class));
         ReflectionTestUtils.setField(controller, "service", definitionService);
         when(definitionService.select("def-1")).thenReturn(
                 definition("def-1", "sales.contract", WorkflowDefinitionStatus.DRAFT));

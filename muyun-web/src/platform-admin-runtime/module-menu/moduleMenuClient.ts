@@ -1,5 +1,8 @@
 import {
+  recordPresentationLabel,
   createMenuClient,
+  platformLanguageContext,
+  type LanguageContext,
   createModuleCrudClient,
   withHttpHeaders,
   type HttpClient,
@@ -64,29 +67,50 @@ export function createModuleMenuClient(http: HttpClient) {
   };
 }
 
-export function menuSchemeScopeLabel(scheme?: MenuScheme) {
-  if (!scheme) return '尚未确定';
-  if (scheme.scopeType === 'system') return '系统配置用户';
-  if (scheme.organizationId) return `机构 ${scheme.organizationId} 的用户`;
-  if (scheme.tenantId) return `租户 ${scheme.tenantId} 的用户`;
-  return '尚未声明适用范围';
+export function menuSchemeScopeLabel(
+  scheme?: MenuScheme,
+  language: LanguageContext = platformLanguageContext,
+) {
+  if (!scheme) return language.t('platform.screen.moduleMenuClient.not-yet-determined', '尚未确定');
+  if (scheme.scopeType === 'system')
+    return language.t('platform.screen.moduleMenuClient.system-configuration-users', '系统配置用户');
+  if (scheme.organizationId)
+    return language.t(
+      'platform.screen.moduleMenuClient.users-in-organization-value',
+      '机构 {value1} 的用户',
+      { value1: scheme.organizationId },
+    );
+  if (scheme.tenantId)
+    return language.t('platform.screen.moduleMenuClient.users-in-tenant-value', '租户 {value1} 的用户', {
+      value1: scheme.tenantId,
+    });
+  return language.t('platform.screen.moduleMenuClient.audience-not-declared', '尚未声明适用范围');
 }
 
-export function menuPlacements(nodes: MenuTreeNode[], parentPath = ''): MenuPlacement[] {
+export function menuPlacements(
+  nodes: MenuTreeNode[],
+  parentPath = '',
+  language: LanguageContext = platformLanguageContext,
+): MenuPlacement[] {
   return nodes.flatMap(({ record, children }) => {
-    const path = parentPath ? `${parentPath} / ${record.title}` : record.title;
-    return [{ menu: record, path }, ...menuPlacements(children, path)];
+    const title = recordPresentationLabel(record, 'title', language) ?? record.title;
+    const path = parentPath ? `${parentPath} / ${title}` : title;
+    return [{ menu: record, path }, ...menuPlacements(children, path, language)];
   });
 }
 
-export function menuDirectoryOptions(nodes: MenuTreeNode[], parentDisabled = false): UiTreeSelectNode[] {
+export function menuDirectoryOptions(
+  nodes: MenuTreeNode[],
+  parentDisabled = false,
+  language: LanguageContext = platformLanguageContext,
+): UiTreeSelectNode[] {
   return nodes.map(({ record, children }) => {
     const disabled = parentDisabled || record.enabled === false;
     return {
       value: record.id,
-      title: record.title,
+      title: recordPresentationLabel(record, 'title', language) ?? record.title,
       disabled: disabled || Boolean(record.moduleAlias),
-      children: menuDirectoryOptions(children, disabled),
+      children: menuDirectoryOptions(children, disabled, language),
     };
   });
 }

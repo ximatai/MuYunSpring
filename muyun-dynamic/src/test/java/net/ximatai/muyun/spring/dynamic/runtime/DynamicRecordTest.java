@@ -182,6 +182,25 @@ class DynamicRecordTest {
     }
 
     @Test
+    void shouldTruncateOnlyPlatformApprovalTimestampsToSecondsAndAllowClearing() {
+        DynamicRecord record = new DynamicRecord(contractEntity().withCapabilities(EntityCapability.APPROVAL));
+        Instant submittedAt = Instant.parse("2026-06-05T01:00:00.123456789Z");
+        Instant completedAt = Instant.parse("2026-06-05T02:00:00.987654321Z");
+
+        record.setApprovalSubmittedAt(submittedAt);
+        record.setApprovalCompletedAt(completedAt);
+        assertThat(record.getApprovalSubmittedAt()).isEqualTo(Instant.parse("2026-06-05T01:00:00Z"));
+        assertThat(record.getApprovalCompletedAt()).isEqualTo(Instant.parse("2026-06-05T02:00:00Z"));
+        assertThatThrownBy(() -> new DynamicRecord(timeEntity()).setValue("submittedAt", submittedAt))
+                .hasMessageContaining("invalid value type");
+
+        record.setApprovalSubmittedAt(null);
+        record.setApprovalCompletedAt(null);
+        assertThat(record.getApprovalSubmittedAt()).isNull();
+        assertThat(record.getApprovalCompletedAt()).isNull();
+    }
+
+    @Test
     void shouldRejectBusinessSetValueForApprovalManagedFields() {
         DynamicRecord record = new DynamicRecord(contractEntity().withCapabilities(EntityCapability.APPROVAL));
 

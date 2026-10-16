@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
 public class FieldUiControlService extends AbstractAbilityService<FieldUiControl> implements
+        net.ximatai.muyun.spring.platform.localization.ConfiguredRecordTextAbility<FieldUiControl>,
         RecycleBinAbility<FieldUiControl>,
         EnableAbility<FieldUiControl>,
         SortAbility<FieldUiControl>,
@@ -60,7 +63,9 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
     public void beforeUpdate(FieldUiControl fieldUiType) {
         normalizeAndValidate(fieldUiType);
         FieldUiControl existing = selectIncludingDeleted(fieldUiType.getId());
-        rejectChanged(existing, fieldUiType, "Field UI type alias", FieldUiControl::getAlias);
+        rejectChangedText(existing, fieldUiType, TextReference.code(
+                "platform.rejection.field-ui-control.field-ui-type-alias-cannot-be-changed",
+                "Field UI type alias cannot be changed"), FieldUiControl::getAlias);
         rejectDisableWhenReferenced(existing, fieldUiType);
     }
 
@@ -68,7 +73,9 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
         String validAlias = PlatformNameRules.requireIdentifier(alias, "fieldUiControlAlias");
         FieldUiControl fieldUiType = findOne(Criteria.of().eq("alias", validAlias));
         if (fieldUiType == null) {
-            throw new PlatformException("Field UI type requires existing type: " + validAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-ui-control.field-ui-type-requires-existing-type",
+                    "Field UI type requires existing type: {value1}"), Map.of("value1", String.valueOf(validAlias)));
         }
         return fieldUiType;
     }
@@ -108,15 +115,18 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
         if (fieldUiType.getQueryMode() == null) fieldUiType.setQueryMode(FieldUiControlQueryMode.DEFAULT);
         if (fieldUiType.getQueryMode() == FieldUiControlQueryMode.BETWEEN
                 && fieldUiType.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
-            throw new PlatformException("BETWEEN query mode requires COMPOSITE field UI control: " + alias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-ui-control.between-query-mode-requires-composite-field-ui-control",
+                    "BETWEEN query mode requires COMPOSITE field UI control: {value1}"), Map.of("value1", String.valueOf(alias)));
         }
         if (fieldUiType.getDefaultFieldSpecAlias() != null && !fieldUiType.getDefaultFieldSpecAlias().isBlank()) {
             fieldUiType.setDefaultFieldSpecAlias(PlatformNameRules.requireIdentifier(
                     fieldUiType.getDefaultFieldSpecAlias(), "defaultFieldSpecAlias"));
             fieldTypeService.requireFieldType(fieldUiType.getDefaultFieldSpecAlias());
         }
-        rejectDuplicate(fieldUiType, Criteria.of().eq("alias", alias),
-                "fieldUiControlAlias must be unique: " + alias);
+        rejectDuplicate(fieldUiType, Criteria.of().eq("alias", alias), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.field-ui-control.fielduicontrolalias-must-be-unique",
+                "fieldUiControlAlias must be unique: {value1}"), Map.of("value1", String.valueOf(alias))));
     }
 
     private void normalizePrimaryValueKey(FieldUiControl fieldUiControl) {
@@ -138,8 +148,10 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
         boolean referenced = !uiConfigFieldDao.list(Criteria.of().eq("fieldUiControlAlias", existing.getAlias()),
                 new net.ximatai.muyun.database.core.orm.PageRequest(0, 1)).isEmpty();
         if (referenced) {
-            throw new PlatformException("Field UI control is referenced by UI config fields and cannot be disabled: "
-                    + existing.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-ui-control.field-ui-control-is-referenced-by-ui-config-fields-and-cannot-be",
+                    "Field UI control is referenced by UI config fields and cannot be disabled: {value1}"), Map.of("value1", String.valueOf(existing.getAlias())));
         }
     }
+
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import {
   RecordPanelButton,
   RecordPanelState,
@@ -7,10 +8,12 @@ import {
   type RecordFormFieldValue,
   type RecordFormRecord,
 } from '@muyun/platform-components';
-import type { ModuleContext } from '@muyun/web-core';
+
 import type { QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageFormContribution, ModulePageFormFieldPolicy } from './modulePageEnhancements';
 import RecordFormSurface from './RecordFormSurface.vue';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'NavigatorManagementEditor' });
 
@@ -64,7 +67,7 @@ const emit = defineEmits<{
         </div>
         <div class="navigator-management-actions">
           <RecordPanelButton size="small" :disabled="saving || enabledLoading" @click="emit('close')">
-            取消
+            {{ language.t('platform.action.cancel', '取消') }}
           </RecordPanelButton>
           <RecordPanelButton
             type="primary"
@@ -73,13 +76,25 @@ const emit = defineEmits<{
             :disabled="enabledLoading"
             @click="emit('save')"
           >
-            保存
+            {{ language.t('platform.action.save', '保存') }}
           </RecordPanelButton>
         </div>
       </header>
       <div class="navigator-management-content">
-        <RecordPanelState v-if="loading" loading loading-tip="加载记录详情" description="" />
-        <RecordPanelState v-else-if="loadFailed" description="详情加载失败" />
+        <RecordPanelState
+          v-if="loading"
+          loading
+          :loading-tip="
+            language.t('platform.screen.NavigatorManagementEditor.loading-record-details', '加载记录详情')
+          "
+          description=""
+        />
+        <RecordPanelState
+          v-else-if="loadFailed"
+          :description="
+            language.t('platform.screen.NavigatorManagementEditor.could-not-load-details', '详情加载失败')
+          "
+        />
         <RecordFormSurface
           v-else-if="draft"
           :record="draft"

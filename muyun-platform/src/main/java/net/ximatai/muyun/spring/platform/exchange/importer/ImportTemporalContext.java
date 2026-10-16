@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookMeta;
 import net.ximatai.muyun.spring.platform.exchange.model.ParsedWorkbook;
@@ -25,7 +27,9 @@ public record ImportTemporalContext(ZoneId workbookZoneId) {
         try {
             return new ImportTemporalContext(PlatformTimeService.requireIanaZoneId(meta.timeZone()));
         } catch (RuntimeException ex) {
-            throw new PlatformException("exchange workbook timeZone is invalid: " + meta.timeZone(), ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.import-temporal-context.exchange-workbook-timezone-is-invalid",
+                    "exchange workbook timeZone is invalid: {value1}"), Map.of("value1", String.valueOf(meta.timeZone())), ex);
         }
     }
 }

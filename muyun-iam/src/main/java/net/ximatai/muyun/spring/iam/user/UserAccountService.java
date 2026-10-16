@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
@@ -135,7 +137,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         }
         return CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(recordId))
-                .map(currentUser -> RecordActionAvailabilityDecision.unavailable(selfAdministrationReason(actionCode)));
+                .map(currentUser -> RecordActionAvailabilityDecision.unavailableText(selfAdministrationReason(actionCode)));
     }
 
     @Override
@@ -419,7 +421,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     private void requireCommandUserEnabled(UserAccount user) {
         if (!Boolean.TRUE.equals(user.getEnabled())) {
-            throw new PlatformException("user is not active: " + user.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.user-account.user-is-not-active",
+                    "user is not active: {value1}"), Map.of("value1", String.valueOf(user.getId())));
         }
     }
 
@@ -495,8 +499,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private void rejectDuplicateUsername(UserAccount user) {
         rejectDuplicate(user, Criteria.of()
                         .eq("username", user.getUsername())
-                        .eqNullable("tenantId", user.getTenantId()),
-                "username must be unique within tenant: " + user.getUsername());
+                        .eqNullable("tenantId", user.getTenantId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "iam.rejection.user-account.username-must-be-unique-within-tenant",
+                                "username must be unique within tenant: {value1}"), Map.of("value1", String.valueOf(user.getUsername()))));
     }
 
     private UserAccount selectSystemUser(String userId) {
@@ -510,9 +515,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(userId))
                 .ifPresent(currentUser -> {
-                    throw BusinessExceptions.warning(
-                            "iam.user.password-admin-current-user",
-                            "不能由管理员重置当前登录用户的密码，请使用修改本人密码");
+                    throw BusinessExceptions.warningText("iam.user.password-admin-current-user",
+                TextReference.code("iam.user.password-admin-current-user", "不能由管理员重置当前登录用户的密码，请使用修改本人密码"));
                 });
     }
 
@@ -520,17 +524,16 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         CurrentUserContext.currentUser()
                 .filter(currentUser -> currentUser.userId().equals(userId))
                 .ifPresent(currentUser -> {
-                    throw BusinessExceptions.warning(
-                            "iam.user.force-logout-current-user",
-                            "不能强制当前登录用户下线");
+                    throw BusinessExceptions.warningText("iam.user.force-logout-current-user",
+                TextReference.code("iam.user.force-logout-current-user", "不能强制当前登录用户下线"));
                 });
     }
 
-    private String selfAdministrationReason(String actionCode) {
+    private net.ximatai.muyun.spring.common.i18n.TextReference selfAdministrationReason(String actionCode) {
         if ("forceLogout".equals(actionCode)) {
-            return "不能强制当前登录用户下线";
+            return net.ximatai.muyun.spring.common.i18n.TextReference.code("iam.user.self-logout-unavailable", "不能强制当前登录用户下线");
         }
-        return "不能由管理员重置当前登录用户的密码，请使用修改本人密码";
+        return net.ximatai.muyun.spring.common.i18n.TextReference.code("iam.user.self-reset-unavailable", "不能由管理员重置当前登录用户的密码，请使用修改本人密码");
     }
 
     private String requireUsername(String username) {
@@ -559,7 +562,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             return;
         }
         if (password == null || password.length() < 6) {
-            throw BusinessExceptions.warning("iam.user.password-policy-violated", "密码长度不能少于 6 位");
+            throw BusinessExceptions.warningText("iam.user.password-policy-violated",
+                TextReference.code("iam.user.password-policy-violated", "密码长度不能少于 6 位"));
         }
     }
 
@@ -617,8 +621,8 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 // Configured regex rules can reject random candidates; try another bounded candidate.
             }
         }
-        throw BusinessExceptions.warning("iam.user.temporary-password-unavailable",
-                "无法生成符合当前密码策略的临时密码");
+        throw BusinessExceptions.warningText("iam.user.temporary-password-unavailable",
+                TextReference.code("iam.user.temporary-password-unavailable", "无法生成符合当前密码策略的临时密码"));
     }
 
     private boolean passwordExpired(UserAccount user, Instant now) {

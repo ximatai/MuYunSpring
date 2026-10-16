@@ -65,7 +65,7 @@ public final class DynamicQuerySchemas {
                 field.optionBinding(),
                 field.selectionMode(),
                 optionTitleField(field, fields),
-                reference(field)
+                reference(field), null, auditTitleSource(field)
         );
     }
 
@@ -81,8 +81,13 @@ public final class DynamicQuerySchemas {
                 field.optionBinding(),
                 field.selectionMode(),
                 null,
-                reference(field)
+                reference(field), null, auditTitleSource(field)
             );
+    }
+
+    private static net.ximatai.muyun.spring.common.i18n.TextReference auditTitleSource(DynamicFieldDescriptor field) {
+        return net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.isAudit(field.fieldName())
+                ? net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.find(field.fieldName()).titleSource() : null;
     }
 
     private static QuerySchema.Reference reference(DynamicFieldDescriptor field) {

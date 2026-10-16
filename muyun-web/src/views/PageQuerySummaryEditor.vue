@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useLanguageContext } from '@muyun/web-core';
 import { computed, nextTick, watch } from 'vue';
 import { UiButton, UiDropdown, UiEmpty, UiInput, UiSelect, UiSpin } from '@muyun/vue-ui-antdv';
 import type { PageQuerySummary, PageQuerySummarySource } from './pageCompositionDraftState';
+
+const language = useLanguageContext();
 
 defineOptions({ name: 'PageQuerySummaryEditor' });
 
@@ -36,22 +39,56 @@ const emit = defineEmits<{
   retry: [];
 }>();
 const addItems = computed(() => [
-  { key: 'MATCHED_COUNT', title: '记录数' },
-  ...(props.catalog?.fields?.length ? [{ key: 'SUM', title: '数值合计' }] : []),
-  ...(props.catalog?.contributors?.length ? [{ key: 'CONTRIBUTOR', title: '业务指标' }] : []),
-  ...(props.catalog?.groupFields?.length ? [{ key: 'GROUPED', title: '按字段分组' }] : []),
+  { key: 'MATCHED_COUNT', title: language.t('platform.screen.QueryGroupedSummary.record-count', '记录数') },
+  ...(props.catalog?.fields?.length
+    ? [{ key: 'SUM', title: language.t('platform.screen.PageQuerySummaryEditor.numeric-total', '数值合计') }]
+    : []),
+  ...(props.catalog?.contributors?.length
+    ? [
+        {
+          key: 'CONTRIBUTOR',
+          title: language.t('platform.screen.PageQuerySummaryEditor.business-metric', '业务指标'),
+        },
+      ]
+    : []),
+  ...(props.catalog?.groupFields?.length
+    ? [
+        {
+          key: 'GROUPED',
+          title: language.t('platform.screen.PageQuerySummaryEditor.group-by-field', '按字段分组'),
+        },
+      ]
+    : []),
 ]);
 function sourceOptions(summary: PageQuerySummary) {
   return [
-    { value: 'MATCHED_COUNT', label: '记录数' },
+    {
+      value: 'MATCHED_COUNT',
+      label: language.t('platform.screen.QueryGroupedSummary.record-count', '记录数'),
+    },
     ...(props.catalog?.fields?.length || summary.source === 'SUM'
-      ? [{ value: 'SUM', label: '数值合计' }]
+      ? [
+          {
+            value: 'SUM',
+            label: language.t('platform.screen.PageQuerySummaryEditor.numeric-total', '数值合计'),
+          },
+        ]
       : []),
     ...(props.catalog?.contributors?.length || summary.source === 'CONTRIBUTOR'
-      ? [{ value: 'CONTRIBUTOR', label: '业务指标' }]
+      ? [
+          {
+            value: 'CONTRIBUTOR',
+            label: language.t('platform.screen.PageQuerySummaryEditor.business-metric', '业务指标'),
+          },
+        ]
       : []),
     ...(props.catalog?.groupFields?.length || summary.source === 'GROUPED'
-      ? [{ value: 'GROUPED', label: '按字段分组' }]
+      ? [
+          {
+            value: 'GROUPED',
+            label: language.t('platform.screen.PageQuerySummaryEditor.group-by-field', '按字段分组'),
+          },
+        ]
       : []),
   ];
 }
@@ -78,11 +115,23 @@ watch(
 
 <template>
   <div class="page-query-summary-editor">
-    <p>统计范围是当前筛选的完整结果，不受当前分页限制。</p>
-    <UiSpin v-if="loading" tip="加载汇总目录" />
+    <p>
+      {{
+        language.t(
+          'platform.screen.PageQuerySummaryEditor.summaries-use-the-complete-filtered-result-regardless-of-the-current',
+          '统计范围是当前筛选的完整结果，不受当前分页限制。',
+        )
+      }}
+    </p>
+    <UiSpin
+      v-if="loading"
+      :tip="language.t('platform.screen.PageQuerySummaryEditor.loading-summary-catalog', '加载汇总目录')"
+    />
     <template v-if="error">
       <p class="page-query-summary-editor__error">{{ error }}</p>
-      <UiButton size="small" @click="emit('retry')">重试</UiButton>
+      <UiButton size="small" @click="emit('retry')">{{
+        language.t('platform.screen.WorkflowWorkbenchView.retry', '重试')
+      }}</UiButton>
     </template>
     <template v-if="!loading && !error">
       <UiDropdown
@@ -90,10 +139,17 @@ watch(
         :items="addItems"
         @select="emit('add', $event as PageQuerySummarySource)"
       >
-        <UiButton size="small" :disabled="disabled" @click.stop="toggle">添加统计</UiButton>
+        <UiButton size="small" :disabled="disabled" @click.stop="toggle">{{
+          language.t('platform.screen.PageQuerySummaryEditor.add-summary', '添加统计')
+        }}</UiButton>
       </UiDropdown>
     </template>
-    <UiEmpty v-if="!summaries.length" description="尚未配置汇总统计" />
+    <UiEmpty
+      v-if="!summaries.length"
+      :description="
+        language.t('platform.screen.PageQuerySummaryEditor.no-query-summaries-configured', '尚未配置汇总统计')
+      "
+    />
     <div
       v-for="(summary, index) in summaries"
       :key="summary.key"
@@ -104,7 +160,7 @@ watch(
     >
       <p class="page-query-summary-editor__description">{{ descriptions?.[summary.key] }}</p>
       <label
-        ><span>统计方式</span
+        ><span>{{ language.t('platform.screen.PageQuerySummaryEditor.summary-source', '统计方式') }}</span
         ><UiSelect
           :value="summary.source"
           :disabled="disabled || Boolean(error)"
@@ -115,12 +171,14 @@ watch(
         }}</span></label
       >
       <label v-if="summary.source === 'SUM'"
-        ><span>字段</span
+        ><span>{{ language.t('platform.screen.QueryCriteriaGroupEditor.field', '字段') }}</span
         ><UiSelect
           :value="summary.fieldName"
           :disabled="disabled || Boolean(error)"
           :options="(catalog?.fields ?? []).map((field) => ({ value: field.fieldName, label: field.title }))"
-          placeholder="选择数值字段"
+          :placeholder="
+            language.t('platform.screen.PageQuerySummaryEditor.select-numeric-field', '选择数值字段')
+          "
           @update:value="
             emit('update', index, { fieldName: typeof $event === 'string' ? $event : undefined })
           "
@@ -129,17 +187,24 @@ watch(
           class="page-query-summary-editor__field-error"
           role="alert"
           >{{ issue(summary, 'fieldName') }}</span
-        ><small>不同币种或单位的原值不能直接相加。</small></label
+        ><small>{{
+          language.t(
+            'platform.screen.PageQuerySummaryEditor.raw-values-in-different-currencies-or-units-cannot-be-added',
+            '不同币种或单位的原值不能直接相加。',
+          )
+        }}</small></label
       >
       <label v-if="summary.source === 'CONTRIBUTOR'"
-        ><span>业务指标</span
+        ><span>{{ language.t('platform.screen.PageQuerySummaryEditor.business-metric', '业务指标') }}</span
         ><UiSelect
           :value="summary.contributorKey"
           :disabled="disabled || Boolean(error)"
           :options="
             (catalog?.contributors ?? []).map((item) => ({ value: item.contributorKey, label: item.title }))
           "
-          placeholder="选择业务指标"
+          :placeholder="
+            language.t('platform.screen.PageQuerySummaryEditor.select-business-metric', '选择业务指标')
+          "
           @update:value="
             emit('update', index, { contributorKey: typeof $event === 'string' ? $event : undefined })
           "
@@ -151,14 +216,16 @@ watch(
         ></label
       >
       <label v-if="summary.source === 'GROUPED'"
-        ><span>分组字段</span
+        ><span>{{ language.t('platform.screen.PageQuerySummaryEditor.grouping-field', '分组字段') }}</span
         ><UiSelect
           :value="summary.groupByField"
           :disabled="disabled || Boolean(error)"
           :options="
             (catalog?.groupFields ?? []).map((field) => ({ value: field.fieldName, label: field.title }))
           "
-          placeholder="选择分组字段"
+          :placeholder="
+            language.t('platform.screen.PageQuerySummaryEditor.select-grouping-field', '选择分组字段')
+          "
           @update:value="
             emit('update', index, { groupByField: typeof $event === 'string' ? $event : undefined })
           "
@@ -170,12 +237,19 @@ watch(
         ></label
       >
       <label v-if="summary.source === 'GROUPED'"
-        ><span>数值合计（可选）</span
+        ><span>{{
+          language.t('platform.screen.PageQuerySummaryEditor.numeric-total-optional', '数值合计（可选）')
+        }}</span
         ><UiSelect
           :value="summary.fieldName"
           :disabled="disabled || Boolean(error)"
           :options="(catalog?.fields ?? []).map((field) => ({ value: field.fieldName, label: field.title }))"
-          placeholder="仅显示每组记录数"
+          :placeholder="
+            language.t(
+              'platform.screen.PageQuerySummaryEditor.show-only-the-record-count-for-each-group',
+              '仅显示每组记录数',
+            )
+          "
           allow-clear
           @update:value="
             emit('update', index, { fieldName: typeof $event === 'string' ? $event : undefined })
@@ -185,28 +259,36 @@ watch(
           class="page-query-summary-editor__field-error"
           role="alert"
           >{{ issue(summary, 'fieldName') }}</span
-        ><small>每组固定显示记录数，可选一个数值字段合计。不同币种或单位不能直接相加。</small></label
+        ><small>{{
+          language.t(
+            'platform.screen.PageQuerySummaryEditor.each-group-always-shows-a-record-count-and-may-include',
+            '每组固定显示记录数，可选一个数值字段合计。不同币种或单位不能直接相加。',
+          )
+        }}</small></label
       >
       <label
-        ><span>展示名称</span
+        ><span>{{ language.t('platform.screen.PageQuerySummaryEditor.display-name', '展示名称') }}</span
         ><UiInput
           :value="summary.label"
           :disabled="disabled"
-          placeholder="展示标题"
+          :placeholder="language.t('platform.screen.PageCompositionEditor.display-title', '展示标题')"
           @update:value="emit('update', index, { label: $event })"
         /><span v-if="issue(summary, 'label')" class="page-query-summary-editor__field-error" role="alert">{{
           issue(summary, 'label')
         }}</span></label
       >
       <div class="page-query-summary-editor__actions">
-        <UiButton size="small" :disabled="disabled || index === 0" @click="emit('move', index, -1)"
-          >上移</UiButton
+        <UiButton size="small" :disabled="disabled || index === 0" @click="emit('move', index, -1)">{{
+          language.t('platform.screen.QueryCriteriaGroupEditor.move-up', '上移')
+        }}</UiButton
         ><UiButton
           size="small"
           :disabled="disabled || index === summaries.length - 1"
           @click="emit('move', index, 1)"
-          >下移</UiButton
-        ><UiButton size="small" :disabled="disabled" @click="emit('remove', index)">删除</UiButton>
+          >{{ language.t('platform.screen.QueryCriteriaGroupEditor.move-down', '下移') }}</UiButton
+        ><UiButton size="small" :disabled="disabled" @click="emit('remove', index)">{{
+          language.t('platform.action.delete', '删除')
+        }}</UiButton>
       </div>
     </div>
   </div>

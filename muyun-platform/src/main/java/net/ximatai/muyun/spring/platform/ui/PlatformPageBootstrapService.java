@@ -1,13 +1,14 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import com.fasterxml.jackson.databind.JsonNode;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionRefreshStrategy;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
+import net.ximatai.muyun.spring.platform.localization.MetadataQuerySchemas;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
@@ -100,10 +101,14 @@ public class PlatformPageBootstrapService {
         PlatformUiClientType requestedClientType = clientType == null ? PlatformUiClientType.WEB : clientType;
         Menu menu = menuService.currentUserVisibleMenu(menuId);
         if (menu == null) {
-            throw new PlatformException("Menu is not visible or does not exist: " + menuId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.menu-is-not-visible-or-does-not-exist",
+                    "Menu is not visible or does not exist: {value1}"), Map.of("value1", String.valueOf(menuId)));
         }
         if (!isModuleEntryMenu(menu)) {
-            throw new PlatformException("Page bootstrap requires module entry menu: " + menuId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.page-bootstrap-requires-module-entry-menu",
+                    "Page bootstrap requires module entry menu: {value1}"), Map.of("value1", String.valueOf(menuId)));
         }
         return bootstrap(menu, requestedClientType);
     }
@@ -117,7 +122,9 @@ public class PlatformPageBootstrapService {
         String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         Menu menu = menuService.currentUserVisibleModuleMenu(validAlias);
         if (menu == null) {
-            throw new PlatformException("Module menu is not visible or does not exist: " + validAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.module-menu-is-not-visible-or-does-not-exist",
+                    "Module menu is not visible or does not exist: {value1}"), Map.of("value1", String.valueOf(validAlias)));
         }
         return bootstrap(menu, requestedClientType);
     }
@@ -142,7 +149,9 @@ public class PlatformPageBootstrapService {
         if (requestedUiConfigId != null && !requestedUiConfigId.isBlank()) {
             boolean exists = snapshot.uiConfigs().stream().anyMatch(config -> Objects.equals(config.getId(), requestedUiConfigId));
             if (!exists) {
-                throw new PlatformException("Default UI config is not published in module snapshot: " + requestedUiConfigId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.default-ui-config-is-not-published-in-module-snapshot",
+                        "Default UI config is not published in module snapshot: {value1}"), Map.of("value1", String.valueOf(requestedUiConfigId)));
             }
             PlatformUiConfig config = snapshot.uiConfigs().stream()
                     .filter(item -> Objects.equals(item.getId(), requestedUiConfigId))
@@ -153,11 +162,14 @@ public class PlatformPageBootstrapService {
                     .findFirst()
                     .orElseThrow();
             if (set.getSetType() != uiSetType(pageMode)) {
-                throw new PlatformException("Default UI config type must match page mode: " + pageMode);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.default-ui-config-type-must-match-page-mode",
+                        "Default UI config type must match page mode: {value1}"), Map.of("value1", String.valueOf(pageMode)));
             }
             if (config.getClientType() != clientType) {
-                throw new PlatformException("Default UI config client type must match requested client type: "
-                        + clientType);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.default-ui-config-client-type-must-match-requested-client-type",
+                        "Default UI config client type must match requested client type: {value1}"), Map.of("value1", String.valueOf(clientType)));
             }
             return requestedUiConfigId;
         }
@@ -185,8 +197,9 @@ public class PlatformPageBootstrapService {
             boolean exists = snapshot.queryTemplates().stream()
                     .anyMatch(template -> Objects.equals(template.getId(), requestedTemplateId));
             if (!exists) {
-                throw new PlatformException("Default query template is not published or enabled in module snapshot: "
-                        + requestedTemplateId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.default-query-template-is-not-published-or-enabled-in-module-snapshot",
+                        "Default query template is not published or enabled in module snapshot: {value1}"), Map.of("value1", String.valueOf(requestedTemplateId)));
             }
             return requestedTemplateId;
         }
@@ -244,8 +257,9 @@ public class PlatformPageBootstrapService {
                 .filter(config -> config.getClientType() == clientType)
                 .filter(config -> Objects.equals(config.getId(), uiConfigId))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Default UI config is not published in module snapshot: "
-                        + uiConfigId));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.default-ui-config-is-not-published-in-module-snapshot",
+                        "Default UI config is not published in module snapshot: {value1}"), Map.of("value1", String.valueOf(uiConfigId))));
     }
 
     private List<PlatformAssociationBlock> associationBlocks(String moduleAlias, PlatformUiConfig config) {
@@ -291,10 +305,14 @@ public class PlatformPageBootstrapService {
         DynamicAssociationViewDescriptor view = recordService.describe(moduleAlias).associationViews().stream()
                 .filter(candidate -> viewCode.equals(candidate.code()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("association view is not available: " + viewCode));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.association-view-is-not-available",
+                        "association view is not available: {value1}"), Map.of("value1", String.valueOf(viewCode))));
         String parentBinding = view.relationCode() != null ? view.relationCode() : view.referenceField();
         if (parentBinding == null) {
-            throw new PlatformException("association view has no stable parent binding: " + viewCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.association-view-has-no-stable-parent-binding",
+                    "association view has no stable parent binding: {value1}"), Map.of("value1", String.valueOf(viewCode)));
         }
         String requestedTargetUiConfigId = targetUiConfigId == null ? view.targetUiConfigId() : targetUiConfigId;
         PlatformPageConfigSnapshot targetSnapshot = snapshotService.snapshot(view.targetModuleAlias());
@@ -306,14 +324,15 @@ public class PlatformPageBootstrapService {
         DynamicEntityDescriptor targetEntity = recordService.describe(view.targetModuleAlias()).entities().stream()
                 .filter(candidate -> view.targetEntityAlias().equals(candidate.entityAlias()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("association target entity is not available: "
-                        + view.targetModuleAlias() + "." + view.targetEntityAlias()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.association-target-entity-is-not-available",
+                        "association target entity is not available: {value1}.{value2}"), Map.of("value1", String.valueOf(view.targetModuleAlias()), "value2", String.valueOf(view.targetEntityAlias()))));
         return new ResolvedDetailRelationDescriptor(view.code(), title, true, moduleAlias, view.sourceEntityAlias(),
                 view.targetModuleAlias(), view.targetEntityAlias(), parentBinding,
                 new ResolvedDetailRelationQueryContract("/" + moduleAlias + "/view/{id}/associations/"
                         + viewCode + "/query", resolvedTargetUiConfigId, resolvedQueryTemplateId, true,
                         view.queryable(), listProjection,
-                        DynamicQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
+                        MetadataQuerySchemas.from(view.targetModuleAlias(), targetEntity, List.of())), true);
     }
 
     /**
@@ -326,8 +345,9 @@ public class PlatformPageBootstrapService {
         String resolved = resolveDefaultUiConfigId(targetSnapshot, requestedUiConfigId, MenuPageMode.LIST,
                 PlatformUiClientType.WEB);
         if (resolved == null) {
-            throw new PlatformException("Detail relation target LIST UI config is not published: "
-                    + targetSnapshot.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.detail-relation-target-list-ui-config-is-not-published",
+                    "Detail relation target LIST UI config is not published: {value1}"), Map.of("value1", String.valueOf(targetSnapshot.moduleAlias())));
         }
         return resolved;
     }
@@ -410,21 +430,26 @@ public class PlatformPageBootstrapService {
             return null;
         }
         if (targetUiConfigId == null) {
-            throw new PlatformException("Local edit action block requires targetUiConfigId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.local-edit-action-block-requires-targetuiconfigid",
+                    "Local edit action block requires targetUiConfigId"));
         }
         PlatformUiConfig targetConfig = snapshot.uiConfigs().stream()
                 .filter(candidate -> targetUiConfigId.equals(candidate.getId()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Local edit target UI config is not published: "
-                        + targetUiConfigId));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.local-edit-target-ui-config-is-not-published",
+                        "Local edit target UI config is not published: {value1}"), Map.of("value1", String.valueOf(targetUiConfigId))));
         PlatformUiSet targetSet = snapshot.uiSets().stream()
                 .filter(candidate -> Objects.equals(candidate.getId(), targetConfig.getUiSetId()))
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("Local edit target UI set is unavailable: "
-                        + targetConfig.getUiSetId()));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-page-bootstrap.local-edit-target-ui-set-is-unavailable",
+                        "Local edit target UI set is unavailable: {value1}"), Map.of("value1", String.valueOf(targetConfig.getUiSetId()))));
         if (targetConfig.getClientType() != clientType || targetSet.getSetType() != PlatformUiSetType.FORM) {
-            throw new PlatformException("Local edit target UI config must be a published " + clientType
-                    + " FORM config: " + targetUiConfigId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.local-edit-target-ui-config-must-be-a-published-form-config",
+                    "Local edit target UI config must be a published {value1} FORM config: {value2}"), Map.of("value1", String.valueOf(clientType), "value2", String.valueOf(targetUiConfigId)));
         }
         List<PlatformResolvedUiField> fields = snapshot.uiFields().stream()
                 .filter(field -> targetUiConfigId.equals(field.getUiConfigId()))
@@ -450,7 +475,9 @@ public class PlatformPageBootstrapService {
             return DynamicActionRefreshStrategy.listAndDetail();
         }
         if (!refresh.isObject()) {
-            throw new PlatformException("localEdit.refresh must be object");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.localedit-refresh-must-be-object",
+                    "localEdit.refresh must be object"));
         }
         return new DynamicActionRefreshStrategy(
                 booleanValue(refresh, "list", true),
@@ -479,7 +506,9 @@ public class PlatformPageBootstrapService {
             return defaultValue;
         }
         if (!value.isBoolean()) {
-            throw new PlatformException("localEdit.refresh." + field + " must be boolean");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.localedit-refresh-must-be-boolean",
+                    "localEdit.refresh.{value1} must be boolean"), Map.of("value1", String.valueOf(field)));
         }
         return value.asBoolean();
     }
@@ -490,7 +519,9 @@ public class PlatformPageBootstrapService {
             return null;
         }
         if (!value.canConvertToInt() || value.asInt() <= 0) {
-            throw new PlatformException("action block " + field + " must be positive integer");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.action-block-must-be-positive-integer",
+                    "action block {value1} must be positive integer"), Map.of("value1", String.valueOf(field)));
         }
         return value.asInt();
     }
@@ -578,8 +609,9 @@ public class PlatformPageBootstrapService {
                 .filter(alias -> !resolvedAliases.contains(alias))
                 .toList();
         if (!missingAliases.isEmpty()) {
-            throw new PlatformException("Resolved page config references disabled or missing field UI controls: "
-                    + missingAliases);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-page-bootstrap.resolved-page-config-references-disabled-or-missing-field-ui-controls",
+                    "Resolved page config references disabled or missing field UI controls: {value1}"), Map.of("value1", String.valueOf(missingAliases)));
         }
         return fieldUiControls.stream()
                 .map(type -> resolvedFieldUiControl(type, propertiesByType.get(type.getAlias()),

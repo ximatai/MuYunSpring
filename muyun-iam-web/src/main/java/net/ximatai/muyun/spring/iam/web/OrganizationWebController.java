@@ -50,7 +50,8 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
                                         .field("title", field -> field.label("机构名称").required())
                                         .field("code", field -> field.label("机构编码").required())
                                         .field("parentId", field -> field.label("上级机构").recordPicker())
-                                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
+                                        .field("managerEmployeeId", field -> field.label("机构负责人").recordPicker())
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
                         .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()))))
                 .build();
     }

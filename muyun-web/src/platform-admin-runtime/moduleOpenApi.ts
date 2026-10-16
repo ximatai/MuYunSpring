@@ -1,5 +1,11 @@
-import type { HttpClient } from '@muyun/web-core';
-import type { PageDescriptor } from '@muyun/web-contracts';
+import {
+  type LanguageContext,
+  createCodeTextPresentation,
+  platformLanguageContext,
+  platformCodeTextReference,
+  type HttpClient,
+} from '@muyun/web-core';
+import type { PageDescriptor, TextPresentation } from '@muyun/web-contracts';
 import { effectiveAuthToken } from './authSession';
 
 export interface ModuleOpenApiDocument {
@@ -30,12 +36,17 @@ export function createModuleOpenApiPageDescriptor(moduleAlias: string, moduleTit
 }
 
 /** Creates the authenticated OpenAPI directory as an ordinary workbench page. */
-export function createOpenApiCatalogPageDescriptor(): PageDescriptor {
+export function createOpenApiCatalogPageDescriptor(
+  language: LanguageContext = platformLanguageContext,
+): PageDescriptor {
+  const key = 'platform.screen.OpenApiCatalogView.module-api-directory';
+  const source = platformCodeTextReference(key)!;
   return {
     pageType: 'platform-route',
     openMode: 'workbench-route',
     hostType: 'platform-route-host',
     title: '开放模块 API',
+    titleText: createCodeTextPresentation(key, source.originalText, language),
     target: { route: '/openapi' },
     tabPolicy: { identity: 'by-target', closable: true, cacheable: true },
   };
@@ -61,6 +72,7 @@ export function isOpenApiCatalogPath(pathname: string): boolean {
 export interface OpenApiModuleCatalogItem {
   moduleAlias: string;
   title: string;
+  titleText?: TextPresentation;
   moduleKind: 'static' | 'dynamic';
   documentPath: string;
 }

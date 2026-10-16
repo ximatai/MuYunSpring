@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.position;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -37,8 +38,8 @@ public class PositionCategoryService extends TenantActiveScopedService<PositionC
                 .eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId)
                 .eq(StandardEntitySchema.DELETED_FIELD, Boolean.FALSE));
         if (childCategories > 0) {
-            throw BusinessExceptions.warning("iam.position-category.delete-has-children",
-                    "该岗位分类下仍有子分类，不能删除");
+            throw BusinessExceptions.warningText("iam.position-category.delete-has-children",
+                TextReference.code("iam.position-category.delete-has-children", "该岗位分类下仍有子分类，不能删除"));
         }
 
     }
