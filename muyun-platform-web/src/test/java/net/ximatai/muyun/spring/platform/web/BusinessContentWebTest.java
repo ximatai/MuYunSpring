@@ -100,14 +100,14 @@ class BusinessContentWebTest {
     }
 
     @Test void readingProjectsAuthorizedFieldsAndMaintenanceHasDistinctRootAndAggregateTransports() throws Exception {
-        var field = new BusinessContentTranslationService.ReadingField("中文原文", null, "English reading", "en", false, null);
+        var field = new BusinessContentTranslationService.ReadingField("中文原文", null, "English reading", "en", false, null, false);
         var root = BusinessContentService.Location.record("record");
         var child = new BusinessContentService.Location("record", "lines", "child");
         when(translations.read(controller.service, root, "en")).thenReturn(
                 new BusinessContentTranslationService.Reading(4, "en", Map.of("title", field, "unexposed", field)));
         when(translations.read(controller.service, child, "en")).thenReturn(
                 new BusinessContentTranslationService.Reading(2, "en", Map.of("description", field, "title", field)));
-        var state = new BusinessContentTranslationService.Maintenance(null, null, null, null, null);
+        var state = new BusinessContentTranslationService.Maintenance(null, null, null, null, null, null);
         when(translations.prepare(eq(controller.service), any(), anyString(), anyString(), any())).thenReturn(state);
         try (var ignored = TenantContext.use("tenant-a")) {
             mvc.perform(get("/test.content/view/record/content/reading?language=en")).andExpect(status().isOk())

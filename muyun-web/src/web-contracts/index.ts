@@ -1137,6 +1137,7 @@ export interface BusinessContentReadingField {
   actualLanguage: string | null;
   originalFallback: boolean;
   translation: BusinessContentTranslationRevision | null;
+  humanReviewRequired?: boolean;
 }
 export interface BusinessContentReading {
   recordVersion: number | null;
@@ -1149,6 +1150,11 @@ export interface BusinessContentTranslationMaintenance {
   draft: BusinessContentTranslationRevision | null;
   confirmed: BusinessContentTranslationRevision | null;
   machine: BusinessContentTranslationRevision | null;
+  /** Maintenance reference only; never an effective translation of the current original. */
+  previousHuman?: {
+    original: BusinessContentRevision & { revisionId: string };
+    translation: BusinessContentTranslationRevision;
+  } | null;
 }
 export interface BusinessContentTranslationChange {
   sourceRevisionId: string;

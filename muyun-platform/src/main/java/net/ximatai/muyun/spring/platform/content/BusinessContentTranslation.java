@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Getter @Setter
 @Table(name = "platform_business_content_translation", comment = "Business content translation revision")
 @CompositeIndex(columns = {"source_key", "source_revision_id", "language_tag", "revision"}, unique = true)
+@CompositeIndex(columns = {"source_key", "source_revision_id", "language_tag", "kind", "revision"})
+@CompositeIndex(columns = {"source_key", "language_tag", "source_revision", "revision"})
 @CompositeIndex(columns = {"tenant_id", "module_alias", "record_id"})
 public class BusinessContentTranslation extends StandardEntity {
     @Column(name = "source_key", type = ColumnType.VARCHAR, length = 64, nullable = false)

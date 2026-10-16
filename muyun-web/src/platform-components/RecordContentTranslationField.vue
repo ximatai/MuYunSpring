@@ -51,6 +51,7 @@ const busy = ref(false);
 const mutationFailed = ref(false);
 const maintenanceFailed = ref(false);
 const history = ref<BusinessContentTranslationRevision[]>([]);
+const historyOriginal = ref<BusinessContentTranslationMaintenance['original']>();
 const historyPage = ref(1);
 const historyFailed = ref(false);
 const historyLoading = ref(false);
@@ -106,6 +107,7 @@ function close() {
 function resetEditor() {
   editorOpen.value = false;
   maintenance.value = undefined;
+  historyOriginal.value = undefined;
   text.value = '';
   busy.value = false;
   historyLoading.value = false;
@@ -135,6 +137,7 @@ async function open() {
     );
     if (token !== editorGeneration) return;
     maintenance.value = response;
+    historyOriginal.value = response.original;
     text.value = response.draft?.text ?? response.confirmed?.text ?? response.machine?.text ?? '';
     void loadHistory(1);
   } catch {
@@ -144,7 +147,7 @@ async function open() {
   }
 }
 async function loadHistory(page: number) {
-  if (!props.context || !id.value || !maintenance.value) return;
+  if (!props.context || !id.value || !historyOriginal.value) return;
   const token = ++historyGeneration;
   historyLoading.value = true;
   historyFailed.value = false;
@@ -156,7 +159,7 @@ async function loadHistory(page: number) {
       props.fieldName,
       editorLanguage.value,
       editorAccess.value,
-      maintenance.value.original,
+      historyOriginal.value,
       page,
       props.relation,
     );
@@ -169,6 +172,15 @@ async function loadHistory(page: number) {
   } finally {
     if (token === historyGeneration) historyLoading.value = false;
   }
+}
+function selectHistory(original: BusinessContentTranslationMaintenance['original']) {
+  historyOriginal.value = original;
+  void loadHistory(1);
+}
+function copyPrevious() {
+  if (busy.value || !editAllowed.value || originalChanged.value || unsavedTranslation.value) return;
+  const previous = maintenance.value?.previousHuman;
+  if (previous?.translation.text) text.value = previous.translation.text;
 }
 async function mutate(operation: 'draft' | 'confirm' | 'remove') {
   if (!props.context || !id.value || !maintenance.value || busy.value || originalChanged.value) return;
@@ -202,6 +214,7 @@ async function mutate(operation: 'draft' | 'confirm' | 'remove') {
     );
     if (token !== editorGeneration) return;
     maintenance.value = response;
+    historyOriginal.value = response.original;
     text.value = response.draft?.text ?? response.confirmed?.text ?? response.machine?.text ?? '';
     void loadHistory(1);
     void load();
@@ -264,6 +277,9 @@ watch(
       language.t('platform.content.reading-failed', '暂时无法读取译文，原文仍可使用')
     }}</span>
     <template v-else-if="matches && reading">
+      <p v-if="reading.humanReviewRequired" role="status">
+        {{ language.t('platform.content.human-review-required', '原文已变更，旧人工译文待复核') }}
+      </p>
       <div
         v-if="reading.translation"
         class="record-content-translation__text"
@@ -316,6 +332,42 @@ watch(
         }}
       </p>
       <p class="record-content-translation__text">{{ maintenance.original.text }}</p>
+      <article v-if="maintenance.previousHuman" class="record-content-translation__revision">
+        <strong>{{ language.t('platform.content.previous-human', '旧原文的人工译文参考') }}</strong>
+        <p>
+          {{
+            language.t(
+              'platform.content.previous-human-rule',
+              '此译文对应旧原文，需核对当前原文后保存新草稿；旧确认状态不会沿用。',
+            )
+          }}
+        </p>
+        <p>
+          {{
+            language.t('platform.content.source-version', '原文版本 {revision}', {
+              revision: maintenance.previousHuman.original.revision,
+            })
+          }}
+        </p>
+        <p class="record-content-translation__text">{{ maintenance.previousHuman.original.text }}</p>
+        <strong>{{ kindLabel(maintenance.previousHuman.translation.kind) }}</strong>
+        <span>
+          ·
+          {{
+            maintenance.previousHuman.translation.authorName ??
+            maintenance.previousHuman.translation.authorId ??
+            '—'
+          }}
+          · <DateTimeText :value="maintenance.previousHuman.translation.createdAt"
+        /></span>
+        <p class="record-content-translation__text">{{ maintenance.previousHuman.translation.text }}</p>
+        <UiButton
+          v-if="editAllowed"
+          :disabled="busy || originalChanged || unsavedTranslation"
+          @click="copyPrevious"
+          >{{ language.t('platform.content.copy-previous', '复制到输入框后核对') }}</UiButton
+        >
+      </article>
       <p>
         {{
           language.t(
@@ -360,6 +412,24 @@ watch(
         >
       </div>
       <h4>{{ language.t('platform.content.translation-history', '本原文的译文修订历史') }}</h4>
+      <div class="record-content-translation__actions">
+        <UiButton :disabled="historyLoading" @click="selectHistory(maintenance.original)">{{
+          language.t('platform.content.current-translation-history', '查看当前原文的译文历史')
+        }}</UiButton>
+        <UiButton
+          v-if="maintenance.previousHuman"
+          :disabled="historyLoading"
+          @click="selectHistory(maintenance.previousHuman.original)"
+          >{{ language.t('platform.content.previous-translation-history', '查看旧参考的译文历史') }}</UiButton
+        >
+      </div>
+      <p v-if="historyOriginal">
+        {{
+          language.t('platform.content.source-version', '原文版本 {revision}', {
+            revision: historyOriginal.revision,
+          })
+        }}
+      </p>
       <p v-if="historyFailed" role="status">
         {{ language.t('platform.content.history-unavailable', '暂时无法读取历史，请重试') }}
       </p>

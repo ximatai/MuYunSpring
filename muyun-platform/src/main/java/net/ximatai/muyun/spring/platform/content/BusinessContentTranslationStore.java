@@ -34,27 +34,53 @@ class BusinessContentTranslationStore {
 
     State state(BusinessContentSource source, OriginalVersion sourceRevision, String language) {
         String tag = language(language);
-        Integer head = null;
-        BusinessContentTranslation draft = null, confirmed = null, machine = null;
-        boolean humanSeen = false;
-        for (int page = 1; ; page++) {
-            var rows = history(source, sourceRevision, tag, PageRequest.of(page, 200));
-            for (var row : rows) {
-                if (head == null) head = row.getRevision();
-                if ("REMOVED".equals(row.getKind())) return new State(head, draft, confirmed, machine);
-                if ("DRAFT".equals(row.getKind()) || "CONFIRMED".equals(row.getKind())) {
-                    if (!humanSeen) { humanSeen = true; if ("DRAFT".equals(row.getKind())) draft = row; }
-                    if (confirmed == null && "CONFIRMED".equals(row.getKind())) confirmed = row;
-                } else if (machine == null && "MACHINE".equals(row.getKind())) machine = row;
-            }
-            if (rows.size() < 200 || (humanSeen && confirmed != null && machine != null))
-                return new State(head, draft, confirmed, machine);
-        }
+        var head = latest(slot(source, sourceRevision, tag));
+        if (head == null) return new State(null, null, null, null);
+        int revision = head.getRevision();
+        if ("REMOVED".equals(head.getKind())) return new State(revision, null, null, null);
+        // A fixed head bounds every fact lookup. Reading never walks an entire append-only
+        // history, nor combines a later concurrent write with an earlier optimistic head.
+        var removed = latest(slot(source, sourceRevision, tag).lte("revision", revision).eq("kind", "REMOVED"));
+        int boundary = removed == null ? 0 : removed.getRevision();
+        var human = latest(slot(source, sourceRevision, tag).gt("revision", boundary).lte("revision", revision)
+                .in("kind", List.of("DRAFT", "CONFIRMED")));
+        var confirmed = human != null && "CONFIRMED".equals(human.getKind()) ? human
+                : latest(slot(source, sourceRevision, tag).gt("revision", boundary).lte("revision", revision).eq("kind", "CONFIRMED"));
+        var machine = "MACHINE".equals(head.getKind()) ? head
+                : latest(slot(source, sourceRevision, tag).gt("revision", boundary).lte("revision", revision).eq("kind", "MACHINE"));
+        return new State(revision, human != null && "DRAFT".equals(human.getKind()) ? human : null, confirmed, machine);
+    }
+
+    /** Maintenance-only reference; an explicit removal is never resurrected as a suggestion. */
+    BusinessContentTranslation previousHuman(BusinessContentSource source, OriginalVersion current, String language) {
+        return previousHuman(source, current, language, List.of("DRAFT", "CONFIRMED", "REMOVED"));
+    }
+
+    boolean humanReviewRequired(BusinessContentSource source, OriginalVersion current, String language) {
+        // Ordinary readers may learn that a previously readable confirmation needs review,
+        // but never learn whether somebody has a private maintenance draft.
+        return previousHuman(source, current, language, List.of("CONFIRMED", "REMOVED")) != null;
+    }
+
+    private BusinessContentTranslation previousHuman(BusinessContentSource source, OriginalVersion current, String language, List<String> kinds) {
+        var row = translations.query(identity(source).lt("sourceRevision", current.revision())
+                        .eq("languageTag", language(language)).in("kind", kinds),
+                PageRequest.of(1, 1), Sort.desc("sourceRevision"), Sort.desc("revision")).stream().findFirst().orElse(null);
+        return row == null || "REMOVED".equals(row.getKind()) ? null : row;
+    }
+
+    private BusinessContentTranslation latest(Criteria criteria) {
+        return translations.query(criteria, PageRequest.of(1, 1), Sort.desc("revision")).stream().findFirst().orElse(null);
+    }
+
+    private static Criteria slot(BusinessContentSource source, OriginalVersion version, String language) {
+        Objects.requireNonNull(version, "sourceRevision");
+        return identity(source).eq("sourceRevisionId", version.revisionId()).eq("sourceRevision", version.revision()).eq("languageTag", language);
     }
 
     List<BusinessContentTranslation> history(BusinessContentSource source, OriginalVersion sourceRevision, String language, PageRequest page) {
         if (sourceRevision == null || page.getLimit() > 200) throw new IllegalArgumentException("Invalid translation history range");
-        return translations.query(identity(source).eq("sourceRevisionId", sourceRevision.revisionId()).eq("sourceRevision", sourceRevision.revision()).eq("languageTag", language(language)),
+        return translations.query(slot(source, sourceRevision, language(language)),
                 page, Sort.desc("revision"));
     }
 

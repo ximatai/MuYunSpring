@@ -19,10 +19,19 @@ class BusinessContentStore {
         return history(source, PageRequest.of(1, 1)).stream().findFirst().orElse(null);
     }
 
+    BusinessContentRevision find(BusinessContentSource source, OriginalVersion version) {
+        return revisions.query(identity(source).eq("id", version.revisionId()).eq("revision", version.revision()),
+                PageRequest.of(1, 1)).stream().findFirst().orElse(null);
+    }
+
     List<BusinessContentRevision> history(BusinessContentSource source, PageRequest page) {
-        return revisions.query(Criteria.of().eq("sourceKey", source.key()).eqNullable("tenantId", source.tenantId())
+        return revisions.query(identity(source), page, Sort.desc("revision"));
+    }
+
+    private static Criteria identity(BusinessContentSource source) {
+        return Criteria.of().eq("sourceKey", source.key()).eqNullable("tenantId", source.tenantId())
                 .eq("moduleAlias", source.moduleAlias()).eq("entityKey", source.entityKey())
-                .eq("recordId", source.recordId()).eq("fieldKey", source.fieldKey()), page, Sort.desc("revision"));
+                .eq("recordId", source.recordId()).eq("fieldKey", source.fieldKey());
     }
 
     record Baseline(String text) { }

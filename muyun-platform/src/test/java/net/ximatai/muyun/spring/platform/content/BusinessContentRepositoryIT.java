@@ -33,6 +33,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired ContentFixtureDao dao;
     @Autowired BusinessContentStore store;
     @Autowired BusinessContentTranslationStore translations;
+    @Autowired BusinessContentTranslationDao translationDao;
     @Autowired BusinessContentService content;
     @Autowired BusinessContentTranslationService translationService;
     @Autowired BusinessContentSaveLifecycleListener listener;
@@ -250,6 +251,113 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             }
         }
     }
+    @Test void originalChangesExposeHumanReferenceOnlyToMaintenanceWithoutCarryingConfirmationForward() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("80°C，暂勿发货"); service.insert(row);
+            var location = BusinessContentService.Location.record(row.getId());
+            var initial = translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT);
+            var draft = translationService.saveDraft(service, location, "title", "en", change(initial, "80°C; do not ship yet", null));
+            var confirmed = translationService.confirm(service, location, "title", "en", change(draft, null, 1));
+            var edited = service.select(row.getId()); edited.setTitle("60°C，暂勿发货"); service.update(edited);
+            var reading = translationService.read(service, location, "en").fields().get("title");
+            assertThat(reading.text()).isEqualTo("60°C，暂勿发货"); assertThat(reading.translation()).isNull();
+            assertThat(reading.humanReviewRequired()).isTrue();
+            var maintenance = translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT);
+            assertThat(maintenance.original().revisionId()).isNotEqualTo(initial.original().revisionId());
+            assertThat(maintenance.expectedRevision()).isNull(); assertThat(maintenance.draft()).isNull();
+            assertThat(maintenance.confirmed()).isNull(); assertThat(maintenance.machine()).isNull();
+            assertThat(maintenance.previousHuman().original()).isEqualTo(initial.original());
+            assertThat(maintenance.previousHuman().translation().text()).isEqualTo("80°C; do not ship yet");
+            assertThat(maintenance.previousHuman().translation().kind()).isEqualTo("CONFIRMED");
+            assertThatThrownBy(() -> translationService.confirm(service, location, "title", "en", change(confirmed, null, 1)))
+                    .isInstanceOf(OptimisticLockException.class);
+            assertThatThrownBy(() -> translationService.confirm(service, location, "title", "en", change(maintenance, null, 1)))
+                    .isInstanceOf(OptimisticLockException.class);
+            var currentDraft = translationService.saveDraft(service, location, "title", "en", change(maintenance, "60°C; do not ship yet", null));
+            assertThat(translationService.read(service, location, "en").fields().get("title").translation()).isNull();
+            var currentConfirmed = translationService.confirm(service, location, "title", "en", change(currentDraft, null, 1));
+            assertThat(translationService.read(service, location, "en").fields().get("title").text()).isEqualTo("60°C; do not ship yet");
+            assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();
+            assertThat(translationService.history(service, location, "title", "en", initial.original().revisionId(),
+                    initial.original().revision(), HISTORY, PlatformAction.CONTENT_EDIT)).hasSize(2);
+            translationService.remove(service, location, "title", "en", change(currentConfirmed, null, null));
+            edited = service.select(row.getId()); edited.setTitle("50°C，暂勿发货"); service.update(edited);
+            assertThat(translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT).previousHuman()).isNull();
+            assertThat(translationService.read(service, location, "en").fields().get("title").humanReviewRequired()).isFalse();
+            assertThat(translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT).previousHuman()).isNull();
+            assertThat(service.select(row.getId()).getTitle()).isEqualTo("50°C，暂勿发货");
+            try (var other = TenantContext.use("tenant-b")) {
+                assertThatThrownBy(() -> translationService.prepare(service, location, "title", "en", PlatformAction.CONTENT_EDIT))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            }
+        }
+    }
+
+    @Test void earlierPrivateDraftIsAReferenceForMaintainersWithoutDisclosingItsExistenceToOrdinaryReaders() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("旧原文"); service.insert(row);
+            var location = BusinessContentService.Location.record(row.getId());
+            var initial = translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT);
+            translationService.saveDraft(service, location, "title", "de", change(initial, "Privater Entwurf", null));
+            var changed = service.select(row.getId()); changed.setTitle("新原文"); service.update(changed);
+            var reading = translationService.read(service, location, "de").fields().get("title");
+            assertThat(reading.humanReviewRequired()).isFalse(); assertThat(reading.translation()).isNull();
+            assertThat(reading.text()).isEqualTo("新原文");
+            var maintenance = translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_CONFIRM);
+            assertThat(maintenance.previousHuman().translation().kind()).isEqualTo("DRAFT");
+            assertThat(maintenance.previousHuman().translation().text()).isEqualTo("Privater Entwurf");
+            assertThat(maintenance.draft()).isNull(); assertThat(maintenance.confirmed()).isNull();
+        }
+    }
+
+    @Test void currentTranslationStateUsesBoundedDatabaseReadsRegardlessOfHistoryLengthAndRespectsRemoval() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("原文"); service.insert(row);
+            var source = source(row); var original = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Human original", null));
+            tx.executeWithoutResult(status -> translations.confirm(source, original, "en", 1, 1));
+            var template = tx.execute(status -> translations.saveMachine(source, original, "en", "Machine refresh", 2, generation()));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Human work in progress", 3));
+            tx.executeWithoutResult(status -> {
+                for (int revision = 5; revision <= 605; revision++) {
+                    var fact = new BusinessContentTranslation(); org.springframework.beans.BeanUtils.copyProperties(template, fact);
+                    fact.setId(null); fact.setVersion(null); fact.setRevision(revision);
+                    net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(fact, java.time.Instant.now());
+                    translationDao.insert(fact);
+                }
+            });
+            List<PageRequest> pages = new ArrayList<>();
+            var counted = org.mockito.Mockito.mock(BusinessContentTranslationDao.class, invocation -> {
+                if (invocation.getMethod().getName().equals("query")) pages.add(invocation.getArgument(1));
+                return org.mockito.AdditionalAnswers.delegatesTo(translationDao).answer(invocation);
+            });
+            var bounded = new BusinessContentTranslationStore(counted, store);
+            var state = bounded.state(source, original, "en");
+            assertThat(state.revision()).isEqualTo(605);
+            assertThat(state.confirmed().getTranslatedText()).isEqualTo("Human original");
+            assertThat(state.draft().getTranslatedText()).isEqualTo("Human work in progress");
+            assertThat(state.machine().getRevision()).isEqualTo(605);
+            assertThat(pages).hasSizeLessThanOrEqualTo(5).allSatisfy(page -> {
+                assertThat(page.getLimit()).isEqualTo(1); assertThat(page.getOffset()).isZero();
+            });
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            var interleaved = org.mockito.Mockito.mock(BusinessContentTranslationDao.class, invocation -> {
+                if (invocation.getMethod().getName().equals("query") && calls.incrementAndGet() == 2)
+                    tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Concurrent new draft", 605));
+                return org.mockito.AdditionalAnswers.delegatesTo(translationDao).answer(invocation);
+            });
+            var snapshot = new BusinessContentTranslationStore(interleaved, store).state(source, original, "en");
+            assertThat(snapshot.revision()).isEqualTo(605);
+            assertThat(snapshot.draft().getTranslatedText()).isEqualTo("Human work in progress");
+            assertThat(translations.state(source, original, "en").draft().getTranslatedText()).isEqualTo("Concurrent new draft");
+            tx.executeWithoutResult(status -> translations.remove(source, original, "en", 606));
+            tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Explicit new draft", 607));
+            state = bounded.state(source, original, "en");
+            assertThat(state.draft().getTranslatedText()).isEqualTo("Explicit new draft");
+            assertThat(state.confirmed()).isNull(); assertThat(state.machine()).isNull();
+        }
+    }
+
     @Test void humanDraftDoesNotReplaceReadingAndConfirmationRetainsBothAuthorsAndHistory() {
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var row = row("80°C，暂勿发货"); service.insert(row);
@@ -747,6 +855,20 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     parent.getId(), "description", HISTORY)).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             var reopened = records.select(module.moduleAlias(), "main", parent.getId());
             assertThat(reopened.getChildren("lines").getFirst().getValue("description")).isEqualTo("Investigation pending");
+            var changedChild = reopened.getChildren("lines").getFirst();
+            changedChild.setValue("description", "Investigation revised");
+            records.update(module.moduleAlias(), "line", changedChild);
+            var childReference = aggregateTranslations.prepare(records.mainEntity(module.moduleAlias()), childLocation,
+                    "description", "de", PlatformAction.CONTENT_EDIT);
+            assertThat(childReference.original().revisionId()).isNotEqualTo(childOriginal.revisionId());
+            assertThat(childReference.previousHuman().original().revisionId()).isEqualTo(childOriginal.revisionId());
+            assertThat(childReference.previousHuman().translation().text()).isEqualTo("Neue Untersuchung");
+            assertThat(childReference.previousHuman().translation().kind()).isEqualTo("DRAFT");
+            assertThat(childReference.draft()).isNull(); assertThat(childReference.confirmed()).isNull();
+            assertThat(aggregateTranslations.read(records.mainEntity(module.moduleAlias()), childLocation, "de").fields()
+                    .get("description").humanReviewRequired()).isTrue();
+            assertThat(aggregateTranslations.read(records.mainEntity(module.moduleAlias()), childLocation, "de").fields()
+                    .get("description").text()).isEqualTo("Investigation revised");
             var partial = new DynamicRecord(main).setValue("quantity", 0);
             partial.setId(parent.getId()); partial.setVersion(reopened.getVersion());
             records.update(module.moduleAlias(), "main", partial);

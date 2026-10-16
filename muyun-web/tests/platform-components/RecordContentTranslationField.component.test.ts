@@ -123,6 +123,135 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it('reviews an earlier human translation without reusing its confirmation or original identity', async () => {
+    const previousOriginal = {
+      ...original,
+      revisionId: 'earlier-original-id',
+      revision: 2,
+      text: '80°C 原文',
+    };
+    const previousHuman = {
+      original: previousOriginal,
+      translation: translation('CONFIRMED', 9, 'Earlier 80°C translation'),
+    };
+    const maintained: BusinessContentTranslationMaintenance = {
+      original,
+      expectedRevision: null,
+      draft: null,
+      confirmed: null,
+      machine: null,
+      previousHuman,
+    };
+    let confirmed = false;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) {
+        if (confirmed) return reading('en', 'Reviewed current translation');
+        const result = reading();
+        result.fields.description = {
+          ...result.fields.description!,
+          text: original.text,
+          actualLanguage: 'zh-CN',
+          originalFallback: true,
+          translation: null,
+          humanReviewRequired: true,
+        };
+        return result;
+      }
+      if (options.path.endsWith('/history')) return [];
+      if (options.path.endsWith('/draft'))
+        return {
+          ...maintained,
+          expectedRevision: 1,
+          draft: translation('DRAFT', 1, 'Reviewed current translation'),
+        };
+      if (options.path.endsWith('/confirm')) {
+        confirmed = true;
+        return {
+          ...maintained,
+          expectedRevision: 2,
+          confirmed: translation('CONFIRMED', 2, 'Reviewed current translation'),
+        };
+      }
+      return maintained;
+    });
+    const { wrapper, record } = host(request);
+    await flushPromises();
+    expect(wrapper.get('[data-translation-field]').text()).not.toContain('Earlier 80°C translation');
+    expect(wrapper.get('[data-translation-field]').text()).toContain('旧人工译文待复核');
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-maintenance]').text()).toContain('旧确认状态不会沿用');
+    expect(wrapper.get('textarea').element.value).toBe('');
+    expect(button(wrapper, '确认已审阅的草稿').element.disabled).toBe(true);
+    await button(wrapper, '查看旧参考的译文历史').trigger('click');
+    await flushPromises();
+    expect(
+      requests(request)
+        .filter((r) => r.path.endsWith('/history'))
+        .at(-1)?.query,
+    ).toMatchObject({ sourceRevisionId: previousOriginal.revisionId, sourceRevision: 2 });
+    await button(wrapper, '复制到输入框后核对').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('textarea').element.value).toBe('Earlier 80°C translation');
+    expect(requests(request).filter((r) => r.method === 'POST')).toHaveLength(1);
+    expect(button(wrapper, '确认已审阅的草稿').element.disabled).toBe(true);
+    await wrapper.get('textarea').setValue('Reviewed current translation');
+    expect(button(wrapper, '复制到输入框后核对').element.disabled).toBe(true);
+    await button(wrapper, '保存人工草稿').trigger('click');
+    await flushPromises();
+    expect(requests(request).find((r) => r.path.endsWith('/draft'))?.body).toEqual({
+      sourceRevisionId: original.revisionId,
+      sourceRevision: 3,
+      expectedRevision: null,
+      text: 'Reviewed current translation',
+    });
+    await button(wrapper, '确认已审阅的草稿').trigger('click');
+    await flushPromises();
+    expect(requests(request).find((r) => r.path.endsWith('/confirm'))?.body).toEqual({
+      sourceRevisionId: original.revisionId,
+      sourceRevision: 3,
+      expectedRevision: 1,
+      reviewedDraftRevision: 1,
+    });
+    expect(wrapper.get('[data-translation-field]').text()).toContain('Reviewed current translation');
+    expect(record.description).toBe(original.text);
+    expect(record.version).toBe(4);
+    wrapper.unmount();
+  });
+
+  it('keeps an earlier confirmed translation read-only for a confirm-only reviewer until a current draft exists', async () => {
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return reading();
+      if (options.path.endsWith('/review-history')) return [];
+      return {
+        ...state(),
+        expectedRevision: null,
+        confirmed: null,
+        previousHuman: {
+          original: { ...original, revisionId: 'earlier-original', revision: 2 },
+          translation: translation('CONFIRMED', 8, 'Earlier confirmation'),
+        },
+      };
+    });
+    const { wrapper } = host(request, ['contentConfirm']);
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-maintenance]').text()).toContain('Earlier confirmation');
+    expect(wrapper.get('textarea').element.disabled).toBe(true);
+    expect(wrapper.findAll('button').some((b) => b.text() === '复制到输入框后核对')).toBe(false);
+    expect(button(wrapper, '确认已审阅的草稿').element.disabled).toBe(true);
+    await button(wrapper, '查看旧参考的译文历史').trigger('click');
+    await flushPromises();
+    expect(
+      requests(request)
+        .filter((r) => r.path.endsWith('/review-history'))
+        .at(-1)?.query,
+    ).toMatchObject({ sourceRevisionId: 'earlier-original', sourceRevision: 2 });
+    expect(requests(request).some((r) => r.path.endsWith('/confirm'))).toBe(false);
+    wrapper.unmount();
+  });
+
   it('keeps the effective reading and raw value when a human draft is saved through the owned child route', async () => {
     const maintained = state();
     const request = vi.fn(async (options: HttpRequestOptions) => {

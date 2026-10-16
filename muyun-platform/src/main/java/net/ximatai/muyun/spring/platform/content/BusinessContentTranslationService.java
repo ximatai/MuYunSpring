@@ -34,12 +34,14 @@ public final class BusinessContentTranslationService {
                                       Instant createdAt, Integer reviewedDraftRevision, String generationReference) { }
     public record ReadingField(String originalText, BusinessContentService.SourceRevision source,
                                String text, String actualLanguage, boolean originalFallback,
-                               TranslationRevision translation) { }
+                               TranslationRevision translation, boolean humanReviewRequired) { }
     public record Reading(Integer recordVersion, String language, Map<String, ReadingField> fields) {
         public Reading { fields = Map.copyOf(fields); }
     }
+    public record PreviousHuman(BusinessContentService.SourceRevision original, TranslationRevision translation) { }
     public record Maintenance(BusinessContentService.SourceRevision original, Integer expectedRevision,
-                              TranslationRevision draft, TranslationRevision confirmed, TranslationRevision machine) { }
+                              TranslationRevision draft, TranslationRevision confirmed, TranslationRevision machine,
+                              PreviousHuman previousHuman) { }
     public record Change(String sourceRevisionId, int sourceRevision, Integer expectedRevision,
                          String text, Integer reviewedDraftRevision) {
         public Change {
@@ -59,10 +61,13 @@ public final class BusinessContentTranslationService {
             var original = matchingOriginal(source, raw);
             var effective = original == null || sameLanguage(original.getSourceLanguage(), targetLanguage) ? null
                     : translations.state(source, OriginalVersion.of(original), targetLanguage).effective();
+            boolean reviewRequired = original != null && !sameLanguage(original.getSourceLanguage(), targetLanguage)
+                    && (effective == null || !"CONFIRMED".equals(effective.getKind()))
+                    && translations.humanReviewRequired(source, OriginalVersion.of(original), targetLanguage);
             result.put(field, new ReadingField(raw, original == null ? null : BusinessContentService.view(original),
                     effective == null ? raw : effective.getTranslatedText(),
                     effective == null ? original == null ? null : original.getSourceLanguage() : targetLanguage,
-                    effective == null && (original == null || !sameLanguage(original.getSourceLanguage(), targetLanguage)), view(effective)));
+                    effective == null && (original == null || !sameLanguage(original.getSourceLanguage(), targetLanguage)), view(effective), reviewRequired));
         });
         return new Reading(owned.record().getVersion(), targetLanguage, result);
     }
@@ -125,7 +130,11 @@ public final class BusinessContentTranslationService {
     }
     private Maintenance maintenance(FieldTarget target, BusinessContentRevision original, String tag) {
         var state = translations.state(target.source(), OriginalVersion.of(original), tag);
-        return new Maintenance(BusinessContentService.view(original), state.revision(), view(state.draft()), view(state.confirmed()), view(state.machine()));
+        var previous = translations.previousHuman(target.source(), OriginalVersion.of(original), tag);
+        var previousOriginal = previous == null ? null : originals.find(target.source(),
+                new OriginalVersion(previous.getSourceRevisionId(), previous.getSourceRevision()));
+        var reference = previousOriginal == null ? null : new PreviousHuman(BusinessContentService.view(previousOriginal), view(previous));
+        return new Maintenance(BusinessContentService.view(original), state.revision(), view(state.draft()), view(state.confirmed()), view(state.machine()), reference);
     }
     private BusinessContentRevision matchingOriginal(BusinessContentSource source, String text) {
         var original = originals.latest(source);
