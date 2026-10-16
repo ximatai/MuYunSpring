@@ -68,6 +68,14 @@ const aliases = {
 await build({
   configFile: false,
   plugins: [vue()],
+  // A library must leave deployment configuration to the consuming host build.
+  // Otherwise Vite erases unset variables while packing, before the host can set them.
+  define: Object.fromEntries(
+    ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS'].map((key) => [
+      `import.meta.env.${key}`,
+      `import.meta.env.${key}`,
+    ]),
+  ),
   resolve: { alias: aliases },
   build: {
     emptyOutDir: true,

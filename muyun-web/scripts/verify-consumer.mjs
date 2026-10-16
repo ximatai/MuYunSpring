@@ -1,4 +1,13 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -57,10 +66,37 @@ try {
   if (installedPackage.version !== version) {
     throw new Error(`消费者未安装当前 tarball：期望 ${version}，实际 ${installedPackage.version}`);
   }
+  const libraryJavascript = readdirSync(join(installedPackageRoot, 'dist'))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readFileSync(join(installedPackageRoot, 'dist', name), 'utf8'))
+    .join('\n');
+  for (const key of ['VITE_MUYUN_API_BASE_URL', 'VITE_MUYUN_AUTH_TOKEN', 'VITE_MUYUN_CREDENTIALS']) {
+    if (!libraryJavascript.includes(`import.meta.env.${key}`)) {
+      throw new Error(`消费者包提前固化了宿主配置：${key}`);
+    }
+  }
+  // Keep the platform-owned client reachable in this disposable consumer build.
+  // This probe is compiled only; it never sends a request.
+  const consumerMain = join(temporaryExampleRoot, 'src', 'main.ts');
+  writeFileSync(
+    consumerMain,
+    `${readFileSync(consumerMain, 'utf8')}\nimport { createBackendHttpClient } from '@ximatai/muyun-web-app';\nvoid createBackendHttpClient({ withAuth: false }).request({ path: '/consumer-contract' });\n`,
+  );
   execFileSync(process.execPath, [process.env.npm_execpath, 'run', 'build'], {
     cwd: temporaryExampleRoot,
+    env: { ...process.env, VITE_MUYUN_API_BASE_URL: '/consumer-api-contract' },
     stdio: 'inherit',
   });
+  const hostJavascript = readdirSync(join(temporaryExampleRoot, 'dist', 'assets'))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readFileSync(join(temporaryExampleRoot, 'dist', 'assets', name), 'utf8'))
+    .join('\n');
+  if (
+    !hostJavascript.includes('/consumer-api-contract') ||
+    hostJavascript.includes('import.meta.env.VITE_MUYUN_API_BASE_URL')
+  ) {
+    throw new Error('宿主构建没有解析平台组件的 API 地址配置');
+  }
 } finally {
   rmSync(temporaryExampleRoot, { recursive: true, force: true });
 }
