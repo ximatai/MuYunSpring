@@ -1,9 +1,10 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
 
 import net.ximatai.muyun.spring.ability.CrudAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -51,7 +52,9 @@ public class DefaultModuleRecordFacts implements ModuleRecordFacts {
                 .findFirst();
         if (ability.isEmpty()) {
             var record = records.select(moduleAlias, records.mainEntityAlias(moduleAlias), recordId);
-            if (record == null) throw new PlatformException("workflow business record not found: " + recordId);
+            if (record == null) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.default-module-record-facts.workflow-business-record-not-found",
+                    "workflow business record not found: {value1}"), Map.of("value1", String.valueOf(recordId)));
             Map<String, Object> values = new LinkedHashMap<>(record.getValues());
             values.put("id", record.getId());
             values.put("tenantId", record.getTenantId());
@@ -63,7 +66,9 @@ public class DefaultModuleRecordFacts implements ModuleRecordFacts {
             return values;
         }
         var record = ability.get().select(recordId);
-        if (record == null) throw new PlatformException("workflow business record not found: " + recordId);
+        if (record == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.default-module-record-facts.workflow-business-record-not-found",
+                "workflow business record not found: {value1}"), Map.of("value1", String.valueOf(recordId)));
         Map<String, Object> values = new LinkedHashMap<>();
         for (Class<?> type = record.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
             for (Field field : type.getDeclaredFields()) {
@@ -72,7 +77,9 @@ public class DefaultModuleRecordFacts implements ModuleRecordFacts {
                     field.setAccessible(true);
                     values.putIfAbsent(field.getName(), field.get(record));
                 } catch (IllegalAccessException failure) {
-                    throw new PlatformException("cannot read workflow business fact: " + field.getName(), failure);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.default-module-record-facts.cannot-read-workflow-business-fact",
+                            "cannot read workflow business fact: {value1}"), Map.of("value1", String.valueOf(field.getName())), failure);
                 }
             }
         }

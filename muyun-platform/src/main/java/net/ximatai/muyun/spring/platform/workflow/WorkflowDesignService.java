@@ -5,15 +5,17 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /** Aggregate authoring boundary; callers never persist executable nodes independently. */
 @Service
@@ -48,10 +50,14 @@ public class WorkflowDesignService {
         lock(definitionId);
         var definition = requireDefinition(definitionId);
         if (definition.getDefinitionStatus() == WorkflowDefinitionStatus.ARCHIVED)
-            throw new PlatformException("已归档流程不能调整匹配规则");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-design.matching-rules-cannot-be-changed-for-archived-workflows",
+                    "已归档流程不能调整匹配规则"));
         if (settings.version() == null || !settings.version().equals(definition.getVersion()))
             throw new OptimisticLockException("workflow selection settings version conflict");
-        if (settings.title() == null || settings.title().isBlank()) throw new PlatformException("流程名称不能为空");
+        if (settings.title() == null || settings.title().isBlank()) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-design.enter-a-workflow-name",
+                "流程名称不能为空"));
         compiler.validateSelectionExpression(settings.matchExpression());
         definition.setTitle(settings.title().trim());
         definition.setOrganizationId(settings.organizationId() == null || settings.organizationId().isBlank() ? null : settings.organizationId().trim());
@@ -72,7 +78,9 @@ public class WorkflowDesignService {
         var definition = requireDefinition(definitionId);
         var version = requireVersion(definitionId, versionId);
         if (version.getPublishStatus() != WorkflowPublishStatus.DRAFT)
-            throw new PlatformException("已发布版本不能编辑，请创建新版本");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-design.published-versions-cannot-be-edited-create-a-new-version",
+                    "已发布版本不能编辑，请创建新版本"));
         if (expectedVersion == null || !expectedVersion.equals(version.getVersion()))
             throw new OptimisticLockException("workflow design version conflict: " + versionId);
         compiler.validate(document, false, Boolean.TRUE.equals(definition.getApprovalEnabled()));
@@ -137,14 +145,18 @@ public class WorkflowDesignService {
 
     private WorkflowDefinition requireDefinition(String id) {
         var definition = definitions.select(id);
-        if (definition == null) throw new PlatformException("workflow definition not found: " + id);
+        if (definition == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-design.workflow-definition-not-found",
+                "workflow definition not found: {value1}"), Map.of("value1", String.valueOf(id)));
         return definition;
     }
 
     private WorkflowVersion requireVersion(String definitionId, String versionId) {
         var version = versions.select(versionId);
         if (version == null || !definitionId.equals(version.getDefinitionId()))
-            throw new PlatformException("workflow version does not belong to definition: " + versionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-design.the-version-does-not-belong-to-this-workflow-definition",
+                    "workflow version does not belong to definition: {value1}"), Map.of("value1", String.valueOf(versionId)));
         return version;
     }
 

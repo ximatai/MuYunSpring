@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -281,15 +283,20 @@ public class BusinessRuleGovernanceService {
         if (command == null) throw new IllegalArgumentException("business-rule apply command is required");
         String alias = requireDynamicModule(moduleAlias);
         BusinessRulePreview preview = preview(alias, new BusinessRulePreviewCommand(command.rules()));
-        if (!preview.valid()) throw new PlatformException("business-rule proposal is invalid: "
-                + preview.errors().stream().map(BusinessRuleIssue::code).toList());
+        if (!preview.valid()) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.business-rule-governance.business-rule-proposal-is-invalid",
+                "business-rule proposal is invalid: {value1}"), Map.of("value1", String.valueOf(preview.errors().stream().map(BusinessRuleIssue::code).toList())));
         if (!Objects.equals(command.proposalFingerprint(), preview.proposalFingerprint())) {
-            throw new PlatformException("business-rule proposal is stale; preview again before apply");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.business-rule-governance.business-rule-proposal-is-stale-preview-again-before-apply",
+                    "business-rule proposal is stale; preview again before apply"));
         }
         SnapshotContext currentContext = snapshotContext(alias);
         BusinessRuleGovernanceSnapshot current = currentContext.snapshot();
         if (!Objects.equals(command.baselineFingerprint(), current.baselineFingerprint())) {
-            throw new PlatformException("business-rule baseline is stale; reload and preview again");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.business-rule-governance.business-rule-baseline-is-stale-reload-and-preview-again",
+                    "business-rule baseline is stale; reload and preview again"));
         }
         // Keep the exact relation version represented by the accepted baseline for the CAS below.
         ModuleMetadataRelation main = currentContext.main();
@@ -301,8 +308,9 @@ public class BusinessRuleGovernanceService {
             List<ModuleMetadataFormulaRule> existing = storedRules(main);
             List<BusinessRuleIssue> proposalErrors = new ArrayList<>();
             List<FormulaRule> proposalRules = proposals(command.rules(), current, proposalErrors);
-            if (!proposalErrors.isEmpty()) throw new PlatformException("business-rule proposal is invalid: "
-                    + proposalErrors.stream().map(BusinessRuleIssue::code).toList());
+            if (!proposalErrors.isEmpty()) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.business-rule-governance.business-rule-proposal-is-invalid",
+                    "business-rule proposal is invalid: {value1}"), Map.of("value1", String.valueOf(proposalErrors.stream().map(BusinessRuleIssue::code).toList())));
             validateCandidate(alias, current, existing, proposalRules);
             persistProposal(main, existing, current, command.rules());
             return null;
@@ -320,7 +328,9 @@ public class BusinessRuleGovernanceService {
         for (BusinessRuleProposal proposal : proposals == null ? List.<BusinessRuleProposal>of() : proposals) {
             ModuleMetadataFormulaRule stored = existingByCode.get(proposal.code());
             if (stored != null && !editableSnapshotRule(stored, snapshot)) {
-                throw new PlatformException("business-rule code is read-only in this editor: " + proposal.code());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.business-rule-governance.business-rule-code-is-read-only-in-this-editor",
+                        "business-rule code is read-only in this editor: {value1}"), Map.of("value1", String.valueOf(proposal.code())));
             }
             retainedEditableCodes.add(proposal.code());
             if (stored == null) {

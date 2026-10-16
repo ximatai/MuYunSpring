@@ -1,14 +1,16 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import java.util.Map;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 @Service
 public class WorkflowVersionService extends AbstractAbilityService<WorkflowVersion> implements
@@ -39,17 +41,23 @@ public class WorkflowVersionService extends AbstractAbilityService<WorkflowVersi
     public void beforeUpdate(WorkflowVersion version) {
         WorkflowVersion existing = selectIncludingDeleted(version.getId());
         if (existing != null && existing.getPublishStatus() == WorkflowPublishStatus.PUBLISHED) {
-            throw new PlatformException("published workflow version cannot be changed");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-version.published-workflow-versions-cannot-be-changed",
+                    "published workflow version cannot be changed"));
         }
         normalizeAndValidate(version);
     }
 
     private void normalizeAndValidate(WorkflowVersion version) {
         if (definitionService.select(version.getDefinitionId()) == null) {
-            throw new PlatformException("workflow definition not found: " + version.getDefinitionId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-version.workflow-definition-not-found",
+                    "workflow definition not found: {value1}"), Map.of("value1", String.valueOf(version.getDefinitionId())));
         }
         if (version.getVersionNo() == null || version.getVersionNo() <= 0) {
-            throw new PlatformException("workflow version number must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-version.the-workflow-version-number-must-be-positive",
+                    "workflow version number must be positive"));
         }
         if (version.getPublishStatus() == null) {
             version.setPublishStatus(WorkflowPublishStatus.DRAFT);

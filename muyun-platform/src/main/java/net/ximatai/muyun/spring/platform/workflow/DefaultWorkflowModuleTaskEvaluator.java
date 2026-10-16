@@ -1,12 +1,14 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.task.ModuleCompletionCheckService;
 import net.ximatai.muyun.spring.platform.ui.PlatformTaskCheckBlock;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Map;
 
 @Service
 public class DefaultWorkflowModuleTaskEvaluator implements WorkflowModuleTaskEvaluator {
@@ -37,7 +39,9 @@ public class DefaultWorkflowModuleTaskEvaluator implements WorkflowModuleTaskEva
                     var block = mapper.readValue(check.getCheckConfigText(), PlatformTaskCheckBlock.class);
                     var detail = checks.check(instance.getModuleAlias(), instance.getRecordId(), block);
                     passed = Boolean.TRUE.equals(detail.passed()); result.setResultPayloadText(mapper.writeValueAsString(detail));
-                } catch (Exception failure) { throw new PlatformException("业务完成项检查失败: " + check.getCheckKey(), failure); }
+                } catch (Exception failure) { throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.default-workflow-module-task-evaluator.completion-item-check-failed",
+                        "业务完成项检查失败: {value1}"), Map.of("value1", String.valueOf(check.getCheckKey())), failure); }
             }
             result.setPassed(passed); result.setCheckStatus(passed ? WorkflowTaskCheckStatus.PASSED : WorkflowTaskCheckStatus.FAILED);
             result.setFailureMessage(passed ? null : check.getFailureMessage()); results.add(result);

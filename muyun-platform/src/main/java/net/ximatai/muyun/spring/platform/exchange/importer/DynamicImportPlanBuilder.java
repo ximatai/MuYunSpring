@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange.importer;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldCompanionDescriptor;
@@ -56,7 +58,9 @@ public class DynamicImportPlanBuilder {
         for (ParsedSheet childSheet : resolvedSheets.childSheetList()) {
             BuildDynamicImportPlanCommand.ChildSheetCommand childCommand = childCommands.get(childSheet.entityAlias());
             if (!childSheet.rows().isEmpty() && childCommand == null) {
-                throw new PlatformException("child sheet import strategy required: " + childSheet.entityAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import-plan-builder.child-sheet-import-strategy-required",
+                        "child sheet import strategy required: {value1}"), Map.of("value1", String.valueOf(childSheet.entityAlias())));
             }
             if (childSheet.rows().isEmpty() && childCommand == null) {
                 continue;
@@ -92,13 +96,15 @@ public class DynamicImportPlanBuilder {
             throw new PlatformException("dynamic import requires descriptor moduleAlias");
         }
         if (!Objects.equals(descriptor.moduleAlias(), command.moduleAlias())) {
-            throw new PlatformException("dynamic import moduleAlias mismatch: "
-                    + command.moduleAlias() + "/" + descriptor.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-plan-builder.dynamic-import-modulealias-mismatch",
+                    "dynamic import moduleAlias mismatch: {value1}/{value2}"), Map.of("value1", String.valueOf(command.moduleAlias()), "value2", String.valueOf(descriptor.moduleAlias())));
         }
         if (workbook.meta() != null && !isBlank(workbook.meta().moduleAlias())
                 && !Objects.equals(workbook.meta().moduleAlias(), descriptor.moduleAlias())) {
-            throw new PlatformException("dynamic import workbook moduleAlias mismatch: "
-                    + workbook.meta().moduleAlias() + "/" + descriptor.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-plan-builder.dynamic-import-workbook-modulealias-mismatch",
+                    "dynamic import workbook moduleAlias mismatch: {value1}/{value2}"), Map.of("value1", String.valueOf(workbook.meta().moduleAlias()), "value2", String.valueOf(descriptor.moduleAlias())));
         }
         if (isBlank(descriptor.mainEntityAlias())) {
             throw new PlatformException("dynamic import requires mainEntityAlias");
@@ -150,13 +156,16 @@ public class DynamicImportPlanBuilder {
         Map<String, BuildDynamicImportPlanCommand.ChildSheetCommand> result = new LinkedHashMap<>();
         for (BuildDynamicImportPlanCommand.ChildSheetCommand childCommand : command.childSheets()) {
             if (!childEntityAliases.contains(childCommand.entityAlias())) {
-                throw new PlatformException("child sheet command entity is not first-level child: "
-                        + childCommand.entityAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import-plan-builder.child-sheet-command-entity-is-not-first-level-child",
+                        "child sheet command entity is not first-level child: {value1}"), Map.of("value1", String.valueOf(childCommand.entityAlias())));
             }
             BuildDynamicImportPlanCommand.ChildSheetCommand previous =
                     result.putIfAbsent(childCommand.entityAlias(), childCommand);
             if (previous != null) {
-                throw new PlatformException("child sheet command duplicated: " + childCommand.entityAlias());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import-plan-builder.child-sheet-command-duplicated",
+                        "child sheet command duplicated: {value1}"), Map.of("value1", String.valueOf(childCommand.entityAlias())));
             }
         }
         return result;
@@ -171,8 +180,9 @@ public class DynamicImportPlanBuilder {
                     || childEntityAliases.contains(sheet.entityAlias())) {
                 continue;
             }
-            throw new PlatformException("sheet does not belong to dynamic module: "
-                    + sheet.sheetName() + "/" + sheet.entityAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-plan-builder.sheet-does-not-belong-to-dynamic-module",
+                    "sheet does not belong to dynamic module: {value1}/{value2}"), Map.of("value1", String.valueOf(sheet.sheetName()), "value2", String.valueOf(sheet.entityAlias())));
         }
     }
 
@@ -197,8 +207,9 @@ public class DynamicImportPlanBuilder {
             boolean companion = companionFieldNames.contains(column.fieldName());
             DynamicFieldDescriptor fieldDescriptor = fieldsByName.get(column.fieldName());
             if (!relateId && fieldDescriptor == null) {
-                throw new PlatformException("import field does not belong to entity: "
-                        + sheet.sheetName() + "/" + column.fieldName());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-import-plan-builder.import-field-does-not-belong-to-entity",
+                        "import field does not belong to entity: {value1}/{value2}"), Map.of("value1", String.valueOf(sheet.sheetName()), "value2", String.valueOf(column.fieldName())));
             }
             fields.add(new DynamicImportPlan.FieldPlan(
                     entity.entityAlias(),
@@ -228,8 +239,9 @@ public class DynamicImportPlanBuilder {
                         DynamicFieldDescriptor::fieldName,
                         Function.identity(),
                         (left, right) -> {
-                            throw new PlatformException("dynamic import field duplicated: "
-                                    + entity.entityAlias() + "." + left.fieldName());
+                            throw PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.dynamic-import-plan-builder.dynamic-import-field-duplicated",
+                                    "dynamic import field duplicated: {value1}.{value2}"), Map.of("value1", String.valueOf(entity.entityAlias()), "value2", String.valueOf(left.fieldName())));
                         },
                         LinkedHashMap::new
                 ));
@@ -256,14 +268,16 @@ public class DynamicImportPlanBuilder {
                                     Set<String> columnFieldNames,
                                     String matchFieldName) {
         if (!columnFieldNames.contains(matchFieldName)) {
-            throw new PlatformException("match field not found in import sheet: "
-                    + sheet.sheetName() + "/" + matchFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-plan-builder.match-field-not-found-in-import-sheet",
+                    "match field not found in import sheet: {value1}/{value2}"), Map.of("value1", String.valueOf(sheet.sheetName()), "value2", String.valueOf(matchFieldName)));
         }
         if (Objects.equals(ExcelExchangeProtocol.RELATE_ID_FIELD, matchFieldName)
                 || companionFieldNames.contains(matchFieldName)
                 || !fieldsByName.containsKey(matchFieldName)) {
-            throw new PlatformException("match field must be entity business field: "
-                    + sheet.sheetName() + "/" + matchFieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-import-plan-builder.match-field-must-be-entity-business-field",
+                    "match field must be entity business field: {value1}/{value2}"), Map.of("value1", String.valueOf(sheet.sheetName()), "value2", String.valueOf(matchFieldName)));
         }
     }
 

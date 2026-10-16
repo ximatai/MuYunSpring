@@ -11,7 +11,6 @@ import java.util.Map;
 
 public class BusinessException extends PlatformException {
     private final ActionMessageType messageType;
-    private final TextReference textSource;
 
     public BusinessException(String code, String message) {
         this(code, message, ActionMessageType.WARNING);
@@ -55,13 +54,12 @@ public class BusinessException extends PlatformException {
     public BusinessException(String code, int httpStatus, String message, ActionMessageType messageType,
                              ErrorScope scope, List<ErrorTarget> targets, Map<String, Object> details,
                              Map<String, Object> messageArgs, TextReference textSource) {
-        super(code, httpStatus, message, scope, targets, details, messageArgs);
-        this.textSource = textSource;
+        super(textSource, code, httpStatus, message, scope, targets, details, messageArgs);
         this.messageType = messageType == null ? ActionMessageType.WARNING : messageType;
     }
 
     public ActionMessage actionMessage() {
-        return new ActionMessage(code(), getMessage(), messageType, messageArgs(), textSource);
+        return new ActionMessage(code(), getMessage(), messageType, messageArgs(), textSource());
     }
 
     public ActionMessageType messageType() {

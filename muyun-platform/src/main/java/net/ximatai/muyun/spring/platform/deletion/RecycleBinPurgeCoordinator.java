@@ -1,7 +1,8 @@
 package net.ximatai.muyun.spring.platform.deletion;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,11 +39,15 @@ public class RecycleBinPurgeCoordinator {
         DeletionOperation source = deletionLogService.operation(sourceOperationId);
         if (source.getOperationType() != DeletionOperationType.DELETE
                 || source.getStatus() != DeletionOperationStatus.SUCCEEDED) {
-            throw new PlatformException("Purge source must be a successful delete operation: " + sourceOperationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.recycle-bin-purge-coordinator.purge-source-must-be-a-successful-delete-operation",
+                    "Purge source must be a successful delete operation: {value1}"), Map.of("value1", String.valueOf(sourceOperationId)));
         }
         List<DeletionEntry> sourceEntries = deletionLogService.operationEntries(sourceOperationId);
         if (sourceEntries.stream().noneMatch(entry -> entry.getParentEntryId() == null)) {
-            throw new PlatformException("Purge source has no root entry: " + sourceOperationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.recycle-bin-purge-coordinator.purge-source-has-no-root-entry",
+                    "Purge source has no root entry: {value1}"), Map.of("value1", String.valueOf(sourceOperationId)));
         }
         String purgeOperationId = deletionLogService.startOperation(purgeOperation(source));
         Map<String, List<DeletionEntry>> children = childrenOf(sourceEntries);

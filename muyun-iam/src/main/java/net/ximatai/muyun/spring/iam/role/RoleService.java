@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -704,8 +705,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                         .eq("enabled", Boolean.TRUE),
                 ALL);
         if (grants.size() > 1) {
-            throw new PlatformException("employment has more than one inherited data grant action: "
-                    + roleGrant.employeePositionId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.role.employment-has-more-than-one-inherited-data-grant-action",
+                    "employment has more than one inherited data grant action: {value1}"), Map.of("value1", String.valueOf(roleGrant.employeePositionId())));
         }
         return grants.stream().findFirst().map(this::asInheritedDataGrantAction).orElse(null);
     }
@@ -915,7 +917,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private Role requireEnabledRole(String roleId) {
-        Role role = requireEnabled(Preconditions.requireText(roleId, "roleId"), "role is not active: " + roleId);
+        Role role = requireEnabledOrThrow(Preconditions.requireText(roleId, "roleId"), () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.role.role-is-not-active",
+                "role is not active: {value1}"), Map.of("value1", String.valueOf(roleId))));
         normalizeLoadedRoleDefaults(role);
         return role;
     }
@@ -1228,7 +1232,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         }
         Organization organization = organizationService.selectActiveRaw(role.getOwnerScopeId());
         if (organization == null) {
-            throw new PlatformException("role owner organization does not exist: " + role.getOwnerScopeId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.role.role-owner-organization-does-not-exist",
+                    "role owner organization does not exist: {value1}"), Map.of("value1", String.valueOf(role.getOwnerScopeId())));
         }
         String currentTenantId = TenantContext.currentTenantId()
                 .orElseThrow(() -> BusinessExceptions.warningText("iam.role.tenant-context-required",
@@ -1313,7 +1319,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         requireAccountRole(role);
         requireSystemManagedMutationAllowed(role, "grant account role");
         String validUserId = Preconditions.requireText(userId, "userId");
-        userAccountService.requireEnabled(validUserId, "user account is not active: " + validUserId);
+        userAccountService.requireEnabledOrThrow(validUserId, () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.role.user-account-is-not-active",
+                "user account is not active: {value1}"), Map.of("value1", String.valueOf(validUserId))));
         ManagementScopeType validScopeType = normalizeManagementScopeType(managementScopeType);
         String validScopeId = normalizeManagementScopeId(validScopeType, managementScopeId);
         AccountRoleGrant existing = findAccountRoleGrant(role.getId(), validUserId, validScopeType, validScopeId);
@@ -1341,10 +1349,12 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         requireEmploymentAssignableRole(role);
         requireSystemManagedMutationAllowed(role, "grant employment role");
         String validEmployeePositionId = Preconditions.requireText(employeePositionId, "employeePositionId");
-        EmployeePosition employeePosition = employeePositionService.requireEnabled(validEmployeePositionId,
-                "employee position is not active: " + validEmployeePositionId);
-        employeeService.requireEnabled(employeePosition.getEmployeeId(),
-                "employee is not active: " + employeePosition.getEmployeeId());
+        EmployeePosition employeePosition = employeePositionService.requireEnabledOrThrow(validEmployeePositionId, () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.role.employee-position-is-not-active",
+                "employee position is not active: {value1}"), Map.of("value1", String.valueOf(validEmployeePositionId))));
+        employeeService.requireEnabledOrThrow(employeePosition.getEmployeeId(), () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.role.employee-is-not-active",
+                "employee is not active: {value1}"), Map.of("value1", String.valueOf(employeePosition.getEmployeeId()))));
         ensureDataGrantUnique(validEmployeePositionId, role);
         ensureInheritedDataGrantCoverage(validEmployeePositionId, role);
         EmploymentRoleGrant existing = findEmploymentRoleGrant(role.getId(), validEmployeePositionId);
@@ -1792,7 +1802,9 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         try {
             PlatformNameRules.requireModuleAlias(valid);
         } catch (IllegalArgumentException ex) {
-            throw new PlatformException("invalid moduleAlias: " + valid);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.role.invalid-modulealias",
+                    "invalid moduleAlias: {value1}"), Map.of("value1", String.valueOf(valid)));
         }
         return valid;
     }

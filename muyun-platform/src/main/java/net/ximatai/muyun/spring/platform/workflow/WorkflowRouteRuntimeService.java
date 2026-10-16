@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -138,7 +140,9 @@ public class WorkflowRouteRuntimeService {
 
     private int ratio(Integer convergeRatio) {
         if (convergeRatio == null || convergeRatio <= 0 || convergeRatio > 100) {
-            throw new PlatformException("workflow converge ratio must be between 1 and 100");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-route-runtime.the-merge-ratio-must-be-between-1-and-100",
+                    "workflow converge ratio must be between 1 and 100"));
         }
         return convergeRatio;
     }

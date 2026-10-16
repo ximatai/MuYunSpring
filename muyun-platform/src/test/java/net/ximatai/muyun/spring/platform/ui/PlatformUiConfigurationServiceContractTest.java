@@ -1418,6 +1418,34 @@ class PlatformUiConfigurationServiceContractTest {
     }
 
     @Test
+    void rejectedSingleValueExternalQueryKeepsPublishedConfigurationAndOriginalDefault() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.EQ);
+        String fieldId = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String templateId = queryTemplateService.insert(queryTemplate("crm.customer", "invalid_value_count", true));
+        PlatformQueryItem item = queryLeaf(templateId, TreeAbility.ROOT_ID, fieldId, DynamicQueryOperator.EQ);
+        item.setDefaultValue("原文 {value1}");
+        item.setAllowExternalValue(true);
+        item.setExternalValueKey("name_filter");
+        queryItemService.insert(item);
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        publishService.publishQueryTemplate(templateId);
+        assertThatThrownBy(() -> queryItemService.compile(templateId, Map.of("name_filter", List.of("first", "second"))))
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    for (String language : List.of("en", "zh-CN", "en")) {
+                        assertThat(texts.resolve(error.textSource(), error.messageArgs(), language).text())
+                                .isEqualTo(language.equals("en") ? "EQ query item requires exactly one value"
+                                        : "EQ 查询项必须提供一个值");
+                    }
+                    assertThat(error.messageArgs()).containsEntry("value1", "EQ");
+                });
+        assertThat(queryTemplateService.select(templateId).getPublished()).isTrue();
+        assertThat(queryItemService.select(item.getId()).getDefaultValue()).isEqualTo("原文 {value1}");
+        assertThat(snapshotService.snapshot("crm.customer").queryTemplates()).extracting(PlatformQueryTemplate::getId)
+                .containsExactly(templateId);
+    }
+
+    @Test
     void shouldPublishPageConfigAndKeepDraftsOutOfOnlineSnapshot() {
         seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
         seedUiType("text", "string");

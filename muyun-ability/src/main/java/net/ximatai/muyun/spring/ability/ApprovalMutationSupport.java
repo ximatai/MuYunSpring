@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.ability;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.capability.ApprovalCapable;
@@ -7,7 +9,6 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.*;
 import java.util.Objects;
 import java.util.Set;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 /** Exact record binding: an approval command cannot authorize a second record or ordinary update. */
 final class ApprovalMutationSupport {
@@ -36,7 +37,7 @@ final class ApprovalMutationSupport {
         if (summary != null && summary.service().equals(service.mutationServiceIdentity()) && summary.record() == incoming) return;
         BusinessBinding business = BUSINESS.get();
         if (business != null && business.service().equals(service.mutationServiceIdentity()) && business.record() == incoming) return;
-        throw new PlatformException(ORDINARY_UPDATE_BLOCKED);
+        throw PlatformErrors.badRequestText(TextReference.code("platform.rejection.approval.ordinary-update-blocked", ORDINARY_UPDATE_BLOCKED));
     }
 
     static boolean blocksOrdinaryUpdate(EntityContract existing) {
@@ -84,7 +85,9 @@ final class ApprovalMutationSupport {
 
     private static void requireIdentity(EntityContract record, String id, String tenantId) {
         if (!Objects.equals(record.getId(), id) || !Objects.equals(record.getTenantId(), tenantId))
-            throw new PlatformException("审批命令绑定的记录身份或租户不可修改");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.approval-mutation-support.the-record-identity-and-tenant-bound-to-an-approval-command-cannot-be",
+                    "审批命令绑定的记录身份或租户不可修改"));
     }
 
     static void retain(CrudAbility<?> service, EntityContract incoming, EntityContract existing) {

@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
@@ -191,22 +193,28 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
             }
             case LINK -> {
                 module.setEntryRoute(null);
-                module.setEntryExternalUrl(requireText(module.getEntryExternalUrl(), "LINK module entry requires externalUrl").trim());
+                module.setEntryExternalUrl(requireText(module.getEntryExternalUrl(), TextReference.code(
+                    "platform.rejection.platform-module.link-entry-url",
+                    "LINK module entry requires externalUrl")).trim());
             }
         }
     }
 
     private String normalizeInternalRoute(String route) {
-        String normalized = requireText(route, "ROUTE module entry requires route").trim();
+        String normalized = requireText(route, TextReference.code(
+                    "platform.rejection.platform-module.route-entry-path",
+                    "ROUTE module entry requires route")).trim();
         if (!normalized.startsWith("/") || normalized.startsWith("//") || normalized.contains("://")) {
-            throw new PlatformException("ROUTE module entry route must be an internal path: " + normalized);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-module.route-module-entry-route-must-be-an-internal-path",
+                    "ROUTE module entry route must be an internal path: {value1}"), Map.of("value1", String.valueOf(normalized)));
         }
         return normalized;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }
@@ -225,8 +233,10 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     }
 
     private void validateParentApplication(PlatformModule module) {
-        validateTreePlacementInScope(module, applicationScope(module.getApplicationAlias()),
-                "Module parent must belong to the same application");
+        validateTreePlacementInScopeOrThrow(module, applicationScope(module.getApplicationAlias()),
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-module.parent-scope",
+                        "Module parent must belong to the same application")));
     }
 
     private Criteria applicationScope(String applicationAlias) {

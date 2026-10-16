@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
@@ -33,7 +35,9 @@ public class ReferenceRecordGenerationFacade {
         String ruleId = requireText(reference.generateRuleId(), "reference generateRuleId");
         RecordGenerationRule rule = ruleService.viewRuleTree(ruleId);
         if (rule == null || !Boolean.TRUE.equals(rule.getEnabled())) {
-            throw new PlatformException("Reference generation rule is not enabled: " + ruleId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-record-generation.reference-generation-rule-is-not-enabled",
+                    "Reference generation rule is not enabled: {value1}"), Map.of("value1", String.valueOf(ruleId)));
         }
         requireDirection(reference, moduleAlias, rule);
         DynamicActionExecutionResult result = recordService.executeAction(
@@ -86,14 +90,17 @@ public class ReferenceRecordGenerationFacade {
                                   RecordGenerationRule rule) {
         if (!Objects.equals(rule.getSourceModuleAlias(), reference.targetModuleAlias())
                 || !Objects.equals(rule.getTargetModuleAlias(), moduleAlias)) {
-            throw new PlatformException("Reference generation rule direction mismatch: "
-                    + rule.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-record-generation.reference-generation-rule-direction-mismatch",
+                    "Reference generation rule direction mismatch: {value1}"), Map.of("value1", String.valueOf(rule.getId())));
         }
     }
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("Reference generation requires " + fieldName);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-record-generation.reference-generation-requires",
+                    "Reference generation requires {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

@@ -1,8 +1,9 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
 import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -106,7 +107,9 @@ public class WorkflowSubmitDraftService {
         WorkflowRuntimeGraph graph = WorkflowRuntimeGraph.of(nodeDefinitions, linkDefinitions);
         WorkflowNodeDefinition startNode = graph.startNodes().stream()
                 .findFirst()
-                .orElseThrow(() -> new PlatformException("workflow must contain a start node"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-submit-draft.add-a-start-node-to-the-workflow",
+                        "workflow must contain a start node")));
         var businessFacts = linkDefinitions.stream().anyMatch(link -> link.getConditionExpression() != null && !link.getConditionExpression().isBlank())
                 ? facts.read(definition.getModuleAlias(), recordId) : java.util.Map.<String, Object>of();
         Map<String, Set<String>> selectedRouteKeysByBranch =

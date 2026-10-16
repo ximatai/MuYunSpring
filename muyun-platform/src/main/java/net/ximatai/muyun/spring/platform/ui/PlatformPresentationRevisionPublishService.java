@@ -62,18 +62,21 @@ public class PlatformPresentationRevisionPublishService {
     public PlatformPresentationRevision publish(String revisionId) {
         PlatformPresentationRevision candidate = requireRevision(revisionId);
         if (!Boolean.TRUE.equals(candidate.getEnabled())) {
-            throw BusinessExceptions.warning("platform.presentation-revision.publish-disabled",
-                    "Presentation revision must be enabled before publishing: " + revisionId);
+            throw BusinessExceptions.warningText("platform.presentation-revision.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-revision-must-be-enabled-before-publishing",
+                    "Presentation revision must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(revisionId)));
         }
         PlatformPresentationVariant variant = variantService.requireVisibleVariant(candidate.getVariantId());
         if (!Boolean.TRUE.equals(variant.getEnabled())) {
-            throw BusinessExceptions.warning("platform.presentation-variant.publish-disabled",
-                    "Presentation variant must be enabled before publishing: " + candidate.getVariantId());
+            throw BusinessExceptions.warningText("platform.presentation-variant.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-variant-must-be-enabled-before-publishing",
+                    "Presentation variant must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(candidate.getVariantId())));
         }
         PlatformPageDefinition page = pageService.requireVisiblePage(variant.getPageId());
         if (!Boolean.TRUE.equals(page.getEnabled())) {
-            throw BusinessExceptions.warning("platform.page-definition.publish-disabled",
-                    "Page definition must be enabled before publishing: " + page.getId());
+            throw BusinessExceptions.warningText("platform.page-definition.publish-disabled", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.page-definition-must-be-enabled-before-publishing",
+                    "Page definition must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(page.getId())));
         }
         PlatformPresentationTemplate template = templateCatalog.require(candidate.getTemplateAlias(),
                 candidate.getTemplateVersion(), variant.getClientType(), page.getContractType());
@@ -87,8 +90,9 @@ public class PlatformPresentationRevisionPublishService {
             variantService.update(copyForPublicationLease(variant));
             PlatformPresentationRevision publicationCandidate = requireRevision(revisionId);
             if (!Boolean.TRUE.equals(publicationCandidate.getEnabled())) {
-                throw BusinessExceptions.warning("platform.presentation-revision.publish-disabled",
-                        "Presentation revision must be enabled before publishing: " + revisionId);
+                throw BusinessExceptions.warningText("platform.presentation-revision.publish-disabled", TextReference.code(
+                        "platform.rejection.platform-presentation-revision-publish.presentation-revision-must-be-enabled-before-publishing",
+                        "Presentation revision must be enabled before publishing: {value1}"), Map.of("value1", String.valueOf(revisionId)));
             }
             template = templateCatalog.require(publicationCandidate.getTemplateAlias(), publicationCandidate.getTemplateVersion(),
                     variant.getClientType(), page.getContractType());
@@ -159,8 +163,9 @@ public class PlatformPresentationRevisionPublishService {
         PlatformPresentationRevision revision = revisionId == null || revisionId.isBlank() ? null
                 : revisionService.select(revisionId);
         if (revision == null) {
-            throw BusinessExceptions.warning("platform.presentation-revision.not-found",
-                    "Presentation revision is not found: " + revisionId);
+            throw BusinessExceptions.warningText("platform.presentation-revision.not-found", TextReference.code(
+                    "platform.rejection.platform-presentation-revision-publish.presentation-revision-is-not-found",
+                    "Presentation revision is not found: {value1}"), Map.of("value1", String.valueOf(revisionId)));
         }
         return revision;
     }

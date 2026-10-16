@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import java.util.Map;
+
 public record WorkflowSubmitStatusView(
         String moduleAlias,
         String recordId,
@@ -9,8 +12,26 @@ public record WorkflowSubmitStatusView(
         WorkflowApprovalStatus approvalStatus,
         WorkflowDefinitionSummaryView definition,
         String errorMessage,
-        boolean canSubmit
+        boolean canSubmit,
+        TextReference errorMessageSource,
+        Map<String, Object> errorMessageArgs
 ) {
+    public WorkflowSubmitStatusView {
+        errorMessageArgs = errorMessageArgs == null ? Map.of() : Map.copyOf(errorMessageArgs);
+    }
+
+    public WorkflowSubmitStatusView(String moduleAlias, String recordId, String displayStatus, String instanceId,
+            WorkflowInstanceStatus instanceStatus, WorkflowApprovalStatus approvalStatus,
+            WorkflowDefinitionSummaryView definition, String errorMessage, boolean canSubmit) {
+        this(moduleAlias, recordId, displayStatus, instanceId, instanceStatus, approvalStatus, definition,
+                errorMessage, canSubmit, null, Map.of());
+    }
+
+    public WorkflowSubmitStatusView withErrorSource(TextReference source, Map<String, Object> args) {
+        return new WorkflowSubmitStatusView(moduleAlias, recordId, displayStatus, instanceId, instanceStatus,
+                approvalStatus, definition, errorMessage, canSubmit, source, args);
+    }
+
     public static WorkflowSubmitStatusView current(WorkflowInstance instance) {
         return current(instance, net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser().map(user -> user.userId()).orElse(null));
     }

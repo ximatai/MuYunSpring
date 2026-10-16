@@ -513,7 +513,7 @@ class RoleServiceContractTest {
                 .thenReturn(List.of())
                 .thenReturn(List.of(accountGrant("r1", "user-1", ManagementScopeType.TENANT, "tenant_a")));
         when(accountGrantDao.insert(any())).thenReturn("grant-1");
-        when(userAccountService.requireEnabled("user-1", "user account is not active: user-1"))
+        when(userAccountService.requireEnabledOrThrow(org.mockito.ArgumentMatchers.eq("user-1"), any()))
                 .thenReturn(new UserAccount());
         RoleService service = new RoleService(
                 roleDao,
@@ -647,7 +647,7 @@ class RoleServiceContractTest {
         when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(employmentRole("r1", RoleKind.STANDARD)));
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         when(employmentGrantDao.insert(any())).thenReturn("grant-1");
-        when(employeePositionService.requireEnabled("position-1", "employee position is not active: position-1"))
+        when(employeePositionService.requireEnabledOrThrow(org.mockito.ArgumentMatchers.eq("position-1"), any()))
                 .thenReturn(new EmployeePosition());
         RoleService service = new RoleService(
                 roleDao,
@@ -791,9 +791,9 @@ class RoleServiceContractTest {
         when(roleDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(employmentRole("r1", RoleKind.STANDARD)));
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         when(employmentGrantDao.insert(any())).thenReturn("grant-1");
-        when(employeePositionService.requireEnabled("position-1", "employee position is not active: position-1"))
+        when(employeePositionService.requireEnabledOrThrow(org.mockito.ArgumentMatchers.eq("position-1"), any()))
                 .thenReturn(position);
-        when(employeeService.requireEnabled("employee-1", "employee is not active: employee-1"))
+        when(employeeService.requireEnabledOrThrow(org.mockito.ArgumentMatchers.eq("employee-1"), any()))
                 .thenReturn(employee("employee-1", "org-1", "dept-1", true));
         RoleService service = new RoleService(
                 roleDao,
@@ -815,7 +815,7 @@ class RoleServiceContractTest {
             service.grantEmploymentRole("r1", "position-1");
         }
 
-        verify(employeeService).requireEnabled("employee-1", "employee is not active: employee-1");
+        verify(employeeService).requireEnabledOrThrow(org.mockito.ArgumentMatchers.eq("employee-1"), any());
     }
 
     @Test
@@ -1462,7 +1462,7 @@ class RoleServiceContractTest {
                                 RoleDataGrantActionDao dataGrantActionDao,
                                 ObjectProvider<ReferenceDependencyScopeCatalogResolver> referenceCatalog) {
         EmployeePositionService positions = mock(EmployeePositionService.class);
-        when(positions.requireEnabled(anyString(), anyString()))
+        when(positions.requireEnabledOrThrow(anyString(), any()))
                 .thenAnswer(call -> employeePosition(call.getArgument(0), "employee-1", "org-1", "dept-1", true));
         return new RoleService(
                 roleDao,

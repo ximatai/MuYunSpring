@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 
 import java.util.ArrayList;
@@ -50,12 +52,16 @@ final class MetadataCapabilityManagedFieldMaterializer {
                                           MetadataSystemFieldCatalog.MetadataSystemFieldDescriptor expected,
                                           java.util.List<MetadataField> existing) {
         if (existing.size() != 1) {
-            throw new PlatformException("元数据“" + metadata.getAlias() + "”存在重复的平台保留字段：" + expected.fieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-capability-managed-field-materializer.metadata-has-duplicate-platform-reserved-fields",
+                    "元数据“{value1}”存在重复的平台保留字段：{value2}"), Map.of("value1", String.valueOf(metadata.getAlias()), "value2", String.valueOf(expected.fieldName())));
         }
         MetadataField field = existing.getFirst();
         if (!expected.columnName().equals(field.getColumnName())
                 || !expected.fieldSpecAlias().equals(field.getFieldSpecAlias())) {
-            throw new PlatformException("字段“" + expected.fieldName() + "”与平台保留字段定义冲突，不能自动接管。");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-capability-managed-field-materializer.field-conflicts-with-a-platform-reserved-field-and-cannot-be-adopted-automatically",
+                    "字段“{value1}”与平台保留字段定义冲突，不能自动接管。"), Map.of("value1", String.valueOf(expected.fieldName())));
         }
         if (field.getFieldOwnership() == MetadataFieldOwnership.STANDARD
                 && Boolean.TRUE.equals(field.getSystemManaged())) {

@@ -928,7 +928,9 @@ async function execute() {
       }}</UiButton>
     </header>
     <p v-if="error" role="alert">{{ error?.() }}</p>
-    <p v-if="status?.errorMessage">{{ status.errorMessage }}</p>
+    <p v-if="status?.errorMessage">
+      {{ presentationLabel(status.errorMessage, status.errorMessageText, workflowLanguage) }}
+    </p>
     <label class="workflow-field" v-if="archives.length"
       >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-workflow-rounds', '查看流程轮次')
       }}<UiSelect

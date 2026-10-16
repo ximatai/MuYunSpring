@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.dictionary;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -95,7 +98,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
                     + validApplicationAlias + "." + validCategoryAlias);
         }
         if (category.getCategoryKind() != DictionaryCategoryKind.DICTIONARY) {
-            throw new PlatformException("Dictionary items require DICTIONARY category: " + validCategoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.dictionary-items-require-dictionary-category",
+                    "Dictionary items require DICTIONARY category: {value1}"), Map.of("value1", String.valueOf(validCategoryAlias)));
         }
         return category;
     }
@@ -107,7 +112,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
             throw new PlatformException(CATEGORY_NOT_FOUND, 404, "Dictionary category requires existing category: " + validCategoryId);
         }
         if (category.getCategoryKind() != DictionaryCategoryKind.DICTIONARY) {
-            throw new PlatformException("Dictionary items require DICTIONARY category: " + validCategoryId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.dictionary-items-require-dictionary-category",
+                    "Dictionary items require DICTIONARY category: {value1}"), Map.of("value1", String.valueOf(validCategoryId)));
         }
         return category;
     }
@@ -115,7 +122,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
     public DictionaryCategory requireEnabledDictionaryCategory(String applicationAlias, String categoryAlias) {
         DictionaryCategory category = requireDictionaryCategory(applicationAlias, categoryAlias);
         if (!Boolean.TRUE.equals(category.getEnabled())) {
-            throw new PlatformException("Dictionary category is disabled: " + categoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.dictionary-category-is-disabled",
+                    "Dictionary category is disabled: {value1}"), Map.of("value1", String.valueOf(categoryAlias)));
         }
         return category;
     }
@@ -130,8 +139,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
         }
         rejectDuplicate(category, Criteria.of()
                         .eq("applicationAlias", category.getApplicationAlias())
-                        .eq("alias", category.getAlias()),
-                "dictionaryCategoryAlias must be unique within application: " + category.getAlias());
+                        .eq("alias", category.getAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.dictionary-category.dictionarycategoryalias-must-be-unique-within-application",
+                                "dictionaryCategoryAlias must be unique within application: {value1}"), Map.of("value1", String.valueOf(category.getAlias()))));
         validateParentApplication(category);
     }
 
@@ -141,23 +151,33 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
 
     private void validateParentApplication(DictionaryCategory category) {
         Criteria scope = applicationScope(category.getApplicationAlias());
-        validateTreePlacementInScope(category, scope,
-                "Dictionary category parent must belong to the same application");
+        validateTreePlacementInScopeOrThrow(category, scope,
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dictionary-category.parent-scope",
+                        "Dictionary category parent must belong to the same application")));
         String parentId = category.getParentId();
         if (parentId == null || parentId.isBlank() || TreeAbility.ROOT_ID.equals(parentId)) {
             return;
         }
         DictionaryCategory parent = selectInScope(scope, parentId);
         if (parent != null && parent.getCategoryKind() != DictionaryCategoryKind.FOLDER) {
-            throw new PlatformException("Dictionary category parent must be a folder: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.dictionary-category-parent-must-be-a-folder",
+                    "Dictionary category parent must be a folder: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
     }
 
     private void validateImmutableIdentity(DictionaryCategory category) {
         DictionaryCategory existing = selectIncludingDeleted(category.getId());
-        rejectChanged(existing, category, "Dictionary category application", DictionaryCategory::getApplicationAlias);
-        rejectChanged(existing, category, "Dictionary category alias", DictionaryCategory::getAlias);
-        rejectChanged(existing, category, "Dictionary category kind", DictionaryCategory::getCategoryKind);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.dictionary-category.dictionary-category-application-cannot-be-changed",
+                "Dictionary category application cannot be changed"), DictionaryCategory::getApplicationAlias);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.dictionary-category.dictionary-category-alias-cannot-be-changed",
+                "Dictionary category alias cannot be changed"), DictionaryCategory::getAlias);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.dictionary-category.dictionary-category-kind-cannot-be-changed",
+                "Dictionary category kind cannot be changed"), DictionaryCategory::getCategoryKind);
     }
 
     private Criteria applicationScope(String applicationAlias) {
@@ -166,7 +186,9 @@ public class DictionaryCategoryService extends AbstractAbilityService<Dictionary
 
     private String requireText(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(name + " is required");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dictionary-category.required-parameter",
+                    "{value1} is required"), Map.of("value1", String.valueOf(name)));
         }
         return value.trim();
     }

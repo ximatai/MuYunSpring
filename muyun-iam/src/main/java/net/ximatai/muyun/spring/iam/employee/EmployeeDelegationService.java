@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -74,7 +77,9 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
         if (!StringUtils.hasText(delegation.getPrincipalEmployeeId())
                 || !StringUtils.hasText(delegation.getDelegateEmployeeId())) return;
         validateDelegationReferences(delegation);
-        rejectDuplicate(delegation, duplicateCriteria(delegation), "employee delegation already exists");
+        rejectDuplicate(delegation, duplicateCriteria(delegation), () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.employee-delegation.employee-delegation-already-exists",
+                "employee delegation already exists")));
     }
 
     public List<EmployeeDelegation> delegationsByPrincipal(String principalEmployeeId) {
@@ -157,24 +162,32 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
 
         String operatorEmployeeId = employeeAccountService.employeeIdOfUser(validOperator.userId());
         if (!validDelegate.equals(operatorEmployeeId)) {
-            throw BusinessExceptions.warning("iam.employee-delegation.operator-not-delegate",
-                    "operator is not bound to delegate employee: " + validDelegate);
+            throw BusinessExceptions.warningText("iam.employee-delegation.operator-not-delegate", TextReference.code(
+                    "iam.rejection.employee-delegation.operator-is-not-bound-to-delegate-employee",
+                    "operator is not bound to delegate employee: {value1}"), Map.of("value1", String.valueOf(validDelegate)));
         }
-        employeeService.requireEnabled(validDelegate, "delegate employee is not active: " + validDelegate);
-        Employee principal = employeeService.requireEnabled(validPrincipal,
-                "principal employee is not active: " + validPrincipal);
+        employeeService.requireEnabledOrThrow(validDelegate, () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.employee-delegation.delegate-employee-is-not-active",
+                "delegate employee is not active: {value1}"), Map.of("value1", String.valueOf(validDelegate))));
+        Employee principal = employeeService.requireEnabledOrThrow(validPrincipal, () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.employee-delegation.principal-employee-is-not-active",
+                "principal employee is not active: {value1}"), Map.of("value1", String.valueOf(validPrincipal))));
         String validDelegatePosition = normalizeBlank(delegatePositionId);
         String validPrincipalPosition = normalizeBlank(principalPositionId);
         if (validDelegatePosition != null) {
             requirePositionOwner(validDelegatePosition, validDelegate,
                     "iam.employee-delegation.delegate-position-owner-mismatch",
-                    "delegate position does not belong to delegate employee: ");
+                    TextReference.code(
+                            "iam.rejection.employee-delegation.delegate-position-owner",
+                            "delegate position does not belong to delegate employee: {value1}"));
         }
         EmployeePosition principalPosition = null;
         if (validPrincipalPosition != null) {
             principalPosition = requirePositionOwner(validPrincipalPosition, validPrincipal,
                     "iam.employee-delegation.principal-position-owner-mismatch",
-                    "principal position does not belong to principal employee: ");
+                    TextReference.code(
+                            "iam.rejection.employee-delegation.principal-position-owner",
+                            "principal position does not belong to principal employee: {value1}"));
         }
 
         EmployeeDelegation matched = activeDelegations(validPrincipal, validDelegate).stream()
@@ -184,8 +197,9 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
                         .thenComparing(EmployeeDelegation::getUpdatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
                         .thenComparing(EmployeeDelegation::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
                         .thenComparing(EmployeeDelegation::getId, Comparator.nullsFirst(String::compareTo)))
-                .orElseThrow(() -> BusinessExceptions.warning("iam.employee-delegation.not-allowed",
-                        "employee delegation is not allowed"));
+                .orElseThrow(() -> BusinessExceptions.warningText("iam.employee-delegation.not-allowed", TextReference.code(
+                        "iam.rejection.employee-delegation.employee-delegation-is-not-allowed",
+                        "employee delegation is not allowed")));
 
         BusinessPrincipal businessPrincipal = principalPosition == null
                 ? BusinessPrincipal.employee(principal.getId(), principal.getOrganizationId(), principal.getDepartmentId())
@@ -199,45 +213,56 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
         String validDelegationId = Preconditions.requireText(delegationId, "delegationId");
         EmployeeDelegation delegation = select(validDelegationId);
         if (delegation == null || !validPrincipal.equals(delegation.getPrincipalEmployeeId())) {
-            throw BusinessExceptions.warning("iam.employee-delegation.not-principal-owned",
-                    "employee delegation does not belong to principal employee: " + validDelegationId);
+            throw BusinessExceptions.warningText("iam.employee-delegation.not-principal-owned", TextReference.code(
+                    "iam.rejection.employee-delegation.employee-delegation-does-not-belong-to-principal-employee",
+                    "employee delegation does not belong to principal employee: {value1}"), Map.of("value1", String.valueOf(validDelegationId)));
         }
         return delegation;
     }
 
     private void validateDelegationReferences(EmployeeDelegation delegation) {
         if (delegation.getPrincipalEmployeeId().equals(delegation.getDelegateEmployeeId())) {
-            throw BusinessExceptions.warning("iam.employee-delegation.self-delegation-denied",
-                    "employee delegation delegate must differ from principal");
+            throw BusinessExceptions.warningText("iam.employee-delegation.self-delegation-denied", TextReference.code(
+                    "iam.rejection.employee-delegation.employee-delegation-delegate-must-differ-from-principal",
+                    "employee delegation delegate must differ from principal"));
         }
-        employeeService.requireEnabled(delegation.getPrincipalEmployeeId(),
-                "principal employee is not active: " + delegation.getPrincipalEmployeeId());
-        employeeService.requireEnabled(delegation.getDelegateEmployeeId(),
-                "delegate employee is not active: " + delegation.getDelegateEmployeeId());
+        employeeService.requireEnabledOrThrow(delegation.getPrincipalEmployeeId(), () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.employee-delegation.principal-employee-is-not-active",
+                "principal employee is not active: {value1}"), Map.of("value1", String.valueOf(delegation.getPrincipalEmployeeId()))));
+        employeeService.requireEnabledOrThrow(delegation.getDelegateEmployeeId(), () -> PlatformErrors.badRequestText(TextReference.code(
+                "iam.rejection.employee-delegation.delegate-employee-is-not-active",
+                "delegate employee is not active: {value1}"), Map.of("value1", String.valueOf(delegation.getDelegateEmployeeId()))));
         requirePositionOwner(delegation.getPrincipalPositionId(), delegation.getPrincipalEmployeeId(),
                 "iam.employee-delegation.principal-position-owner-mismatch",
-                "principal position does not belong to principal employee: ");
+                TextReference.code(
+                        "iam.rejection.employee-delegation.principal-position-owner",
+                        "principal position does not belong to principal employee: {value1}"));
         requirePositionOwner(delegation.getDelegatePositionId(), delegation.getDelegateEmployeeId(),
                 "iam.employee-delegation.delegate-position-owner-mismatch",
-                "delegate position does not belong to delegate employee: ");
+                TextReference.code(
+                        "iam.rejection.employee-delegation.delegate-position-owner",
+                        "delegate position does not belong to delegate employee: {value1}"));
         if (delegation.getEffectiveFrom() != null && delegation.getEffectiveTo() != null
                 && !delegation.getEffectiveFrom().isBefore(delegation.getEffectiveTo())) {
-            throw BusinessExceptions.warning("iam.employee-delegation.invalid-effective-range",
-                    "employee delegation effectiveFrom must be before effectiveTo");
+            throw BusinessExceptions.warningText("iam.employee-delegation.invalid-effective-range", TextReference.code(
+                    "iam.rejection.employee-delegation.employee-delegation-effectivefrom-must-be-before-effectiveto",
+                    "employee delegation effectiveFrom must be before effectiveTo"));
         }
         if (delegation.getModuleScopeType() == EmployeeDelegationScopeType.INCLUDE
                 && isEmpty(delegation.getModuleAliases())) {
-            throw BusinessExceptions.warning("iam.employee-delegation.module-scope-required",
-                    "employee delegation moduleAliases are required for INCLUDE scope");
+            throw BusinessExceptions.warningText("iam.employee-delegation.module-scope-required", TextReference.code(
+                    "iam.rejection.employee-delegation.employee-delegation-modulealiases-are-required-for-include-scope",
+                    "employee delegation moduleAliases are required for INCLUDE scope"));
         }
         if (delegation.getActionScopeType() == EmployeeDelegationScopeType.INCLUDE
                 && isEmpty(delegation.getActionKeys())) {
-            throw BusinessExceptions.warning("iam.employee-delegation.action-scope-required",
-                    "employee delegation actionKeys are required for INCLUDE scope");
+            throw BusinessExceptions.warningText("iam.employee-delegation.action-scope-required", TextReference.code(
+                    "iam.rejection.employee-delegation.employee-delegation-actionkeys-are-required-for-include-scope",
+                    "employee delegation actionKeys are required for INCLUDE scope"));
         }
     }
 
-    private EmployeePosition requirePositionOwner(String positionId, String employeeId, String code, String message) {
+    private EmployeePosition requirePositionOwner(String positionId, String employeeId, String code, TextReference source) {
         if (positionId == null) {
             return null;
         }
@@ -245,7 +270,7 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
         if (position == null
                 || !Boolean.TRUE.equals(position.getEnabled())
                 || !employeeId.equals(position.getEmployeeId())) {
-            throw BusinessExceptions.warning(code, message + positionId);
+            throw BusinessExceptions.warningText(code, source, Map.of("value1", positionId));
         }
         return position;
     }

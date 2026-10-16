@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import java.util.Map;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 /** Workflow partitions are serialized by the host until transaction completion. */
 public final class WorkflowMutationLock {
@@ -21,12 +23,18 @@ public final class WorkflowMutationLock {
     public static WorkflowTask task(WorkflowTaskDao tasks, String taskId) {
         String id = require(taskId);
         WorkflowTask pointer = WorkflowTenantScope.visible(tasks.findById(id));
-        if (pointer == null) throw new PlatformException("workflow task not found: " + id);
+        if (pointer == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-mutation-lock.approval-task-not-found",
+                "workflow task not found: {value1}"), Map.of("value1", String.valueOf(id)));
         instance(pointer.getInstanceId());
         WorkflowTask locked = WorkflowTenantScope.visible(tasks.findById(id));
-        if (locked == null) throw new PlatformException("workflow task not found: " + id);
+        if (locked == null) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.workflow-mutation-lock.approval-task-not-found",
+                "workflow task not found: {value1}"), Map.of("value1", String.valueOf(id)));
         if (!pointer.getInstanceId().equals(locked.getInstanceId())) {
-            throw new PlatformException("workflow task instance changed: " + id);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-mutation-lock.the-task-s-workflow-changed-reload-and-try-again",
+                    "workflow task instance changed: {value1}"), Map.of("value1", String.valueOf(id)));
         }
         return locked;
     }

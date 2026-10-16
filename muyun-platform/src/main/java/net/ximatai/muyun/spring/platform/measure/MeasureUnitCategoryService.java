@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -11,7 +13,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
@@ -76,7 +77,9 @@ public class MeasureUnitCategoryService extends StandardBusinessService<MeasureU
                 .eq("applicationAlias", validApplicationAlias)
                 .eq("alias", validCategoryAlias));
         if (category == null) {
-            throw new PlatformException("Measure unit category requires existing category: " + validCategoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-category.measure-unit-category-requires-existing-category",
+                    "Measure unit category requires existing category: {value1}"), Map.of("value1", String.valueOf(validCategoryAlias)));
         }
         return category;
     }
@@ -84,7 +87,9 @@ public class MeasureUnitCategoryService extends StandardBusinessService<MeasureU
     public MeasureUnitCategory requireEnabledCategory(String applicationAlias, String categoryAlias) {
         MeasureUnitCategory category = requireCategory(applicationAlias, categoryAlias);
         if (!Boolean.TRUE.equals(category.getEnabled())) {
-            throw new PlatformException("Measure unit category is disabled: " + categoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-category.measure-unit-category-is-disabled",
+                    "Measure unit category is disabled: {value1}"), Map.of("value1", String.valueOf(categoryAlias)));
         }
         return category;
     }
@@ -101,7 +106,9 @@ public class MeasureUnitCategoryService extends StandardBusinessService<MeasureU
     public MeasureUnitCategory requireVisibleCategory(String applicationAlias, String categoryAlias) {
         MeasureUnitCategory category = resolveVisibleCategory(applicationAlias, categoryAlias);
         if (category == null) {
-            throw new PlatformException("Measure unit category requires existing visible category: " + categoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-category.measure-unit-category-requires-existing-visible-category",
+                    "Measure unit category requires existing visible category: {value1}"), Map.of("value1", String.valueOf(categoryAlias)));
         }
         return category;
     }
@@ -112,7 +119,9 @@ public class MeasureUnitCategoryService extends StandardBusinessService<MeasureU
         for (MeasureUnitCategory category : visibleCategoryCandidates(validApplicationAlias, validCategoryAlias, true)) {
             return category;
         }
-        throw new PlatformException("Measure unit category requires enabled visible category: " + categoryAlias);
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.measure-unit-category.measure-unit-category-requires-enabled-visible-category",
+                "Measure unit category requires enabled visible category: {value1}"), Map.of("value1", String.valueOf(categoryAlias)));
     }
 
     public List<MeasureUnitCategory> listCategories(String applicationAlias, boolean enabledOnly) {
@@ -185,10 +194,18 @@ public class MeasureUnitCategoryService extends StandardBusinessService<MeasureU
     }
 
     private void validateImmutableIdentity(MeasureUnitCategory category, MeasureUnitCategory existing) {
-        rejectChanged(existing, category, "Measure unit category application", MeasureUnitCategory::getApplicationAlias);
-        rejectChanged(existing, category, "Measure unit category alias", MeasureUnitCategory::getAlias);
-        rejectChanged(existing, category, "Measure unit category dimension", MeasureUnitCategory::getDimension);
-        rejectChanged(existing, category, "Measure unit category base unit", MeasureUnitCategory::getBaseUnitCode);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.measure-unit-category.measure-unit-category-application-cannot-be-changed",
+                "Measure unit category application cannot be changed"), MeasureUnitCategory::getApplicationAlias);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.measure-unit-category.measure-unit-category-alias-cannot-be-changed",
+                "Measure unit category alias cannot be changed"), MeasureUnitCategory::getAlias);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.measure-unit-category.measure-unit-category-dimension-cannot-be-changed",
+                "Measure unit category dimension cannot be changed"), MeasureUnitCategory::getDimension);
+        rejectChangedText(existing, category, TextReference.code(
+                "platform.rejection.measure-unit-category.measure-unit-category-base-unit-cannot-be-changed",
+                "Measure unit category base unit cannot be changed"), MeasureUnitCategory::getBaseUnitCode);
     }
 
     private String requireAlias(String alias) {

@@ -1,10 +1,11 @@
 package net.ximatai.muyun.spring.platform.currency;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.stereotype.Service;
@@ -45,30 +46,39 @@ public class TenantCurrencySettingService extends AbstractAbilityService<TenantC
 
     public TenantCurrencySetting currentTenantSetting() {
         String tenantId = TenantContext.currentTenantId()
-                .orElseThrow(() -> new PlatformException("tenant currency setting requires tenant context"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tenant-currency-setting.tenant-currency-setting-requires-tenant-context",
+                        "tenant currency setting requires tenant context")));
         return findOne(Criteria.of().eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId));
     }
 
     public String requireCurrentBaseCurrencyCode() {
         TenantCurrencySetting setting = currentTenantSetting();
         if (setting == null) {
-            throw new PlatformException("tenant base currency is not configured");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.tenant-currency-setting.tenant-base-currency-is-not-configured",
+                    "tenant base currency is not configured"));
         }
         return setting.getBaseCurrencyCode();
     }
 
     private void normalizeAndValidate(TenantCurrencySetting setting) {
         String tenantId = TenantContext.currentTenantId()
-                .orElseThrow(() -> new PlatformException("tenant currency setting requires tenant context"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.tenant-currency-setting.tenant-currency-setting-requires-tenant-context",
+                        "tenant currency setting requires tenant context")));
         setting.setTenantId(tenantId);
         Currency currency = currencyService.requireEnabledCurrency(setting.getBaseCurrencyCode());
         setting.setBaseCurrencyCode(currency.getCode());
-        rejectDuplicate(setting, Criteria.of().eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId),
-                "tenant base currency setting must be unique within tenant");
+        rejectDuplicate(setting, Criteria.of().eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.tenant-currency-setting.tenant-base-currency-setting-must-be-unique-within-tenant",
+                "tenant base currency setting must be unique within tenant")));
     }
 
     private void validateImmutableIdentity(TenantCurrencySetting setting) {
         TenantCurrencySetting existing = selectIncludingDeleted(setting.getId());
-        rejectChanged(existing, setting, "Tenant currency setting tenant", TenantCurrencySetting::getTenantId);
+        rejectChangedText(existing, setting, TextReference.code(
+                "platform.rejection.tenant-currency-setting.tenant-currency-setting-tenant-cannot-be-changed",
+                "Tenant currency setting tenant cannot be changed"), TenantCurrencySetting::getTenantId);
     }
 }

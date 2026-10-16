@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.currency;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
@@ -10,7 +12,6 @@ import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import org.springframework.stereotype.Service;
 
@@ -57,7 +58,9 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
     public Currency requireCurrency(String currencyCode) {
         Currency currency = resolveCurrency(currencyCode);
         if (currency == null) {
-            throw new PlatformException("Currency requires existing visible currency: " + currencyCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currency-requires-existing-visible-currency",
+                    "Currency requires existing visible currency: {value1}"), Map.of("value1", String.valueOf(currencyCode)));
         }
         return currency;
     }
@@ -65,7 +68,9 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
     public Currency requireEnabledCurrency(String currencyCode) {
         Currency currency = requireCurrency(currencyCode);
         if (!Boolean.TRUE.equals(currency.getEnabled())) {
-            throw new PlatformException("Currency is disabled: " + currencyCode);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currency-is-disabled",
+                    "Currency is disabled: {value1}"), Map.of("value1", String.valueOf(currencyCode)));
         }
         return currency;
     }
@@ -95,7 +100,9 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
             currency.setDecimalScale(2);
         }
         if (currency.getDecimalScale() < 0) {
-            throw new PlatformException("currency decimalScale must not be negative: " + currency.getCode());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currency-decimalscale-must-not-be-negative",
+                    "currency decimalScale must not be negative: {value1}"), Map.of("value1", String.valueOf(currency.getCode())));
         }
         if (currency.getRoundingMode() == null) {
             currency.setRoundingMode(RoundingMode.HALF_UP);
@@ -103,17 +110,25 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
     }
 
     private void validateImmutableIdentity(Currency currency, Currency existing) {
-        rejectChanged(existing, currency, "Currency code", Currency::getCode);
-        rejectChanged(existing, currency, "Currency numeric code", Currency::getNumericCode);
+        rejectChangedText(existing, currency, TextReference.code(
+                "platform.rejection.currency.currency-code-cannot-be-changed",
+                "Currency code cannot be changed"), Currency::getCode);
+        rejectChangedText(existing, currency, TextReference.code(
+                "platform.rejection.currency.currency-numeric-code-cannot-be-changed",
+                "Currency numeric code cannot be changed"), Currency::getNumericCode);
     }
 
     private String requireCurrencyCode(String value) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("currencyCode must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currencycode-must-not-be-blank",
+                    "currencyCode must not be blank"));
         }
         String code = CurrencyCodeRules.normalizeCurrencyCode(value);
         if (!CurrencyCodeRules.isCurrencyCode(code)) {
-            throw new PlatformException("currencyCode must be ISO 4217 alpha-3 code: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currencycode-must-be-iso-4217-alpha-3-code",
+                    "currencyCode must be ISO 4217 alpha-3 code: {value1}"), Map.of("value1", String.valueOf(value)));
         }
         return code;
     }
@@ -121,7 +136,9 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
     private String requireNumericCode(String value) {
         String text = value.trim();
         if (!text.matches("\\d{3}")) {
-            throw new PlatformException("currency numericCode must be 3 digits: " + value);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.currency.currency-numericcode-must-be-3-digits",
+                    "currency numericCode must be 3 digits: {value1}"), Map.of("value1", String.valueOf(value)));
         }
         return text;
     }

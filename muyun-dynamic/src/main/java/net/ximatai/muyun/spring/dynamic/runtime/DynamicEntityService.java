@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
@@ -487,7 +489,9 @@ public class DynamicEntityService implements
             }
         }
         if (maxOrder > Integer.MAX_VALUE - SortAbility.SORT_STEP) {
-            throw new PlatformException("Cannot allocate dynamic sort order; sort scope is too large");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-entity.cannot-allocate-dynamic-sort-order-sort-scope-is-too-large",
+                    "Cannot allocate dynamic sort order; sort scope is too large"));
         }
         return maxOrder + SortAbility.SORT_STEP;
     }
@@ -701,7 +705,9 @@ public class DynamicEntityService implements
             public void requireSamePartition(DynamicRecord left, DynamicRecord right) {
                 if (dao.getEntity().supports(EntityCapability.TREE)
                         && !SortAbility.sameValue(left.parentId(), right.parentId())) {
-                    throw new PlatformException("Tree sort can only move records within the same parent");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.dynamic-entity.tree-sort-can-only-move-records-within-the-same-parent",
+                            "Tree sort can only move records within the same parent"));
                 }
                 validateBusinessSortPartition(left, right);
             }
@@ -711,7 +717,9 @@ public class DynamicEntityService implements
     private void validateBusinessSortPartition(DynamicRecord left, DynamicRecord right) {
         for (String fieldName : dao.getEntity().sortPartitionFields()) {
             if (!SortAbility.sameValue(left.getValue(fieldName), right.getValue(fieldName))) {
-                throw new PlatformException("Sort can only move records within the same partition: " + fieldName);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.dynamic-entity.sort-can-only-move-records-within-the-same-partition",
+                        "Sort can only move records within the same partition: {value1}"), Map.of("value1", String.valueOf(fieldName)));
             }
         }
     }

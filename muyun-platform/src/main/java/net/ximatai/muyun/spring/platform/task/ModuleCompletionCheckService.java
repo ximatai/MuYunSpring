@@ -1,11 +1,12 @@
 package net.ximatai.muyun.spring.platform.task;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordFacts;
@@ -38,11 +39,17 @@ public class ModuleCompletionCheckService {
     }
 
     public boolean formula(String moduleAlias, String recordId, String expression) {
-        if (expression == null || expression.isBlank()) throw new PlatformException("完成项检查公式不能为空");
-        if (!formulas.assignedFields(expression).isEmpty()) throw new PlatformException("完成项检查不能修改业务字段");
+        if (expression == null || expression.isBlank()) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.module-completion-check.completion-check-formulas-must-not-be-blank",
+                "完成项检查公式不能为空"));
+        if (!formulas.assignedFields(expression).isEmpty()) throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.module-completion-check.completion-checks-cannot-change-business-fields",
+                "完成项检查不能修改业务字段"));
         Object result = formulas.evaluateValue(expression, FormulaRuntimeData.of(facts.read(moduleAlias, recordId)));
         if (result instanceof Boolean passed) return passed;
-        throw new PlatformException("完成项检查公式必须返回布尔值，请使用比较公式，例如 {amount} > 100");
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.module-completion-check.a-completion-check-must-return-a-boolean-use-a-comparison-such-as",
+                "完成项检查公式必须返回布尔值，请使用比较公式，例如 {amount} > 100"));
     }
 
     public PlatformModuleTaskCheckDetail check(String moduleAlias, String recordId, PlatformTaskCheckBlock check) {
@@ -50,7 +57,9 @@ public class ModuleCompletionCheckService {
         if (check.checkType() == PlatformTaskCheckType.QUERY_TEMPLATE) {
             template = templates.select(check.queryTemplateId());
             if (template == null || !Boolean.TRUE.equals(template.getEnabled()) || !Boolean.TRUE.equals(template.getPublished()))
-                throw new PlatformException("完成项查询模板不可用: " + check.queryTemplateId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-completion-check.the-completion-check-query-template-is-unavailable",
+                        "完成项查询模板不可用: {value1}"), Map.of("value1", String.valueOf(check.queryTemplateId())));
         }
         return check(moduleAlias, recordId, check, template);
     }
@@ -67,13 +76,17 @@ public class ModuleCompletionCheckService {
             case QUERY_TEMPLATE -> {
                 var template = verifiedTemplate;
                 if (template == null || !java.util.Objects.equals(check.queryTemplateId(), template.getId()))
-                    throw new PlatformException("完成项查询模板与已验证配置不一致: " + check.queryTemplateId());
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.module-completion-check.the-completion-check-query-template-does-not-match-the-validated-configuration",
+                            "完成项查询模板与已验证配置不一致: {value1}"), Map.of("value1", String.valueOf(check.queryTemplateId())));
                 Map<String, Object> values = new LinkedHashMap<>();
                 if (check.externalRecordIdKey() != null) values.put(check.externalRecordIdKey(), recordId);
                 count = count(template.getModuleAlias(), queries.compile(template.getId(), values));
             }
             case GENERATED_RELATION -> {
-                var service = relations.orElseThrow(() -> new PlatformException("生成关系检查能力未安装"));
+                var service = relations.orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.module-completion-check.generation-relation-checks-are-unavailable",
+                        "生成关系检查能力未安装")));
                 var seen = new LinkedHashSet<String>();
                 long visible = 0;
                 int page = 1;
@@ -88,7 +101,9 @@ public class ModuleCompletionCheckService {
                 }
                 count = visible;
             }
-            default -> throw new PlatformException("unsupported completion check: " + check.checkType());
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-completion-check.unsupported-completion-check",
+                    "unsupported completion check: {value1}"), Map.of("value1", String.valueOf(check.checkType())));
         }
         return new PlatformModuleTaskCheckDetail(check.checkType(), count >= check.expectedCount(), count,
                 check.expectedCount(), check.diagnosticPath(), null);

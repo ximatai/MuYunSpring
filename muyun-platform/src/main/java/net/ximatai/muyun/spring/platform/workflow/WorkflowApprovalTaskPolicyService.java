@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -50,7 +51,9 @@ public class WorkflowApprovalTaskPolicyService {
 
     private int ratio(Integer approvalRatio) {
         if (approvalRatio == null || approvalRatio <= 0 || approvalRatio > 100) {
-            throw new PlatformException("workflow approval ratio must be between 1 and 100");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-approval-task-policy.the-approval-ratio-must-be-between-1-and-100",
+                    "workflow approval ratio must be between 1 and 100"));
         }
         return approvalRatio;
     }

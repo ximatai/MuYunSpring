@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,7 +11,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.stereotype.Service;
 
@@ -78,15 +80,18 @@ public class MetadataViewService extends AbstractAbilityService<MetadataView> im
                 ? null
                 : relationService.select(view.getRelationId());
         if (relation == null) {
-            throw new PlatformException("Metadata view requires existing relation: " + view.getRelationId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.metadata-view.metadata-view-requires-existing-relation",
+                    "Metadata view requires existing relation: {value1}"), Map.of("value1", String.valueOf(view.getRelationId())));
         }
         if (view.getViewType() != null && (view.getTitle() == null || view.getTitle().isBlank())) {
             view.setTitle(defaultTitle(view));
         }
         rejectDuplicate(view, Criteria.of()
                         .eq("relationId", view.getRelationId())
-                        .eq("viewType", view.getViewType()),
-                "metadata view must be unique in relation: " + view.getRelationId() + "." + view.getViewType());
+                        .eq("viewType", view.getViewType()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.metadata-view.metadata-view-must-be-unique-in-relation",
+                                "metadata view must be unique in relation: {value1}.{value2}"), Map.of("value1", String.valueOf(view.getRelationId()), "value2", String.valueOf(view.getViewType()))));
     }
 
     private String defaultTitle(MetadataView view) {

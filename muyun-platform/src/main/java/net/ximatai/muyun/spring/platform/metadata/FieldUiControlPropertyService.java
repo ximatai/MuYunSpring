@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -7,7 +10,6 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -53,8 +55,9 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
     public void beforeUpdate(FieldUiControlProperty attribute) {
         normalizeAndValidate(attribute);
         FieldUiControlProperty existing = selectIncludingDeleted(attribute.getId());
-        rejectChanged(existing, attribute, "Field UI control attribute alias",
-                FieldUiControlProperty::getAttributeAlias);
+        rejectChangedText(existing, attribute, TextReference.code(
+                "platform.rejection.field-ui-control-property.field-ui-control-attribute-alias-cannot-be-changed",
+                "Field UI control attribute alias cannot be changed"), FieldUiControlProperty::getAttributeAlias);
     }
 
     public List<FieldUiControlProperty> listByFieldUiControlAliases(List<String> aliases) {
@@ -97,9 +100,9 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
         validateDictionaryRadioMaxOptions(attribute);
         rejectDuplicate(attribute, Criteria.of()
                         .eq("fieldUiControlAlias", attribute.getFieldUiControlAlias())
-                        .eq("attributeAlias", attribute.getAttributeAlias()),
-                "field UI control attribute must be unique: " + attribute.getFieldUiControlAlias()
-                        + "." + attribute.getAttributeAlias());
+                        .eq("attributeAlias", attribute.getAttributeAlias()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.field-ui-control-property.field-ui-control-attribute-must-be-unique",
+                                "field UI control attribute must be unique: {value1}.{value2}"), Map.of("value1", String.valueOf(attribute.getFieldUiControlAlias()), "value2", String.valueOf(attribute.getAttributeAlias()))));
     }
 
     /** The radio threshold is consumed by both descriptor compilation and page composition. */
@@ -115,7 +118,9 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
             }
             attribute.setDefaultValue(value.trim());
         } catch (NumberFormatException ignored) {
-            throw new PlatformException("dictionary radio maxOptions must be a positive integer");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-ui-control-property.dictionary-radio-maxoptions-must-be-a-positive-integer",
+                    "dictionary radio maxOptions must be a positive integer"));
         }
     }
 

@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.menu;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.MenuVisibilityPolicyService;
@@ -251,7 +253,9 @@ public class MenuService extends AbstractAbilityService<Menu> implements
 
     public Menu currentUserVisibleMenu(String menuId) {
         if (menuId == null || menuId.isBlank()) {
-            throw new PlatformException("menuId is required");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.menu.menuid-is-required",
+                    "menuId is required"));
         }
         CurrentUser user = CurrentUserContext.currentUser()
                 .orElseThrow(() -> new AuthenticationRequiredException("current user is required"));
@@ -338,12 +342,15 @@ public class MenuService extends AbstractAbilityService<Menu> implements
 
     private MenuScheme requireScheme(String schemeId) {
         if (schemeId == null || schemeId.isBlank()) {
-            throw BusinessExceptions.warning("platform.menu.scheme-required", "Menu requires schemeId");
+            throw BusinessExceptions.warningText("platform.menu.scheme-required", TextReference.code(
+                    "platform.rejection.menu.menu-requires-schemeid",
+                    "Menu requires schemeId"));
         }
         MenuScheme scheme = schemeService.select(schemeId);
         if (scheme == null) {
-            throw BusinessExceptions.warning("platform.menu.scheme-not-found",
-                    "Menu requires existing scheme: " + schemeId);
+            throw BusinessExceptions.warningText("platform.menu.scheme-not-found", TextReference.code(
+                    "platform.rejection.menu.menu-requires-existing-scheme",
+                    "Menu requires existing scheme: {value1}"), Map.of("value1", String.valueOf(schemeId)));
         }
         return scheme;
     }
@@ -352,9 +359,15 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         if (!hasText(menu.getModuleAlias())) {
             menu.setModuleAlias(null);
             requireNoOpenMode(menu);
-            requireBlank(menu.getRoute(), "Container menu cannot have route");
-            requireBlank(menu.getExternalUrl(), "Container menu cannot have externalUrl");
-            requireBlankEntry(menu, "Container menu cannot have low-code entry config");
+            requireBlank(menu.getRoute(), TextReference.code(
+                    "platform.rejection.menu.container-route-denied",
+                    "Container menu cannot have route"));
+            requireBlank(menu.getExternalUrl(), TextReference.code(
+                    "platform.rejection.menu.container-url-denied",
+                    "Container menu cannot have externalUrl"));
+            requireBlankEntry(menu, TextReference.code(
+                    "platform.rejection.menu.container-entry-denied",
+                    "Container menu cannot have low-code entry config"));
             return;
         }
         requireOpenMode(menu);
@@ -364,15 +377,17 @@ public class MenuService extends AbstractAbilityService<Menu> implements
 
     private void requireOpenMode(Menu menu) {
         if (menu.getOpenMode() == null) {
-            throw BusinessExceptions.warning("platform.menu.open-mode-required",
-                    "Module entry menu requires openMode");
+            throw BusinessExceptions.warningText("platform.menu.open-mode-required", TextReference.code(
+                    "platform.rejection.menu.module-entry-menu-requires-openmode",
+                    "Module entry menu requires openMode"));
         }
     }
 
     private void requireNoOpenMode(Menu menu) {
         if (menu.getOpenMode() != null) {
-            throw BusinessExceptions.warning("platform.menu.container-open-mode-denied",
-                    "Container menu cannot have openMode");
+            throw BusinessExceptions.warningText("platform.menu.container-open-mode-denied", TextReference.code(
+                    "platform.rejection.menu.container-menu-cannot-have-openmode",
+                    "Container menu cannot have openMode"));
         }
     }
 
@@ -388,8 +403,9 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         String moduleAlias = PlatformNameRules.requireModuleAlias(menu.getModuleAlias());
         PlatformModule module = moduleService.resolveVisibleModule(moduleAlias);
         if (module == null) {
-            throw BusinessExceptions.warning("platform.menu.module-not-found",
-                    "Module entry menu requires existing module: " + moduleAlias);
+            throw BusinessExceptions.warningText("platform.menu.module-not-found", TextReference.code(
+                    "platform.rejection.menu.module-entry-menu-requires-existing-module",
+                    "Module entry menu requires existing module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         menu.setModuleAlias(moduleAlias);
         return module;
@@ -400,7 +416,9 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         switch (entryType) {
             case MODULE -> {
                 if (hasText(menu.getRoute())) {
-                    requireBlank(menu.getExternalUrl(), "Route menu cannot have externalUrl");
+                    requireBlank(menu.getExternalUrl(), TextReference.code(
+                            "platform.rejection.menu.route-url-denied",
+                            "Route menu cannot have externalUrl"));
                     clearLowCodeEntry(menu);
                     return;
                 }
@@ -439,20 +457,24 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(menu.getDefaultUiConfigId());
         PlatformUiSet uiSet = uiSetService.requireUiSet(uiConfig.getUiSetId());
         if (!Objects.equals(uiSet.getModuleAlias(), moduleAlias)) {
-            throw BusinessExceptions.warning("platform.menu.default-ui-module-mismatch",
-                    "Menu default UI config must belong to module: " + moduleAlias);
+            throw BusinessExceptions.warningText("platform.menu.default-ui-module-mismatch", TextReference.code(
+                    "platform.rejection.menu.menu-default-ui-config-must-belong-to-module",
+                    "Menu default UI config must belong to module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         if (uiSet.getSetType() != uiSetType(menu.getPageMode())) {
-            throw BusinessExceptions.warning("platform.menu.default-ui-type-mismatch",
-                    "Menu default UI config type must match page mode: " + menu.getPageMode());
+            throw BusinessExceptions.warningText("platform.menu.default-ui-type-mismatch", TextReference.code(
+                    "platform.rejection.menu.menu-default-ui-config-type-must-match-page-mode",
+                    "Menu default UI config type must match page mode: {value1}"), Map.of("value1", String.valueOf(menu.getPageMode())));
         }
         if (!Boolean.TRUE.equals(uiSet.getEnabled()) || !Boolean.TRUE.equals(uiConfig.getEnabled())) {
-            throw BusinessExceptions.warning("platform.menu.default-ui-disabled",
-                    "Menu default UI config must be enabled: " + menu.getDefaultUiConfigId());
+            throw BusinessExceptions.warningText("platform.menu.default-ui-disabled", TextReference.code(
+                    "platform.rejection.menu.menu-default-ui-config-must-be-enabled",
+                    "Menu default UI config must be enabled: {value1}"), Map.of("value1", String.valueOf(menu.getDefaultUiConfigId())));
         }
         if (!Boolean.TRUE.equals(uiConfig.getPublished())) {
-            throw BusinessExceptions.warning("platform.menu.default-ui-unpublished",
-                    "Menu default UI config must be published: " + menu.getDefaultUiConfigId());
+            throw BusinessExceptions.warningText("platform.menu.default-ui-unpublished", TextReference.code(
+                    "platform.rejection.menu.menu-default-ui-config-must-be-published",
+                    "Menu default UI config must be published: {value1}"), Map.of("value1", String.valueOf(menu.getDefaultUiConfigId())));
         }
         menu.setDefaultUiConfigId(uiConfig.getId());
     }
@@ -467,37 +489,42 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         }
         PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(menu.getDefaultQueryTemplateId());
         if (!Objects.equals(template.getModuleAlias(), moduleAlias)) {
-            throw BusinessExceptions.warning("platform.menu.default-query-module-mismatch",
-                    "Menu default query template must belong to module: " + moduleAlias);
+            throw BusinessExceptions.warningText("platform.menu.default-query-module-mismatch", TextReference.code(
+                    "platform.rejection.menu.menu-default-query-template-must-belong-to-module",
+                    "Menu default query template must belong to module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         if (!Boolean.TRUE.equals(template.getEnabled())) {
-            throw BusinessExceptions.warning("platform.menu.default-query-disabled",
-                    "Menu default query template must be enabled: " + menu.getDefaultQueryTemplateId());
+            throw BusinessExceptions.warningText("platform.menu.default-query-disabled", TextReference.code(
+                    "platform.rejection.menu.menu-default-query-template-must-be-enabled",
+                    "Menu default query template must be enabled: {value1}"), Map.of("value1", String.valueOf(menu.getDefaultQueryTemplateId())));
         }
         if (!Boolean.TRUE.equals(template.getPublished())) {
-            throw BusinessExceptions.warning("platform.menu.default-query-unpublished",
-                    "Menu default query template must be published: " + menu.getDefaultQueryTemplateId());
+            throw BusinessExceptions.warningText("platform.menu.default-query-unpublished", TextReference.code(
+                    "platform.rejection.menu.menu-default-query-template-must-be-published",
+                    "Menu default query template must be published: {value1}"), Map.of("value1", String.valueOf(menu.getDefaultQueryTemplateId())));
         }
         menu.setDefaultQueryTemplateId(template.getId());
     }
 
     private void validateParentScheme(Menu menu) {
-        validateTreePlacementInScope(menu, schemeScope(menu.getSchemeId()),
-                "Menu parent must belong to the same scheme");
+        validateTreePlacementInScopeOrThrow(menu, schemeScope(menu.getSchemeId()),
+                () -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.menu.parent-scope",
+                        "Menu parent must belong to the same scheme")));
     }
 
-    private void requireBlank(String value, String message) {
+    private void requireBlank(String value, TextReference source) {
         if (value != null && !value.isBlank()) {
-            throw BusinessExceptions.warning("platform.menu.container-target-denied", message);
+            throw BusinessExceptions.warningText("platform.menu.container-target-denied", source);
         }
     }
 
-    private void requireBlankEntry(Menu menu, String message) {
+    private void requireBlankEntry(Menu menu, TextReference source) {
         if (menu.getPageMode() != null
                 || hasText(menu.getDefaultUiConfigId())
                 || hasText(menu.getDefaultQueryTemplateId())
                 || hasText(menu.getEntryParamsJson())) {
-            throw BusinessExceptions.warning("platform.menu.container-entry-config-denied", message);
+            throw BusinessExceptions.warningText("platform.menu.container-entry-config-denied", source);
         }
     }
 
@@ -517,7 +544,9 @@ public class MenuService extends AbstractAbilityService<Menu> implements
 
     private void validateImmutableScheme(Menu menu) {
         Menu existing = selectIncludingDeleted(menu.getId());
-        rejectChanged(existing, menu, "Menu scheme", Menu::getSchemeId);
+        rejectChangedText(existing, menu, TextReference.code(
+                "platform.rejection.menu.menu-scheme-cannot-be-changed",
+                "Menu scheme cannot be changed"), Menu::getSchemeId);
     }
 
     private Criteria schemeScope(String schemeId) {

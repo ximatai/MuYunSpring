@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import org.springframework.context.annotation.Lazy;
@@ -36,7 +38,9 @@ public class CodeOpsActionService {
     public CodeRecycleEntry adjustRecycleEntry(String entryId, CodeRecycleStatus status, String reason) {
         CodeRecycleEntry existing = recycleEntryService.select(entryId);
         if (existing == null) {
-            throw new PlatformException("Code recycle entry does not exist: " + entryId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.code-recycle-entry-does-not-exist",
+                    "Code recycle entry does not exist: {value1}"), Map.of("value1", String.valueOf(entryId)));
         }
         CodeRecycleEntry adjusted = recycleEntryService.adjustStatus(entryId, status);
         writeGovernanceLog(existing.getRuleId(), existing.getBasisKey(), existing.getPeriodKey(),
@@ -76,7 +80,9 @@ public class CodeOpsActionService {
     public CodeSequenceBaselineResult adjustSequenceState(String stateId, Long currentValue, String reason) {
         CodeSequenceState state = sequenceStateService.select(stateId);
         if (state == null) {
-            throw new PlatformException("Code sequence state does not exist: " + stateId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.code-sequence-state-does-not-exist",
+                    "Code sequence state does not exist: {value1}"), Map.of("value1", String.valueOf(stateId)));
         }
         return setSequenceBaseline(state.getRuleId(), state.getBasisKey(), state.getPeriodKey(), currentValue, reason);
     }
@@ -121,13 +127,19 @@ public class CodeOpsActionService {
     private CodeLedgerEntry requireActiveLedger(String entryId) {
         CodeLedgerEntry entry = ledgerEntryService.select(entryId);
         if (entry == null) {
-            throw new PlatformException("Code ledger entry does not exist: " + entryId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.code-ledger-entry-does-not-exist",
+                    "Code ledger entry does not exist: {value1}"), Map.of("value1", String.valueOf(entryId)));
         }
         if (entry.getStatus() != CodeLedgerStatus.ACTIVE) {
-            throw new PlatformException("Code ledger inspection only supports ACTIVE entries");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.code-ledger-inspection-only-supports-active-entries",
+                    "Code ledger inspection only supports ACTIVE entries"));
         }
         if (entry.getSourceRecordId() == null || entry.getSourceRecordId().isBlank()) {
-            throw new PlatformException("ACTIVE code ledger entry requires sourceRecordId");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.active-code-ledger-entry-requires-sourcerecordid",
+                    "ACTIVE code ledger entry requires sourceRecordId"));
         }
         return entry;
     }
@@ -135,7 +147,9 @@ public class CodeOpsActionService {
     private CodeRule requireRule(String ruleId) {
         CodeRule rule = ruleService.viewRuleTree(ruleId);
         if (rule == null) {
-            throw new PlatformException("Code rule does not exist: " + ruleId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-action.code-rule-does-not-exist",
+                    "Code rule does not exist: {value1}"), Map.of("value1", String.valueOf(ruleId)));
         }
         return rule;
     }

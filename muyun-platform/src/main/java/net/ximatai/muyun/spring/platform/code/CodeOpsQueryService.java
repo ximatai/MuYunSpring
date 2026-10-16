@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -31,7 +33,9 @@ public class CodeOpsQueryService {
     public CodeRuleOpsSnapshot viewRuleSnapshot(String ruleId, Integer limitPerCategory) {
         CodeRule rule = ruleService.viewRuleTree(ruleId);
         if (rule == null) {
-            throw new PlatformException("Code rule does not exist: " + ruleId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-query.code-rule-does-not-exist",
+                    "Code rule does not exist: {value1}"), Map.of("value1", String.valueOf(ruleId)));
         }
         return snapshot(rule, normalizeLimit(limitPerCategory));
     }
@@ -79,7 +83,9 @@ public class CodeOpsQueryService {
     private CodeRule requireRule(String ruleId) {
         CodeRule rule = ruleService.viewRuleTree(ruleId);
         if (rule == null) {
-            throw new PlatformException("Code rule does not exist: " + ruleId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-ops-query.code-rule-does-not-exist",
+                    "Code rule does not exist: {value1}"), Map.of("value1", String.valueOf(ruleId)));
         }
         return rule;
     }

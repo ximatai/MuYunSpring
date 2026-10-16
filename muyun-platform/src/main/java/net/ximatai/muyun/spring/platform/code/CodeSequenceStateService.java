@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
@@ -108,7 +111,9 @@ public class CodeSequenceStateService extends AbstractAbilityService<CodeSequenc
 
     public CodeSequenceState setCurrentValue(String ruleId, String basisKey, String periodKey, Long currentValue) {
         if (currentValue == null || currentValue < 0) {
-            throw new PlatformException("Code sequence currentValue must not be negative");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-sequence-state.code-sequence-currentvalue-must-not-be-negative",
+                    "Code sequence currentValue must not be negative"));
         }
         String effectiveBasisKey = normalizeBucket(basisKey);
         String effectivePeriodKey = normalizeBucket(periodKey);
@@ -174,9 +179,9 @@ public class CodeSequenceStateService extends AbstractAbilityService<CodeSequenc
         rejectDuplicate(state, Criteria.of()
                         .eq("ruleId", state.getRuleId())
                         .eq("basisKey", state.getBasisKey())
-                        .eq("periodKey", state.getPeriodKey()),
-                "Code sequence state already exists for bucket: "
-                        + state.getRuleId() + "/" + state.getBasisKey() + "/" + state.getPeriodKey());
+                        .eq("periodKey", state.getPeriodKey()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.code-sequence-state.code-sequence-state-already-exists-for-bucket",
+                                "Code sequence state already exists for bucket: {value1}/{value2}/{value3}"), Map.of("value1", String.valueOf(state.getRuleId()), "value2", String.valueOf(state.getBasisKey()), "value3", String.valueOf(state.getPeriodKey()))));
     }
 
     private String normalizeBucket(String value) {
@@ -203,7 +208,9 @@ public class CodeSequenceStateService extends AbstractAbilityService<CodeSequenc
         if (policy.getOverflowPolicy() == CodeSequenceOverflowPolicy.RESET) {
             return startValue(policy);
         }
-        throw new PlatformException("Code sequence overflow for rule: " + policy.getRuleId());
+        throw PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.code-sequence-state.code-sequence-overflow-for-rule",
+                "Code sequence overflow for rule: {value1}"), Map.of("value1", String.valueOf(policy.getRuleId())));
     }
 
     private boolean isOverflow(long next, CodeSequencePolicy policy) {

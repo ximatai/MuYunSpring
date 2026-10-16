@@ -1,13 +1,16 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 @Service
 public class WorkflowTaskAssignmentPolicyService {
     public boolean canProcess(WorkflowTask task, String operatorId) {
-        String validOperatorId = requireText(operatorId, "workflow operator id must not be blank");
+        String validOperatorId = requireText(operatorId, TextReference.code(
+                "platform.rejection.workflow-task-assignment-policy.select-a-workflow-operator",
+                "workflow operator id must not be blank"));
         if (CurrentUserContext.currentUser()
                 .filter(user -> user.system() && validOperatorId.equals(user.userId()))
                 .isPresent()) {
@@ -26,7 +29,9 @@ public class WorkflowTaskAssignmentPolicyService {
     }
 
     public boolean canSeeTodo(WorkflowTask task, String userId) {
-        String validUserId = requireText(userId, "workflow user id must not be blank");
+        String validUserId = requireText(userId, TextReference.code(
+                "platform.rejection.workflow-task-assignment-policy.select-a-workflow-user",
+                "workflow user id must not be blank"));
         if (task == null || task.getTaskStatus() != WorkflowTaskStatus.TODO) {
             return false;
         }
@@ -39,9 +44,9 @@ public class WorkflowTaskAssignmentPolicyService {
                 && task.getTransferredFromUserId() == null;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -114,7 +116,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         PlatformQueryItem existing = selectIncludingDeleted(item.getId());
         requireDraftQueryTemplate(existing == null ? item.getQueryTemplateId() : existing.getQueryTemplateId());
         normalizeAndValidate(item);
-        rejectChanged(existing, item, "Query item template", PlatformQueryItem::getQueryTemplateId);
+        rejectChangedText(existing, item, TextReference.code(
+                "platform.rejection.platform-query-item.query-item-template-cannot-be-changed",
+                "Query item template cannot be changed"), PlatformQueryItem::getQueryTemplateId);
     }
 
     @Override
@@ -189,10 +193,14 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         }
         PlatformQueryItem parent = select(parentId);
         if (parent == null || !Objects.equals(parent.getQueryTemplateId(), template.getId()) || !isGroup(parent)) {
-            throw new PlatformException("Query item parent must be an existing group in the same template: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-parent-must-be-an-existing-group-in-the-same-template",
+                    "Query item parent must be an existing group in the same template: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
         if (Objects.equals(parentId, item.getId())) {
-            throw new PlatformException("Query item cannot use itself as parent: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-cannot-use-itself-as-parent",
+                    "Query item cannot use itself as parent: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
         rejectParentCycle(item, parent);
     }
@@ -202,10 +210,14 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         PlatformQueryItem current = parent;
         while (current != null && !TreeAbility.ROOT_ID.equals(normalizeParentId(current.getParentId()))) {
             if (!visited.add(current.getId())) {
-                throw new PlatformException("Query item parent cycle detected: " + current.getId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-query-item.query-item-parent-cycle-detected",
+                        "Query item parent cycle detected: {value1}"), Map.of("value1", String.valueOf(current.getId())));
             }
             if (Objects.equals(current.getParentId(), item.getId())) {
-                throw new PlatformException("Query item cannot use descendant as parent: " + item.getId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-query-item.query-item-cannot-use-descendant-as-parent",
+                        "Query item cannot use descendant as parent: {value1}"), Map.of("value1", String.valueOf(item.getId())));
             }
             current = select(current.getParentId());
         }
@@ -223,20 +235,24 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
     private void normalizeLeaf(PlatformQueryItem item, PlatformQueryTemplate template) {
         ResolvedModuleMetadataField moduleField = moduleFieldService.resolve(item.getModuleMetadataFieldId());
         if (!Objects.equals(template.getModuleAlias(), moduleField.moduleAlias())) {
-            throw new PlatformException("Query item requires module field in the same module: "
-                    + template.getModuleAlias() + "." + moduleField.moduleAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-requires-module-field-in-the-same-module",
+                    "Query item requires module field in the same module: {value1}.{value2}"), Map.of("value1", String.valueOf(template.getModuleAlias()), "value2", String.valueOf(moduleField.moduleAlias())));
         }
         FieldSpec fieldType = fieldTypeService.requireFieldType(moduleField.fieldSpecAlias());
         FieldQueryDefinition queryDefinition = queryDefinition(moduleField, fieldType);
         if (!queryDefinition.queryable()) {
-            throw new PlatformException("Query item field is not queryable: " + moduleField.fieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-field-is-not-queryable",
+                    "Query item field is not queryable: {value1}"), Map.of("value1", String.valueOf(moduleField.fieldName())));
         }
         DynamicQueryOperator operator = item.getOperator() == null
                 ? queryDefinition.defaultOperator()
                 : item.getOperator();
         if (!queryDefinition.operators().contains(operator)) {
-            throw new PlatformException("Query item operator is not allowed: "
-                    + moduleField.fieldName() + "." + operator);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-operator-is-not-allowed",
+                    "Query item operator is not allowed: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleField.fieldName()), "value2", String.valueOf(operator)));
         }
         item.setOperator(operator);
         item.setModuleMetadataFieldId(moduleField.moduleMetadataFieldId());
@@ -289,7 +305,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                                   Map<String, ?> externalValues,
                                   Set<String> visiting) {
         if (!visiting.add(item.getId())) {
-            throw new PlatformException("Query item cycle detected while compiling: " + item.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-cycle-detected-while-compiling",
+                    "Query item cycle detected while compiling: {value1}"), Map.of("value1", String.valueOf(item.getId())));
         }
         Criteria criteria = Criteria.of();
         if (isGroup(item)) {
@@ -316,14 +334,17 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                                                 PlatformQueryItem item) {
         FieldQueryDefinition queryDefinition = queryDefinition(moduleField, fieldType);
         if (!queryDefinition.queryable()) {
-            throw new PlatformException("Query item field is not queryable: " + moduleField.fieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-field-is-not-queryable",
+                    "Query item field is not queryable: {value1}"), Map.of("value1", String.valueOf(moduleField.fieldName())));
         }
         DynamicQueryOperator operator = item.getOperator() == null
                 ? queryDefinition.defaultOperator()
                 : item.getOperator();
         if (!queryDefinition.operators().contains(operator)) {
-            throw new PlatformException("Query item operator is not allowed: "
-                    + moduleField.fieldName() + "." + operator);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-operator-is-not-allowed",
+                    "Query item operator is not allowed: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleField.fieldName()), "value2", String.valueOf(operator)));
         }
         item.setOperator(operator);
     }
@@ -337,7 +358,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         Set<String> reachable = new HashSet<>();
         collectReachable(TreeAbility.ROOT_ID, childrenByParent, itemIds, reachable, new HashSet<>());
         if (reachable.size() != itemIds.size()) {
-            throw new PlatformException("Query template contains items outside root tree");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-template-contains-items-outside-root-tree",
+                    "Query template contains items outside root tree"));
         }
     }
 
@@ -347,14 +370,18 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                                   Set<String> reachable,
                                   Set<String> visitingParents) {
         if (!visitingParents.add(parentId)) {
-            throw new PlatformException("Query item cycle detected while validating: " + parentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.query-item-cycle-detected-while-validating",
+                    "Query item cycle detected while validating: {value1}"), Map.of("value1", String.valueOf(parentId)));
         }
         for (PlatformQueryItem child : childrenByParent.getOrDefault(parentId, List.of())) {
             if (!itemIds.contains(child.getId())) {
                 continue;
             }
             if (!reachable.add(child.getId())) {
-                throw new PlatformException("Query item is reachable more than once: " + child.getId());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-query-item.query-item-is-reachable-more-than-once",
+                        "Query item is reachable more than once: {value1}"), Map.of("value1", String.valueOf(child.getId())));
             }
             collectReachable(child.getId(), childrenByParent, itemIds, reachable, visitingParents);
         }
@@ -376,7 +403,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
             case BETWEEN -> {
                 List<?> values = listValues(operator, value);
                 if (values.size() != 2) {
-                    throw new PlatformException("BETWEEN query item requires exactly two values: " + fieldName);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-query-item.between-query-item-requires-exactly-two-values",
+                            "BETWEEN query item requires exactly two values: {value1}"), Map.of("value1", String.valueOf(fieldName)));
                 }
                 try {
                     if (DynamicTemporalRangeCriteriaSupport.appendInstantLocalDateRange(
@@ -396,10 +425,14 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                         try {
                             PlatformTimeService.requireIanaZoneId(item.getTimeZone());
                         } catch (RuntimeException ignored) {
-                            throw new PlatformException("Query item timeZone is invalid: " + item.getTimeZone(), ex);
+                            throw PlatformErrors.badRequestText(TextReference.code(
+                                    "platform.rejection.platform-query-item.query-item-timezone-is-invalid",
+                                    "Query item timeZone is invalid: {value1}"), Map.of("value1", String.valueOf(item.getTimeZone())), ex);
                         }
                     }
-                    throw new PlatformException("Query item date range is invalid: " + fieldName, ex);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.platform-query-item.query-item-date-range-is-invalid",
+                            "Query item date range is invalid: {value1}"), Map.of("value1", String.valueOf(fieldName)), ex);
                 }
                 criteria.between(fieldName, values.get(0), values.get(1));
             }
@@ -428,7 +461,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
     private Object singleValue(DynamicQueryOperator operator, Object value) {
         List<?> values = listValues(operator, value);
         if (values.size() != 1) {
-            throw new PlatformException(operator + " query item requires exactly one value");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.single-query-value",
+                    "{value1} query item requires exactly one value"), Map.of("value1", String.valueOf(operator)));
         }
         return values.getFirst();
     }
@@ -496,8 +531,9 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
     private void requireDraftQueryTemplate(String queryTemplateId) {
         PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(queryTemplateId);
         if (Boolean.TRUE.equals(template.getPublished())) {
-            throw new PlatformException("Published query template items cannot be edited; unpublish first: "
-                    + template.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-query-item.published-query-template-items-cannot-be-edited-unpublish-first",
+                    "Published query template items cannot be edited; unpublish first: {value1}"), Map.of("value1", String.valueOf(template.getId())));
         }
     }
 }

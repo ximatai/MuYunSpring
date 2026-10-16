@@ -1,10 +1,12 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,7 +40,9 @@ public class CodeSequencePolicyService extends AbstractAbilityService<CodeSequen
             policy.setStepValue(1L);
         }
         if (policy.getStepValue() <= 0) {
-            throw new PlatformException("Code sequence policy stepValue must be positive");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.code-sequence-policy.code-sequence-policy-stepvalue-must-be-positive",
+                    "Code sequence policy stepValue must be positive"));
         }
         if (policy.getResetPolicy() == null) {
             policy.setResetPolicy(CodeSequenceResetPolicy.NONE);
@@ -46,7 +50,8 @@ public class CodeSequencePolicyService extends AbstractAbilityService<CodeSequen
         if (policy.getOverflowPolicy() == null) {
             policy.setOverflowPolicy(CodeSequenceOverflowPolicy.ERROR);
         }
-        rejectDuplicate(policy, Criteria.of().eq("ruleId", policy.getRuleId()),
-                "Code rule can only have one sequence policy: " + policy.getRuleId());
+        rejectDuplicate(policy, Criteria.of().eq("ruleId", policy.getRuleId()), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.code-sequence-policy.code-rule-can-only-have-one-sequence-policy",
+                "Code rule can only have one sequence policy: {value1}"), Map.of("value1", String.valueOf(policy.getRuleId()))));
     }
 }

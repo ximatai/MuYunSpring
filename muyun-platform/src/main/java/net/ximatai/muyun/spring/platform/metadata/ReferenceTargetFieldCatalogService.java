@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
@@ -7,7 +10,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.Application;
@@ -86,7 +88,9 @@ public class ReferenceTargetFieldCatalogService {
         String source = PlatformNameRules.requireModuleAlias(sourceModuleAlias);
         ModuleMetadataRelation relation = relationService.select(sourceRelationId);
         if (relation == null || !source.equals(relation.getModuleAlias())) {
-            throw new PlatformException("metadata relation does not belong to module: " + source + "." + sourceRelationId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-target-field-catalog.metadata-relation-does-not-belong-to-module",
+                    "metadata relation does not belong to module: {value1}.{value2}"), Map.of("value1", String.valueOf(source), "value2", String.valueOf(sourceRelationId)));
         }
     }
 
@@ -100,7 +104,9 @@ public class ReferenceTargetFieldCatalogService {
         String targetAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         PlatformModule targetModule = moduleService.select(targetAlias);
         if (targetModule == null || !Boolean.TRUE.equals(targetModule.getEnabled())) {
-            throw new PlatformException("reference target module does not exist: " + targetAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-target-field-catalog.reference-target-module-does-not-exist",
+                    "reference target module does not exist: {value1}"), Map.of("value1", String.valueOf(targetAlias)));
         }
         return targetModule.getModuleKind() == ModuleKind.DYNAMIC
                 ? dynamicCatalog(targetAlias, targetMetadataId)
@@ -111,14 +117,19 @@ public class ReferenceTargetFieldCatalogService {
         ModuleMetadataRelation main = relationService.list(Criteria.of()
                         .eq("moduleAlias", targetModuleAlias)
                         .eq("relationRole", RelationRole.MAIN), ALL)
-                .stream().findFirst().orElseThrow(() -> new PlatformException(
-                        "dynamic reference target requires a main metadata relation: " + targetModuleAlias));
+                .stream().findFirst().orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.reference-target-field-catalog.dynamic-reference-target-requires-a-main-metadata-relation",
+                        "dynamic reference target requires a main metadata relation: {value1}"), Map.of("value1", String.valueOf(targetModuleAlias))));
         if (targetMetadataId != null && !targetMetadataId.isBlank() && !targetMetadataId.equals(main.getMetadataId())) {
-            throw new PlatformException("reference target metadata is not the target module main entity: " + targetMetadataId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-target-field-catalog.reference-target-metadata-is-not-the-target-module-main-entity",
+                    "reference target metadata is not the target module main entity: {value1}"), Map.of("value1", String.valueOf(targetMetadataId)));
         }
         var savedFields = fieldService.list(Criteria.of().eq("metadataId", main.getMetadataId()), ALL);
         if (savedFields.stream().noneMatch(field -> "title".equals(field.getFieldName()) && Boolean.TRUE.equals(field.getTitleField())))
-            throw new PlatformException("引用目标尚无标准名称字段，请先通过字段配置设置名称：" + targetModuleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.reference-target-field-catalog.the-reference-target-has-no-standard-name-field-configure-one-first",
+                    "引用目标尚无标准名称字段，请先通过字段配置设置名称：{value1}"), Map.of("value1", String.valueOf(targetModuleAlias)));
         List<MetadataField> fields = savedFields.stream()
                 .filter(this::readablePhysicalField)
                 .sorted(Comparator.comparing(MetadataField::getFieldName))
@@ -137,7 +148,9 @@ public class ReferenceTargetFieldCatalogService {
     private ReferenceTargetFieldCatalog staticCatalog(String targetModuleAlias) {
         ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver()
                 .resolve(ReferenceTargets.fromModuleAlias(targetModuleAlias))
-                .orElseThrow(() -> new PlatformException("static reference target is not registered: " + targetModuleAlias));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.reference-target-field-catalog.static-reference-target-is-not-registered",
+                        "static reference target is not registered: {value1}"), Map.of("value1", String.valueOf(targetModuleAlias))));
         List<ReferenceTargetFieldCandidate> keys = ability.referenceCandidateKeys().stream()
                 .filter(ReferenceCandidateKey::usable)
                 .map(candidate -> new ReferenceTargetFieldCandidate(candidate.fieldName(), candidate.fieldName(),

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -88,10 +90,11 @@ public class MeasureUnitDynamicRecordMutationCoordinator implements DynamicRecor
             try {
                 normalizeMeasureField(applicationAlias, moduleAlias, incoming, before, create, field, measure);
             } catch (PlatformException ex) {
-                throw new PlatformException("measure unit normalization failed: module=" + moduleAlias
+                throw new PlatformException(net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.VALIDATION_FAILED, 400, "measure unit normalization failed: module=" + moduleAlias
                         + ", entity=" + entityAlias
                         + ", field=" + field.fieldName()
-                        + "; " + ex.getMessage(), ex);
+                        + "; " + ex.getMessage(), ex, net.ximatai.muyun.spring.common.exception.ErrorScope.empty(),
+                        java.util.List.of(), Map.of(), ex.messageArgs(), ex.textSource());
             }
         }
     }
@@ -136,8 +139,9 @@ public class MeasureUnitDynamicRecordMutationCoordinator implements DynamicRecor
         String unitCode = stringValue(incoming.getPlatformValues().get(measure.unitFieldName()));
         if (unitExplicitlySet && unitCode == null) {
             if (measure.unitRequired()) {
-                throw new PlatformException("measure unit field must not be blank when measure value exists: "
-                        + measure.unitFieldName());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.measure-unit-dynamic-record-mutation-coordinator.measure-unit-field-must-not-be-blank-when-measure-value-exists",
+                        "measure unit field must not be blank when measure value exists: {value1}"), Map.of("value1", String.valueOf(measure.unitFieldName())));
             }
             return null;
         }
@@ -149,8 +153,9 @@ public class MeasureUnitDynamicRecordMutationCoordinator implements DynamicRecor
             incoming.putGeneratedValue(measure.unitFieldName(), unitCode);
         }
         if (unitCode == null && measure.unitRequired()) {
-            throw new PlatformException("measure unit field is required when measure value exists: "
-                    + measure.unitFieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-dynamic-record-mutation-coordinator.measure-unit-field-is-required-when-measure-value-exists",
+                    "measure unit field is required when measure value exists: {value1}"), Map.of("value1", String.valueOf(measure.unitFieldName())));
         }
         if (unitCode == null) {
             return null;
@@ -181,8 +186,9 @@ public class MeasureUnitDynamicRecordMutationCoordinator implements DynamicRecor
             return conversion.convertedValue();
         }
         if (!measure.categoryAlias().equals(baseCategoryAlias)) {
-            throw new PlatformException("linear measure conversion requires same base unit category: "
-                    + measure.categoryAlias() + " -> " + baseCategoryAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-dynamic-record-mutation-coordinator.linear-measure-conversion-requires-same-base-unit-category",
+                    "linear measure conversion requires same base unit category: {value1} -> {value2}"), Map.of("value1", String.valueOf(measure.categoryAlias()), "value2", String.valueOf(baseCategoryAlias)));
         }
         return linearConversionService.convert(applicationAlias, measure.categoryAlias(), numericValue,
                 unitCode, measure.baseUnitCode()).convertedValue();
@@ -249,7 +255,9 @@ public class MeasureUnitDynamicRecordMutationCoordinator implements DynamicRecor
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         int dot = validModuleAlias.indexOf('.');
         if (dot < 1) {
-            throw new PlatformException("moduleAlias must include application alias: " + moduleAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.measure-unit-dynamic-record-mutation-coordinator.modulealias-must-include-application-alias",
+                    "moduleAlias must include application alias: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
         }
         return validModuleAlias.substring(0, dot);
     }

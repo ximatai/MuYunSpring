@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.ui;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataField;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
@@ -92,8 +94,9 @@ public class PlatformUiConfigScaffoldService {
                         Comparator.nullsLast(Integer::compareTo)))
                 .toList();
         if (candidates.isEmpty()) {
-            throw new PlatformException("Cannot scaffold UI config field without field UI control: "
-                    + resolved.fieldSpecAlias() + "." + resolved.fieldName());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-ui-config-scaffold.cannot-scaffold-ui-config-field-without-field-ui-control",
+                    "Cannot scaffold UI config field without field UI control: {value1}.{value2}"), Map.of("value1", String.valueOf(resolved.fieldSpecAlias()), "value2", String.valueOf(resolved.fieldName())));
         }
         return candidates.getFirst().getAlias();
     }

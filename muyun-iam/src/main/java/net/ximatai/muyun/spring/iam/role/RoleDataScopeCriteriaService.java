@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.builder.sql.SchemaBuildRules;
 import net.ximatai.muyun.database.core.orm.CompiledCriteria;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -132,7 +134,9 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
             return null;
         }
         if (!user.userId().equals(actingContext.operator().userId())) {
-            throw new PlatformException("acting context operator does not match current user");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "iam.rejection.role-data-scope-criteria.acting-context-operator-does-not-match-current-user",
+                    "acting context operator does not match current user"));
         }
         return actingContext;
     }
@@ -468,7 +472,9 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
             }
             case DEPARTMENT_AND_CHILDREN -> appendDepartmentAndChildrenScope(scope, principal, roleGrant, fieldMapping);
             case CUSTOM ->
-                    throw new PlatformException("custom data scope condition is not supported yet");
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "iam.rejection.role-data-scope-criteria.custom-data-scope-condition-is-not-supported-yet",
+                            "custom data scope condition is not supported yet"));
             case INHERIT_DATA_GRANT ->
                     throw new PlatformException("inherited data grant must be resolved before append scope");
             case REFERENCE_DEPENDENCY -> {

@@ -1,14 +1,16 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
 import java.util.Objects;
+import java.util.Map;
 
 @Service
 public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGuard {
@@ -37,7 +39,9 @@ public class DynamicWorkflowModuleRecordGuard implements WorkflowModuleRecordGua
         dynamicRecordService.requireRecordActionScope(moduleAlias, entityAlias, policy,
                 Set.of(recordId), CurrentUserContext.currentUser());
         if (dynamicRecordService.selectSystem(moduleAlias, entityAlias, recordId) == null) {
-            throw new PlatformException("dynamic record not found: " + moduleAlias + "." + recordId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-workflow-module-record-guard.record-not-found",
+                    "dynamic record not found: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(recordId)));
         }
     }
 

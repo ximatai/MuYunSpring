@@ -1,8 +1,10 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -61,13 +63,17 @@ public class PlatformRecordNavigationService extends AbstractAbilityService<Plat
         if (session == null
                 || !Objects.equals(session.getUserId(), currentUserId())
                 || !Objects.equals(session.getModuleAlias(), PlatformNameRules.requireModuleAlias(moduleAlias))) {
-            throw new PlatformException("record navigation session is not available: " + sessionId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-record-navigation.record-navigation-session-is-not-available",
+                    "record navigation session is not available: {value1}"), Map.of("value1", String.valueOf(sessionId)));
         }
         List<String> ids = recordIds(session);
         String normalizedCurrent = requireText(currentRecordId, "currentRecordId");
         int index = ids.indexOf(normalizedCurrent);
         if (index < 0) {
-            throw new PlatformException("record is not in navigation session: " + currentRecordId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-record-navigation.record-is-not-in-navigation-session",
+                    "record is not in navigation session: {value1}"), Map.of("value1", String.valueOf(currentRecordId)));
         }
         String previous = index == 0 ? null : ids.get(index - 1);
         String next = index >= ids.size() - 1 ? null : ids.get(index + 1);
@@ -111,16 +117,22 @@ public class PlatformRecordNavigationService extends AbstractAbilityService<Plat
 
     private String currentUserId() {
         CurrentUser user = CurrentUserContext.currentUser()
-                .orElseThrow(() -> new PlatformException("record navigation requires current user"));
+                .orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.platform-record-navigation.record-navigation-requires-current-user",
+                        "record navigation requires current user")));
         if (user.system()) {
-            throw new PlatformException("record navigation requires tenant user");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-record-navigation.record-navigation-requires-tenant-user",
+                    "record navigation requires tenant user"));
         }
         return user.userId();
     }
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("record navigation " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.platform-record-navigation.record-navigation-must-not-be-blank",
+                    "record navigation {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

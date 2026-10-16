@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -7,7 +10,6 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -53,7 +55,9 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
     public void beforeUpdate(FieldUiControlBinding mapping) {
         normalizeAndValidate(mapping);
         FieldUiControlBinding existing = selectIncludingDeleted(mapping.getId());
-        rejectChanged(existing, mapping, "Field UI control binding value key", FieldUiControlBinding::getValueKey);
+        rejectChangedText(existing, mapping, TextReference.code(
+                "platform.rejection.field-ui-control-binding.field-ui-control-binding-value-key-cannot-be-changed",
+                "Field UI control binding value key cannot be changed"), FieldUiControlBinding::getValueKey);
     }
 
     public List<FieldUiControlBinding> listByFieldUiControlAliases(List<String> aliases) {
@@ -87,8 +91,9 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
                 mapping.getValueFieldSpecAlias(), "valueFieldSpecAlias"));
         FieldUiControl control = fieldUiControlService.requireFieldUiControl(mapping.getFieldUiControlAlias());
         if (control.getValueShape() != FieldUiControlValueShape.COMPOSITE) {
-            throw new PlatformException("Field UI control bindings require COMPOSITE value shape: "
-                    + control.getAlias());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.field-ui-control-binding.field-ui-control-bindings-require-composite-value-shape",
+                    "Field UI control bindings require COMPOSITE value shape: {value1}"), Map.of("value1", String.valueOf(control.getAlias())));
         }
         fieldSpecService.requireFieldType(mapping.getValueFieldSpecAlias());
         if (mapping.getTitle() == null || mapping.getTitle().isBlank()) {
@@ -96,9 +101,9 @@ public class FieldUiControlBindingService extends AbstractAbilityService<FieldUi
         }
         rejectDuplicate(mapping, Criteria.of()
                         .eq("fieldUiControlAlias", mapping.getFieldUiControlAlias())
-                        .eq("valueKey", mapping.getValueKey()),
-                "field UI control mapping must be unique: " + mapping.getFieldUiControlAlias()
-                        + "." + mapping.getValueKey());
+                        .eq("valueKey", mapping.getValueKey()), () -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.field-ui-control-binding.field-ui-control-mapping-must-be-unique",
+                                "field UI control mapping must be unique: {value1}.{value2}"), Map.of("value1", String.valueOf(mapping.getFieldUiControlAlias()), "value2", String.valueOf(mapping.getValueKey()))));
     }
 
 }

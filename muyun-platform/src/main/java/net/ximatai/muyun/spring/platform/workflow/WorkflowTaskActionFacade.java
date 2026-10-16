@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class WorkflowTaskActionFacade {
@@ -34,13 +36,17 @@ public class WorkflowTaskActionFacade {
             case "addSign" -> actionService.addSign(request);
             case "invalidate" -> actionService.invalidate(request);
             case "cancel" -> actionService.cancel(request);
-            default -> throw new PlatformException("unsupported workflow task action: " + actionCode);
+            default -> throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.unsupported-task-action",
+                    "unsupported workflow task action: {value1}"), Map.of("value1", String.valueOf(actionCode)));
         };
     }
 
     private String requireActionCode(String actionCode) {
         if (actionCode == null || actionCode.isBlank()) {
-            throw new PlatformException("workflow action code must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-task-action.enter-a-workflow-action-code",
+                    "workflow action code must not be blank"));
         }
         return actionCode;
     }

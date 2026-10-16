@@ -58,6 +58,27 @@ class WorkflowBusinessTaskReferenceValidatorTest {
         verifyNoInteractions(queries);
     }
 
+    @Test void ownedReferenceRejectionsUseCompleteDeployedSourcesInBothLanguages() {
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        module("sales.target", ModuleKind.STATIC);
+        var generation = check(WorkflowTaskCheckKind.GENERATED_QUERY_EXISTS,
+                "{\"checkType\":\"GENERATED_RELATION\",\"targetModuleAlias\":\"sales.target\",\"generationRuleId\":\"rule\"}");
+        for (var candidate : List.of(query(), generation)) {
+            var exception = catchThrowableOfType(() -> validator.check(moduleAlias, candidate), PlatformException.class);
+            boolean query = candidate.getCheckKind() == WorkflowTaskCheckKind.QUERY_EXISTS;
+            assertThat(exception.getMessage()).isEqualTo(query
+                    ? "任务查询模板不存在或不属于当前租户" : "任务生成规则不存在或不属于当前租户");
+            assertThat(exception.messageArgs()).isEmpty();
+            for (String language : List.of("en", "zh-CN", "en")) {
+                assertThat(texts.resolve(exception.textSource(), exception.messageArgs(), language).text())
+                        .isEqualTo(language.equals("en") ? "The task " + (query ? "query template" : "generation rule")
+                                + " was not found or does not belong to the current tenant" : exception.getMessage());
+            }
+        }
+        verifyNoInteractions(queries);
+    }
+
     @Test void publishedQueryChecksCompileAgainstDeclaredRecordBinding() {
         module(moduleAlias, ModuleKind.STATIC); var template = template(); when(templates.select("query")).thenReturn(template);
         var check = query(); check.setCheckConfigText("{\"checkType\":\"QUERY_TEMPLATE\",\"queryTemplateId\":\"query\",\"externalRecordIdKey\":\"recordId\"}");

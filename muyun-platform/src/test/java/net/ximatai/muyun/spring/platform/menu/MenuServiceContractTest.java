@@ -217,9 +217,20 @@ class MenuServiceContractTest {
             changedScope.setVersion(0);
 
             assertThatThrownBy(() -> guardedSchemeService.update(changedScope))
-                    .isInstanceOfSatisfying(BusinessException.class, exception ->
-                            assertThat(exception.actionMessage().code())
-                                    .isEqualTo("platform.menu-scheme.tenant-change-with-menus-denied"));
+                    .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                        assertThat(exception.actionMessage().code()).isEqualTo("platform.menu-scheme.tenant-change-with-menus-denied");
+                        assertThat(exception.httpStatus()).isEqualTo(422);
+                        assertThat(exception.actionMessage().type()).isEqualTo(net.ximatai.muyun.spring.ability.action.ActionMessageType.WARNING);
+                        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+                        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+                        for (String language : List.of("en", "zh-CN", "en")) {
+                            assertThat(texts.resolve(exception.textSource(), exception.messageArgs(), language).text())
+                                    .isEqualTo(language.equals("en")
+                                            ? "Menu scheme tenant cannot be changed while menus exist: " + schemeId
+                                            : "菜单方案仍有菜单，不能修改所属租户：" + schemeId);
+                        }
+                    });
+            assertThat(guardedSchemeService.select(schemeId).getTenantId()).isEqualTo("tenant-a");
         }
     }
 

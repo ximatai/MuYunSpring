@@ -3,18 +3,20 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.spring.ability.ApprovalAbility;
 import net.ximatai.muyun.spring.ability.ApprovalState;
 import net.ximatai.muyun.spring.ability.CrudAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import java.util.Map;
 
 /** Single dispatcher for static and metadata-backed approval summaries. */
 @Service
@@ -76,7 +78,9 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
             int updated;
             if (service.isPresent()) {
                 if (!(service.get() instanceof ApprovalAbility<?> approval) || !approval.supportsApproval()) {
-                    throw new PlatformException("static module does not support approval: " + moduleAlias);
+                    throw PlatformErrors.badRequestText(TextReference.code(
+                            "platform.rejection.dynamic-workflow-approval-summary-writer.approval-is-not-enabled-for-this-module",
+                            "static module does not support approval: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
                 }
                 if (allowMissingRecord) {
                     var record = service.get().selectActiveRaw(recordId);
@@ -88,7 +92,9 @@ public class DynamicWorkflowApprovalSummaryWriter implements WorkflowApprovalSum
                 if (allowMissingRecord && !records.existsActiveInCurrentTenant(moduleAlias, entityAlias, recordId)) return;
                 updated = records.writeApprovalState(moduleAlias, entityAlias, recordId, policy, state);
             }
-            if (updated != 1) throw new PlatformException("approval business record not found: " + moduleAlias + "." + recordId);
+            if (updated != 1) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.dynamic-workflow-approval-summary-writer.approval-record-not-found",
+                    "approval business record not found: {value1}.{value2}"), Map.of("value1", String.valueOf(moduleAlias), "value2", String.valueOf(recordId)));
             WorkflowMutationFacts.recordChanged(moduleAlias, recordId);
         }
     }

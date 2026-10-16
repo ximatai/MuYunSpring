@@ -69,7 +69,7 @@ public record PlatformWebError(String traceId,
                 emptyScopeAsNull(exception.scope()),
                 exception.targets().isEmpty() ? List.of() : exception.targets(),
                 exception.details().isEmpty() ? Map.of() : exception.details(),
-                exception.messageArgs().isEmpty() ? Map.of() : exception.messageArgs());
+                exception.messageArgs().isEmpty() ? Map.of() : exception.messageArgs(), exception.textSource());
     }
 
     public static PlatformWebError of(String code, int status, String message) {

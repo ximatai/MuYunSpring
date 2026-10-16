@@ -3,7 +3,8 @@ package net.ximatai.muyun.spring.platform.workflow;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -67,8 +68,12 @@ public class WorkflowHistoryQueryService {
                                                             PageRequest pageRequest) {
         requireRecordView(moduleAlias, recordId);
         Criteria criteria = WorkflowTenantScope.criteria()
-                .eq("moduleAlias", requireText(moduleAlias, "workflow module alias must not be blank"))
-                .eq("recordId", requireText(recordId, "workflow record id must not be blank"));
+                .eq("moduleAlias", requireText(moduleAlias, TextReference.code(
+                        "platform.rejection.workflow-history-query.select-a-workflow-business-module",
+                        "workflow module alias must not be blank")))
+                .eq("recordId", requireText(recordId, TextReference.code(
+                        "platform.rejection.workflow-history-query.select-a-workflow-business-record",
+                        "workflow record id must not be blank")));
         if (startedBy != null && !startedBy.isBlank()) {
             criteria.eq("startedBy", startedBy);
         }
@@ -85,7 +90,9 @@ public class WorkflowHistoryQueryService {
                                                            PageRequest pageRequest) {
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_QUERY_ACTION);
         Criteria criteria = WorkflowTenantScope.criteria()
-                .eq("moduleAlias", requireText(moduleAlias, "workflow module alias must not be blank"));
+                .eq("moduleAlias", requireText(moduleAlias, TextReference.code(
+                        "platform.rejection.workflow-history-query.select-a-workflow-business-module",
+                        "workflow module alias must not be blank")));
         if (recordId != null && !recordId.isBlank()) {
             criteria.eq("recordId", recordId);
         }
@@ -183,15 +190,21 @@ public class WorkflowHistoryQueryService {
 
     private void requireRecordView(WorkflowHistoryInstance history) {
         if (history == null) {
-            throw new PlatformException("workflow history instance must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-history-query.provide-a-workflow-history-instance",
+                    "workflow history instance must not be null"));
         }
         requireRecordView(history.getModuleAlias(), history.getRecordId());
     }
 
     private void requireRecordView(String moduleAlias, String recordId) {
         WorkflowInstance viewInstance = new WorkflowInstance();
-        viewInstance.setModuleAlias(requireText(moduleAlias, "workflow module alias must not be blank"));
-        viewInstance.setRecordId(requireText(recordId, "workflow record id must not be blank"));
+        viewInstance.setModuleAlias(requireText(moduleAlias, TextReference.code(
+                "platform.rejection.workflow-history-query.select-a-workflow-business-module",
+                "workflow module alias must not be blank")));
+        viewInstance.setRecordId(requireText(recordId, TextReference.code(
+                "platform.rejection.workflow-history-query.select-a-workflow-business-record",
+                "workflow record id must not be blank")));
         actionPolicyService.requireRecordView(viewInstance);
     }
 
@@ -234,9 +247,13 @@ public class WorkflowHistoryQueryService {
 
     private WorkflowHistoryInstance requireHistory(String historyInstanceId) {
         WorkflowHistoryInstance history = WorkflowTenantScope.visible(historyDao.findById(
-                requireText(historyInstanceId, "workflow history instance id must not be blank")));
+                requireText(historyInstanceId, TextReference.code(
+                        "platform.rejection.workflow-history-query.select-a-workflow-history-instance",
+                        "workflow history instance id must not be blank"))));
         if (history == null) {
-            throw new PlatformException("workflow history instance not found: " + historyInstanceId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-history-query.workflow-history-instance-not-found",
+                    "workflow history instance not found: {value1}"), Map.of("value1", String.valueOf(historyInstanceId)));
         }
         return history;
     }
@@ -245,9 +262,9 @@ public class WorkflowHistoryQueryService {
         return pageRequest == null ? ALL : pageRequest;
     }
 
-    private String requireText(String value, String message) {
+    private String requireText(String value, TextReference source) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
+            throw PlatformErrors.badRequestText(source);
         }
         return value;
     }

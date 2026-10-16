@@ -70,6 +70,29 @@ class WorkflowConditionServiceTest {
     }
 
     @Test
+    void conditionRejectionsResolveDeployedEnglishResourcesWithoutChangingFormulasOrCauses() {
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        assertThatThrownBy(() -> conditions.matches("1", Map.of()))
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+                    assertThat(error.httpStatus()).isEqualTo(400);
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "en").text())
+                            .isEqualTo("A workflow condition must return a boolean; use a comparison such as {amount} > 100");
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "zh-CN").text())
+                            .contains("必须返回布尔值");
+                });
+        assertThatThrownBy(() -> conditions.validate("{amount} >"))
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    assertThat(error.getCause()).isInstanceOf(net.ximatai.muyun.spring.common.formula.FormulaEvaluationException.class);
+                    assertThat(error.messageArgs()).containsEntry("value1", error.getCause().getMessage());
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "en").text())
+                            .startsWith("Invalid workflow condition formula: ");
+                });
+        assertThat(conditions.matches("{amount} > 100", Map.of("amount", 200))).isTrue();
+    }
+
+    @Test
     void nonBooleanManualAdviceRemainsUnknownAndDoesNotBecomeAConditionHit() {
         var advice = conditions.manualMatches(Map.of("text", "{status}", "number", "1", "missing", "{missing}",
                 "comparison", "{status} == 'REJECTED'"), Map.of("status", "REJECTED"));

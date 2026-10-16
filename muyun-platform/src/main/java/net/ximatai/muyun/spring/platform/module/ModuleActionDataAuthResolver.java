@@ -1,10 +1,12 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
@@ -34,7 +36,9 @@ public class ModuleActionDataAuthResolver {
         if (!usesCapabilityDefault(action)) return action.effectiveDataAuth();
         try (TenantContext.Scope ignored = TenantContext.system("resolve module action capability default")) {
             PlatformModule module = modules.select(action.getModuleAlias());
-            if (module == null) throw new PlatformException("Module action requires existing module: " + action.getModuleAlias());
+            if (module == null) throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.module-action-data-auth-resolver.module-action-requires-existing-module",
+                    "Module action requires existing module: {value1}"), Map.of("value1", String.valueOf(action.getModuleAlias())));
             if (module.getModuleKind() == ModuleKind.DYNAMIC) {
                 Criteria criteria = Criteria.of().eq("moduleAlias", action.getModuleAlias());
                 if (action.getEntityAlias() == null || action.getEntityAlias().isBlank()) {
@@ -45,8 +49,9 @@ public class ModuleActionDataAuthResolver {
                         .filter(Objects::nonNull)
                         .filter(value -> action.getEntityAlias() == null || action.getEntityAlias().isBlank()
                                 || action.getEntityAlias().equals(value.getAlias()))
-                        .findFirst().orElseThrow(() -> new PlatformException(
-                                "Module action requires configured entity: " + action.getModuleAlias()));
+                        .findFirst().orElseThrow(() -> PlatformErrors.badRequestText(TextReference.code(
+                                "platform.rejection.module-action-data-auth-resolver.module-action-requires-configured-entity",
+                                "Module action requires configured entity: {value1}"), Map.of("value1", String.valueOf(action.getModuleAlias()))));
                 return resolve(action, Boolean.TRUE.equals(entity.getDataScopeEnabled()));
             }
             return resolve(action, staticAbilities.abilities().stream()

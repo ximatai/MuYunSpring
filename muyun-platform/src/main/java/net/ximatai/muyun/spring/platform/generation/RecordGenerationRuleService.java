@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -81,7 +84,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
     @Transactional
     public RecordGenerationRule saveRuleTree(RecordGenerationRule rule) {
         if (rule == null) {
-            throw new PlatformException("Record generation rule tree must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-rule.record-generation-rule-tree-must-not-be-null",
+                    "Record generation rule tree must not be null"));
         }
         List<RecordGenerationObjectMapping> objectMappings = rule.getObjectMappings() == null
                 ? List.of()
@@ -241,12 +246,16 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
                 splitDrivers++;
             }
             if (objectMapping.getSplitPolicy() != null && !Boolean.TRUE.equals(objectMapping.getSplitDriver())) {
-                throw new PlatformException("Generation split policy requires splitDriver object mapping");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-generation-rule.generation-split-policy-requires-splitdriver-object-mapping",
+                        "Generation split policy requires splitDriver object mapping"));
             }
             validateSplitPolicy(rule, objectMapping, objectMapping.getSplitPolicy());
         }
         if (splitDrivers > 1) {
-            throw new PlatformException("Generation rule can only declare one split driver object mapping");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-rule.generation-rule-can-only-declare-one-split-driver-object-mapping",
+                    "Generation rule can only declare one split driver object mapping"));
         }
     }
 
@@ -256,8 +265,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
                 .eq("actionCode", rule.getActionCode()), ALL, Sort.asc("sortOrder"));
         for (RecordGenerationRule existing : existingRules) {
             if (!Objects.equals(existing.getId(), rule.getId())) {
-                throw new PlatformException("Generation rule actionCode must be unique within source module: "
-                        + rule.getSourceModuleAlias() + "." + rule.getActionCode());
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-generation-rule.generation-rule-actioncode-must-be-unique-within-source-module",
+                        "Generation rule actionCode must be unique within source module: {value1}.{value2}"), Map.of("value1", String.valueOf(rule.getSourceModuleAlias()), "value2", String.valueOf(rule.getActionCode())));
             }
         }
     }
@@ -271,8 +281,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
             resolveFieldMappingFields(rule, objectMapping, fieldMapping);
             String targetField = targetFieldKey(fieldMapping);
             if (!targetFields.add(targetField)) {
-                throw new PlatformException("Field mappings cannot duplicate targetField in one object mapping: "
-                        + targetField);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-generation-rule.field-mappings-cannot-duplicate-targetfield-in-one-object-mapping",
+                        "Field mappings cannot duplicate targetField in one object mapping: {value1}"), Map.of("value1", String.valueOf(targetField)));
             }
         }
     }
@@ -319,7 +330,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
                 : splitPolicy.getGroupFields();
         boolean quantityDriver = splitPolicy.getQuantityField() != null && !splitPolicy.getQuantityField().isBlank();
         if (!quantityDriver && splitPolicy.getQuantityStep() != null) {
-            throw new PlatformException("Split policy quantityStep requires quantityField");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-rule.split-policy-quantitystep-requires-quantityfield",
+                    "Split policy quantityStep requires quantityField"));
         }
         Set<String> groupFieldNames = new LinkedHashSet<>();
         for (RecordGenerationSplitGroupField groupField : groupFields) {
@@ -334,7 +347,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
                     ? PlatformNameRules.requireFieldName(groupField.getFieldName(), "fieldName")
                     : groupField.getModuleMetadataFieldId();
             if (!groupFieldNames.add(fieldKey)) {
-                throw new PlatformException("Split policy cannot duplicate group field: " + fieldKey);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-generation-rule.split-policy-cannot-duplicate-group-field",
+                        "Split policy cannot duplicate group field: {value1}"), Map.of("value1", String.valueOf(fieldKey)));
             }
         }
         if (quantityDriver && splitPolicy.getQuantityStep() == null) {
@@ -366,8 +381,9 @@ public class RecordGenerationRuleService extends AbstractAbilityService<RecordGe
         ResolvedModuleMetadataField resolved = moduleFieldService.get().resolve(moduleMetadataFieldId);
         if (!Objects.equals(resolved.moduleAlias(), expectedModuleAlias)
                 || !Objects.equals(resolved.relationAlias(), expectedObjectAlias)) {
-            throw new PlatformException("Generation " + label + " does not belong to expected object: "
-                    + expectedModuleAlias + "/" + expectedObjectAlias);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-generation-rule.generation-does-not-belong-to-expected-object",
+                    "Generation {value1} does not belong to expected object: {value2}/{value3}"), Map.of("value1", String.valueOf(label), "value2", String.valueOf(expectedModuleAlias), "value3", String.valueOf(expectedObjectAlias)));
         }
         return resolved;
     }

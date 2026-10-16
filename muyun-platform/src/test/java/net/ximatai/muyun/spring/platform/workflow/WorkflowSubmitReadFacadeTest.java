@@ -102,6 +102,25 @@ class WorkflowSubmitReadFacadeTest {
     }
 
     @Test
+    void statusRetainsTheRejectionSourceAndArgumentsWithoutChangingSubmissionAvailability() {
+        var source = net.ximatai.muyun.spring.common.i18n.TextReference.code("test.match.failed", "流程匹配失败：{record}");
+        var failure = net.ximatai.muyun.spring.common.exception.PlatformErrors.badRequestText(source,
+                Map.of("record", "原始 {record}"));
+        when(instanceDao.query(any(Criteria.class), any(PageRequest.class), any(Sort.class), any(Sort.class)))
+                .thenReturn(List.of());
+        when(selector.select(any(WorkflowSubmitRequest.class))).thenThrow(failure);
+
+        var status = facade.status(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
+
+        assertThat(status.displayStatus()).isEqualTo("MATCH_ERROR");
+        assertThat(status.canSubmit()).isFalse();
+        assertThat(status.errorMessage()).isEqualTo("流程匹配失败：原始 {record}");
+        assertThat(status.errorMessageSource()).isEqualTo(source);
+        assertThat(status.errorMessageArgs()).containsEntry("record", "原始 {record}");
+        verifyNoInteractions(submitFacade);
+    }
+
+    @Test
     void shouldReturnSubmitPreviewViewFromSubmitFacade() {
         WorkflowSubmitPreview preview = new WorkflowSubmitPreview(selection(), draft());
         when(submitFacade.preview(any(WorkflowSubmitRequest.class))).thenReturn(preview);

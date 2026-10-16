@@ -241,6 +241,17 @@ class MeasureUnitDynamicRecordMutationCoordinatorTest {
                 .hasMessageContaining("entity=line")
                 .hasMessageContaining("field=quantity")
                 .hasMessageContaining("Measure unit requires enabled unit")
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    var cause = (PlatformException) error.getCause();
+                    assertThat(error.textSource()).isNotNull().isEqualTo(cause.textSource());
+                    assertThat(error.messageArgs()).isEqualTo(cause.messageArgs());
+                    var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+                    var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "en").text()).startsWith("Measure unit requires enabled unit");
+                    assertThat(texts.resolve(error.textSource(), error.messageArgs(), "zh-CN").text()).startsWith("计量单位未启用");
+                    assertThat(error.httpStatus()).isEqualTo(400);
+                    assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+                })
                 .cause()
                 .isInstanceOf(PlatformException.class);
     }

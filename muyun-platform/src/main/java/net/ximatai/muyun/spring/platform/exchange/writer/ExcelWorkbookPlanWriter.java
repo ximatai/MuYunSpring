@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.exchange.writer;
 
+import java.util.Map;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan;
 import net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan;
@@ -48,7 +51,9 @@ public class ExcelWorkbookPlanWriter {
             write(plan, out);
             return out.toByteArray();
         } catch (IOException ex) {
-            throw new PlatformException("exchange workbook write failed", ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-plan-writer.exchange-workbook-write-failed",
+                    "exchange workbook write failed"), Map.of(), ex);
         }
     }
 
@@ -73,7 +78,9 @@ public class ExcelWorkbookPlanWriter {
             workbook.write(out);
             out.flush();
         } catch (IOException ex) {
-            throw new PlatformException("exchange workbook write failed", ex);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.excel-workbook-plan-writer.exchange-workbook-write-failed",
+                    "exchange workbook write failed"), Map.of(), ex);
         }
     }
 

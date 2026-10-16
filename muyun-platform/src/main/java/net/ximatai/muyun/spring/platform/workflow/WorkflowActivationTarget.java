@@ -1,11 +1,14 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 
 public record WorkflowActivationTarget(String nodeKey, String routeInstanceId) {
     public WorkflowActivationTarget {
         if (nodeKey == null || nodeKey.isBlank()) {
-            throw new PlatformException("workflow activation target node key must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-activation-target.enter-a-target-node-key",
+                    "workflow activation target node key must not be blank"));
         }
     }
 

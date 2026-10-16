@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -8,7 +10,6 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,7 +62,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         String incomingFileId = command == null ? null : command.fileId();
         if (incomingFileId != null && !incomingFileId.isBlank()
                 && !Objects.equals(existing.getFileId(), incomingFileId.trim())) {
-            throw new PlatformException("attachment fileId cannot be changed: " + attachmentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.attachment-fileid-cannot-be-changed",
+                    "attachment fileId cannot be changed: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
         }
         applyMutableFields(existing, command);
         update(existing);
@@ -99,7 +102,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
             }
             RecordAttachment current = existingById.get(attachmentId);
             if (current == null) {
-                throw new PlatformException("record attachment does not belong to record: " + attachmentId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.record-attachment-does-not-belong-to-record",
+                        "record attachment does not belong to record: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
             }
             updateAttachment(normalizedModuleAlias, normalizedRecordId, attachmentId, command);
             retainedIds.add(attachmentId);
@@ -117,7 +122,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         if (attachment == null
                 || !Objects.equals(attachment.getModuleAlias(), requireText(moduleAlias, "moduleAlias"))
                 || !Objects.equals(attachment.getRecordId(), requireText(recordId, "recordId"))) {
-            throw new PlatformException("record attachment does not exist: " + attachmentId);
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.record-attachment-does-not-exist",
+                    "record attachment does not exist: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
         }
         return attachment;
     }
@@ -126,8 +133,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
     public void beforeInsert(RecordAttachment attachment) {
         normalizeAndValidate(attachment);
         StaticFieldWriteRules.validate(RecordAttachment.class, attachment, WriteOperation.INSERT);
-        rejectDuplicate(attachment, duplicateCriteria(attachment),
-                "record attachment fileId is duplicated: " + attachment.getFileId());
+        rejectDuplicate(attachment, duplicateCriteria(attachment), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-attachment.record-attachment-fileid-is-duplicated",
+                "record attachment fileId is duplicated: {value1}"), Map.of("value1", String.valueOf(attachment.getFileId()))));
         fileBindings.bind(attachment.getTenantId(), MODULE_ALIAS, attachment.getId(), "fileId", attachment.getFileId(),
                 net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition.unrestricted());
     }
@@ -140,10 +148,13 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         if (existing != null && (!Objects.equals(existing.getFileId(), attachment.getFileId())
                 || !Objects.equals(existing.getModuleAlias(), attachment.getModuleAlias())
                 || !Objects.equals(existing.getRecordId(), attachment.getRecordId()))) {
-            throw new PlatformException("attachment binding cannot be changed: " + attachment.getId());
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.attachment-binding-cannot-be-changed",
+                    "attachment binding cannot be changed: {value1}"), Map.of("value1", String.valueOf(attachment.getId())));
         }
-        rejectDuplicate(attachment, duplicateCriteria(attachment),
-                "record attachment fileId is duplicated: " + attachment.getFileId());
+        rejectDuplicate(attachment, duplicateCriteria(attachment), () -> PlatformErrors.badRequestText(TextReference.code(
+                "platform.rejection.record-attachment.record-attachment-fileid-is-duplicated",
+                "record attachment fileId is duplicated: {value1}"), Map.of("value1", String.valueOf(attachment.getFileId()))));
     }
 
     private Criteria duplicateCriteria(RecordAttachment attachment) {
@@ -155,7 +166,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
 
     private RecordAttachment fromCommand(RecordAttachmentCommand command) {
         if (command == null) {
-            throw new PlatformException("record attachment command must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.record-attachment-command-must-not-be-null",
+                    "record attachment command must not be null"));
         }
         RecordAttachment attachment = new RecordAttachment();
         applyMutableFields(attachment, command);
@@ -174,7 +187,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
 
     private void normalizeAndValidate(RecordAttachment attachment) {
         if (attachment == null) {
-            throw new PlatformException("record attachment must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.record-attachment-must-not-be-null",
+                    "record attachment must not be null"));
         }
         attachment.setDisplayName(trimToNull(attachment.getDisplayName()));
         attachment.setRemark(trimToNull(attachment.getRemark()));
@@ -185,7 +200,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         for (RecordAttachmentCommand command : commands) {
             String fileId = requireText(command == null ? null : command.fileId(), "fileId");
             if (!fileIds.add(fileId)) {
-                throw new PlatformException("record attachment fileId is duplicated: " + fileId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.record-attachment-fileid-is-duplicated",
+                        "record attachment fileId is duplicated: {value1}"), Map.of("value1", String.valueOf(fileId)));
             }
         }
     }
@@ -195,7 +212,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         for (RecordAttachmentCommand command : commands) {
             String attachmentId = command == null ? null : trimToNull(command.id());
             if (attachmentId != null && !attachmentIds.add(attachmentId)) {
-                throw new PlatformException("record attachment id is duplicated: " + attachmentId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.record-attachment-id-is-duplicated",
+                        "record attachment id is duplicated: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
             }
         }
     }
@@ -204,7 +223,9 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
                                          Map<String, RecordAttachment> existingById) {
         for (RecordAttachmentCommand command : commands) {
             if (command == null) {
-                throw new PlatformException("record attachment command must not be null");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.record-attachment-command-must-not-be-null",
+                        "record attachment command must not be null"));
             }
             String attachmentId = trimToNull(command.id());
             if (attachmentId == null) {
@@ -213,18 +234,24 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
             }
             RecordAttachment current = existingById.get(attachmentId);
             if (current == null) {
-                throw new PlatformException("record attachment does not belong to record: " + attachmentId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.record-attachment-does-not-belong-to-record",
+                        "record attachment does not belong to record: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
             }
             String incomingFileId = requireText(command.fileId(), "fileId");
             if (!Objects.equals(current.getFileId(), incomingFileId)) {
-                throw new PlatformException("attachment fileId cannot be changed: " + attachmentId);
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-attachment.attachment-fileid-cannot-be-changed",
+                        "attachment fileId cannot be changed: {value1}"), Map.of("value1", String.valueOf(attachmentId)));
             }
         }
     }
 
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new PlatformException("record attachment " + fieldName + " must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-attachment.record-attachment-must-not-be-blank",
+                    "record attachment {value1} must not be blank"), Map.of("value1", String.valueOf(fieldName)));
         }
         return value.trim();
     }

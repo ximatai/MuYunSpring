@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -8,7 +10,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordMutationEventType;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,9 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
     @Transactional
     public RecordWriteBackRule saveRuleTree(RecordWriteBackRule rule) {
         if (rule == null) {
-            throw new PlatformException("Record write-back rule tree must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-rule-tree-must-not-be-null",
+                    "Record write-back rule tree must not be null"));
         }
         List<RecordWriteBackMatchRule> matchRules = rule.getMatchRules() == null
                 ? List.of()
@@ -78,7 +81,9 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
                                                             DynamicRecordMutationEventType eventType) {
         String moduleAlias = PlatformNameRules.requireModuleAlias(triggerModuleAlias);
         if (eventType == null) {
-            throw new PlatformException("Record write-back eventType must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-eventtype-must-not-be-null",
+                    "Record write-back eventType must not be null"));
         }
         return list(Criteria.of()
                         .eq("triggerModuleAlias", moduleAlias)
@@ -139,40 +144,56 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
                                   List<RecordWriteBackFieldRule> fieldRules) {
         normalizeAndValidate(rule);
         if (rule.getTargetLocateMode() == RecordWriteBackTargetLocateMode.FIELD_MATCH && matchRules.isEmpty()) {
-            throw new PlatformException("Record write-back rule requires at least one match rule");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-rule-requires-at-least-one-match-rule",
+                    "Record write-back rule requires at least one match rule"));
         }
         if (hasText(rule.getTargetRelationCode())) {
             if (matchRules.stream()
                     .noneMatch(matchRule -> Objects.equals(rule.getTargetRelationCode(), matchRule.getTargetRelationCode()))) {
-                throw new PlatformException("Record write-back child target requires at least one child match rule");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-child-target-requires-at-least-one-child-match-rule",
+                        "Record write-back child target requires at least one child match rule"));
             }
             if (rule.getTargetLocateMode() == RecordWriteBackTargetLocateMode.FIELD_MATCH
                     && matchRules.stream().noneMatch(matchRule -> !hasText(matchRule.getTargetRelationCode()))) {
-                throw new PlatformException("Record write-back child target field match requires at least one root match rule");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-child-target-field-match-requires-at-least-one-root",
+                        "Record write-back child target field match requires at least one root match rule"));
             }
             if (matchRules.stream().map(RecordWriteBackMatchRule::getTargetRelationCode)
                     .filter(this::hasText)
                     .anyMatch(relationCode -> !Objects.equals(rule.getTargetRelationCode(), relationCode))) {
-                throw new PlatformException("Record write-back child match relation must match targetRelationCode");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-child-match-relation-must-match-targetrelationcode",
+                        "Record write-back child match relation must match targetRelationCode"));
             }
         } else if (matchRules.stream().anyMatch(matchRule -> hasText(matchRule.getTargetRelationCode()))) {
-            throw new PlatformException("Record write-back match rule targetRelationCode requires child target");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-match-rule-targetrelationcode-requires-child-target",
+                    "Record write-back match rule targetRelationCode requires child target"));
         }
         if (fieldRules.isEmpty()) {
-            throw new PlatformException("Record write-back rule requires at least one field rule");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-rule-requires-at-least-one-field-rule",
+                    "Record write-back rule requires at least one field rule"));
         }
         matchRules.forEach(this::validateDetachedMatchRule);
         fieldRules.forEach(this::validateDetachedFieldRule);
         EnumSet<RecordWriteBackTriggerMode> triggerModes = RecordWriteBackTriggerPolicy.modes(rule);
         if (triggerModes.contains(RecordWriteBackTriggerMode.ALWAYS)
                 && fieldRules.stream().anyMatch(this::isNumericContributionRule)) {
-            throw new PlatformException("Record write-back ADD/SUBTRACT requires state trigger mode");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-add-subtract-requires-state-trigger-mode",
+                    "Record write-back ADD/SUBTRACT requires state trigger mode"));
         }
     }
 
     private void normalizeAndValidate(RecordWriteBackRule rule) {
         if (rule == null) {
-            throw new PlatformException("Record write-back rule must not be null");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-rule-must-not-be-null",
+                    "Record write-back rule must not be null"));
         }
         rule.setTriggerModuleAlias(PlatformNameRules.requireModuleAlias(rule.getTriggerModuleAlias()));
         rule.setTargetModuleAlias(PlatformNameRules.requireModuleAlias(rule.getTargetModuleAlias()));
@@ -181,7 +202,9 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
         }
         if (rule.getEventType() != DynamicRecordMutationEventType.AFTER_SAVE
                 && rule.getEventType() != DynamicRecordMutationEventType.AFTER_DELETE) {
-            throw new PlatformException("Record write-back only supports AFTER_SAVE and AFTER_DELETE");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-only-supports-after-save-and-after-delete",
+                    "Record write-back only supports AFTER_SAVE and AFTER_DELETE"));
         }
         if (rule.getCascadeMode() == null) {
             rule.setCascadeMode(RecordWriteBackCascadeMode.SINGLE_HOP);
@@ -197,10 +220,14 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
         rule.setTriggerModes(RecordWriteBackTriggerPolicy.serialized(triggerModes));
         if (!triggerModes.contains(RecordWriteBackTriggerMode.ALWAYS)) {
             if (rule.getTriggerField() == null || rule.getTriggerField().isBlank()) {
-                throw new PlatformException("Record write-back state trigger requires triggerField");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-state-trigger-requires-triggerfield",
+                        "Record write-back state trigger requires triggerField"));
             }
             if (rule.getTriggerValue() == null || rule.getTriggerValue().isBlank()) {
-                throw new PlatformException("Record write-back state trigger requires triggerValue");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-state-trigger-requires-triggervalue",
+                        "Record write-back state trigger requires triggerValue"));
             }
             rule.setTriggerField(rule.getTriggerField().trim());
             rule.setTriggerValue(rule.getTriggerValue().trim());
@@ -211,19 +238,25 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
         if (hasText(rule.getTargetRelationCode())) {
             rule.setTargetRelationCode(rule.getTargetRelationCode().trim());
             if (!hasText(rule.getTargetEntityAlias())) {
-                throw new PlatformException("Record write-back child target requires targetEntityAlias");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-child-target-requires-targetentityalias",
+                        "Record write-back child target requires targetEntityAlias"));
             }
             rule.setTargetEntityAlias(rule.getTargetEntityAlias().trim());
         } else {
             rule.setTargetRelationCode(null);
             if (hasText(rule.getTargetEntityAlias())) {
-                throw new PlatformException("Record write-back targetEntityAlias requires targetRelationCode");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-targetentityalias-requires-targetrelationcode",
+                        "Record write-back targetEntityAlias requires targetRelationCode"));
             }
             rule.setTargetEntityAlias(null);
         }
         if (rule.getTargetLocateMode() == RecordWriteBackTargetLocateMode.GENERATION_RELATION) {
             if (rule.getRelationGenerationRuleId() == null || rule.getRelationGenerationRuleId().isBlank()) {
-                throw new PlatformException("Record write-back generation relation locate requires relationGenerationRuleId");
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.record-write-back-rule.record-write-back-generation-relation-locate-requires-relationgenerationruleid",
+                        "Record write-back generation relation locate requires relationGenerationRuleId"));
             }
             rule.setRelationGenerationRuleId(rule.getRelationGenerationRuleId().trim());
         }
@@ -234,10 +267,14 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
 
     private void validateDetachedMatchRule(RecordWriteBackMatchRule rule) {
         if (rule.getSourceField() == null || rule.getSourceField().isBlank()) {
-            throw new PlatformException("Record write-back match rule sourceField must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-match-rule-sourcefield-must-not-be-blank",
+                    "Record write-back match rule sourceField must not be blank"));
         }
         if (rule.getTargetField() == null || rule.getTargetField().isBlank()) {
-            throw new PlatformException("Record write-back match rule targetField must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-match-rule-targetfield-must-not-be-blank",
+                    "Record write-back match rule targetField must not be blank"));
         }
         if (hasText(rule.getTargetRelationCode())) {
             rule.setTargetRelationCode(rule.getTargetRelationCode().trim());
@@ -248,7 +285,9 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
 
     private void validateDetachedFieldRule(RecordWriteBackFieldRule rule) {
         if (rule.getTargetField() == null || rule.getTargetField().isBlank()) {
-            throw new PlatformException("Record write-back field rule targetField must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-field-rule-targetfield-must-not-be-blank",
+                    "Record write-back field rule targetField must not be blank"));
         }
         if (rule.getSourceType() == null) {
             rule.setSourceType(RecordWriteBackFieldSourceType.FIELD);
@@ -258,7 +297,9 @@ public class RecordWriteBackRuleService extends AbstractAbilityService<RecordWri
         }
         if (rule.getSourceType() == RecordWriteBackFieldSourceType.FIELD
                 && (rule.getSourceField() == null || rule.getSourceField().isBlank())) {
-            throw new PlatformException("Record write-back field rule sourceField must not be blank");
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.record-write-back-rule.record-write-back-field-rule-sourcefield-must-not-be-blank",
+                    "Record write-back field rule sourceField must not be blank"));
         }
         if (rule.getSourceType() == RecordWriteBackFieldSourceType.CONSTANT) {
             rule.setSourceField(null);

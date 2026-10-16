@@ -141,6 +141,7 @@ export interface WorkflowStatus {
   displayStatus: string;
   instanceId?: string;
   errorMessage?: string;
+  errorMessageText?: TextPresentation;
   definition?: { definitionTitle?: string; definitionAlias?: string };
 }
 export interface WorkflowRenderBundle {
