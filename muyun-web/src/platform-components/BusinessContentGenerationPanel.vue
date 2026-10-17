@@ -63,6 +63,7 @@ function selectionKey() {
   ]);
 }
 let requestedSelection: string | undefined;
+let openedSelectionScope: string | undefined;
 watch(result, (value) => {
   // Closing stops observation, while durable work still belongs to this exact selection.
   if (value && requestedSelection === selectionKey() && !pending.value) {
@@ -72,6 +73,7 @@ watch(result, (value) => {
 });
 watch(
   () => [
+    props.context,
     props.context.http,
     props.status.language,
     source.value?.moduleAlias,
@@ -81,6 +83,7 @@ watch(
   () => {
     open.value = false;
     requestedSelection = undefined;
+    openedSelectionScope = undefined;
   },
 );
 const failureMessage = computed(() =>
@@ -164,13 +167,22 @@ function stateLabel(state: BusinessContentGenerationStatus['state']) {
   }
 }
 function start() {
-  const initial = props.initiallySelected?.filter((id) => props.records.some((row) => row.id === id)) ?? [];
-  selected.value =
-    initial.length > 0 && initial.length <= 50
-      ? initial
-      : props.records.length <= 50
-        ? props.records.map((row) => row.id)
-        : [];
+  const scope = JSON.stringify([
+    props.records.map((row) => [row.id, row.version]),
+    props.initiallySelected ?? [],
+  ]);
+  // Reopening the same page keeps the subset whose durable work is being observed.
+  if (openedSelectionScope !== scope) {
+    const initial = props.initiallySelected?.filter((id) => props.records.some((row) => row.id === id)) ?? [];
+    selected.value =
+      initial.length > 0 && initial.length <= 50
+        ? initial
+        : props.records.length <= 50
+          ? props.records.map((row) => row.id)
+          : [];
+    openedSelectionScope = scope;
+    requestedSelection = undefined;
+  }
   open.value = true;
 }
 function choose(id: string, checked: boolean) {
