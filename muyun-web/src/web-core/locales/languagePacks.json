@@ -3344,7 +3344,13 @@
       "platform.screen.ModuleDataExchangeSurface.matching-language": "本次名称解析语言",
       "platform.screen.ModuleDataExchangeSurface.use-file-matching-language": "沿用文件声明的语言",
       "platform.content.request-machine-draft": "机器起草",
-      "platform.content.machine-draft-requested": "机器起草已受理，请稍后重新打开维护核对结果；本次人工输入保持不变。"
+      "platform.content.machine-draft-requested": "机器起草已受理，请稍后重新打开维护核对结果；本次人工输入保持不变。",
+      "platform.content.discard-input-title": "放弃未保存的译文修改？",
+      "platform.content.discard-input-description": "本次修改尚未保存，放弃后不会生成译文草稿。",
+      "platform.content.discard-input": "放弃修改",
+      "platform.content.continue-editing": "继续编辑",
+      "platform.content.remove-language-title": "删除本语言译文？",
+      "platform.content.remove-language-description": "将删除 {language} 译文及本次未保存输入，阅读将回退到原文。业务原文和受权修订历史保留。"
     }
   },
   "en": {
@@ -6693,7 +6699,13 @@
       "platform.screen.ModuleDataExchangeSurface.matching-language": "Name matching language for this import",
       "platform.screen.ModuleDataExchangeSurface.use-file-matching-language": "Use the language declared in the file",
       "platform.content.request-machine-draft": "Request machine draft",
-      "platform.content.machine-draft-requested": "Machine drafting was accepted. Reopen maintenance later to review the result; your human input is preserved."
+      "platform.content.machine-draft-requested": "Machine drafting was accepted. Reopen maintenance later to review the result; your human input is preserved.",
+      "platform.content.discard-input-title": "Discard unsaved translation changes?",
+      "platform.content.discard-input-description": "These changes have not been saved. Discarding them will not create a translation draft.",
+      "platform.content.discard-input": "Discard changes",
+      "platform.content.continue-editing": "Continue editing",
+      "platform.content.remove-language-title": "Delete this language translation?",
+      "platform.content.remove-language-description": "The {language} translation and unsaved input will be removed. Reading will fall back to the original. The business original and authorized revision history are retained."
     }
   },
   "fr": {

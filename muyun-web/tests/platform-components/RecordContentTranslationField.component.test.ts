@@ -5,6 +5,8 @@ import {
   businessContentLanguageContext,
   createLanguageContext,
   provideLanguageContext,
+  provideWorkspaceUnsavedStateRegistrar,
+  type WorkspaceUnsavedStateRegistrar,
   type HttpRequestOptions,
   type ModuleContext,
   type BusinessContentRelationScope,
@@ -15,6 +17,12 @@ import type {
   BusinessContentTranslationRevision,
 } from '@muyun/web-contracts';
 import RecordContentTranslationField from '@/platform-components/RecordContentTranslationField.vue';
+
+const confirmAction = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('@muyun/vue-ui-antdv', async (original) => ({
+  ...(await original<typeof import('@muyun/vue-ui-antdv')>()),
+  confirmAction,
+}));
 
 const original = {
   revisionId: 'immutable-original-id',
@@ -87,6 +95,7 @@ function host(
   relation?: BusinessContentRelationScope,
   policy: 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS' = 'MANUAL_TRANSLATIONS',
   fieldName: 'description' | 'reason' = 'description',
+  registrar?: WorkspaceUnsavedStateRegistrar,
 ) {
   const language = createLanguageContext();
   const contentLanguage = businessContentLanguageContext(language);
@@ -101,6 +110,7 @@ function host(
     defineComponent({
       setup() {
         provideLanguageContext(language);
+        provideWorkspaceUnsavedStateRegistrar(registrar);
         return () =>
           h(RecordContentTranslationField, {
             record,
@@ -128,6 +138,50 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it('protects unsaved input on close and registers it with the owning workspace', async () => {
+    const unregister = vi.fn();
+    const registerUnsavedState = vi.fn(() => unregister);
+    const request = vi.fn(async (options: HttpRequestOptions) =>
+      options.path.endsWith('/reading') ? reading() : options.path.endsWith('/history') ? [] : state(),
+    );
+    const { wrapper } = host(request, undefined, undefined, undefined, undefined, { registerUnsavedState });
+    await flushPromises();
+    const isDirty = (registerUnsavedState.mock.calls[0] as unknown as [string, () => boolean])[1];
+    expect(isDirty()).toBe(false);
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    await wrapper.get('textarea').setValue('Unsaved human translation');
+    expect(isDirty()).toBe(true);
+    confirmAction.mockResolvedValueOnce(false);
+    wrapper.findComponent(Modal).vm.$emit('cancel');
+    await flushPromises();
+    expect(wrapper.get('textarea').element.value).toBe('Unsaved human translation');
+    expect(isDirty()).toBe(true);
+    confirmAction.mockResolvedValueOnce(true);
+    wrapper.findComponent(Modal).vm.$emit('confirm');
+    await flushPromises();
+    expect(wrapper.find('textarea').exists()).toBe(false);
+    expect(isDirty()).toBe(false);
+    expect(requests(request).some((r) => r.method === 'POST' && !r.path.endsWith('/prepare'))).toBe(false);
+    wrapper.unmount();
+    expect(unregister).toHaveBeenCalledOnce();
+  });
+
+  it('does not remove a translation when its explicit confirmation is cancelled', async () => {
+    const request = vi.fn(async (options: HttpRequestOptions) =>
+      options.path.endsWith('/reading') ? reading() : options.path.endsWith('/history') ? [] : state(),
+    );
+    const { wrapper } = host(request);
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    confirmAction.mockResolvedValueOnce(false);
+    await button(wrapper, '删除本语言译文').trigger('click');
+    await flushPromises();
+    expect(requests(request).some((r) => r.path.endsWith('/remove'))).toBe(false);
+    expect(wrapper.get('textarea').element.value).toBe('Previous confirmed English');
+    wrapper.unmount();
+  });
   it('requests a manual-field machine draft only explicitly and preserves human input without a model', async () => {
     const request = vi.fn(async (options: HttpRequestOptions) => {
       if (options.path.endsWith('/reading')) {

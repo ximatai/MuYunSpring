@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { UiButton, UiModal, UiTextArea } from '@muyun/vue-ui-antdv';
+import { confirmAction, UiActionButton, UiButton, UiModal, UiTextArea } from '@muyun/vue-ui-antdv';
 import {
   businessContentLanguageContext,
   changeBusinessContentTranslation,
@@ -9,6 +9,7 @@ import {
   loadBusinessContentTranslationHistory,
   prepareBusinessContentTranslation,
   useLanguageContext,
+  useWorkspaceViewUnsavedState,
   type BusinessContentRelationScope,
   type ModuleContext,
 } from '@muyun/web-core';
@@ -116,6 +117,7 @@ const editorLanguage = ref('');
 const editorAccess = ref<'edit' | 'confirm'>('edit');
 const text = ref('');
 const busy = ref(false);
+const confirming = ref(false);
 const mutationFailed = ref(false);
 const maintenanceFailed = ref(false);
 const history = ref<BusinessContentTranslationRevision[]>([]);
@@ -157,11 +159,72 @@ const unsavedTranslation = computed(
       ''),
 );
 
-function close() {
-  if (busy.value) return;
+const dirty = computed(() => editorOpen.value && Boolean(maintenance.value) && unsavedTranslation.value);
+useWorkspaceViewUnsavedState(
+  () => language.t('platform.content.maintain-translation', '维护／核对译文'),
+  () => dirty.value,
+  () => editorOpen.value && (busy.value || confirming.value),
+);
+async function close() {
+  if (busy.value || confirming.value) return;
+  const token = editorGeneration;
+  if (dirty.value) {
+    confirming.value = true;
+    try {
+      if (
+        !(await confirmAction(
+          {
+            title: language.t('platform.content.discard-input-title', '放弃未保存的译文修改？'),
+            danger: true,
+            presentation: () => ({
+              title: language.t('platform.content.discard-input-title', '放弃未保存的译文修改？'),
+              content: language.t(
+                'platform.content.discard-input-description',
+                '本次修改尚未保存，放弃后不会生成译文草稿。',
+              ),
+              okText: language.t('platform.content.discard-input', '放弃修改'),
+              cancelText: language.t('platform.content.continue-editing', '继续编辑'),
+            }),
+          },
+          language,
+        ))
+      )
+        return;
+    } finally {
+      confirming.value = false;
+    }
+  }
+  if (token !== editorGeneration) return;
   editorOpen.value = false;
   editorGeneration++;
   historyGeneration++;
+}
+async function removeTranslation() {
+  if (!maintenance.value || busy.value || confirming.value || !editAllowed.value || originalChanged.value)
+    return;
+  const token = editorGeneration;
+  confirming.value = true;
+  try {
+    const accepted = await confirmAction(
+      {
+        title: language.t('platform.content.remove-language-title', '删除本语言译文？'),
+        danger: true,
+        presentation: () => ({
+          title: language.t('platform.content.remove-language-title', '删除本语言译文？'),
+          content: language.t(
+            'platform.content.remove-language-description',
+            '将删除 {language} 译文及本次未保存输入，阅读将回退到原文。业务原文和受权修订历史保留。',
+            { language: editorLanguage.value },
+          ),
+          okText: language.t('platform.content.remove-language', '删除本语言译文'),
+        }),
+      },
+      language,
+    );
+    if (accepted && token === editorGeneration) await mutate('remove');
+  } finally {
+    confirming.value = false;
+  }
 }
 function resetEditor() {
   editorOpen.value = false;
@@ -501,11 +564,12 @@ watch(
           @click="mutate('confirm')"
           >{{ language.t('platform.content.confirm-reviewed', '确认已审阅的草稿') }}</UiButton
         >
-        <UiButton
+        <UiActionButton
           v-if="editAllowed"
+          intent="danger"
           :disabled="busy || originalChanged || !maintenance.expectedRevision"
-          @click="mutate('remove')"
-          >{{ language.t('platform.content.remove-language', '删除本语言译文') }}</UiButton
+          @click="removeTranslation"
+          >{{ language.t('platform.content.remove-language', '删除本语言译文') }}</UiActionButton
         >
       </div>
       <h4>{{ language.t('platform.content.translation-history', '本原文的译文修订历史') }}</h4>

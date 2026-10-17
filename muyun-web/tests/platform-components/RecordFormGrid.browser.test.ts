@@ -39,3 +39,58 @@ it('keeps long searchable selections within their form column', async () => {
     wrapper.unmount();
   }
 });
+
+it.each([992, 390])('keeps source controls with their own field at viewport %s', async (width) => {
+  await page.viewport(width, 814);
+  const { default: RecordFormFields } = await import('@/platform-components/RecordFormFields.vue');
+  const fields = new Map([
+    ['code', { fieldRef: { fieldName: 'code' }, label: 'Code' }],
+    [
+      'title',
+      {
+        fieldRef: { fieldName: 'title' },
+        label: 'Title',
+        content: { key: 'title', policy: 'MANUAL_TRANSLATIONS' as const },
+      },
+    ],
+    [
+      'description',
+      {
+        fieldRef: { fieldName: 'description' },
+        label: 'Description',
+        uiType: 'textarea',
+        columnSpan: 2 as const,
+        content: { key: 'description', policy: 'AUTO_TRANSLATE' as const },
+      },
+    ],
+  ]);
+  const wrapper = mount(RecordFormGrid, {
+    attrs: { style: 'width: min(680px, calc(100vw - 32px)); margin: 16px' },
+    slots: {
+      default: () =>
+        h(RecordFormFields, {
+          fields,
+          record: { code: 'C001', title: 'Original title', description: 'Original description' },
+          mode: 'create',
+        }),
+    },
+    attachTo: document.body,
+  });
+  try {
+    const hosts = wrapper.findAll('.record-form-field-host');
+    const title = hosts[1]!.element.getBoundingClientRect();
+    const source = wrapper.get('[data-content-field="title"]').element.getBoundingClientRect();
+    const input = hosts[1]!.get('input').element.getBoundingClientRect();
+    expect(source.left).toBeGreaterThanOrEqual(title.left);
+    expect(source.right).toBeLessThanOrEqual(title.right + 1);
+    expect(source.top).toBeGreaterThanOrEqual(input.bottom);
+    expect(source.bottom).toBeLessThanOrEqual(title.bottom + 1);
+    const fullRow = hosts[2]!.element.getBoundingClientRect();
+    const grid = wrapper.element.getBoundingClientRect();
+    expect(fullRow.width).toBeCloseTo(grid.width, 0);
+    expect(fullRow.top).toBeGreaterThanOrEqual(title.bottom);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width + 1);
+  } finally {
+    wrapper.unmount();
+  }
+});

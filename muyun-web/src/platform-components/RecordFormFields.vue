@@ -1165,12 +1165,13 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 <style scoped>
 .record-form-field-host {
-  display: contents;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
 }
 .record-form-field-host--actions {
-  display: block;
   position: relative;
-  min-width: 0;
 }
 .record-form-field-host--actions > .record-form-field {
   padding-inline-end: 26px;
