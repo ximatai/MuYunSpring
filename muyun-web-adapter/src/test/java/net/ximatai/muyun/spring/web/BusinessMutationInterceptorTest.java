@@ -46,7 +46,42 @@ class BusinessMutationInterceptorTest {
         assertThat(MutationContextHolder.current()).isEmpty();
     }
 
+    @Test
+    void registeredContentWritesHonorExplicitMutationAndStillRequireTheActionContext() throws Exception {
+        var catalog = org.mockito.Mockito.mock(net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog.class);
+        var endpoint = org.mockito.Mockito.mock(net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint.class);
+        var definition = org.mockito.Mockito.mock(net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.class);
+        org.mockito.Mockito.when(endpoint.definition()).thenReturn(definition);
+        org.mockito.Mockito.when(definition.action()).thenReturn(PlatformAction.CONTENT_CONFIRM);
+        org.mockito.Mockito.when(definition.source()).thenReturn(
+                net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.Source.STATIC_EXPLICIT);
+        org.mockito.Mockito.when(catalog.find(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.of(endpoint));
+        var interceptor = new BusinessMutationInterceptor(catalog);
+        var request = new MockHttpServletRequest();
+        var response = new MockHttpServletResponse();
+        var handler = new HandlerMethod(new Endpoints(), Endpoints.class.getMethod("module"));
+        interceptor.preHandle(request, response, handler);
+        assertThat(MutationContextHolder.current()).isEmpty();
+        try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPlatformAction(
+                "test.business", PlatformAction.CONTENT_CONFIRM, Set.of("record-1"), Optional.empty()))) {
+            interceptor.preHandle(request, response, handler);
+            assertThat(MutationContextHolder.current()).isPresent();
+            interceptor.afterCompletion(request, response, handler, null);
+            org.mockito.Mockito.when(definition.source()).thenReturn(
+                    net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.Source.STATIC_ABILITY);
+            interceptor.preHandle(request, response, handler);
+            assertThat(MutationContextHolder.current()).isEmpty();
+            org.mockito.Mockito.when(definition.source()).thenReturn(
+                    net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.Source.STATIC_EXPLICIT);
+            handler = new HandlerMethod(new Endpoints(), Endpoints.class.getMethod("prepare"));
+            interceptor.preHandle(request, response, handler);
+            assertThat(MutationContextHolder.current()).isEmpty();
+        }
+    }
+
     static class Endpoints {
+        public void prepare() {}
         @BusinessMutation public void module() {}
         @BusinessMutation(actionContextRequired = false) public void indirect() {}
     }

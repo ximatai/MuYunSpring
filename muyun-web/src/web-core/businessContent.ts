@@ -132,10 +132,11 @@ export function loadBusinessContentReading(
   relation?: BusinessContentRelationScope,
   snapshot?: object,
   sessionKey?: string | number,
+  refreshRevision = 0,
 ) {
   const path = `${businessContentPath(moduleAlias, id, relation)}/reading`;
   const version = snapshot && 'version' in snapshot ? snapshot.version : undefined;
-  const key = JSON.stringify([path, language, version, sessionKey]);
+  const key = JSON.stringify([path, language, version, sessionKey, refreshRevision]);
   const requests = snapshot ? readingPending.get(snapshot) : undefined;
   const previous = requests?.get(key);
   if (previous?.http === http) return previous.request;

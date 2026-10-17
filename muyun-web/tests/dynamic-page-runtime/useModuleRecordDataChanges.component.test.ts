@@ -217,70 +217,86 @@ it('uses read-only list and detail reference declarations as presentation depend
   ]);
 });
 
-it('refreshes an unchanged business snapshot from committed content facts without rewriting the record', async () => {
-  let current = 'Previous reading';
-  const record = { id: 'record', version: 4, description: '原文' };
-  const request = vi.fn(async () => ({
-    recordVersion: 4,
-    language: 'en',
-    fields: {
-      description: {
-        originalText: '原文',
-        text: current,
-        actualLanguage: 'en',
-        source: null,
-        translation: null,
-        originalFallback: false,
-      },
-    },
-  }));
-  const http = { request } as unknown as HttpClient;
-  let reader!: ReturnType<typeof useBusinessContentReading>;
-  const child = defineComponent({
-    setup() {
-      reader = useBusinessContentReading(() => ({
-        http,
-        moduleAlias: 'quality.product',
-        record,
-        fieldName: 'description',
-        content: { key: 'description', policy: 'MANUAL_TRANSLATIONS' },
+it.each([false, true])(
+  'refreshes an unchanged business snapshot from committed content facts (old request pending: %s)',
+  async (pending) => {
+    let current = 'Previous reading';
+    const record = { id: 'record', version: 4, description: '原文' };
+    let releaseOld!: (value: unknown) => void;
+    const request = vi.fn(async () => {
+      const result = {
+        recordVersion: 4,
         language: 'en',
-        mode: 'view',
-      }));
-      return () => null;
-    },
-  });
-  const controller = defineComponent({
-    setup() {
-      useModuleRecordDataChanges({
-        moduleAlias: 'quality.product',
-        recordId: () => record.id,
-        blocked: () => false,
-        invalidate: vi.fn(),
-        refreshList: vi.fn(),
-        refreshRecord: vi.fn(async () => true),
-        onError: vi.fn(),
-      });
-      return () => null;
-    },
-  });
-  const wrapper = mount(
-    defineComponent({
+        fields: {
+          description: {
+            originalText: '原文',
+            text: current,
+            actualLanguage: 'en',
+            source: null,
+            translation: null,
+            originalFallback: false,
+          },
+        },
+      };
+      if (pending && request.mock.calls.length === 1)
+        return new Promise((resolve) => {
+          releaseOld = () => resolve(result);
+        });
+      return result;
+    });
+    const http = { request } as unknown as HttpClient;
+    let reader!: ReturnType<typeof useBusinessContentReading>;
+    const child = defineComponent({
       setup() {
-        provideRecordReadRefreshGuard();
-        return () => h('div', [h(controller), h(child)]);
+        reader = useBusinessContentReading(() => ({
+          http,
+          moduleAlias: 'quality.product',
+          record,
+          fieldName: 'description',
+          content: { key: 'description', policy: 'MANUAL_TRANSLATIONS' },
+          language: 'en',
+          mode: 'view',
+        }));
+        return () => null;
       },
-    }),
-  );
-  await settle();
-  expect(reader.reading.value?.text).toBe('Previous reading');
-  current = 'Confirmed reading';
-  await appDataChangeDispatcher.dispatch({
-    changeSetId: 'same-version-reading',
-    changes: [{ type: 'business-content-changed', moduleAlias: 'quality.product' }],
-  });
-  await settle();
-  expect(reader.reading.value?.text).toBe('Confirmed reading');
-  expect(record).toEqual({ id: 'record', version: 4, description: '原文' });
-  wrapper.unmount();
-});
+    });
+    const controller = defineComponent({
+      setup() {
+        useModuleRecordDataChanges({
+          moduleAlias: 'quality.product',
+          recordId: () => record.id,
+          blocked: () => false,
+          invalidate: vi.fn(),
+          refreshList: vi.fn(),
+          refreshRecord: vi.fn(async () => true),
+          onError: vi.fn(),
+        });
+        return () => null;
+      },
+    });
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          provideRecordReadRefreshGuard();
+          return () => h('div', [h(controller), h(child)]);
+        },
+      }),
+    );
+    await settle();
+    expect(reader.reading.value?.text).toBe(pending ? undefined : 'Previous reading');
+    current = 'Confirmed reading';
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: `same-version-reading-${pending}`,
+      changes: [{ type: 'business-content-changed', moduleAlias: 'quality.product' }],
+    });
+    await settle();
+    expect(request).toHaveBeenCalledTimes(2);
+    if (pending) {
+      releaseOld(undefined);
+      await settle();
+    }
+    expect(reader.reading.value?.text).toBe('Confirmed reading');
+    expect(record).toEqual({ id: 'record', version: 4, description: '原文' });
+    wrapper.unmount();
+  },
+);

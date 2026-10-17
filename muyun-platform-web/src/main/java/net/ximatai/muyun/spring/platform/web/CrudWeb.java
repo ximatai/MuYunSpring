@@ -433,6 +433,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @PostMapping("/view/{id}/content/{field}/translations/{language}/confirm")
     @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    @BusinessMutation
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationConfirm(
             @PathVariable String id, @PathVariable String field, @PathVariable String language,
             @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
@@ -442,6 +443,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @PostMapping("/view/{id}/content/{field}/translations/{language}/remove")
     @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    @BusinessMutation
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationRemove(
             @PathVariable String id, @PathVariable String field, @PathVariable String language,
             @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
@@ -524,6 +526,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/confirm")
     @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    @BusinessMutation
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationConfirm(
             @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
             @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
@@ -533,6 +536,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/remove")
     @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    @BusinessMutation
     default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationRemove(
             @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
             @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {

@@ -16,6 +16,16 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.ui.*;
 import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import net.ximatai.muyun.spring.ability.action.*;
+import net.ximatai.muyun.spring.common.identity.*;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
+import net.ximatai.muyun.spring.platform.content.BusinessContentReadingChanged;
+import net.ximatai.muyun.spring.web.*;
+import net.ximatai.muyun.spring.web.realtime.DataChangeRealtimePublisher;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,6 +47,7 @@ class BusinessContentWebTest {
     private ModuleExecutionPlanCatalog plans;
     private Controller controller;
     private MockMvc mvc;
+    private Interceptors registry;
     @BeforeEach void setup() {
         content = mock(BusinessContentService.class);
         translations = mock(BusinessContentTranslationService.class);
@@ -58,7 +69,7 @@ class BusinessContentWebTest {
         beans.registerSingleton("content", content); beans.registerSingleton("plans", plans);
         beans.registerSingleton("translations", translations);
         beans.registerSingleton("generations", generations); beans.registerSingleton("generationScopes", generationScopes);
-        var registry = new Interceptors();
+        registry = new Interceptors();
         new BusinessContentWebConfiguration(beans.getBeanProvider(BusinessContentService.class),
                 beans.getBeanProvider(ModuleExecutionPlanCatalog.class), beans.getBeanProvider(net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.class),
                 beans.getBeanProvider(BusinessContentGenerationService.class), beans.getBeanProvider(BusinessContentGenerationWebScope.class)).addInterceptors(registry);
@@ -67,6 +78,69 @@ class BusinessContentWebTest {
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new ObjectMapper().findAndRegisterModules()))
                 .setControllerAdvice(new PlatformWebExceptionHandler()).addInterceptors(registry.values()).build();
     }
+    @ParameterizedTest @ValueSource(strings = {
+            "/view/record/content/title/translations/en/confirm",
+            "/view/record/content/title/translations/en/remove",
+            "/view/record/relations/lines/child/content/description/translations/en/confirm",
+            "/view/record/relations/lines/child/content/description/translations/en/remove"})
+    void translationWritesShareTheHttpAndRealtimeReceiptAndRejectWithoutChanges(String path) throws Exception {
+        var publisher = mock(DataChangeRealtimePublisher.class);
+        @SuppressWarnings("unchecked") ObjectProvider<DataChangeRealtimePublisher> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(publisher);
+        var bridge = new BusinessContentReadingChangeBridge(publisher);
+        var state = new BusinessContentTranslationService.Maintenance(null, 2, null, null, null, null);
+        org.mockito.stubbing.Answer<Object> changed = invocation -> {
+            bridge.changed(new BusinessContentReadingChanged("test.content", "tenant-a"));
+            return state;
+        };
+        when(translations.confirm(eq(controller.service), any(), anyString(), anyString(), any())).thenAnswer(changed);
+        when(translations.remove(eq(controller.service), any(), anyString(), anyString(), any())).thenAnswer(changed);
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var catalog = new net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog();
+        // Root endpoints represent the registered static route; children exercise inherited routing.
+        if (!path.contains("/relations/")) {
+            var operation = path.endsWith("/confirm") ? "contentTranslationConfirm" : "contentTranslationRemove";
+            var method = Controller.class.getMethod(operation, String.class, String.class, String.class,
+                    BusinessContentTranslationService.Change.class);
+            var action = path.endsWith("/confirm") ? PlatformAction.CONTENT_CONFIRM : PlatformAction.CONTENT_EDIT;
+            var pattern = "/test.content/view/{id}/content/{field}/translations/{language}/" + (path.endsWith("/confirm") ? "confirm" : "remove");
+            catalog.register(new net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpoint(
+                    new net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint(operation, "test.content", "content", operation,
+                            action, org.springframework.web.bind.annotation.RequestMethod.POST, pattern,
+                            net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.Source.STATIC_EXPLICIT),
+                    org.springframework.web.servlet.mvc.method.RequestMappingInfo.paths(pattern).methods(RequestMethod.POST).build(),
+                    controller, method));
+        }
+        var mutationMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
+                .addFilters(new CurrentUserWebFilter(() -> Optional.of(CurrentUser.tenantUser("actor", "Actor", "tenant-a"))))
+                .addInterceptors(registry.values()).addInterceptors(new BusinessMutationInterceptor(catalog))
+                .setControllerAdvice(new PlatformWebExceptionHandler(),
+                        new ActionResultResponseAdvice(Class::getSimpleName, mapper, provider)).build();
+        var action = path.endsWith("/confirm") ? PlatformAction.CONTENT_CONFIRM : PlatformAction.CONTENT_EDIT;
+        try (var tenant = TenantContext.use("tenant-a");
+             var context = ActionExecutionContextHolder.use(ActionExecutionContext.ofPlatformAction(
+                     "test.content", action, Set.of("record"), Optional.empty()))) {
+            var body = "{\"sourceRevisionId\":\"source\",\"sourceRevision\":1,\"expectedRevision\":1,\"reviewedDraftRevision\":1}";
+            var response = mutationMvc.perform(post("/test.content" + path).contentType("application/json").content(body))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.expectedRevision").value(2))
+                    .andExpect(jsonPath("$.changes[0].type").value("business-content-changed"))
+                    .andExpect(jsonPath("$.changes[0].moduleAlias").value("test.content"))
+                    .andReturn().getResponse().getContentAsString();
+            var captured = org.mockito.ArgumentCaptor.forClass(CommittedChangeSet.class);
+            verify(publisher).publish(captured.capture());
+            assertThat(captured.getValue().changeSetId()).isEqualTo(mapper.readTree(response).path("changeSetId").asText());
+            assertThat(captured.getValue().changes()).hasSize(1);
+            assertThat(MutationContextHolder.current()).isEmpty();
+            clearInvocations(publisher, translations);
+            controller.denied = true;
+            mutationMvc.perform(post("/test.content" + path).contentType("application/json").content(body))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.changes").doesNotExist());
+            verifyNoInteractions(publisher, translations);
+            assertThat(MutationContextHolder.current()).isEmpty();
+        }
+    }
+
     @Test void standardEndpointsExposeOnlyProducerFieldsAndRetainTheOwningViewBoundary() throws Exception {
         var source = new BusinessContentService.CurrentSource(new ContentFieldDefinition("stable", ContentPolicy.AUTO_TRANSLATE),
                 "中文原文", 3, null);

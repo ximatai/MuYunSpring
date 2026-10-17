@@ -138,6 +138,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
         current.relation,
         current.record,
         current.sessionKey,
+        refreshRevision.value,
       );
       if (disposed || epoch !== readEpoch || !sameKey(expected)) return;
       if (result.language !== current.language || result.recordVersion !== (current.record.version ?? null))
@@ -184,6 +185,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
           current.relation,
           current.record,
           current.sessionKey,
+          refreshRevision.value,
         );
         if (
           valid() &&

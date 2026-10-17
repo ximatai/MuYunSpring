@@ -55,10 +55,15 @@ public class BusinessMutationInterceptor implements AsyncHandlerInterceptor {
         if (endpointCatalog != null) {
             java.util.Optional<RegisteredWebEndpoint> registered = endpointCatalog.find(request, handlerMethod);
             if (registered.isPresent()) {
-                return switch (registered.get().definition().action()) {
+                boolean implicitMutation = switch (registered.get().definition().action()) {
                     case ENABLE, DISABLE, SORT, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE -> true;
                     default -> false;
                 };
+                if (implicitMutation) return true;
+                // The shared ability dispatcher is annotated for writes, but also serves reads.
+                // Explicit controllers retain their own method-level mutation contract.
+                if (registered.get().definition().source()
+                        == net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint.Source.STATIC_ABILITY) return false;
             }
         }
         BusinessMutation mutation = WebAnnotationSupport.findMergedMethodAnnotation(handlerMethod.getMethod(),
