@@ -144,8 +144,13 @@ class PlatformModuleDefinitionCompilerTest {
                 TestBeanProviders.of(ModuleMetadataFieldService.class, org.mockito.Mockito.mock(ModuleMetadataFieldService.class)));
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
+    private final ModuleMetadataFieldService moduleFieldService =
+            new ModuleMetadataFieldService(moduleFieldDao, relationService, metadataService, fieldService,
+                    fieldTypeService,
+                    Optional.of((ruleId, referenceModuleAlias, ownerModuleAlias) -> {
+                    }));
     private final MetadataFieldReferenceConfigService referenceConfigService =
-            new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, Optional.empty());
+            new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, TestBeanProviders.of(ModuleMetadataFieldService.class, moduleFieldService), Optional.empty());
     private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
     private final MetadataViewFieldService viewFieldService =
             new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);
@@ -157,11 +162,6 @@ class PlatformModuleDefinitionCompilerTest {
                                     new net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog(List.of()))));
     private final ModuleMetadataFormulaRuleService formulaRuleService =
             new ModuleMetadataFormulaRuleService(formulaRuleDao, relationService, fieldService);
-    private final ModuleMetadataFieldService moduleFieldService =
-            new ModuleMetadataFieldService(moduleFieldDao, relationService, metadataService, fieldService,
-                    fieldTypeService,
-                    Optional.of((ruleId, referenceModuleAlias, ownerModuleAlias) -> {
-                    }));
     private final ModuleMetadataFieldFilterService moduleFieldFilterService =
             new ModuleMetadataFieldFilterService(moduleFieldFilterDao, moduleFieldService, Optional.empty());
     private final ModuleMetadataFieldAffectService moduleFieldAffectService =
@@ -624,7 +624,15 @@ class PlatformModuleDefinitionCompilerTest {
         PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
                 ? Optional.of(student) : Optional.empty());
         try {
+            config.setCandidateSubtitleProjection("title.title");
+            assertThatThrownBy(() -> referenceConfigService.insert(config))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a declared reference");
+            config.setCandidateSubtitleProjection("missing");
+            assertThatThrownBy(() -> referenceConfigService.validateDraft(config, studentId, relationService.select(relationId)))
+                    .isInstanceOf(RuntimeException.class).hasMessageContaining("missing");
+            config.setCandidateSubtitleProjection(" title ");
             referenceConfigService.insert(config);
+            assertThat(config.getCandidateSubtitleProjection()).isEqualTo("title");
 
             ModuleDefinition definition = compiler.compile("education.exam");
 
@@ -639,6 +647,43 @@ class PlatformModuleDefinitionCompilerTest {
         } finally {
             PlatformAbilityRuntime.resetReferenceTargetResolver();
         }
+    }
+
+    @Test
+    void shouldValidatePersistedSubtitleHopsBeforeRuntimeRefresh() {
+        moduleService.insert(module("sales.invoice", ModuleKind.DYNAMIC));
+        moduleService.insert(module("sales.customer", ModuleKind.DYNAMIC));
+        moduleService.insert(module("sales.region", ModuleKind.DYNAMIC));
+        String invoice = metadataService.insert(metadata("sales", "invoice"));
+        String customer = metadataService.insert(metadata("sales", "customer"));
+        String region = metadataService.insert(metadata("sales", "region"));
+        fieldService.insert(titleField(invoice));
+        fieldService.insert(titleField(customer));
+        fieldService.insert(titleField(region));
+        MetadataField customerId = field(invoice, "customerId", "customer_id", FieldType.STRING);
+        MetadataField regionId = field(customer, "regionId", "region_id", FieldType.STRING);
+        fieldService.insert(customerId);
+        fieldService.insert(regionId);
+        String invoiceRelation = relationService.insert(mainRelation("sales.invoice", invoice));
+        String customerRelation = relationService.insert(mainRelation("sales.customer", customer));
+        relationService.insert(mainRelation("sales.region", region));
+        MetadataFieldReferenceConfig regionRef = referenceConfig(regionId.getId(), region);
+        regionRef.setRelationId(customerRelation);
+        regionRef.setTargetModuleAlias("sales.region");
+        referenceConfigService.insert(regionRef);
+        MetadataFieldReferenceConfig customerRef = referenceConfig(customerId.getId(), customer);
+        customerRef.setRelationId(invoiceRelation);
+        customerRef.setTargetModuleAlias("sales.customer");
+        customerRef.setCandidateSubtitleProjection("regionId.title");
+        referenceConfigService.insert(customerRef);
+        customerRef.setCandidateSubtitleProjection("regionId.missing");
+        assertThatThrownBy(() -> referenceConfigService.update(customerRef))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("field does not exist");
+        regionRef.setCardinality(net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.MANY);
+        referenceConfigDao.updateById(regionRef);
+        customerRef.setCandidateSubtitleProjection("regionId.title");
+        assertThatThrownBy(() -> referenceConfigService.update(customerRef))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cardinality ONE");
     }
 
     @Test
@@ -707,6 +752,10 @@ class PlatformModuleDefinitionCompilerTest {
         relationService.insert(mainRelation("support.ticket", ticketId));
         String supportLineRelationId = relationService.insert(childRelation("support.ticket", lineId, ticketId, "ownerId"));
         MetadataFieldReferenceConfig defaultReference = referenceConfig(ownerField.getId(), invoiceId);
+        defaultReference.setRelationId(salesLineRelationId);
+        defaultReference.setCandidateSubtitleProjection("code.title");
+        assertThatThrownBy(() -> referenceConfigService.insert(defaultReference))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a declared reference");
         defaultReference.setCandidateSubtitleProjection(" code ");
         defaultReference.setRelationId(salesLineRelationId);
         defaultReference.setProjectionMappings("title:invoiceTitle,code:invoiceCode");

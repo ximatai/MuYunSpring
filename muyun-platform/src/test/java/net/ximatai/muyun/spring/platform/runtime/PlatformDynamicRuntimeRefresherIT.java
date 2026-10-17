@@ -381,7 +381,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
         MetadataFieldReferenceConfigService referenceConfigService =
-                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, Optional.empty());
+                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, net.ximatai.muyun.spring.platform.support.TestBeanProviders.of(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class, org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class)), Optional.empty());
         MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
         MetadataViewFieldService viewFieldService =
                 new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);

@@ -1831,7 +1831,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean MetadataFieldReferenceConfigService referenceConfigs(MetadataFieldReferenceConfigDao dao,
                 MetadataFieldService fields, MetadataService metadata, FieldSpecService specs,
                 PlatformModuleService modules, ModuleMetadataRelationService relations) {
-            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, Optional.empty());
+            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, net.ximatai.muyun.spring.platform.support.TestBeanProviders.of(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class, org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class)), Optional.empty());
         }
         @Bean ConfigurationReferenceContributor fieldReferenceReference(org.springframework.beans.factory.ObjectProvider<MetadataFieldReferenceConfigService> configs) {
             return new ConfigurationReferenceContributorConfiguration().fieldReferenceReference(configs);

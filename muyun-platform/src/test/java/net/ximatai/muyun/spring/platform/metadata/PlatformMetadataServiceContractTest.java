@@ -220,7 +220,7 @@ class PlatformMetadataServiceContractTest {
             new PlatformMetadataEntityDefinitionCompiler(metadataService, fieldService, fieldDefinitionCompiler);
     private final MetadataFieldReferenceConfigService referenceConfigService =
             new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
-                    fieldTypeService, moduleService, relationService, Optional.of(runtimeRefreshCoordinator));
+                    fieldTypeService, moduleService, relationService, net.ximatai.muyun.spring.platform.support.TestBeanProviders.of(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class, org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class)), Optional.of(runtimeRefreshCoordinator));
     private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
     private final MetadataViewFieldService viewFieldService =
             new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService,

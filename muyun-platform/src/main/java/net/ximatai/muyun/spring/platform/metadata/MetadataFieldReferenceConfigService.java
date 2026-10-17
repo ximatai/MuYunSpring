@@ -27,6 +27,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,6 +50,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private final FieldSpecService fieldTypeService;
     private final PlatformModuleService moduleService;
     private final ModuleMetadataRelationService relationService;
+    private final ObjectProvider<ModuleMetadataFieldService> moduleFields;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
 
     public MetadataFieldReferenceConfigService(BaseDao<MetadataFieldReferenceConfig, String> referenceConfigDao,
@@ -57,6 +59,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                                                FieldSpecService fieldTypeService,
                                                PlatformModuleService moduleService,
                                                ModuleMetadataRelationService relationService,
+                                               ObjectProvider<ModuleMetadataFieldService> moduleFields,
                                                Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         super(MODULE_ALIAS, MetadataFieldReferenceConfig.class, referenceConfigDao);
         this.fieldService = fieldService;
@@ -64,6 +67,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         this.fieldTypeService = fieldTypeService;
         this.moduleService = moduleService;
         this.relationService = relationService;
+        this.moduleFields = Objects.requireNonNull(moduleFields, "moduleFields must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator,
                 "runtimeRefreshCoordinator must not be null");
     }
@@ -228,6 +232,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             normalizeStandardLabelProjection(config, sourceField, target);
             validateOutputFields(config, sourceField.getMetadataId(), target);
             validateAffects(config, sourceField, target);
+            validateCandidateSubtitle(config, target);
             return target;
         }
         ReferenceTarget target = resolveDynamicTarget(config, sourceField, sourceRelation);
@@ -235,7 +240,72 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         normalizeStandardLabelProjection(config, sourceField, target);
         validateOutputFields(config, sourceField.getMetadataId(), target);
         validateAffects(config, sourceField, target);
+        validateCandidateSubtitle(config, target);
         return target;
+    }
+
+    /** Validate against persisted dynamic declarations and Java reference contracts, not business data. */
+    private void validateCandidateSubtitle(MetadataFieldReferenceConfig config, ReferenceTarget target) {
+        if (config.getCandidateSubtitleProjection() == null || config.getCandidateSubtitleProjection().isBlank()) return;
+        var projection = new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(
+                config.getCandidateSubtitleProjection());
+        ReferenceTarget current = target;
+        String metadataId = config.getTargetMetadataId();
+        for (int index = 0; index < projection.path().size(); index++) {
+            String name = projection.path().get(index);
+            boolean terminal = index == projection.path().size() - 1;
+            if (metadataId == null) {
+                var resolver = PlatformAbilityRuntime.referenceTargetResolver();
+                ReferenceAbility<?> ability = resolver.resolve(current).orElseThrow(() ->
+                        new IllegalArgumentException("candidate subtitle target is unavailable"));
+                StaticReferenceResolver.requireReadableField(ability.modelClass(), name, "candidate subtitle");
+                if (terminal) return;
+                ReferencePlan hop = resolver.referencePlan(current, name).orElseThrow(() ->
+                        new IllegalArgumentException("candidate subtitle hop is not a declared reference: " + name));
+                if (hop.cardinality() != ReferenceCardinality.ONE)
+                    throw new IllegalArgumentException("candidate subtitle hop requires cardinality ONE: " + name);
+                current = hop.target();
+                metadataId = metadataIdFor(current);
+                continue;
+            }
+            MetadataField field = fieldService.list(Criteria.of().eq("metadataId", metadataId)
+                    .eq("fieldName", name), PageRequests.all()).stream().findFirst().orElse(null);
+            if (field == null && !(terminal && STANDARD_FIELDS.contains(name)))
+                throw new IllegalArgumentException("candidate subtitle field does not exist: " + name);
+            if (terminal) return;
+            ModuleMetadataRelation relation = relationService.list(Criteria.of().eq("moduleAlias", current.moduleAlias())
+                    .eq("metadataId", metadataId), PageRequests.all()).stream().findFirst().orElse(null);
+            ModuleMetadataField override = relation == null ? null : moduleFields.getObject().listByRelationId(relation.getId())
+                    .stream().filter(item -> field.getId().equals(item.getMetadataFieldId()))
+                    .filter(item -> item.getReferenceModuleAlias() != null && !item.getReferenceModuleAlias().isBlank())
+                    .findFirst().orElse(null);
+            if (override != null) {
+                String module = override.getReferenceModuleAlias();
+                ModuleMetadataRelation main = relationService.list(Criteria.of().eq("moduleAlias", module)
+                        .eq("relationRole", RelationRole.MAIN), PageRequests.all()).stream().findFirst().orElse(null);
+                metadataId = main == null ? null : main.getMetadataId();
+                current = main == null ? ReferenceTargets.fromModuleAlias(module)
+                        : ReferenceTarget.of(module, metadataService.select(metadataId).getAlias());
+                continue;
+            }
+            MetadataFieldReferenceConfig hop = findForRelation(field.getId(), relation == null ? null : relation.getId());
+            if (hop == null)
+                throw new IllegalArgumentException("candidate subtitle hop is not a declared reference: " + name);
+            if (hop.getCardinality() == ReferenceCardinality.MANY)
+                throw new IllegalArgumentException("candidate subtitle hop requires cardinality ONE: " + name);
+            String module = hop.getTargetModuleAlias() == null ? current.moduleAlias() : hop.getTargetModuleAlias();
+            metadataId = hop.getTargetMetadataId();
+            current = metadataId == null ? ReferenceTargets.fromModuleAlias(module)
+                    : ReferenceTarget.of(module, metadataService.select(metadataId).getAlias());
+        }
+    }
+
+    private String metadataIdFor(ReferenceTarget target) {
+        return relationService.list(Criteria.of().eq("moduleAlias", target.moduleAlias()), PageRequests.all()).stream()
+                .filter(relation -> {
+                    Metadata metadata = metadataService.select(relation.getMetadataId());
+                    return metadata != null && metadata.getAlias().equals(target.entityAlias());
+                }).map(ModuleMetadataRelation::getMetadataId).findFirst().orElse(null);
     }
 
     private void validateTargetIntegrity(MetadataFieldReferenceConfig config, ReferenceTarget target) {
