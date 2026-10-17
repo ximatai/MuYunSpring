@@ -1727,7 +1727,8 @@ public final class RecordExchangeService {
         if (ids == null) return null;
         try {
             return access.referenceLabel(plan.input().entity().alias(), parent, field, ids, language, values);
-        } catch (net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException denied) {
+        } catch (net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException
+                 | IllegalArgumentException unavailable) {
             // Optional presentation never discloses a protected name or changes the verified identity.
             return null;
         }

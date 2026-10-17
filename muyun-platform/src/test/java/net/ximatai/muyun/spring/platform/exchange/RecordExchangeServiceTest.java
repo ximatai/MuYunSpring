@@ -109,6 +109,36 @@ class RecordExchangeServiceTest {
     }
 
     @Test
+    void replacingAnUnreadableOldReferenceRemainsReviewableWithoutRelaxingNewObjectResolution() {
+        var existing = access.put("main", null, Map.of("code", "REPAIR", "category", "old-hidden"));
+        access.unavailableReferenceLabels.add("old-hidden");
+        access.names.put("New category", List.of(new RecordExchangeAccess.Candidate(
+                "new-visible", "New category", "New category", "ORIGINAL")));
+        access.labels.put("new-visible", "New category");
+        byte[] bytes = file(List.of("code", "category"),
+                List.of(List.of("R-repair", "REPAIR", "New category")), List.of());
+        var preview = service.preview(access, bytes,
+                command(null, null, ImportDuplicateStrategy.OVERWRITE, List.of()));
+        assertThat(preview.rows()).singleElement().satisfies(row -> {
+            assertThat(row.operation()).isEqualTo("UPDATE");
+            assertThat(row.problem()).isNull();
+            assertThat(row.references().get("category").current()).isNull();
+            assertThat(row.references().get("category").submitted()).isEqualTo("New category");
+            assertThat(row.changes()).containsEntry("category", "new-visible");
+        });
+        assertThat(run(bytes, ImportDuplicateStrategy.OVERWRITE).updated()).isEqualTo(1);
+        assertThat(access.rows.get(existing.id()).values()).containsEntry("category", "new-visible");
+
+        byte[] invalid = file(List.of("code", "category"),
+                List.of(List.of("R-invalid", "REPAIR", "Unknown category")), List.of());
+        assertThat(service.preview(access, invalid,
+                command(null, null, ImportDuplicateStrategy.OVERWRITE, List.of())).rows())
+                .singleElement().satisfies(row -> assertThat(row.operation()).isEqualTo("ERROR"));
+        assertThat(run(invalid, ImportDuplicateStrategy.OVERWRITE).errorCount()).isEqualTo(1);
+        assertThat(access.rows.get(existing.id()).values()).containsEntry("category", "new-visible");
+    }
+
+    @Test
     void previewRecommendsDeclaredUniqueMatchingKeysRatherThanColumnOrder() {
         byte[] bytes = file(List.of("description", "code"), List.of(List.of("R-key", "Description", "K-1")), List.of());
         var preview = service.preview(access, bytes, command(null, null, ImportDuplicateStrategy.ERROR, List.of()));
@@ -759,6 +789,7 @@ class RecordExchangeServiceTest {
         int saves;
         boolean denyReads;
         boolean denyReferenceLabels;
+        final Set<String> unavailableReferenceLabels = new HashSet<>();
         Map<String, SourceInput> lastLanguages = Map.of();
         final List<RecordExchangeDefinition.Field> fields =
                 List.of(
@@ -924,6 +955,7 @@ class RecordExchangeServiceTest {
                 String language,
                 Map<String, Object> values) {
             if (denyReferenceLabels) throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("protected label");
+            if (unavailableReferenceLabels.contains(ids)) throw new IllegalArgumentException("Reference is unavailable");
             return ids == null ? null : labels.getOrDefault(ids.toString(), ids.toString());
         }
 
