@@ -4,6 +4,7 @@ import {
   shouldRestoreWorkbenchFromRoute,
   workbenchRouteCommitFor,
   workbenchRouteWriteFor,
+  sameWorkbenchRoute,
 } from '@/app/workbenchRouteSync.ts';
 import { openDirectTab } from '@/app/workbenchStartup.ts';
 
@@ -23,6 +24,27 @@ const state = {
   tabs: [tab],
   activeTabKey: tab.key,
 };
+
+it('treats reordered query keys as the same committed view without merging values or tab intents', () => {
+  const first =
+    '/_platform/workspace/view?workspaceView=view&moduleAlias=quality.exception&governanceTab=preview';
+  const reordered =
+    '/_platform/workspace/view?governanceTab=preview&moduleAlias=quality.exception&workspaceView=view';
+  assert.isTrue(sameWorkbenchRoute(first, reordered));
+  assert.equal(
+    workbenchRouteCommitFor(reordered, { url: first, revision: 1 }, { url: first, revision: 1 }),
+    'commit',
+  );
+  assert.equal(
+    workbenchRouteCommitFor(reordered, { url: first, revision: 1 }, { url: first, revision: 2 }),
+    'reconcile',
+  );
+  assert.isFalse(shouldRestoreWorkbenchFromRoute(reordered, { url: first, revision: 1 }));
+  assert.isFalse(sameWorkbenchRoute(first, first.replace('preview', 'metadata')));
+  assert.isFalse(sameWorkbenchRoute('/view?id=1&id=2', '/view?id=2&id=1'));
+  assert.isFalse(sameWorkbenchRoute('/view#one', '/view#two'));
+  assert.isFalse(sameWorkbenchRoute(undefined, '/view'));
+});
 
 it('writes user tab navigation as a browser history entry', () => {
   assert.deepEqual(workbenchRouteWriteFor(state, '/platform/metadata', 'push'), {

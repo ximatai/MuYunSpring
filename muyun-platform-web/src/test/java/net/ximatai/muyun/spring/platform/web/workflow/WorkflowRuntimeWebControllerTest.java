@@ -345,12 +345,14 @@ class WorkflowRuntimeWebControllerTest {
         when(submitFacade.submit(argThat(request -> "sales.contract".equals(request.moduleAlias())
                 && "record-1".equals(request.recordId())
                 && "user-1".equals(request.operatorId())
-                && "branchA".equals(request.selectedRouteKey()))))
+                && "branchA".equals(request.selectedRouteKey())
+                && "Versand anhalten.".equals(request.reason())
+                && "de".equals(net.ximatai.muyun.spring.platform.workflow.WorkflowOpinionInput.language()))))
                 .thenReturn(submitResult);
 
         mvc.perform(post("/workflow/runtime/record/sales.contract/record-1/actions/submitApproval")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"operatorId\":\"operator-1\",\"selectedRouteKey\":\"branchA\"}"))
+                        .content("{\"operatorId\":\"operator-1\",\"selectedRouteKey\":\"branchA\",\"reason\":\"Versand anhalten.\",\"reasonSourceLanguage\":\"de\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.draft.instance.id").value("inst-1"))
                 .andExpect(jsonPath("$.approvalSummaryWritten").value(true));
@@ -358,6 +360,7 @@ class WorkflowRuntimeWebControllerTest {
         ArgumentCaptor<WorkflowSubmitRequest> captor = ArgumentCaptor.forClass(WorkflowSubmitRequest.class);
         verify(submitFacade).submit(captor.capture());
         assertThat(captor.getValue().approvalRequired()).isTrue();
+        assertThat(captor.getValue().reason()).isEqualTo("Versand anhalten.");
     }
 
     @Test

@@ -47,6 +47,32 @@ class WorkflowRuntimeSubmitServiceTest {
     }
 
     @Test
+    void typedSubmissionRetainsOpinionLanguageAndPassesItToPlugins() {
+        var definition = new WorkflowDefinition();
+        var version = new WorkflowVersion();
+        var selection = new WorkflowDefinitionSelection(definition, version, List.of(), List.of());
+        var now = Instant.parse("2026-06-05T01:00:00Z");
+        var request = WorkflowSubmitRequest.approval("sales.contract", "record-1")
+                .withReason("Bitte nicht versenden.").withOperator("user-1").withAuthOrgId("org-1")
+                .withOperatedAt(now).withManualRouteSelections(List.of());
+        var draft = draft();
+        draft.events().getFirst().setEventType(WorkflowEventType.INSTANCE_STARTED);
+        when(draftService.build(definition, version, List.of(), List.of(), "record-1", "org-1", "user-1",
+                now, null, null, List.of())).thenReturn(draft);
+        var plugin = new RecordingPlugin();
+        var runtime = new WorkflowRuntimeSubmitService(draftService, instanceService, instanceDao, nodeDao,
+                routeDao, taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
+                new WorkflowRuntimePluginDispatcher(List.of(plugin)), WorkflowTestSupport.provider(archives));
+        WorkflowOpinionInput.withLanguage("de", () -> runtime.submit(selection, request));
+        var event = draft.events().getFirst();
+        assertThat(event.getReason()).isEqualTo("Bitte nicht versenden.");
+        assertThat(event.getReasonSourceLanguage()).isEqualTo("de");
+        assertThat(plugin.contexts()).hasSize(2)
+                .allSatisfy(context -> assertThat(context.reason()).isEqualTo(request.reason()));
+        verify(eventDao).insert(event);
+    }
+
+    @Test
     void restartUsesArchiveProviderSuppliedThroughTheNormalConstructor() {
         var draft = draft();
         draft.instance().setApprovalEnabled(true); draft.instance().setStartedBy("user-1");
@@ -61,8 +87,10 @@ class WorkflowRuntimeSubmitServiceTest {
         when(taskDao.query(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(List.of(resubmit), List.of());
         when(taskDao.updateByIdAndVersion(resubmit, 0)).thenReturn(1);
         Instant now = Instant.parse("2026-06-05T01:00:00Z");
+        draft.events().getFirst().setEventType(WorkflowEventType.INSTANCE_STARTED);
+        draft.events().getFirst().setReason("已补充复测，请复核。");
 
-        service.persist(draft, now);
+        WorkflowOpinionInput.withLanguage("zh-CN", () -> { service.persist(draft, now); return null; });
 
         verify(archives).archiveCurrentInstance(previous, WorkflowArchiveReason.RESTARTED, now);
         assertThat(draft.instance().getPreviousInstanceId()).isEqualTo("previous");
@@ -72,8 +100,9 @@ class WorkflowRuntimeSubmitServiceTest {
         var restartEvent = captured.getAllValues().stream()
                 .filter(event -> event.getEventType() == WorkflowEventType.TASK_RESUBMITTED).findFirst().orElseThrow();
         assertThat(restartEvent.getMessage()).isEqualTo("重新发起审批");
-        assertThat(restartEvent.getReason()).isNull();
-        assertThat(previous.getLastActionReason()).isNull();
+        assertThat(restartEvent.getReason()).isEqualTo("已补充复测，请复核。");
+        assertThat(restartEvent.getReasonSourceLanguage()).isEqualTo("zh-CN");
+        assertThat(previous.getLastActionReason()).isEqualTo("已补充复测，请复核。");
     }
 
     @Test

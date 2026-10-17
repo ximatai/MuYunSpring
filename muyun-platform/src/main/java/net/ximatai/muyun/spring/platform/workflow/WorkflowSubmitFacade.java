@@ -59,14 +59,7 @@ public class WorkflowSubmitFacade {
     }
 
     private WorkflowSubmitDraft submitDraft(WorkflowSubmitRequest request, WorkflowDefinitionSelection selection) {
-        if (request.authOrgId() == null) {
-            return runtimeSubmitService.submit(selection.definition(), selection.version(), selection.nodes(),
-                    selection.links(), request.recordId(), request.operatorId(), request.operatedAt(),
-                    request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
-        }
-        return runtimeSubmitService.submit(selection.definition(), selection.version(), selection.nodes(),
-                selection.links(), request.recordId(), request.authOrgId(), request.operatorId(), request.operatedAt(),
-                request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
+        return runtimeSubmitService.submit(selection, request);
     }
 
     private WorkflowSubmitDraft previewDraft(WorkflowSubmitRequest request, WorkflowDefinitionSelection selection) {
@@ -124,7 +117,7 @@ public class WorkflowSubmitFacade {
         String selectedReason = textOrNull(request.selectedReason());
         return new WorkflowSubmitRequest(moduleAlias, recordId, request.approvalRequired(),
                 request.definitionAlias(), authOrgId, operatorId, operatedAt, selectedRouteKey, selectedReason,
-                request.manualRouteSelections());
+                request.manualRouteSelections(), request.reason());
     }
 
     private String requireText(String value, String name) {

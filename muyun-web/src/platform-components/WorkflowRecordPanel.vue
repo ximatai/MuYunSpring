@@ -76,6 +76,8 @@ const props = defineProps<{
   context: ModuleContext<Record<string, unknown>>;
   recordId: string;
   instanceId?: string;
+  /** Shows record submission only while this explicit instance still owns the current approval. */
+  recordSubmission?: boolean;
 }>();
 const emit = defineEmits<{
   changed: [];
@@ -536,7 +538,7 @@ const decidedBranchRoutes = computed(
     ) ?? [],
 );
 watch(
-  () => [props.context, props.recordId, props.instanceId],
+  () => [props.context, props.recordId, props.instanceId, props.recordSubmission],
   () => {
     selectedHistory.value = undefined;
     selectedInstance.value = undefined;
@@ -578,7 +580,8 @@ async function load() {
   previewBundle.value = undefined;
   previewTasks.value = [];
   try {
-    const approvalEntry = !props.instanceId && props.context.abilities?.has('approval') !== false;
+    const approvalEntry =
+      (!props.instanceId || props.recordSubmission) && props.context.abilities?.has('approval') !== false;
     const [next, history, directory] = await Promise.all([
       approvalEntry
         ? client.value.status(props.context.moduleAlias, props.recordId)
@@ -589,7 +592,7 @@ async function load() {
         : Promise.resolve(undefined),
     ]);
     if (current !== revision) return;
-    status.value = next;
+    status.value = props.instanceId && next?.instanceId !== props.instanceId ? undefined : next;
     archives.value = history;
     recordInstances.value = directory?.records ?? [];
     instancePages.value = directory?.pages ?? 0;

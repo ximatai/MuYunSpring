@@ -16,6 +16,10 @@ public class WorkflowModuleSubmitService {
         return submitFacade.submit(WorkflowSubmitRequest.approval(moduleAlias, recordId));
     }
 
+    public WorkflowSubmitResult submit(WorkflowSubmitRequest request) {
+        return submitFacade.submit(request);
+    }
+
     public WorkflowSubmitResult submitApproval(String moduleAlias, String recordId,
                                                String selectedRouteKey, String selectedReason) {
         return submitFacade.submit(WorkflowSubmitRequest.approval(moduleAlias, recordId)

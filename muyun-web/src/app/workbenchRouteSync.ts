@@ -16,6 +16,18 @@ export interface WorkbenchNavigationIntent {
 
 export type WorkbenchRouteCommit = 'commit' | 'reconcile' | 'restore';
 
+/** Query key ordering does not change a route; repeated values keep their order. */
+export function sameWorkbenchRoute(left: string | undefined, right: string | undefined): boolean {
+  if (left === right) return true;
+  if (left === undefined || right === undefined) return false;
+  const canonical = (value: string) => {
+    const url = new URL(value, 'http://workbench.invalid');
+    url.searchParams.sort();
+    return url.href;
+  };
+  return canonical(left) === canonical(right);
+}
+
 /**
  * Keeps browser history decisions at the workbench boundary: user navigation is
  * navigable history, while state normalization only replaces the current entry.
@@ -26,7 +38,7 @@ export function workbenchRouteWriteFor(
   mode: WorkbenchRouteWriteMode,
 ): WorkbenchRouteWrite | undefined {
   const url = activeTabUrlOf(state) ?? '/';
-  return url === currentUrl ? undefined : { url, mode };
+  return sameWorkbenchRoute(url, currentUrl) ? undefined : { url, mode };
 }
 
 /** A route written from the workbench already has matching in-memory tab state. */
@@ -34,7 +46,7 @@ export function shouldRestoreWorkbenchFromRoute(
   url: string,
   pendingWorkbenchNavigation: WorkbenchNavigationIntent | undefined,
 ): boolean {
-  return pendingWorkbenchNavigation?.url !== url;
+  return !sameWorkbenchRoute(pendingWorkbenchNavigation?.url, url);
 }
 
 export function isCurrentWorkbenchNavigation(
@@ -50,6 +62,6 @@ export function workbenchRouteCommitFor(
   pending: WorkbenchNavigationIntent | undefined,
   latest: WorkbenchNavigationIntent | undefined,
 ): WorkbenchRouteCommit {
-  if (pending?.url !== url) return 'restore';
+  if (!pending || !sameWorkbenchRoute(pending.url, url)) return 'restore';
   return latest && !isCurrentWorkbenchNavigation(pending, latest) ? 'reconcile' : 'commit';
 }

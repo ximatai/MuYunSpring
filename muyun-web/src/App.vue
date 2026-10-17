@@ -137,6 +137,7 @@ import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
 import WorkspaceRouteView from './views/WorkspaceRouteView.vue';
 import { ensureMenuRoutes, resetMenuRoutes, router } from './app/router';
 import {
+  sameWorkbenchRoute,
   workbenchRouteCommitFor,
   workbenchRouteWriteFor,
   type WorkbenchNavigationIntent,
@@ -356,7 +357,10 @@ const renderedTabMatchesRoute = computed(() => {
   if (!current || !key || key !== activeTabKey.value) return false;
   const tab = current.tabs?.find((candidate) => candidate.key === key);
   const expected = tab?.fullPath ?? (tab?.pageDescriptor && pageDescriptorToUrl(tab.pageDescriptor));
-  return expected === router.currentRoute.value.fullPath && expected === renderedPageRoute.value?.fullPath;
+  return (
+    sameWorkbenchRoute(expected, router.currentRoute.value.fullPath) &&
+    sameWorkbenchRoute(expected, renderedPageRoute.value?.fullPath)
+  );
 });
 
 /** Wait until router, active tab and the mounted page Surface describe one page. */

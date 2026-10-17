@@ -46,6 +46,19 @@ public class WorkflowRuntimeSubmitService {
     }
 
     @Transactional
+    public WorkflowSubmitDraft submit(WorkflowDefinitionSelection selection, WorkflowSubmitRequest request) {
+        var draft = submitDraftService.build(selection.definition(), selection.version(), selection.nodes(),
+                selection.links(), request.recordId(), request.authOrgId(), request.operatorId(), request.operatedAt(),
+                request.selectedRouteKey(), request.selectedReason(), request.manualRouteSelections());
+        for (var event : draft.events()) {
+            if (event.getEventType() != WorkflowEventType.INSTANCE_STARTED) continue;
+            event.setReason(request.reason() == null || request.reason().isBlank() ? null : request.reason());
+            if (event.getReason() != null) event.setReasonSourceLanguage(WorkflowOpinionInput.language());
+        }
+        return start(draft, request.operatorId(), request.operatedAt());
+    }
+
+    @Transactional
     public WorkflowSubmitDraft submit(WorkflowDefinition definition,
                                       WorkflowVersion version,
                                       java.util.List<WorkflowNodeDefinition> nodeDefinitions,
@@ -84,10 +97,7 @@ public class WorkflowRuntimeSubmitService {
                                       List<WorkflowManualRouteSelection> manualRouteSelections) {
         WorkflowSubmitDraft draft = submitDraftService.build(definition, version, nodeDefinitions, linkDefinitions,
                 recordId, null, operatorId, operatedAt, selectedRouteKey, selectedReason, manualRouteSelections);
-        dispatchSubmit(draft, WorkflowRuntimePluginEventType.BEFORE_SUBMIT, operatorId);
-        persist(draft, operatedAt);
-        dispatchSubmit(draft, WorkflowRuntimePluginEventType.AFTER_SUBMIT, operatorId);
-        return draft;
+        return start(draft, operatorId, operatedAt);
     }
 
     public WorkflowSubmitDraft preview(WorkflowDefinition definition,
@@ -163,6 +173,10 @@ public class WorkflowRuntimeSubmitService {
         WorkflowSubmitDraft draft = submitDraftService.build(definition, version, nodeDefinitions, linkDefinitions,
                 recordId, authOrgId, operatorId, operatedAt, selectedRouteKey, selectedReason,
                 manualRouteSelections);
+        return start(draft, operatorId, operatedAt);
+    }
+
+    private WorkflowSubmitDraft start(WorkflowSubmitDraft draft, String operatorId, Instant operatedAt) {
         dispatchSubmit(draft, WorkflowRuntimePluginEventType.BEFORE_SUBMIT, operatorId);
         persist(draft, operatedAt);
         dispatchSubmit(draft, WorkflowRuntimePluginEventType.AFTER_SUBMIT, operatorId);
@@ -172,7 +186,7 @@ public class WorkflowRuntimeSubmitService {
     @Transactional
     public void persist(WorkflowSubmitDraft draft, Instant operatedAt) {
         Instant now = operatedAt == null ? Instant.now() : operatedAt;
-        prepareRestart(draft.instance(), now);
+        prepareRestart(draft.instance(), now, submissionReason(draft));
         prepareInsert(draft.instance(), now);
         instanceService.beforeInsert(draft.instance());
         instanceDao.insert(draft.instance());
@@ -195,7 +209,7 @@ public class WorkflowRuntimeSubmitService {
     }
 
     /** A restart closes the rejected round in the same transaction as the replacement submission. */
-    private void prepareRestart(WorkflowInstance replacement, Instant now) {
+    private void prepareRestart(WorkflowInstance replacement, Instant now, String reason) {
         if (!Boolean.TRUE.equals(replacement.getApprovalEnabled())) return;
         WorkflowMutationLock.record(replacement.getModuleAlias(), replacement.getRecordId());
         var all = new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE);
@@ -222,10 +236,10 @@ public class WorkflowRuntimeSubmitService {
             var expected = task.getVersion();
             EntityLifecycle.prepareUpdate(task, now, EntityLifecycle.nextVersion(expected));
             if (taskDao.updateByIdAndVersion(task, expected) == 0) throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
-            var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", null, now);
+            var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", reason, now);
             prepareInsert(event, now); eventWriter.insert(event);
             replacement.setPreviousInstanceId(instance.getId());
-            instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason(null);
+            instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason(reason);
             instance.setLastOperatorId(replacement.getStartedBy()); instance.setLastOperatedAt(now);
             for (var leftover : taskDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()).eq("taskStatus", WorkflowTaskStatus.TODO), all)) {
                 leftover.setTaskStatus(WorkflowTaskStatus.CANCELED); leftover.setDecision("resubmit_restart");
@@ -252,17 +266,22 @@ public class WorkflowRuntimeSubmitService {
         draft.nodes().forEach(node -> nodesById.put(node.getId(), node));
         if (!draft.tasks().isEmpty()) {
             draft.tasks().forEach(task -> dispatch(draft.instance(), nodesById.get(task.getNodeInstanceId()), task,
-                    eventType, "submit", operatorId, null, null, null, null));
+                    eventType, "submit", operatorId, null, null, null, submissionReason(draft)));
             return;
         }
         if (!draft.nodes().isEmpty()) {
             draft.nodes().stream()
                     .filter(node -> node.getNodeStatus() == WorkflowNodeStatus.ACTIVE)
                     .forEach(node -> dispatch(draft.instance(), node, null, eventType, "submit", operatorId,
-                            null, null, null, null));
+                            null, null, null, submissionReason(draft)));
             return;
         }
-        dispatch(draft.instance(), null, null, eventType, "submit", operatorId, null, null, null, null);
+        dispatch(draft.instance(), null, null, eventType, "submit", operatorId, null, null, null, submissionReason(draft));
+    }
+
+    private static String submissionReason(WorkflowSubmitDraft draft) {
+        return draft.events().stream().filter(event -> event.getEventType() == WorkflowEventType.INSTANCE_STARTED)
+                .map(WorkflowEvent::getReason).filter(java.util.Objects::nonNull).findFirst().orElse(null);
     }
 
     private void dispatch(WorkflowInstance instance,

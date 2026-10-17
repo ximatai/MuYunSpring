@@ -65,8 +65,7 @@ class WorkflowSubmitAuthorizationContractTest {
         var draft = new WorkflowSubmitDraft(instance, List.of(), List.of(), List.of(), List.of(), null);
         when(runtime.preview(definition, version, selection.nodes(), selection.links(), request.recordId(),
                 request.operatorId(), request.operatedAt(), null, null, List.of())).thenReturn(draft);
-        when(runtime.submit(definition, version, selection.nodes(), selection.links(), request.recordId(),
-                request.operatorId(), request.operatedAt(), null, null, List.of())).thenReturn(draft);
+        when(runtime.submit(selection, request)).thenReturn(draft);
         doAnswer(call -> {
             assertThat(ActionExecutionContextHolder.current().orElseThrow().actionPolicy()).isEqualTo(expected);
             return null;

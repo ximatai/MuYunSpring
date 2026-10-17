@@ -197,6 +197,7 @@ export interface WorkflowWorkbenchCard {
   recordId: string;
   taskId?: string;
   nodeTitle?: string;
+  taskKind?: string;
   taskStatus?: string;
   approvalStatus?: string;
   instanceStatus: string;

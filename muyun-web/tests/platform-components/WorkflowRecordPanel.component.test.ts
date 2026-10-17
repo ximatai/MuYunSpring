@@ -327,6 +327,32 @@ it('reads an explicitly selected ordinary workflow without querying unrelated ap
     wrapper.unmount();
   }
 });
+it.each(['i', 'newer'])(
+  'offers record resubmission only while the explicit pending round still owns the approval: %s',
+  async (currentId) => {
+    const { wrapper, request } = fixture(undefined, undefined, undefined, 'i');
+    try {
+      await flushPromises();
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'REJECTED', instanceId: currentId, canSubmit: true }
+          : original(options),
+      );
+      await wrapper.setProps({ recordSubmission: true });
+      await flushPromises();
+      expect(request.mock.calls.some(([call]) => call.path.endsWith('/submit/status'))).toBe(true);
+      expect(wrapper.findAll('button').some((button) => button.text() === '预览并提交审批')).toBe(
+        currentId === 'i',
+      );
+      expect(
+        request.mock.calls.some(([call]) => call.path === '/workflow/runtime/instance/newer/bundle'),
+      ).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
 it('opens task requirements immediately and protects refresh while editing', async () => {
   const { wrapper, request } = fixture();
   await flushPromises();

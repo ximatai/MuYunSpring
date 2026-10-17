@@ -365,7 +365,8 @@ public class WorkflowRuntimeWebController {
                 .withAuthOrgId(CurrentUserContext.currentUser().map(user -> user.organizationId()).orElse(null))
                 .withOperator(requireOperator ? currentOperatorId() : currentOperatorIdOrNull())
                 .withSelectedRoute(normalized.selectedRouteKeyOrDirectLinkKey(), normalized.selectedReason())
-                .withManualRouteSelections(normalized.manualRouteSelections());
+                .withManualRouteSelections(normalized.manualRouteSelections())
+                .withReason(normalized.reason());
     }
 
     private String jsonText(JsonNode node) {
@@ -404,9 +405,10 @@ record WorkflowSubmitWebRequest(String operatorId,
                                 String selectedRouteKey,
                                 String selectedDirectLinkKey,
                                 String selectedReason,
-                                List<WorkflowManualRouteSelection> manualRouteSelections, String reasonSourceLanguage) {
+                                List<WorkflowManualRouteSelection> manualRouteSelections, String reasonSourceLanguage,
+                                String reason) {
     static WorkflowSubmitWebRequest empty() {
-        return new WorkflowSubmitWebRequest(null, null, null, null, null, List.of(), null);
+        return new WorkflowSubmitWebRequest(null, null, null, null, null, List.of(), null, null);
     }
 
     String selectedRouteKeyOrDirectLinkKey() {
