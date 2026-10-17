@@ -1,311 +1,255 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import net.ximatai.muyun.spring.common.i18n.*;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
-import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
-import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
-import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
-import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.*;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
-import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.*;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
-import net.ximatai.muyun.spring.platform.exchange.importer.BuildDynamicImportPlanCommand;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportCommand;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportErrorFileService;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportExecutionResult;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportFacade;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportParseResult;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportPlan;
-import net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportResult;
-import net.ximatai.muyun.spring.platform.exchange.importer.GroupedWorkbook;
-import net.ximatai.muyun.spring.platform.exchange.importer.ImportDuplicateStrategy;
-import net.ximatai.muyun.spring.platform.exchange.importer.ImportErrorRow;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import net.ximatai.muyun.spring.platform.exchange.RecordExchangeService;
+import net.ximatai.muyun.spring.platform.exchange.importer.*;
+import net.ximatai.muyun.spring.platform.web.RecordExchangeWebSupport;
+import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
+
+import org.junit.jupiter.api.*;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.*;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
+/**
+ * Legacy transport forwards to the same source-neutral file engine; no legacy write facade remains
+ * on HTTP.
+ */
 class DynamicImportWebControllerTest {
     private static final String MODULE = "sales.order";
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    private DynamicRecordService recordService;
-    private DynamicImportFacade importFacade;
-    private DynamicImportErrorFileService errorFileService;
-    private ActiveTenantVerifier activeTenantVerifier;
+    private final ObjectMapper json = new ObjectMapper();
+    private DynamicRecordService records;
+    private RecordExchangeWebSupport exchange;
+    private DynamicImportErrorFileService files;
+    private ActiveTenantVerifier tenants;
     private MockMvc mvc;
 
     @BeforeEach
-    void setUp() {
-        recordService = mock(DynamicRecordService.class);
-        importFacade = mock(DynamicImportFacade.class);
-        errorFileService = new DynamicImportErrorFileService();
-        activeTenantVerifier = mock(ActiveTenantVerifier.class);
+    void setup() {
+        records = mock(DynamicRecordService.class);
+        exchange = mock(RecordExchangeWebSupport.class);
+        files = new DynamicImportErrorFileService();
+        tenants = mock(ActiveTenantVerifier.class);
         var beans = new DefaultListableBeanFactory();
         var catalog = LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
         beans.registerSingleton("catalog", catalog);
         beans.registerSingleton("texts", TextResources.load(getClass().getClassLoader(), catalog));
-        mvc = MockMvcBuilders
-                .standaloneSetup(new DynamicImportWebController(
-                        recordService, importFacade, errorFileService, activeTenantVerifier,
-                        beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class)))
-                .setControllerAdvice(new PlatformWebExceptionHandler())
-                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
-                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
-                .build();
+        when(records.describe(MODULE)).thenReturn(descriptor(true));
+        mvc =
+                MockMvcBuilders.standaloneSetup(
+                                new DynamicImportWebController(
+                                        records,
+                                        exchange,
+                                        files,
+                                        tenants,
+                                        beans.getBeanProvider(TextResolver.class),
+                                        beans.getBeanProvider(LanguageCatalog.class)))
+                        .setControllerAdvice(new PlatformWebExceptionHandler())
+                        .addFilters(new CurrentUserWebFilter(() -> Optional.of(actor("user-1"))))
+                        .build();
     }
 
     @Test
-    void shouldParseMultipartWorkbookThroughFacade() throws Exception {
-        DynamicModuleDescriptor descriptor = descriptor();
-        when(recordService.describe(MODULE)).thenReturn(descriptor);
-        when(importFacade.parse(descriptor, new byte[]{1, 2, 3})).thenReturn(new DynamicImportParseResult(
-                MODULE,
-                "order",
-                "Order",
-                List.of(new DynamicImportParseResult.Sheet(
-                        "Order",
-                        "Order",
-                        "order",
-                        true,
-                        1,
-                        List.of(new DynamicImportParseResult.Field("orderNo", "Order No", false, true))
-                ))
-        ));
-
-        mvc.perform(multipart("/{moduleAlias}/import/parse", MODULE)
-                        .file(new MockMultipartFile("file", "order.xlsx",
-                                DynamicImportWebController.XLSX_CONTENT_TYPE, new byte[]{1, 2, 3})))
+    void parsesV2FileMetadataThroughTheCommonEngineWithoutExposingTransportColumnsAsMatchFields()
+            throws Exception {
+        when(exchange.compatibilityPreview(eq(MODULE), any()))
+                .thenReturn(
+                        new RecordExchangeService.Preview(
+                                "document",
+                                "digest",
+                                "DATA",
+                                "en",
+                                List.of(
+                                        new RecordExchangeService.Sheet(
+                                                "order",
+                                                "Order",
+                                                true,
+                                                1,
+                                                List.of("orderNo"),
+                                                Map.of("orderNo", "Order No"))),
+                                List.of()));
+        mvc.perform(
+                        multipart("/{moduleAlias}/import/parse", MODULE)
+                                .file(file(new byte[] {1, 2, 3})))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.moduleAlias").value(MODULE))
                 .andExpect(jsonPath("$.mainEntityAlias").value("order"))
-                .andExpect(jsonPath("$.mainSheetName").value("Order"))
+                .andExpect(jsonPath("$.sheets[0].fields[0].fieldName").value("orderNo"))
                 .andExpect(jsonPath("$.sheets[0].fields[0].matchKeyCandidate").value(true));
-
-        verify(recordService).describe(MODULE);
-        verify(activeTenantVerifier).verifyActiveTenant("tenant_a");
+        verify(exchange).compatibilityPreview(MODULE, new byte[] {1, 2, 3});
+        verify(tenants).verifyActiveTenant("tenant_a");
     }
 
     @Test
-    void shouldReturnPlatformErrorWhenParseFilePartIsMissing() throws Exception {
+    void rejectsMissingFileOrCommandPartsThroughTheStandardErrorContract() throws Exception {
         mvc.perform(multipart("/{moduleAlias}/import/parse", MODULE))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value("缺少必要请求部分"))
-                .andExpect(jsonPath("$.targets[0].fieldName").value("file"))
-                .andExpect(jsonPath("$.traceId").isNotEmpty());
-    }
-
-    @Test
-    void shouldReturnPlatformErrorWhenExecuteCommandPartIsMissing() throws Exception {
-        mvc.perform(multipart("/{moduleAlias}/import/execute", MODULE)
-                        .file(new MockMultipartFile("file", "order.xlsx",
-                                DynamicImportWebController.XLSX_CONTENT_TYPE, new byte[]{1, 2, 3})))
+                .andExpect(jsonPath("$.targets[0].fieldName").value("file"));
+        mvc.perform(multipart("/{moduleAlias}/import/execute", MODULE).file(file(new byte[] {1})))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.message").value("缺少必要请求部分"))
                 .andExpect(jsonPath("$.targets[0].fieldName").value("command"));
+        verifyNoInteractions(exchange);
     }
 
     @Test
-    void shouldRejectParseWhenModuleDoesNotSupportExchange() throws Exception {
-        when(recordService.describe(MODULE)).thenReturn(descriptorWithoutExchange());
-
-        mvc.perform(multipart("/{moduleAlias}/import/parse", MODULE)
-                        .file(new MockMultipartFile("file", "order.xlsx",
-                                DynamicImportWebController.XLSX_CONTENT_TYPE, new byte[]{1, 2, 3})))
+    void disabledExchangeCannotReachTheSharedEngine() throws Exception {
+        when(records.describe(MODULE)).thenReturn(descriptor(false));
+        mvc.perform(multipart("/{moduleAlias}/import/parse", MODULE).file(file(new byte[] {1})))
                 .andExpect(status().isBadRequest());
+        verifyNoInteractions(exchange);
     }
 
     @Test
-    void shouldExecuteImportAndReturnErrorFileToken() throws Exception {
-        DynamicModuleDescriptor descriptor = descriptor();
-        when(recordService.describe(MODULE)).thenReturn(descriptor);
-        when(importFacade.importWorkbook(any(DynamicImportCommand.class))).thenReturn(importResultWithErrors());
-
-        MockMultipartFile command = new MockMultipartFile("command", "command.json",
-                MediaType.APPLICATION_JSON_VALUE,
-                objectMapper.writeValueAsBytes(Map.of(
-                        "mainSheet", Map.of(
-                                "matchFieldName", "orderNo",
-                                "duplicateStrategy", "OVERWRITE"
-                        ),
-                        "childSheets", List.of(Map.of(
-                                "entityAlias", "orderLine",
-                                "matchFieldName", "sku",
-                                "duplicateStrategy", "SKIP"
-                        ))
-                )));
-
-        mvc.perform(multipart("/{moduleAlias}/import/execute", MODULE)
-                        .file(command)
-                        .file(new MockMultipartFile("file", "order.xlsx",
-                                DynamicImportWebController.XLSX_CONTENT_TYPE, new byte[]{4, 5, 6})))
+    void forwardsLegacyStrategiesAndReturnsTheCommonPartialResultAndCorrectionFile()
+            throws Exception {
+        var rows = new ArrayList<RecordExchangeService.PreviewRow>();
+        for (String operation :
+                List.of("CREATE", "UPDATE", "UPDATE", "SKIP", "SKIP", "SKIP", "ERROR"))
+            rows.add(
+                    new RecordExchangeService.PreviewRow(
+                            operation, "order", "R", operation, "record", Map.of(), Map.of(),
+                            Map.of(), List.of(), null));
+        when(exchange.compatibilityImport(eq(MODULE), any(), any()))
+                .thenReturn(
+                        new RecordExchangeService.Result(
+                                1,
+                                2,
+                                3,
+                                1,
+                                true,
+                                Base64.getEncoder().encodeToString(new byte[] {9, 8, 7}),
+                                rows));
+        mvc.perform(
+                        multipart("/{moduleAlias}/import/execute", MODULE)
+                                .file(
+                                        command(
+                                                Map.of(
+                                                        "mainSheet",
+                                                                Map.of(
+                                                                        "matchFieldName",
+                                                                        "orderNo",
+                                                                        "duplicateStrategy",
+                                                                        "OVERWRITE"),
+                                                        "childSheets",
+                                                                List.of(
+                                                                        Map.of(
+                                                                                "entityAlias",
+                                                                                "line",
+                                                                                "matchFieldName",
+                                                                                "sku",
+                                                                                "duplicateStrategy",
+                                                                                "SKIP")))))
+                                .file(file(new byte[] {4, 5, 6})))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.created").value(1))
                 .andExpect(jsonPath("$.updated").value(2))
                 .andExpect(jsonPath("$.skipped").value(3))
                 .andExpect(jsonPath("$.errorCount").value(1))
-                .andExpect(jsonPath("$.summaries.order.created").value(1))
-                .andExpect(jsonPath("$.summaries.order.updated").value(2))
-                .andExpect(jsonPath("$.summaries.order.skipped").value(3))
-                .andExpect(jsonPath("$.summaries.order.errors").value(1))
                 .andExpect(jsonPath("$.partialSuccess").value(true))
-                .andExpect(jsonPath("$.messageText.source.sourceKind").value("CODE"))
-                .andExpect(jsonPath("$.messageText.languages.en.text").value("Import completed. Correct the errors and retry."))
-                .andExpect(jsonPath("$.messageText.languages['zh-CN'].text").value("导入完成，请修正异常数据后重试"))
-                .andExpect(jsonPath("$.errorFileName").value("sales_order-import-errors.xlsx"))
-                .andExpect(jsonPath("$.errorFileToken").isNotEmpty());
-
-        ArgumentCaptor<DynamicImportCommand> captor = ArgumentCaptor.forClass(DynamicImportCommand.class);
-        verify(importFacade).importWorkbook(captor.capture());
-        assertThat(captor.getValue().descriptor()).isSameAs(descriptor);
-        assertThat(captor.getValue().excelBytes()).containsExactly(4, 5, 6);
-        BuildDynamicImportPlanCommand buildCommand = captor.getValue().buildPlanCommand();
-        assertThat(buildCommand.mainMatchFieldName()).isEqualTo("orderNo");
-        assertThat(buildCommand.mainDuplicateStrategy()).isEqualTo(ImportDuplicateStrategy.OVERWRITE);
-        assertThat(buildCommand.childSheets().getFirst().entityAlias()).isEqualTo("orderLine");
-        assertThat(buildCommand.childSheets().getFirst().duplicateStrategy()).isEqualTo(ImportDuplicateStrategy.SKIP);
+                .andExpect(jsonPath("$.summaries.order.created").value(1))
+                .andExpect(jsonPath("$.summaries.order.errors").value(1))
+                .andExpect(jsonPath("$.errorFileToken").isNotEmpty())
+                .andExpect(
+                        jsonPath("$.messageText.languages.en.text")
+                                .value("Import completed. Correct the errors and retry."));
+        var captured = ArgumentCaptor.forClass(RecordExchangeService.Command.class);
+        verify(exchange)
+                .compatibilityImport(eq(MODULE), eq(new byte[] {4, 5, 6}), captured.capture());
+        assertThat(captured.getValue().sheets())
+                .containsExactly(
+                        new RecordExchangeService.SheetCommand(
+                                "order", "orderNo", ImportDuplicateStrategy.OVERWRITE),
+                        new RecordExchangeService.SheetCommand(
+                                "line", "sku", ImportDuplicateStrategy.SKIP));
     }
 
     @Test
-    void shouldTreatSkippedRowsAsHandledWhenErrorsAlsoExist() throws Exception {
-        DynamicModuleDescriptor descriptor = descriptor();
-        when(recordService.describe(MODULE)).thenReturn(descriptor);
-        when(importFacade.importWorkbook(any(DynamicImportCommand.class))).thenReturn(importResultWithOnlySkippedAndErrors());
-
-        MockMultipartFile command = new MockMultipartFile("command", "command.json",
-                MediaType.APPLICATION_JSON_VALUE,
-                objectMapper.writeValueAsBytes(Map.of(
-                        "mainSheet", Map.of("matchFieldName", "orderNo")
-                )));
-
-        mvc.perform(multipart("/{moduleAlias}/import/execute", MODULE)
-                        .file(command)
-                        .file(new MockMultipartFile("file", "order.xlsx",
-                                DynamicImportWebController.XLSX_CONTENT_TYPE, new byte[]{4, 5, 6})))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.created").value(0))
-                .andExpect(jsonPath("$.updated").value(0))
-                .andExpect(jsonPath("$.skipped").value(2))
-                .andExpect(jsonPath("$.errorCount").value(1))
-                .andExpect(jsonPath("$.partialSuccess").value(false));
-    }
-
-    @Test
-    void shouldDownloadErrorFileByToken() throws Exception {
-        String token = errorFileService.save(MODULE, "tenant_a", "errors.xlsx", new byte[]{9, 8, 7});
-        when(recordService.describe(MODULE)).thenReturn(descriptor());
-
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/{moduleAlias}/import/error-file/{token}", MODULE, token))
+    void correctionDownloadRequiresTheOriginalCacheOwnerAndFreshProducerSourceAuthorization()
+            throws Exception {
+        String token = cache(MODULE, "user-1");
+        mvc.perform(post("/{moduleAlias}/import/error-file/{token}", MODULE, token))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Import-FileName", "errors.xlsx"))
-                .andExpect(header().string("Access-Control-Expose-Headers",
-                        "Content-Disposition,X-Import-FileName"))
-                .andExpect(content().bytes(new byte[]{9, 8, 7}));
+                .andExpect(content().bytes(new byte[] {9, 8, 7}));
+        verify(exchange).requireCompatibilityFileRead(MODULE, new byte[] {9, 8, 7});
+        doThrow(
+                        new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                                "Source access revoked"))
+                .when(exchange)
+                .requireCompatibilityFileRead(eq(MODULE), any());
+        mvc.perform(post("/{moduleAlias}/import/error-file/{token}", MODULE, token))
+                .andExpect(status().isForbidden());
     }
 
     @Test
-    void shouldRejectErrorFileTokenFromAnotherModule() throws Exception {
-        String token = errorFileService.save("crm.customer", "tenant_a", "errors.xlsx", new byte[]{9, 8, 7});
-        when(recordService.describe(MODULE)).thenReturn(descriptor());
-
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/{moduleAlias}/import/error-file/{token}", MODULE, token))
+    void anotherUserOrModuleCannotDownloadACachedCorrectionFile() throws Exception {
+        mvc.perform(
+                        post(
+                                "/{moduleAlias}/import/error-file/{token}",
+                                MODULE,
+                                cache(MODULE, "other")))
                 .andExpect(status().isBadRequest());
+        mvc.perform(
+                        post(
+                                "/{moduleAlias}/import/error-file/{token}",
+                                MODULE,
+                                cache("crm.customer", "user-1")))
+                .andExpect(status().isBadRequest());
+        verify(exchange, never()).requireCompatibilityFileRead(anyString(), any());
     }
 
-    private DynamicModuleDescriptor descriptor() {
-        return DynamicModuleDescriptor.from(new ModuleDefinition(
-                MODULE,
-                "Order",
-                List.of(new EntityDefinition("order", "sales_order", "Order", List.of(
-                        FieldDefinition.string("orderNo", "Order No")
-                ), java.util.Set.of(EntityCapability.EXCHANGE)))
-        ));
+    private String cache(String module, String user) {
+        try (var ignored = CurrentUserContext.use(actor(user))) {
+            return files.save(module, "tenant_a", "errors.xlsx", new byte[] {9, 8, 7});
+        }
     }
 
-    private DynamicModuleDescriptor descriptorWithoutExchange() {
-        return DynamicModuleDescriptor.from(new ModuleDefinition(
-                MODULE,
-                "Order",
-                List.of(new EntityDefinition("order", "sales_order", "Order", List.of(
-                        FieldDefinition.string("orderNo", "Order No")
-                )))
-        ));
+    private CurrentUser actor(String id) {
+        return CurrentUser.tenantUser(id, "User", "tenant_a");
     }
 
-    private DynamicImportResult importResultWithErrors() {
-        DynamicImportPlan plan = new DynamicImportPlan(MODULE, null, List.of(
-                new DynamicImportPlan.SheetPlan(
-                        "Order",
-                        "order",
-                        "Order",
-                        true,
-                        "orderNo",
-                        ImportDuplicateStrategy.ERROR,
-                        List.of(new DynamicImportPlan.FieldPlan("order", "orderNo", "Order No",
-                                false, true, false))
-                )
-        ));
-        DynamicImportExecutionResult execution = new DynamicImportExecutionResult(
-                1,
-                2,
-                3,
-                List.of(new ImportErrorRow("order", new LinkedHashMap<>(), "invalid", null)),
-                Map.of("order", new net.ximatai.muyun.spring.platform.exchange.importer.ImportEntityExecutionSummary("order", 1, 2, 3, 1))
-        );
-        return new DynamicImportResult(plan, new GroupedWorkbook(new LinkedHashMap<>(), List.of()),
-                execution, new byte[]{7, 8, 9});
+    private MockMultipartFile file(byte[] bytes) {
+        return new MockMultipartFile(
+                "file", "file.xlsx", DynamicImportWebController.XLSX_CONTENT_TYPE, bytes);
     }
 
-    private DynamicImportResult importResultWithOnlySkippedAndErrors() {
-        DynamicImportPlan plan = new DynamicImportPlan(MODULE, null, List.of(
-                new DynamicImportPlan.SheetPlan(
+    private MockMultipartFile command(Object value) throws Exception {
+        return new MockMultipartFile(
+                "command",
+                "command.json",
+                MediaType.APPLICATION_JSON_VALUE,
+                json.writeValueAsBytes(value));
+    }
+
+    private DynamicModuleDescriptor descriptor(boolean enabled) {
+        return DynamicModuleDescriptor.from(
+                new ModuleDefinition(
+                        MODULE,
                         "Order",
-                        "order",
-                        "Order",
-                        true,
-                        "orderNo",
-                        ImportDuplicateStrategy.ERROR,
-                        List.of(new DynamicImportPlan.FieldPlan("order", "orderNo", "Order No",
-                                false, true, false))
-                )
-        ));
-        DynamicImportExecutionResult execution = new DynamicImportExecutionResult(
-                0,
-                0,
-                2,
-                List.of(new ImportErrorRow("order", new LinkedHashMap<>(), "invalid", null)),
-                Map.of()
-        );
-        return new DynamicImportResult(plan, new GroupedWorkbook(new LinkedHashMap<>(), List.of()),
-                execution, new byte[]{7, 8, 9});
+                        List.of(
+                                new EntityDefinition(
+                                        "order",
+                                        "sales_order",
+                                        "Order",
+                                        List.of(FieldDefinition.string("orderNo", "Order No")),
+                                        enabled ? Set.of(EntityCapability.EXCHANGE) : Set.of()))));
     }
 }

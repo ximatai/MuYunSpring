@@ -904,6 +904,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
 
     private boolean contentEndpointEnabled(Method method, java.util.Set<EntityCapability> capabilities) {
         var action = AnnotationUtils.findAnnotation(method, ActionEndpoint.class);
+        if (action != null && action.value().group() == net.ximatai.muyun.spring.common.platform.PlatformActionGroup.EXCHANGE
+                && StandardWebEndpoint.isDefault(method)) return capabilities.contains(EntityCapability.EXCHANGE);
         return action == null || action.value().group() != net.ximatai.muyun.spring.common.platform.PlatformActionGroup.BUSINESS_CONTENT
                 || !StandardWebEndpoint.isDefault(method) || capabilities.contains(EntityCapability.BUSINESS_CONTENT);
     }

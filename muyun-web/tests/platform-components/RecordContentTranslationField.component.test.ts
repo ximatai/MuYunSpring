@@ -128,6 +128,37 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it('requests a manual-field machine draft only explicitly and preserves human input without a model', async () => {
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) {
+        const result = reading('en', original.text);
+        result.fields.description!.originalFallback = true;
+        result.fields.description!.translation = null;
+        return result;
+      }
+      if (options.path.endsWith('/history')) return [];
+      if (options.path.endsWith('/generation')) return { state: 'UNAVAILABLE', problem: 'MODEL_UNAVAILABLE' };
+      return { ...state(), expectedRevision: null, confirmed: null };
+    });
+    const { wrapper, record } = host(request, ['contentEdit']);
+    await flushPromises();
+    expect(requests(request).some((row) => row.path.endsWith('/generation'))).toBe(false);
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    expect(requests(request).some((row) => row.path.endsWith('/generation'))).toBe(false);
+    await button(wrapper, '机器起草').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('自动翻译未启用');
+    expect(requests(request).filter((row) => row.path.endsWith('/generation'))).toMatchObject([
+      { method: 'POST', query: { retry: true } },
+    ]);
+    await wrapper.find('textarea').setValue('Keep my unsubmitted human revision');
+    expect(button(wrapper, '机器起草').attributes('disabled')).toBeDefined();
+    expect(record.description).toBe(original.text);
+    expect(wrapper.find('textarea').element.value).toBe('Keep my unsubmitted human revision');
+    wrapper.unmount();
+  });
+
   it('opens and saves workflow maintenance receipts while retaining private drafts and the original event', async () => {
     let maintained = state();
     const request = vi.fn(async (options: HttpRequestOptions) => {

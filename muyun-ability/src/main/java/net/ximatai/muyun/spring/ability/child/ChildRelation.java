@@ -79,6 +79,20 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return extractChildren.apply(parent);
     }
 
+    /** A detached root-only patch must not turn populated read children into replacement input. */
+    public void omitIncomingChildren(P parent) {
+        if (incomingChildren(parent) == null) return;
+        if (populateChildren == null) throw new IllegalStateException("Root-only updates require a declared child population adapter");
+        populateChildren.accept(parent,null);
+        if (incomingChildren(parent) != null) throw new IllegalStateException("Child population adapter must preserve omitted input");
+    }
+
+    /** Infrastructure assembles an ordinary aggregate through its declared population adapter. */
+    public void assignIncomingChildren(P parent,List<C> rows) {
+        if (populateChildren == null) throw new IllegalStateException("Aggregate writes require a declared child population adapter");
+        populateChildren.accept(parent,List.copyOf(rows));
+    }
+
     public ChildRelation<C, P> autoPopulate(BiConsumer<P, List<C>> value) {
         this.populateChildren = value;
         return this;

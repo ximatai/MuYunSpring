@@ -56,6 +56,7 @@ class BusinessContentGenerationWebScopeTest {
         row.setId("record"); row.setTenantId("tenant-a"); row.setProjectId("project-one"); row.setDescription("private raw text");
         when(controller.service.getModuleAlias()).thenReturn(MODULE); doReturn(Row.class).when(controller.service).modelClass();
         when(content.requireOwner(any(), any())).thenReturn(row);
+        lenient().when(fieldTarget.content()).thenReturn(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition("description",net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE));
         lenient().when(content.target(any(), any(), anyString(), eq(PlatformAction.VIEW))).thenReturn(fieldTarget);
         context.getBeanFactory().registerSingleton("recordController", controller);
         context.getBeanFactory().registerSingleton("catalog", new StaticAbilityCatalog(List.of(controller.service)));
@@ -76,6 +77,19 @@ class BusinessContentGenerationWebScopeTest {
     @AfterEach void close() {
         RequestContextHolder.resetRequestAttributes(); CurrentUserContext.clear(); TenantContext.clear();
         ActionExecutionContextHolder.clear(); context.close();
+    }
+
+    @Test void explicitManualDraftRequiresFreshMaintenancePermissionAfterCaptureAndAgainAtExecution() {
+        when(fieldTarget.content()).thenReturn(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition("description",net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS));
+        when(content.target(any(),any(),eq("description"),eq(PlatformAction.CONTENT_EDIT))).thenReturn(fieldTarget);
+        var reference = scope.capture(controller,LOCATION,"description");
+        assertThat(scope.<String>withAccess(reference,MODULE,LOCATION,"description",target -> {
+            assertThat(ActionExecutionContextHolder.current().orElseThrow().actionCode()).isEqualTo("contentEdit");
+            return "allowed";
+        })).isEqualTo("allowed");
+        when(content.target(any(),any(),eq("description"),eq(PlatformAction.CONTENT_EDIT))).thenThrow(new PlatformAccessDeniedException("Maintenance withdrawn"));
+        assertThatThrownBy(() -> scope.withAccess(reference,MODULE,LOCATION,"description",target -> "denied"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
     @Test void workerReopensTheRealEntryWithoutHttpAndRestoresItsCallersActionContext() {

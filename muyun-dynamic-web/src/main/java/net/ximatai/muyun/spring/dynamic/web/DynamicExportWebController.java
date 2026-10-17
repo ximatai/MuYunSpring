@@ -41,13 +41,13 @@ public class DynamicExportWebController {
     private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
     private final DynamicRecordService recordService;
     private final ActiveTenantVerifier activeTenantVerifier;
-    private final DynamicExportFacade exportFacade;
+    private final net.ximatai.muyun.spring.platform.web.RecordExchangeWebSupport exportFacade;
     private final ModuleExecutionPlanCatalog executionPlanCatalog;
     private final DynamicModuleQuerySupport querySupport = new DynamicModuleQuerySupport();
 
     public DynamicExportWebController(DynamicRecordService recordService,
                                       ActiveTenantVerifier activeTenantVerifier,
-                                      DynamicExportFacade exportFacade,
+                                      net.ximatai.muyun.spring.platform.web.RecordExchangeWebSupport exportFacade,
                                       ModuleExecutionPlanCatalog executionPlanCatalog) {
         this.recordService = recordService;
         this.activeTenantVerifier = activeTenantVerifier;
@@ -63,7 +63,7 @@ public class DynamicExportWebController {
         tenantScope(moduleAlias, () -> {
             DynamicModuleDescriptor descriptor = recordService.describe(moduleAlias);
             requireExchangeCapability(descriptor);
-            byte[] bytes = exportFacade.exportWorkbook(exportCommand(descriptor, request));
+            byte[] bytes = exportFacade.compatibilityExportQuery(exportCommand(descriptor, request));
             writeXlsx(response, moduleAlias.replace('.', '_') + "-export.xlsx", bytes);
             return null;
         });
@@ -77,7 +77,7 @@ public class DynamicExportWebController {
         tenantScope(moduleAlias, () -> {
             DynamicModuleDescriptor descriptor = recordService.describe(moduleAlias);
             requireExchangeCapability(descriptor);
-            byte[] bytes = exportFacade.exportWorkbook(selectedExportCommand(descriptor, request));
+            byte[] bytes = exportFacade.compatibilityExportQuery(selectedExportCommand(descriptor, request));
             writeXlsx(response, moduleAlias.replace('.', '_') + "-selected-export.xlsx", bytes);
             return null;
         });

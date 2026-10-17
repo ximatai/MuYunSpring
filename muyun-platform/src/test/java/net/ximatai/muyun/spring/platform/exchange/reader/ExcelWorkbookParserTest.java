@@ -30,6 +30,24 @@ class ExcelWorkbookParserTest {
     private final ExcelWorkbookParser parser = new ExcelWorkbookParser();
 
     @Test
+    void shouldPreservePhysicalColumnPositionsWhenAnOptionalHeaderIsOmitted() throws IOException {
+        try (Workbook workbook = new XSSFWorkbook()) {
+            var sheet = workbook.createSheet("main");
+            var technical = sheet.createRow(0);
+            technical.createCell(0).setCellValue("__relateId");
+            technical.createCell(2).setCellValue("main.quantity");
+            sheet.createRow(1).createCell(2).setCellValue("Quantity");
+            var row = sheet.createRow(2);
+            row.createCell(0).setCellValue("R-1");
+            row.createCell(1).setCellValue("Ignored column");
+            row.createCell(2).setCellValue(0);
+            var parsed = parser.parse(workbook).sheets().getFirst();
+            assertThat(parsed.columns()).extracting("columnIndex").containsExactly(0, 2);
+            assertThat(parsed.rows().getFirst()).containsExactly("R-1", null, "0");
+        }
+    }
+
+    @Test
     void shouldParseWriterGeneratedMainAndChildWorkbook() {
         byte[] bytes = writer.writeToBytes(orderPlan());
 

@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.Set;
 
 @Service
+@Deprecated(since = "0.26.17", forRemoval = false)
 public class DynamicImportFacade {
     private final ExcelWorkbookParser parser;
     private final DynamicImportPlanBuilder planBuilder;

@@ -9,7 +9,8 @@ import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import org.springframework.web.bind.annotation.*;
 
 @RestController @Profile("collaboration-demo")
-@PlatformStaticModule(application = QualityApplication.class, alias = EquipmentCategoryService.MODULE_ALIAS, title = "设备分类")
+@PlatformStaticModule(application = QualityApplication.class, alias = EquipmentCategoryService.MODULE_ALIAS, title = "设备分类",
+        capabilities = net.ximatai.muyun.spring.common.platform.EntityCapability.EXCHANGE)
 @PlatformMenu(parent = QualityDemoMenuDeclarations.ROOT, title = "设备分类", order = 110)
 @StaticModuleOpenApi
 @RequestMapping("/" + EquipmentCategoryService.MODULE_ALIAS)

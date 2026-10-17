@@ -194,6 +194,39 @@ class BusinessContentRecordPresentationServiceTest {
         assertThat(service.projectReference(TARGET, "title", "parentId.title", response).options().getFirst().subtitleContent()).isNull();
     }
 
+    @Test void explicitFileProjectionCapturesTheSameProducerRowsWithoutBrowserLanguageHeaders() {
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        var row = new StandardTitledEntity() {}; row.setId("a"); row.setTitle("设备原名");
+        var item = new net.ximatai.muyun.spring.web.WebReferenceResolveItem("a","设备原名",null,Map.of(),Map.of());
+        var response = new net.ximatai.muyun.spring.web.WebReferenceResolveResponse(
+                net.ximatai.muyun.spring.web.WebReferenceResolveStatus.OK,net.ximatai.muyun.spring.web.WebReferenceResolveMode.QUERY,
+                List.of(item),List.of(),0,1,1);
+        var output = service.projectReference(TARGET,"title",null,"en",() -> {
+            service.onRecords(targetOwner,List.of(row)); return response;
+        });
+        assertThat(output.options().getFirst().titleContent().readings()).containsEntry("en","Equipment a");
+        verify(readings).capture(targetOwner,List.of(row));
+        assertThat(service.projectReference(TARGET,"title",null,response).options().getFirst().titleContent()).isNull();
+    }
+
+    @Test void fileReferenceLanguageDoesNotDependOnBrowserHeadersOrChangeTheirProjection() {
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        var item = new net.ximatai.muyun.spring.web.WebReferenceResolveItem("a", "设备原名", null, Map.of(), Map.of());
+        var response = new net.ximatai.muyun.spring.web.WebReferenceResolveResponse(
+                net.ximatai.muyun.spring.web.WebReferenceResolveStatus.OK,
+                net.ximatai.muyun.spring.web.WebReferenceResolveMode.QUERY, List.of(item), List.of(), 0, 1, 1);
+        assertThat(service.projectReference(TARGET,"title",null,response,"en").options().getFirst().titleContent().readings())
+                .containsEntry("en","Equipment a");
+        verify(readings).presentations(eq(targetOwner),anyMap(),anySet(),eq(List.of("en")));
+        clearInvocations(readings);
+        var request = new MockHttpServletRequest(); request.addHeader(BusinessContentQueryWebContext.LANGUAGES_HEADER,"de");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        service.projectReference(TARGET,"title",null,response,"en");
+        service.projectReference(TARGET,"title",null,response);
+        verify(readings).presentations(eq(targetOwner),anyMap(),anySet(),eq(List.of("en")));
+        verify(readings).presentations(eq(targetOwner),anyMap(),anySet(),eq(List.of("de")));
+    }
+
     private ReferenceTextReadListener.Projection fact(Object owner, String id, String original) {
         return new ReferenceTextReadListener.Projection(owner, "categoryId", List.of(id), "categoryTitle", null, null, false, List.of(text(id, original)));
     }

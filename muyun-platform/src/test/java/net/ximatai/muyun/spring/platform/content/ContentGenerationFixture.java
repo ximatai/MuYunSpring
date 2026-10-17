@@ -16,4 +16,8 @@ public class ContentGenerationFixture extends StandardEntity {
     @BusinessContent(value = ContentPolicy.AUTO_TRANSLATE, key = "quality-description")
     @Column(name = "description", type = ColumnType.TEXT)
     private String description;
+
+    @BusinessContent(value = ContentPolicy.MANUAL_TRANSLATIONS, key = "manual-name")
+    @Column(name = "manual_name", type = ColumnType.TEXT)
+    private String manualName;
 }

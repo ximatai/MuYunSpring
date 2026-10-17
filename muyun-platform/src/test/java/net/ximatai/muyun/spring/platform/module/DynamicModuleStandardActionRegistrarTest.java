@@ -80,14 +80,14 @@ class DynamicModuleStandardActionRegistrarTest {
         module.setTitle("项目任务");
         module.setModuleKind(ModuleKind.DYNAMIC);
         module.setMainCapabilityDeclarations(Set.of(
-                EntityCapability.TREE.name(), EntityCapability.SORT.name(), EntityCapability.ENABLE.name(), EntityCapability.RECYCLE_BIN.name()));
+                EntityCapability.TREE.name(), EntityCapability.SORT.name(), EntityCapability.ENABLE.name(), EntityCapability.RECYCLE_BIN.name(), EntityCapability.EXCHANGE.name()));
         moduleService.insert(module);
 
         registrar.register(module);
 
         assertThat(actionService.list(Criteria.of()).stream().map(PlatformModuleAction::getActionCode))
                 .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query", "reference",
-                        "tree", "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "recycleBinPurge");
+                        "tree", "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "recycleBinPurge", "import", "export");
         assertThat(actionService.list(Criteria.of())).allSatisfy(action -> {
             assertThat(action.getSourceType()).isEqualTo(ModuleActionSourceType.DYNAMIC_MODULE);
             assertThat(action.getSourceId()).isEqualTo("education.project");

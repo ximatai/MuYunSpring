@@ -39,8 +39,10 @@ public class DynamicImportErrorFileService {
             throw new IllegalArgumentException("error file content must not be empty");
         }
         cleanup();
+        String author = net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser()
+                .orElseThrow(() -> new IllegalStateException("Error files require an authenticated owner")).userId();
         String token = UUID.randomUUID().toString().replace("-", "");
-        payloads.put(token, new ErrorFilePayload(moduleAlias, tenantId, fileName, content, clock.instant()));
+        payloads.put(token, new ErrorFilePayload(moduleAlias, tenantId, fileName, content, clock.instant(),author));
         trimToMaxSize();
         return token;
     }
@@ -60,6 +62,7 @@ public class DynamicImportErrorFileService {
         if (!payload.moduleAlias().equals(moduleAlias) || !payload.tenantId().equals(tenantId)) {
             return null;
         }
+        if (!net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser().map(user -> user.userId().equals(payload.authorId())).orElse(false)) return null;
         return payload;
     }
 
@@ -87,7 +90,8 @@ public class DynamicImportErrorFileService {
             String tenantId,
             String fileName,
             byte[] content,
-            Instant createdAt
+            Instant createdAt,
+            String authorId
     ) {
         public ErrorFilePayload {
             content = content == null ? new byte[0] : content.clone();

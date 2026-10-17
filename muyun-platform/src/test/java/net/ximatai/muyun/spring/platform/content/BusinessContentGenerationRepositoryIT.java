@@ -116,6 +116,26 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         CurrentUserContext.clear(); ActingContextHolder.clear(); ActionExecutionContextHolder.clear(); TenantContext.clear();
     }
 
+    @Test void manualFieldsGenerateOnlyAfterExplicitRequestAndUseTheSameDurableWorker() {
+        installSubmissions("zh-CN,en,de");
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = new ContentGenerationFixture(); row.setManualName(RAW);
+            try (var input = ContentWriteContext.open(row, Map.of("manualName", new ContentWriteContext.SourceInput("zh-CN",null)))) {
+                service.insert(row);
+            }
+            assertThat(jobDao.query(Criteria.of().eq("recordId",row.getId()),PageRequest.of(1,10))).isEmpty();
+            when(gateway.isTextGenerationAvailable()).thenReturn(false);
+            assertThat(engine.request(SCOPE,MODULE,location(row),"manualName","en",false).state()).isEqualTo("UNAVAILABLE");
+            assertThat(jobDao.query(Criteria.of().eq("recordId",row.getId()),PageRequest.of(1,10))).isEmpty();
+            when(gateway.isTextGenerationAvailable()).thenReturn(true);
+            assertThat(engine.request(SCOPE,MODULE,location(row),"manualName","en",false).state()).isEqualTo("PENDING");
+            assertThat(restarted().runOne()).isTrue();
+            assertThat(maintenance.read(service,location(row),"en").fields().get("manualName").text()).isEqualTo(EN);
+            service.update(service.select(row.getId()));
+            assertThat(jobDao.query(Criteria.of().eq("recordId",row.getId()),PageRequest.of(1,10))).hasSize(1);
+        }
+    }
+
     @Test void missingModelCreatesNoExecutableWorkAndManualMaintenanceRemainsUsable() {
         try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var row = insert(RAW, "zh-CN"); when(gateway.isTextGenerationAvailable()).thenReturn(false);

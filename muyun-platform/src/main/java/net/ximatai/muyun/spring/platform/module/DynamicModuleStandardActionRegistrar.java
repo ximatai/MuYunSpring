@@ -159,6 +159,9 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             actions.add(PlatformAction.RECYCLE_BIN_PURGE);
         }
         if (capabilities.contains(EntityCapability.DATA_SCOPE.name())) actions.add(PlatformAction.MANAGE_PERMISSIONS);
+        if (capabilities.contains(EntityCapability.EXCHANGE.name())) {
+            actions.add(PlatformAction.IMPORT); actions.add(PlatformAction.EXPORT);
+        }
         if (capabilities.contains(EntityCapability.BUSINESS_CONTENT.name())) {
             actions.add(PlatformAction.CONTENT_EDIT); actions.add(PlatformAction.CONTENT_CONFIRM);
         }

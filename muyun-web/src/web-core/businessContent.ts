@@ -261,7 +261,7 @@ export function loadBusinessContentGeneration(
   return generationRequest(http, moduleAlias, id, field, language, options);
 }
 
-/** Explicit automatic-reading request; source, identity and route are resolved by the server. */
+/** Explicit reading generation or manual-field drafting; source, identity and route are resolved by the server. */
 export function requestBusinessContentGeneration(
   http: HttpClient,
   moduleAlias: string,

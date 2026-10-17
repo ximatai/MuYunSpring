@@ -72,6 +72,8 @@ public final class BusinessContentGenerationService {
         return adapter(scope).withAccess(scope, moduleAlias, location, field, checked -> {
             Supplier<Status> work = () -> {
                 var target = locked(checked, () -> adapter(scope).withAccess(scope, moduleAlias, location, field, Function.identity()));
+                if (transactional && target.content().policy() != ContentPolicy.AUTO_TRANSLATE)
+                    return state("DISABLED", "FIELD_POLICY");
                 var original = original(target);
                 if (originalId != null && (original == null || !originalId.equals(original.getId())))
                     return state("STALE", "SOURCE_OR_TRANSLATION_CHANGED");
@@ -202,7 +204,7 @@ public final class BusinessContentGenerationService {
         return row != null && Objects.equals(row.getOriginalText(), target.text()) ? row : null;
     }
     private Status eligibility(FieldTarget target, BusinessContentRevision original, String language) {
-        if (target.content().policy() != ContentPolicy.AUTO_TRANSLATE) return state("DISABLED", "FIELD_POLICY");
+        if (!target.content().policy().enabled()) return state("DISABLED", "FIELD_POLICY");
         if (target.text() == null || target.text().isBlank()) return state("ORIGINAL", null);
         if (original == null || original.getSourceLanguage() == null
                 || Locale.forLanguageTag(original.getSourceLanguage()).getLanguage().isBlank())

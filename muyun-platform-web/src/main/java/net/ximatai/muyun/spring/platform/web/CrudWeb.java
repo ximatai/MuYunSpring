@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
-        extends QueryViewWeb<T, S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration {
+        extends QueryViewWeb<T, S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration, RecordExchangeWeb<T,S> {
     @Override
     default CrudAbility<?> staticModuleService() {
         return service();

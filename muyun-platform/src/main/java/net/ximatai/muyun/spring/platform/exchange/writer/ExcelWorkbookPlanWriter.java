@@ -72,6 +72,13 @@ public class ExcelWorkbookPlanWriter {
                 writeHeaders(sheet, sheetPlan);
                 writeRows(sheet, sheetPlan.columns(), sheetPlan.rows(), dataStyles);
                 applyColumnWidths(sheet, sheetPlan);
+                if (plan.meta() != null && "2".equals(plan.meta().protocolVersion())) {
+                    for (int index = 0; index < sheetPlan.columns().size(); index++) {
+                        String field = sheetPlan.columns().get(index).fieldName();
+                        if (java.util.Set.of("__exchangeRow", "__inputIdentity", "__originalId").contains(field))
+                            sheet.setColumnHidden(index, true);
+                    }
+                }
             }
             writeOptionValidations(workbook, plan);
             writeMetaSheet(workbook, plan.meta());
@@ -137,7 +144,13 @@ public class ExcelWorkbookPlanWriter {
 
     private void writeNumberCell(Cell cell, Object value) {
         Double number = toDouble(value);
-        if (number == null) {
+        boolean exact = false;
+        try {
+            var decimal = new java.math.BigDecimal(String.valueOf(value).trim());
+            exact = number != null && Double.isFinite(number) && decimal.stripTrailingZeros().precision() <= 15
+                    && java.math.BigDecimal.valueOf(number).compareTo(decimal) == 0;
+        } catch (NumberFormatException invalid) { /* Preserve the actual cell text rather than coercing it. */ }
+        if (!exact) {
             cell.setCellValue(String.valueOf(value));
             return;
         }
@@ -305,6 +318,9 @@ public class ExcelWorkbookPlanWriter {
         writeMetaRow(sheet, 2, ExcelExchangeProtocol.META_KEY_UI_CONFIG_ID, meta == null ? null : meta.uiConfigId());
         writeMetaRow(sheet, 3, ExcelExchangeProtocol.META_KEY_UI_CONFIG_TITLE, meta == null ? null : meta.uiConfigTitle());
         writeMetaRow(sheet, 4, ExcelExchangeProtocol.META_KEY_TIME_ZONE, meta == null ? null : meta.timeZone());
+        writeMetaRow(sheet, 5, "documentId", meta == null ? null : meta.documentId());
+        writeMetaRow(sheet, 6, "purpose", meta == null ? null : meta.purpose());
+        writeMetaRow(sheet, 7, "language", meta == null ? null : meta.language());
         sheet.setColumnWidth(0, 24 * 256);
         sheet.setColumnWidth(1, 40 * 256);
         workbook.setSheetHidden(workbook.getSheetIndex(sheet), true);

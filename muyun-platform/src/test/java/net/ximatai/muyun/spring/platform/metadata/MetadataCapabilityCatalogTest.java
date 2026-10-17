@@ -18,7 +18,7 @@ class MetadataCapabilityCatalogTest {
                 net.ximatai.muyun.spring.common.schema.StandardEntitySchema.fieldNames());
         assertThat(contract.declarableCapabilities()).isEqualTo(MetadataCapabilityCatalog.plan(
                 Set.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN,
-                        EntityCapability.APPROVAL)));
+                        EntityCapability.APPROVAL, EntityCapability.EXCHANGE)));
         assertThat(contract.recordName().accepts("title", "title", "STRING")).isTrue();
         assertThat(contract.recordName().accepts("customerName", "customer_name", "STRING")).isFalse();
         assertThat(contract.recordName().accepts("title", "title", "TEXT")).isFalse();
@@ -66,6 +66,18 @@ class MetadataCapabilityCatalogTest {
                 .isInstanceOf(PlatformException.class);
         assertThat(MetadataCapabilityCatalog.resolve(metadata(), RelationRole.MAIN, List.of()).capabilities())
                 .doesNotContain(EntityCapability.RECYCLE_BIN);
+    }
+
+    @Test
+    void exchangeIsExplicitGovernedMainCapabilityWithoutStorageFieldsOrLegacyInference() {
+        var declared = metadata();
+        declared.setCapabilityDeclarations(Set.of("EXCHANGE"));
+        var resolution = MetadataCapabilityCatalog.resolve(declared, RelationRole.MAIN, List.of());
+        assertThat(resolution.capabilities()).containsExactly(EntityCapability.EXCHANGE);
+        assertThat(resolution.plan().metadataFields()).isEmpty();
+        assertThat(MetadataCapabilityCatalog.isMutableInFirstRelease(EntityCapability.EXCHANGE)).isTrue();
+        assertThat(MetadataCapabilityCatalog.resolve(metadata(), RelationRole.MAIN, List.of()).capabilities()).doesNotContain(EntityCapability.EXCHANGE);
+        assertThatThrownBy(() -> MetadataCapabilityCatalog.resolve(declared, RelationRole.CHILD, List.of())).hasMessageContaining("Child metadata");
     }
 
     @Test

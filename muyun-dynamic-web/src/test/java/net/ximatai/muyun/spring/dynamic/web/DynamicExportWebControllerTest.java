@@ -61,14 +61,14 @@ class DynamicExportWebControllerTest {
     private static final String MODULE = "sales.order";
     private final ObjectMapper json = new ObjectMapper();
     private DynamicRecordService records;
-    private DynamicExportFacade exports;
+    private net.ximatai.muyun.spring.platform.web.RecordExchangeWebSupport exports;
     private ModuleExecutionPlanCatalog plans;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         records = mock(DynamicRecordService.class);
-        exports = mock(DynamicExportFacade.class);
+        exports = mock(net.ximatai.muyun.spring.platform.web.RecordExchangeWebSupport.class);
         plans = mock(ModuleExecutionPlanCatalog.class);
         when(plans.find(MODULE)).thenReturn(Optional.of(plan(List.of())));
         when(records.describe(MODULE)).thenReturn(descriptor(true));
@@ -81,7 +81,7 @@ class DynamicExportWebControllerTest {
             conditions.forEach(condition -> criteria.eq(condition.fieldName(), condition.values().getFirst()));
             return criteria;
         });
-        when(exports.exportWorkbook(any())).thenReturn(new byte[]{7, 8, 9});
+        when(exports.compatibilityExportQuery(any())).thenReturn(new byte[]{7, 8, 9});
         mvc = MockMvcBuilders.standaloneSetup(new DynamicExportWebController(
                         records, mock(ActiveTenantVerifier.class), exports, plans))
                 .setControllerAdvice(new PlatformWebExceptionHandler())
@@ -158,7 +158,7 @@ class DynamicExportWebControllerTest {
         mvc.perform(post("/{module}/export/data", MODULE).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"uiConfigId\":\"ui-old\"}")).andExpect(status().isConflict());
         mvc.perform(post("/{module}/export/data", MODULE)).andExpect(status().isBadRequest());
-        verify(exports, never()).exportWorkbook(any());
+        verify(exports, never()).compatibilityExportQuery(any());
     }
 
     @Test
@@ -167,7 +167,7 @@ class DynamicExportWebControllerTest {
                 PageContextBindingDefinition.navigator("owner", net.ximatai.muyun.spring.platform.web.PageContextTarget.LIST_QUERY, "ownerId")))));
         mvc.perform(post("/{module}/export/data", MODULE).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"uiConfigId\":\"ui-list\",\"unpaged\":true}")).andExpect(status().isBadRequest());
-        verify(exports, never()).exportWorkbook(any());
+        verify(exports, never()).compatibilityExportQuery(any());
     }
 
     @Test
@@ -179,7 +179,7 @@ class DynamicExportWebControllerTest {
             mvc.perform(post("/{module}/export/data", MODULE).contentType(MediaType.APPLICATION_JSON)
                     .content("{\"uiConfigId\":\"ui-list\"," + extra + "}")).andExpect(status().isBadRequest());
         }
-        verify(exports, never()).exportWorkbook(any());
+        verify(exports, never()).compatibilityExportQuery(any());
     }
 
     @Test
@@ -188,12 +188,12 @@ class DynamicExportWebControllerTest {
                 .content("{\"ids\":[]}")).andExpect(status().isBadRequest());
         when(records.describe(MODULE)).thenReturn(descriptor(false));
         mvc.perform(post("/{module}/export/data", MODULE)).andExpect(status().isBadRequest());
-        verify(exports, never()).exportWorkbook(any());
+        verify(exports, never()).compatibilityExportQuery(any());
     }
 
     private DynamicExportCommand command() {
         var captor = ArgumentCaptor.forClass(DynamicExportCommand.class);
-        verify(exports).exportWorkbook(captor.capture());
+        verify(exports).compatibilityExportQuery(captor.capture());
         return captor.getValue();
     }
 

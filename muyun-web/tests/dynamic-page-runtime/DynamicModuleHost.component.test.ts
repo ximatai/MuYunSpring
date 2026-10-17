@@ -207,7 +207,7 @@ describe('ModulePageHost', () => {
     wrapper.unmount();
   });
 
-  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'])(
+  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD', 'TREE_MANAGEMENT'])(
     'mounts exchange tools in the %s standard toolbar and blocks concurrent mutations',
     async (template) => {
       globalThis.fetch = async () =>
@@ -239,6 +239,7 @@ describe('ModulePageHost', () => {
               template: '<section><slot name="explorer-actions" /><slot name="explorer" /></section>',
             },
             RecordQueryListPanel: { template: '<section><slot name="operations" /></section>' },
+            RecordDetailPanel: { template: '<section><slot name="actions" /></section>' },
             ModuleDataExchangeSurface: false,
           },
         },

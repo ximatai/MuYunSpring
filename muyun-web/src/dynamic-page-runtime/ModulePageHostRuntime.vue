@@ -383,6 +383,7 @@ export default defineComponent({
           <ModuleDataExchangeSurface
             :context="context"
             :query-controller="listQueryController"
+            :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
             :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
             :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
             @busy="setDataExchangeBusy"
@@ -745,6 +746,7 @@ export default defineComponent({
             <ModuleDataExchangeSurface
               :context="context"
               :query-controller="listQueryController"
+              :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
               :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
               :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
               @busy="setDataExchangeBusy"
@@ -1149,6 +1151,14 @@ export default defineComponent({
           </aside>
         </template>
         <template v-if="businessVisible" #actions>
+          <ModuleDataExchangeSurface
+            :context="context"
+            :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
+            :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
+            :disabled="saving || editorMode !== 'view' || !mainTreeScopeReady"
+            @busy="setDataExchangeBusy"
+            @changed="refreshList"
+          />
           <ModuleRecordDetailActions
             :save-needs-check="recordSaveNeedsCheck"
             :checking-save="saving"
@@ -1345,6 +1355,7 @@ export default defineComponent({
             <ModuleDataExchangeSurface
               :context="context"
               :query-controller="listQueryController"
+              :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
               :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
               :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
               @busy="setDataExchangeBusy"

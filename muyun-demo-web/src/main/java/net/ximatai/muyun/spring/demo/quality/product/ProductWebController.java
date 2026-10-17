@@ -8,7 +8,8 @@ import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import org.springframework.web.bind.annotation.*;
 
 @RestController @Profile("collaboration-demo")
-@PlatformStaticModule(application = QualityApplication.class, alias = ProductService.MODULE_ALIAS, title = "商品目录")
+@PlatformStaticModule(application = QualityApplication.class, alias = ProductService.MODULE_ALIAS, title = "商品目录",
+        capabilities = net.ximatai.muyun.spring.common.platform.EntityCapability.EXCHANGE)
 @PlatformMenu(parent = QualityDemoMenuDeclarations.ROOT, title = "商品目录", order = 120)
 @StaticModuleOpenApi
 @RequestMapping("/" + ProductService.MODULE_ALIAS)

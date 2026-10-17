@@ -105,7 +105,29 @@ public final class BusinessContentRecordPresentationService implements Reference
     /** Candidate titles and captions remain raw; their independent labels use the same authorized identity facts. */
     public WebReferenceResolveResponse projectReference(ReferenceTarget target, String labelField,
             String subtitlePath, WebReferenceResolveResponse response) {
-        var snapshot = snapshot(true);
+        return projectReference(target, labelField, subtitlePath, response, null);
+    }
+
+    /** Captures authorized producer facts in the requested file language before projecting their labels. */
+    public WebReferenceResolveResponse projectReference(ReferenceTarget target, String labelField,
+            String subtitlePath, String fileLanguage, java.util.function.Supplier<WebReferenceResolveResponse> source) {
+        var attributes = RequestContextHolder.getRequestAttributes();
+        if (fileLanguage == null || attributes == null) return projectReference(target, labelField, subtitlePath, source.get(), fileLanguage);
+        Object previous = attributes.getAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
+        attributes.setAttribute(ATTRIBUTE, new Snapshot(List.of(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.canonicalTag(fileLanguage))), RequestAttributes.SCOPE_REQUEST);
+        try { return projectReference(target, labelField, subtitlePath, source.get(), fileLanguage); }
+        finally {
+            if (previous == null) attributes.removeAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
+            else attributes.setAttribute(ATTRIBUTE, previous, RequestAttributes.SCOPE_REQUEST);
+        }
+    }
+
+    /** File language is an explicit projection input, independent of the browser reading headers. */
+    public WebReferenceResolveResponse projectReference(ReferenceTarget target, String labelField,
+            String subtitlePath, WebReferenceResolveResponse response, String fileLanguage) {
+        var captured = snapshot(true);
+        var requested = fileLanguage == null ? null : List.of(net.ximatai.muyun.spring.common.i18n.LanguageCatalog.canonicalTag(fileLanguage));
+        var snapshot = captured != null ? captured : requested == null ? null : new Snapshot(requested);
         if (snapshot == null || response == null) return response;
         List<WebReferenceResolveItem> items = new ArrayList<>(response.options());
         for (var result : response.results()) {
@@ -122,7 +144,7 @@ public final class BusinessContentRecordPresentationService implements Reference
                     && Objects.equals(item.subtitle(), ReferenceCandidateSubtitleReader.label(text)))
                 sources.add(new Captured(null, List.of(), false, List.of(new Text(subtitle.target(), subtitle.recordId(), subtitle.field(), text))));
         }
-        var prepared = prepare(sources, snapshot.languages);
+        var prepared = prepare(sources, requested == null ? snapshot.languages : requested);
         java.util.function.UnaryOperator<WebReferenceResolveItem> project = item -> {
             if (item == null) return null;
             var title = prepared.getOrDefault(target, Map.of()).getOrDefault(item.id(), Map.of()).get(labelField);

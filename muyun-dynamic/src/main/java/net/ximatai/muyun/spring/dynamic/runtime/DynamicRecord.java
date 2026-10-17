@@ -209,6 +209,16 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
         return partialChildRelations.contains(relationCode);
     }
 
+    /** Omit a loaded relation from a mutation without clearing its persisted children. */
+    public DynamicRecord omitChildren(String relationCode) {
+        if (relationCode == null || relationCode.isBlank()) {
+            throw new IllegalArgumentException("relationCode must not be blank");
+        }
+        children.remove(relationCode);
+        partialChildRelations.remove(relationCode);
+        return this;
+    }
+
     public List<DynamicRecord> getChildren(String relationCode) {
         return children.get(relationCode);
     }

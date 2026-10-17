@@ -193,7 +193,16 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
                     if (expected == null || !expected.present() || !Objects.equals(expected.value(), value(owner, binding.targetKey()))) throw denied();
                 } else if (binding.source() != PageContextSource.NAVIGATOR) throw denied();
             }
-            return work.apply(content.target(parent, location, field, PlatformAction.VIEW));
+            var target = content.target(parent, location, field, PlatformAction.VIEW);
+            if (target.content().policy() == net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS) {
+                // Manual fields need an explicit maintenance grant at request and worker execution.
+                var maintenance = actions.resolveActionCode(module, PlatformAction.CONTENT_EDIT.code(), Set.of(location.recordId()));
+                try (var maintained = ActionExecutionContextHolder.use(maintenance)) {
+                    requireMenuPolicy(web, entry, owner, saved.ownedEntry(), PlatformAction.CONTENT_EDIT);
+                    return work.apply(content.target(parent, location, field, PlatformAction.CONTENT_EDIT));
+                }
+            }
+            return work.apply(target);
         }
     }
 
@@ -252,10 +261,14 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     }
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static void requireMenuPolicy(CrudWeb web, MenuEntryRequestContext entry, EntityContract owner, boolean wasOwned) {
+        requireMenuPolicy(web, entry, owner, wasOwned, PlatformAction.VIEW);
+    }
+    @SuppressWarnings("rawtypes")
+    private static void requireMenuPolicy(CrudWeb web, MenuEntryRequestContext entry, EntityContract owner, boolean wasOwned, PlatformAction action) {
         var policy = web.modulePageEntryPolicy();
         boolean owned = entry != null && policy != null && policy.supports(entry);
         if (wasOwned && !owned) throw denied();
-        if (owned) { policy.requireAction(entry, PlatformAction.VIEW); policy.requireRecord(entry, PlatformAction.VIEW, owner); }
+        if (owned) { policy.requireAction(entry, action); policy.requireRecord(entry, action, owner); }
     }
     private static Object value(EntityContract owner, String field) {
         var properties = new BeanWrapperImpl(owner);

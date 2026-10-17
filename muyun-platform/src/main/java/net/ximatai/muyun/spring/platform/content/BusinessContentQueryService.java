@@ -115,6 +115,20 @@ public final class BusinessContentQueryService {
         return entity == null ? Set.of() : Set.copyOf(contentFields(entity).keySet());
     }
 
+    /** Exact names for a file's explicit language. The caller still applies the normal reference candidate scope. */
+    public Criteria referenceName(CrudAbility<?> owner, String fieldName, String input, String language, String kind) {
+        if ("ORIGINAL".equals(kind)) return Criteria.of().eq(fieldName, input);
+        if (!Set.of("CONFIRMED", "MACHINE").contains(kind)) throw new IllegalArgumentException("Invalid reference name kind");
+        EntityDefinition entity = entity(owner);
+        FieldDefinition field = entity == null ? null : contentFields(entity).get(fieldName);
+        if (field == null || language == null) return Criteria.of().isNull("id");
+        var compiled = compiler.compile(Criteria.of().eq("translatedText", input), ignored -> "translated_text", databaseType);
+        var predicate = compiled.getSql().replace(quote("translated_text"), "t." + quote("translated_text"))
+                + " and t.kind = '" + kind + "'";
+        return Criteria.of().inSubQuery("id", translatedRecords(owner.getModuleAlias(), entityKey(owner, entity), entity, field,
+                language(language), "exchange_name_", "r.record_id", predicate, compiled.getParams()));
+    }
+
     /** SQL adapter port: one current effective translated text per business row and target language. */
     public SqlSubQuery readingProjection(CrudAbility<?> owner, String fieldName, String language, String prefix) {
         if (prefix == null || !prefix.matches("[A-Za-z_][A-Za-z0-9_]{0,31}"))

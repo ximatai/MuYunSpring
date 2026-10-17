@@ -5,6 +5,7 @@ import {
   businessContentLanguageContext,
   changeBusinessContentTranslation,
   useBusinessContentReading,
+  requestBusinessContentGeneration,
   loadBusinessContentTranslationHistory,
   prepareBusinessContentTranslation,
   useLanguageContext,
@@ -122,6 +123,26 @@ const historyOriginal = ref<BusinessContentTranslationMaintenance['original']>()
 const historyPage = ref(1);
 const historyFailed = ref(false);
 const historyLoading = ref(false);
+const machineRequestState = ref('');
+const machineRequestMessage = computed(() => {
+  const state = machineRequestState.value;
+  if (!state) return '';
+  if (state === 'UNAVAILABLE')
+    return language.t('platform.content.generation-unavailable', '自动翻译未启用，原文及人工译文仍可使用');
+  if (state === 'SOURCE_UNKNOWN')
+    return language.t('platform.content.generation-source-unknown', '登记原文语言后可申请自动翻译');
+  if (state === 'ORIGINAL')
+    return language.t('platform.content.original-language-match', '原文已为当前阅读语言');
+  return ['PENDING', 'RUNNING', 'RETRY', 'READY'].includes(state)
+    ? language.t(
+        'platform.content.machine-draft-requested',
+        '机器起草已受理，请稍后重新打开维护核对结果；本次人工输入保持不变。',
+      )
+    : language.t(
+        'platform.content.generation-request-failed',
+        '暂时无法查询或申请翻译，可重试；原文仍可使用',
+      );
+});
 let editorGeneration = 0;
 let historyGeneration = 0;
 const originalChanged = computed(() =>
@@ -145,6 +166,7 @@ function close() {
 function resetEditor() {
   editorOpen.value = false;
   maintenance.value = undefined;
+  machineRequestState.value = '';
   historyOriginal.value = undefined;
   text.value = '';
   busy.value = false;
@@ -161,6 +183,7 @@ async function open() {
   busy.value = true;
   maintenance.value = undefined;
   maintenanceFailed.value = false;
+  machineRequestState.value = '';
   mutationFailed.value = false;
   history.value = [];
   try {
@@ -180,6 +203,40 @@ async function open() {
     void loadHistory(1);
   } catch {
     if (token === editorGeneration) maintenanceFailed.value = true;
+  } finally {
+    if (token === editorGeneration) busy.value = false;
+  }
+}
+async function requestMachineDraft() {
+  if (
+    !props.context ||
+    !id.value ||
+    !maintenance.value ||
+    busy.value ||
+    !editAllowed.value ||
+    originalChanged.value ||
+    unsavedTranslation.value ||
+    maintenance.value.draft ||
+    maintenance.value.confirmed
+  )
+    return;
+  const token = editorGeneration;
+  busy.value = true;
+  machineRequestState.value = '';
+  try {
+    const status = await requestBusinessContentGeneration(
+      props.context.http,
+      props.context.moduleAlias,
+      id.value,
+      props.fieldName,
+      editorLanguage.value,
+      true,
+      { relation: props.relation },
+    );
+    if (token !== editorGeneration) return;
+    machineRequestState.value = status.state;
+  } catch {
+    if (token === editorGeneration) machineRequestState.value = 'REQUEST_FAILED';
   } finally {
     if (token === editorGeneration) busy.value = false;
   }
@@ -419,7 +476,19 @@ watch(
           )
         }}
       </p>
+      <p v-if="machineRequestMessage" role="status">{{ machineRequestMessage }}</p>
       <div class="record-content-translation__actions">
+        <UiButton
+          v-if="editAllowed && content.policy === 'MANUAL_TRANSLATIONS'"
+          :disabled="
+            busy ||
+            originalChanged ||
+            unsavedTranslation ||
+            Boolean(maintenance.draft || maintenance.confirmed)
+          "
+          @click="requestMachineDraft"
+          >{{ language.t('platform.content.request-machine-draft', '机器起草') }}</UiButton
+        >
         <UiButton
           v-if="editAllowed"
           :disabled="busy || originalChanged || !text.trim()"

@@ -66,6 +66,7 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
         protectInternalNote(field(main, "internalNote", "internal_note", "text", "内部记录", false, false,
                 ContentPolicy.KEEP_ORIGINAL));
         var owner = relation(main, "exception", "质量异常单", null);
+        enableExchange(main, owner);
         reference(product, owner);
 
         var inspection = entity("quality_inspection", "检测明细", false);
@@ -79,6 +80,17 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
         field(investigation, "exceptionId", "exception_id", "string", "异常单", true, false, ContentPolicy.KEEP_ORIGINAL);
         field(investigation, "description", "description", "text", "调查意见", true, false, ContentPolicy.AUTO_TRANSLATE);
         relation(investigation, "investigations", "团队调查记录", main);
+    }
+
+    /** The sample declares exchange through the same governed metadata contract as ordinary modules. */
+    private void enableExchange(Metadata main, ModuleMetadataRelation owner) {
+        var current = metadata.select(main.getId());
+        if (current.getCapabilityDeclarations() != null && current.getCapabilityDeclarations().contains("EXCHANGE")) return;
+        var proposal = new MetadataRelationChangeSetPreviewCommand(current.getVersion(),
+                java.util.Map.of(net.ximatai.muyun.spring.common.platform.EntityCapability.EXCHANGE, true), java.util.List.of());
+        var preview = previews.preview(MODULE_ALIAS, owner.getId(), proposal);
+        publication.apply(MODULE_ALIAS, owner.getId(),
+                new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
     }
 
     /** The sample's private field remains protected even when upgrading an existing installation. */

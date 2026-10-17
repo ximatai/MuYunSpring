@@ -449,6 +449,108 @@ class QualityCollaborationIT {
         }
     }
 
+    @Test void exchangeUpdatesDynamicChildrenThroughTheirOwningAggregate() throws Exception {
+        var mvc = webAppContextSetup(web).build();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("exchange-child", "Exchange Child"));
+             var tenant = TenantContext.system("configure exchange aggregate fixture")) {
+            var tenants = web.getBean(TenantService.class);
+            var value = new Tenant(); value.setAlias("quality_exchange_child"); value.setTitle("Exchange aggregate"); value.setEnabled(true);
+            tenants.insert(value); tenants.provisionTenant(value.getAlias());
+            web.getBean(TenantApplicationService.class).ensureApplicationsOpened(value.getAlias(), java.util.List.of("iam", "quality"));
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("exchange-child", "Exchange Child"));
+             var tenant = TenantContext.use("quality_exchange_child")) {
+            String category = write(mvc, "/quality.equipment_category/insert", Map.of("code", "EX-CHILD-C", "title", "分类", "parentId", "root")).path("id").asText();
+            String product = write(mvc, "/quality.product/insert", Map.of("code", "EX-CHILD-P", "title", "设备", "categoryId", category)).path("id").asText();
+            String id = write(mvc, "/quality.exception/insert", Map.of("title", "聚合文件", "description", "父原文唯一标识", "productId", product,
+                    "$contentLanguages", Map.of("title", Map.of("languageTag", "zh-CN"), "description", Map.of("languageTag", "zh-CN")),
+                    "children", Map.of("inspections", java.util.List.of(Map.of("description", "明细原文唯一标识", "sampleQuantity", 12, "failedQuantity", 2,
+                            "$contentLanguages", Map.of("description", Map.of("languageTag", "zh-CN")))),
+                            "investigations", java.util.List.of(Map.of("description", "只读关联调查",
+                                    "$contentLanguages", Map.of("description", Map.of("languageTag", "zh-CN"))))))).path("id").asText();
+            var exported = mvc.perform(post("/quality.exception/exchange/files/export").contentType("application/json")
+                    .content(mapper.writeValueAsBytes(Map.of("ids", java.util.List.of(id), "options", Map.of("purpose", "DATA", "language", "en")))))
+                    .andReturn().getResponse();
+            assertThat(exported.getStatus()).isEqualTo(200);
+            var output = new java.io.ByteArrayOutputStream();
+            try (var in = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(exported.getContentAsByteArray()));
+                 var out = new java.util.zip.ZipOutputStream(output)) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = in.getNextEntry()) != null) {
+                    byte[] bytes = in.readAllBytes();
+                    if (entry.getName().equals("xl/sharedStrings.xml")) bytes = new String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+                            .replace("父原文唯一标识", "New parent original").replace("明细原文唯一标识", "New child original")
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    out.putNextEntry(new java.util.zip.ZipEntry(entry.getName())); out.write(bytes); out.closeEntry();
+                }
+            }
+            byte[] edited = output.toByteArray();
+            var command = new java.util.LinkedHashMap<String, Object>();
+            command.put("sourceLanguage", "en");
+            command.put("sheets", java.util.List.of(Map.of("entityAlias", "quality_exception", "matchField", "title", "duplicateStrategy", "ERROR"),
+                    Map.of("entityAlias", "quality_inspection", "matchField", "description", "duplicateStrategy", "ERROR"),
+                    Map.of("entityAlias", "quality_investigation", "matchField", "description", "duplicateStrategy", "ERROR")));
+            var preview = exchangeMultipart(mvc, "preview", edited, command);
+            command.put("documentId", preview.path("documentId").asText()); command.put("previewDigest", preview.path("previewDigest").asText());
+            var imported = exchangeMultipart(mvc, "import", edited, command);
+            assertThat(imported.path("errorCount").asInt()).isZero();
+            assertThat(imported.path("updated").asInt()).isEqualTo(2);
+            var current = read(mvc, "/quality.exception/view/" + id);
+            assertThat(current.at("/values/description").asText()).isEqualTo("New parent original");
+            var children = web.getBean(DynamicRecordService.class).aggregateChildrenForView("quality.exception", id, "inspections");
+            assertThat(children).hasSize(1);
+            assertThat(children.getFirst().getValue("description")).isEqualTo("New child original");
+            var contexts = web.getBean(DynamicRecordService.class).aggregateChildrenForView("quality.exception", id, "investigations");
+            assertThat(contexts).hasSize(1);
+            assertThat(contexts.getFirst().getVersion()).isZero();
+            assertThat(contexts.getFirst().getValue("description")).isEqualTo("只读关联调查");
+        }
+    }
+
+    private JsonNode exchangeMultipart(MockMvc mvc, String operation, byte[] bytes, Map<String, Object> command) throws Exception {
+        var result = mvc.perform(multipart("/quality.exception/exchange/files/" + operation)
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "input.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes))
+                .file(new org.springframework.mock.web.MockMultipartFile("command", "", "application/json", mapper.writeValueAsBytes(command))))
+                .andReturn();
+        assertThat(result.getResponse().getStatus()).as("%s", result.getResolvedException()).isEqualTo(200);
+        var body = mapper.readTree(result.getResponse().getContentAsByteArray());
+        return body.has("data") ? body.path("data") : body;
+    }
+
+    @Test void exchangeReferenceNamesFollowTheFileLanguageWithoutBrowserReadingHeaders() throws Exception {
+        var mvc = webAppContextSetup(web).build();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("exchange-contract", "Exchange Contract"));
+             var tenant = TenantContext.system("configure exchange name fixture")) {
+            var tenants = web.getBean(TenantService.class);
+            var value = new Tenant(); value.setAlias("quality_exchange_name"); value.setTitle("Exchange names"); value.setEnabled(true);
+            tenants.insert(value); tenants.provisionTenant(value.getAlias());
+            web.getBean(TenantApplicationService.class).ensureApplicationsOpened(value.getAlias(),java.util.List.of("iam","quality"));
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("exchange-contract", "Exchange Contract"));
+             var tenant = TenantContext.use("quality_exchange_name")) {
+            String category = write(mvc,"/quality.equipment_category/insert",Map.of("code","FILE-NAME","title","原始分类","parentId","root",
+                    "$contentLanguages",Map.of("title",Map.of("languageTag","zh-CN")))).path("id").asText();
+            confirmTranslation(mvc,"/quality.equipment_category/view/"+category+"/content/title/translations/en/","File category");
+            String product = write(mvc,"/quality.product/insert",Map.of("code","FILE-PRODUCT","title","原始商品","categoryId",category,
+                    "$contentLanguages",Map.of("title",Map.of("languageTag","zh-CN")))).path("id").asText();
+            for (boolean browserLanguage : java.util.List.of(false,true)) {
+                var request = post("/quality.product/exchange/files/export").contentType("application/json")
+                        .content(mapper.writeValueAsBytes(Map.of("ids",java.util.List.of(product),"options",Map.of("purpose","DATA","language","en"))));
+                if (browserLanguage) request.header(net.ximatai.muyun.spring.web.BusinessContentQueryWebContext.LANGUAGES_HEADER,"de");
+                var response = mvc.perform(request).andReturn().getResponse();
+                assertThat(response.getStatus()).isEqualTo(200);
+                String strings = "";
+                try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(response.getContentAsByteArray()))) {
+                    java.util.zip.ZipEntry entry;
+                    while ((entry = zip.getNextEntry()) != null) if (entry.getName().equals("xl/sharedStrings.xml")) {
+                        strings = new String(zip.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8); break;
+                    }
+                }
+                assertThat(strings).contains(">File category<");
+            }
+        }
+    }
+
     @Test void readingProjectionBindsTheAuthorizedTenantIncarnationAndVersionFromTheSameRead() throws Exception {
         var mvc = webAppContextSetup(web).build();
         try (var actor = CurrentUserContext.use(CurrentUser.systemUser("snapshot-contract", "Snapshot Contract"));
