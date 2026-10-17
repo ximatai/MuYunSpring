@@ -1189,6 +1189,59 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     static class FixtureService extends AbstractAbilityService<ContentFixture> implements SoftDeleteAbility<ContentFixture>, DataScopeAbility<ContentFixture> {
         FixtureService(ContentFixtureDao dao) { super("test.content", ContentFixture.class, dao); }
     }
+
+    @Test void aggregateFieldPolicyUsesTheChildIdentityInsteadOfTheReadableParentIdentity() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var parent = row("可读父记录"); service.insert(parent);
+            var childService = new PolicyChildService(dao, Set.of(parent.getId()));
+            var child = row("不可读子说明"); child.setParentId(parent.getId()); childService.insert(child);
+            var aggregate = new PolicyAggregateService(dao, childService);
+            var parentView = ActionExecutionContext.ofPlatformAction(aggregate.getModuleAlias(), PlatformAction.VIEW,
+                    Set.of(parent.getId()), CurrentUserContext.currentUser());
+            for (var owningView : List.of(parentView, ActionExecutionContext.ofPlatformAction(childService.getModuleAlias(),
+                    PlatformAction.VIEW, Set.of(parent.getId()), CurrentUserContext.currentUser()))) {
+                try (var context = ActionExecutionContextHolder.use(owningView)) {
+                assertThat(content.childSources(aggregate, parent.getId(), "lines", child.getId()).fields()).isEmpty();
+                assertThat(childService.lastRead.moduleAlias()).isEqualTo(childService.getModuleAlias());
+                assertThat(childService.lastRead.recordIds()).containsExactly(child.getId());
+                assertThatThrownBy(() -> content.childHistory(aggregate, parent.getId(), "lines", child.getId(), "title", HISTORY))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                var location = new BusinessContentService.Location(parent.getId(), "lines", child.getId());
+                assertThat(translationService.read(aggregate, location, "en").fields()).isEmpty();
+                assertThatThrownBy(() -> translationService.prepare(aggregate, location, "title", "en", PlatformAction.CONTENT_EDIT))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                assertThat(ActionExecutionContextHolder.current()).contains(owningView);
+                }
+            }
+            childService.readableIds.add(child.getId());
+            try (var context = ActionExecutionContextHolder.use(parentView)) {
+                assertThat(content.childSources(aggregate, parent.getId(), "lines", child.getId()).fields().get("title").text())
+                        .isEqualTo("不可读子说明");
+                assertThat(content.childHistory(aggregate, parent.getId(), "lines", child.getId(), "title", HISTORY))
+                        .extracting(BusinessContentService.SourceRevision::text).containsExactly("不可读子说明");
+            }
+        }
+    }
+
+    static class PolicyChildService extends AbstractAbilityService<ContentFixture>
+            implements net.ximatai.muyun.spring.ability.child.ChildAbility<ContentFixture>, FieldReadAbility {
+        final Set<String> readableIds; ActionExecutionContext lastRead;
+        PolicyChildService(ContentFixtureDao dao, Set<String> readableIds) {
+            super("test.content_line", ContentFixture.class, dao); this.readableIds = new HashSet<>(readableIds);
+        }
+        @Override public FieldReadPolicy fieldReadPolicy(ActionExecutionContext action) {
+            lastRead = action;
+            return readableIds.containsAll(action.recordIds()) ? FieldReadPolicy.allReadable() : FieldReadPolicy.readableFields(Set.of("id"));
+        }
+    }
+    static class PolicyAggregateService extends FixtureService implements net.ximatai.muyun.spring.ability.child.ChildrenAbility<ContentFixture> {
+        final PolicyChildService child;
+        PolicyAggregateService(ContentFixtureDao dao, PolicyChildService child) { super(dao); this.child = child; }
+        @Override public List<net.ximatai.muyun.spring.ability.child.ChildRelation<?, ContentFixture>> childRelations() {
+            return List.of(new net.ximatai.muyun.spring.ability.child.ChildRelation<ContentFixture, ContentFixture>("lines", child,
+                    ContentFixture::setParentId, "parentId", ignored -> List.of(), ContentFixture::getParentId));
+        }
+    }
     static class RetainedFixtureService extends FixtureService implements RecycleBinAbility<ContentFixture> {
         RetainedFixtureService(ContentFixtureDao dao) { super(dao); }
         @Override public boolean isRecycleBinPurgeEnabled() { return true; }

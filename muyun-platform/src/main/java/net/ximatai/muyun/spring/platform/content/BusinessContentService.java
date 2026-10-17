@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.FieldReadAbility;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.content.ContentFieldDefinition;
@@ -28,13 +29,20 @@ public final class BusinessContentService {
     private final ActionExecutionPolicyService policies;
     private final DataScopeCriteriaService scopes;
     private final ObjectProvider<DynamicRecordService> dynamicRecords;
+    private final ObjectProvider<PlatformModuleActionService> moduleActions;
     public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes) {
         this(store, policies, scopes, null);
     }
-    @Autowired
     public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes,
                                   ObjectProvider<DynamicRecordService> dynamicRecords) {
+        this(store, policies, scopes, dynamicRecords, null);
+    }
+    @Autowired
+    public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes,
+                                  ObjectProvider<DynamicRecordService> dynamicRecords,
+                                  ObjectProvider<PlatformModuleActionService> moduleActions) {
         this.dynamicRecords = dynamicRecords;
+        this.moduleActions = moduleActions;
         this.store = Objects.requireNonNull(store); this.policies = Objects.requireNonNull(policies);
         this.scopes = Objects.requireNonNull(scopes);
     }
@@ -164,14 +172,23 @@ public final class BusinessContentService {
     Map<String, ContentFieldDefinition> readableFields(CrudAbility<?> ability, EntityContract record) {
         var fields = BusinessContentFields.definitions(ability, record);
         if (!(ability instanceof FieldReadAbility readable)) return fields;
-        var action = ActionExecutionContextHolder.current().filter(current -> PlatformAction.VIEW.matches(current.actionCode()))
-                .orElseGet(() -> ActionExecutionContext.ofPlatformAction(ability.getModuleAlias(), PlatformAction.VIEW,
-                        Set.of(record.getId()), CurrentUserContext.currentUser()));
+        var policyContext = ActionExecutionContextHolder.current()
+                .filter(current -> ability.getModuleAlias().equals(current.moduleAlias()) && PlatformAction.VIEW.matches(current.actionCode()))
+                .map(ActionExecutionContext::actionPolicy).orElseGet(() -> viewPolicy(ability.getModuleAlias()));
+        // An aggregate grant establishes ownership, not the child's field identity. Never
+        // pass parent/batch IDs or a parent's authorization result to the producer callback.
+        var action = ActionExecutionContext.ofPolicy(ability.getModuleAlias(), policyContext,
+                Set.of(record.getId()), CurrentUserContext.currentUser());
         var policy = readable.fieldReadPolicy(action);
         if (policy == null || !policy.restricted()) return fields;
         var allowed = new LinkedHashMap<String, ContentFieldDefinition>();
         fields.forEach((name, definition) -> { if (policy.allows(name)) allowed.put(name, definition); });
         return Map.copyOf(allowed);
+    }
+    private ActionExecutionPolicy viewPolicy(String moduleAlias) {
+        var actions = moduleActions == null ? null : moduleActions.getIfAvailable();
+        return actions == null ? PlatformAction.VIEW.executionPolicy()
+                : actions.findDeclaredExecutionPolicy(moduleAlias, PlatformAction.VIEW.code()).orElseGet(PlatformAction.VIEW::executionPolicy);
     }
     private <T extends EntityContract> T authorizedRecord(CrudAbility<T> ability, String recordId) {
         return authorizedRecord(ability, recordId, PlatformAction.VIEW);

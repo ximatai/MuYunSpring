@@ -175,6 +175,15 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         if (action == null || Boolean.FALSE.equals(action.getEnabled())) {
             throw new PlatformAccessDeniedException("模块动作尚未发布或已停用：" + moduleAlias + "." + actionCode);
         }
+        return executionPolicy(action);
+    }
+
+    /** Policy facts only, without granting or requiring a standalone entry for an aggregate-owned producer. */
+    public Optional<ActionExecutionPolicy> findDeclaredExecutionPolicy(String moduleAlias, String actionCode) {
+        return Optional.ofNullable(findByModuleAliasAndActionCode(moduleAlias, actionCode)).map(this::executionPolicy);
+    }
+
+    private ActionExecutionPolicy executionPolicy(PlatformModuleAction action) {
         ActionExecutionPolicy policy = action.executionPolicy();
         return new ActionExecutionPolicy(policy.actionCode(), policy.level(), policy.accessMode(),
                 policy.actionAuth(), effectiveDataAuth(action), policy.defaultGrantPolicy(), policy.inheritActionCode());

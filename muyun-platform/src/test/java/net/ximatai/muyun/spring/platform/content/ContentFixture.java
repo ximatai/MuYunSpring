@@ -15,4 +15,6 @@ public class ContentFixture extends StandardEntity {
     private String title;
     @Column(name = "quantity", type = ColumnType.INT)
     private Integer quantity;
+    @Column(name = "parent_id", type = ColumnType.VARCHAR, length = 64)
+    private String parentId;
 }
