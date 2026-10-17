@@ -284,6 +284,46 @@ it('downloads only the returned correction workbook and accepts it directly as t
   wrapper.unmount();
 });
 
+it('retains one confirmed reference when another reference on the same row still needs a choice', async () => {
+  const pending = preview();
+  const choice = (field: string) => ({
+    field,
+    input: `Machine ${field}`,
+    candidates: [{ id: `${field}-a`, title: field, matchedText: `Machine ${field}`, kind: 'MACHINE' }],
+  });
+  pending.rows.push({
+    ...pending.rows[0]!,
+    row: 'pending-row',
+    relation: 'R-2',
+    choices: [choice('category'), choice('product')],
+  });
+  const reviewed = structuredClone(pending);
+  reviewed.rows[1]!.choices = [choice('product')];
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(pending)
+    .mockResolvedValueOnce(reviewed)
+    .mockResolvedValueOnce(result(1));
+  const wrapper = mount(ModuleDataExchangeSurface, {
+    props: { context: context(request), scopeKey: '' },
+    global: { stubs },
+  });
+  await click(wrapper, '业务文件');
+  await click(wrapper, '导入数据');
+  await upload(wrapper);
+  await wrapper.get('select[aria-label="R-2 category Machine category"]').setValue('category-a');
+  await click(wrapper, '核对文件与本次修改');
+  await click(wrapper, '确认导入');
+  const reviewedCommand = JSON.parse(await (request.mock.calls[1]?.[0].body.get('command') as Blob).text());
+  const importedCommand = JSON.parse(await (request.mock.calls[2]?.[0].body.get('command') as Blob).text());
+  expect(importedCommand.confirmations).toEqual([
+    { row: 'pending-row', field: 'category', input: 'Machine category', candidateId: 'category-a' },
+  ]);
+  expect(importedCommand.confirmations).toEqual(reviewedCommand.confirmations);
+  expect(wrapper.text()).toContain('下载错误文件');
+  wrapper.unmount();
+});
+
 it('enables declared static modules, hides unauthorized modules and ignores a late preview after workspace changes', async () => {
   const denied = mount(ModuleDataExchangeSurface, {
     props: { context: context(vi.fn(), false), scopeKey: '' },
@@ -339,12 +379,14 @@ it('exports an explicit file purpose and language under the exact successful que
     status: 'ready',
     mode: 'normal',
     request: { quickSearch: '目标订单', externalQueryValues: { customerId: 'one' } },
+    contentLanguage: 'en',
   } as typeof snapshot;
   await wrapper.get('select[aria-label="导出用途"]').setValue('READING');
   await wrapper.get('select[aria-label="文件名称解析与导出语言"]').setValue('de');
   await click(wrapper, '导出当前查询');
   expect(request.mock.calls[0]?.[0]).toMatchObject({
     path: '/sales.order/exchange/files/export',
+    headers: { 'X-MuYun-Content-Language': 'en' },
     body: {
       query: { quickSearch: '目标订单', externalQueryValues: { customerId: 'one' } },
       options: { purpose: 'READING', language: 'de' },

@@ -1,6 +1,8 @@
 import type { HttpClient } from '../http';
 import type { TextPresentation, WebQueryRequest } from '@muyun/web-contracts';
 import { actionResultData } from '../actionResult';
+import { businessContentReadHeaders } from '../businessContentLanguage';
+import type { RecordQueryRequestOptions } from './staticModuleClient';
 
 export type ExchangePurpose = 'DATA' | 'TRANSLATIONS' | 'READING';
 export interface ExchangeOptions {
@@ -117,11 +119,17 @@ export function createDataExchangeClient(http: HttpClient, moduleAlias: string) 
         await http.request<ExchangeResult>({ method: 'POST', path: `${base}/exchange/files/import`, body }),
       );
     },
-    exportFile(query: WebQueryRequest | undefined, options: ExchangeOptions, ids?: string[]) {
+    exportFile(
+      query: WebQueryRequest | undefined,
+      options: ExchangeOptions,
+      ids?: string[],
+      queryOptions?: RecordQueryRequestOptions,
+    ) {
       return http.request<Blob>({
         method: 'POST',
         path: `${base}/exchange/files/export`,
         body: { query, options, ids },
+        headers: businessContentReadHeaders(queryOptions),
         responseType: 'blob',
       });
     },

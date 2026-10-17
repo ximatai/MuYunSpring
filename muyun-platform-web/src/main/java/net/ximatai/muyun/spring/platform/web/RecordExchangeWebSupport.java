@@ -102,11 +102,10 @@ public final class RecordExchangeWebSupport {
         var access = access(web, request.options().language());
         var selected =
                 request.ids() == null || request.ids().isEmpty()
-                        ? queryIds(web, request.query())
+                        ? queryIds(web, request.query(), List.of())
                         : request.ids();
         if (request.ids() != null && !request.ids().isEmpty() && request.query() != null) {
-            var wanted = Set.copyOf(request.ids());
-            selected = queryIds(web, request.query()).stream().filter(wanted::contains).toList();
+            selected = queryIds(web, request.query(), request.ids());
         }
         return exchange.export(access, selected, request.options());
     }
@@ -189,16 +188,21 @@ public final class RecordExchangeWebSupport {
         }
     }
 
-    private List<String> queryIds(CrudWeb<?, ?> web, WebQueryRequest input) {
+    private List<String> queryIds(CrudWeb<?, ?> web, WebQueryRequest input, List<String> selected) {
         WebQueryRequest query =
                 input == null ? new WebQueryRequest(null, List.of(), List.of()) : input;
         var result = new ArrayList<String>();
+        var conditions = new ArrayList<>(query.conditions());
+        if (!selected.isEmpty())
+            conditions.add(
+                    new WebQueryCondition(
+                            "id", "in", new ArrayList<Object>(new LinkedHashSet<>(selected))));
         for (int page = 1; page <= 11; page++) {
             var paged =
                     new WebQueryRequest(
                             new WebPageRequest(page, 100),
                             false,
-                            query.conditions(),
+                            conditions,
                             query.criteria(),
                             query.queryForm(),
                             query.sorts(),
@@ -215,7 +219,18 @@ public final class RecordExchangeWebSupport {
             if (response.total() > RecordExchangeService.MAX_ROWS)
                 throw new IllegalArgumentException(
                         "查询超过 1000 条，请缩小范围后导出 / Narrow the export query");
-            response.records().forEach(record -> result.add(record.getId()));
+            // Standard lists may return entity records or source-neutral published field
+            // projections.
+            for (Object record : response.records()) {
+                Object id =
+                        record instanceof EntityContract entity
+                                ? entity.getId()
+                                : record instanceof Map<?, ?> fields ? fields.get("id") : null;
+                if (!(id instanceof String value) || value.isBlank())
+                    throw new IllegalStateException(
+                            "The list projection has no stable record identity");
+                result.add(value);
+            }
             if (response.records().size() < 100 || result.size() >= response.total()) break;
         }
         return result;
@@ -515,14 +530,14 @@ public final class RecordExchangeWebSupport {
                     () -> {
                         if (parent != null)
                             action(web, PlatformAction.VIEW, parent, () -> web.view(parent));
-                        CrudAbility<?> service = (CrudAbility<?>) web.service();
-                        if (!definition.entity(entity).main() && staticModule == null)
-                            service = records.entity(web.webScopeName(), entity);
+                        CrudAbility<?> service = producer(definition.entity(entity));
                         if (service instanceof FieldReadAbility reader) {
                             var policy =
                                     reader.fieldReadPolicy(
-                                            ActionExecutionContextHolder.current().orElseThrow());
-                            if (fields.stream().anyMatch(field -> !policy.allows(field)))
+                                            actions.resolveFieldReadContext(
+                                                    service.getModuleAlias(), Set.of()));
+                            if (policy != null
+                                    && fields.stream().anyMatch(field -> !policy.allows(field)))
                                 throw new PlatformAccessDeniedException(
                                         "File fields are unavailable");
                         }
@@ -1047,9 +1062,7 @@ public final class RecordExchangeWebSupport {
             return source;
         }
 
-        private Row row(RecordExchangeDefinition.Entity entity, EntityContract record) {
-            if (record == null)
-                throw new PlatformAccessDeniedException("Exchange record is unavailable");
+        private CrudAbility<?> producer(RecordExchangeDefinition.Entity entity) {
             CrudAbility<?> owner = (CrudAbility<?>) web.service();
             if (!entity.main()) {
                 if (staticModule == null)
@@ -1065,20 +1078,30 @@ public final class RecordExchangeWebSupport {
                                     .orElseThrow()
                                     .childAbility();
             }
-            record =
-                    WebOutputSupport.record((CrudAbility) owner, record, FieldOutputContext.EXPORT);
-            var values = new LinkedHashMap<String, Object>();
-            Set<String> readable = null;
-            if (owner instanceof FieldReadAbility reader) {
-                var policy =
-                        reader.fieldReadPolicy(
-                                ActionExecutionContextHolder.current().orElseThrow());
-                if (policy.restricted()) readable = policy.readableFields();
+            return owner;
+        }
+
+        private Row row(RecordExchangeDefinition.Entity entity, EntityContract record) {
+            if (record == null)
+                throw new PlatformAccessDeniedException("Exchange record is unavailable");
+            CrudAbility<?> owner = producer(entity);
+            var context =
+                    actions.resolveFieldReadContext(owner.getModuleAlias(), Set.of(record.getId()));
+            try (var ignored = ActionExecutionContextHolder.use(context)) {
+                record =
+                        WebOutputSupport.record(
+                                (CrudAbility) owner, record, FieldOutputContext.EXPORT);
+                var values = new LinkedHashMap<String, Object>();
+                Set<String> readable = null;
+                if (owner instanceof FieldReadAbility reader) {
+                    var policy = reader.fieldReadPolicy(context);
+                    if (policy != null && policy.restricted()) readable = policy.readableFields();
+                }
+                for (var field : entity.fields())
+                    if (readable == null || readable.contains(field.name()))
+                        values.put(field.name(), value(record, field.name()));
+                return new Row(record.getId(), record.getVersion(), record.getCreatedAt(), values);
             }
-            for (var field : entity.fields())
-                if (readable == null || readable.contains(field.name()))
-                    values.put(field.name(), value(record, field.name()));
-            return new Row(record.getId(), record.getVersion(), record.getCreatedAt(), values);
         }
 
         private List<OptionItem> optionItems(OptionBinding binding) {

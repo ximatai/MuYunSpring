@@ -198,6 +198,15 @@ public class ExcelWorkbookParser {
         if (cell == null) {
             return null;
         }
+        // Exchange values are data, not Excel's rounded General/percentage/currency display.
+        // Keep formatted dates on the existing date path; large exact values are exported as text.
+        if (preserveText) {
+            var value = evaluator.evaluate(cell);
+            if (value != null && value.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC
+                    && !org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                return java.math.BigDecimal.valueOf(value.getNumberValue()).stripTrailingZeros().toPlainString();
+            }
+        }
         return formatter.formatCellValue(cell, evaluator);
     }
 

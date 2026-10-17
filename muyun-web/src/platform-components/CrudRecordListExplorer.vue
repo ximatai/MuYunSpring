@@ -165,6 +165,7 @@ const pageNum = ref(1);
 const pageSize = ref(200);
 const pages = ref(1);
 const successfulRequest = ref<WebQueryRequest>();
+const successfulContentLanguage = ref<string>();
 const appliedKeyword = ref('');
 interface QueryControllerSettlement {
   resolve(): void;
@@ -268,6 +269,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
   const context = props.context;
   const mode = props.mode;
   const keyword = props.keyword.trim();
+  const requestedContentLanguage = contentLanguage.languageTag.value;
   const request: WebQueryRequest = {
     page: { pageNum: requestedPage, pageSize: pageSize.value },
     ...(appliedSorts.value ? { sorts: appliedSorts.value } : {}),
@@ -312,9 +314,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
         pages: recycleBinState.pages.value,
       };
     } else {
-      response = await context.abilities
-        .crud()
-        .query(request, { contentLanguage: contentLanguage.languageTag.value });
+      response = await context.abilities.crud().query(request, { contentLanguage: requestedContentLanguage });
     }
     if (requestSeq !== recordsRequestSeq) return;
     if ('businessContent' in response && response.businessContent && !contentQuerySchema.value) {
@@ -345,6 +345,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     pages.value = Math.max(1, response.pages);
     appliedKeyword.value = keyword;
     successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
+    successfulContentLanguage.value = requestedContentLanguage;
     emit('loaded', response.records, response.totalKnown === false ? undefined : response.total);
     if (canQueryRecycleBin(context)) void recycleBinState.refreshSummary();
   } catch (cause) {
@@ -431,7 +432,10 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   return {
     mode: props.mode,
     ...(!loading.value && !loadError.value && successfulRequest.value
-      ? { request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest }
+      ? {
+          request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest,
+          contentLanguage: successfulContentLanguage.value,
+        }
       : {}),
     status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
     quickSearchEnabled: props.mode === 'normal' && !loadError.value && props.queryQuickSearchEnabled,

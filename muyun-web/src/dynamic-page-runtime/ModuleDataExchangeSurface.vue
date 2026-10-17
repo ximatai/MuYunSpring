@@ -182,9 +182,18 @@ async function review() {
       ...parsed,
       rows: parsed.rows.map((row) => ({
         ...row,
-        choices: row.choices.length
-          ? row.choices
-          : (preview.value?.rows.find((old) => old.row === row.row)?.choices ?? []),
+        choices: [
+          ...row.choices,
+          ...(preview.value?.rows
+            .find((old) => old.row === row.row)
+            ?.choices.filter(
+              (old) =>
+                intent.confirmations.some(
+                  (choice) =>
+                    choice.row === row.row && choice.field === old.field && choice.input === old.input,
+                ) && !row.choices.some((choice) => choice.field === old.field),
+            ) ?? []),
+        ],
       })),
     };
     reviewed.value = true;
@@ -235,6 +244,7 @@ async function exportData(selected: boolean) {
       selected ? undefined : query?.request,
       { purpose, language: target },
       ids,
+      selected ? undefined : { contentLanguage: query?.contentLanguage },
     );
     if (current()) save(blob, `${props.context.moduleAlias}-${purpose.toLowerCase()}-${target}.xlsx`);
   });

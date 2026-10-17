@@ -304,6 +304,7 @@ const descriptorLoadError = ref(false);
 const recordsLoadError = ref<() => string>();
 const quickSearchKeyword = ref('');
 const successfulRequest = ref<WebQueryRequest>();
+const successfulContentLanguage = ref<string>();
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
 /** Once opened, retain the draft editor while collapsed so reference resolution cannot be discarded. */
@@ -900,8 +901,9 @@ async function loadRecords(updateLoading = true) {
   try {
     recordsLoadError.value = undefined;
     const request = buildQueryRequest();
+    const requestedContentLanguage = contentLanguage.languageTag.value;
     const response = await props.context.crud.query(request, {
-      contentLanguage: contentLanguage.languageTag.value,
+      contentLanguage: requestedContentLanguage,
     });
     if (requestSeq !== recordsRequestSeq) {
       return false;
@@ -924,6 +926,7 @@ async function loadRecords(updateLoading = true) {
     pageSize.value = response.pageSize;
     emit('loaded', response.records);
     successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
+    successfulContentLanguage.value = requestedContentLanguage;
     emit('queried', request);
     refreshRecycleBinSummary();
     return true;
@@ -1567,7 +1570,10 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   return {
     mode: props.mode,
     ...(status === 'ready' && successfulRequest.value
-      ? { request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest }
+      ? {
+          request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest,
+          contentLanguage: successfulContentLanguage.value,
+        }
       : {}),
     status,
     quickSearchEnabled:

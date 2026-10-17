@@ -419,6 +419,44 @@ class RecordExchangeServiceTest {
     }
 
     @Test
+    void generalNumericCellsDoNotRoundBusinessValuesOrInvalidateUntouchedReceipts() {
+        for (String amount :
+                List.of(
+                        "1234567890.12345",
+                        "123456789012345",
+                        "123456789012",
+                        "0.00000000012345")) {
+            var row =
+                    access.put(
+                            "main",
+                            null,
+                            Map.of(
+                                    "code",
+                                    amount,
+                                    "serial",
+                                    123456789012345L,
+                                    "amount",
+                                    new java.math.BigDecimal(amount)));
+            byte[] file =
+                    service.export(
+                            access,
+                            List.of(row.id()),
+                            new RecordExchangeService.Export(DATA, "en", "UTC"));
+            var parsed = new ExcelWorkbookParser(true).parse(file);
+            var values =
+                    RecordExchangeWorkbook.values(
+                            parsed.sheets().getFirst(),
+                            parsed.sheets().getFirst().rows().getFirst());
+            assertThat(values).containsEntry("serial", "123456789012345");
+            assertThat(new java.math.BigDecimal(values.get("amount"))).isEqualByComparingTo(amount);
+            var result = run(file, ImportDuplicateStrategy.ERROR);
+            assertThat(result.errorCount()).isZero();
+            assertThat(result.updated()).isZero();
+        }
+        assertThat(access.saves).isZero();
+    }
+
+    @Test
     void exactTextAndLargeNumbersSurviveExportAndReimportWithoutBusinessMutation() {
         String text = "  Original line one\nSecond line  ";
         var row =

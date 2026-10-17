@@ -15,6 +15,8 @@
 
 `options.purpose` 为 `DATA`、`TRANSLATIONS` 或 `READING`，后两者必须指定目标 `language`。`timeZone` 默认 `UTC`。查询导出不把当前页当作全量结果；单次最大 1000 行，超限须缩小范围。`ids` 与 `query` 同时提供时取交集。
 
+查询导出的 `X-MuYun-Content-Language` 保留成功列表查询的业务阅读语言，用于译文筛选与排序；它与 `options.language` 指定的文件输出语言分别表达。例如可以按英文译文查询，再导出德文阅读文件。身份交集在查询计数与分页前应用，行数限制作用于最终输出范围。
+
 `command` 包含 `documentId`、`previewDigest`、各实体 `sheets`（`entityAlias`、`matchField`、`duplicateStrategy`），可选 `confirmations`、`sourceLanguage` 与 `resolutionLanguage`。确认项绑定文件行、引用字段、输入文本及实际候选对象 ID。核对摘要绑定文件与选项；修改任何一项后须重新预览。`resolutionLanguage` 只影响本次业务名称解析，不能改动译文维护文件的目标语言。
 
 模板及数据文件采用两行表头。更新空白或缺列不修改，`__clearFields` 显式清空。`__exchangeRow` 为服务器验证的行身份，`__inputIdentity` 保持失败新行身份，`__contextOnly` 表示只读关联上下文，`__error` 仅为说明。人工译文文件使用独立原文和译文版本列；阅读文件的技术列与持久化用途阻止误回导。

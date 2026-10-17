@@ -207,6 +207,7 @@ describe('RecordQueryListPanel', () => {
     expect(controller.snapshot()).toEqual(
       expect.objectContaining({
         quickSearchEnabled: true,
+        contentLanguage: 'zh-CN',
         quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' }],
         rows: [
           {

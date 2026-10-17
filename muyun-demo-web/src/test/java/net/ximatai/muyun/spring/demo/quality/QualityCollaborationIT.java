@@ -533,9 +533,11 @@ class QualityCollaborationIT {
             confirmTranslation(mvc,"/quality.equipment_category/view/"+category+"/content/title/translations/en/","File category");
             String product = write(mvc,"/quality.product/insert",Map.of("code","FILE-PRODUCT","title","原始商品","categoryId",category,
                     "$contentLanguages",Map.of("title",Map.of("languageTag","zh-CN")))).path("id").asText();
-            for (boolean browserLanguage : java.util.List.of(false,true)) {
+            for (boolean browserLanguage : java.util.List.of(false,true)) for (boolean queryExport : java.util.List.of(false,true)) {
                 var request = post("/quality.product/exchange/files/export").contentType("application/json")
-                        .content(mapper.writeValueAsBytes(Map.of("ids",java.util.List.of(product),"options",Map.of("purpose","DATA","language","en"))));
+                        .content(mapper.writeValueAsBytes(queryExport ? Map.of("query",Map.of("conditions",java.util.List.of(
+                                Map.of("fieldName","id","operator","eq","values",java.util.List.of(product)))),"options",Map.of("purpose","DATA","language","en"))
+                                : Map.of("ids",java.util.List.of(product),"options",Map.of("purpose","DATA","language","en"))));
                 if (browserLanguage) request.header(net.ximatai.muyun.spring.web.BusinessContentQueryWebContext.LANGUAGES_HEADER,"de");
                 var response = mvc.perform(request).andReturn().getResponse();
                 assertThat(response.getStatus()).isEqualTo(200);

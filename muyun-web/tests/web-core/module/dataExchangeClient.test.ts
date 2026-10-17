@@ -110,11 +110,14 @@ it.each(['DATA', 'TRANSLATIONS', 'READING'] as const)(
       uiConfigId: 'published-list',
       sorts: [{ field: 'title', desc: false }],
     };
-    await client.exportFile(query, { purpose, language: 'de', timeZone: 'Europe/Berlin' });
+    await client.exportFile(query, { purpose, language: 'de', timeZone: 'Europe/Berlin' }, undefined, {
+      contentLanguage: 'en',
+    });
     expect(request.mock.calls[0]?.[0]).toEqual({
       method: 'POST',
       path: '/quality.exception/exchange/files/export',
       body: { query, options: { purpose, language: 'de', timeZone: 'Europe/Berlin' }, ids: undefined },
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de', 'X-MuYun-Content-Language': 'en' },
       responseType: 'blob',
     });
     expect(query.quickSearch).toBe('seal');

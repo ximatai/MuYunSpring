@@ -114,6 +114,10 @@ describe('CrudRecordListExplorer', () => {
       releaseSchema();
       await flushPromises();
       expect(requests).toEqual(['en', 'de']);
+      const controller = wrapper
+        .findComponent(CrudRecordListExplorer)
+        .emitted('queryControllerChange')![0]![0] as { snapshot(): { contentLanguage?: string } };
+      expect(controller.snapshot().contentLanguage).toBe('de');
       expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('titleOf')(raw)).toBe('Gerät');
       expect(wrapper.findComponent(CrudRecordListExplorer).emitted('loaded')).toHaveLength(1);
       expect(raw.title).toBe('设备原名');
