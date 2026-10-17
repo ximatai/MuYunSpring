@@ -1,5 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { defineComponent, h, reactive } from 'vue';
+import { defineComponent, h, reactive, ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import {
   businessContentLanguageContext,
@@ -101,6 +101,7 @@ function host(
   const contentLanguage = businessContentLanguageContext(language);
   contentLanguage.setLanguage('en');
   const record = reactive({ id: 'child/one', version: 4, description: original.text, reason: original.text });
+  const sessionKey = ref(1);
   const context = {
     http: { request },
     moduleAlias: 'quality.exception',
@@ -119,12 +120,13 @@ function host(
             context,
             relation,
             mode: 'view',
+            sessionKey: sessionKey.value,
           });
       },
     }),
     { global: { stubs: { UiModal: Modal } } },
   );
-  return { wrapper, language, contentLanguage, record };
+  return { wrapper, language, contentLanguage, record, sessionKey };
 }
 function button(wrapper: VueWrapper, text: string) {
   const found = wrapper
@@ -138,6 +140,29 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it.each(['unmount', 'record', 'session'] as const)(
+    'does not execute a delayed delete confirmation after %s invalidates its editor',
+    async (change) => {
+      let finish!: (value: boolean) => void;
+      const request = vi.fn(async (options: HttpRequestOptions) =>
+        options.path.endsWith('/reading') ? reading() : options.path.endsWith('/history') ? [] : state(),
+      );
+      const { wrapper, record, sessionKey } = host(request);
+      await flushPromises();
+      await button(wrapper, '维护／核对译文').trigger('click');
+      await flushPromises();
+      confirmAction.mockImplementationOnce(() => new Promise<boolean>((resolve) => (finish = resolve)));
+      await button(wrapper, '删除本语言译文').trigger('click');
+      if (change === 'unmount') wrapper.unmount();
+      else if (change === 'record') record.id = 'another-record';
+      else sessionKey.value++;
+      await flushPromises();
+      finish(true);
+      await flushPromises();
+      expect(requests(request).some((r) => r.path.endsWith('/remove'))).toBe(false);
+      if (change !== 'unmount') wrapper.unmount();
+    },
+  );
   it('protects unsaved input on close and registers it with the owning workspace', async () => {
     const unregister = vi.fn();
     const registerUnsavedState = vi.fn(() => unregister);

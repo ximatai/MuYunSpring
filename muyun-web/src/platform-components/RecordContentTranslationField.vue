@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { confirmAction, UiActionButton, UiButton, UiModal, UiTextArea } from '@muyun/vue-ui-antdv';
 import {
   businessContentLanguageContext,
@@ -237,6 +237,7 @@ function resetEditor() {
   editorGeneration++;
   historyGeneration++;
 }
+onBeforeUnmount(resetEditor);
 async function open() {
   if (!props.context || !id.value || busy.value || !matches.value) return;
   const token = ++editorGeneration;
