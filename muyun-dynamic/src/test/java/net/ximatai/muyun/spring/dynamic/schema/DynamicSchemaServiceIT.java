@@ -620,6 +620,35 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldReconcileTransactionalDdlAfterAnotherConnectionReloadsTheSharedSchemaCache() throws Exception {
+        String tableName = "app_schema_cache_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        EntityDefinition entity = new EntityDefinition("cache_tx", tableName, "Cache Tx",
+                List.of(FieldDefinition.string("code", "Code")));
+        transactionProbe.ensureTwiceWithCommittedSchemaDiscovery(schemaService, operations, entity, false);
+        try (Connection connection = dataSource.getConnection()) {
+            assertThat(tableShape(connection, tableName).columns()).contains("id", "code");
+        }
+    }
+
+    @Test
+    void shouldRollbackRepeatedSchemaEnsureAfterAnotherConnectionReloadsTheSharedSchemaCache() throws Exception {
+        String tableName = "app_schema_rollback_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        EntityDefinition entity = new EntityDefinition("cache_rollback", tableName, "Cache Rollback",
+                List.of(FieldDefinition.string("code", "Code")));
+        assertThatThrownBy(() -> transactionProbe.ensureTwiceWithCommittedSchemaDiscovery(schemaService, operations, entity, true))
+                .isInstanceOf(IllegalStateException.class).hasMessage("rollback repeated schema ensure");
+        try (Connection connection = dataSource.getConnection();
+             var query = connection.prepareStatement("select count(*) from information_schema.tables where table_schema = 'public' and table_name = ?")) {
+            query.setString(1, tableName);
+            try (var result = query.executeQuery()) {
+                result.next();
+                assertThat(result.getInt(1)).isZero();
+            }
+        }
+        assertThat(schemaService.ensureTable(entity)).isTrue();
+    }
+
+    @Test
     void shouldRollbackSchemaEnsureInsideSpringTransaction() throws Exception {
         String tableName = "app_schema_tx_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
         EntityDefinition entity = new EntityDefinition("schema_tx", tableName, "Schema Tx",
@@ -1753,6 +1782,20 @@ class DynamicSchemaServiceIT {
     }
 
     static class DynamicTransactionProbe {
+
+        @Transactional
+        public void ensureTwiceWithCommittedSchemaDiscovery(DynamicSchemaService schemaService,
+                IDatabaseOperations<?> operations, EntityDefinition entity, boolean rollback) {
+            schemaService.ensureTable(entity);
+            // A separate connection cannot see our uncommitted DDL. Simulate ordinary concurrent
+            // schema discovery replacing the process-wide cache between metadata publications.
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                operations.resetDBInfo();
+                operations.getDBInfo();
+            }).join();
+            schemaService.ensureTable(entity);
+            if (rollback) throw new IllegalStateException("rollback repeated schema ensure");
+        }
 
         @Transactional
         public void ensureTableThenFail(DynamicSchemaService schemaService, EntityDefinition entity) {
