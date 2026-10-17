@@ -60,6 +60,13 @@ import {
   workflowRouteSelectionTitle as localizedRouteSelectionTitle,
 } from './workflowPresentation';
 
+const recordActionsReady = ref(false);
+const canSubmitRecord = computed(
+  () => recordActionsReady.value && props.context.can('submitApproval', props.recordId) === true,
+);
+const canRevokeRecord = computed(
+  () => recordActionsReady.value && props.context.can('revoke', props.recordId) === true,
+);
 const workflowLanguage = useLanguageContext();
 const timeZone = usePlatformTimeZoneContext();
 function roundTime(value?: string) {
@@ -562,6 +569,7 @@ async function load() {
   error.value = undefined;
   // A new round is unusable until its entire authorized snapshot has loaded successfully.
   status.value = undefined;
+  recordActionsReady.value = false;
   originalBundle.value = undefined;
   tasks.value = [];
   events.value = [];
@@ -582,7 +590,7 @@ async function load() {
   try {
     const approvalEntry =
       (!props.instanceId || props.recordSubmission) && props.context.abilities?.has('approval') !== false;
-    const [next, history, directory] = await Promise.all([
+    const [next, history, directory, availabilityReady] = await Promise.all([
       approvalEntry
         ? client.value.status(props.context.moduleAlias, props.recordId)
         : Promise.resolve(undefined),
@@ -590,8 +598,15 @@ async function load() {
       !props.instanceId && props.context.abilities?.has('workflow') === true
         ? client.value.recordInstances(props.context.moduleAlias, props.recordId, instancePage.value)
         : Promise.resolve(undefined),
+      approvalEntry
+        ? props.context.recordActions(props.recordId).then(
+            () => true,
+            () => false,
+          )
+        : Promise.resolve(false),
     ]);
     if (current !== revision) return;
+    recordActionsReady.value = availabilityReady;
     status.value = props.instanceId && next?.instanceId !== props.instanceId ? undefined : next;
     archives.value = history;
     recordInstances.value = directory?.records ?? [];
@@ -657,6 +672,7 @@ async function load() {
 async function choose(action: WorkflowAction | undefined) {
   const current = revision;
   if (!action || loading.value || preparing.value || selectedHistory.value) return;
+  if (action.actionCode === 'revoke' && !canRevokeRecord.value) return;
   if (
     action.actionCode !== 'submitApproval' &&
     (!originalBundle.value || originalBundle.value.instance.id !== currentInstanceId.value)
@@ -710,6 +726,7 @@ async function prepareAddSign(action: WorkflowAction) {
   }
 }
 async function preview() {
+  if (!canSubmitRecord.value || loading.value || selectedHistory.value) return;
   busy.value = true;
   try {
     branches.value = await client.value.submitBranches(props.context.moduleAlias, props.recordId);
@@ -1158,7 +1175,11 @@ async function execute() {
     </p>
     <div class="workflow-operations">
       <UiButton
-        v-if="!selectedHistory && (status?.canSubmit || status?.displayStatus === 'UNSUBMITTED')"
+        v-if="
+          !selectedHistory &&
+          canSubmitRecord &&
+          (status?.canSubmit || status?.displayStatus === 'UNSUBMITTED')
+        "
         type="primary"
         :loading="busy"
         :disabled="loading || Boolean(activeAction)"
@@ -1179,9 +1200,10 @@ async function execute() {
       <UiButton
         v-if="
           !selectedHistory &&
+          canRevokeRecord &&
           status?.instanceId &&
           status.instanceId === currentInstanceId &&
-          ['PROCESSING', 'REJECTED'].includes(status.displayStatus)
+          status.displayStatus === 'PROCESSING'
         "
         :disabled="busy || Boolean(activeAction)"
         @click="

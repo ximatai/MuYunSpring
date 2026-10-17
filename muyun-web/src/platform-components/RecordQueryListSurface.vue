@@ -274,7 +274,10 @@ defineSlots<{
             @click="emit('pageChange', pageNum - 1)"
           />
           <span>{{
-            language.t('platform.records.page-of', '第 {page} / {pages} 页', { page: pageNum, pages })
+            language.t('platform.records.page-of', '第 {page} / {pages} 页', {
+              page: pages > 0 ? pageNum : 0,
+              pages,
+            })
           }}</span>
           <UiButton
             :aria-label="language.t('platform.screen.RecordQueryListSurface.next-page', '下一页')"

@@ -131,6 +131,8 @@ function fixture(
   );
   const context = {
     moduleAlias: 'demo.purchase',
+    can: vi.fn(() => true),
+    recordActions: vi.fn(async () => ({})),
     http: { request },
     ...(workflowScenario ? { abilities: { has: (code: string) => code === 'workflow' } } : {}),
     runtime: {
@@ -1040,6 +1042,8 @@ it('localizes stable workflow actions and their frozen node labels in an indepen
   });
   const context = {
     moduleAlias: 'demo.purchase',
+    can: vi.fn(() => true),
+    recordActions: vi.fn(async () => ({})),
     http: { request },
     runtime: { ready: Promise.resolve({}) },
   } as unknown as ModuleContext<Record<string, unknown>>;
@@ -1521,3 +1525,39 @@ it('carries task-form source inputs separately and only for editable submitted b
   expect(submitted.values).not.toHaveProperty('$contentLanguages');
   wrapper.unmount();
 });
+
+it.each(['denied', 'failed', 'allowed'] as const)(
+  'shows record submission and withdrawal only after current authorization: %s',
+  async (access) => {
+    const { wrapper, context, request } = fixture();
+    try {
+      await flushPromises();
+      vi.mocked(context.can).mockReturnValue(access === 'allowed');
+      if (access === 'failed') vi.mocked(context.recordActions).mockRejectedValue(new Error('unavailable'));
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'REJECTED', instanceId: 'i', canSubmit: true }
+          : original(options),
+      );
+      await wrapper.get('button').trigger('click');
+      await flushPromises();
+      const buttons = wrapper.findAll('button').map((button) => button.text());
+      expect(buttons.includes('预览并提交审批')).toBe(access === 'allowed');
+      expect(buttons.includes('撤回申请')).toBe(false);
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'PROCESSING', instanceId: 'i', canSubmit: false }
+          : original(options),
+      );
+      await wrapper.get('button').trigger('click');
+      await flushPromises();
+      expect(wrapper.findAll('button').some((button) => button.text() === '撤回申请')).toBe(
+        access === 'allowed',
+      );
+      expect(buttons.includes('办理记录')).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

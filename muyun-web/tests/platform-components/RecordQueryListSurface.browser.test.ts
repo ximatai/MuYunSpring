@@ -289,3 +289,17 @@ it('collapses file operations before the primary create action and restores them
     wrapper.unmount();
   }
 });
+
+it('shows zero pages for an empty server result without inventing a navigable page', async () => {
+  const wrapper = mount(RecordQueryListSurface, {
+    props: { columns: [], rows: [], pageable: true, pages: 0, pageNum: 1, total: 0 },
+  });
+  try {
+    expect(wrapper.text()).toContain('第 0 / 0 页');
+    expect(wrapper.get('[aria-label="上一页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="下一页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.emitted('pageChange')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});
