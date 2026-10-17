@@ -14,7 +14,7 @@ import java.util.Set;
 @Component
 public final class BusinessContentRecordTitlePresentation implements ModuleRecordTitlePresentation {
     private final BusinessContentReadingProjectionService readings;
-    public BusinessContentRecordTitlePresentation(BusinessContentReadingProjectionService readings) { this.readings = readings; }
+    public BusinessContentRecordTitlePresentation(BusinessContentReadingProjectionService readings) { this.readings = java.util.Objects.requireNonNull(readings, "readings"); }
 
     @Override public BusinessContentTextPresentation project(CrudAbility<?> owner, EntityContract record,
             String field, String exposedText) {

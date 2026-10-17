@@ -32,7 +32,7 @@ public class WorkflowNodeOvertimeScanService {
                                            WorkflowRuntimeEventFactory eventFactory) {
         this.nodeDao = nodeDao;
         this.instanceDao = instanceDao;
-        this.eventWriter = eventWriter;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
     }
 

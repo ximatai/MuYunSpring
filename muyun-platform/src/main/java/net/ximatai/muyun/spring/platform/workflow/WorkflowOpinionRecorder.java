@@ -18,7 +18,7 @@ public final class WorkflowOpinionRecorder {
     private final BusinessContentSubmissionService submissions;
     public WorkflowOpinionRecorder(WorkflowInstanceDao instances, WorkflowEventDao events, BusinessContentFacts facts,
             WorkflowOpinionContentScope scope, BusinessContentSubmissionService submissions) {
-        this.instances = instances; this.events = events; this.facts = facts; this.scope = scope; this.submissions = submissions;
+        this.instances = java.util.Objects.requireNonNull(instances, "instances"); this.events = java.util.Objects.requireNonNull(events, "events"); this.facts = java.util.Objects.requireNonNull(facts, "facts"); this.scope = java.util.Objects.requireNonNull(scope, "scope"); this.submissions = java.util.Objects.requireNonNull(submissions, "submissions");
     }
     @EventListener
     public void persisted(WorkflowEventWriter.Persisted persisted) {

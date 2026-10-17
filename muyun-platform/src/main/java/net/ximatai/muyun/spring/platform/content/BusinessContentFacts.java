@@ -18,7 +18,7 @@ public final class BusinessContentFacts {
     private final BusinessContentGenerationStore generations;
     public BusinessContentFacts(BusinessContentStore originals, BusinessContentTranslationStore translations,
                                 BusinessContentGenerationStore generations) {
-        this.originals = originals; this.translations = translations; this.generations = generations;
+        this.originals = java.util.Objects.requireNonNull(originals, "originals"); this.translations = java.util.Objects.requireNonNull(translations, "translations"); this.generations = java.util.Objects.requireNonNull(generations, "generations");
     }
 
     /** Accept only a mapped producer declaration, after its adapter has authorized the live owning fact. */

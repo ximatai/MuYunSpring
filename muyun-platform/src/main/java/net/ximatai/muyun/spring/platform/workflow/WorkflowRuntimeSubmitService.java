@@ -41,7 +41,7 @@ public class WorkflowRuntimeSubmitService {
         this.nodeInstanceDao = nodeInstanceDao;
         this.routeInstanceDao = routeInstanceDao;
         this.taskDao = taskDao;
-        this.eventWriter = eventWriter;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.pluginDispatcher = java.util.Objects.requireNonNull(pluginDispatcher, "pluginDispatcher");
     }
 

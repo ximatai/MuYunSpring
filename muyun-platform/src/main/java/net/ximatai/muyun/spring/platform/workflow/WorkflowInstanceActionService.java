@@ -72,7 +72,7 @@ public class WorkflowInstanceActionService {
         this.nodeDao = nodeDao;
         this.routeDao = routeDao;
         this.taskDao = taskDao;
-        this.eventWriter = eventWriter;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
         this.archiveService = archiveService;
         this.actionPolicyService = actionPolicyService == null ? new WorkflowActionPolicyService() : actionPolicyService;

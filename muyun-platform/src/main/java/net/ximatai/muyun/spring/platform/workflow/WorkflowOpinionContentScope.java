@@ -19,7 +19,7 @@ public final class WorkflowOpinionContentScope implements BusinessContentGenerat
     private static final String KEY = "workflow-opinion";
     private final WorkflowOpinionAccess access;
     private final ObjectMapper json;
-    public WorkflowOpinionContentScope(WorkflowOpinionAccess access, ObjectMapper json) { this.access = access; this.json = json; }
+    public WorkflowOpinionContentScope(WorkflowOpinionAccess access, ObjectMapper json) { this.access = java.util.Objects.requireNonNull(access, "access"); this.json = java.util.Objects.requireNonNull(json, "json"); }
     @Override public String key() { return KEY; }
     public Reference capture(WorkflowInstance instance, WorkflowEvent event) {
         if (instance.getCreatedAt() == null || !Objects.equals(instance.getId(), event.getInstanceId())

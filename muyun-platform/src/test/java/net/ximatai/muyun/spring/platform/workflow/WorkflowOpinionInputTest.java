@@ -37,6 +37,10 @@ class WorkflowOpinionInputTest {
         });
         assertThat(WorkflowOpinionInput.language()).isNull();
     }
+    @Test void manualAssemblyCannotSilentlyDisableFactPublication() {
+        assertThatThrownBy(() -> new WorkflowEventWriter(mock(WorkflowEventDao.class), null))
+                .isInstanceOf(NullPointerException.class);
+    }
     @Test void aFactIsPublishedOnlyAfterTheWriteSucceeds() {
         var dao = mock(WorkflowEventDao.class);
         var publisher = mock(org.springframework.context.ApplicationEventPublisher.class);

@@ -133,6 +133,13 @@ it('keeps the tenant explorer and its search mounted while a new tenant business
     await expect
       .poll(() => organizationColumn.classList.contains('management-explorer-column--collapsed'))
       .toBe(true);
+    // Capture the tenant-switch baseline only after the preceding collapse animation has settled.
+    await expect
+      .poll(() => organizationColumn.classList.contains('management-explorer-column--collapsing'))
+      .toBe(false);
+    await expect
+      .poll(() => explorer.closest<HTMLElement>('.management-explorer-column')?.style.transition ?? '')
+      .toBe('');
     await page.getByText('测试租户甲', { exact: true }).click();
     await expect.poll(() => businessRequests).toContain('tenant-a');
     expect(wrapper.get('.tenant-scope-explorer').element).toBe(explorer);

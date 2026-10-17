@@ -71,7 +71,9 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
                 WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE),
                 WorkflowTestSupport.provider(WorkflowRecordSummaryResolver.NONE), conditions);
         queries = new WorkflowTaskQueryService(tasks, events);
-        history = new WorkflowHistoryQueryService(histories, mock(WorkflowArchiveService.class), policy);
+        history = new WorkflowHistoryQueryService(histories, mock(WorkflowArchiveService.class), policy,
+                WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE),
+                mock(net.ximatai.muyun.spring.platform.content.BusinessContentFacts.class));
         admin = new WorkflowAdminService(instances, tasks, nodes, routes, events, policy,
                 mock(WorkflowInstanceActionService.class), mock(WorkflowTaskActionService.class), history, Optional.empty());
         status = new WorkflowSubmitReadFacade(instances, mock(WorkflowDefinitionSelector.class), mock(WorkflowSubmitFacade.class), conditions);

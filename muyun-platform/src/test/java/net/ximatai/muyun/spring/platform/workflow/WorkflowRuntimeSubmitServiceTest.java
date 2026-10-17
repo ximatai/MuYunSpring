@@ -30,19 +30,19 @@ class WorkflowRuntimeSubmitServiceTest {
     private final WorkflowEventDao eventDao = mock(WorkflowEventDao.class);
     private final WorkflowArchiveService archives = mock(WorkflowArchiveService.class);
     private final WorkflowRuntimeSubmitService service = new WorkflowRuntimeSubmitService(
-            draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao),
+            draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                     new WorkflowRuntimePluginDispatcher(List.of()), WorkflowTestSupport.provider(archives));
 
     @Test
     void constructionRequiresArchiveProviderWithoutResolvingItEarly() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new WorkflowRuntimeSubmitService(draftService,
-                instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao),
+                instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 new WorkflowRuntimePluginDispatcher(List.of()), null))
                 .isInstanceOf(NullPointerException.class).hasMessage("archives");
         @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowArchiveService>)
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         new WorkflowRuntimeSubmitService(draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao,
-                new WorkflowEventWriter(eventDao), new WorkflowRuntimePluginDispatcher(List.of()), provider);
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)), new WorkflowRuntimePluginDispatcher(List.of()), provider);
         verifyNoInteractions(provider);
     }
 
@@ -130,7 +130,7 @@ class WorkflowRuntimeSubmitServiceTest {
     void shouldDispatchSubmitPluginsBeforeAndAfterPersist() {
         RecordingPlugin plugin = new RecordingPlugin();
         WorkflowRuntimeSubmitService pluginService = new WorkflowRuntimeSubmitService(
-                draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao),
+                draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 new WorkflowRuntimePluginDispatcher(List.of(plugin)), WorkflowTestSupport.provider(mock(WorkflowArchiveService.class)));
         WorkflowDefinition definition = new WorkflowDefinition();
         WorkflowVersion version = new WorkflowVersion();
@@ -167,7 +167,7 @@ class WorkflowRuntimeSubmitServiceTest {
             }
         };
         WorkflowRuntimeSubmitService pluginService = new WorkflowRuntimeSubmitService(
-                draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao),
+                draftService, instanceService, instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 new WorkflowRuntimePluginDispatcher(List.of(blocker)), WorkflowTestSupport.provider(mock(WorkflowArchiveService.class)));
         WorkflowDefinition definition = new WorkflowDefinition();
         WorkflowVersion version = new WorkflowVersion();

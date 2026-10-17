@@ -35,7 +35,7 @@ function fixture(
   language?: LanguageContext,
   textBindings?: Ref<unknown>,
   instanceId?: string,
-  workflowScenario?: { archived?: boolean; paged?: boolean },
+  workflowScenario?: { archived?: boolean; paged?: boolean; archiveIds?: string[] },
 ) {
   const request = vi.fn(
     async ({
@@ -51,7 +51,12 @@ function fixture(
       if (path === '/workflow/history/query')
         return {
           records: workflowScenario?.archived
-            ? [{ id: 'i', versionNo: 1, instanceStatus: 'completed', startedAt: '2026-10-01T00:00:00Z' }]
+            ? (workflowScenario.archiveIds ?? ['i']).map((id, index) => ({
+                id,
+                versionNo: index + 1,
+                instanceStatus: 'completed',
+                startedAt: '2026-10-01T00:00:00Z',
+              }))
             : [],
         };
       if (path.endsWith('/instances')) {
@@ -205,6 +210,74 @@ it('pages ordinary workflow rounds and sends instance actions to the selected au
     wrapper.unmount();
   }
 });
+it('preserves an explicit history selection when the workbench entry itself has been archived', async () => {
+  const { wrapper, request } = fixture(undefined, undefined, undefined, 'i', {
+    archived: true,
+    archiveIds: ['i', 'older'],
+  });
+  try {
+    await flushPromises();
+    const selector = wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((select) =>
+        select.props('options')?.some((item: { value: string }) => item.value === 'history:older'),
+      )!;
+    expect(selector.props('value')).toBe('history:i');
+    selector.vm.$emit('update:value', 'history:older');
+    await flushPromises();
+    expect(selector.props('value')).toBe('history:older');
+    expect(request.mock.calls.some(([call]) => call.path === '/workflow/history/older/bundle')).toBe(true);
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '办理记录')!
+      .trigger('click');
+    expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).props()).toMatchObject({
+      instanceId: 'older',
+      history: true,
+    });
+    expect(wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+it.each(['instances', 'bundle', 'tasks/view', 'events/view', 'actions', 'manual-branches'])(
+  'discards the previous actionable snapshot when loading another round fails at %s',
+  async (failure) => {
+    const { wrapper, request } = fixture(undefined, undefined, undefined, undefined, { paged: true });
+    try {
+      await flushPromises();
+      const oldActions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
+      expect(oldActions.exists()).toBe(true);
+      const selector = wrapper
+        .findAllComponents({ name: 'UiSelect' })
+        .find((select) =>
+          select.props('options')?.some((item: { value: string }) => item.value === 'current:round-0'),
+        )!;
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (call) => {
+        if (
+          (failure === 'instances' && call.path.endsWith('/instances')) ||
+          (call.path.includes('/instance/round-0/') && call.path.endsWith('/' + failure))
+        ) {
+          throw new Error('Selected workflow is unavailable');
+        }
+        return original(call);
+      });
+      selector.vm.$emit('update:value', 'current:round-0');
+      await flushPromises();
+      expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+      expect(wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).exists()).toBe(false);
+      expect(wrapper.find('textarea').exists()).toBe(false);
+      oldActions.vm.$emit('action', { key: '0' });
+      await flushPromises();
+      expect(wrapper.find('textarea').exists()).toBe(false);
+      expect(request.mock.calls.some(([call]) => /\/actions\/[^/]+$/.test(call.path))).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
 it.each([undefined, 'i'])(
   'opens archived ordinary workflow opinions without an approval gate (instance %s)',
   async (instanceId) => {

@@ -23,8 +23,8 @@ public final class WorkflowOpinionAccess {
     public WorkflowOpinionAccess(WorkflowInstanceDao instances, WorkflowHistoryInstanceDao histories,
             WorkflowEventDao events, WorkflowArchiveService archives, WorkflowActionPolicyService policies,
             BusinessContentFacts content) {
-        this.instances = instances; this.histories = histories; this.events = events;
-        this.archives = archives; this.policies = policies; this.content = content;
+        this.instances = java.util.Objects.requireNonNull(instances, "instances"); this.histories = java.util.Objects.requireNonNull(histories, "histories"); this.events = java.util.Objects.requireNonNull(events, "events");
+        this.archives = java.util.Objects.requireNonNull(archives, "archives"); this.policies = java.util.Objects.requireNonNull(policies, "policies"); this.content = java.util.Objects.requireNonNull(content, "content");
     }
     public record Entry(WorkflowInstance instance, WorkflowEvent event, FieldTarget target) { }
 

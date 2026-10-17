@@ -18,8 +18,8 @@ public class WorkflowOpinionContentService {
     public WorkflowOpinionContentService(WorkflowOpinionAccess access, BusinessContentFacts facts,
             BusinessContentTranslationService translations, BusinessContentGenerationService generations,
             WorkflowOpinionContentScope scopes) {
-        this.access = access; this.facts = facts; this.translations = translations;
-        this.generations = generations; this.scopes = scopes;
+        this.access = java.util.Objects.requireNonNull(access, "access"); this.facts = java.util.Objects.requireNonNull(facts, "facts"); this.translations = java.util.Objects.requireNonNull(translations, "translations");
+        this.generations = java.util.Objects.requireNonNull(generations, "generations"); this.scopes = java.util.Objects.requireNonNull(scopes, "scopes");
     }
     private BusinessContentFieldAccess field(String instanceId, String eventId) {
         return action -> access.require(instanceId, eventId, action).target();

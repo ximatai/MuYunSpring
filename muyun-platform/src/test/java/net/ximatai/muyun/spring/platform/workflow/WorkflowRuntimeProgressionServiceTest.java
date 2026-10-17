@@ -456,7 +456,7 @@ class WorkflowRuntimeProgressionServiceTest {
                 nodeDao,
                 routeDao,
                 taskDao,
-                new WorkflowEventWriter(eventDao),
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 new WorkflowRuntimeActivationService(),
                 new WorkflowInstanceStateService(),
                 new WorkflowNodeInstanceStateService(),

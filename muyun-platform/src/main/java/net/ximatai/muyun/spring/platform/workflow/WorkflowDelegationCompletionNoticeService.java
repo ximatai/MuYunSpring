@@ -22,7 +22,7 @@ public class WorkflowDelegationCompletionNoticeService {
                                                      WorkflowEventWriter eventWriter,
                                                      WorkflowRuntimeEventFactory eventFactory) {
         this.taskDao = taskDao;
-        this.eventWriter = eventWriter;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
     }
 

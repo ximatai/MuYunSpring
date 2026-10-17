@@ -8,7 +8,6 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,41 +31,16 @@ public class WorkflowHistoryQueryService {
     private final BusinessContentFacts contentFacts;
 
     public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
-                                       WorkflowArchiveService archiveService) {
-        this(historyDao, archiveService, null, WorkflowUserTitleResolver.NONE);
-    }
-
-    @Autowired
-    public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
                                        WorkflowArchiveService archiveService,
                                        WorkflowActionPolicyService actionPolicyService,
                                        ObjectProvider<WorkflowUserTitleResolver> userTitleResolver,
                                        BusinessContentFacts contentFacts) {
-        this(historyDao, archiveService, actionPolicyService, userTitleResolver == null
-                ? WorkflowUserTitleResolver.NONE
-                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE), contentFacts);
-    }
-
-    public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
-                                       WorkflowArchiveService archiveService,
-                                       WorkflowActionPolicyService actionPolicyService) {
-        this(historyDao, archiveService, actionPolicyService, WorkflowUserTitleResolver.NONE);
-    }
-
-    public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
-                                       WorkflowArchiveService archiveService,
-                                       WorkflowActionPolicyService actionPolicyService,
-                                       WorkflowUserTitleResolver userTitleResolver) {
-        this(historyDao, archiveService, actionPolicyService, userTitleResolver, null);
-    }
-    private WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao, WorkflowArchiveService archiveService,
-            WorkflowActionPolicyService actionPolicyService, WorkflowUserTitleResolver userTitleResolver,
-            BusinessContentFacts contentFacts) {
-        this.contentFacts = contentFacts;
-        this.historyDao = historyDao;
-        this.archiveService = archiveService;
-        this.actionPolicyService = actionPolicyService == null ? new WorkflowActionPolicyService() : actionPolicyService;
-        this.userTitleResolver = userTitleResolver == null ? WorkflowUserTitleResolver.NONE : userTitleResolver;
+        this.historyDao = Objects.requireNonNull(historyDao, "historyDao");
+        this.archiveService = Objects.requireNonNull(archiveService, "archiveService");
+        this.actionPolicyService = Objects.requireNonNull(actionPolicyService, "actionPolicyService");
+        this.userTitleResolver = Objects.requireNonNull(userTitleResolver, "userTitleResolver")
+                .getIfAvailable(() -> WorkflowUserTitleResolver.NONE);
+        this.contentFacts = Objects.requireNonNull(contentFacts, "contentFacts");
     }
 
     public List<WorkflowHistoryInstance> queryRecordHistory(String moduleAlias, String recordId,
@@ -135,7 +109,7 @@ public class WorkflowHistoryQueryService {
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_DELETE_HISTORY_ACTION);
         WorkflowHistoryInstance history = requireHistory(historyInstanceId);
         int deleted = historyDao.deleteById(history.getId());
-        if (deleted > 0 && contentFacts != null) {
+        if (deleted > 0) {
             for (var event : archiveService.parseSnapshot(history).events()) {
                 if (!Objects.equals(history.getId(), event.getInstanceId())
                         || !Objects.equals(history.getTenantId(), event.getTenantId()))

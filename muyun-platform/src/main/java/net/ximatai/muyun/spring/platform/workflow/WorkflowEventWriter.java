@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import java.util.Objects;
@@ -10,8 +9,6 @@ import java.util.Objects;
 public final class WorkflowEventWriter {
     private final WorkflowEventDao events;
     private final ApplicationEventPublisher publisher;
-    public WorkflowEventWriter(WorkflowEventDao events) { this(events, ignored -> { }); }
-    @Autowired
     public WorkflowEventWriter(WorkflowEventDao events, ApplicationEventPublisher publisher) {
         this.events = Objects.requireNonNull(events); this.publisher = Objects.requireNonNull(publisher);
     }

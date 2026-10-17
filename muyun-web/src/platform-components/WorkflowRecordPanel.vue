@@ -244,6 +244,7 @@ function selectRound(value: unknown) {
   if (
     busy.value ||
     preparing.value ||
+    loading.value ||
     activeAction.value ||
     typeof value !== 'string' ||
     !roundOptions.value.some((item) => item.value === value)
@@ -543,6 +544,25 @@ async function load() {
   preparing.value = false;
   loading.value = true;
   error.value = undefined;
+  // A new round is unusable until its entire authorized snapshot has loaded successfully.
+  status.value = undefined;
+  originalBundle.value = undefined;
+  tasks.value = [];
+  events.value = [];
+  actions.value = [];
+  branches.value = [];
+  archives.value = [];
+  recordInstances.value = [];
+  instancePages.value = 0;
+  activeAction.value = undefined;
+  taskProcess.value = undefined;
+  taskDraft.value = undefined;
+  taskGuideKey.value = undefined;
+  guideReadRecord.value = undefined;
+  guideListContext.value = undefined;
+  previewReady.value = false;
+  previewBundle.value = undefined;
+  previewTasks.value = [];
   try {
     const approvalEntry = !props.instanceId && props.context.abilities?.has('approval') !== false;
     const [next, history, directory] = await Promise.all([
@@ -562,7 +582,7 @@ async function load() {
     if (selectedHistory.value && !history.some((item) => item.id === selectedHistory.value))
       selectedHistory.value = undefined;
     const id = currentInstanceId.value;
-    if (id && history.some((item) => item.id === id)) {
+    if (!selectedHistory.value && id && history.some((item) => item.id === id)) {
       selectedHistory.value = id;
       if (!props.instanceId) selectedInstance.value = undefined;
     }
@@ -617,8 +637,16 @@ async function load() {
     if (current === revision) loading.value = false;
   }
 }
-async function choose(action: WorkflowAction) {
+async function choose(action: WorkflowAction | undefined) {
+  const current = revision;
+  if (!action || loading.value || preparing.value || selectedHistory.value) return;
+  if (
+    action.actionCode !== 'submitApproval' &&
+    (!originalBundle.value || originalBundle.value.instance.id !== currentInstanceId.value)
+  )
+    return;
   if (activeAction.value && !(await mayLeave())) return;
+  if (current !== revision || loading.value || selectedHistory.value) return;
   error.value = undefined;
   validationRequestKey.value = 0;
   previewReady.value = false;
@@ -884,8 +912,18 @@ async function saveAndComplete() {
     draft = taskDraft.value;
   if (!taskId || !taskGuideKey.value || !draft || busy.value || preparing.value) return;
   if (!manualSelectionValid()) return;
+  const current = revision,
+    context = props.context,
+    action = activeAction.value;
   validationRequestKey.value++;
   await nextTick();
+  if (
+    current !== revision ||
+    context !== props.context ||
+    action !== activeAction.value ||
+    draft !== taskDraft.value
+  )
+    return;
   if (!taskValidity.value.valid) {
     error.value = () =>
       workflowLanguage.t(
@@ -932,7 +970,10 @@ async function saveAndComplete() {
 }
 async function execute() {
   const action = activeAction.value;
-  if (!action || busy.value || preparing.value) return;
+  if (!action || busy.value || preparing.value || loading.value || selectedHistory.value) return;
+  const instanceId = originalBundle.value?.instance.id;
+  if (action.actionCode !== 'submitApproval' && (!instanceId || instanceId !== currentInstanceId.value))
+    return;
   if (!manualSelectionValid()) return;
   if (action.actionCode === 'submitApproval' && !previewReady.value) {
     error.value = () =>
@@ -1020,8 +1061,7 @@ async function execute() {
     if (action.actionCode === 'submitApproval')
       await client.value.submit(props.context.moduleAlias, props.recordId, payload);
     else if (action.taskId) await client.value.taskAction(action.taskId, action.actionCode, payload);
-    else if (currentInstanceId.value)
-      await client.value.instanceAction(currentInstanceId.value, action.actionCode, payload);
+    else if (instanceId) await client.value.instanceAction(instanceId, action.actionCode, payload);
     else throw new Error('Workflow instance is unavailable');
     activeAction.value = undefined;
     showSuccessMessage(
@@ -1063,7 +1103,7 @@ async function execute() {
     <label class="workflow-field" v-if="roundOptions.length"
       >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-workflow-rounds', '查看流程轮次')
       }}<UiSelect
-        :disabled="busy || preparing || instancePaging || Boolean(activeAction)"
+        :disabled="loading || busy || preparing || instancePaging || Boolean(activeAction)"
         :value="
           selectedHistory
             ? `history:${selectedHistory}`

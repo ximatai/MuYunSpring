@@ -58,7 +58,7 @@ public class WorkflowRuntimeProgressionService {
         this.nodeDao = nodeDao;
         this.routeDao = routeDao;
         this.taskDao = taskDao;
-        this.eventWriter = eventWriter;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.activationService = activationService;
         this.instanceStateService = instanceStateService;
         this.nodeStateService = nodeStateService;
