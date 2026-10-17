@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.content.*;
@@ -213,7 +215,7 @@ class BusinessContentWebTest {
 
     @Test void boundedChildGenerationKeepsTheParentRelationAndExplicitRetryIntent() throws Exception {
         var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("description", ContentPolicy.AUTO_TRANSLATE), "child raw", 1, null);
-        when(content.childSources(controller.service, "parent", "lines", "child"))
+        when(content.childSourcesForSelection(controller.service, "parent", "lines", "child"))
                 .thenReturn(new BusinessContentService.Sources(1, Map.of("description", automatic)));
         var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
         when(generationScopes.capture(eq(controller), any(), eq("description"))).thenReturn(scope);
@@ -244,9 +246,9 @@ class BusinessContentWebTest {
         when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1, Map.of("title", automatic)));
         when(content.childSelection(controller.service, "record", "lines", 199))
                 .thenReturn(new BusinessContentService.ChildSelection(List.of("child", "denied-child"), false));
-        when(content.childSources(controller.service, "record", "lines", "child"))
+        when(content.childSourcesForSelection(controller.service, "record", "lines", "child"))
                 .thenReturn(new BusinessContentService.Sources(1, Map.of("description", automatic, "unexposed", automatic)));
-        when(content.childSources(controller.service, "record", "lines", "denied-child"))
+        when(content.childSourcesForSelection(controller.service, "record", "lines", "denied-child"))
                 .thenThrow(new PlatformAccessDeniedException("child unavailable"));
         var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
         when(generationScopes.capture(eq(controller), any(), anyString())).thenReturn(scope);
@@ -286,8 +288,60 @@ class BusinessContentWebTest {
             mvc.perform(post("/test.content/content/generation").contentType("application/json")
                     .content("{\"ids\":[\"record\"],\"language\":\"de\"}"))
                     .andExpect(status().isBadRequest());
-            verifyNoInteractions(generations, generationScopes);
+            verifyNoInteractions(generations);
+            verify(generationScopes, never()).capture(any(), any(), anyString());
         }
+    }
+
+    @Test void diagnosticRowsDoNotConsumeTheAutomaticTextLimit() throws Exception {
+        var fields = java.util.stream.IntStream.range(0, 5).mapToObj(i -> "text" + i).toList();
+        var ui = mock(ResolvedModuleUiDescriptor.class);
+        when(ui.moduleAlias()).thenReturn("test.content");
+        var wide = new ModuleExecutionPlan("test.content", "many", ui,
+                new ResolvedModuleReadModel("test.content", "main", fields.stream().map(field ->
+                        new ResolvedModuleReadField("main", null, field, false)).toList()), List.of());
+        when(plans.find("test.content")).thenReturn(Optional.of(wide));
+        var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("text", ContentPolicy.AUTO_TRANSLATE), "raw", 1, null);
+        var sources = new LinkedHashMap<String, BusinessContentService.CurrentSource>(); fields.forEach(field -> sources.put(field, automatic));
+        var ids = java.util.stream.IntStream.range(0, 50).mapToObj(i -> "row" + i).toList();
+        for (int i = 0; i < ids.size(); i++) when(content.sources(controller.service, ids.get(i)))
+                .thenReturn(new BusinessContentService.Sources(1, i < 40 ? sources : Map.of()));
+        var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
+        when(generationScopes.capture(eq(controller), any(), anyString())).thenReturn(scope);
+        when(generations.status(eq(scope), anyString(), any(), anyString(), eq("de")))
+                .thenReturn(new BusinessContentGenerationService.Status("MISSING", null, null, 0, null));
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/content/generation/status").contentType("application/json")
+                    .content(new ObjectMapper().writeValueAsString(Map.of("ids", ids, "language", "de"))))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(210));
+            verify(generations, times(200)).status(any(), anyString(), any(), anyString(), anyString());
+            verify(generations, never()).request(any(), anyString(), any(), anyString(), anyString(), anyBoolean());
+        }
+    }
+
+    @Test void anUnavailableOwnedReaderProducesOneDiagnosticWithoutAnyGeneration() throws Exception {
+        when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1, Map.of()));
+        when(content.childSelection(controller.service, "record", "lines", 199))
+                .thenThrow(new PlatformAccessDeniedException("bounded reader unavailable"));
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/content/generation").contentType("application/json")
+                    .content("{\"ids\":[\"record\"],\"language\":\"de\",\"includeChildren\":true}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1))
+                    .andExpect(jsonPath("$.items[0].field").isEmpty())
+                    .andExpect(jsonPath("$.items[0].status.state").value("UNAVAILABLE"));
+            verifyNoInteractions(generations);
+        }
+    }
+
+    @Test void theSelectionLimitFailureCarriesDeployableChineseAndEnglishTextResources() {
+        var failure = (net.ximatai.muyun.spring.common.exception.PlatformException) BusinessContentGenerationBatch.tooLarge();
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var texts = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        var english = texts.resolve(failure.textSource(), Map.of(), "en");
+        var chinese = texts.resolve(failure.textSource(), Map.of(), "zh-CN");
+        assertThat(english.text()).isEqualTo("Selection too large. Select fewer records or exclude details (up to 200 records and 200 text items).");
+        assertThat(english.missing()).isFalse();
+        assertThat(chinese.text()).isEqualTo(failure.textSource().originalText());
     }
 
     @RestController @RequestMapping("/test.content")

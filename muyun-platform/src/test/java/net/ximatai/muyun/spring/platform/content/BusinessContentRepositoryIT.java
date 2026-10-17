@@ -1228,7 +1228,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     @Test void aggregateContentSelectionIsBoundedAndRetainsTheActualOwningForeignKeyAndTenant() {
         try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var parent = row("选择范围"); service.insert(parent);
-            var childService = new PolicyChildService(dao, Set.of());
+            var childService = new TrackingBoundedChildService(dao);
             var aggregate = new PolicyAggregateService(dao, childService);
             var children = new ArrayList<String>();
             for (int i = 0; i < 2; i++) {
@@ -1240,11 +1240,101 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var complete = content.childSelection(aggregate, parent.getId(), "lines", 2);
             assertThat(complete.ids()).containsExactlyInAnyOrderElementsOf(children); assertThat(complete.more()).isFalse();
             assertThat(content.childSelection(aggregate, parent.getId(), "lines", 0).more()).isTrue();
+            content.childSourcesForSelection(aggregate, parent.getId(), "lines", children.getFirst());
+            assertThat(childService.limits).containsExactly(2, 3, 1, 1);
             try (var other = CurrentUserContext.use(CurrentUser.tenantUser("other", "Other", "tenant-b"));
                  var otherTenant = TenantContext.use("tenant-b")) {
                 assertThatThrownBy(() -> content.childSelection(aggregate, parent.getId(), "lines", 10))
                         .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             }
+        }
+    }
+
+    @Test void legacyCustomChildReadersRemainUsableButDoNotSilentlyOptIntoBoundedGeneration() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var parent = row("Legacy owner"); service.insert(parent);
+            var childService = new PolicyChildService(dao, Set.of()) {
+                @Override public List<ContentFixture> selectChildRows(Criteria criteria) {
+                    return super.selectChildRows(criteria);
+                }
+            };
+            var child = row("Legacy child"); child.setParentId(parent.getId()); childService.insert(child);
+            childService.readableIds.add(child.getId());
+            var aggregate = new PolicyAggregateService(dao, childService);
+            assertThat(content.childSources(aggregate, parent.getId(), "lines", child.getId()).fields()).containsKey("title");
+            assertThatThrownBy(() -> content.childSelection(aggregate, parent.getId(), "lines", 10))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> content.childSourcesForSelection(aggregate, parent.getId(), "lines", child.getId()))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        }
+    }
+
+    @Test void boundedChildReadsWorkThroughAServiceProxyAndFilterPlatformTenantsBeforeTheWindow() {
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("platform", "Platform"));
+             var tenant = TenantContext.system("platform aggregate contract")) {
+            var parent = row("Platform parent"); service.insert(parent);
+            var target = new TrackingBoundedChildService(dao);
+            var child = row("Platform child"); child.setParentId(parent.getId()); target.insert(child);
+            var factory = new org.springframework.aop.framework.ProxyFactory(target); factory.setProxyTargetClass(true);
+            var childProxy = (PolicyChildService) factory.getProxy();
+            try (var foreign = TenantContext.use("tenant-b")) {
+                for (int i = 0; i < 2; i++) {
+                    var other = row("Foreign child"); other.setId("00000000" + UUID.randomUUID().toString().replace("-", "").substring(0, 24));
+                    other.setParentId(parent.getId()); target.insert(other);
+                }
+            }
+            var selected = content.childSelection(new PolicyAggregateService(dao, childProxy), parent.getId(), "lines", 1);
+            assertThat(selected.ids()).containsExactly(child.getId()); assertThat(selected.more()).isFalse();
+            assertThat(target.limits).containsExactly(2);
+        }
+    }
+
+    @Test void dynamicSelectionAndExactChildReadsNeverAssembleTheWholeAutopopulatedAggregate() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var main = new EntityDefinition("main", "bounded_main_" + suffix, "Parent", List.of(FieldDefinition.text("description", "Description")));
+        var line = new EntityDefinition("line", "bounded_line_" + suffix, "Line", List.of(
+                FieldDefinition.string("mainId", "Parent").column("main_id").length(32).required(),
+                FieldDefinition.text("description", "Description").content(new ContentFieldDefinition("text", ContentPolicy.AUTO_TRANSLATE)),
+                FieldDefinition.sortOrder()), Set.of(EntityCapability.SORT));
+        var module = ModuleDefinition.builder("test.bounded_" + suffix, "Bounded").entities(List.of(main, line))
+                .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId").withAutoPopulate())).build();
+        new DynamicSchemaService(operations).ensureModule(module);
+        try (var runtime = new DynamicRecordRuntime(operations).register(module);
+             var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var records = new DynamicRecordService(runtime);
+            var parent = new DynamicRecord(main).setValue("description", "Parent"); records.mainEntity(module.moduleAlias()).insert(parent);
+            var ids = new ArrayList<String>();
+            for (int i = 0; i < 3; i++) {
+                var child = new DynamicRecord(line).setValue("mainId", parent.getId()).setValue("description", "Line " + i);
+                records.entity(module.moduleAlias(), "line").insert(child); ids.add(child.getId());
+            }
+            var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("records", records);
+            var facade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(),
+                    new AllowAllDataScopeCriteriaService(), beans.getBeanProvider(DynamicRecordService.class));
+            var observed = new ArrayList<Integer>();
+            PlatformAbilityRuntime.configureReferenceTextReadListener(new net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener() {
+                public void onProjection(Projection ignored) { }
+                @Override public void onRecords(CrudAbility<?> owner, Collection<?> rows) {
+                    if (owner.getDao() instanceof DynamicRecordDao dynamic && "line".equals(dynamic.getEntity().alias())) observed.add(rows.size());
+                }
+            });
+            try {
+                assertThat(facade.childSelection(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", 0).more()).isTrue();
+                assertThat(facade.childSourcesForSelection(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", ids.getFirst())
+                        .fields().get("description").text()).isEqualTo("Line 0");
+                assertThat(observed).isNotEmpty().allSatisfy(count -> assertThat(count).isLessThanOrEqualTo(1));
+            } finally { PlatformAbilityRuntime.resetReferenceTextReadListener(); }
+        }
+    }
+
+    static class TrackingBoundedChildService extends PolicyChildService {
+        final List<Integer> limits = new ArrayList<>();
+        TrackingBoundedChildService(ContentFixtureDao dao) { super(dao, Set.of()); }
+        @Override public List<ContentFixture> selectChildRows(Criteria criteria) {
+            throw new AssertionError("Full aggregate loading is forbidden in controlled selection");
+        }
+        @Override public List<ContentFixture> selectChildRows(Criteria criteria, PageRequest page) {
+            limits.add(page.getLimit()); return super.selectChildRows(criteria, page);
         }
     }
 

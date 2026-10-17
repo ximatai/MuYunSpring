@@ -218,6 +218,16 @@ class BusinessContentGenerationWebScopeTest {
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
+    @Test void compiledGenerationAuthorizationDoesNotAssembleTheDisplayAggregate() throws Exception {
+        var rawOnly = new ProjectionHeavyController();
+        context.getBeanFactory().registerSingleton("projectionHeavyController", rawOnly);
+        when(rawOnly.service.getModuleAlias()).thenReturn(MODULE);
+        request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+                new HandlerMethod(rawOnly, ProjectionHeavyController.class.getMethod("view", String.class)));
+        scope.requireRead(rawOnly, LOCATION);
+        assertThat(scope.capture(rawOnly, LOCATION, "description")).isNotNull();
+    }
+
     @Test void aCustomSaveHandlerDoesNotInheritAutomaticGenerationFromItsCrudWebBean() throws Exception {
         when(controller.service.mutationServiceIdentity()).thenCallRealMethod();
         request.setAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
@@ -404,6 +414,11 @@ class BusinessContentGenerationWebScopeTest {
             var attributes = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
             if (!"workspace-one".equals(attributes.getRequest().getHeader("X-Workspace"))) throw new PlatformAccessDeniedException("workspace required");
             return new Row();
+        }
+    }
+    static class ProjectionHeavyController extends Controller {
+        @Override @CompiledRecordScope public Row view(String id) {
+            throw new AssertionError("Display aggregate must not be assembled for generation");
         }
     }
     static class RequestScopedExecutionController extends Controller {

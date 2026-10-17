@@ -12,6 +12,9 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordDao;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -96,6 +99,12 @@ public final class BusinessContentService {
         return sources(child.ability(), child.record());
     }
 
+    /** Controlled selections require a bounded reader; legacy custom maintenance stays available. */
+    public Sources childSourcesForSelection(CrudAbility<?> parent, String parentId, String relationCode, String childId) {
+        var child = child(parent, parentId, relationCode, childId, true);
+        return sources(child.ability(), child.record());
+    }
+
     public List<SourceRevision> childHistory(CrudAbility<?> parent, String parentId, String relationCode,
                                             String childId, String field, PageRequest page) {
         var child = child(parent, parentId, relationCode, childId);
@@ -111,23 +120,33 @@ public final class BusinessContentService {
     /** Bounded identities through the normal aggregate read; field qualification is still checked for each text. */
     public ChildSelection childSelection(CrudAbility<?> parent, String parentId, String relationCode, int limit) {
         if (limit < 0 || limit > 200) throw new IllegalArgumentException("Invalid aggregate content selection limit");
-        var rows = childRows(parent, parentId, relationCode).records();
+        var rows = childRows(parent, parentId, relationCode, null, PageRequest.of(1, limit + 1), true).records();
         return new ChildSelection(rows.stream().limit(limit).map(EntityContract::getId).toList(), rows.size() > limit);
     }
 
     /** Child sources inherit the already established parent-owned aggregate read contract. */
     private OwnedChild child(CrudAbility<?> ability, String parentId, String relationCode, String childId) {
-        var rows = childRows(ability, parentId, relationCode);
+        return child(ability, parentId, relationCode, childId, false);
+    }
+    private OwnedChild child(CrudAbility<?> ability, String parentId, String relationCode, String childId, boolean bounded) {
+        var rows = childRows(ability, parentId, relationCode, childId, PageRequest.of(1, 1), bounded);
         var child = rows.records().stream().filter(row -> childId.equals(row.getId()))
                 .findFirst().orElseThrow(BusinessContentService::denied);
         return new OwnedChild(rows.ability(), child);
     }
     private record ChildRows(CrudAbility<?> ability, List<? extends EntityContract> records) { }
-    private ChildRows childRows(CrudAbility<?> ability, String parentId, String relationCode) {
+    private ChildRows childRows(CrudAbility<?> ability, String parentId, String relationCode,
+                               String childId, PageRequest page, boolean requireBounded) {
         var parent = authorizedRecord(ability, parentId);
         var records = dynamicRecords == null ? null : dynamicRecords.getIfAvailable();
         if (!(ability instanceof ChildrenAbility<?>) && ability.getDao() instanceof DynamicRecordDao && records != null) {
-            var children = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode).stream()
+            List<DynamicRecord> selected;
+            try { selected = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode, childId, page); }
+            catch (UnsupportedOperationException legacy) {
+                if (requireBounded) throw denied();
+                selected = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode);
+            }
+            var children = selected.stream()
                     .filter(row -> Objects.equals(parent.getTenantId(), row.getTenantId())).toList();
             return new ChildRows(children.isEmpty() ? null
                     : records.entity(ability.getModuleAlias(), children.getFirst().getEntity().alias()), children);
@@ -135,12 +154,19 @@ public final class BusinessContentService {
         if (!(ability instanceof ChildrenAbility<?> aggregate)) throw denied();
         var relation = aggregate.childRelations().stream().filter(candidate -> relationCode.equals(candidate.relationCode()))
                 .findFirst().orElseThrow(BusinessContentService::denied);
+        boolean bounded = ChildAbility.supportsBoundedReads(
+                AopUtils.getTargetClass(relation.childAbility()));
+        if (requireBounded && !bounded) throw denied();
         List<? extends EntityContract> children;
         // Only tenant filtering changes after the exact parent is authorized. The actor stays intact.
         try (var ignored = parent.getTenantId() == null
                 ? TenantContext.bypassTenantFilter("authorized platform aggregate content read")
                 : TenantContext.use(parent.getTenantId())) {
-            children = relation.selectChildren(parentId);
+            Criteria criteria = Criteria.of();
+            if (parent.getTenantId() == null) criteria.isNull("tenantId");
+            else criteria.eq("tenantId", parent.getTenantId());
+            if (childId != null) criteria.eq("id", childId);
+            children = bounded ? relation.selectChildren(parentId, criteria, page) : relation.selectChildren(parentId);
         }
         return new ChildRows(relation.childAbility(), children.stream()
                 .filter(row -> Objects.equals(parent.getTenantId(), row.getTenantId())).toList());
@@ -218,7 +244,7 @@ public final class BusinessContentService {
                 Set.of(recordId), CurrentUserContext.currentUser()));
         // An embedded dynamic facade can own a stricter VIEW scope than the host policy service.
         // Preserve that normal read boundary without using its QUERY-scoped list operation.
-        if (ability instanceof DynamicEntityOperations dynamic && dynamic.select(recordId) == null) throw denied();
+        if (ability instanceof DynamicEntityOperations dynamic && dynamic.selectRawForView(recordId) == null) throw denied();
         Criteria id = Criteria.of().eq("id", recordId);
         var scope = ability instanceof DataScopeAbility<?> scoped
                 ? policy.equals(action.executionPolicy()) ? scoped.readScope(action, id) : scoped.readScopeByPolicy(policy, id)

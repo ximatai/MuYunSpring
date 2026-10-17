@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.util.List;
@@ -97,6 +100,30 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
         return this instanceof SortAbility<?> sortAbility
                 ? sortedChildRows(sortAbility, criteria)
                 : list(criteria, PageRequests.all());
+    }
+
+    /** Bounded aggregate reads. Custom readers must preserve their scope in this overload too. */
+    default List<C> selectChildRows(Criteria criteria, PageRequest page) {
+        requireGenericChildReadWithoutIndependentDataScope();
+        return this instanceof SortAbility<?>
+                ? list(criteria, page, Sort.asc(
+                    PlatformAbilityFields.SORT_FIELD),
+                    Sort.asc("id"))
+                : list(criteria, page, Sort.asc("id"));
+    }
+
+    /** Callers pass the actual service type, unwrapped by their existing adapter if proxied. */
+    static boolean supportsBoundedReads(Class<?> serviceType) {
+        try {
+            Class<?> legacy = serviceType.getMethod("selectChildRows", Criteria.class).getDeclaringClass();
+            Class<?> bounded = serviceType.getMethod("selectChildRows", Criteria.class,
+                    PageRequest.class).getDeclaringClass();
+            if (!legacy.isAssignableFrom(bounded)) return false;
+            try {
+                Class<?> sorted = serviceType.getMethod("sortedList", Criteria.class).getDeclaringClass();
+                return sorted == SortAbility.class || sorted.isAssignableFrom(bounded);
+            } catch (NoSuchMethodException withoutSorting) { return true; }
+        } catch (NoSuchMethodException unavailable) { return false; }
     }
 
     /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */

@@ -145,6 +145,30 @@ it('uses the server-issued owned-child address and never treats a child identity
   );
 });
 
+it('refreshes the owning list when work completes after closing and reopening the same selection', async () => {
+  let state: BusinessContentGenerationStatus['state'] = 'MISSING';
+  const request = vi.fn(async (entry: HttpRequestOptions) => {
+    if (!entry.path.endsWith('/status')) state = 'PENDING';
+    return result(state);
+  });
+  const { wrapper, panel } = host(request);
+  await button(wrapper, '补齐阅读译文').trigger('click');
+  await flushPromises();
+  await button(wrapper, '生成缺失译文').trigger('click');
+  await flushPromises();
+  expect(panel.emitted('updated')).toBeUndefined();
+  await button(wrapper, '关闭').trigger('click');
+  await flushPromises();
+  state = 'READY';
+  await button(wrapper, '补齐阅读译文').trigger('click');
+  await flushPromises();
+  expect(panel.emitted('updated')).toHaveLength(1);
+  await button(wrapper, '刷新状态').trigger('click');
+  await flushPromises();
+  expect(panel.emitted('updated')).toHaveLength(1);
+  expect(generated(request)).toHaveLength(1);
+});
+
 it('withdraws the old dialog and ignores a late generation response after its parent scope changes', async () => {
   let finish!: (value: BusinessContentGenerationBatchResult) => void;
   const request = vi.fn(async (entry: HttpRequestOptions) =>

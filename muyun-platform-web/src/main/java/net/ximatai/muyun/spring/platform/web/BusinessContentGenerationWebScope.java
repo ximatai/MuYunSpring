@@ -96,20 +96,14 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
 
     /** The descriptor is constructed from the authenticated handler and live server facts, never from request JSON. */
     public Reference capture(CrudWeb<?, ?> web, BusinessContentService.Location location, String field) {
+        var owner = requireRead(web, location);
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) throw denied();
-        if (!compiledHandler(web, attributes, Set.of(CompiledRecordScope.Kind.READ, CompiledRecordScope.Kind.SAVE))
-                || !compiledReadBoundary(web)) throw denied();
-        web.view(location.recordId()); web.requireMenuEntryAction(PlatformAction.VIEW);
         String module = web.webScopeName();
         var plan = plans.find(module).orElseThrow(BusinessContentGenerationWebScope::denied);
         if (!BusinessContentReadExposure.fields(plan, location.relationCode()).contains(field)) throw denied();
         // Compiled plans are the source of truth. A custom request-only scope cannot silently
         // disappear in a worker; publish it into the standard plan before enabling generation.
         var bindings = PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings());
-        if (!bindings.equals(web.recordScopeBindings())) throw denied();
-        var owner = content.requireOwner(web.service(), location);
-        PageContextScopePolicy.requireRecordValues(bindings, module, PlatformAction.VIEW,
-                web.pageSelectionContextResolvers(), name -> value(owner, name));
         Map<String, String> scopeHashes = new TreeMap<>();
         for (var binding : bindings) scopeHashes.put(binding.targetKey(), valueVersion(value(owner, binding.targetKey())));
         var selection = bindings.stream().anyMatch(binding -> binding.source() == PageContextSource.RESOLVED_SELECTION)
@@ -130,6 +124,23 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
                 valueVersion(orderedBindings(bindings)), menuRef, ownedEntry, scopeHashes, selection);
         String payload = encode(descriptor);
         return new Reference(KEY, TextReference.versionOf(payload), payload);
+    }
+
+    /** The explicit compiled promise permits authorization without assembling a display aggregate. */
+    @SuppressWarnings("unchecked")
+    public <T extends EntityContract> T requireRead(CrudWeb<T, ?> web, BusinessContentService.Location location) {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)
+                || !compiledHandler(web, attributes, Set.of(CompiledRecordScope.Kind.READ, CompiledRecordScope.Kind.SAVE))
+                || !compiledReadBoundary(web)) throw denied();
+        var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentGenerationWebScope::denied);
+        var bindings = PageContextScopePolicy.recordScopeBindings(plan.pageContextBindings());
+        if (!bindings.equals(web.recordScopeBindings())) throw denied();
+        T owner = (T) content.requireOwner(web.service(), location);
+        web.requireMenuEntryAction(PlatformAction.VIEW);
+        web.requireMenuEntryRecord(PlatformAction.VIEW, owner);
+        PageContextScopePolicy.requireRecordValues(bindings, web.webScopeName(), PlatformAction.VIEW,
+                web.pageSelectionContextResolvers(), name -> value(owner, name));
+        return owner;
     }
 
     @Override public <T> T withAccess(Reference reference, String module, BusinessContentService.Location location,

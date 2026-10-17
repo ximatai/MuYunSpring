@@ -54,14 +54,19 @@ const batch = useBusinessContentGenerationBatch(() => ({
   sessionKey: props.context,
 }));
 const { result, loading, failed, pending, pollingPaused, canGenerate, canRetry } = batch;
-let requested = false;
+function selectionKey() {
+  return JSON.stringify([
+    source.value,
+    props.status.language,
+    chosen.value.map((row) => [row.id, row.version]),
+    !source.value?.parentId && includeChildren.value,
+  ]);
+}
+let requestedSelection: string | undefined;
 watch(result, (value) => {
-  if (!value) {
-    requested = false;
-    return;
-  }
-  if (requested && !pending.value) {
-    requested = false;
+  // Closing stops observation, while durable work still belongs to this exact selection.
+  if (value && requestedSelection === selectionKey() && !pending.value) {
+    requestedSelection = undefined;
     emit('updated');
   }
 });
@@ -75,7 +80,7 @@ watch(
   ],
   () => {
     open.value = false;
-    requested = false;
+    requestedSelection = undefined;
   },
 );
 const failureMessage = computed(() =>
@@ -172,7 +177,7 @@ function choose(id: string, checked: boolean) {
   selected.value = checked ? [...selected.value, id] : selected.value.filter((value) => value !== id);
 }
 async function generate(retry: boolean) {
-  requested = true;
+  requestedSelection = selectionKey();
   await batch.request(retry);
 }
 </script>

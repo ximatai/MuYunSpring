@@ -4,6 +4,7 @@ import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
@@ -110,6 +111,11 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
 
     public List<C> selectChildren(String parentId) {
         return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId));
+    }
+
+    /** Additional conditions narrow the declared owning key before pagination. */
+    public List<C> selectChildren(String parentId, Criteria criteria, PageRequest page) {
+        return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId).and(criteria), page);
     }
 
     /** One query for many visible parents; callers retain the requested-parent order in the result. */

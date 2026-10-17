@@ -652,6 +652,13 @@ public class DynamicEntityService implements
     }
 
     @Override
+    public List<DynamicRecord> selectChildRows(Criteria criteria, PageRequest page) {
+        return dao.getEntity().supports(EntityCapability.SORT)
+                ? list(criteria, page, Sort.asc(PlatformAbilityFields.SORT_FIELD), Sort.asc("id"))
+                : ChildAbility.super.selectChildRows(criteria, page);
+    }
+
+    @Override
     public List<DynamicRecord> selectDeletedChildRows(Criteria criteria) {
         List<DynamicRecord> records = ChildAbility.super.selectDeletedChildRows(criteria);
         populateReferenceReadFields(records);

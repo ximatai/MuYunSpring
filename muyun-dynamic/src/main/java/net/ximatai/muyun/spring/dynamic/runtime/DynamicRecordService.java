@@ -7,6 +7,7 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
@@ -413,6 +414,10 @@ public class DynamicRecordService {
         return queryRuntime.select(moduleAlias, entityAlias, id);
     }
 
+    DynamicRecord selectRawForView(String moduleAlias, String entityAlias, String id) {
+        return queryRuntime.selectRawForView(moduleAlias, entityAlias, id);
+    }
+
     RecordPermissionAccess<DynamicRecord> readForPermissionAction(String moduleAlias, String entityAlias, String id) {
         if (id == null || id.isBlank()) {
             return new RecordPermissionAccess<>(null, false);
@@ -435,6 +440,27 @@ public class DynamicRecordService {
     public List<DynamicRecord> aggregateChildrenForView(String moduleAlias, String parentId,
                                                         String relationCode) {
         return aggregateChildrenForRead(moduleAlias, parentId, relationCode, false);
+    }
+
+    /** Bounded owning-relation facts; no parent display pipeline or full child collection is loaded. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public List<DynamicRecord> aggregateChildrenForView(String moduleAlias, String parentId,
+            String relationCode, String childId, PageRequest page) {
+        var scope = access.readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", parentId));
+        return access.withTenantScope(scope, () -> {
+            var parent = entityService(moduleAlias, mainEntityAlias(moduleAlias))
+                    .listRaw(scope.criteria(), PageRequest.of(1, 1)).stream().findFirst().orElseThrow(() ->
+                        new IllegalArgumentException("aggregate relation parent is not visible"));
+            ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
+            if (!(relation.childAbility() instanceof DynamicEntityService child)
+                    || !ChildAbility.supportsBoundedReads(child.getClass()))
+                throw new UnsupportedOperationException("aggregate child reader does not support bounded reads");
+            Criteria criteria = Criteria.of();
+            if (parent.getTenantId() == null) criteria.isNull("tenantId");
+            else criteria.eq("tenantId", parent.getTenantId());
+            if (childId != null) criteria.eq("id", childId);
+            return List.copyOf((List<DynamicRecord>) relation.selectChildren(parentId, criteria, page));
+        });
     }
 
     public List<DynamicRecord> aggregateChildrenForRecycleBin(String moduleAlias, String parentId,

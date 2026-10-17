@@ -98,7 +98,7 @@ public final class BusinessContentWebSupport {
                     try { selection = content.childSelection(web.service(), id, relation.code(), BusinessContentGenerationBatch.MAX_RECORDS - records); }
                     catch (RuntimeException unavailable) {
                         batchDiagnostic("relation", unavailable, diagnostics);
-                        planned.add(new BatchField(location, null, batchState("UNAVAILABLE", "RELATION_UNAVAILABLE")));
+                        batchDiagnostic(planned, location, "UNAVAILABLE", "RELATION_UNAVAILABLE");
                         requireBatchSize(planned); continue;
                     }
                     if (selection.more()) throw BusinessContentGenerationBatch.tooLarge();
@@ -125,24 +125,36 @@ public final class BusinessContentWebSupport {
     }
 
     private static void requireBatchSize(List<BatchField> planned) {
-        if (planned.size() > BusinessContentGenerationBatch.MAX_TEXTS)
+        if (planned.stream().filter(item -> item.field() != null).count() > BusinessContentGenerationBatch.MAX_TEXTS)
             throw BusinessContentGenerationBatch.tooLarge();
     }
     private boolean planBatchFields(CrudWeb<?, ?> web, Location location, List<BatchField> planned, Set<String> diagnostics) {
         try {
-            var sources = location.childId() == null ? sources(web, location.recordId())
-                    : childSources(web, location.recordId(), location.relationCode(), location.childId());
+            generationScopes.requireRead(web, location);
+            var sources = location.childId() == null ? content.sources(web.service(), location.recordId())
+                    : content.childSourcesForSelection(web.service(), location.recordId(), location.relationCode(), location.childId());
+            var exposed = location.childId() == null ? fields(web) : childFields(web, location.relationCode());
             var fields = sources.fields().entrySet().stream()
+                    .filter(entry -> exposed.contains(entry.getKey()))
                     .filter(entry -> entry.getValue().content().policy() == ContentPolicy.AUTO_TRANSLATE)
                     .map(Map.Entry::getKey).sorted().toList();
-            if (fields.isEmpty()) planned.add(new BatchField(location, null, batchState("DISABLED", "NO_AUTOMATIC_FIELDS")));
+            if (fields.isEmpty()) batchDiagnostic(planned, location, "DISABLED", "NO_AUTOMATIC_FIELDS");
             else fields.forEach(field -> planned.add(new BatchField(location, field, null)));
             return true;
         } catch (RuntimeException unavailable) {
             batchDiagnostic("source", unavailable, diagnostics);
-            planned.add(new BatchField(location, null, batchState("UNAVAILABLE", "SCOPE_OR_SOURCE_UNAVAILABLE")));
+            batchDiagnostic(planned, location, "UNAVAILABLE", "SCOPE_OR_SOURCE_UNAVAILABLE");
             return false;
         }
+    }
+    private static void batchDiagnostic(List<BatchField> planned, Location location, String state, String problem) {
+        var diagnostic = new BatchField(location, null, batchState(state, problem));
+        for (int i = 0; i < planned.size(); i++) {
+            if (planned.get(i).field() == null && planned.get(i).location().equals(location)) {
+                planned.set(i, diagnostic); return;
+            }
+        }
+        planned.add(diagnostic);
     }
     private static void batchDiagnostic(String stage, RuntimeException failure, Set<String> diagnostics) {
         if (failure instanceof PlatformAccessDeniedException
