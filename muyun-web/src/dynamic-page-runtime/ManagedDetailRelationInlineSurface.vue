@@ -402,7 +402,9 @@ function toDraftRow(record: QueryListRecord): DraftRow {
 }
 
 function cloneRecord(record: QueryListRecord): QueryListRecord {
-  const clone = structuredClone(toRaw(record));
+  // Business records are JSON contracts; nested projections or language inputs can still
+  // contain reactive proxies after a field update spreads the row. Detach the full graph.
+  const clone = JSON.parse(JSON.stringify(record)) as QueryListRecord;
   delete clone.__draftKey;
   delete clone.__recycleSourceId;
   return clone;

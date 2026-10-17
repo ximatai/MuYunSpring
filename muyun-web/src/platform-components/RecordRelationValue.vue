@@ -21,8 +21,19 @@ defineProps<{
 }>();
 </script>
 <template>
+  <RecordContentSourceField
+    v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
+    :record="record"
+    :field-name="field.fieldName"
+    :content="field.content"
+    :context="contentContext"
+    :relation="contentRelation"
+    mode="view"
+    :display-text="text ?? resolveRecordDetailDisplayValue(field, record)"
+    compact
+  />
   <RecordStatusTag
-    v-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
+    v-else-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
     :enabled="
       field.controlType === 'booleanStatus'
         ? resolveRecordBooleanStatusValue(record[field.fieldName])
@@ -43,16 +54,6 @@ defineProps<{
   <span v-else class="managed-relation-inline__value">{{
     text ?? resolveRecordDetailDisplayValue(field, record)
   }}</span>
-  <RecordContentSourceField
-    v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
-    :record="record"
-    :field-name="field.fieldName"
-    :content="field.content"
-    :context="contentContext"
-    :relation="contentRelation"
-    mode="view"
-    compact
-  />
 </template>
 <style scoped>
 .managed-relation-inline__value {

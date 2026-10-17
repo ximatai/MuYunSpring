@@ -53,7 +53,19 @@ function host(render: () => ReturnType<typeof h>, language = createLanguageConte
         },
       }),
       // Translation reading has its own transport/race tests; these assertions own original-source intent.
-      { global: { stubs: { UiModal: Modal, RecordContentTranslationField: true } } },
+      {
+        global: {
+          stubs: {
+            UiModal: Modal,
+            RecordContentTranslationField: defineComponent({
+              setup:
+                (_, { slots }) =>
+                () =>
+                  slots.source?.(),
+            }),
+          },
+        },
+      },
     ),
   };
 }

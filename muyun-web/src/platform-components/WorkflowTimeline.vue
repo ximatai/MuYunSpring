@@ -103,7 +103,9 @@ const timelineItems = computed(() =>
             new Date(event.occurredAt).toLocaleString()
           }}</time>
         </div>
-        <p v-if="event.detail">{{ event.detail }}</p>
+        <p v-if="event.detail && (showTechnicalHistory || !event.reason || !context || !instanceId)">
+          {{ event.detail }}
+        </p>
         <RecordContentSourceField
           v-if="!showTechnicalHistory && event.reason && context && instanceId"
           :record="event"

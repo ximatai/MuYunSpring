@@ -1,4 +1,4 @@
-import { defineComponent, h, ref } from 'vue';
+import { defineComponent, h, reactive, ref } from 'vue';
 import {
   provideRelationDraftRegistry,
   createRelationDraftRegistry,
@@ -1239,6 +1239,47 @@ describe('managed detail relation surface', () => {
 
     expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([]);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('publishes child edits with nested reactive content facts and language inputs', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor: descriptor(),
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'child', version: 2, attributeAlias: '原文' }],
+        },
+        mutationEnabled: true,
+      },
+    });
+    await flushPromises();
+    const field = wrapper.findComponent({ name: 'RecordFormFields' });
+    field.vm.$emit(
+      'update:field',
+      '$contentLanguages',
+      reactive({
+        attributeAlias: { languageTag: 'de', expectedRevision: 1 },
+      }),
+    );
+    await flushPromises();
+    field.vm.$emit('update:field', 'attributeAlias', 'Deutscher Entwurf');
+    await flushPromises();
+    const payload = wrapper.emitted('records-change')?.at(-1)?.[0];
+    expect(payload).toEqual([
+      {
+        id: 'child',
+        version: 2,
+        attributeAlias: 'Deutscher Entwurf',
+        $contentLanguages: { attributeAlias: { languageTag: 'de', expectedRevision: 1 } },
+      },
+    ]);
+    expect(() => structuredClone(payload)).not.toThrow();
+    wrapper.unmount();
   });
 
   it('recovers retained children into the aggregate draft without writing immediately', async () => {

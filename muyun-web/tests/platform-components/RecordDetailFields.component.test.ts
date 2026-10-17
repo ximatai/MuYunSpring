@@ -13,7 +13,7 @@ import {
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel';
 
 describe('RecordDetailFields', () => {
-  it('keeps originals beside live readings without duplicating stale list labels and retains reference readings', async () => {
+  it('keeps originals available behind one current reading and retains reference readings', async () => {
     const language = createLanguageContext({ languageTag: 'en' });
     businessContentLanguageContext(language).setLanguage('de');
     const raw = '原文说明';
@@ -97,7 +97,9 @@ describe('RecordDetailFields', () => {
     try {
       await flushPromises();
       expect(wrapper.text()).toContain(raw);
-      expect(wrapper.text()).toContain('Aktuelle bestätigte Fassung');
+      expect(wrapper.get('.record-content-translation__text').text()).toBe('Aktuelle bestätigte Fassung');
+      expect(wrapper.findAll('.record-content-translation__text')).toHaveLength(1);
+      expect(wrapper.get('details').attributes('open')).toBeUndefined();
       expect(wrapper.text()).not.toContain('Obsolete machine label');
       expect(wrapper.text()).toContain('Gerätegruppe');
       expect(JSON.stringify(record)).toBe(before);

@@ -275,16 +275,17 @@ function groupEndsAt(index: number) {
               :summary="readonlyReferenceSummaryOf(props.record, field.referenceTitleField, language)"
               :empty-text="props.emptyText"
             />
-            <span v-else>{{ displayValue(field) }}</span>
             <RecordContentSourceField
-              v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
+              v-else-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
               :record="record"
               :field-name="field.fieldName"
               :content="field.content"
               :context="optionContext"
               :relation="contentRelation"
               mode="view"
+              :display-text="displayValue(field)"
             />
+            <span v-else>{{ displayValue(field) }}</span>
           </dd>
         </dl>
       </div>

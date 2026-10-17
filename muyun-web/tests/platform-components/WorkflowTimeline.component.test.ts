@@ -137,7 +137,11 @@ it('keeps the real opinion and operator beside shared reading translations in cu
   await flushPromises();
   expect(wrapper.text()).toContain(raw);
   expect(wrapper.text()).toContain('中国工程师');
-  expect(wrapper.text()).toContain('Versand bis zur Nachprüfung anhalten.');
+  expect(wrapper.get('.record-content-translation__text').text()).toBe(
+    'Versand bis zur Nachprüfung anhalten.',
+  );
+  expect(wrapper.findAll('.record-content-translation__text')).toHaveLength(1);
+  expect(wrapper.get('details').attributes('open')).toBeUndefined();
   expect(request.mock.calls.some(([entry]) => entry.method === 'POST')).toBe(false);
   readingLanguage.setLanguage('en');
   await flushPromises();

@@ -3350,7 +3350,12 @@
       "platform.content.discard-input": "放弃修改",
       "platform.content.continue-editing": "继续编辑",
       "platform.content.remove-language-title": "删除本语言译文？",
-      "platform.content.remove-language-description": "将删除 {language} 译文及本次未保存输入，阅读将回退到原文。业务原文和受权修订历史保留。"
+      "platform.content.remove-language-description": "将删除 {language} 译文及本次未保存输入，阅读将回退到原文。业务原文和受权修订历史保留。",
+      "platform.content.original-and-language": "原文与语言",
+      "platform.content.writing-language-summary": "填写语言：{language}",
+      "platform.content.language-settings": "语言设置",
+      "platform.content.language-settings-description": "阅读语言只改变业务内容的展示，不修改原文或本次填写语言。",
+      "platform.content.query-incomplete-summary": "{count} 条记录缺少 {language} 阅读内容，查询可能不完整"
     }
   },
   "en": {
@@ -6705,7 +6710,12 @@
       "platform.content.discard-input": "Discard changes",
       "platform.content.continue-editing": "Continue editing",
       "platform.content.remove-language-title": "Delete this language translation?",
-      "platform.content.remove-language-description": "The {language} translation and unsaved input will be removed. Reading will fall back to the original. The business original and authorized revision history are retained."
+      "platform.content.remove-language-description": "The {language} translation and unsaved input will be removed. Reading will fall back to the original. The business original and authorized revision history are retained.",
+      "platform.content.original-and-language": "Original and language",
+      "platform.content.writing-language-summary": "Writing language: {language}",
+      "platform.content.language-settings": "Language settings",
+      "platform.content.language-settings-description": "Reading language changes the display of business content, without changing originals or the language of your input.",
+      "platform.content.query-incomplete-summary": "{count} records lack {language} reading content; results may be incomplete"
     }
   },
   "fr": {

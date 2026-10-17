@@ -28,6 +28,8 @@ const props = defineProps<{
   disabled?: boolean;
   sessionKey?: string | number;
   compact?: boolean;
+  /** Existing host projection used until a current authorized reading is available. */
+  displayText?: string;
 }>();
 const emit = defineEmits<{ change: [inputs: Record<string, BusinessContentLanguageInput>] }>();
 const language = useLanguageContext();
@@ -163,64 +165,64 @@ watch(
 </script>
 
 <template>
-  <component
-    :is="compact ? 'details' : 'div'"
+  <div
     class="record-content-source"
     :class="{ 'record-content-source--compact': compact }"
     :data-content-field="fieldName"
   >
-    <summary v-if="compact">
-      {{ language.t('platform.content.source-language-read', '原文语言') }}：{{
-        options.find((value) => value.value === selected)?.label
-      }}
-    </summary>
-    <div class="record-content-source__controls">
-      <label v-if="writable">
-        <span>{{ language.t('platform.content.source-language', '本次原文的填写语言') }}</span>
-        <UiSelect
-          :value="selected"
-          :options="options"
-          :disabled="!canChoose"
-          :aria-label="language.t('platform.content.source-language', '本次原文的填写语言')"
-          @update:value="choose"
-        />
-      </label>
-      <span v-else-if="sourceMatches"
-        >{{ language.t('platform.content.source-language-read', '原文语言') }}：{{
-          options.find((value) => value.value === selected)?.label
-        }}</span
-      >
-      <span v-if="sourceMatches && current?.source" class="record-content-source__fact">
-        {{
-          language.t('platform.content.source-version', '原文版本 {revision}', {
-            revision: current.source.revision,
-          })
-        }}
-        · {{ language.t('platform.content.author', '作者') }}：{{
-          current.source.authorName ??
-          current.source.authorId ??
-          language.t('platform.content.unknown-author', '历史作者未知')
-        }}
-      </span>
-      <span v-if="loading">{{ language.t('platform.content.loading', '正在核实来源') }}</span>
-      <span v-if="failed" role="status"
-        >{{ language.t('platform.content.source-unavailable', '暂时无法核实来源，已填写的原文保留') }}
-        <UiButton @click="load">{{ language.t('platform.content.retry', '重试') }}</UiButton>
-      </span>
-      <UiButton v-if="id && mode !== 'create' && context" @click="showHistory()">{{
-        language.t('platform.content.history', '原文修订历史')
-      }}</UiButton>
-    </div>
-  </component>
-  <RecordContentTranslationField
-    :record="record"
-    :field-name="fieldName"
-    :content="content"
-    :context="context"
-    :relation="relation"
-    :mode="mode"
-    :session-key="sessionKey"
-  />
+    <RecordContentTranslationField
+      :record="record"
+      :field-name="fieldName"
+      :content="content"
+      :context="context"
+      :relation="relation"
+      :mode="mode"
+      :session-key="sessionKey"
+      :display-text="displayText"
+      :source-language-label="options.find((value) => value.value === selected)?.label"
+    >
+      <template #source>
+        <p v-if="mode === 'view'" class="record-content-source__text">{{ rawText ?? '—' }}</p>
+        <div class="record-content-source__controls">
+          <label v-if="writable">
+            <span>{{ language.t('platform.content.source-language', '本次原文的填写语言') }}</span>
+            <UiSelect
+              :value="selected"
+              :options="options"
+              :disabled="!canChoose"
+              :aria-label="language.t('platform.content.source-language', '本次原文的填写语言')"
+              @update:value="choose"
+            />
+          </label>
+          <span v-else-if="sourceMatches"
+            >{{ language.t('platform.content.source-language-read', '原文语言') }}：{{
+              options.find((value) => value.value === selected)?.label
+            }}</span
+          >
+          <span v-if="sourceMatches && current?.source" class="record-content-source__fact">
+            {{
+              language.t('platform.content.source-version', '原文版本 {revision}', {
+                revision: current.source.revision,
+              })
+            }}
+            · {{ language.t('platform.content.author', '作者') }}：{{
+              current.source.authorName ??
+              current.source.authorId ??
+              language.t('platform.content.unknown-author', '历史作者未知')
+            }}
+          </span>
+          <span v-if="loading">{{ language.t('platform.content.loading', '正在核实来源') }}</span>
+          <span v-if="failed" role="status"
+            >{{ language.t('platform.content.source-unavailable', '暂时无法核实来源，已填写的原文保留') }}
+            <UiButton @click="load">{{ language.t('platform.content.retry', '重试') }}</UiButton>
+          </span>
+          <UiButton v-if="id && mode !== 'create' && context" @click="showHistory()">{{
+            language.t('platform.content.history', '原文修订历史')
+          }}</UiButton>
+        </div>
+      </template>
+    </RecordContentTranslationField>
+  </div>
   <UiModal
     :open="historyOpen"
     :title="language.t('platform.content.history', '原文修订历史')"
@@ -285,27 +287,21 @@ watch(
 
 <style scoped>
 .record-content-source {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muyun-text-muted);
+  min-width: 0;
 }
 .record-content-source__controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-}
-.record-content-source--compact summary {
-  cursor: pointer;
-}
-.record-content-source--compact[open] .record-content-source__controls {
-  margin-top: 6px;
+  gap: 8px 12px;
+  font-size: 12px;
+  color: var(--muyun-text-muted);
 }
 .record-content-source label {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .record-content-source label :deep(.ant-select) {
   min-width: 150px;

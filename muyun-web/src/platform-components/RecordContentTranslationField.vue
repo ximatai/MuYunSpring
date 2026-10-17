@@ -30,6 +30,8 @@ const props = defineProps<{
   relation?: BusinessContentRelationScope;
   mode: 'create' | 'edit' | 'view';
   sessionKey?: string | number;
+  sourceLanguageLabel?: string;
+  displayText?: string;
 }>();
 const language = useLanguageContext();
 const readingLanguage = businessContentLanguageContext(language);
@@ -62,6 +64,13 @@ const {
   relation: props.relation,
   sessionKey: props.sessionKey,
 }));
+// A presentation decision only: it never changes field policies, source facts or authorization.
+const sameLanguage = computed(
+  () => matches.value && reading.value && !reading.value.translation && !reading.value.originalFallback,
+);
+const primaryText = computed(
+  () => (matches.value && reading.value ? reading.value.text : (props.displayText ?? raw.value)) || '—',
+);
 const generationMessage = computed(() => {
   if (
     props.content.policy === 'AUTO_TRANSLATE' &&
@@ -412,51 +421,87 @@ watch(
 </script>
 
 <template>
-  <section
-    v-if="id && context && mode !== 'create'"
-    class="record-content-translation"
-    :data-translation-field="fieldName"
-  >
-    <span v-if="loading">{{ language.t('platform.content.reading-loading', '正在读取译文') }}</span>
-    <span v-else-if="failed" role="status">{{
-      language.t('platform.content.reading-failed', '暂时无法读取译文，原文仍可使用')
-    }}</span>
-    <template v-else-if="matches && reading">
-      <p v-if="reading.humanReviewRequired" role="status">
+  <section class="record-content-translation" :data-translation-field="fieldName">
+    <template v-if="mode === 'view'">
+      <div
+        class="record-content-translation__text"
+        :lang="matches ? (reading?.actualLanguage ?? undefined) : undefined"
+      >
+        {{ primaryText }}
+      </div>
+      <small v-if="loading" class="record-content-translation__status" role="status">{{
+        language.t('platform.content.reading-loading', '正在读取译文')
+      }}</small>
+      <small v-if="matches && reading?.translation" class="record-content-translation__status">{{
+        kindLabel(reading.translation.kind)
+      }}</small>
+      <span v-if="failed" role="status">{{
+        language.t('platform.content.reading-failed', '暂时无法读取译文，原文仍可使用')
+      }}</span>
+      <span
+        v-else-if="matches && reading?.originalFallback && raw?.trim()"
+        class="record-content-translation__status"
+        role="status"
+        >{{ language.t('platform.content.original-fallback', '当前语言暂无有效译文，显示原文') }}</span
+      >
+      <p v-if="matches && reading?.humanReviewRequired" role="status">
         {{ language.t('platform.content.human-review-required', '原文已变更，旧人工译文待复核') }}
       </p>
-      <div
-        v-if="reading.translation"
-        class="record-content-translation__text"
-        :lang="reading.actualLanguage ?? undefined"
-      >
-        <strong>{{ readingLanguage.languageTag.value }} · {{ kindLabel(reading.translation.kind) }}</strong>
-        <p>{{ reading.text }}</p>
-      </div>
-      <span v-else-if="reading.originalFallback">{{
-        language.t('platform.content.original-fallback', '当前语言暂无有效译文，显示原文')
-      }}</span>
-      <span v-else>{{ language.t('platform.content.original-language-match', '原文已为当前阅读语言') }}</span>
     </template>
-    <span v-else-if="reading">{{
-      language.t('platform.content.unsaved-original', '原文有未保存修改，保存后再读取或维护译文')
-    }}</span>
-    <p v-if="matches && generationMessage" role="status">{{ generationMessage }}</p>
-    <div class="record-content-translation__actions">
-      <UiButton :disabled="loading" @click="load">{{
-        language.t('platform.content.refresh-reading', '刷新译文')
-      }}</UiButton>
-      <UiButton v-if="canRetry" :disabled="generationBusy" @click="retryGeneration">{{
-        language.t('platform.content.retry-generation', '重新申请自动翻译')
-      }}</UiButton>
-      <UiButton
-        v-if="editAllowed || confirmAllowed"
-        :disabled="!matches || !raw?.trim() || loading || busy"
-        @click="open"
+    <details class="record-content-translation__details">
+      <summary>
+        {{
+          mode === 'view'
+            ? language.t('platform.content.original-and-language', '原文与语言')
+            : language.t('platform.content.writing-language-summary', '填写语言：{language}', {
+                language:
+                  sourceLanguageLabel ?? language.t('platform.content.unknown-language', '来源语言未确定'),
+              })
+        }}
+      </summary>
+      <slot name="source"
+        ><p class="record-content-translation__text">{{ raw ?? '—' }}</p></slot
       >
-        {{ language.t('platform.content.maintain-translation', '维护／核对译文') }}
-      </UiButton>
-    </div>
+      <template v-if="id && context && mode !== 'create'">
+        <span v-if="loading">{{ language.t('platform.content.reading-loading', '正在读取译文') }}</span>
+        <template v-else-if="matches && reading">
+          <div
+            v-if="mode !== 'view' && reading.translation"
+            class="record-content-translation__text"
+            :lang="reading.actualLanguage ?? undefined"
+          >
+            <strong>{{ kindLabel(reading.translation.kind) }}</strong>
+            <p>{{ reading.text }}</p>
+          </div>
+          <span v-else-if="sameLanguage">{{
+            language.t('platform.content.original-language-match', '原文已为当前阅读语言')
+          }}</span>
+        </template>
+        <span v-else-if="reading">{{
+          language.t('platform.content.unsaved-original', '原文有未保存修改，保存后再读取或维护译文')
+        }}</span>
+        <p v-if="matches && generationMessage" role="status">{{ generationMessage }}</p>
+        <div v-if="!sameLanguage" class="record-content-translation__actions">
+          <UiActionButton :disabled="loading" density="compact" @click="load">{{
+            language.t('platform.content.refresh-reading', '刷新译文')
+          }}</UiActionButton>
+          <UiActionButton
+            v-if="canRetry"
+            :disabled="generationBusy"
+            density="compact"
+            @click="retryGeneration"
+            >{{ language.t('platform.content.retry-generation', '重新申请自动翻译') }}</UiActionButton
+          >
+          <UiActionButton
+            v-if="editAllowed || confirmAllowed"
+            :disabled="!matches || !raw?.trim() || loading || busy"
+            density="compact"
+            @click="open"
+            >{{ language.t('platform.content.maintain-translation', '维护／核对译文') }}</UiActionButton
+          >
+        </div>
+      </template>
+    </details>
   </section>
   <UiModal
     :open="editorOpen"
@@ -616,14 +661,12 @@ watch(
 </template>
 <style scoped>
 .record-content-translation {
-  margin-top: 6px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
+  min-width: 0;
 }
 .record-content-translation__text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--muyun-text);
+  color: var(--muyun-text-body);
 }
 .record-content-translation__text p {
   margin: 4px 0;
@@ -631,8 +674,25 @@ watch(
 .record-content-translation__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 8px;
+}
+.record-content-translation__status {
+  display: block;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.record-content-translation__details {
+  margin-top: 8px;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.record-content-translation__details > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.record-content-translation__details[open] > summary {
+  margin-bottom: 8px;
 }
 .record-content-translation__revision {
   border-top: 1px solid var(--muyun-border);
