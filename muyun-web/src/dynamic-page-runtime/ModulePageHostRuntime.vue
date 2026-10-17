@@ -33,7 +33,7 @@ import {
 } from '@muyun/platform-components';
 
 import ModulePageBusinessState from './ModulePageBusinessState.vue';
-import ModuleDataExchangeSurface from './ModuleDataExchangeSurface.vue';
+import { RecordDataExchangeSurface as ModuleDataExchangeSurface } from '@muyun/platform-components';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue';

@@ -153,7 +153,16 @@ public final class RecordExchangeService {
             Map<String, Object> changes,
             Map<String, SourceInput> languages,
             List<ReferenceChoice> choices,
-            String problem) {}
+            String problem,
+            Map<String, ReferenceDisplay> references) {
+        public PreviewRow(String row, String entity, String relation, String operation, String recordId,
+                          Map<String, Object> currentValues, Map<String, Object> changes,
+                          Map<String, SourceInput> languages, List<ReferenceChoice> choices, String problem) {
+            this(row, entity, relation, operation, recordId, currentValues, changes, languages, choices, problem, Map.of());
+        }
+    }
+
+    public record ReferenceDisplay(String current, String submitted) {}
 
     public record Preview(
             String documentId,
@@ -169,7 +178,13 @@ public final class RecordExchangeService {
             boolean main,
             int rowCount,
             List<String> matchFields,
-            Map<String, String> fieldTitles) {}
+            Map<String, String> fieldTitles,
+            String recommendedMatchField) {
+        public Sheet(String entityAlias, String sheetName, boolean main, int rowCount,
+                     List<String> matchFields, Map<String, String> fieldTitles) {
+            this(entityAlias, sheetName, main, rowCount, matchFields, fieldTitles, null);
+        }
+    }
 
     public record Result(
             int created,
@@ -292,7 +307,7 @@ public final class RecordExchangeService {
                         && !reviewedParents.contains(input.raw().get(RELATE)))
                     throw new IllegalArgumentException("先修正并核对主表记录 / Review the parent row first");
                 var planned = plan(access, document, input, parent, command, workbook);
-                output.add(view(planned, null));
+                output.add(view(access, planned, parent, importLanguage(document, workbook, command)));
                 if (command != null
                         && (command.sheet(input.entity().alias()) != null
                                 || TRANSLATIONS.equals(document.getPurpose())))
@@ -344,7 +359,10 @@ public final class RecordExchangeService {
                                                                                 ::name,
                                                                         RecordExchangeDefinition
                                                                                         .Field
-                                                                                ::title))))
+                                                                                ::title)),
+                                                access.definition().entity(sheet.entityAlias()).fields().stream()
+                                                        .filter(field -> field.writable() && !field.companion() && field.matchingKey())
+                                                        .map(RecordExchangeDefinition.Field::name).findFirst().orElse(null)))
                         .toList(),
                 output);
     }
@@ -1680,7 +1698,17 @@ public final class RecordExchangeService {
                                 .toList());
     }
 
-    private static PreviewRow view(Planned plan, String problem) {
+    private static PreviewRow view(RecordExchangeAccess access, Planned plan, String parent, String language) {
+        Map<String, Object> before = plan.existing() == null ? Map.of() : plan.existing().values();
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.putAll(plan.changes());
+        Map<String, ReferenceDisplay> references = new LinkedHashMap<>();
+        for (var field : plan.input().entity().fields()) {
+            if (!field.reference() || !plan.changes().containsKey(field.name())) continue;
+            references.put(field.name(), new ReferenceDisplay(
+                    previewReferenceLabel(access, plan, parent, field.name(), before.get(field.name()), language, before),
+                    previewReferenceLabel(access, plan, parent, field.name(), after.get(field.name()), language, after)));
+        }
         return new PreviewRow(
                 plan.input().key(),
                 plan.input().entity().alias(),
@@ -1691,7 +1719,18 @@ public final class RecordExchangeService {
                 plan.changes(),
                 plan.languages(),
                 plan.choices(),
-                problem);
+                null, Map.copyOf(references));
+    }
+
+    private static String previewReferenceLabel(RecordExchangeAccess access, Planned plan, String parent,
+                                                String field, Object ids, String language, Map<String, Object> values) {
+        if (ids == null) return null;
+        try {
+            return access.referenceLabel(plan.input().entity().alias(), parent, field, ids, language, values);
+        } catch (net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException denied) {
+            // Optional presentation never discloses a protected name or changes the verified identity.
+            return null;
+        }
     }
 
     private static PreviewRow problem(Input input, RuntimeException failure) {

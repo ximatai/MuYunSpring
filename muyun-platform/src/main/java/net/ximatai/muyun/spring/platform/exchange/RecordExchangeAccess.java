@@ -106,7 +106,11 @@ public interface RecordExchangeAccess {
         }
     }
 
-    record Candidate(String id, String title, String matchedText, String kind) {}
+    record Candidate(String id, String title, String matchedText, String kind, String subtitle) {
+        public Candidate(String id, String title, String matchedText, String kind) {
+            this(id, title, matchedText, kind, null);
+        }
+    }
 
     record Reference(List<Candidate> candidates) {
         public Reference {

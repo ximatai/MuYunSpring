@@ -86,7 +86,11 @@ public final class RecordExchangeReferenceSupport {
                                         "MACHINE".equals(left.kind())
                                                         || "MACHINE".equals(right.kind())
                                                 ? "MACHINE"
-                                                : "CONFIRMED"));
+                                                : "CONFIRMED".equals(left.kind()) || "CONFIRMED".equals(right.kind())
+                                                        ? "CONFIRMED" : "ORIGINAL",
+                                        left.title().isBlank() ? right.subtitle()
+                                                : (left.subtitle() == null ? left.id() : left.subtitle()) + ", "
+                                                    + (right.subtitle() == null ? right.id() : right.subtitle())));
                         if (next.size() > 20)
                             throw new IllegalArgumentException(
                                     "Reference combinations are ambiguous; provide codes or"
@@ -118,7 +122,11 @@ public final class RecordExchangeReferenceSupport {
         }
         if (candidates.size() > 20)
             throw new IllegalArgumentException("引用重名过多，请填写编码或补充限定条件 / Narrow the reference name");
-        return new RecordExchangeAccess.Reference(List.copyOf(candidates.values()));
+        var subtitles = ReferenceCandidateSubtitleReader.read(source.plan().target(), List.copyOf(candidates.keySet()),
+                source.plan().candidateSubtitleProjection(), PlatformAbilityRuntime.referenceTargetResolver());
+        return new RecordExchangeAccess.Reference(candidates.values().stream().map(candidate ->
+                new RecordExchangeAccess.Candidate(candidate.id(), candidate.title(), candidate.matchedText(),
+                        candidate.kind(), subtitles.get(candidate.id()))).toList());
     }
 
     public String title(Source source, Object ids, String language, Map<String, Object> values) {

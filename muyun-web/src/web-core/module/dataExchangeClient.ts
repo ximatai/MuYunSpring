@@ -30,9 +30,16 @@ export interface ExchangeRow {
   choices: Array<{
     field: string;
     input: string;
-    candidates: Array<{ id: string; title: string; matchedText: string; kind: string }>;
+    candidates: Array<{
+      id: string;
+      title: string;
+      matchedText: string;
+      kind: string;
+      subtitle?: string | null;
+    }>;
   }>;
   problem?: string;
+  references?: Record<string, { current?: string | null; submitted?: string | null }>;
 }
 export interface ExchangePreview {
   documentId: string;
@@ -46,6 +53,7 @@ export interface ExchangePreview {
     rowCount: number;
     matchFields: string[];
     fieldTitles: Record<string, string>;
+    recommendedMatchField?: string | null;
   }>;
   rows: ExchangeRow[];
 }

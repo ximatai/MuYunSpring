@@ -59,5 +59,11 @@ public record RecordExchangeDefinition(String moduleAlias, List<Entity> entities
             boolean writable,
             boolean reference,
             boolean content,
-            boolean companion) {}
+            boolean companion,
+            boolean matchingKey) {
+        public Field(String name, String title, FieldType type, boolean required, boolean writable,
+                     boolean reference, boolean content, boolean companion) {
+            this(name, title, type, required, writable, reference, content, companion, false);
+        }
+    }
 }

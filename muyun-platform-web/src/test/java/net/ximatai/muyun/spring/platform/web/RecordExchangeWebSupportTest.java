@@ -26,6 +26,17 @@ import java.util.*;
 
 class RecordExchangeWebSupportTest {
     @Test
+    void matchingKeyFactsIncludeSingleFieldTenantUniqueDeclarations() {
+        for (boolean unique : List.of(false, true)) {
+            var fixture = new Fixture(true, false, unique);
+            fixture.support.template(fixture.web, new RecordExchangeService.Export("DATA", "en", "UTC"));
+            var captured = org.mockito.ArgumentCaptor.forClass(RecordExchangeAccess.class);
+            verify(fixture.exchange).template(captured.capture(), any());
+            assertThat(captured.getValue().definition().main().field("title").matchingKey()).isEqualTo(unique);
+        }
+    }
+
+    @Test
     void queryExportUsesStableIdentitiesFromNonemptyPublishedStaticProjections() {
         var fixture = new Fixture(true);
         when(fixture.actions.resolveActionCode("test.exchange", "query", Set.of()))
@@ -242,8 +253,10 @@ class RecordExchangeWebSupportTest {
             this(enabled, false);
         }
 
+        Fixture(boolean enabled, boolean children) { this(enabled, children, false); }
+
         @SuppressWarnings("unchecked")
-        Fixture(boolean enabled, boolean children) {
+        Fixture(boolean enabled, boolean children, boolean tenantUnique) {
             when(web.webScopeName()).thenReturn("test.exchange");
             var module = mock(StaticModuleDefinition.class);
             when(module.capabilities())
@@ -251,10 +264,9 @@ class RecordExchangeWebSupportTest {
             var entities = new ArrayList<EntityDefinition>();
             entities.add(
                     new EntityDefinition(
-                            "main",
-                            "test_exchange",
-                            "Main",
-                            List.of(FieldDefinition.string("title", "Title"))));
+                            "main", "public", "test_exchange", "Main",
+                            List.of(FieldDefinition.string("title", "Title")), Set.of(EntityCapability.CRUD), List.of(),
+                            tenantUnique ? List.of(new net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraintDefinition(List.of("title"), "unique title")) : List.of()));
             if (children)
                 entities.add(
                         new EntityDefinition(

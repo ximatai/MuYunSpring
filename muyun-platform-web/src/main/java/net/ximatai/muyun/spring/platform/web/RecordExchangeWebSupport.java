@@ -329,7 +329,7 @@ public final class RecordExchangeWebSupport {
                                     entity.name(),
                                     relation == null ? null : relation.code(),
                                     relation == null ? null : relation.parentBinding(),
-                                    entity.fields()));
+                                    entity));
                 }
             } else {
                 var descriptor = records.describe(web.webScopeName());
@@ -368,7 +368,7 @@ public final class RecordExchangeWebSupport {
                                             List.of(),
                                             List.of(),
                                             reference.keyField(),
-                                            reference.labelField());
+                                            reference.labelField()).withCandidateSubtitleProjection(reference.candidateSubtitleProjection());
                             ref.put(
                                     field.fieldName(),
                                     new RecordExchangeReferenceSupport.Source(
@@ -396,8 +396,8 @@ public final class RecordExchangeWebSupport {
                                                                     entity.entityAlias())
                                                             .getDao()
                                                     instanceof DynamicRecordDao dao
-                                            ? dao.getEntity().fields()
-                                            : List.of()));
+                                            ? dao.getEntity()
+                                            : null));
                 }
             }
             entities.removeIf(entity -> !entity.main() && entity.fields().isEmpty());
@@ -410,7 +410,11 @@ public final class RecordExchangeWebSupport {
                 String title,
                 String relation,
                 String parent,
-                List<FieldDefinition> fields) {
+                EntityDefinition definition) {
+            List<FieldDefinition> fields = definition == null ? List.of() : definition.fields();
+            Set<String> matchingKeys = definition == null ? Set.of() : definition.resolvedTenantUniqueConstraints().stream()
+                    .filter(constraint -> constraint.fieldNames().size() == 1)
+                    .map(constraint -> constraint.fieldNames().getFirst()).collect(java.util.stream.Collectors.toSet());
             var exposed = BusinessContentReadExposure.fields(plan, relation);
             var result = new ArrayList<RecordExchangeDefinition.Field>();
             var bindings = new HashMap<String, OptionBinding>();
@@ -457,7 +461,8 @@ public final class RecordExchangeWebSupport {
                                         .getOrDefault(alias, Map.of())
                                         .containsKey(field.fieldName()),
                                 field.content().enabled(),
-                                companions.contains(field.fieldName())));
+                                companions.contains(field.fieldName()),
+                                matchingKeys.contains(field.fieldName())));
                 if (field.optionBinding() != null)
                     bindings.put(field.fieldName(), field.optionBinding());
             }

@@ -91,6 +91,33 @@ class RecordExchangeServiceTest {
     }
 
     @Test
+    void readableReferencePreviewNeverReplacesTheVerifiedImportIdentity() {
+        access.names.put("Machine category", List.of(new RecordExchangeAccess.Candidate("cat-one", "Category", "Machine category", "ORIGINAL")));
+        access.labels.put("cat-one", "Readable equipment category");
+        byte[] bytes = file(List.of("code", "category"), List.of(List.of("R-display", "C-display", "Machine category")), List.of());
+        var preview = service.preview(access, bytes, command(null, null, ImportDuplicateStrategy.ERROR, List.of()));
+        var row = preview.rows().getFirst();
+        assertThat(row.changes()).containsEntry("category", "cat-one");
+        assertThat(row.references().get("category").submitted()).isEqualTo("Readable equipment category");
+        access.denyReferenceLabels = true;
+        var protectedPreview = service.preview(access, bytes, command(null, null, ImportDuplicateStrategy.ERROR, List.of())).rows().getFirst();
+        assertThat(protectedPreview.operation()).isEqualTo("CREATE");
+        assertThat(protectedPreview.problem()).isNull();
+        assertThat(protectedPreview.references().get("category").submitted()).isNull();
+        assertThat(run(bytes, ImportDuplicateStrategy.ERROR).created()).isEqualTo(1);
+        assertThat(access.rows.values()).singleElement().satisfies(saved -> assertThat(saved.values()).containsEntry("category", "cat-one"));
+    }
+
+    @Test
+    void previewRecommendsDeclaredUniqueMatchingKeysRatherThanColumnOrder() {
+        byte[] bytes = file(List.of("description", "code"), List.of(List.of("R-key", "Description", "K-1")), List.of());
+        var preview = service.preview(access, bytes, command(null, null, ImportDuplicateStrategy.ERROR, List.of()));
+        assertThat(preview.sheets()).allSatisfy(sheet -> assertThat(sheet.recommendedMatchField()).isEqualTo("code"));
+        assertThat(new RecordExchangeDefinition.Field("title", "Title", FieldType.STRING,
+                false, true, false, false, false).matchingKey()).isFalse();
+    }
+
+    @Test
     void
             ninetySuccessfulRowsAreExcludedFromTheCorrectableTenRowFailureFileAndOriginalFileReplayIsIdempotent() {
         byte[] file =
@@ -731,6 +758,7 @@ class RecordExchangeServiceTest {
         final Map<String, List<Candidate>> names = new HashMap<>();
         int saves;
         boolean denyReads;
+        boolean denyReferenceLabels;
         Map<String, SourceInput> lastLanguages = Map.of();
         final List<RecordExchangeDefinition.Field> fields =
                 List.of(
@@ -764,7 +792,7 @@ class RecordExchangeServiceTest {
 
         static RecordExchangeDefinition.Field field(String name, FieldType type) {
             return new RecordExchangeDefinition.Field(
-                    name, name, type, false, true, false, false, false);
+                    name, name, type, false, true, false, false, false, "code".equals(name));
         }
 
         public RecordExchangeDefinition definition() {
@@ -895,6 +923,7 @@ class RecordExchangeServiceTest {
                 Object ids,
                 String language,
                 Map<String, Object> values) {
+            if (denyReferenceLabels) throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("protected label");
             return ids == null ? null : labels.getOrDefault(ids.toString(), ids.toString());
         }
 
