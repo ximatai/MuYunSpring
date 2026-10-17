@@ -13,6 +13,7 @@ import {
 } from './businessContent';
 
 interface ReadingOptions {
+  active?: boolean;
   http?: HttpClient;
   moduleAlias?: string;
   record: Record<string, unknown>;
@@ -51,6 +52,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
   const key = () => {
     const current = options();
     return [
+      current.active,
       current.http,
       current.moduleAlias,
       current.record.id,
@@ -69,6 +71,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
   const eligible = computed(() => {
     const current = options();
     return (
+      current.active !== false &&
       current.content.policy === 'AUTO_TRANSLATE' &&
       current.mode !== 'create' &&
       Boolean(current.http && current.moduleAlias && current.record.id != null) &&
@@ -81,7 +84,12 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
     () =>
       eligible.value &&
       !generationBusy.value &&
-      (generationFailed.value || Boolean(status.value && retryable.has(status.value.state))),
+      (generationFailed.value ||
+        Boolean(
+          status.value &&
+          (retryable.has(status.value.state) ||
+            (status.value.state === 'UNAVAILABLE' && status.value.reference)),
+        )),
   );
 
   function cancelGeneration() {
@@ -107,7 +115,13 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
     loading.value = false;
     failed.value = false;
     const current = options();
-    if (!current.http || !current.moduleAlias || current.record.id == null || current.mode === 'create')
+    if (
+      current.active === false ||
+      !current.http ||
+      !current.moduleAlias ||
+      current.record.id == null ||
+      current.mode === 'create'
+    )
       return;
     loading.value = true;
     try {

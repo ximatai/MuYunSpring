@@ -17,6 +17,7 @@ import type {
   BusinessContentTranslationRevision,
 } from '@muyun/web-contracts';
 import DateTimeText from './DateTimeText.vue';
+import { useRecordSurfaceActivity } from './recordSurfaceActivity';
 
 const props = defineProps<{
   record: Record<string, unknown>;
@@ -30,6 +31,7 @@ const props = defineProps<{
 }>();
 const language = useLanguageContext();
 const readingLanguage = businessContentLanguageContext(language);
+const surfaceActive = useRecordSurfaceActivity();
 const id = computed(() => (props.record.id == null ? undefined : String(props.record.id)));
 const raw = computed(() =>
   props.record[props.fieldName] == null ? null : String(props.record[props.fieldName]),
@@ -47,6 +49,7 @@ const {
   load,
   retry: retryGeneration,
 } = useBusinessContentReading(() => ({
+  active: surfaceActive.value,
   http: props.context?.http,
   moduleAlias: props.context?.moduleAlias,
   record: props.record,
@@ -80,6 +83,11 @@ const generationMessage = computed(() => {
     case 'RETRY':
       return language.t('platform.content.generation-retrying', '翻译暂时失败，系统将稍后重试；原文仍可使用');
     case 'UNAVAILABLE':
+      if (generationStatus.value.reference)
+        return language.t(
+          'platform.content.generation-previously-unavailable',
+          '上次生成暂不可用，可核实配置后重试；原文及人工译文仍可使用',
+        );
       return language.t('platform.content.generation-unavailable', '自动翻译未启用，原文及人工译文仍可使用');
     case 'REMOVED':
       return language.t('platform.content.generation-removed', '本语言译文已明确删除，可通过维护重新建立');

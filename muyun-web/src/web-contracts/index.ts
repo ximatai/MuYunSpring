@@ -37,6 +37,14 @@ export interface WebBusinessContentQueryStatus {
   language: string;
   missingRecords: number;
   readings: Record<string, Record<string, string>>;
+  generationScope?: BusinessContentGenerationSource | null;
+}
+
+/** Routing facts from the actual authorized query producer, never an execution permission. */
+export interface BusinessContentGenerationSource {
+  moduleAlias: string;
+  parentId?: string | null;
+  relationCode?: string | null;
 }
 
 /** Value of one footer summary for the complete result set of the current list query. */
@@ -1187,6 +1195,23 @@ export interface BusinessContentGenerationStatus {
   problem: string | null;
   attempts: number;
   retryAt: string | null;
+}
+export interface BusinessContentGenerationBatchCommand {
+  ids: string[];
+  language: string;
+  retry?: boolean;
+  includeChildren?: boolean;
+}
+export interface BusinessContentGenerationBatchResult {
+  language: string;
+  items: Array<{
+    recordId: string;
+    ownerId: string;
+    relationCode: string | null;
+    childId: string | null;
+    field: string | null;
+    status: BusinessContentGenerationStatus;
+  }>;
 }
 export interface BusinessContentTranslationMaintenance {
   original: BusinessContentRevision & { revisionId: string };

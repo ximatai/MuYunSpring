@@ -1,4 +1,9 @@
 import type { HttpClient } from './http';
+import type {
+  BusinessContentGenerationSource,
+  BusinessContentGenerationBatchCommand,
+  BusinessContentGenerationBatchResult,
+} from '@muyun/web-contracts';
 import type { BusinessContentSources, BusinessContentRevision } from '@muyun/web-contracts';
 import type {
   BusinessContentReading,
@@ -11,6 +16,29 @@ import type {
 export interface BusinessContentRelationScope {
   parentId: string;
   relationCode: string;
+}
+
+export function businessContentGenerationBatch(
+  http: HttpClient,
+  source: BusinessContentGenerationSource,
+  command: BusinessContentGenerationBatchCommand,
+  operation: 'status' | 'request',
+  signal?: AbortSignal,
+) {
+  const segment = encodeURIComponent;
+  if ((source.parentId == null) !== (source.relationCode == null))
+    throw new Error('An aggregate generation source requires its parent and relation');
+  const base = `/${segment(source.moduleAlias)}`;
+  const owner =
+    source.parentId != null
+      ? `${base}/view/${segment(source.parentId)}/relations/${segment(source.relationCode!)}`
+      : base;
+  return http.request<BusinessContentGenerationBatchResult>({
+    method: 'POST',
+    path: `${owner}/content/generation${operation === 'status' ? '/status' : ''}`,
+    body: { ...command, ids: [...command.ids] },
+    signal,
+  });
 }
 
 /** The source belongs to the actual row, including an owned aggregate child. */

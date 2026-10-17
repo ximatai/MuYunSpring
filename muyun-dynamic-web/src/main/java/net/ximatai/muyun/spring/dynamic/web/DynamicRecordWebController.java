@@ -612,7 +612,8 @@ public class DynamicRecordWebController implements
         long missing = recordService.count(moduleAlias, mainEntityAlias(moduleAlias), Criteria.copyOf(coverage)
                 .and(contentQueries.missingReadingCriteria(service(), fields, language.get())));
         return result.withBusinessContent(new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(
-                language.get(), missing, dynamicRelationProjectionReadService.contentReadings(service(), result.records(), declared)));
+                language.get(), missing, dynamicRelationProjectionReadService.contentReadings(service(), result.records(), declared),
+                net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus.GenerationScope.root(moduleAlias)));
     }
 
     /**

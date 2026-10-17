@@ -7,12 +7,14 @@ import net.ximatai.muyun.spring.platform.content.BusinessContentService.Location
 import net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService;
 import net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import java.util.*;
 
 /** Standard-record bridge: owning VIEW scopes and compiled field exposure remain authoritative. */
 public final class BusinessContentWebSupport {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(BusinessContentWebSupport.class);
     static final String ATTRIBUTE = BusinessContentWebSupport.class.getName();
     private final BusinessContentService content;
     private final ModuleExecutionPlanCatalog plans;
@@ -75,6 +77,87 @@ public final class BusinessContentWebSupport {
         return request ? generations.request(scope, web.webScopeName(), location, field, language, retry)
                 : generations.status(scope, web.webScopeName(), location, field, language);
     }
+
+    /** Preflight the whole bounded selection before creating any work. Each item still reopens its live owning scope. */
+    public BusinessContentGenerationBatch.Result generationBatch(CrudWeb<?, ?> web, String parentId, String relationCode,
+            BusinessContentGenerationBatch.Command command, boolean request) {
+        var planned = new ArrayList<BatchField>();
+        var output = new ArrayList<BusinessContentGenerationBatch.Item>();
+        var diagnostics = new HashSet<String>();
+        int records = command.ids().size();
+        for (String id : command.ids()) {
+            var location = parentId == null ? Location.record(id) : new Location(parentId, relationCode, id);
+            boolean readable = planBatchFields(web, location, planned, diagnostics);
+            requireBatchSize(planned);
+            if (readable && parentId == null && command.includeChildren()) {
+                var plan = plans.find(web.webScopeName()).orElseThrow(BusinessContentWebSupport::denied);
+                for (var relation : plan.uiDescriptor().detailRelations()) {
+                    if (!web.webScopeName().equals(relation.targetModuleAlias())
+                            || BusinessContentReadExposure.fields(plan, relation.code()).isEmpty()) continue;
+                    BusinessContentService.ChildSelection selection;
+                    try { selection = content.childSelection(web.service(), id, relation.code(), BusinessContentGenerationBatch.MAX_RECORDS - records); }
+                    catch (RuntimeException unavailable) {
+                        batchDiagnostic("relation", unavailable, diagnostics);
+                        planned.add(new BatchField(location, null, batchState("UNAVAILABLE", "RELATION_UNAVAILABLE")));
+                        requireBatchSize(planned); continue;
+                    }
+                    if (selection.more()) throw BusinessContentGenerationBatch.tooLarge();
+                    records += selection.ids().size();
+                    for (String childId : selection.ids()) {
+                        planBatchFields(web, new Location(id, relation.code(), childId), planned, diagnostics);
+                        requireBatchSize(planned);
+                    }
+                }
+            }
+        }
+        for (var item : planned) {
+            BusinessContentGenerationService.Status result = item.terminal();
+            if (result == null) {
+                try { result = generation(web, item.location(), item.field(), command.language(), request, request && command.retry()); }
+                catch (RuntimeException unavailable) {
+                    batchDiagnostic("generation", unavailable, diagnostics);
+                    result = batchState("UNAVAILABLE", "SCOPE_OR_GENERATION_UNAVAILABLE");
+                }
+            }
+            output.add(batchItem(item.location(), item.field(), result));
+        }
+        return new BusinessContentGenerationBatch.Result(command.language(), output);
+    }
+
+    private static void requireBatchSize(List<BatchField> planned) {
+        if (planned.size() > BusinessContentGenerationBatch.MAX_TEXTS)
+            throw BusinessContentGenerationBatch.tooLarge();
+    }
+    private boolean planBatchFields(CrudWeb<?, ?> web, Location location, List<BatchField> planned, Set<String> diagnostics) {
+        try {
+            var sources = location.childId() == null ? sources(web, location.recordId())
+                    : childSources(web, location.recordId(), location.relationCode(), location.childId());
+            var fields = sources.fields().entrySet().stream()
+                    .filter(entry -> entry.getValue().content().policy() == ContentPolicy.AUTO_TRANSLATE)
+                    .map(Map.Entry::getKey).sorted().toList();
+            if (fields.isEmpty()) planned.add(new BatchField(location, null, batchState("DISABLED", "NO_AUTOMATIC_FIELDS")));
+            else fields.forEach(field -> planned.add(new BatchField(location, field, null)));
+            return true;
+        } catch (RuntimeException unavailable) {
+            batchDiagnostic("source", unavailable, diagnostics);
+            planned.add(new BatchField(location, null, batchState("UNAVAILABLE", "SCOPE_OR_SOURCE_UNAVAILABLE")));
+            return false;
+        }
+    }
+    private static void batchDiagnostic(String stage, RuntimeException failure, Set<String> diagnostics) {
+        if (failure instanceof PlatformAccessDeniedException
+                || failure instanceof net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException) return;
+        String type = failure.getClass().getSimpleName();
+        if (diagnostics.add(stage + ":" + type)) LOG.warn("Business content selection {} unavailable ({})", stage, type);
+    }
+    private static BusinessContentGenerationBatch.Item batchItem(Location location, String field, BusinessContentGenerationService.Status status) {
+        return new BusinessContentGenerationBatch.Item(location.childId() == null ? location.recordId() : location.childId(),
+                location.recordId(), location.relationCode(), location.childId(), field, status);
+    }
+    private static BusinessContentGenerationService.Status batchState(String state, String problem) {
+        return new BusinessContentGenerationService.Status(state, null, problem, 0, null);
+    }
+    private record BatchField(Location location, String field, BusinessContentGenerationService.Status terminal) { }
     public BusinessContentTranslationService.Maintenance maintain(CrudWeb<?, ?> web, Location location, String field,
             String language, String operation, BusinessContentTranslationService.Change change) {
         PlatformAction action = "confirm".equals(operation) || "review".equals(operation)

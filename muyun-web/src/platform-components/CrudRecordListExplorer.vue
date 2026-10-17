@@ -380,6 +380,21 @@ function recordTitle(record: CrudRecordListBase) {
     : original;
 }
 
+const contentGenerationRecords = computed(() =>
+  records.value
+    .filter((record) => record.id)
+    .map((record) => ({
+      id: String(record.id),
+      version: record.version,
+      label: recordTitle(record),
+    })),
+);
+const contentGenerationFields = computed(() =>
+  Object.fromEntries(
+    (contentQuerySchema.value?.fields ?? []).map((field) => [field.name, field.title ?? field.name]),
+  ),
+);
+
 function recordCode(record: CrudRecordListBase) {
   const item = recordItem(record);
   return item
@@ -654,7 +669,13 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :disabled="loading"
       @change="changeQuerySorts"
     />
-    <BusinessContentQueryNotice :status="currentContentStatus" />
+    <BusinessContentQueryNotice
+      :status="currentContentStatus"
+      :context="context"
+      :records="contentGenerationRecords"
+      :fields="contentGenerationFields"
+      @updated="loadRecords('interaction', pageNum)"
+    />
     <UiButton v-if="loadError" type="text" @click="loadRecords()">{{
       language.t('platform.screen.CrudRecordListExplorer.reload', '重新加载')
     }}</UiButton>

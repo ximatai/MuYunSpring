@@ -1,10 +1,65 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { defineComponent, h, KeepAlive, nextTick, ref, watchEffect } from 'vue';
 import RecordDetailDrawer from '../../src/platform-components/RecordDetailDrawer.vue';
+import { useRecordSurfaceActivity } from '../../src/platform-components/recordSurfaceActivity';
 
 describe('RecordDetailDrawer', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('suspends retained reading surfaces when a drawer closes, including nested drawers', async () => {
+    const Reader = defineComponent({
+      setup() {
+        const active = useRecordSurfaceActivity();
+        return () => h('output', String(active.value));
+      },
+    });
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '业务详情', renderMode: 'inline' },
+      slots: {
+        default: () =>
+          h(RecordDetailDrawer, { open: true, title: '引用', renderMode: 'inline' }, () => h(Reader)),
+      },
+      global: { stubs: { UiSidePanel: { template: '<section><slot /></section>' } } },
+    });
+    expect(wrapper.find('output').text()).toBe('true');
+    await wrapper.setProps({ open: false });
+    expect(wrapper.find('output').text()).toBe('false');
+    await wrapper.setProps({ open: true });
+    expect(wrapper.find('output').text()).toBe('true');
+    wrapper.unmount();
+  });
+
+  it('suspends reading while its workbench tab is kept alive in the background', async () => {
+    const shown = ref(true);
+    let active = false;
+    const Reader = defineComponent({
+      setup() {
+        const activity = useRecordSurfaceActivity();
+        watchEffect(() => {
+          active = activity.value;
+        });
+        return () => h('span', '保留的表单');
+      },
+    });
+    const wrapper = mount(
+      defineComponent({
+        setup: () => () => h(KeepAlive, () => (shown.value ? h(Reader) : null)),
+      }),
+    );
+    await nextTick();
+    expect(active).toBe(true);
+    shown.value = false;
+    await nextTick();
+    await nextTick();
+    expect(active).toBe(false);
+    shown.value = true;
+    await nextTick();
+    await nextTick();
+    expect(active).toBe(true);
+    wrapper.unmount();
   });
 
   it('keeps an explicitly inline workspace drawer under its owning page', () => {

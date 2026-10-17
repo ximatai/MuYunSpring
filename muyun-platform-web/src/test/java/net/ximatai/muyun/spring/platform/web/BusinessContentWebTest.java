@@ -32,6 +32,7 @@ class BusinessContentWebTest {
     private BusinessContentTranslationService translations;
     private BusinessContentGenerationService generations;
     private BusinessContentGenerationWebScope generationScopes;
+    private ModuleExecutionPlanCatalog plans;
     private Controller controller;
     private MockMvc mvc;
     @BeforeEach void setup() {
@@ -39,7 +40,7 @@ class BusinessContentWebTest {
         translations = mock(BusinessContentTranslationService.class);
         generations = mock(BusinessContentGenerationService.class);
         generationScopes = mock(BusinessContentGenerationWebScope.class);
-        var plans = mock(ModuleExecutionPlanCatalog.class);
+        plans = mock(ModuleExecutionPlanCatalog.class);
         var ui = mock(ResolvedModuleUiDescriptor.class);
         when(ui.moduleAlias()).thenReturn("test.content");
         when(ui.detailRelations()).thenReturn(List.of(new ResolvedDetailRelationDescriptor(
@@ -179,6 +180,113 @@ class BusinessContentWebTest {
             controller.denied = true;
             mvc.perform(post("/test.content/view/record/content/title/translations/en/generation")).andExpect(status().isForbidden());
             verifyNoInteractions(generations);
+        }
+    }
+
+    @Test void boundedGenerationPreviewIsReadOnlyAndExplicitRequestsUseOnlyAuthorizedAutomaticFields() throws Exception {
+        var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("title", ContentPolicy.AUTO_TRANSLATE), "private raw", 1, null);
+        when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1,
+                Map.of("title", automatic, "unexposed", automatic)));
+        when(content.sources(controller.service, "denied")).thenThrow(new PlatformAccessDeniedException("not visible"));
+        var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
+        when(generationScopes.capture(eq(controller), any(), eq("title"))).thenReturn(scope);
+        var missing = new BusinessContentGenerationService.Status("MISSING", null, null, 0, null);
+        var pending = new BusinessContentGenerationService.Status("PENDING", "job", null, 0, null);
+        when(generations.status(eq(scope), anyString(), any(), eq("title"), eq("de"))).thenReturn(missing);
+        when(generations.request(eq(scope), anyString(), any(), eq("title"), eq("de"), eq(false))).thenReturn(pending);
+        String command = "{\"ids\":[\"record\",\"record\",\"denied\"],\"language\":\"de\"}";
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/content/generation/status").contentType("application/json").content(command))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(2))
+                    .andExpect(jsonPath("$.items[0].recordId").value("record"))
+                    .andExpect(jsonPath("$.items[0].field").value("title"))
+                    .andExpect(jsonPath("$.items[0].status.state").value("MISSING"))
+                    .andExpect(jsonPath("$.items[1].status.state").value("UNAVAILABLE"))
+                    .andExpect(jsonPath("$.items[1].field").isEmpty());
+            verify(generations, never()).request(any(), anyString(), any(), anyString(), anyString(), anyBoolean());
+            mvc.perform(post("/test.content/content/generation").contentType("application/json").content(command))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].status.state").value("PENDING"));
+            verify(generations).request(scope, "test.content", BusinessContentService.Location.record("record"), "title", "de", false);
+            verify(generationScopes, never()).capture(any(), any(), eq("unexposed"));
+        }
+    }
+
+    @Test void boundedChildGenerationKeepsTheParentRelationAndExplicitRetryIntent() throws Exception {
+        var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("description", ContentPolicy.AUTO_TRANSLATE), "child raw", 1, null);
+        when(content.childSources(controller.service, "parent", "lines", "child"))
+                .thenReturn(new BusinessContentService.Sources(1, Map.of("description", automatic)));
+        var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
+        when(generationScopes.capture(eq(controller), any(), eq("description"))).thenReturn(scope);
+        when(generations.request(eq(scope), anyString(), any(), eq("description"), eq("en"), eq(true)))
+                .thenReturn(new BusinessContentGenerationService.Status("PENDING", "job", null, 0, null));
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/view/parent/relations/lines/content/generation")
+                    .contentType("application/json").content("{\"ids\":[\"child\"],\"language\":\"en\",\"retry\":true}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].recordId").value("child"));
+            verify(generations).request(scope, "test.content", new BusinessContentService.Location("parent", "lines", "child"), "description", "en", true);
+            verify(content, never()).sources(any(), anyString());
+        }
+    }
+
+    @Test void boundedGenerationRejectsEmptyOrExcessiveSelectionAndUnsupportedLanguageBeforeAnyReads() throws Exception {
+        try (var ignored = TenantContext.use("tenant-a")) {
+            for (String body : List.of("{\"ids\":[],\"language\":\"en\"}", "{\"ids\":[\"record\"],\"language\":\"fr\"}",
+                    new ObjectMapper().writeValueAsString(Map.of("ids", java.util.stream.IntStream.range(0, 51).mapToObj(i -> "row" + i).toList(), "language", "en")))) {
+                mvc.perform(post("/test.content/content/generation").contentType("application/json").content(body))
+                        .andExpect(status().isBadRequest());
+            }
+            verifyNoInteractions(content, generations, generationScopes);
+        }
+    }
+
+    @Test void boundedRootSelectionCanIncludeItsPublishedOwnedChildrenWithoutEnqueuingUnreadableFields() throws Exception {
+        var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("text", ContentPolicy.AUTO_TRANSLATE), "raw", 1, null);
+        when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1, Map.of("title", automatic)));
+        when(content.childSelection(controller.service, "record", "lines", 199))
+                .thenReturn(new BusinessContentService.ChildSelection(List.of("child", "denied-child"), false));
+        when(content.childSources(controller.service, "record", "lines", "child"))
+                .thenReturn(new BusinessContentService.Sources(1, Map.of("description", automatic, "unexposed", automatic)));
+        when(content.childSources(controller.service, "record", "lines", "denied-child"))
+                .thenThrow(new PlatformAccessDeniedException("child unavailable"));
+        var scope = new BusinessContentGenerationScope.Reference("test", "one", "{}");
+        when(generationScopes.capture(eq(controller), any(), anyString())).thenReturn(scope);
+        when(generations.request(eq(scope), anyString(), any(), anyString(), eq("de"), eq(false)))
+                .thenReturn(new BusinessContentGenerationService.Status("PENDING", "job", null, 0, null));
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/content/generation").contentType("application/json")
+                    .content("{\"ids\":[\"record\"],\"language\":\"de\",\"includeChildren\":true}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(3))
+                    .andExpect(jsonPath("$.items[1].ownerId").value("record"))
+                    .andExpect(jsonPath("$.items[1].childId").value("child"))
+                    .andExpect(jsonPath("$.items[1].relationCode").value("lines"))
+                    .andExpect(jsonPath("$.items[2].status.state").value("UNAVAILABLE"));
+            verify(generations).request(scope, "test.content", new BusinessContentService.Location("record", "lines", "child"), "description", "de", false);
+            verify(generations, times(2)).request(any(), anyString(), any(), anyString(), anyString(), anyBoolean());
+        }
+    }
+
+    @Test void boundedGenerationPreflightsAggregateAndTextLimitsBeforeAnyTasksAreRegistered() throws Exception {
+        var automatic = new BusinessContentService.CurrentSource(new ContentFieldDefinition("text", ContentPolicy.AUTO_TRANSLATE), "raw", 1, null);
+        when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1, Map.of("title", automatic)));
+        when(content.childSelection(controller.service, "record", "lines", 199))
+                .thenReturn(new BusinessContentService.ChildSelection(List.of("child"), true));
+        try (var ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/test.content/content/generation").contentType("application/json")
+                    .content("{\"ids\":[\"record\"],\"language\":\"de\",\"includeChildren\":true}"))
+                    .andExpect(status().isBadRequest());
+            var fields = java.util.stream.IntStream.range(0, 201).mapToObj(i -> "text" + i).toList();
+            var ui = mock(ResolvedModuleUiDescriptor.class);
+            when(ui.moduleAlias()).thenReturn("test.content");
+            var wide = new ModuleExecutionPlan("test.content", "many", ui,
+                    new ResolvedModuleReadModel("test.content", "main", fields.stream().map(field ->
+                            new ResolvedModuleReadField("main", null, field, false)).toList()), List.of());
+            when(plans.find("test.content")).thenReturn(Optional.of(wide));
+            var sources = new LinkedHashMap<String, BusinessContentService.CurrentSource>(); fields.forEach(field -> sources.put(field, automatic));
+            when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(1, sources));
+            mvc.perform(post("/test.content/content/generation").contentType("application/json")
+                    .content("{\"ids\":[\"record\"],\"language\":\"de\"}"))
+                    .andExpect(status().isBadRequest());
+            verifyNoInteractions(generations, generationScopes);
         }
     }
 

@@ -356,6 +356,36 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return webScope(() -> BusinessContentWebSupport.current().reading(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), language));
     }
 
+    @PostMapping("/content/generation/status")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result contentGenerationBatchStatus(@RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, null, null, command, false));
+    }
+
+    @PostMapping("/content/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result contentGenerationBatchRequest(@RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, null, null, command, true));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/content/generation/status")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result childContentGenerationBatchStatus(@PathVariable String id, @PathVariable String relationCode,
+            @RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, id, relationCode, command, false));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/content/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result childContentGenerationBatchRequest(@PathVariable String id, @PathVariable String relationCode,
+            @RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, id, relationCode, command, true));
+    }
+
     @GetMapping("/view/{id}/content/{field}/translations/{language}/generation")
     @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)

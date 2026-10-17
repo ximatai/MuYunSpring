@@ -49,6 +49,7 @@ function status(state: BusinessContentGenerationStatus['state']): BusinessConten
 }
 function fixture(request: ReturnType<typeof vi.fn>, id = 'child/one') {
   const options = reactive({
+    active: true,
     http: { request } as unknown as HttpClient,
     moduleAlias: 'quality.exception',
     record: { id, version: 4, description: raw, other: 'initial' },
@@ -77,6 +78,45 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
   scopes.splice(0).forEach((scope) => scope.stop());
   vi.useRealTimers();
+});
+
+it('stops retained closed surfaces without losing the business draft and resumes only when opened', async () => {
+  const request = vi.fn(async (entry: HttpRequestOptions) =>
+    entry.path.endsWith('/reading') ? reading(String(entry.query?.language ?? 'en')) : status('PENDING'),
+  );
+  const { options, view } = fixture(request);
+  await settle();
+  expect(generationRequests(request)).toHaveLength(1);
+  const signal = generationRequests(request)[0].signal as AbortSignal;
+  const draft = JSON.stringify(options.record);
+  options.active = false;
+  await settle();
+  expect(signal.aborted).toBe(true);
+  expect(view.reading.value).toBeUndefined();
+  const calls = request.mock.calls.length;
+  options.language = 'de';
+  await settle();
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(request).toHaveBeenCalledTimes(calls);
+  expect(JSON.stringify(options.record)).toBe(draft);
+  options.active = true;
+  await settle();
+  expect(generationRequests(request)).toHaveLength(2);
+});
+
+it('offers explicit recovery for a persisted unavailable task after routing becomes available again', async () => {
+  const request = vi.fn(async (entry: HttpRequestOptions) =>
+    entry.path.endsWith('/reading') ? reading() : status('UNAVAILABLE'),
+  );
+  const { view } = fixture(request);
+  await settle();
+  expect(view.canRetry.value).toBe(true);
+  expect(generationRequests(request)).toHaveLength(1);
+  expect(generationRequests(request)[0]).toMatchObject({ method: 'POST', query: { retry: false } });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(generationRequests(request)).toHaveLength(1);
+  await view.retry();
+  expect(generationRequests(request).at(-1)).toMatchObject({ method: 'POST', query: { retry: true } });
 });
 
 it('requests a missing saved child translation without source text and refreshes only after READY', async () => {
@@ -119,7 +159,7 @@ it.each(['UNAVAILABLE', 'REMOVED', 'UNSUPPORTED', 'FAILED', 'CANCELLED', 'STALE'
     expect(generationRequests(request)).toHaveLength(1);
     expect(view.status.value?.state).toBe(state);
     expect(view.reading.value?.originalText).toBe(raw);
-    expect(view.canRetry.value).toBe(['FAILED', 'CANCELLED', 'STALE'].includes(state));
+    expect(view.canRetry.value).toBe(['FAILED', 'CANCELLED', 'STALE', 'UNAVAILABLE'].includes(state));
   },
 );
 

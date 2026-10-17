@@ -826,6 +826,8 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var aggregateContent = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(),
                     parentOnlyScope, beans.getBeanProvider(DynamicRecordService.class));
             var childSource = aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId());
+            assertThat(aggregateContent.childSelection(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", 10).ids())
+                    .contains(child.getId());
             assertThat(childSource.fields().get("description").source()).isEqualTo(childHistory.getFirst());
             assertThat(aggregateContent.childHistory(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId(), "description", HISTORY))
                     .isEqualTo(childHistory);
@@ -1219,6 +1221,29 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                         .isEqualTo("不可读子说明");
                 assertThat(content.childHistory(aggregate, parent.getId(), "lines", child.getId(), "title", HISTORY))
                         .extracting(BusinessContentService.SourceRevision::text).containsExactly("不可读子说明");
+            }
+        }
+    }
+
+    @Test void aggregateContentSelectionIsBoundedAndRetainsTheActualOwningForeignKeyAndTenant() {
+        try (var actor = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var parent = row("选择范围"); service.insert(parent);
+            var childService = new PolicyChildService(dao, Set.of());
+            var aggregate = new PolicyAggregateService(dao, childService);
+            var children = new ArrayList<String>();
+            for (int i = 0; i < 2; i++) {
+                var child = row("明细" + i); child.setParentId(parent.getId()); childService.insert(child); children.add(child.getId());
+            }
+            var foreign = row("其他父记录明细"); foreign.setParentId("other-parent"); childService.insert(foreign);
+            var limited = content.childSelection(aggregate, parent.getId(), "lines", 1);
+            assertThat(limited.ids()).hasSize(1).allMatch(children::contains); assertThat(limited.more()).isTrue();
+            var complete = content.childSelection(aggregate, parent.getId(), "lines", 2);
+            assertThat(complete.ids()).containsExactlyInAnyOrderElementsOf(children); assertThat(complete.more()).isFalse();
+            assertThat(content.childSelection(aggregate, parent.getId(), "lines", 0).more()).isTrue();
+            try (var other = CurrentUserContext.use(CurrentUser.tenantUser("other", "Other", "tenant-b"));
+                 var otherTenant = TenantContext.use("tenant-b")) {
+                assertThatThrownBy(() -> content.childSelection(aggregate, parent.getId(), "lines", 10))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             }
         }
     }

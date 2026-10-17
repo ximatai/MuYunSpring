@@ -148,7 +148,8 @@ public class StandardModuleWebRuntime {
             long missing = contentScopeCount(moduleAlias, owner, Criteria.copyOf(active)
                     .and(contentQueries.missingReadingCriteria(owner, fields, language)));
             return new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(language, missing,
-                    contentLists == null ? Map.of() : contentLists.readings(owner, outputRecords, declared));
+                    contentLists == null ? Map.of() : contentLists.readings(owner, outputRecords, declared),
+                    net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus.GenerationScope.root(moduleAlias));
         };
         if (owner instanceof DataScopeAbility<?> scoped) {
             var scope = scoped.readScopeByPolicy(policy, coverage);

@@ -1804,6 +1804,34 @@ function recordKey(record: QueryListRecord) {
   return String(record[props.rowKey] ?? record.id ?? '');
 }
 
+const contentGenerationRecords = computed(() =>
+  records.value
+    .filter((record) => record.id)
+    .map((record) => {
+      const id = String(record.id);
+      const first = tableColumns.value[0]?.key;
+      return {
+        id,
+        version: record.version,
+        label: String(
+          currentContentStatus.value?.readings[id]?.title ??
+            record.title ??
+            record.code ??
+            (first ? (currentContentStatus.value?.readings[id]?.[first] ?? record[first]) : undefined) ??
+            id,
+        ),
+      };
+    }),
+);
+const contentGenerationFields = computed(() =>
+  Object.fromEntries(tableColumns.value.map((field) => [field.key, field.title])),
+);
+const contentGenerationSelected = computed(() =>
+  records.value
+    .filter((record) => record.id && selectedRowKeys.value.some((key) => String(key) === recordKey(record)))
+    .map((record) => String(record.id)),
+);
+
 function changeQuerySorts(sorts: WebSort[] | undefined) {
   queryInteractionRevision.value++;
   appliedSorts.value = sorts;
@@ -2020,7 +2048,14 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template #conditions>
-      <BusinessContentQueryNotice :status="currentContentStatus" />
+      <BusinessContentQueryNotice
+        :status="currentContentStatus"
+        :context="context"
+        :records="contentGenerationRecords"
+        :fields="contentGenerationFields"
+        :initially-selected="contentGenerationSelected"
+        @updated="loadRecords()"
+      />
       <section v-if="criteriaComposerMounted" v-show="conditionsExpanded" class="record-query-conditions">
         <QueryCriteriaComposer
           :key="criteriaComposerResetKey"

@@ -193,7 +193,10 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
             missing = scoped.withDataScopeTenant(scope, () -> owner.count(scope.criteria()));
         } else missing = owner.count(coverage);
         return output.withBusinessContent(new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(language, missing,
-                contentLists == null ? Map.of() : contentLists.readings(owner, output.records(), declared)));
+                contentLists == null ? Map.of() : contentLists.readings(owner, output.records(), declared),
+                runtime.relation().sourceModuleAlias().equals(runtime.relation().targetModuleAlias())
+                        ? new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus.GenerationScope(
+                                runtime.relation().sourceModuleAlias(), runtime.parent().getId(), runtime.relation().code()) : null));
     }
 
     private <T extends EntityContract> PageResult<T> queryChildPage(CrudAbility<T> owner, Criteria criteria,

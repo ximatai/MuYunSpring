@@ -104,15 +104,33 @@ public final class BusinessContentService {
 
     private record OwnedChild(CrudAbility<?> ability, EntityContract record) { }
 
+    public record ChildSelection(List<String> ids, boolean more) {
+        public ChildSelection { ids = List.copyOf(ids); }
+    }
+
+    /** Bounded identities through the normal aggregate read; field qualification is still checked for each text. */
+    public ChildSelection childSelection(CrudAbility<?> parent, String parentId, String relationCode, int limit) {
+        if (limit < 0 || limit > 200) throw new IllegalArgumentException("Invalid aggregate content selection limit");
+        var rows = childRows(parent, parentId, relationCode).records();
+        return new ChildSelection(rows.stream().limit(limit).map(EntityContract::getId).toList(), rows.size() > limit);
+    }
+
     /** Child sources inherit the already established parent-owned aggregate read contract. */
     private OwnedChild child(CrudAbility<?> ability, String parentId, String relationCode, String childId) {
+        var rows = childRows(ability, parentId, relationCode);
+        var child = rows.records().stream().filter(row -> childId.equals(row.getId()))
+                .findFirst().orElseThrow(BusinessContentService::denied);
+        return new OwnedChild(rows.ability(), child);
+    }
+    private record ChildRows(CrudAbility<?> ability, List<? extends EntityContract> records) { }
+    private ChildRows childRows(CrudAbility<?> ability, String parentId, String relationCode) {
         var parent = authorizedRecord(ability, parentId);
         var records = dynamicRecords == null ? null : dynamicRecords.getIfAvailable();
         if (!(ability instanceof ChildrenAbility<?>) && ability.getDao() instanceof DynamicRecordDao && records != null) {
-            var child = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode).stream()
-                    .filter(row -> childId.equals(row.getId()) && Objects.equals(parent.getTenantId(), row.getTenantId()))
-                    .findFirst().orElseThrow(BusinessContentService::denied);
-            return new OwnedChild(records.entity(ability.getModuleAlias(), child.getEntity().alias()), child);
+            var children = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode).stream()
+                    .filter(row -> Objects.equals(parent.getTenantId(), row.getTenantId())).toList();
+            return new ChildRows(children.isEmpty() ? null
+                    : records.entity(ability.getModuleAlias(), children.getFirst().getEntity().alias()), children);
         }
         if (!(ability instanceof ChildrenAbility<?> aggregate)) throw denied();
         var relation = aggregate.childRelations().stream().filter(candidate -> relationCode.equals(candidate.relationCode()))
@@ -124,10 +142,8 @@ public final class BusinessContentService {
                 : TenantContext.use(parent.getTenantId())) {
             children = relation.selectChildren(parentId);
         }
-        var child = children.stream().filter(row -> childId.equals(row.getId())
-                        && Objects.equals(parent.getTenantId(), row.getTenantId()))
-                .findFirst().orElseThrow(BusinessContentService::denied);
-        return new OwnedChild(relation.childAbility(), child);
+        return new ChildRows(relation.childAbility(), children.stream()
+                .filter(row -> Objects.equals(parent.getTenantId(), row.getTenantId())).toList());
     }
 
     static SourceRevision view(BusinessContentRevision row) {

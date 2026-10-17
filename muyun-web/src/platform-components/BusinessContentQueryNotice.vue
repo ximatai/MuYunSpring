@@ -1,8 +1,19 @@
 <script setup lang="ts">
 import { useLanguageContext, businessContentLanguages } from '@muyun/web-core';
 import type { WebBusinessContentQueryStatus } from '@muyun/web-contracts';
+import type { ModuleContext } from '@muyun/web-core';
+import BusinessContentGenerationPanel, {
+  type BusinessContentGenerationRecord,
+} from './BusinessContentGenerationPanel.vue';
 
-defineProps<{ status?: WebBusinessContentQueryStatus }>();
+defineProps<{
+  status?: WebBusinessContentQueryStatus;
+  context?: Pick<ModuleContext<unknown>, 'http' | 'moduleAlias' | 'runtime'>;
+  records?: BusinessContentGenerationRecord[];
+  fields?: Record<string, string>;
+  initiallySelected?: string[];
+}>();
+defineEmits<{ updated: [] }>();
 const language = useLanguageContext();
 </script>
 
@@ -21,6 +32,15 @@ const language = useLanguageContext();
       )
     }}
   </p>
+  <BusinessContentGenerationPanel
+    v-if="status?.generationScope && context && records?.length"
+    :status="status"
+    :context="context"
+    :records="records"
+    :fields="fields"
+    :initially-selected="initiallySelected"
+    @updated="$emit('updated')"
+  />
 </template>
 
 <style scoped>
