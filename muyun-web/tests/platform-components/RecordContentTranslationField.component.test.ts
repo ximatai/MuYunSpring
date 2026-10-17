@@ -7,6 +7,7 @@ import {
   provideLanguageContext,
   type HttpRequestOptions,
   type ModuleContext,
+  type BusinessContentRelationScope,
 } from '@muyun/web-core';
 import type {
   BusinessContentReading,
@@ -83,13 +84,14 @@ const Modal = defineComponent({
 function host(
   request: ReturnType<typeof vi.fn>,
   actions = ['contentEdit', 'contentConfirm'],
-  relation?: { parentId: string; relationCode: string },
+  relation?: BusinessContentRelationScope,
   policy: 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS' = 'MANUAL_TRANSLATIONS',
+  fieldName: 'description' | 'reason' = 'description',
 ) {
   const language = createLanguageContext();
   const contentLanguage = businessContentLanguageContext(language);
   contentLanguage.setLanguage('en');
-  const record = reactive({ id: 'child/one', version: 4, description: original.text });
+  const record = reactive({ id: 'child/one', version: 4, description: original.text, reason: original.text });
   const context = {
     http: { request },
     moduleAlias: 'quality.exception',
@@ -102,7 +104,7 @@ function host(
         return () =>
           h(RecordContentTranslationField, {
             record,
-            fieldName: 'description',
+            fieldName,
             content: { key: 'stable-field', policy },
             context,
             relation,
@@ -126,6 +128,64 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it('opens and saves workflow maintenance receipts while retaining private drafts and the original event', async () => {
+    let maintained = state();
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) {
+        const response = reading('en', maintained.confirmed?.text ?? 'Previous confirmed English');
+        return { ...response, fields: { reason: response.fields.description } };
+      }
+      if (options.path.endsWith('/history')) return [];
+      if (options.path.endsWith('/draft'))
+        maintained = {
+          ...maintained,
+          expectedRevision: 3,
+          draft: translation('DRAFT', 3, 'Human workflow reading'),
+        };
+      if (options.path.endsWith('/confirm'))
+        maintained = {
+          ...maintained,
+          expectedRevision: 4,
+          confirmed: translation('CONFIRMED', 4, maintained.draft!.text!),
+        };
+      return { data: maintained, changeSetId: 'workflow-maintenance', changes: [] };
+    });
+    const { wrapper, record } = host(
+      request,
+      ['contentEdit', 'contentConfirm'],
+      { kind: 'workflowEvent', workflowInstanceId: 'instance' },
+      'AUTO_TRANSLATE',
+      'reason',
+    );
+    try {
+      await flushPromises();
+      await button(wrapper, '维护／核对译文').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-maintenance]').text()).toContain(original.text);
+      await wrapper.find('textarea').setValue('Human workflow reading');
+      await button(wrapper, '保存人工草稿').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('.record-content-translation__text').text()).toContain(
+        'Previous confirmed English',
+      );
+      await button(wrapper, '确认已审阅的草稿').trigger('click');
+      await flushPromises();
+      expect(wrapper.find('.record-content-translation__text').text()).toContain('Human workflow reading');
+      expect(record.reason).toBe(original.text);
+      expect(record.version).toBe(4);
+      expect(
+        requests(request)
+          .filter((row) => row.method === 'POST')
+          .every((row) =>
+            row.path.startsWith(
+              '/workflow/runtime/instance/instance/events/child%2Fone/content/reason/translations/en/',
+            ),
+          ),
+      ).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
   it('clears the previous source history while a source switch is pending and retries the failed first page', async () => {
     const maintained = {
       ...state(),

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.content.ContentWriteContext;
+import net.ximatai.muyun.spring.common.content.ContentLanguageInputs;
+
 import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
@@ -56,6 +59,8 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
     private Object execute(ModuleRecordActionCommand command, boolean approvalBusiness) {
         var service = abilities.orderedStream().filter(item -> command.moduleAlias().equals(item.getModuleAlias())).findFirst();
         if (!"update".equals(command.actionCode())) {
+            if (!command.contentLanguages().isEmpty())
+                throw new IllegalArgumentException("Source languages belong to an explicit business-field update");
             if (service.isPresent()) throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.default-module-record-action-executor.no-domain-executor-is-registered-for-the-static-action",
                     "静态业务动作未注册领域执行器: {value1}"), Map.of("value1", String.valueOf(command.actionCode())));
@@ -84,8 +89,12 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
                     draft.setValue(field.getKey(), field.getValue());
             }
             draft.setId(command.recordId()); draft.setVersion(command.version());
-            int count = approvalBusiness ? records.writeApprovalBusiness(command.moduleAlias(), entity, draft)
-                    : records.update(command.moduleAlias(), entity, draft);
+            draft.contentLanguageInputs(command.contentLanguages());
+            int count;
+            try (var input = ContentWriteContext.open(draft, command.contentLanguages())) {
+                count = approvalBusiness ? records.writeApprovalBusiness(command.moduleAlias(), entity, draft)
+                        : records.update(command.moduleAlias(), entity, draft);
+            }
             if (count != 1) throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.default-module-record-action-executor.the-business-data-could-not-be-saved",
                     "业务数据保存失败"));
@@ -102,8 +111,13 @@ public class DefaultModuleRecordActionExecutor implements ModuleRecordActionExec
             EntityContract draft = (EntityContract) mapper.convertValue(stored, ability.modelClass());
             mapper.updateValue(draft, command.values());
             draft.setId(command.recordId()); draft.setVersion(command.version());
-            int count = approvalBusiness && ability instanceof ApprovalAbility approval && approval.supportsApproval()
-                    ? approval.writeApprovalBusiness(draft) : ability.update(draft);
+            if (draft instanceof ContentLanguageInputs inputs)
+                inputs.contentLanguageInputs(command.contentLanguages());
+            int count;
+            try (var input = ContentWriteContext.open(draft, command.contentLanguages())) {
+                count = approvalBusiness && ability instanceof ApprovalAbility approval && approval.supportsApproval()
+                        ? approval.writeApprovalBusiness(draft) : ability.update(draft);
+            }
             if (count != 1) throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.default-module-record-action-executor.the-business-data-could-not-be-saved",
                     "业务数据保存失败"));

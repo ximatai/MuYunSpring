@@ -19,18 +19,24 @@ import type {
   WorkflowSubmitPreview,
   WorkflowStatus,
   WorkflowTask,
+  WorkflowRecordInstance,
   WorkflowWorkbenchCard,
   WorkflowWorkbenchFilters,
   WebPageResponse,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 import { actionResultData } from './actionResult';
+import { businessContentReadHeaders } from './businessContentLanguage';
 import type { ModuleContext } from './module/moduleContext';
 
 function workflowRequests(http: HttpClient) {
   return {
     post: async <T>(path: string, body: unknown = {}) =>
       actionResultData<T>(await http.request<T>({ method: 'POST', path, body })),
+    readPost: async <T>(path: string, body: unknown = {}) =>
+      actionResultData<T>(
+        await http.request<T>({ method: 'POST', path, body, headers: businessContentReadHeaders() }),
+      ),
     get: <T>(path: string) => http.request<T>({ path }),
   };
 }
@@ -46,12 +52,17 @@ export async function refreshWorkflowRecordActions(
 
 /** All operation rights remain server decisions. The client only carries typed intent. */
 export function createWorkflowClient(http: HttpClient) {
-  const { post, get } = workflowRequests(http);
+  const { post, readPost, get } = workflowRequests(http);
   const runtime = '/workflow/runtime';
   const recordPath = (moduleAlias: string, recordId: string) =>
     `${runtime}/record/${encodeURIComponent(moduleAlias)}/${encodeURIComponent(recordId)}`;
   const instancePath = (id: string) => `${runtime}/instance/${encodeURIComponent(id)}`;
   return {
+    recordInstances: (moduleAlias: string, recordId: string, page = 1, size = 20) =>
+      http.request<WebPageResponse<WorkflowRecordInstance>>({
+        path: `${recordPath(moduleAlias, recordId)}/instances`,
+        query: { page, size },
+      }),
     history: async (moduleAlias: string, recordId: string) =>
       (
         await post<{ records: WorkflowHistoryInstance[] }>('/workflow/history/query', {
@@ -107,7 +118,7 @@ export function createWorkflowClient(http: HttpClient) {
       post<unknown>(`${instancePath(id)}/actions/${encodeURIComponent(code)}`, payload),
     workbench: async (board: string, pageNumber = 0, moduleAlias?: string) =>
       (
-        await post<{ records: WorkflowWorkbenchCard[] }>(`${runtime}/workbench/${board}/query`, {
+        await readPost<{ records: WorkflowWorkbenchCard[] }>(`${runtime}/workbench/${board}/query`, {
           page: { pageNum: pageNumber + 1, pageSize: 30 },
           moduleAlias,
         })
@@ -121,7 +132,7 @@ export function createWorkflowClient(http: HttpClient) {
       keyword = '',
       pageSize = 30,
     ) =>
-      post<
+      readPost<
         WebPageResponse<WorkflowWorkbenchCard> & {
           navigation?: {
             modules: Record<string, string>;

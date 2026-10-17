@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.dynamic.schema;
 
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
+
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.MigrationOptions;
 import net.ximatai.muyun.database.core.orm.OrmException;
@@ -199,6 +202,59 @@ class DynamicSchemaServiceIT {
     @Test
     void trustedServiceActionCanUpdateProcessingRecordWithoutGrantingOrdinaryEditing() {
         checkApprovalBusinessAction("processing");
+    }
+
+    @Test
+    void registeredRecordActionCarriesItsActualPolicyAndRestoresTheCallerAfterSuccessAndFailure() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "test.action_context_" + suffix;
+        var entity = new EntityDefinition("entry", "action_context_" + suffix, "Action context",
+                List.of(FieldDefinition.string("title", "Title"))).withCapabilities(EntityCapability.DATA_SCOPE);
+        schemaService.ensureTable(entity);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var executor = new DynamicActionExecutor() {
+            @Override public String executorKey() { return "workflow-context"; }
+            @Override public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
+                var actual = net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current().orElseThrow();
+                assertThat(actual.moduleAlias()).isEqualTo(module);
+                assertThat(actual.recordIds()).containsExactly(request.recordId());
+                assertThat(actual.actionPolicy().actionCode()).isEqualTo("startCollaboration");
+                assertThat(actual.actionPolicy().actionAuth()).isTrue();
+                assertThat(actual.actionPolicy().requiresDataScope()).isTrue();
+                assertThat(CurrentUserContext.currentUser().orElseThrow().userId()).isEqualTo("operator");
+                assertThat(TenantContext.currentTenantId()).contains("action-tenant");
+                calls.incrementAndGet();
+                if (request.payload().containsKey("fail")) throw new IllegalStateException("domain failed");
+                return "started";
+            }
+        };
+        var action = new EntityActionDefinition("entry", "startCollaboration", "Start collaboration", true,
+                EntityActionLevel.RECORD, EntityActionCategory.CUSTOM, null, true, true, null, null, null,
+                EntityActionExecutorType.SERVICE, executor.executorKey());
+        try (var runtime = DynamicRecordRuntime.builder(operations)
+                    .actionExecutorRegistry(new DynamicActionExecutorRegistry(List.of(executor))).build();
+             var tenant = TenantContext.use("action-tenant");
+             var actor = CurrentUserContext.use(CurrentUser.tenantUser("operator", "Operator", "action-tenant"))) {
+            runtime.register(ModuleDefinition.builder(module, "Collaboration").entities(List.of(entity)).actions(List.of(action)).build());
+            var records = new DynamicRecordService(runtime);
+            String id = records.create(module, "entry", records.newRecord(module, "entry").setValue("title", "original"));
+            var outer = net.ximatai.muyun.spring.common.platform.ActionExecutionContext.ofPlatformAction(
+                    "other.module", PlatformAction.VIEW, java.util.Set.of("other-record"), CurrentUserContext.currentUser());
+            try (var caller = net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.use(outer)) {
+                assertThat(records.executeAction(module, action.actionCode(), DynamicActionExecutionRequest.id(id)).value()).isEqualTo("started");
+                assertThat(net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()).contains(outer);
+                assertThatThrownBy(() -> records.executeAction(module, action.actionCode(), DynamicActionExecutionRequest.id(id).withPayload(Map.of("fail", true))))
+                        .hasMessageContaining("domain failed");
+                assertThat(net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()).contains(outer);
+                var denied = new DynamicRecordService(runtime, context -> { throw new PlatformException("action denied"); },
+                        new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService());
+                assertThatThrownBy(() -> denied.executeAction(module, action.actionCode(), DynamicActionExecutionRequest.id(id)))
+                        .hasMessageContaining("action denied");
+                assertThat(calls.get()).isEqualTo(2);
+                assertThat(net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()).contains(outer);
+            }
+            assertThat(net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()).isEmpty();
+        }
     }
 
     @Test

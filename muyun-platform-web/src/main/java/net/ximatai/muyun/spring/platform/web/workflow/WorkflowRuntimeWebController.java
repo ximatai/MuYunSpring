@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web.workflow;
 
+import net.ximatai.muyun.spring.platform.workflow.WorkflowOpinionInput;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.web.WebListResponse;
@@ -93,6 +95,14 @@ public class WorkflowRuntimeWebController {
         return new WebListResponse<>(runtimeReadFacade.manualBranchCandidates(instanceId));
     }
 
+    @GetMapping("/record/{moduleAlias}/{recordId}/instances")
+    public net.ximatai.muyun.spring.web.WebPageResponse<net.ximatai.muyun.spring.platform.workflow.WorkflowRecordInstanceView>
+            recordInstances(@PathVariable String moduleAlias, @PathVariable String recordId,
+                            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return net.ximatai.muyun.spring.web.WebPageResponse.from(runtimeReadFacade.recordInstances(
+                moduleAlias, recordId, PageRequest.of(page, size)));
+    }
+
     @PostMapping("/instance/{instanceId}/manual-branches")
     public WebListResponse<WorkflowManualBranchCandidateView> planManualBranchCandidates(@PathVariable String instanceId,
             @RequestBody WorkflowManualBranchPlanWebRequest request) {
@@ -152,7 +162,9 @@ public class WorkflowRuntimeWebController {
     public WorkflowSubmitResult submitApproval(@PathVariable String moduleAlias,
                                                @PathVariable String recordId,
                                                @RequestBody(required = false) WorkflowSubmitWebRequest request) {
-        return submitFacade.submit(submitRequest(moduleAlias, recordId, request, true));
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return submitFacade.submit(submitRequest(moduleAlias, recordId, request, true));
+        });
     }
 
     @PostMapping("/instance/{instanceId}/actions")
@@ -169,10 +181,12 @@ public class WorkflowRuntimeWebController {
             @PathVariable String instanceId,
             @PathVariable String actionCode,
             @RequestBody(required = false) WorkflowInstanceActionWebRequest request) {
-        return instanceActionFacade.execute(actionCode, new WorkflowInstanceActionRequest(instanceId,
-                currentOperatorId(),
-                request == null ? null : request.reason(),
-                null));
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return instanceActionFacade.execute(actionCode, new WorkflowInstanceActionRequest(instanceId,
+                    currentOperatorId(),
+                    request == null ? null : request.reason(),
+                    null));
+        });
     }
 
     @PostMapping("/task/{taskId}/actions/{actionCode}")
@@ -181,18 +195,20 @@ public class WorkflowRuntimeWebController {
             @PathVariable String taskId,
             @PathVariable String actionCode,
             @RequestBody(required = false) WorkflowTaskActionWebRequest request) {
-        WorkflowTaskActionRequest actionRequest = WorkflowTaskActionRequest.builder(taskId, currentOperatorId())
-                .targetAssigneeId(request == null ? null : request.targetAssigneeId())
-                .addSignSegment(request == null ? null : request.addSignSegment())
-                .rejectResubmitMode(rejectResubmitMode(request == null ? null : request.rejectResubmitMode()))
-                .reason(request == null ? null : request.reason())
-                .selectedRoute(request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
-                        request == null ? null : request.selectedReason())
-                .manualRouteSelections(request == null ? null : request.manualRouteSelections())
-                .designerSnapshot(request == null ? null : jsonText(request.semanticJson()),
-                        request == null ? null : jsonText(request.layoutJson()))
-                .build();
-        return taskActionFacade.execute(actionCode, actionRequest);
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            WorkflowTaskActionRequest actionRequest = WorkflowTaskActionRequest.builder(taskId, currentOperatorId())
+                    .targetAssigneeId(request == null ? null : request.targetAssigneeId())
+                    .addSignSegment(request == null ? null : request.addSignSegment())
+                    .rejectResubmitMode(rejectResubmitMode(request == null ? null : request.rejectResubmitMode()))
+                    .reason(request == null ? null : request.reason())
+                    .selectedRoute(request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
+                            request == null ? null : request.selectedReason())
+                    .manualRouteSelections(request == null ? null : request.manualRouteSelections())
+                    .designerSnapshot(request == null ? null : jsonText(request.semanticJson()),
+                            request == null ? null : jsonText(request.layoutJson()))
+                    .build();
+            return taskActionFacade.execute(actionCode, actionRequest);
+        });
     }
 
     @PostMapping("/task/{taskId}/read")
@@ -200,9 +216,11 @@ public class WorkflowRuntimeWebController {
     public WorkflowTaskActionResult readNoticeTask(
             @PathVariable String taskId,
             @RequestBody(required = false) WorkflowTaskActionWebRequest request) {
-        return taskActionFacade.execute("read", WorkflowTaskActionRequest.builder(taskId, currentOperatorId())
-                .reason(request == null ? null : request.reason())
-                .build());
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return taskActionFacade.execute("read", WorkflowTaskActionRequest.builder(taskId, currentOperatorId())
+                    .reason(request == null ? null : request.reason())
+                    .build());
+        });
     }
 
     @GetMapping("/workbench/modules")
@@ -289,16 +307,18 @@ public class WorkflowRuntimeWebController {
     public WorkflowModuleTaskContinueResult checkAndContinueModuleTask(
             @PathVariable String taskId,
             @RequestBody(required = false) WorkflowModuleTaskContinueWebRequest request) {
-        String operatorId = currentOperatorId();
-        if (request != null && request.manualRouteSelections() != null && !request.manualRouteSelections().isEmpty()) {
-            return moduleTaskRuntimeService.checkAndContinue(taskId, operatorId, request.reason(),
-                    request.selectedRouteKeyOrDirectLinkKey(), request.selectedReason(),
-                    request.manualRouteSelections());
-        }
-        return moduleTaskRuntimeService.checkAndContinue(taskId, operatorId,
-                request == null ? null : request.reason(),
-                request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
-                request == null ? null : request.selectedReason());
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            String operatorId = currentOperatorId();
+            if (request != null && request.manualRouteSelections() != null && !request.manualRouteSelections().isEmpty()) {
+                return moduleTaskRuntimeService.checkAndContinue(taskId, operatorId, request.reason(),
+                        request.selectedRouteKeyOrDirectLinkKey(), request.selectedReason(),
+                        request.manualRouteSelections());
+            }
+            return moduleTaskRuntimeService.checkAndContinue(taskId, operatorId,
+                    request == null ? null : request.reason(),
+                    request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
+                    request == null ? null : request.selectedReason());
+        });
     }
 
     private WorkflowWorkbenchWebRequest normalizeWorkbenchRequest(WorkflowWorkbenchWebRequest request) {
@@ -360,7 +380,7 @@ public class WorkflowRuntimeWebController {
 record WorkflowOperatorWebRequest(String operatorId) {
 }
 
-record WorkflowInstanceActionWebRequest(String operatorId, String reason) {
+record WorkflowInstanceActionWebRequest(String operatorId, String reason, String reasonSourceLanguage) {
 }
 
 record WorkflowTaskActionWebRequest(String operatorId,
@@ -373,7 +393,7 @@ record WorkflowTaskActionWebRequest(String operatorId,
                                     String selectedReason,
                                     List<WorkflowManualRouteSelection> manualRouteSelections,
                                     JsonNode semanticJson,
-                                    JsonNode layoutJson) {
+                                    JsonNode layoutJson, String reasonSourceLanguage) {
     String selectedRouteKeyOrDirectLinkKey() {
         return selectedRouteKey == null || selectedRouteKey.isBlank() ? selectedDirectLinkKey : selectedRouteKey;
     }
@@ -384,9 +404,9 @@ record WorkflowSubmitWebRequest(String operatorId,
                                 String selectedRouteKey,
                                 String selectedDirectLinkKey,
                                 String selectedReason,
-                                List<WorkflowManualRouteSelection> manualRouteSelections) {
+                                List<WorkflowManualRouteSelection> manualRouteSelections, String reasonSourceLanguage) {
     static WorkflowSubmitWebRequest empty() {
-        return new WorkflowSubmitWebRequest(null, null, null, null, null, List.of());
+        return new WorkflowSubmitWebRequest(null, null, null, null, null, List.of(), null);
     }
 
     String selectedRouteKeyOrDirectLinkKey() {
@@ -439,7 +459,7 @@ record WorkflowWorkbenchWebRequest(
 }
 
 record WorkflowModuleTaskContinueWebRequest(String operatorId,
-                                            String reason,
+                                            String reason, String reasonSourceLanguage,
                                             String selectedRouteKey,
                                             String selectedDirectLinkKey,
                                             String selectedReason,

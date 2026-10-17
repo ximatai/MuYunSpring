@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -83,6 +84,20 @@ public class WorkflowRuntimeReadFacade {
         List<WorkflowRouteInstance> routes = routeDao.query(WorkflowTenantScope.criteria().eq("instanceId", instance.getId()),
                 ALL, Sort.asc("createdAt"));
         return new WorkflowRuntimeRenderBundle("RUNTIME", instance, nodes, routes);
+    }
+
+    /** Ordinary workflow and approval instances share the owning record's VIEW boundary. */
+    public PageResult<WorkflowRecordInstanceView> recordInstances(String moduleAlias, String recordId, PageRequest request) {
+        if (request == null || request.getLimit() < 1 || request.getLimit() > 100)
+            throw new IllegalArgumentException("Workflow directory page size must be between 1 and 100");
+        var owner = new WorkflowInstance();
+        owner.setModuleAlias(net.ximatai.muyun.spring.common.util.PlatformNameRules.requireModuleAlias(moduleAlias));
+        owner.setRecordId(requireText(recordId, TextReference.code(
+                "platform.rejection.workflow-runtime-read.select-a-workflow-business-record", "workflow record id must not be blank")));
+        actionPolicyService.requireRecordView(owner);
+        var page = instanceDao.pageQuery(WorkflowTenantScope.criteria().eq("deleted", false).eq("moduleAlias", owner.getModuleAlias())
+                .eq("recordId", owner.getRecordId()), request, Sort.desc("startedAt"), Sort.asc("id"));
+        return PageResult.of(page.getRecords().stream().map(WorkflowRecordInstanceView::from).toList(), page.getTotal(), request);
     }
 
     public List<WorkflowManualBranchCandidateView> manualBranchCandidates(String instanceId) {
@@ -332,12 +347,18 @@ public class WorkflowRuntimeReadFacade {
             return card.withBusiness(summary);
         }).toList();
         String search = keyword == null ? "" : keyword.strip().toLowerCase(java.util.Locale.ROOT);
-        var filtered = enriched.stream().filter(card -> search.isEmpty() || (card.business() != null
-                && card.business().readable() && card.business().title() != null
-                && card.business().title().toLowerCase(java.util.Locale.ROOT).contains(search))).toList();
+        var filtered = enriched.stream().filter(card -> search.isEmpty() || matchesBusinessTitle(card.business(), search)).toList();
         var normalizedPage = page(pageRequest);
         var directory = new net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog(moduleTitles);
         return new WorkflowWorkbenchPage(PageResult.of(pageItems(filtered, normalizedPage), filtered.size(), normalizedPage), directory.originalTitles(), directory);
+    }
+
+    private static boolean matchesBusinessTitle(WorkflowRecordSummary summary, String search) {
+        if (summary == null || !summary.readable() || summary.title() == null) return false;
+        if (summary.title().toLowerCase(java.util.Locale.ROOT).contains(search)) return true;
+        var text = summary.titleContentText();
+        return text != null && Objects.equals(text.originalText(), summary.title())
+                && text.readings().values().stream().anyMatch(value -> value.toLowerCase(java.util.Locale.ROOT).contains(search));
     }
 
     public List<WorkflowHistoryTaskView> instanceTaskViews(String instanceId) {

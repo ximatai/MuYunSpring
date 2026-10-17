@@ -18,11 +18,11 @@ class CoreConfiguredTextSourceProviderTest {
         var first = version("published-1", "旧节点");
         var second = version("published-2", "新节点");
         first.setPublishStatus(WorkflowPublishStatus.RETIRED);
-        var guide = new WorkflowTaskGuide(); guide.setGuideKey("read"); guide.setTitle("办理说明");
+        var guide = new WorkflowTaskGuide(); guide.setGuideKey("read"); guide.setTitle("办理说明"); guide.setGuideKind(WorkflowTaskGuideKind.READ_INSTRUCTION);
         guide.setGuideConfigText("{\"instruction\":\"请核对数据\"}");
-        var check = new WorkflowTaskCheck(); check.setCheckKey("ready"); check.setTitle("业务完成条件");
+        var check = new WorkflowTaskCheck(); check.setCheckKey("ready"); check.setTitle("业务完成条件"); check.setCheckKind(WorkflowTaskCheckKind.FORMULA);
         check.setFailureMessage("业务数据尚未满足完成条件");
-        var node = new WorkflowNodeDefinition(); node.setNodeKey("approval"); node.setTitle("旧节点");
+        var node = new WorkflowNodeDefinition(); node.setNodeKey("approval"); node.setTitle("旧节点"); node.setNodeType(WorkflowNodeType.TASK);
         try {
             var mapper = new ObjectMapper();
             node.setNodeConfigText(mapper.writeValueAsString(java.util.Map.of("task", new WorkflowBusinessTaskSpec(null, List.of(check), List.of(guide)))));
@@ -31,9 +31,17 @@ class CoreConfiguredTextSourceProviderTest {
         when(versions.query(any(net.ximatai.muyun.database.core.orm.Criteria.class), any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenReturn(List.of(first, second));
         var beans = new DefaultListableBeanFactory();
         beans.registerSingleton("definitions", definitions); beans.registerSingleton("versions", versions);
+        var httpMapper = new ObjectMapper().registerModule(new com.fasterxml.jackson.databind.module.SimpleModule()
+                .addDeserializer(WorkflowNodeType.class, new com.fasterxml.jackson.databind.JsonDeserializer<WorkflowNodeType>() {
+                    @Override public WorkflowNodeType deserialize(com.fasterxml.jackson.core.JsonParser parser,
+                            com.fasterxml.jackson.databind.DeserializationContext context) throws java.io.IOException {
+                        if ("task".equals(parser.getValueAsString())) return WorkflowNodeType.TASK;
+                        throw context.weirdStringException(parser.getValueAsString(), WorkflowNodeType.class, "HTTP code required");
+                    }
+                }));
         var provider = new CoreConfiguredTextSourceProvider(beans.getBeanProvider(net.ximatai.muyun.spring.platform.menu.MenuService.class),
                 beans.getBeanProvider(net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService.class),
-                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), new ObjectMapper(), beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
+                beans.getBeanProvider(WorkflowDefinitionService.class), beans.getBeanProvider(WorkflowVersionDao.class), httpMapper, beans.getBeanProvider(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class));
         try (var scope = TenantContext.system("translation maintenance")) {
             assertThat(provider.currentSources("sales.order")).containsExactly(
                     ConfigurationTextSources.workflowNodeTitle("published-1", "approval", "旧节点"),

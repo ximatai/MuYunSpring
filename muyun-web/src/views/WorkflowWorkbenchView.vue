@@ -2,13 +2,15 @@
 import {
   useLanguageContext,
   presentationLabel,
+  businessContentLabel,
   displayModuleRuntime,
   createModuleContext,
   createWorkflowClient,
   useModuleContext,
   withHttpHeaders,
+  type ModuleContext,
 } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
@@ -141,7 +143,10 @@ const rows = computed(() =>
             'platform.screen.WorkflowWorkbenchView.restricted-business-record',
             '受限业务记录',
           )
-        : (card.business?.title ??
+        : ((card.business?.title != null
+            ? (businessContentLabel(card.business.title, card.business.titleContentText, workflowLanguage) ??
+              card.business.title)
+            : undefined) ??
           workflowLanguage.t('platform.screen.WorkflowWorkbenchView.untitled-business-record', '未命名业务')),
     moduleTitle:
       card.business?.moduleTitle != null
@@ -216,15 +221,20 @@ const columns = computed(() => [
         },
       ]),
 ]);
-const recordContext = computed(() =>
-  selected.value
-    ? createModuleContext<Record<string, unknown>>({
-        http: scopedHttp.value,
-        language: workflowLanguage,
-        moduleAlias: selected.value.moduleAlias,
-        runtimeAccess: 'VIEW',
-      })
-    : undefined,
+const recordContext = shallowRef<ModuleContext<Record<string, unknown>>>();
+watch(
+  [() => selected.value?.moduleAlias, scopedHttp],
+  ([moduleAlias, http]) => {
+    recordContext.value = moduleAlias
+      ? createModuleContext<Record<string, unknown>>({
+          http,
+          language: workflowLanguage,
+          moduleAlias,
+          runtimeAccess: 'VIEW',
+        })
+      : undefined;
+  },
+  { immediate: true },
 );
 const businessRecord = ref<RecordFormRecord>(),
   originalBusinessFields = ref(new Map<string, RecordFormFieldDescriptor>()),

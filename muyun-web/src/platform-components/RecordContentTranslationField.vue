@@ -281,6 +281,8 @@ watch(
     () => props.content.key,
     () => props.relation?.parentId,
     () => props.relation?.relationCode,
+    () => props.relation?.workflowInstanceId,
+    () => props.relation?.history,
     () => props.mode,
     () => props.sessionKey,
   ],

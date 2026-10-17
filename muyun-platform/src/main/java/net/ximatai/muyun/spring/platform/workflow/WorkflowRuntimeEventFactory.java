@@ -124,8 +124,8 @@ public class WorkflowRuntimeEventFactory {
 
     public WorkflowEvent routeSelected(WorkflowInstance instance, WorkflowRouteInstance route,
                                        String operatorId, Instant occurredAt) {
-        return event(instance, null, null, WorkflowEventType.ROUTE_SELECTED, "route", operatorId,
-                "workflow route selected: " + route.getRouteKey(), routePayload(route), occurredAt);
+        return opinionEvent(instance, null, null, WorkflowEventType.ROUTE_SELECTED, "route", operatorId,
+                "workflow route selected: " + route.getRouteKey(), routePayload(route), occurredAt, route.getSelectedReason());
     }
 
     public WorkflowEvent routeDropped(WorkflowInstance instance, WorkflowRouteInstance route,
@@ -174,6 +174,7 @@ public class WorkflowRuntimeEventFactory {
         WorkflowEvent event = event(instance, node, task, eventType, actionCode, operatorId,
                 message, payloadText, occurredAt);
         event.setReason(reason == null || reason.isBlank() ? null : reason);
+        if (event.getReason() != null) event.setReasonSourceLanguage(WorkflowOpinionInput.language());
         return event;
     }
 

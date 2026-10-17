@@ -150,6 +150,8 @@ watch(
     () => props.record.version,
     () => props.relation?.parentId,
     () => props.relation?.relationCode,
+    () => props.relation?.workflowInstanceId,
+    () => props.relation?.history,
     () => props.fieldName,
     () => props.content.key,
     () => props.mode,

@@ -1627,6 +1627,9 @@ public class PlatformModuleRuntimeContextService {
         actions.stream()
                 .map(PlatformModuleRuntimeAction::actionCode)
                 .forEach(actionCode -> inferCapabilities(capabilities, actionCode));
+        if (actions.stream().anyMatch(action -> action.category() == EntityActionCategory.WORKFLOW
+                && net.ximatai.muyun.spring.platform.workflow.DynamicWorkflowActionExecutor.EXECUTOR_KEY.equals(action.executorKey())
+                && !action.bindingPending())) capabilities.add(EntityCapability.WORKFLOW);
         normalizeCapabilities(capabilities);
         return Set.copyOf(capabilities);
     }

@@ -540,7 +540,10 @@ async function toggleEnabled() {
         <template v-if="mode === 'view'">
           <WorkflowRecordPanel
             @interaction-change="workflowInteraction = $event"
-            v-if="record.id && context.abilities.has('approval') === true"
+            v-if="
+              record.id &&
+              (context.abilities.has('workflow') === true || context.abilities.has('approval') === true)
+            "
             :context="context"
             :record-id="String(record.id)"
             @changed="handleWorkflowChanged"

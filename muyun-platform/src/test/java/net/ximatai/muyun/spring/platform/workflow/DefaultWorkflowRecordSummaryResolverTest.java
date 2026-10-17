@@ -26,14 +26,24 @@ class DefaultWorkflowRecordSummaryResolverTest {
         verifyNoInteractions(facts);
     }
     @Test void usesProtectedDisplayTitleRatherThanRawFacts() {
-        var instance = record(); when(facts.displayTitle("demo.purchase", "r1")).thenReturn("***");
+        var instance = record(); when(facts.displayTitleView("demo.purchase", "r1")).thenReturn(new ModuleRecordFacts.Title("***", null));
         assertThat(resolver.resolve(instance)).isEqualTo(new WorkflowRecordSummary("***", "采购申请", true, net.ximatai.muyun.spring.platform.module.ModuleTitleView.configuredSource("demo.purchase", "采购申请")));
-        var order = inOrder(policy, facts); order.verify(policy).requireRecordView(instance);order.verify(facts).displayTitle("demo.purchase", "r1");
+        var order = inOrder(policy, facts); order.verify(policy).requireRecordView(instance);order.verify(facts).displayTitleView("demo.purchase", "r1");
         verify(facts, never()).read(anyString(), anyString());
     }
     @Test void infrastructureFailureRemainsAnError() {
-        var instance = record();when(facts.displayTitle("demo.purchase", "r1")).thenThrow(new PlatformException("database unavailable"));
+        var instance = record();when(facts.displayTitleView("demo.purchase", "r1")).thenThrow(new PlatformException("database unavailable"));
         assertThatThrownBy(()->resolver.resolve(instance)).hasMessage("database unavailable");
+    }
+    @Test void keepsAuthorizedOriginalAndDisposableBusinessReadingsSeparate() {
+        var instance = record();
+        var text = new net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation("采购申请",
+                java.util.Map.of("en", "Purchase request", "de", "Beschaffungsantrag"));
+        when(facts.displayTitleView("demo.purchase", "r1")).thenReturn(new ModuleRecordFacts.Title("采购申请", text));
+        var result = resolver.resolve(instance);
+        assertThat(result.title()).isEqualTo("采购申请");
+        assertThat(result.titleContentText()).isSameAs(text);
+        verify(facts, never()).read(anyString(), anyString());
     }
     @Test void thirdPartyFactsMustOptIntoProtectedPresentation() {
         ModuleRecordFacts custom = (module, id) -> java.util.Map.of("title", "secret");

@@ -38,6 +38,7 @@ class BusinessContentGenerationWebScopeTest {
     private static final String MODULE = "test.generation";
     private static final BusinessContentService.Location LOCATION = BusinessContentService.Location.record("record");
     private final BusinessContentService content = mock(BusinessContentService.class);
+    private final BusinessContentService.FieldTarget fieldTarget = mock(BusinessContentService.FieldTarget.class);
     private final ModuleExecutionPlanCatalog plans = mock(ModuleExecutionPlanCatalog.class);
     private final MenuService menus = mock(MenuService.class);
     private final DynamicRecordService dynamics = mock(DynamicRecordService.class);
@@ -55,6 +56,7 @@ class BusinessContentGenerationWebScopeTest {
         row.setId("record"); row.setTenantId("tenant-a"); row.setProjectId("project-one"); row.setDescription("private raw text");
         when(controller.service.getModuleAlias()).thenReturn(MODULE); doReturn(Row.class).when(controller.service).modelClass();
         when(content.requireOwner(any(), any())).thenReturn(row);
+        lenient().when(content.target(any(), any(), anyString(), eq(PlatformAction.VIEW))).thenReturn(fieldTarget);
         context.getBeanFactory().registerSingleton("recordController", controller);
         context.getBeanFactory().registerSingleton("catalog", new StaticAbilityCatalog(List.of(controller.service)));
         context.getBeanFactory().registerSingleton("dynamicRecords", dynamics);
@@ -83,7 +85,7 @@ class BusinessContentGenerationWebScopeTest {
         var outer = ActionExecutionContext.ofPlatformAction("other.module", PlatformAction.UPDATE, Set.of(), CurrentUserContext.currentUser());
         try (var ignored = ActionExecutionContextHolder.use(outer)) {
             assertThat(scope.<String>withAccess(reference, MODULE, LOCATION, "description", ability -> {
-                assertThat(ability).isSameAs(controller.service);
+                assertThat(ability).isSameAs(fieldTarget);
                 assertThat(RequestContextHolder.getRequestAttributes()).isNull();
                 assertThat(ActionExecutionContextHolder.current().orElseThrow().actionCode()).isEqualTo("view");
                 return "allowed";
@@ -256,7 +258,7 @@ class BusinessContentGenerationWebScopeTest {
         when(plans.find(MODULE)).thenReturn(Optional.of(dynamicPlan));
         var reference = scope.capture(controller, LOCATION, "description");
         RequestContextHolder.resetRequestAttributes(); controller.serviceNeedsRequest = true;
-        assertThat(scope.<CrudAbility<?>>withAccess(reference, MODULE, LOCATION, "description", ability -> ability)).isSameAs(dynamic);
+        assertThat(scope.<BusinessContentService.FieldTarget>withAccess(reference, MODULE, LOCATION, "description", ability -> ability)).isSameAs(fieldTarget);
         verify(content).requireOwner(dynamic, LOCATION);
     }
 
@@ -292,8 +294,8 @@ class BusinessContentGenerationWebScopeTest {
         var submission = scope.captureSubmission(change).orElseThrow();
         assertThat(submission.location()).isEqualTo(LOCATION);
         assertThat(submission.originalRevisionId()).isEqualTo("original-one");
-        assertThat(scope.<CrudAbility<?>>withAccess(submission.scope(), MODULE, LOCATION, "description", ability -> ability))
-                .isSameAs(controller.service);
+        assertThat(scope.<BusinessContentService.FieldTarget>withAccess(submission.scope(), MODULE, LOCATION, "description", ability -> ability))
+                .isSameAs(fieldTarget);
         CrudAbility<?> other = mock(CrudAbility.class);
         when(other.getModuleAlias()).thenReturn("other.module");
         assertThat(scope.captureSubmission(new BusinessContentOriginalChanged(other, row, "description", "original-one"))).isEmpty();

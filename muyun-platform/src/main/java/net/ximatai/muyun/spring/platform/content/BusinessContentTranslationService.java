@@ -55,27 +55,39 @@ public final class BusinessContentTranslationService {
         String targetLanguage = language(language);
         var owned = content.owned(parent, location, PlatformAction.VIEW);
         Map<String, ReadingField> result = new LinkedHashMap<>();
-        content.readableFields(owned.ability(), owned.record()).forEach((field, definition) -> {
-            String raw = BusinessContentFields.text(owned.record(), field);
-            var source = BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key());
-            var original = matchingOriginal(source, raw);
-            var effective = original == null || sameLanguage(original.getSourceLanguage(), targetLanguage) ? null
-                    : translations.state(source, OriginalVersion.of(original), targetLanguage).effective();
-            boolean reviewRequired = original != null && !sameLanguage(original.getSourceLanguage(), targetLanguage)
-                    && (effective == null || !"CONFIRMED".equals(effective.getKind()))
-                    && translations.humanReviewRequired(source, OriginalVersion.of(original), targetLanguage);
-            result.put(field, new ReadingField(raw, original == null ? null : BusinessContentService.view(original),
-                    effective == null ? raw : effective.getTranslatedText(),
-                    effective == null ? original == null ? null : original.getSourceLanguage() : targetLanguage,
-                    effective == null && (original == null || !sameLanguage(original.getSourceLanguage(), targetLanguage)), view(effective), reviewRequired));
-        });
+        content.readableFields(owned.ability(), owned.record()).forEach((field, definition) ->
+            result.put(field, reading(new FieldTarget(field, definition,
+                    BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key()),
+                    BusinessContentFields.text(owned.record(), field), owned.record().getVersion()), targetLanguage)));
         return new Reading(owned.record().getVersion(), targetLanguage, result);
+    }
+
+    /** The entry has already authorized this immutable raw snapshot; no model work occurs during projection. */
+    public Reading read(FieldTarget target, String language) {
+        String tag = language(language);
+        return new Reading(target.recordVersion(), tag, Map.of(target.fieldName(), reading(target, tag)));
+    }
+    private ReadingField reading(FieldTarget target, String language) {
+        var original = matchingOriginal(target.source(), target.text());
+        var effective = original == null || sameLanguage(original.getSourceLanguage(), language) ? null
+                : translations.state(target.source(), OriginalVersion.of(original), language).effective();
+        boolean reviewRequired = original != null && !sameLanguage(original.getSourceLanguage(), language)
+                && (effective == null || !"CONFIRMED".equals(effective.getKind()))
+                && translations.humanReviewRequired(target.source(), OriginalVersion.of(original), language);
+        return new ReadingField(target.text(), original == null ? null : BusinessContentService.view(original),
+                effective == null ? target.text() : effective.getTranslatedText(),
+                effective == null ? original == null ? null : original.getSourceLanguage() : language,
+                effective == null && (original == null || !sameLanguage(original.getSourceLanguage(), language)),
+                view(effective), reviewRequired);
     }
 
     /** Opening maintenance explicitly establishes a truthful unknown-author baseline for legacy raw text. */
     public Maintenance prepare(CrudAbility<?> parent, Location location, String field, String language, PlatformAction action) {
+        return prepare(requested -> content.target(parent, location, field, requested), language, action);
+    }
+    public Maintenance prepare(BusinessContentFieldAccess access, String language, PlatformAction action) {
         requireMaintenanceAction(action);
-        return locked(parent, location, field, action, target -> {
+        return locked(access, action, target -> {
             originals.capture(target.source(), target.text(), null, new BusinessContentStore.Baseline(target.text()));
             var original = originals.latest(target.source());
             return maintenance(target, original, language(language));
@@ -83,35 +95,49 @@ public final class BusinessContentTranslationService {
     }
 
     public Maintenance saveDraft(CrudAbility<?> parent, Location location, String field, String language, Change change) {
-        return change(parent, location, field, language, change, PlatformAction.CONTENT_EDIT,
+        return saveDraft(action -> content.target(parent, location, field, action), language, change);
+    }
+    public Maintenance saveDraft(BusinessContentFieldAccess access, String language, Change change) {
+        return change(access, language, change, PlatformAction.CONTENT_EDIT,
                 (target, version, tag) -> translations.saveDraft(target.source(), version, tag, change.text(), change.expectedRevision()));
     }
     public Maintenance confirm(CrudAbility<?> parent, Location location, String field, String language, Change change) {
+        return confirm(action -> content.target(parent, location, field, action), language, change);
+    }
+    public Maintenance confirm(BusinessContentFieldAccess access, String language, Change change) {
         if (change.reviewedDraftRevision() == null || change.reviewedDraftRevision() < 1)
             throw new IllegalArgumentException("The reviewed draft revision is required");
-        return change(parent, location, field, language, change, PlatformAction.CONTENT_CONFIRM,
+        return change(access, language, change, PlatformAction.CONTENT_CONFIRM,
                 (target, version, tag) -> translations.confirm(target.source(), version, tag,
                         change.expectedRevision(), change.reviewedDraftRevision()));
     }
     public Maintenance remove(CrudAbility<?> parent, Location location, String field, String language, Change change) {
-        return change(parent, location, field, language, change, PlatformAction.CONTENT_EDIT,
+        return remove(action -> content.target(parent, location, field, action), language, change);
+    }
+    public Maintenance remove(BusinessContentFieldAccess access, String language, Change change) {
+        return change(access, language, change, PlatformAction.CONTENT_EDIT,
                 (target, version, tag) -> translations.remove(target.source(), version, tag, change.expectedRevision()));
     }
 
     /** Historical drafts require maintenance rights too, and remain scoped to the live owning field. */
     public List<TranslationRevision> history(CrudAbility<?> parent, Location location, String field, String language,
             String sourceRevisionId, int sourceRevision, PageRequest page, PlatformAction action) {
+        return history(requested -> content.target(parent, location, field, requested), language,
+                sourceRevisionId, sourceRevision, page, action);
+    }
+    public List<TranslationRevision> history(BusinessContentFieldAccess access, String language,
+            String sourceRevisionId, int sourceRevision, PageRequest page, PlatformAction action) {
         requireMaintenanceAction(action);
-        var target = content.target(parent, location, field, action);
+        var target = access.require(action);
         return translations.history(target.source(), new OriginalVersion(sourceRevisionId, sourceRevision), language(language), page)
                 .stream().map(BusinessContentTranslationService::view).toList();
     }
 
-    private Maintenance change(CrudAbility<?> parent, Location location, String field, String language, Change change,
+    private Maintenance change(BusinessContentFieldAccess access, String language, Change change,
                                PlatformAction action, TranslationMutation mutation) {
         Objects.requireNonNull(change, "change");
         String tag = language(language);
-        return locked(parent, location, field, action, target -> {
+        return locked(access, action, target -> {
             var original = matchingOriginal(target.source(), target.text());
             if (original == null || !original.getId().equals(change.sourceRevisionId()) || original.getRevision() != change.sourceRevision())
                 throw new OptimisticLockException("Reviewed business original changed; reopen translation maintenance");
@@ -119,11 +145,11 @@ public final class BusinessContentTranslationService {
             return maintenance(target, original, tag);
         });
     }
-    private <T> T locked(CrudAbility<?> parent, Location location, String field, PlatformAction action, Function<FieldTarget, T> work) {
+    private <T> T locked(BusinessContentFieldAccess access, PlatformAction action, Function<FieldTarget, T> work) {
         return transactions.execute(status -> {
-            var checked = content.target(parent, location, field, action);
+            var checked = access.require(action);
             BusinessContentStore.lockRecord(checked.source());
-            var current = content.target(parent, location, field, action);
+            var current = access.require(action);
             if (!checked.source().equals(current.source())) throw new OptimisticLockException("Business content field changed");
             return work.apply(current);
         });

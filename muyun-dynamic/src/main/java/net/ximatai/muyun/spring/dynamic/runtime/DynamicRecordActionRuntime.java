@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -239,7 +241,8 @@ final class DynamicRecordActionRuntime {
     private DynamicActionResultBody registeredAction(String moduleAlias, String entityAlias, DynamicActionDescriptor action,
                                                      DynamicActionExecutionRequest request, DynamicActionExecutionContext context,
                                                      String traceId, ActionExecutionPolicy policy, ApprovalBusinessUpdate approvalBusiness) {
-        try {
+        try (var execution = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(
+                moduleAlias, policy, actionRecordIds(request), CurrentUserContext.currentUser()))) {
             DynamicActionExecutor executor = runtime.actionExecutorRegistry().require(action.executorKey());
             Object value = executor.execute(context, request, operations(moduleAlias, entityAlias, traceId, policy, approvalBusiness));
             if (value instanceof DynamicActionResultBody body) return body;

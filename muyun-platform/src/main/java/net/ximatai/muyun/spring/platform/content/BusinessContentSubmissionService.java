@@ -37,25 +37,43 @@ public final class BusinessContentSubmissionService {
     public void originalChanged(BusinessContentOriginalChanged change) {
         if (languages.isEmpty() || !TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager.isSynchronizationActive()) return;
-        Pending pending = TransactionSynchronizationManager.getSynchronizations().stream()
-                .filter(Pending.class::isInstance).map(Pending.class::cast).filter(item -> item.owner() == this)
-                .findFirst().orElseGet(() -> {
-                    var created = new Pending(); TransactionSynchronizationManager.registerSynchronization(created); return created;
-                });
+        Pending pending = pending();
         var fields = BusinessContentFields.definitions(change.owner(), change.record());
         var field = fields.get(change.field());
         if (field != null) pending.changes.put(BusinessContentSaveLifecycleListener.source(change.owner(), change.record(), field.key()), change);
     }
 
+    /** Persisted fact adapters supply a live scope, never pre-authorized permission or model snapshots. */
+    public void recorded(BusinessContentSubmissionScope.Submission submission) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive())
+            throw new IllegalStateException("Business content submission requires the owning transaction");
+        pending().recorded.add(Objects.requireNonNull(submission));
+    }
+
+    private Pending pending() {
+        return TransactionSynchronizationManager.getSynchronizations().stream()
+                .filter(Pending.class::isInstance).map(Pending.class::cast).filter(item -> item.owner() == this)
+                .findFirst().orElseGet(() -> {
+                    var created = new Pending(); TransactionSynchronizationManager.registerSynchronization(created); return created;
+                });
+    }
+
     private void submit(BusinessContentOriginalChanged change) {
+        submit(() -> adapters.orderedStream().map(adapter -> adapter.captureSubmission(change))
+                .flatMap(Optional::stream).toList());
+    }
+    private void submit(BusinessContentSubmissionScope.Submission submission) {
+        submit(() -> List.of(submission));
+    }
+    private void submit(java.util.function.Supplier<List<BusinessContentSubmissionScope.Submission>> select) {
         // Missing credentials, revoked viewing rights or unsupported custom entries never reject the original save.
         try {
             nested.executeWithoutResult(status -> {
                 // A route adapter may report false after swallowing a database exception. Roll back
                 // the savepoint even for that decision, so a PostgreSQL aborted connection is recovered.
                 if (!gateway.isTextGenerationAvailable()) { status.setRollbackOnly(); return; }
-                var submissions = adapters.orderedStream().map(adapter -> adapter.captureSubmission(change))
-                        .flatMap(Optional::stream).toList();
+                var submissions = select.get();
                 if (submissions.size() != 1) return;
                 for (String language : languages) {
                     var result = generations.requestSubmitted(submissions.getFirst(), language);
@@ -70,10 +88,14 @@ public final class BusinessContentSubmissionService {
 
     private final class Pending implements TransactionSynchronization {
         private final Map<BusinessContentSource, BusinessContentOriginalChanged> changes = new LinkedHashMap<>();
+        private final Set<BusinessContentSubmissionScope.Submission> recorded = new LinkedHashSet<>();
         BusinessContentSubmissionService owner() { return BusinessContentSubmissionService.this; }
         @Override public void beforeCommit(boolean readOnly) {
-            if (!readOnly) List.copyOf(changes.values()).forEach(BusinessContentSubmissionService.this::submit);
+            if (!readOnly) {
+                List.copyOf(changes.values()).forEach(BusinessContentSubmissionService.this::submit);
+                List.copyOf(recorded).forEach(BusinessContentSubmissionService.this::submit);
+            }
         }
-        @Override public void afterCompletion(int status) { changes.clear(); }
+        @Override public void afterCompletion(int status) { changes.clear(); recorded.clear(); }
     }
 }

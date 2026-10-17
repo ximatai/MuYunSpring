@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
+import RecordContentSourceField from './RecordContentSourceField.vue';
 import { computed } from 'vue';
 import type { WorkflowEvent, WorkflowNode, WorkflowTask } from '@muyun/web-contracts';
 import { UiCheckbox } from '@muyun/vue-ui-antdv';
@@ -12,7 +13,14 @@ function workflowTitle(value?: string) {
 }
 defineOptions({ name: 'WorkflowTimeline' });
 const props = withDefaults(
-  defineProps<{ events: WorkflowEvent[]; nodes: WorkflowNode[]; tasks?: WorkflowTask[] }>(),
+  defineProps<{
+    events: WorkflowEvent[];
+    nodes: WorkflowNode[];
+    tasks?: WorkflowTask[];
+    context?: ModuleContext<Record<string, unknown>>;
+    instanceId?: string;
+    history?: boolean;
+  }>(),
   { tasks: () => [] },
 );
 const showTechnicalHistory = defineModel<boolean>('technical', { default: false });
@@ -27,21 +35,23 @@ function eventReason(event: WorkflowEvent) {
   return '';
 }
 const businessEvents = computed(() =>
-  props.events.filter((event) =>
-    [
-      'instance_started',
-      'task_completed',
-      'task_rejected',
-      'task_resubmitted',
-      'task_transferred',
-      'add_sign',
-      'node_rolled_back',
-      'approval_completed',
-      'instance_completed',
-      'instance_revoked',
-      'instance_reset',
-      'instance_terminated',
-    ].includes(event.eventType.toLowerCase()),
+  props.events.filter(
+    (event) =>
+      (event.eventType.toLowerCase() === 'route_selected' && Boolean(event.reason)) ||
+      [
+        'instance_started',
+        'task_completed',
+        'task_rejected',
+        'task_resubmitted',
+        'task_transferred',
+        'add_sign',
+        'node_rolled_back',
+        'approval_completed',
+        'instance_completed',
+        'instance_revoked',
+        'instance_reset',
+        'instance_terminated',
+      ].includes(event.eventType.toLowerCase()),
   ),
 );
 const visibleEvents = computed(() => (showTechnicalHistory.value ? props.events : businessEvents.value));
@@ -94,6 +104,16 @@ const timelineItems = computed(() =>
           }}</time>
         </div>
         <p v-if="event.detail">{{ event.detail }}</p>
+        <RecordContentSourceField
+          v-if="!showTechnicalHistory && event.reason && context && instanceId"
+          :record="event"
+          field-name="reason"
+          :content="{ policy: 'AUTO_TRANSLATE', key: 'workflow-opinion' }"
+          :context="context"
+          :relation="{ kind: 'workflowEvent', workflowInstanceId: instanceId, history }"
+          mode="view"
+          compact
+        />
       </li>
     </ol>
   </section>

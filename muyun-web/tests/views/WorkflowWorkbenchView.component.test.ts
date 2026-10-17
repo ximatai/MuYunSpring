@@ -4,6 +4,7 @@ import { defineComponent, h, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import {
   createLanguageContext,
+  businessContentLanguageContext,
   provideLanguageContext,
   ModuleContextProvider,
   type ModuleContext,
@@ -72,6 +73,97 @@ function mountWorkbench(
     },
   });
 }
+it('retains the owning business session while interface and reading languages change', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const request = vi.fn(async (options: HttpRequestOptions): Promise<unknown> => {
+    if (options.path.endsWith('/workbench/todo/page'))
+      return {
+        records: [
+          {
+            instanceId: 'workflow',
+            taskId: 'task',
+            moduleAlias: 'quality.exception',
+            recordId: 'r1',
+            currentAssigneeTitles: [],
+            business: { title: '原文', readable: true },
+          },
+        ],
+        total: 1,
+        pages: 1,
+      };
+    if (options.path === '/quality.exception/view/r1') return { id: 'r1', version: 1, title: '原文' };
+    return { moduleAlias: 'quality.exception', actions: [], capabilities: [], uiDescriptor: {} };
+  });
+  const wrapper = mountWorkbench(request, language);
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent(surface);
+    list.vm.$emit('row-click', list.props('rows')[0]);
+    await flushPromises();
+    const panel = wrapper.findComponent({ name: 'WorkflowRecordPanel' });
+    expect(panel.exists()).toBe(true);
+    const session = panel.props('context');
+    const reads = () =>
+      request.mock.calls.filter(([call]) => call.path === '/quality.exception/view/r1').length;
+    expect(reads()).toBe(1);
+    language.setLanguage('zh-CN');
+    await flushPromises();
+    expect(panel.props('context')).toBe(session);
+    businessContentLanguageContext(language).setLanguage('de');
+    await flushPromises();
+    expect(panel.props('context')).toBe(session);
+    expect(reads()).toBe(1);
+  } finally {
+    wrapper.unmount();
+  }
+});
+it('reads workflow business titles in the selected content language without changing originals, identity or permissions', async () => {
+  const language = createLanguageContext({ languageTag: 'en' });
+  const original = '中国质量异常单';
+  const titleContentText = {
+    originalText: original,
+    readings: { en: 'China quality exception', de: 'Qualitätsabweichung China' },
+  };
+  const cards = [
+    {
+      instanceId: 'one',
+      recordId: 'r1',
+      currentAssigneeTitles: ['原作者'],
+      business: { title: original, readable: true, titleContentText },
+    },
+    {
+      instanceId: 'two',
+      recordId: 'r2',
+      currentAssigneeTitles: [],
+      business: { title: 'Changed original', readable: true, titleContentText },
+    },
+    { instanceId: 'denied', currentAssigneeTitles: [], business: { readable: false } },
+  ];
+  const request = vi.fn(
+    async (options: HttpRequestOptions): Promise<unknown> =>
+      options.path.endsWith('/page') ? { records: cards, total: 3, pages: 1 } : {},
+  );
+  const wrapper = mountWorkbench(request, language);
+  try {
+    await flushPromises();
+    const list = wrapper.findComponent(surface);
+    expect(list.props('rows')[0]).toMatchObject({
+      title: 'China quality exception',
+      recordId: 'r1',
+      business: { title: original },
+    });
+    expect(list.props('rows')[1].title).toBe('Changed original');
+    const count = request.mock.calls.length;
+    businessContentLanguageContext(language).setLanguage('de');
+    await flushPromises();
+    expect(list.props('rows')[0].title).toBe('Qualitätsabweichung China');
+    expect(list.props('rows')[2].title).toBe('Restricted business record');
+    expect(request.mock.calls).toHaveLength(count);
+    expect(cards[0]?.business.title).toBe(original);
+  } finally {
+    wrapper.unmount();
+  }
+});
 it('resets tenant filters before requesting the new tenant and ignores delayed old-tenant results', async () => {
   let resolveOld!: (value: ReturnType<typeof page>) => void;
   let oldRequestPending = false;

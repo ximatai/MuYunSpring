@@ -53,6 +53,10 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
 
     @Override
     public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
+        return WorkflowOpinionInput.withLanguage(text(payload(request, "reasonSourceLanguage"), null),
+                () -> executeWithOpinionLanguage(context, request));
+    }
+    private Object executeWithOpinionLanguage(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
         String workflowAction = requireText(context == null ? null : context.actionCode(), TextReference.code(
                 "platform.rejection.dynamic-workflow-action-executor.enter-a-workflow-action-code",
                 "workflow action code must not be blank"));

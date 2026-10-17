@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.content.BusinessContent;
+
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -41,8 +43,13 @@ public class WorkflowEvent extends StandardEntity {
     @Column(name = "message_source_text", type = ColumnType.TEXT, comment = "Frozen declared system message source")
     private String messageSourceText;
 
+    @BusinessContent(key = "workflow-opinion")
     @Column(name = "reason", type = ColumnType.TEXT, comment = "Original operator reason")
     private String reason;
+
+    @Column(name = "reason_source_language", type = ColumnType.VARCHAR, length = 255,
+            comment = "Explicit source language of the immutable human opinion")
+    private String reasonSourceLanguage;
 
     @Column(name = "payload_text", type = ColumnType.TEXT, comment = "Event payload")
     private String payloadText;

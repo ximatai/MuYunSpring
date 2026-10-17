@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.platform.content.BusinessContentFacts;
+import java.util.Objects;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -26,6 +29,7 @@ public class WorkflowHistoryQueryService {
     private final WorkflowArchiveService archiveService;
     private final WorkflowActionPolicyService actionPolicyService;
     private final WorkflowUserTitleResolver userTitleResolver;
+    private final BusinessContentFacts contentFacts;
 
     public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
                                        WorkflowArchiveService archiveService) {
@@ -36,10 +40,11 @@ public class WorkflowHistoryQueryService {
     public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
                                        WorkflowArchiveService archiveService,
                                        WorkflowActionPolicyService actionPolicyService,
-                                       ObjectProvider<WorkflowUserTitleResolver> userTitleResolver) {
+                                       ObjectProvider<WorkflowUserTitleResolver> userTitleResolver,
+                                       BusinessContentFacts contentFacts) {
         this(historyDao, archiveService, actionPolicyService, userTitleResolver == null
                 ? WorkflowUserTitleResolver.NONE
-                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE));
+                : userTitleResolver.getIfAvailable(() -> WorkflowUserTitleResolver.NONE), contentFacts);
     }
 
     public WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao,
@@ -52,6 +57,12 @@ public class WorkflowHistoryQueryService {
                                        WorkflowArchiveService archiveService,
                                        WorkflowActionPolicyService actionPolicyService,
                                        WorkflowUserTitleResolver userTitleResolver) {
+        this(historyDao, archiveService, actionPolicyService, userTitleResolver, null);
+    }
+    private WorkflowHistoryQueryService(WorkflowHistoryInstanceDao historyDao, WorkflowArchiveService archiveService,
+            WorkflowActionPolicyService actionPolicyService, WorkflowUserTitleResolver userTitleResolver,
+            BusinessContentFacts contentFacts) {
+        this.contentFacts = contentFacts;
         this.historyDao = historyDao;
         this.archiveService = archiveService;
         this.actionPolicyService = actionPolicyService == null ? new WorkflowActionPolicyService() : actionPolicyService;
@@ -123,7 +134,17 @@ public class WorkflowHistoryQueryService {
     public int deleteHistory(String historyInstanceId) {
         actionPolicyService.requireManagementAction(WorkflowActionPolicyService.MANAGEMENT_DELETE_HISTORY_ACTION);
         WorkflowHistoryInstance history = requireHistory(historyInstanceId);
-        return historyDao.deleteById(history.getId());
+        int deleted = historyDao.deleteById(history.getId());
+        if (deleted > 0 && contentFacts != null) {
+            for (var event : archiveService.parseSnapshot(history).events()) {
+                if (!Objects.equals(history.getId(), event.getInstanceId())
+                        || !Objects.equals(history.getTenantId(), event.getTenantId()))
+                    throw new IllegalStateException("Archived opinion ownership changed");
+                if (event.getReason() != null && !event.getReason().isBlank())
+                    contentFacts.purge(contentFacts.target(history.getModuleAlias(), event, "reason"));
+            }
+        }
+        return deleted;
     }
 
     public WorkflowRuntimeRenderBundle renderBundle(String historyInstanceId) {

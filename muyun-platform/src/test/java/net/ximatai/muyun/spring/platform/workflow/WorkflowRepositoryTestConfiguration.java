@@ -16,7 +16,7 @@ import static org.mockito.Mockito.mock;
 @TestConfiguration(proxyBeanMethods = false)
 @EnableAutoConfiguration
 @EnableMuYunRepositories(basePackageClasses = WorkflowInstanceDao.class)
-@Import({WorkflowDefinitionService.class, WorkflowVersionService.class, WorkflowDefinitionSelector.class,
+@Import({WorkflowEventWriter.class, WorkflowDefinitionService.class, WorkflowVersionService.class, WorkflowDefinitionSelector.class,
             WorkflowConditionService.class, WorkflowInstanceService.class, WorkflowInstanceStateService.class,
             WorkflowNodeInstanceStateService.class, WorkflowRouteInstanceStateService.class, WorkflowRouteRuntimeService.class,
             WorkflowRuntimeEventFactory.class, WorkflowInstanceSnapshotFactory.class, WorkflowParticipantService.class,

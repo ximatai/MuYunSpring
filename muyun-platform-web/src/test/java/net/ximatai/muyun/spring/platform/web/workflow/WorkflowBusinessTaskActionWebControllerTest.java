@@ -38,7 +38,7 @@ class WorkflowBusinessTaskActionWebControllerTest {
         var selections = List.of(new WorkflowManualRouteSelection("outer", "nested", "需要配送"),
                 new WorkflowManualRouteSelection("inner", "express", "紧急到货"));
         when(service.execute("task-1", "delivery", 3, Map.of("delivered", true), Map.of(),
-                "actual-user", "办理到货", selections))
+                "actual-user", "办理到货", selections, Map.of()))
                 .thenReturn(result(Map.of("delivered", true)));
         var mvc = MockMvcBuilders.standaloneSetup(new WorkflowBusinessTaskActionWebController(service))
                 .addFilters(new CurrentUserWebFilter(() -> Optional.of(
@@ -56,7 +56,7 @@ class WorkflowBusinessTaskActionWebControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).execute("task-1", "delivery", 3, Map.of("delivered", true), Map.of(),
-                "actual-user", "办理到货", selections);
+                "actual-user", "办理到货", selections, Map.of());
         verifyNoMoreInteractions(service);
     }
 
@@ -66,7 +66,7 @@ class WorkflowBusinessTaskActionWebControllerTest {
         ObjectProvider<DataChangeRealtimePublisher> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(publisher);
         var mapper = new ObjectMapper();
-        when(service.execute(anyString(), anyString(), any(), any(), any(), anyString(), any(), any()))
+        when(service.execute(anyString(), anyString(), any(), any(), any(), anyString(), any(), any(), any()))
                 .thenAnswer(invocation -> {
                     assertThat(MutationContextHolder.current()).isPresent();
                     MutationContextHolder.current().orElseThrow().record(DataChange.recordUpdated("test.business", "record-1"));
@@ -102,7 +102,7 @@ class WorkflowBusinessTaskActionWebControllerTest {
         var publisher = mock(DataChangeRealtimePublisher.class);
         ObjectProvider<DataChangeRealtimePublisher> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(publisher);
-        when(service.execute(anyString(), anyString(), any(), any(), any(), anyString(), any(), any()))
+        when(service.execute(anyString(), anyString(), any(), any(), any(), anyString(), any(), any(), any()))
                 .thenAnswer(invocation -> {
                     MutationContextHolder.current().orElseThrow().record(DataChange.recordUpdated("test.business", "record-1"));
                     throw new PlatformException("业务准备尚未完成");
@@ -131,7 +131,7 @@ class WorkflowBusinessTaskActionWebControllerTest {
     void guideWithoutAuthenticatedOperatorDoesNotReachBusinessService() {
         var controller = new WorkflowBusinessTaskActionWebController(service);
         assertThatThrownBy(() -> controller.execute("task-1", "delivery",
-                new WorkflowBusinessTaskActionWebController.Request(3, Map.of(), Map.of(), "reason", List.of())))
+                new WorkflowBusinessTaskActionWebController.Request(3, Map.of(), Map.of(), "reason", List.of(), null, Map.of())))
                 .isInstanceOf(PlatformException.class).hasMessageContaining("authenticated workflow operator");
         verifyNoInteractions(service);
     }

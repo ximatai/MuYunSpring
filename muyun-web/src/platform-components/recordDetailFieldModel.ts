@@ -32,6 +32,8 @@ export function resolveRecordDetailDisplayValue(
     optionItems?: OptionItemDescriptor[];
     /** Editable display defaults are not facts about an absent saved value. */
     draft?: boolean;
+    /** Pair the saved original with a live content-reading control rather than a disposable list label. */
+    originalValue?: boolean;
     language?: LanguageContext;
   } = {},
 ) {
@@ -45,6 +47,7 @@ export function resolveRecordDetailDisplayValue(
   }
   if (
     !options.draft &&
+    !options.originalValue &&
     (recordPresentationText(record, field.fieldName) || recordBusinessContentText(record, field.fieldName))
   )
     return recordPresentationLabel(record, field.fieldName, language) ?? String(value);

@@ -1,4 +1,5 @@
 import type { HttpClient } from './http';
+import { actionResultData } from './actionResult';
 import type {
   BusinessContentGenerationSource,
   BusinessContentGenerationBatchCommand,
@@ -13,10 +14,21 @@ import type {
   BusinessContentTranslationRevision,
 } from '@muyun/web-contracts';
 
-export interface BusinessContentRelationScope {
-  parentId: string;
-  relationCode: string;
-}
+export type BusinessContentRelationScope =
+  | {
+      kind?: 'aggregate';
+      parentId: string;
+      relationCode: string;
+      workflowInstanceId?: never;
+      history?: never;
+    }
+  | {
+      kind: 'workflowEvent';
+      workflowInstanceId: string;
+      history?: boolean;
+      parentId?: never;
+      relationCode?: never;
+    };
 
 export function businessContentGenerationBatch(
   http: HttpClient,
@@ -48,6 +60,10 @@ export function businessContentPath(
   relation?: BusinessContentRelationScope,
 ) {
   const segment = encodeURIComponent;
+  if (relation?.kind === 'workflowEvent') {
+    const owner = relation.history ? '/workflow/history' : '/workflow/runtime/instance';
+    return `${owner}/${segment(relation.workflowInstanceId)}/events/${segment(id)}/content`;
+  }
   const base = `/${segment(moduleAlias)}/view/${segment(relation?.parentId ?? id)}`;
   return relation
     ? `${base}/relations/${segment(relation.relationCode)}/${segment(id)}/content`
@@ -156,10 +172,12 @@ export function prepareBusinessContentTranslation(
   access: 'edit' | 'confirm',
   relation?: BusinessContentRelationScope,
 ) {
-  return http.request<BusinessContentTranslationMaintenance>({
-    path: `${translationPath(moduleAlias, id, field, language, relation)}/${access === 'edit' ? 'prepare' : 'review'}`,
-    method: 'POST',
-  });
+  return http
+    .request<BusinessContentTranslationMaintenance>({
+      path: `${translationPath(moduleAlias, id, field, language, relation)}/${access === 'edit' ? 'prepare' : 'review'}`,
+      method: 'POST',
+    })
+    .then(actionResultData);
 }
 export function changeBusinessContentTranslation(
   http: HttpClient,
@@ -182,7 +200,7 @@ export function changeBusinessContentTranslation(
       // Translation changes deliberately preserve the business version. A subsequent
       // reading must not reuse a projection started before this translation write.
       if (snapshot) readingPending.delete(snapshot);
-      return response;
+      return actionResultData(response);
     });
 }
 export function loadBusinessContentTranslationHistory(
@@ -223,7 +241,8 @@ function generationRequest(
       ...(retry === undefined ? {} : { method: 'POST' as const, query: { retry } }),
       ...(options.signal ? { signal: options.signal } : {}),
     })
-    .then((status) => {
+    .then((response) => {
+      const status = actionResultData(response);
       // A completed generation changes the reading projection without changing the business version.
       if (status.state === 'READY' && options.snapshot) readingPending.delete(options.snapshot);
       return status;

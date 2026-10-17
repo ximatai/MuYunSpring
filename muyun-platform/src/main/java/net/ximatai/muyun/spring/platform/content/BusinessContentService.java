@@ -191,9 +191,25 @@ public final class BusinessContentService {
         public static Location record(String id) { return new Location(id, null, null); }
     }
     record OwnedRecord(CrudAbility<?> ability, EntityContract record) { }
-    record FieldTarget(CrudAbility<?> ability, EntityContract record, String fieldName,
-                       ContentFieldDefinition content, BusinessContentSource source) {
-        String text() { return BusinessContentFields.text(record, fieldName); }
+    /** One authorized, immutable raw-text snapshot. Entry adapters retain ownership of live authorization. */
+    public static final class FieldTarget {
+        private final String fieldName;
+        private final ContentFieldDefinition content;
+        private final BusinessContentSource source;
+        private final String text;
+        private final Integer recordVersion;
+        FieldTarget(String fieldName, ContentFieldDefinition content, BusinessContentSource source, String text, Integer recordVersion) {
+            this.fieldName = Objects.requireNonNull(fieldName);
+            this.content = Objects.requireNonNull(content);
+            this.source = Objects.requireNonNull(source);
+            this.text = text;
+            this.recordVersion = recordVersion;
+        }
+        public String fieldName() { return fieldName; }
+        public ContentFieldDefinition content() { return content; }
+        public String text() { return text; }
+        public Integer recordVersion() { return recordVersion; }
+        BusinessContentSource source() { return source; }
     }
     OwnedRecord owned(CrudAbility<?> parent, Location location, PlatformAction action) {
         var root = authorizedRecord(parent, location.recordId());
@@ -202,12 +218,13 @@ public final class BusinessContentService {
         var child = child(parent, location.recordId(), location.relationCode(), location.childId());
         return new OwnedRecord(child.ability(), child.record());
     }
-    FieldTarget target(CrudAbility<?> parent, Location location, String field, PlatformAction action) {
+    public FieldTarget target(CrudAbility<?> parent, Location location, String field, PlatformAction action) {
         var owned = owned(parent, location, action);
         var definition = readableFields(owned.ability(), owned.record()).get(field);
         if (definition == null) throw denied();
-        return new FieldTarget(owned.ability(), owned.record(), field, definition,
-                BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key()));
+        return new FieldTarget(field, definition,
+                BusinessContentSaveLifecycleListener.source(owned.ability(), owned.record(), definition.key()),
+                BusinessContentFields.text(owned.record(), field), owned.record().getVersion());
     }
 
     /** Every source/translation path keeps the producer's current VIEW field policy, including aggregate children. */

@@ -108,7 +108,16 @@ export interface WorkflowTask {
   decision?: string;
   completedAt?: string;
 }
+
+export interface WorkflowRecordInstance {
+  id: string;
+  versionNo?: number;
+  instanceStatus: string;
+  approvalEnabled: boolean;
+  startedAt?: string;
+}
 export interface WorkflowEvent {
+  version?: number | null;
   messageText?: TextPresentation;
   id: string;
   taskId?: string;
@@ -181,6 +190,7 @@ export interface WorkflowWorkbenchCard {
     readable: boolean;
     moduleTitleSource?: import('./index').TextReference;
     moduleTitleText?: import('./index').TextPresentation;
+    titleContentText?: import('./index').BusinessContentTextPresentation;
   };
   instanceId: string;
   moduleAlias: string;

@@ -32,7 +32,7 @@ class WorkflowInstanceActionServiceTest {
     private final WorkflowArchiveService archiveService = mock(WorkflowArchiveService.class);
     private final WorkflowApprovalSummaryWriter summaryWriter = mock(WorkflowApprovalSummaryWriter.class);
     private final WorkflowInstanceActionService service = new WorkflowInstanceActionService(
-            instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory, archiveService, Optional.of(summaryWriter));
+            instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao), eventFactory, archiveService, Optional.of(summaryWriter));
 
     @Test
     void shouldRevokeRunningInstanceAndCancelOpenRuntimeObjects() {
@@ -170,7 +170,7 @@ class WorkflowInstanceActionServiceTest {
     void shouldRequireManagementPolicyForForceTerminate() {
         WorkflowActionPolicyService policyService = mock(WorkflowActionPolicyService.class);
         WorkflowInstanceActionService managedService = new WorkflowInstanceActionService(
-                instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory, archiveService,
+                instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao), eventFactory, archiveService,
                 policyService, Optional.of(summaryWriter));
         WorkflowInstance instance = instance(true);
         stubRuntime(instance, List.of(task("task-1")), List.of(node("node-1")),
@@ -187,7 +187,7 @@ class WorkflowInstanceActionServiceTest {
     void shouldRequireManagementPolicyForManagementReset() {
         WorkflowActionPolicyService policyService = mock(WorkflowActionPolicyService.class);
         WorkflowInstanceActionService managedService = new WorkflowInstanceActionService(
-                instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory, archiveService,
+                instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao), eventFactory, archiveService,
                 policyService, Optional.of(summaryWriter));
         WorkflowInstance instance = instance(true);
         stubRuntime(instance, List.of(task("task-1")), List.of(node("node-1")),
@@ -281,7 +281,7 @@ class WorkflowInstanceActionServiceTest {
     }
 
     private WorkflowInstanceActionService serviceWithPlugin(WorkflowRuntimePlugin plugin) {
-        return new WorkflowInstanceActionService(instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory,
+        return new WorkflowInstanceActionService(instanceDao, nodeDao, routeDao, taskDao, new WorkflowEventWriter(eventDao), eventFactory,
                 archiveService, new WorkflowActionPolicyService(), Optional.of(summaryWriter),
                 new WorkflowRuntimePluginDispatcher(List.of(plugin)));
     }

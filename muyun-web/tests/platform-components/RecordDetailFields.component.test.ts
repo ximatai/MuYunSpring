@@ -1,10 +1,110 @@
-import { mount } from '@vue/test-utils';
-import { defineComponent, nextTick } from 'vue';
+import { flushPromises, mount } from '@vue/test-utils';
+import { defineComponent, h, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import RecordDetailFields from '@/platform-components/RecordDetailFields.vue';
 import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
+import {
+  businessContentLanguageContext,
+  createLanguageContext,
+  provideLanguageContext,
+  type HttpRequestOptions,
+  type ModuleContext,
+} from '@muyun/web-core';
+import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel';
 
 describe('RecordDetailFields', () => {
+  it('keeps originals beside live readings without duplicating stale list labels and retains reference readings', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    businessContentLanguageContext(language).setLanguage('de');
+    const raw = '原文说明';
+    const record = {
+      id: 'r1',
+      version: 2,
+      description: raw,
+      categoryTitle: '设备分类',
+      $contentTexts: {
+        description: { originalText: raw, readings: { de: 'Obsolete machine label' } },
+        categoryTitle: { originalText: '设备分类', readings: { de: 'Gerätegruppe' } },
+      },
+    };
+    const before = JSON.stringify(record);
+    const source = {
+      revisionId: 'original',
+      sourceKey: 'source',
+      revision: 1,
+      text: raw,
+      sourceLanguage: 'zh-CN',
+      authorId: 'cn',
+      authorName: '中国作者',
+    };
+    const request = vi.fn(async (options: HttpRequestOptions) =>
+      options.path.endsWith('/reading')
+        ? {
+            recordVersion: 2,
+            language: 'de',
+            fields: {
+              description: {
+                originalText: raw,
+                source,
+                text: 'Aktuelle bestätigte Fassung',
+                actualLanguage: 'de',
+                originalFallback: false,
+                translation: {
+                  kind: 'CONFIRMED',
+                  revision: 7,
+                  text: 'Aktuelle bestätigte Fassung',
+                  authorId: 'de',
+                },
+              },
+            },
+          }
+        : {
+            recordVersion: 2,
+            fields: {
+              description: {
+                content: { key: 'description', policy: 'AUTO_TRANSLATE' },
+                text: raw,
+                source,
+                expectedRevision: 1,
+              },
+            },
+          },
+    );
+    const context = {
+      moduleAlias: 'quality.exception',
+      http: { request },
+      can: () => false,
+    } as unknown as ModuleContext<unknown>;
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'description',
+        {
+          fieldRef: { fieldName: 'description' },
+          label: 'Description',
+          content: { key: 'description', policy: 'AUTO_TRANSLATE' },
+        },
+      ],
+      ['categoryTitle', { fieldRef: { fieldName: 'categoryTitle' }, label: 'Category' }],
+    ]);
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          provideLanguageContext(language);
+          return () => h(RecordDetailFields, { record, fields, optionContext: context });
+        },
+      }),
+    );
+    try {
+      await flushPromises();
+      expect(wrapper.text()).toContain(raw);
+      expect(wrapper.text()).toContain('Aktuelle bestätigte Fassung');
+      expect(wrapper.text()).not.toContain('Obsolete machine label');
+      expect(wrapper.text()).toContain('Gerätegruppe');
+      expect(JSON.stringify(record)).toBe(before);
+    } finally {
+      wrapper.unmount();
+    }
+  });
   it.each([undefined, null, false, true])(
     'renders business switches without lifecycle defaults: %s',
     (value) => {

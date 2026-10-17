@@ -104,6 +104,34 @@ class WorkflowRuntimeWebControllerTest {
     }
 
     @Test
+    void opinionLanguageIsExplicitAndRestoredAfterTheBusinessAction() throws Exception {
+        org.mockito.Mockito.when(taskActionFacade.execute(org.mockito.ArgumentMatchers.eq("approve"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> {
+                    org.assertj.core.api.Assertions.assertThat(net.ximatai.muyun.spring.platform.workflow.WorkflowOpinionInput.language()).isEqualTo("de");
+                    WorkflowTaskActionRequest command = call.getArgument(1);
+                    org.assertj.core.api.Assertions.assertThat(command.operatorId()).isEqualTo("user-1");
+                    org.assertj.core.api.Assertions.assertThat(command.reason()).isEqualTo("Versand anhalten.");
+                    return null;
+                });
+        mvc.perform(post("/workflow/runtime/task/task-1/actions/approve").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"operatorId\":\"forged\",\"reason\":\"Versand anhalten.\",\"reasonSourceLanguage\":\"de\"}"))
+                .andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(net.ximatai.muyun.spring.platform.workflow.WorkflowOpinionInput.language()).isNull();
+    }
+
+    @Test void recordInstanceDirectoryCarriesDatabasePagingWithoutExposingSnapshots() throws Exception {
+        var view = new net.ximatai.muyun.spring.platform.workflow.WorkflowRecordInstanceView("instance", 1,
+                WorkflowInstanceStatus.RUNNING, false, Instant.parse("2026-10-01T00:00:00Z"));
+        when(runtimeReadFacade.recordInstances(eq("sales.contract"), eq("record-1"), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(net.ximatai.muyun.database.core.orm.PageResult.of(List.of(view), 2, PageRequest.of(2, 1)));
+        mvc.perform(get("/workflow/runtime/record/sales.contract/record-1/instances").param("page", "2").param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(2)).andExpect(jsonPath("$.pageNum").value(2))
+                .andExpect(jsonPath("$.records[0].id").value("instance")).andExpect(jsonPath("$.records[0].approvalEnabled").value(false))
+                .andExpect(jsonPath("$.records[0].snapshotText").doesNotExist());
+        verify(runtimeReadFacade).recordInstances(eq("sales.contract"), eq("record-1"), argThat(page -> page.getOffset() == 1 && page.getLimit() == 1));
+    }
+
+    @Test
     void submissionCannotReplaceAuthenticatedOrganizationOrOperator() throws Exception {
         mvc.perform(post("/workflow/runtime/record/test.order/record-1/submit/status")
                 .contentType(MediaType.APPLICATION_JSON)

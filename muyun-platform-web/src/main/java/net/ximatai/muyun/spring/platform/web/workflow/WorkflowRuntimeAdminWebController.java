@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web.workflow;
 
+import net.ximatai.muyun.spring.platform.workflow.WorkflowOpinionInput;
+
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebPageRequest;
@@ -118,10 +120,12 @@ public class WorkflowRuntimeAdminWebController {
     public WorkflowInstanceActionResult forceTerminate(
             @PathVariable String instanceId,
             @RequestBody(required = false) WorkflowAdminActionWebRequest request) {
-        return adminFacade.forceTerminate(new WorkflowInstanceActionRequest(instanceId,
-                operatorId(request == null ? null : request.operatorId()),
-                request == null ? null : request.reason(),
-                null));
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return adminFacade.forceTerminate(new WorkflowInstanceActionRequest(instanceId,
+                    operatorId(request == null ? null : request.operatorId()),
+                    request == null ? null : request.reason(),
+                    null));
+        });
     }
 
     @PostMapping("/instance/{instanceId}/actions/reset")
@@ -131,10 +135,12 @@ public class WorkflowRuntimeAdminWebController {
     public WorkflowInstanceActionResult reset(
             @PathVariable String instanceId,
             @RequestBody(required = false) WorkflowAdminActionWebRequest request) {
-        return adminFacade.reset(new WorkflowInstanceActionRequest(instanceId,
-                operatorId(request == null ? null : request.operatorId()),
-                request == null ? null : request.reason(),
-                null));
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return adminFacade.reset(new WorkflowInstanceActionRequest(instanceId,
+                    operatorId(request == null ? null : request.operatorId()),
+                    request == null ? null : request.reason(),
+                    null));
+        });
     }
 
     @PostMapping("/task/{taskId}/actions/forceApprove")
@@ -144,13 +150,15 @@ public class WorkflowRuntimeAdminWebController {
     public WorkflowTaskActionResult forceApprove(
             @PathVariable String taskId,
             @RequestBody(required = false) WorkflowAdminTaskActionWebRequest request) {
-        return adminFacade.forceApprove(WorkflowTaskActionRequest.builder(taskId,
-                        operatorId(request == null ? null : request.operatorId()))
-                .reason(request == null ? null : request.reason())
-                .selectedRoute(request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
-                        request == null ? null : request.selectedReason())
-                .manualRouteSelections(request == null ? null : request.manualRouteSelections())
-                .build());
+        return WorkflowOpinionInput.withLanguage(request == null ? null : request.reasonSourceLanguage(), () -> {
+            return adminFacade.forceApprove(WorkflowTaskActionRequest.builder(taskId,
+                            operatorId(request == null ? null : request.operatorId()))
+                    .reason(request == null ? null : request.reason())
+                    .selectedRoute(request == null ? null : request.selectedRouteKeyOrDirectLinkKey(),
+                            request == null ? null : request.selectedReason())
+                    .manualRouteSelections(request == null ? null : request.manualRouteSelections())
+                    .build());
+        });
     }
 
     @PostMapping("/history/query")
@@ -213,11 +221,11 @@ public class WorkflowRuntimeAdminWebController {
     }
 }
 
-record WorkflowAdminActionWebRequest(String operatorId, String reason) {
+record WorkflowAdminActionWebRequest(String operatorId, String reason, String reasonSourceLanguage) {
 }
 
 record WorkflowAdminTaskActionWebRequest(String operatorId,
-                                         String reason,
+                                         String reason, String reasonSourceLanguage,
                                          String selectedRouteKey,
                                          String selectedDirectLinkKey,
                                          String selectedReason,

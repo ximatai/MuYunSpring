@@ -19,7 +19,7 @@ public class WorkflowRuntimeSubmitService {
     private final WorkflowNodeInstanceDao nodeInstanceDao;
     private final WorkflowRouteInstanceDao routeInstanceDao;
     private final WorkflowTaskDao taskDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimePluginDispatcher pluginDispatcher;
     private final ObjectProvider<WorkflowArchiveService> archives;
     private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
@@ -31,7 +31,7 @@ public class WorkflowRuntimeSubmitService {
                                         WorkflowNodeInstanceDao nodeInstanceDao,
                                         WorkflowRouteInstanceDao routeInstanceDao,
                                         WorkflowTaskDao taskDao,
-                                        WorkflowEventDao eventDao,
+                                        WorkflowEventWriter eventWriter,
                                         WorkflowRuntimePluginDispatcher pluginDispatcher,
                                         ObjectProvider<WorkflowArchiveService> archives) {
         this.archives = java.util.Objects.requireNonNull(archives, "archives");
@@ -41,7 +41,7 @@ public class WorkflowRuntimeSubmitService {
         this.nodeInstanceDao = nodeInstanceDao;
         this.routeInstanceDao = routeInstanceDao;
         this.taskDao = taskDao;
-        this.eventDao = eventDao;
+        this.eventWriter = eventWriter;
         this.pluginDispatcher = java.util.Objects.requireNonNull(pluginDispatcher, "pluginDispatcher");
     }
 
@@ -190,7 +190,7 @@ public class WorkflowRuntimeSubmitService {
         });
         draft.events().forEach(event -> {
             prepareInsert(event, now);
-            eventDao.insert(event);
+            eventWriter.insert(event);
         });
     }
 
@@ -223,7 +223,7 @@ public class WorkflowRuntimeSubmitService {
             EntityLifecycle.prepareUpdate(task, now, EntityLifecycle.nextVersion(expected));
             if (taskDao.updateByIdAndVersion(task, expected) == 0) throw new net.ximatai.muyun.spring.ability.OptimisticLockException("restart task version conflict");
             var event = eventFactory.taskResubmitted(instance, task, replacement.getStartedBy(), "重新发起审批", null, now);
-            prepareInsert(event, now); eventDao.insert(event);
+            prepareInsert(event, now); eventWriter.insert(event);
             replacement.setPreviousInstanceId(instance.getId());
             instance.setLastActionCode("resubmit_restart"); instance.setLastActionReason(null);
             instance.setLastOperatorId(replacement.getStartedBy()); instance.setLastOperatedAt(now);

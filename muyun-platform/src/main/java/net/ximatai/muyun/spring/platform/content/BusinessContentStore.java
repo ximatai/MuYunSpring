@@ -66,6 +66,22 @@ class BusinessContentStore {
                 previous == null ? 1 : Math.addExact(previous.getRevision(), 1));
     }
 
+    /** A persisted immutable fact carries its actual operator and occurrence time, including after archival. */
+    BusinessContentRevision captureFact(BusinessContentSource source, String text, String language,
+            String author, String authorName, Instant authoredAt) {
+        lockRecord(source);
+        var previous = latest(source);
+        if (previous != null) {
+            if (!Objects.equals(previous.getOriginalText(), text)
+                    || !Objects.equals(previous.getSourceLanguage(), language)
+                    || !Objects.equals(originalAuthor(previous), author)
+                    || !Objects.equals(originalAuthoredAt(previous), authoredAt))
+                throw new IllegalStateException("Immutable business content fact changed");
+            return previous;
+        }
+        return append(source, text, language, author, authorName, authoredAt, "ORIGINAL_WRITE", 1);
+    }
+
     static String originalAuthor(BusinessContentRevision row) {
         return row.getRevisionKind() == null ? row.getCreatedBy() : row.getOriginalAuthorId();
     }

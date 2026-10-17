@@ -1224,7 +1224,10 @@ export default defineComponent({
               <WorkflowRecordPanel
                 :ref="bindWorkflowPanel"
                 @interaction-change="updateWorkflowInteraction"
-                v-if="editingRecord.id && context.abilities.has('approval') === true"
+                v-if="
+                  editingRecord.id &&
+                  (context.abilities.has('workflow') === true || context.abilities.has('approval') === true)
+                "
                 :context="context"
                 :record-id="String(editingRecord.id)"
                 @changed="handleWorkflowChanged"

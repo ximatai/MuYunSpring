@@ -96,13 +96,13 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         var adapter = new BusinessContentGenerationScope() {
             public String key() { return "fixture"; }
             public <T> T withAccess(Reference reference, String module, BusinessContentService.Location location,
-                                    String field, Function<CrudAbility<?>, T> work) {
+                                    String field, Function<BusinessContentService.FieldTarget, T> work) {
                 if (!scopeActive.get()) throw new PlatformAccessDeniedException("scope withdrawn");
                 assertThat(CurrentUserContext.currentUser()).isPresent();
                 scopeGuard.accept(location);
                 try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPlatformAction(
                         module, PlatformAction.VIEW, Set.of(location.recordId()), CurrentUserContext.currentUser()))) {
-                    return work.apply(service);
+                    return work.apply(content.target(service, location, field, PlatformAction.VIEW));
                 }
             }
         };
@@ -566,7 +566,7 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
             public Clock withZone(ZoneId zone) { return this; }
             public Instant instant() { return now.get(); }
         };
-        return new BusinessContentGenerationService(content, originals, translations, jobs, identityProvider, scopeProvider,
+        return new BusinessContentGenerationService(originals, translations, jobs, identityProvider, scopeProvider,
                 gateway, json, transactions, clock);
     }
     private ContentGenerationFixture insert(String text, String language) {

@@ -103,6 +103,7 @@ function displayValue(field: RecordFormFieldState) {
     emptyText: props.emptyText,
     optionItems: optionItems.value[field.fieldName],
     language,
+    originalValue: Boolean(props.optionContext && field.content && field.content.policy !== 'KEEP_ORIGINAL'),
   });
 }
 

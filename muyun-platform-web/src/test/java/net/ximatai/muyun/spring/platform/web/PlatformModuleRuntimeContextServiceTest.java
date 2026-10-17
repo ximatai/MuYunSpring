@@ -86,6 +86,32 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PlatformModuleRuntimeContextServiceTest {
+    @Test void staticAndDynamicWorkflowDeclarationsExposeWorkflowWithoutEnablingApproval() {
+        for (var kind : List.of(ModuleKind.STATIC, ModuleKind.DYNAMIC)) {
+            var modules = mock(PlatformModuleService.class); var actions = mock(PlatformModuleActionService.class);
+            var records = mock(DynamicRecordService.class);
+            when(modules.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract", "合同", kind));
+            var action = new StaticModuleActionDefinition("collaborate", "collaborate", "协作", EntityActionLevel.RECORD,
+                    EntityActionCategory.WORKFLOW, EntityActionAccessMode.AUTH_REQUIRED, true, true,
+                    net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE,
+                    EntityActionExecutorType.SERVICE, net.ximatai.muyun.spring.platform.workflow.DynamicWorkflowActionExecutor.EXECUTOR_KEY, false);
+            var entity = entity("contract", Set.of(EntityCapability.CRUD));
+            var declared = StaticModuleDefinition.builder("sales", "sales.contract", "合同").entities(List.of(entity)).actions(List.of(action)).build();
+            when(actions.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+            var dynamicAction = new DynamicActionDescriptor(action.actionCode(), action.title(), true, action.actionLevel(),
+                    action.category(), action.accessMode(), action.actionAuth(), action.dataAuth(), action.defaultGrantPolicy(),
+                    null, false, null, action.executorType(), action.executorKey());
+            when(records.describe("sales.contract")).thenReturn(new DynamicModuleDescriptor("sales.contract", "合同", "contract", List.of(dynamicAction),
+                    List.of(DynamicEntityDescriptor.from(entity)), List.of(), List.of(), List.of()));
+            when(records.moduleDefinitions()).thenReturn(List.of(new ModuleDefinition("sales.contract", "合同", List.of(entity))));
+            var service = new PlatformModuleRuntimeContextService(modules, actions,
+                    new StaticModuleDefinitionCatalog(kind == ModuleKind.STATIC ? List.of(declared) : List.of()),
+                    kind == ModuleKind.DYNAMIC ? records : null, null, null, allowAllPolicy());
+            var context = service.context("sales.contract");
+            assertThat(context.capabilities()).contains(EntityCapability.WORKFLOW).doesNotContain(EntityCapability.APPROVAL);
+            assertThat(context.abilities()).contains("workflow").doesNotContain("approval");
+        }
+    }
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.class)
     void shouldCompilePreviewAndPublishedPageWithTheSameModeAndRequiredFields(

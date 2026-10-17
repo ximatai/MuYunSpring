@@ -64,6 +64,8 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
       current.mode,
       current.relation?.parentId,
       current.relation?.relationCode,
+      current.relation?.workflowInstanceId,
+      current.relation?.history,
       current.sessionKey,
     ];
   };

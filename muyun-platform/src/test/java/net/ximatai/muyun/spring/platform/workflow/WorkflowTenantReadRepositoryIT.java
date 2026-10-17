@@ -98,6 +98,28 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         try (var context = TenantContext.use("read-tenant-b")) { assertVisible(second); }
     }
 
+    @Test void recordWorkflowDirectoryAppliesTenantAndOwnerBeforeDatabasePaging() {
+        Fixture latest;
+        try (var context = TenantContext.use("read-tenant-a")) { latest = fixture("read-tenant-a"); }
+        var hidden = fixture("read-tenant-a");
+        var differentOwner = fixture("read-tenant-a");
+        new JdbcTemplate(dataSource).update("update platform_workflow_instance set deleted = true where id = ?", hidden.instance().getId());
+        new JdbcTemplate(dataSource).update("update platform_workflow_instance set record_id = 'different-record' where id = ?", differentOwner.instance().getId());
+        try (var principal = CurrentUserContext.use(CurrentUser.tenantUser("reviewer", "Reviewer", "read-tenant-a"));
+             var context = TenantContext.use("read-tenant-a")) {
+            var firstPage = runtime.recordInstances(module, "record", PageRequest.of(1, 1));
+            var secondPage = runtime.recordInstances(module, "record", PageRequest.of(2, 1));
+            assertThat(firstPage.getTotal()).isEqualTo(2);
+            assertThat(firstPage.getRecords()).extracting(WorkflowRecordInstanceView::id).containsExactly(latest.instance().getId());
+            assertThat(secondPage.getRecords()).extracting(WorkflowRecordInstanceView::id).containsExactly(first.instance().getId());
+            assertThat(runtime.recordInstances(module, "different-record", page).getRecords())
+                    .extracting(WorkflowRecordInstanceView::id).containsExactly(differentOwner.instance().getId());
+            assertThat(runtime.recordInstances("test.other_module", "record", page).getTotal()).isZero();
+            assertThatThrownBy(() -> runtime.recordInstances(module, "record", PageRequest.of(1, 101)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     @Test void noTenantAndSystemScopeReadOnlyNullPartitionUnlessBypassIsExplicit() {
         assertVisible(global);
         try (var principal = CurrentUserContext.use(CurrentUser.systemUser("reviewer", "admin"));

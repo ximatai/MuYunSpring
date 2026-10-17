@@ -199,3 +199,35 @@ it('isolates in-flight source and reading requests between logical page sessions
   await Promise.all([newSource, newRead]);
   expect(request).toHaveBeenCalledTimes(4);
 });
+
+it('routes current and archived workflow opinions through their owning event while retaining the shared transport', async () => {
+  const { loadBusinessContentReading, prepareBusinessContentTranslation, requestBusinessContentGeneration } =
+    await import('@/web-core/businessContent');
+  const request = vi.fn().mockResolvedValue({ state: 'UNAVAILABLE' });
+  const http = { request };
+  const current = { kind: 'workflowEvent' as const, workflowInstanceId: 'instance/one' };
+  const archived = { ...current, history: true };
+  expect(businessContentPath('quality.exception', 'event/one', current)).toBe(
+    '/workflow/runtime/instance/instance%2Fone/events/event%2Fone/content',
+  );
+  await loadBusinessContentReading(http, 'quality.exception', 'event/one', 'de', archived);
+  await prepareBusinessContentTranslation(
+    http,
+    'quality.exception',
+    'event/one',
+    'reason',
+    'en',
+    'edit',
+    archived,
+  );
+  await requestBusinessContentGeneration(http, 'quality.exception', 'event/one', 'reason', 'de', false, {
+    relation: current,
+  });
+  expect(request.mock.calls.map(([entry]) => entry.path)).toEqual([
+    '/workflow/history/instance%2Fone/events/event%2Fone/content/reading',
+    '/workflow/history/instance%2Fone/events/event%2Fone/content/reason/translations/en/prepare',
+    '/workflow/runtime/instance/instance%2Fone/events/event%2Fone/content/reason/translations/de/generation',
+  ]);
+  expect(request.mock.calls[0][0].query).toEqual({ language: 'de' });
+  expect(request.mock.calls[2][0]).toMatchObject({ method: 'POST', query: { retry: false } });
+});

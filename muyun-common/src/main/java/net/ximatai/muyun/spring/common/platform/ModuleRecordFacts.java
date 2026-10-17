@@ -9,4 +9,9 @@ public interface ModuleRecordFacts {
     default String displayTitle(String moduleAlias, String recordId) {
         return null;
     }
+    /** Already authorized and field-protected title with disposable reading labels. */
+    default Title displayTitleView(String moduleAlias, String recordId) {
+        return new Title(displayTitle(moduleAlias, recordId), null);
+    }
+    record Title(String text, net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation contentText) { }
 }

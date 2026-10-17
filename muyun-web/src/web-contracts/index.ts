@@ -2235,6 +2235,7 @@ export type {
   WorkflowAddSignExplanation,
   WorkflowDesign,
   WorkflowInstance,
+  WorkflowRecordInstance,
   WorkflowTask,
   WorkflowEvent,
   WorkflowAction,

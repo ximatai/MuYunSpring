@@ -144,7 +144,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     }
 
     @Override public <T> T withAccess(Reference reference, String module, BusinessContentService.Location location,
-                                     String field, Function<CrudAbility<?>, T> work) {
+                                     String field, Function<BusinessContentService.FieldTarget, T> work) {
         var previous = RequestContextHolder.getRequestAttributes();
         RequestContextHolder.resetRequestAttributes();
         try { return access(reference, module, location, field, work); }
@@ -152,7 +152,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
     }
 
     private <T> T access(Reference reference, String module, BusinessContentService.Location location,
-                         String field, Function<CrudAbility<?>, T> work) {
+                         String field, Function<BusinessContentService.FieldTarget, T> work) {
         if (!KEY.equals(reference.adapter()) || !TextReference.versionOf(reference.payload()).equals(reference.version())) throw denied();
         Descriptor saved;
         try { saved = json.readValue(reference.payload(), Descriptor.class); }
@@ -193,7 +193,7 @@ public final class BusinessContentGenerationWebScope implements BusinessContentG
                     if (expected == null || !expected.present() || !Objects.equals(expected.value(), value(owner, binding.targetKey()))) throw denied();
                 } else if (binding.source() != PageContextSource.NAVIGATOR) throw denied();
             }
-            return work.apply(parent);
+            return work.apply(content.target(parent, location, field, PlatformAction.VIEW));
         }
     }
 

@@ -267,5 +267,13 @@ class DynamicWorkflowActionExecutorTest {
     private DynamicActionExecutionContext context(String actionCode, String recordId, String operator) {
         return new DynamicActionExecutionContext("sales.contract", "contract", actionCode, null,
                 recordId, "trace-1", "tenant-1", false, null, operator, "USER", null, null, null, null);
+    }    @Test
+    void dynamicActionsCarryAnExplicitOpinionLanguageWithoutLeakingItToTheCaller() {
+        org.mockito.Mockito.when(taskActionFacade.execute(org.mockito.ArgumentMatchers.eq("approve"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> { assertThat(WorkflowOpinionInput.language()).isEqualTo("de"); return null; });
+        executor.execute(context("approve", "record-1"), DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("taskId", "task-1", "reason", "Versand anhalten.", "reasonSourceLanguage", "de")));
+        assertThat(WorkflowOpinionInput.language()).isNull();
     }
+
 }

@@ -18,6 +18,23 @@ import java.util.stream.Stream;
 
 class DefaultModuleRecordFactsTest {
     @SuppressWarnings("unchecked")
+    @Test void summaryPresentationReceivesOnlyTheProtectedTitleAndTheSameAuthorizedRow() {
+        FieldProtectionAbility<Purchase> ability = mock(FieldProtectionAbility.class, CALLS_REAL_METHODS);
+        var record = new Purchase(); record.setId("r1"); record.customerName = "13812345678";
+        when(ability.getModuleAlias()).thenReturn("demo.purchase"); doReturn(Purchase.class).when(ability).modelClass();
+        doReturn(record).when(ability).select("r1");
+        ObjectProvider<CrudAbility<?>> provider = mock(ObjectProvider.class);
+        when(provider.orderedStream()).thenAnswer(call -> Stream.of(ability));
+        var projector = mock(ModuleRecordTitlePresentation.class);
+        ObjectProvider<ModuleRecordTitlePresentation> presentations = mock(ObjectProvider.class);
+        when(presentations.getIfAvailable()).thenReturn(projector);
+        var result = new DefaultModuleRecordFacts(provider, mock(DynamicRecordService.class), presentations)
+                .displayTitleView("demo.purchase", "r1");
+        assertThat(result.text()).isNotEqualTo(record.customerName);
+        verify(projector).project(ability, record, "customerName", result.text());
+        verify(ability, times(1)).select("r1");
+    }
+    @SuppressWarnings("unchecked")
     @Test void staticCustomTitleRunsTheRealListMaskingContract() {
         FieldProtectionAbility<Purchase> ability = mock(FieldProtectionAbility.class, CALLS_REAL_METHODS);
         var record = new Purchase();record.customerName="13812345678";

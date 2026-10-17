@@ -28,7 +28,6 @@ public final class BusinessContentGenerationService {
     private static final Set<String> LANGUAGES = Set.of("zh-CN", "en", "de");
     private static final Set<String> RETRYABLE = Set.of("AI_MODEL_TIMEOUT", "AI_PROVIDER_UNAVAILABLE", "AI_CONCURRENCY_LIMIT");
     private static final Set<String> ACTIVE = Set.of("PENDING", "RUNNING", "RETRY");
-    private final BusinessContentService content;
     private final BusinessContentStore originals;
     private final BusinessContentTranslationStore translations;
     private final BusinessContentGenerationStore jobs;
@@ -40,11 +39,11 @@ public final class BusinessContentGenerationService {
     private final TransactionTemplate tx;
     private final Clock clock;
 
-    public BusinessContentGenerationService(BusinessContentService content, BusinessContentStore originals,
+    public BusinessContentGenerationService(BusinessContentStore originals,
             BusinessContentTranslationStore translations, BusinessContentGenerationStore jobs,
             ObjectProvider<TrustedExecutionIdentityResolver> identities, ObjectProvider<BusinessContentGenerationScope> scopes,
             AiModelGateway gateway, ObjectMapper json, PlatformTransactionManager transactions, Clock clock) {
-        this.content = Objects.requireNonNull(content); this.originals = Objects.requireNonNull(originals);
+        this.originals = Objects.requireNonNull(originals);
         this.translations = Objects.requireNonNull(translations); this.jobs = Objects.requireNonNull(jobs);
         this.identities = Objects.requireNonNull(identities); this.scopes = Objects.requireNonNull(scopes);
         this.gateway = Objects.requireNonNull(gateway); this.json = Objects.requireNonNull(json);
@@ -70,10 +69,9 @@ public final class BusinessContentGenerationService {
     private Status request(BusinessContentGenerationScope.Reference scope, String moduleAlias, Location location,
                            String field, String language, boolean retry, String originalId, boolean transactional) {
         String tag = language(language); PlatformNameRules.requireModuleAlias(moduleAlias);
-        return adapter(scope).withAccess(scope, moduleAlias, location, field, parent -> {
+        return adapter(scope).withAccess(scope, moduleAlias, location, field, checked -> {
             Supplier<Status> work = () -> {
-                var target = locked(parent, location, field, () -> adapter(scope).withAccess(scope, moduleAlias, location, field,
-                        current -> content.target(current, location, field, PlatformAction.VIEW)));
+                var target = locked(checked, () -> adapter(scope).withAccess(scope, moduleAlias, location, field, Function.identity()));
                 var original = original(target);
                 if (originalId != null && (original == null || !originalId.equals(original.getId())))
                     return state("STALE", "SOURCE_OR_TRANSLATION_CHANGED");
@@ -103,8 +101,7 @@ public final class BusinessContentGenerationService {
     public Status status(BusinessContentGenerationScope.Reference scope, String moduleAlias, Location location,
                          String field, String language) {
         String tag = language(language);
-        return adapter(scope).withAccess(scope, moduleAlias, location, field, parent -> {
-            var target = content.target(parent, location, field, PlatformAction.VIEW);
+        return adapter(scope).withAccess(scope, moduleAlias, location, field, target -> {
             var original = original(target); var eligibility = eligibility(target, original, tag);
             if (eligibility != null) return eligibility;
             var version = OriginalVersion.of(original);
@@ -137,12 +134,12 @@ public final class BusinessContentGenerationService {
         catch (Exception invalid) { finish(job, "FAILED", "INVALID_REQUEST", false); return true; }
         try {
             var result = withIdentity(request, () -> {
-                var input = access(request, parent -> tx.execute(status -> prepare(job, request, parent)));
+                var input = access(request, checked -> tx.execute(status -> prepare(job, request, checked)));
                 if (!gateway.isTextGenerationAvailable()) throw new Unavailable();
                 return translator.translate(input.text(), input.language(), request.language());
             });
-            withIdentity(request, () -> access(request, parent -> tx.execute(status -> {
-                prepare(job, request, parent);
+            withIdentity(request, () -> access(request, checked -> tx.execute(status -> {
+                prepare(job, request, checked);
                 translations.saveMachine(source(job), new OriginalVersion(request.originalId(), request.originalRevision()),
                         request.language(), result.text(), request.expectedRevision(), new BusinessContentTranslationStore.Generation(
                                 job.getId(), result.providerRequestId(), request.policyVersion(), request.scope().version()));
@@ -179,9 +176,8 @@ public final class BusinessContentGenerationService {
     /** Bounded topic retention; pending work is never silently discarded. */
     public int purgeExpired() { return control(() -> tx.execute(status -> jobs.purgeExpired(clock.instant()))); }
 
-    private Input prepare(BusinessContentGeneration job, Request request, CrudAbility<?> parent) {
-        var target = locked(parent, request.location(), request.field(), () -> access(request,
-                current -> content.target(current, request.location(), request.field(), PlatformAction.VIEW)));
+    private Input prepare(BusinessContentGeneration job, Request request, FieldTarget checked) {
+        var target = locked(checked, () -> access(request, Function.identity()));
         if (!source(job).equals(target.source()) || !BusinessContentTextTranslator.POLICY_VERSION.equals(request.policyVersion()))
             throw new StaleWork();
         var original = original(target);
@@ -193,8 +189,7 @@ public final class BusinessContentGenerationService {
         return new Input(target.text(), original.getSourceLanguage());
     }
 
-    private FieldTarget locked(CrudAbility<?> parent, Location location, String field, Supplier<FieldTarget> reauthorize) {
-        var target = content.target(parent, location, field, PlatformAction.VIEW);
+    private FieldTarget locked(FieldTarget target, Supplier<FieldTarget> reauthorize) {
         BusinessContentStore.lockRecord(target.source());
         // A concurrent save may move the owner to another workspace without changing its text.
         // Reopen the complete live entry after waiting for the owner lock, not only its VIEW permission.
@@ -219,9 +214,9 @@ public final class BusinessContentGenerationService {
         if (target.text().length() > BusinessContentTextTranslator.MAX_SOURCE_LENGTH) return state("UNSUPPORTED", "SOURCE_SIZE");
         return null;
     }
-    private <T> T access(Request request, Function<CrudAbility<?>, T> work) {
-        try { return adapter(request.scope()).withAccess(request.scope(), request.moduleAlias(), request.location(), request.field(), parent -> {
-            try { return work.apply(parent); }
+    private <T> T access(Request request, Function<FieldTarget, T> work) {
+        try { return adapter(request.scope()).withAccess(request.scope(), request.moduleAlias(), request.location(), request.field(), target -> {
+            try { return work.apply(target); }
             catch (PlatformAccessDeniedException | AuthenticationRequiredException denied) {
                 throw new WorkFailure(new InvalidExecution("SCOPE_WITHDRAWN"));
             }
