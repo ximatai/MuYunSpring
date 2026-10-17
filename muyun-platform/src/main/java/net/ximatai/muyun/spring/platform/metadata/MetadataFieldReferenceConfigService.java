@@ -232,7 +232,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             normalizeStandardLabelProjection(config, sourceField, target);
             validateOutputFields(config, sourceField.getMetadataId(), target);
             validateAffects(config, sourceField, target);
-            validateCandidateSubtitle(config, target);
+            validateCandidateSubtitle(config, sourceField, sourceRelation, target);
             return target;
         }
         ReferenceTarget target = resolveDynamicTarget(config, sourceField, sourceRelation);
@@ -240,12 +240,13 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         normalizeStandardLabelProjection(config, sourceField, target);
         validateOutputFields(config, sourceField.getMetadataId(), target);
         validateAffects(config, sourceField, target);
-        validateCandidateSubtitle(config, target);
+        validateCandidateSubtitle(config, sourceField, sourceRelation, target);
         return target;
     }
 
     /** Validate against persisted dynamic declarations and Java reference contracts, not business data. */
-    private void validateCandidateSubtitle(MetadataFieldReferenceConfig config, ReferenceTarget target) {
+    private void validateCandidateSubtitle(MetadataFieldReferenceConfig config, MetadataField sourceField,
+                                            ModuleMetadataRelation sourceRelation, ReferenceTarget target) {
         if (config.getCandidateSubtitleProjection() == null || config.getCandidateSubtitleProjection().isBlank()) return;
         var projection = new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(
                 config.getCandidateSubtitleProjection());
@@ -270,13 +271,19 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             }
             MetadataField field = fieldService.list(Criteria.of().eq("metadataId", metadataId)
                     .eq("fieldName", name), PageRequests.all()).stream().findFirst().orElse(null);
+            boolean pendingField = Objects.equals(metadataId, sourceField.getMetadataId())
+                    && name.equals(sourceField.getFieldName());
+            if (pendingField) field = sourceField;
             if (field == null && !(terminal && STANDARD_FIELDS.contains(name)))
                 throw new IllegalArgumentException("candidate subtitle field does not exist: " + name);
             if (terminal) return;
             ModuleMetadataRelation relation = relationService.list(Criteria.of().eq("moduleAlias", current.moduleAlias())
                     .eq("metadataId", metadataId), PageRequests.all()).stream().findFirst().orElse(null);
+            if (sourceRelation != null && sourceRelation.getModuleAlias().equals(current.moduleAlias())
+                    && sourceRelation.getMetadataId().equals(metadataId)) relation = sourceRelation;
+            String fieldId = field.getId();
             ModuleMetadataField override = relation == null ? null : moduleFields.getObject().listByRelationId(relation.getId())
-                    .stream().filter(item -> field.getId().equals(item.getMetadataFieldId()))
+                    .stream().filter(item -> fieldId != null && fieldId.equals(item.getMetadataFieldId()))
                     .filter(item -> item.getReferenceModuleAlias() != null && !item.getReferenceModuleAlias().isBlank())
                     .findFirst().orElse(null);
             if (override != null) {
@@ -289,6 +296,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 continue;
             }
             MetadataFieldReferenceConfig hop = findForRelation(field.getId(), relation == null ? null : relation.getId());
+            if (pendingField && (config.getRelationId() == null
+                    ? hop == null || hop.getRelationId() == null
+                    : relation != null && config.getRelationId().equals(relation.getId()))) hop = config;
             if (hop == null)
                 throw new IllegalArgumentException("candidate subtitle hop is not a declared reference: " + name);
             if (hop.getCardinality() == ReferenceCardinality.MANY)

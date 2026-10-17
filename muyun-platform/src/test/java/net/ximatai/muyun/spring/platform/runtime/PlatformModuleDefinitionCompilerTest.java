@@ -687,6 +687,48 @@ class PlatformModuleDefinitionCompilerTest {
     }
 
     @Test
+    void shouldUseProposedSelfReferenceWhenValidatingSubtitlePaths() {
+        moduleService.insert(module("sales.category", ModuleKind.DYNAMIC));
+        String category = metadataService.insert(metadata("sales", "category"));
+        fieldService.insert(titleField(category));
+        MetadataField parent = field(category, "parentCategoryId", "parent_category_id", FieldType.STRING);
+        fieldService.insert(parent);
+        String relation = relationService.insert(mainRelation("sales.category", category));
+        MetadataFieldReferenceConfig proposed = referenceConfig(parent.getId(), category);
+        proposed.setRelationId(relation);
+        proposed.setCandidateSubtitleProjection("parentCategoryId.title");
+        referenceConfigService.validateDraft(proposed, parent, relationService.select(relation));
+        referenceConfigService.insert(proposed);
+        MetadataField pending = field(category, "newParentId", "new_parent_id", FieldType.STRING);
+        MetadataFieldReferenceConfig pendingConfig = referenceConfig(pending.getId(), category);
+        pendingConfig.setRelationId(relation);
+        pendingConfig.setCandidateSubtitleProjection("newParentId.title");
+        referenceConfigService.validateDraft(pendingConfig, pending, relationService.select(relation));
+        // A proposed target must replace the old persisted self-reference during validation.
+        moduleService.insert(module("sales.region", ModuleKind.DYNAMIC));
+        String region = metadataService.insert(metadata("sales", "region"));
+        fieldService.insert(titleField(region));
+        fieldService.insert(field(region, "regionCode", "region_code", FieldType.STRING));
+        MetadataField back = field(region, "categoryId", "category_id", FieldType.STRING);
+        fieldService.insert(back);
+        String regionRelation = relationService.insert(mainRelation("sales.region", region));
+        MetadataFieldReferenceConfig backRef = referenceConfig(back.getId(), category);
+        backRef.setRelationId(regionRelation);
+        backRef.setTargetModuleAlias("sales.category");
+        referenceConfigService.insert(backRef);
+        MetadataFieldReferenceConfig update = net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigDraft
+                .fromConfig(proposed).toConfig();
+        update.setMetadataFieldId(parent.getId());
+        update.setRelationId(relation);
+        update.setId(proposed.getId());
+        update.setVersion(proposed.getVersion());
+        update.setTargetModuleAlias("sales.region");
+        update.setTargetMetadataId(region);
+        update.setCandidateSubtitleProjection("categoryId.parentCategoryId.regionCode");
+        referenceConfigService.update(update);
+    }
+
+    @Test
     void shouldRejectStaticTargetForChildForeignKey() {
         moduleService.insert(module("education.exam", ModuleKind.DYNAMIC));
         moduleService.insert(module("education.student", ModuleKind.STATIC));
