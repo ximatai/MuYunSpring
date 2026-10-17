@@ -58,6 +58,7 @@ export const webDataChangeTypes = {
   recordUpdated: 'record-updated',
   recordDeleted: 'record-deleted',
   collectionChanged: 'collection-changed',
+  businessContentChanged: 'business-content-changed',
 } as const;
 
 export type WebDataChangeType = (typeof webDataChangeTypes)[keyof typeof webDataChangeTypes];

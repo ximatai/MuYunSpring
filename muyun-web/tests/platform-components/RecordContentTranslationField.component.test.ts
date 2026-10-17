@@ -87,7 +87,7 @@ const Modal = defineComponent({
   setup:
     (props, { slots }) =>
     () =>
-      props.open ? h('section', { 'data-maintenance': '' }, slots.default?.()) : null,
+      props.open ? h('section', { 'data-maintenance': '' }, [slots.default?.(), slots.operation?.()]) : null,
 });
 function host(
   request: ReturnType<typeof vi.fn>,
@@ -180,6 +180,62 @@ describe('shared business translation reading and maintenance', () => {
       }
     },
   );
+
+  it('retains local input while reopening the latest authorized original after a rejected save', async () => {
+    let prepares = 0;
+    let saves = 0;
+    const request = vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/reading')) return reading();
+      if (options.path.endsWith('/history')) return [];
+      if (options.path.endsWith('/draft')) {
+        if (++saves === 1) throw new Error('concurrent source revision');
+        return {
+          ...state(),
+          original: { ...original, revisionId: 'new-original', revision: 4, text: '当前新原文' },
+          expectedRevision: 1,
+          confirmed: null,
+          draft: translation('DRAFT', 1, 'Keep my local review'),
+        };
+      }
+      prepares++;
+      return prepares === 1
+        ? state()
+        : {
+            ...state(),
+            original: { ...original, revisionId: 'new-original', revision: 4, text: '当前新原文' },
+            expectedRevision: null,
+            confirmed: null,
+          };
+    });
+    const { wrapper, record } = host(request);
+    await flushPromises();
+    await button(wrapper, '维护／核对译文').trigger('click');
+    await flushPromises();
+    await wrapper.get('textarea').setValue('Keep my local review');
+    await button(wrapper, '保存人工草稿').trigger('click');
+    await flushPromises();
+    await button(wrapper, '读取最新版本，保留输入').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('textarea').element.value).toBe('Keep my local review');
+    expect(wrapper.get('[data-maintenance]').text()).toContain('当前新原文');
+    expect(wrapper.get('[data-maintenance]').text()).toContain('已读取最新版本');
+    expect(button(wrapper, '保存人工草稿').attributes('disabled')).toBeUndefined();
+    expect(button(wrapper, '确认已审阅的草稿').attributes('disabled')).toBeDefined();
+    await button(wrapper, '保存人工草稿').trigger('click');
+    await flushPromises();
+    expect(
+      requests(request)
+        .filter((row) => row.path.endsWith('/draft'))
+        .at(-1)?.body,
+    ).toMatchObject({
+      sourceRevisionId: 'new-original',
+      sourceRevision: 4,
+      expectedRevision: null,
+      text: 'Keep my local review',
+    });
+    expect(record.description).toBe(original.text);
+    wrapper.unmount();
+  });
 
   it.each(['unmount', 'record', 'session'] as const)(
     'does not execute a delayed delete confirmation after %s invalidates its editor',
@@ -577,7 +633,7 @@ describe('shared business translation reading and maintenance', () => {
     contentLanguage.setLanguage('de');
     await flushPromises();
     expect(wrapper.get('textarea').element.value).toBe('Unsaved English work');
-    expect(wrapper.get('[data-maintenance]').text()).toContain('Language for this review：en');
+    expect(wrapper.get('[data-maintenance]').text()).toContain('Language for this review：English');
     await button(wrapper, 'Save human draft').trigger('click');
     await flushPromises();
     expect(requests(request).find((r) => r.path.endsWith('/draft'))?.path).toContain(

@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.ability.action;
 
 public final class DataChangeTypes {
+    public static final String BUSINESS_CONTENT_CHANGED = "business-content-changed";
     public static final String RECORD_CREATED = "record-created";
     public static final String RECORD_UPDATED = "record-updated";
     public static final String RECORD_DELETED = "record-deleted";

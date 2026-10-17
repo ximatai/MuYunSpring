@@ -1,7 +1,17 @@
 import { mount, flushPromises } from '@vue/test-utils';
-import { defineComponent, ref } from 'vue';
+import { defineComponent, h, ref } from 'vue';
+import {
+  useRecordReadRefreshGuard,
+  provideRecordReadRefreshGuard,
+  useBusinessContentReading,
+  type HttpClient,
+} from '@muyun/web-core';
 import { expect, it, vi } from 'vitest';
-import { useModuleRecordDataChanges } from '@/dynamic-page-runtime/useModuleRecordDataChanges';
+import {
+  useModuleRecordDataChanges,
+  moduleContentPresentationDependencies,
+} from '@/dynamic-page-runtime/useModuleRecordDataChanges';
+import type { ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 
 const settle = async () => {
@@ -145,5 +155,132 @@ it('invalidates and refreshes owning parent details for managed child resource c
   await settle();
   expect(invalidate).toHaveBeenCalledWith(['child', 'parent']);
   expect(refreshRecord).toHaveBeenCalledWith('parent', expect.any(Function));
+  wrapper.unmount();
+});
+
+it('defers content and reference presentation refreshes until nested maintenance closes', async () => {
+  const maintaining = ref(true);
+  const refreshList = vi.fn();
+  const refreshRecord = vi.fn(async () => true);
+  const child = defineComponent({
+    setup() {
+      useRecordReadRefreshGuard(() => maintaining.value);
+      return () => null;
+    },
+  });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        useModuleRecordDataChanges({
+          moduleAlias: 'quality.product',
+          presentationModules: () => ['quality.category'],
+          recordId: () => 'product',
+          blocked: () => false,
+          invalidate: vi.fn(),
+          refreshList,
+          refreshRecord,
+          onError: vi.fn(),
+        });
+        return () => h(child);
+      },
+    }),
+  );
+  await appDataChangeDispatcher.dispatch({
+    changeSetId: 'reading-confirmed',
+    changes: [{ type: 'business-content-changed', moduleAlias: 'quality.category' }],
+  });
+  await appDataChangeDispatcher.dispatch({
+    changeSetId: 'unrelated-reading',
+    changes: [{ type: 'business-content-changed', moduleAlias: 'quality.other' }],
+  });
+  await settle();
+  expect(refreshList).not.toHaveBeenCalled();
+  maintaining.value = false;
+  await settle();
+  expect(refreshList).toHaveBeenCalledOnce();
+  expect(refreshRecord).toHaveBeenCalledOnce();
+  wrapper.unmount();
+});
+
+it('uses read-only list and detail reference declarations as presentation dependencies', () => {
+  const ui = {
+    page: {
+      list: { fields: { fields: [{ reference: { targetModuleAlias: 'quality.category' } }] } },
+      detail: { display: { fields: [{ referenceSummary: { targetModuleAlias: 'quality.product' } }] } },
+    },
+    detailRelations: [{ targetModuleAlias: 'quality.inspection' }],
+  } as unknown as ResolvedModuleUiDescriptor;
+  expect(moduleContentPresentationDependencies(ui)).toEqual([
+    'quality.category',
+    'quality.product',
+    'quality.inspection',
+  ]);
+});
+
+it('refreshes an unchanged business snapshot from committed content facts without rewriting the record', async () => {
+  let current = 'Previous reading';
+  const record = { id: 'record', version: 4, description: '原文' };
+  const request = vi.fn(async () => ({
+    recordVersion: 4,
+    language: 'en',
+    fields: {
+      description: {
+        originalText: '原文',
+        text: current,
+        actualLanguage: 'en',
+        source: null,
+        translation: null,
+        originalFallback: false,
+      },
+    },
+  }));
+  const http = { request } as unknown as HttpClient;
+  let reader!: ReturnType<typeof useBusinessContentReading>;
+  const child = defineComponent({
+    setup() {
+      reader = useBusinessContentReading(() => ({
+        http,
+        moduleAlias: 'quality.product',
+        record,
+        fieldName: 'description',
+        content: { key: 'description', policy: 'MANUAL_TRANSLATIONS' },
+        language: 'en',
+        mode: 'view',
+      }));
+      return () => null;
+    },
+  });
+  const controller = defineComponent({
+    setup() {
+      useModuleRecordDataChanges({
+        moduleAlias: 'quality.product',
+        recordId: () => record.id,
+        blocked: () => false,
+        invalidate: vi.fn(),
+        refreshList: vi.fn(),
+        refreshRecord: vi.fn(async () => true),
+        onError: vi.fn(),
+      });
+      return () => null;
+    },
+  });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideRecordReadRefreshGuard();
+        return () => h('div', [h(controller), h(child)]);
+      },
+    }),
+  );
+  await settle();
+  expect(reader.reading.value?.text).toBe('Previous reading');
+  current = 'Confirmed reading';
+  await appDataChangeDispatcher.dispatch({
+    changeSetId: 'same-version-reading',
+    changes: [{ type: 'business-content-changed', moduleAlias: 'quality.product' }],
+  });
+  await settle();
+  expect(reader.reading.value?.text).toBe('Confirmed reading');
+  expect(record).toEqual({ id: 'record', version: 4, description: '原文' });
   wrapper.unmount();
 });

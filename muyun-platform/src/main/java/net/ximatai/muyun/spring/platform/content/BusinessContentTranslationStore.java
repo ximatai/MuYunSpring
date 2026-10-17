@@ -15,8 +15,11 @@ import java.util.*;
 class BusinessContentTranslationStore {
     private final BusinessContentTranslationDao translations;
     private final BusinessContentStore originals;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
-    BusinessContentTranslationStore(BusinessContentTranslationDao translations, BusinessContentStore originals) {
+    BusinessContentTranslationStore(BusinessContentTranslationDao translations, BusinessContentStore originals,
+                                    org.springframework.context.ApplicationEventPublisher events) {
+        this.events = Objects.requireNonNull(events);
         this.translations = Objects.requireNonNull(translations);
         this.originals = Objects.requireNonNull(originals);
     }
@@ -152,6 +155,7 @@ class BusinessContentTranslationStore {
         EntityLifecycle.prepareInsert(row, Instant.now());
         row.setTenantId(source.tenantId()); row.setCreatedBy(actor.userId());
         translations.insert(row);
+        if (!"DRAFT".equals(kind)) events.publishEvent(new BusinessContentReadingChanged(source.moduleAlias(), source.tenantId()));
         return row;
     }
 

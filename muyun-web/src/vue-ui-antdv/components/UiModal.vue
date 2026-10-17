@@ -7,6 +7,7 @@ import { useUiBlockingOverlayVisibility } from '../blockingOverlays';
 const language = useLanguageContext();
 
 defineOptions({ name: 'UiModal', inheritAttrs: false });
+defineSlots<{ default?: () => unknown; operation?: () => unknown }>();
 
 const props = withDefaults(
   defineProps<{
@@ -62,5 +63,6 @@ const emit = defineEmits<{
     @after-close="updateOverlayVisibility(false)"
   >
     <div ref="overlayContent"><slot /></div>
+    <template v-if="$slots.operation" #footer><slot name="operation" /></template>
   </AModal>
 </template>

@@ -42,6 +42,7 @@ class OnlineUserDataChangeRealtimeFanOutPublisherTest {
         });
         var facts = new CommittedChangeSet("change", List.of(
                 new DataChange("record-updated", "sales.order", "private-id", "lines", "private-parent", Map.of("secret", "secret")),
+                new DataChange("business-content-changed", "sales.order", "hidden-translation", null, null, Map.of("private", "draft")),
                 DataChange.recordDeleted("sales.order", "deleted-id"), DataChange.recordUpdated("hidden.module", "hidden-id")));
         try (var user = CurrentUserContext.use(source); var tenant = TenantContext.use("tenant-a")) {
             publisher.publish(facts);
@@ -52,7 +53,8 @@ class OnlineUserDataChangeRealtimeFanOutPublisherTest {
         }
         verify(messages).sendToUser(eq("viewer"), eq(RealtimeDestinations.DATA_CHANGES), argThat(value -> {
             var payload = (CommittedChangeSet) ((RealtimeEnvelope<?>) value).payload();
-            return payload.changeSetId().equals("change") && payload.changes().equals(List.of(DataChange.collectionChanged("sales.order")));
+            return payload.changeSetId().equals("change") && payload.changes().equals(List.of(DataChange.collectionChanged("sales.order"),
+                    new DataChange("business-content-changed", "sales.order", null, null, null, Map.of())));
         }));
         verifyNoMoreInteractions(messages);
     }

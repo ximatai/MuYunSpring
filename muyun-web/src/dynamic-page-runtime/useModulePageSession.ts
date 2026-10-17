@@ -2,7 +2,10 @@ import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
-import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
+import {
+  useModuleRecordDataChanges,
+  moduleContentPresentationDependencies,
+} from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
 import { createRecordReferenceDisplay } from './recordReferenceDisplay';
 import {
@@ -1153,6 +1156,14 @@ export function useModulePageSession(
   );
   useModuleRecordDataChanges({
     moduleAlias: context.moduleAlias,
+    presentationModules: () => [
+      ...moduleContentPresentationDependencies(runtimeUiDescriptor.value),
+      ...[...formFields.value.values()].flatMap((field) =>
+        field.reference ? [field.reference.targetModuleAlias] : [],
+      ),
+      ...executableDetailRelations.value.map((relation) => relation.targetModuleAlias),
+      ...navigatorLevels.value.map((level) => level.context.moduleAlias),
+    ],
     recordId: () =>
       detailOpen.value && selectedRecord.value?.id != null ? String(selectedRecord.value.id) : undefined,
     blocked: () =>
@@ -1161,8 +1172,7 @@ export function useModulePageSession(
       detailLoading.value ||
       saving.value ||
       togglingEnabled.value ||
-      !tenantScopeReady.value ||
-      !runtimePageResolved.value,
+      (!props.recordOnly && (!tenantScopeReady.value || !runtimePageResolved.value)),
     invalidate: (ids) => context.invalidateRecordActions?.(ids),
     refreshList,
     refreshRecord: async (id, isCurrent) => {

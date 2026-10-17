@@ -252,6 +252,28 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             }
         }
     }
+    @Test void publicReadingChangesEmitInvalidationButPrivateDraftsAndRejectedWritesDoNot() {
+        try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
+            var row = row("原文保持不变"); service.insert(row);
+            var source = BusinessContentSaveLifecycleListener.source(service, service.select(row.getId()), "category-name");
+            var version = BusinessContentStore.OriginalVersion.of(store.latest(source));
+            var events = new ArrayList<Object>();
+            var observed = new BusinessContentTranslationStore(translationDao, store, events::add);
+            tx.executeWithoutResult(status -> observed.saveDraft(source, version, "en", "Private draft", null));
+            assertThat(events).isEmpty();
+            tx.executeWithoutResult(status -> observed.confirm(source, version, "en", 1, 1));
+            assertThat(events).containsExactly(new BusinessContentReadingChanged("test.content", "tenant-a"));
+            events.clear();
+            assertThatThrownBy(() -> tx.executeWithoutResult(status -> observed.confirm(source, version, "en", 1, 1)))
+                    .isInstanceOf(OptimisticLockException.class);
+            assertThat(events).isEmpty();
+            tx.executeWithoutResult(status -> observed.remove(source, version, "en", 2));
+            tx.executeWithoutResult(status -> observed.saveMachine(source, version, "en", "Machine reading", 3, generation()));
+            assertThat(events).hasSize(2);
+            assertThat(service.select(row.getId()).getVersion()).isEqualTo(row.getVersion());
+            assertThat(service.select(row.getId()).getTitle()).isEqualTo("原文保持不变");
+        }
+    }
     @Test void originalChangesExposeHumanReferenceOnlyToMaintenanceWithoutCarryingConfirmationForward() {
         try (var user = actor("cn"); var tenant = TenantContext.use("tenant-a")) {
             var row = row("80°C，暂勿发货"); service.insert(row);
@@ -342,7 +364,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                 if (invocation.getMethod().getName().equals("query")) pages.add(invocation.getArgument(1));
                 return org.mockito.AdditionalAnswers.delegatesTo(translationDao).answer(invocation);
             });
-            var bounded = new BusinessContentTranslationStore(counted, store);
+            var bounded = new BusinessContentTranslationStore(counted, store, event -> { });
             var state = bounded.state(source, original, "en");
             assertThat(state.revision()).isEqualTo(605);
             assertThat(state.confirmed().getTranslatedText()).isEqualTo("Human original");
@@ -357,7 +379,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     tx.executeWithoutResult(status -> translations.saveDraft(source, original, "en", "Concurrent new draft", 605));
                 return org.mockito.AdditionalAnswers.delegatesTo(translationDao).answer(invocation);
             });
-            var snapshot = new BusinessContentTranslationStore(interleaved, store).state(source, original, "en");
+            var snapshot = new BusinessContentTranslationStore(interleaved, store, event -> { }).state(source, original, "en");
             assertThat(snapshot.revision()).isEqualTo(605);
             assertThat(snapshot.draft().getTranslatedText()).isEqualTo("Human work in progress");
             assertThat(translations.state(source, original, "en").draft().getTranslatedText()).isEqualTo("Concurrent new draft");

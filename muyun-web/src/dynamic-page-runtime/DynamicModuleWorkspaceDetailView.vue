@@ -43,7 +43,10 @@ import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
-import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
+import {
+  useModuleRecordDataChanges,
+  moduleContentPresentationDependencies,
+} from './useModuleRecordDataChanges';
 import { applyReferenceRecordProjection } from './referenceRecordProjection';
 
 const language = useLanguageContext();
@@ -189,6 +192,7 @@ async function loadRecord() {
 
 useModuleRecordDataChanges({
   moduleAlias: context.moduleAlias,
+  presentationModules: () => moduleContentPresentationDependencies(context.runtime.snapshot()?.uiDescriptor),
   recordId: () => props.recordId,
   blocked: () =>
     mode.value !== 'view' ||

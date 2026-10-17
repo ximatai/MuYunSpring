@@ -1,3 +1,4 @@
+import { useRecordReadRefreshRevision } from './recordReadRefreshGuard';
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import type {
   BusinessContentField,
@@ -32,6 +33,7 @@ const MAX_POLLS = 60;
 
 /** Shared saved-record reading. Translation work never mutates the caller's business draft. */
 export function useBusinessContentReading(options: () => ReadingOptions) {
+  const refreshRevision = useRecordReadRefreshRevision();
   const reading = ref<BusinessContentReadingField>();
   const loading = ref(false);
   const failed = ref(false);
@@ -55,6 +57,7 @@ export function useBusinessContentReading(options: () => ReadingOptions) {
       current.active,
       current.http,
       current.moduleAlias,
+      refreshRevision.value,
       current.record.id,
       current.record.version,
       current.fieldName,
