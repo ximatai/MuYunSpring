@@ -96,6 +96,7 @@ function host(
   policy: 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS' = 'MANUAL_TRANSLATIONS',
   fieldName: 'description' | 'reason' = 'description',
   registrar?: WorkspaceUnsavedStateRegistrar,
+  mode: 'view' | 'edit' = 'view',
 ) {
   const language = createLanguageContext();
   const contentLanguage = businessContentLanguageContext(language);
@@ -119,7 +120,7 @@ function host(
             content: { key: 'stable-field', policy },
             context,
             relation,
-            mode: 'view',
+            mode,
             sessionKey: sessionKey.value,
           });
       },
@@ -140,6 +141,46 @@ function requests(request: ReturnType<typeof vi.fn>) {
 }
 
 describe('shared business translation reading and maintenance', () => {
+  it.each([
+    ['failed', '暂时无法读取译文，原文仍可使用'],
+    ['fallback', '当前语言暂无有效译文，显示原文'],
+    ['review', '原文已变更，旧人工译文待复核'],
+  ] as const)(
+    'keeps %s risk visible while editing with or without translation permissions',
+    async (status, message) => {
+      for (const actions of [[], ['contentEdit', 'contentConfirm']]) {
+        const request = vi.fn(async () => {
+          if (status === 'failed') throw new Error('reading unavailable');
+          const result = reading();
+          result.fields.description = {
+            ...result.fields.description!,
+            ...(status === 'fallback'
+              ? { originalFallback: true, translation: null, text: original.text }
+              : {}),
+            humanReviewRequired: status === 'review',
+          };
+          return result;
+        });
+        const { wrapper } = host(
+          request,
+          actions,
+          undefined,
+          'MANUAL_TRANSLATIONS',
+          'description',
+          undefined,
+          'edit',
+        );
+        await flushPromises();
+        const notice = wrapper.findAll('[role="status"]').find((value) => value.text() === message);
+        expect(notice, message).toBeDefined();
+        expect(notice!.element.closest('details')).toBeNull();
+        expect(wrapper.get('details').attributes('open')).toBeUndefined();
+        if (!actions.length) expect(wrapper.text()).not.toContain('维护／核对译文');
+        wrapper.unmount();
+      }
+    },
+  );
+
   it.each(['unmount', 'record', 'session'] as const)(
     'does not execute a delayed delete confirmation after %s invalidates its editor',
     async (change) => {

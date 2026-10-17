@@ -435,19 +435,19 @@ watch(
       <small v-if="matches && reading?.translation" class="record-content-translation__status">{{
         kindLabel(reading.translation.kind)
       }}</small>
-      <span v-if="failed" role="status">{{
-        language.t('platform.content.reading-failed', '暂时无法读取译文，原文仍可使用')
-      }}</span>
-      <span
-        v-else-if="matches && reading?.originalFallback && raw?.trim()"
-        class="record-content-translation__status"
-        role="status"
-        >{{ language.t('platform.content.original-fallback', '当前语言暂无有效译文，显示原文') }}</span
-      >
-      <p v-if="matches && reading?.humanReviewRequired" role="status">
-        {{ language.t('platform.content.human-review-required', '原文已变更，旧人工译文待复核') }}
-      </p>
     </template>
+    <span v-if="failed" role="status">{{
+      language.t('platform.content.reading-failed', '暂时无法读取译文，原文仍可使用')
+    }}</span>
+    <span
+      v-else-if="matches && reading?.originalFallback && raw?.trim()"
+      class="record-content-translation__status"
+      role="status"
+      >{{ language.t('platform.content.original-fallback', '当前语言暂无有效译文，显示原文') }}</span
+    >
+    <p v-if="matches && reading?.humanReviewRequired" role="status">
+      {{ language.t('platform.content.human-review-required', '原文已变更，旧人工译文待复核') }}
+    </p>
     <details class="record-content-translation__details">
       <summary>
         {{
