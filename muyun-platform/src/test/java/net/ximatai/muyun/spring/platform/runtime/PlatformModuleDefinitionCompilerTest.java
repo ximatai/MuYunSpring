@@ -707,6 +707,7 @@ class PlatformModuleDefinitionCompilerTest {
         relationService.insert(mainRelation("support.ticket", ticketId));
         String supportLineRelationId = relationService.insert(childRelation("support.ticket", lineId, ticketId, "ownerId"));
         MetadataFieldReferenceConfig defaultReference = referenceConfig(ownerField.getId(), invoiceId);
+        defaultReference.setCandidateSubtitleProjection(" code ");
         defaultReference.setRelationId(salesLineRelationId);
         defaultReference.setProjectionMappings("title:invoiceTitle,code:invoiceCode");
         referenceConfigService.insert(defaultReference);
@@ -720,6 +721,8 @@ class PlatformModuleDefinitionCompilerTest {
 
         EntityReferenceDefinition salesReference = salesDefinition.references().getFirst();
         assertThat(salesReference.targetQualifiedName()).isEqualTo("sales.invoice.invoice");
+        assertThat(salesReference.candidateSubtitleProjection()).isEqualTo("code");
+        assertThat(salesReference.plan().candidateSubtitleProjection().key()).isEqualTo("code");
         assertThat(salesReference.projections()).anySatisfy(projection -> assertThat(projection.outputField()).isEqualTo("invoiceTitle"));
         assertThat(salesReference.projections()).anySatisfy(projection -> assertThat(projection.outputField()).isEqualTo("invoiceCode"));
         EntityReferenceDefinition supportReferenceDefinition = supportDefinition.references().getFirst();

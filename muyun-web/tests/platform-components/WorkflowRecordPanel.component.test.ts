@@ -223,6 +223,15 @@ it('preserves an explicit history selection when the workbench entry itself has 
         select.props('options')?.some((item: { value: string }) => item.value === 'history:older'),
       )!;
     expect(selector.props('value')).toBe('history:i');
+    const archived = selector
+      .props('options')
+      .find((item: { value: string }) => item.value === 'history:i').label;
+    expect(archived).toContain('已归档');
+    expect(archived).toContain('定义版本 v1');
+    expect(archived).toContain('归档时：');
+    expect(wrapper.get('.workflow-record-panel > header').text()).toContain('归档时状态：');
+    expect(archived).toMatch(/2026-10-01 \d{2}:\d{2}:\d{2}/);
+    expect(archived).not.toContain('T00:00:00Z');
     selector.vm.$emit('update:value', 'history:older');
     await flushPromises();
     expect(selector.props('value')).toBe('history:older');

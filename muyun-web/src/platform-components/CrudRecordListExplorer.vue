@@ -388,6 +388,7 @@ const contentGenerationRecords = computed(() =>
       id: String(record.id),
       version: record.version,
       label: recordTitle(record),
+      secondary: recordCode(record),
     })),
 );
 const contentGenerationFields = computed(() =>

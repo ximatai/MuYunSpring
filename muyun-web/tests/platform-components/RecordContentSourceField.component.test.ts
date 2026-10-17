@@ -40,7 +40,7 @@ const Modal = defineComponent({
   setup:
     (props, { slots }) =>
     () =>
-      props.open ? h('section', slots.default?.()) : null,
+      props.open ? h('section', [slots.default?.(), slots.operation?.()]) : null,
 });
 function host(render: () => ReturnType<typeof h>, language = createLanguageContext()) {
   return {
@@ -185,6 +185,11 @@ describe('business original source controls', () => {
       query: { page: 1, size: 20 },
     });
     expect(wrapper.find('.record-content-source__text').text()).toBe('原始中文');
+    expect(wrapper.text()).toContain('简体中文');
+    const close = wrapper.findAll('button').filter((button) => button.text().replace(/\s/g, '') === '关闭');
+    expect(close).toHaveLength(1);
+    await close[0]!.trigger('click');
+    expect(wrapper.find('.record-content-source__revision').exists()).toBe(false);
     expect(wrapper.findComponent(RecordContentSourceField).emitted('change')).toBeUndefined();
     wrapper.unmount();
   });

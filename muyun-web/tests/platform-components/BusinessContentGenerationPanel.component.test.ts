@@ -297,3 +297,13 @@ it('does not expose a generation action when the page source belongs to a differ
   expect(wrapper.findAll('button')).toHaveLength(0);
   expect(request).not.toHaveBeenCalled();
 });
+
+it('distinguishes identical reading names by their authorized identity without changing selected IDs', async () => {
+  const request = vi.fn(async () => result('READY'));
+  const { wrapper, records } = host(request);
+  records.push({ id: 'second-row', version: 1, label: records[0]!.label });
+  await button(wrapper, '补齐阅读译文').trigger('click');
+  await flushPromises();
+  const labels = wrapper.findAll('.content-generation-identity').map((item) => item.text());
+  expect(labels).toEqual(['row', 'second-row']);
+});

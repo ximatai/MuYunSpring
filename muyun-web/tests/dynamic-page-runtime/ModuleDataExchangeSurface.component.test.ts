@@ -424,3 +424,28 @@ it('withdraws a successful review after options change or a later review fails',
   expect(wrapper.text()).toContain('无法重新核对');
   wrapper.unmount();
 });
+
+it('exposes an authorized secondary action for the host toolbar and keeps its standalone trigger optional', async () => {
+  const wrapper = mount(ModuleDataExchangeSurface, {
+    props: { context: context(vi.fn()), scopeKey: 'one', showTrigger: false },
+    global: { stubs },
+  });
+  const surface = wrapper.vm as unknown as {
+    action?: { key: string; actionLevel: string; disabled: boolean };
+    openFiles(): void;
+  };
+  expect(surface.action).toMatchObject({ key: '__platform-data-files', actionLevel: 'secondary' });
+  expect(wrapper.find('button').exists()).toBe(false);
+  surface.openFiles();
+  await flushPromises();
+  expect(wrapper.text()).toContain('导入数据');
+  await wrapper.setProps({ disabled: true });
+  expect(surface.action?.disabled).toBe(true);
+  wrapper.unmount();
+  const denied = mount(ModuleDataExchangeSurface, {
+    props: { context: context(vi.fn(), false), scopeKey: 'one', showTrigger: false },
+    global: { stubs },
+  });
+  expect((denied.vm as unknown as { action?: unknown }).action).toBeUndefined();
+  denied.unmount();
+});

@@ -4,6 +4,7 @@ import { UiButton, UiModal, UiSelect } from '@muyun/vue-ui-antdv';
 import DateTimeText from './DateTimeText.vue';
 import RecordContentTranslationField from './RecordContentTranslationField.vue';
 import {
+  businessContentLanguages,
   loadBusinessContentSources,
   loadBusinessContentHistory,
   useLanguageContext,
@@ -60,9 +61,7 @@ const selected = computed(() => {
 const options = computed(() => {
   const values = [
     { value: '__unknown__', label: language.t('platform.content.unknown-language', '来源语言未确定') },
-    { value: 'zh-CN', label: '简体中文' },
-    { value: 'en', label: 'English' },
-    { value: 'de', label: 'Deutsch' },
+    ...businessContentLanguages,
   ];
   if (!values.some((value) => value.value === selected.value))
     values.push({ value: selected.value, label: selected.value });
@@ -231,6 +230,11 @@ watch(
     @confirm="historyOpen = false"
     @cancel="historyOpen = false"
   >
+    <template #operation
+      ><UiButton @click="historyOpen = false">{{
+        language.t('platform.content.close', '关闭')
+      }}</UiButton></template
+    >
     <p v-if="historyLoading">{{ language.t('platform.content.loading', '正在核实来源') }}</p>
     <p v-else-if="historyFailed" role="alert">
       {{ language.t('platform.content.history-unavailable', '暂时无法读取历史，请重试') }}
@@ -244,8 +248,12 @@ watch(
           })
         }}</strong>
         <div>
-          {{ revision.sourceLanguage ?? language.t('platform.content.unknown-language', '来源语言未确定') }} ·
-          {{ language.t('platform.content.author', '作者') }}：{{
+          {{
+            businessContentLanguages.find((item) => item.value === revision.sourceLanguage)?.label ??
+            revision.sourceLanguage ??
+            language.t('platform.content.unknown-language', '来源语言未确定')
+          }}
+          · {{ language.t('platform.content.author', '作者') }}：{{
             revision.authorName ??
             revision.authorId ??
             language.t('platform.content.unknown-author', '历史作者未知')

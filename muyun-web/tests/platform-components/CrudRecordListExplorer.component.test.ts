@@ -164,6 +164,9 @@ describe('CrudRecordListExplorer', () => {
     const explorer = () => wrapper.findComponent({ name: 'RecordListExplorer' });
     expect(explorer().props('titleOf')(raw)).toBe('Equipment');
     expect(explorer().props('itemOf')(raw)).toMatchObject({ title: 'Equipment', secondary: 'DEV-1' });
+    expect(wrapper.findComponent({ name: 'BusinessContentQueryNotice' }).props('records')).toEqual([
+      { id: 'equipment', version: undefined, label: 'Equipment', secondary: 'DEV-1' },
+    ]);
     expect(wrapper.findComponent({ name: 'BusinessContentQueryNotice' }).props('status').missingRecords).toBe(
       2,
     );

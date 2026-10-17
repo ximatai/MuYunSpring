@@ -394,6 +394,7 @@ class MetadataRelationChangeSetPreviewServiceTest {
         reference.setTargetKeyField("studentNo");
         reference.setTargetLabelField("name");
         reference.setProjectionMappings("name:studentIdTitle");
+        reference.setCandidateSubtitleProjection("studentNo");
 
         MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
                 Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
@@ -414,6 +415,13 @@ class MetadataRelationChangeSetPreviewServiceTest {
                         MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
         assertThat(requiringEnabled.plan().fieldMutations().getFirst().property().referenceConfig().getRequireEnabled()).isTrue();
         assertThat(requiringEnabled.proposalFingerprint()).isNotEqualTo(result.proposalFingerprint());
+        assertThat(property.referenceConfig().getCandidateSubtitleProjection()).isEqualTo("studentNo");
+        reference.setCandidateSubtitleProjection("name");
+        var differentSubtitle = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                        MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
+        assertThat(differentSubtitle.proposalFingerprint()).isNotEqualTo(requiringEnabled.proposalFingerprint());
     }
 
     @Test

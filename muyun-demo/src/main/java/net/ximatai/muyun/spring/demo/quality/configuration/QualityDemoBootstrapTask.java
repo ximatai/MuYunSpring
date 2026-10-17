@@ -157,12 +157,19 @@ public class QualityDemoBootstrapTask implements PlatformBootstrapTask {
     }
 
     private void reference(MetadataField product, ModuleMetadataRelation owner) {
-        if (references.findForRelation(product.getId(), owner.getId()) != null) return;
-        var reference = new MetadataFieldReferenceConfig();
-        reference.setMetadataFieldId(product.getId()); reference.setRelationId(owner.getId());
-        reference.setTargetModuleAlias(ProductService.MODULE_ALIAS);
-        reference.setProjectionMappings("title:productTitle,code:productCode");
-        references.insert(reference);
+        var reference = references.findForRelation(product.getId(), owner.getId());
+        if (reference == null) {
+            reference = new MetadataFieldReferenceConfig();
+            reference.setMetadataFieldId(product.getId()); reference.setRelationId(owner.getId());
+            reference.setTargetModuleAlias(ProductService.MODULE_ALIAS);
+            reference.setProjectionMappings("title:productTitle,code:productCode");
+            reference.setCandidateSubtitleProjection("code");
+            references.insert(reference);
+        } else if (ProductService.MODULE_ALIAS.equals(reference.getTargetModuleAlias())
+                && reference.getCandidateSubtitleProjection() == null) {
+            reference.setCandidateSubtitleProjection("code");
+            references.update(reference);
+        }
     }
 
 }

@@ -261,10 +261,12 @@ class QualityCollaborationIT {
                 var candidates = presentationQuery(mvc, source[0], Map.of("mode", "QUERY", "fuzzy", source[1]));
                 assertThat(candidates.path("total").asLong()).isEqualTo(1);
                 assertThat(candidates.at("/options/0/id").asText()).isEqualTo(source[2]);
+                assertThat(candidates.at("/options/0/subtitle").asText()).isEqualTo(source[0].contains("categoryId") ? "CNC" : "SEAL-1");
                 assertThat(candidates.at("/options/0/title").asText()).isEqualTo(source[3]);
                 assertThat(candidates.at("/options/0/titleContent/readings/en").asText()).isEqualTo(source[1]);
                 var restored = presentationQuery(mvc, source[0], Map.of("mode", "TRANSLATE", "values", java.util.List.of(source[2])));
                 assertThat(restored.at("/results/0/item/id").asText()).isEqualTo(source[2]);
+                assertThat(restored.at("/results/0/item/subtitle").asText()).isEqualTo(source[0].contains("categoryId") ? "CNC" : "SEAL-1");
                 assertThat(restored.at("/results/0/item/titleContent/readings/en").asText()).isEqualTo(source[1]);
             }
             for (String[] target : java.util.List.of(new String[] {"quality.equipment_category", "CNC Equipment", categoryId},

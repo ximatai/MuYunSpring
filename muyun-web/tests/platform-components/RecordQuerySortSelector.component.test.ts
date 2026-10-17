@@ -22,3 +22,23 @@ it('offers only declared sort fields and keeps default order an explicit choice'
   dropdown.vm.$emit('select', 'title:asc');
   expect(wrapper.emitted('change')).toHaveLength(2);
 });
+
+it('shows the active sort field and direction and restores the neutral label for the default', async () => {
+  const wrapper = shallowMount(RecordQuerySortSelector, {
+    props: {
+      fields: [{ name: 'title', title: '名称' }],
+      sorts: [{ field: 'title', desc: true }],
+    },
+    global: {
+      stubs: {
+        UiDropdown: { template: '<div><slot /></div>' },
+        UiButton: { template: '<button><slot /></button>' },
+      },
+    },
+  });
+  expect(wrapper.text()).toContain('名称降序');
+  await wrapper.setProps({ sorts: [{ field: 'title', desc: false }] });
+  expect(wrapper.text()).toContain('名称升序');
+  await wrapper.setProps({ sorts: undefined });
+  expect(wrapper.text()).toContain('排序方式');
+});

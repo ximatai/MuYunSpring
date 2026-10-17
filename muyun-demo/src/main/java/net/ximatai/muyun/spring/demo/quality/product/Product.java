@@ -19,7 +19,7 @@ import net.ximatai.muyun.spring.demo.quality.equipment.EquipmentCategoryService;
 public class Product extends StandardEnabledEntity {
     @Column(name = "code", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "商品编码")
     private String code;
-    @ReferenceTo(target = EquipmentCategoryService.class)
+    @ReferenceTo(target = EquipmentCategoryService.class, candidateSubtitleProjection = "code")
     @Column(name = "category_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "设备分类")
     private String categoryId;
     @ReferenceLoad(source = "categoryId", field = "title")

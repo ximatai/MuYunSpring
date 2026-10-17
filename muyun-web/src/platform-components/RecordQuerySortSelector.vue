@@ -31,6 +31,11 @@ const selected = computed(() =>
       ? `${props.sorts[0]!.field}:${props.sorts[0]!.desc ? 'desc' : 'asc'}`
       : undefined,
 );
+const currentTitle = computed(() =>
+  selected.value && selected.value !== 'default'
+    ? items.value.find((item) => item.key === selected.value)?.title
+    : undefined,
+);
 function select(key: string) {
   if (props.disabled) return;
   if (key === 'default') {
@@ -46,7 +51,7 @@ function select(key: string) {
 <template>
   <UiDropdown v-if="fields.length > 0" :items="items" :selected-key="selected" @select="select">
     <UiButton :disabled="disabled" icon-name="down">{{
-      language.t('platform.content.sort-by', '排序方式')
+      currentTitle ?? language.t('platform.content.sort-by', '排序方式')
     }}</UiButton>
   </UiDropdown>
 </template>

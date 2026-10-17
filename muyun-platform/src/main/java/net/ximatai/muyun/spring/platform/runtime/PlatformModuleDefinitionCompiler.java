@@ -421,7 +421,7 @@ public class PlatformModuleDefinitionCompiler {
                 config.getCardinality(),
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
-        );
+        ).withCandidateSubtitleProjection(config.getCandidateSubtitleProjection());
     }
 
     private EntityReferenceDefinition moduleReference(ModuleMetadataField moduleField,
@@ -543,7 +543,8 @@ public class PlatformModuleDefinitionCompiler {
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
         );
-        return definition.withInteractionRules(List.of(), config.affects());
+        return definition.withInteractionRules(List.of(), config.affects())
+                .withCandidateSubtitleProjection(config.getCandidateSubtitleProjection());
     }
 
     private List<EntityViewDefinition> views(List<ModuleMetadataRelation> relations, Map<String, Metadata> metadataById) {

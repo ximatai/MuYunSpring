@@ -13,18 +13,27 @@ import {
   type ExchangePurpose,
   type ImportDuplicateStrategy,
 } from '@muyun/web-core';
-import { RecordPanelButton, UiModal, type RecordQueryListQueryController } from '@muyun/platform-components';
+import {
+  RecordPanelButton,
+  UiModal,
+  type RecordActionItem,
+  type RecordQueryListQueryController,
+} from '@muyun/platform-components';
 
 const language = useLanguageContext();
 const readingLanguage = businessContentLanguageContext(language);
 defineOptions({ name: 'ModuleDataExchangeSurface' });
-const props = defineProps<{
-  context: ModuleContext<unknown>;
-  queryController?: RecordQueryListQueryController;
-  selectedIds?: string[];
-  scopeKey: string;
-  disabled?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    context: ModuleContext<unknown>;
+    queryController?: RecordQueryListQueryController;
+    selectedIds?: string[];
+    scopeKey: string;
+    disabled?: boolean;
+    showTrigger?: boolean;
+  }>(),
+  { showTrigger: true },
+);
 const emit = defineEmits<{ busy: [value: boolean]; changed: [] }>();
 const supported = computed(() => props.context.runtime.snapshot()?.capabilities.includes('EXCHANGE'));
 const canImport = computed(() => supported.value && props.context.can('import') === true);
@@ -33,6 +42,20 @@ const open = ref(false);
 const filesOpen = ref(false);
 const busy = ref(false);
 const error = ref('');
+const action = computed<RecordActionItem | undefined>(() =>
+  canImport.value || canExport.value
+    ? {
+        key: '__platform-data-files',
+        title: language.t('platform.screen.ModuleDataExchangeSurface.data-files', '业务文件'),
+        actionLevel: 'secondary',
+        disabled: props.disabled || busy.value,
+      }
+    : undefined,
+);
+function openFiles() {
+  if (action.value && !action.value.disabled) filesOpen.value = true;
+}
+defineExpose({ action, openFiles });
 const file = shallowRef<File>();
 const preview = shallowRef<ExchangePreview>();
 const result = shallowRef<ExchangeResult>();
@@ -288,8 +311,12 @@ function operationLabel(operation: string) {
 </script>
 
 <template>
-  <div v-if="canImport || canExport" class="module-data-exchange">
-    <RecordPanelButton :disabled="disabled || busy" @click="filesOpen = true">
+  <div
+    v-if="canImport || canExport"
+    class="module-data-exchange"
+    :class="{ 'module-data-exchange--managed': !showTrigger }"
+  >
+    <RecordPanelButton v-if="showTrigger" :disabled="disabled || busy" @click="openFiles">
       {{ language.t('platform.screen.ModuleDataExchangeSurface.data-files', '业务文件') }}
     </RecordPanelButton>
     <UiModal
@@ -619,6 +646,9 @@ function operationLabel(operation: string) {
 </template>
 
 <style scoped>
+.module-data-exchange--managed {
+  display: contents;
+}
 .module-data-exchange {
   display: flex;
   flex-wrap: wrap;

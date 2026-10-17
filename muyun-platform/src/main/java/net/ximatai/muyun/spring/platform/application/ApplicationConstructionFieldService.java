@@ -97,7 +97,7 @@ public class ApplicationConstructionFieldService {
                             && target.labelFields().stream().anyMatch(label -> label.fieldName().equals(config.targetLabelField())))
                         result.put(property.fieldName(), new MetadataFieldReferenceConfigDraft(config.targetModuleAlias(),
                                 config.targetMetadataId(), config.targetKeyField(), config.targetLabelField(), config.cardinality(),
-                                config.targetUnavailablePolicy(), config.projectionMappings(), config.requireEnabled(), config.affectMappings()));
+                                config.targetUnavailablePolicy(), config.projectionMappings(), config.requireEnabled(), config.affectMappings(), config.candidateSubtitleProjection()));
                 } catch (PlatformException unavailable) {
                     // An unavailable target is missing evidence, never a fulfilled relationship.
                 }

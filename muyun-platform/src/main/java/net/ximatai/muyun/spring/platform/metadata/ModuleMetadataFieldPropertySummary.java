@@ -33,8 +33,15 @@ public record ModuleMetadataFieldPropertySummary(
             ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
             List<String> projectionMappings,
             boolean requireEnabled,
-            List<String> affectMappings
+            List<String> affectMappings,
+            String candidateSubtitleProjection
     ) {
+        public Reference(String targetModuleAlias, String targetMetadataId, String targetKeyField, String targetLabelField,
+                         ReferenceCardinality cardinality, ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
+                         List<String> projectionMappings, boolean requireEnabled, List<String> affectMappings) {
+            this(targetModuleAlias, targetMetadataId, targetKeyField, targetLabelField, cardinality,
+                    targetUnavailablePolicy, projectionMappings, requireEnabled, affectMappings, null);
+        }
         public Reference(String targetModuleAlias, String targetMetadataId, String targetKeyField, String targetLabelField,
                          ReferenceCardinality cardinality, ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
                          List<String> projectionMappings, boolean requireEnabled) {

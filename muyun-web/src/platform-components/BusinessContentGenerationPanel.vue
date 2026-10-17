@@ -20,6 +20,7 @@ export interface BusinessContentGenerationRecord {
   id: string;
   version?: unknown;
   label: string;
+  secondary?: string;
 }
 const props = defineProps<{
   status: WebBusinessContentQueryStatus;
@@ -44,6 +45,15 @@ const available = computed(
   () => source.value?.moduleAlias === props.context.moduleAlias && props.records.length > 0,
 );
 const chosen = computed(() => props.records.filter((row) => selected.value.includes(row.id)));
+function recordIdentity(record: BusinessContentGenerationRecord) {
+  return (
+    record.secondary ||
+    (props.records.filter((row) => row.label === record.label).length > 1 ? record.id : undefined)
+  );
+}
+function recordCaption(record: BusinessContentGenerationRecord) {
+  return [record.label, recordIdentity(record)].filter(Boolean).join(' · ');
+}
 const batch = useBusinessContentGenerationBatch(() => ({
   active: open.value && available.value && surfaceActive.value,
   http: props.context.http,
@@ -107,10 +117,9 @@ const summary = computed(() => {
 type Item = BusinessContentGenerationBatchResult['items'][number];
 function recordLabel(item: Item) {
   const direct = props.records.find((row) => row.id === item.recordId);
-  if (direct) return direct.label;
-  const owner =
-    props.records.find((row) => row.id === item.ownerId)?.label ??
-    language.t('platform.content.batch-record', '所选记录');
+  if (direct) return recordCaption(direct);
+  const parent = props.records.find((row) => row.id === item.ownerId);
+  const owner = parent ? recordCaption(parent) : language.t('platform.content.batch-record', '所选记录');
   const relation = props.context.runtime
     .snapshot()
     ?.uiDescriptor?.detailRelations?.find((row) => row.code === item.relationCode);
@@ -230,7 +239,10 @@ async function generate(retry: boolean) {
         :checked="selected.includes(record.id)"
         :disabled="loading || (!selected.includes(record.id) && selected.length >= 50)"
         @update:checked="choose(record.id, $event)"
-        >{{ record.label }}</UiCheckbox
+        ><span>{{ record.label }}</span
+        ><small v-if="recordIdentity(record)" class="content-generation-identity">{{
+          recordIdentity(record)
+        }}</small></UiCheckbox
       >
     </div>
     <UiCheckbox v-if="!source?.parentId" v-model:checked="includeChildren" :disabled="loading">{{
@@ -282,6 +294,11 @@ async function generate(retry: boolean) {
 </template>
 
 <style scoped>
+.content-generation-identity {
+  margin-inline-start: 8px;
+  color: var(--muyun-text-muted);
+  overflow-wrap: anywhere;
+}
 .content-generation-selection {
   display: flex;
   flex-direction: column;

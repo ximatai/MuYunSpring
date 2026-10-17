@@ -1819,6 +1819,10 @@ const contentGenerationRecords = computed(() =>
       return {
         id,
         version: record.version,
+        secondary:
+          typeof record.code === 'string' || typeof record.code === 'number'
+            ? String(record.code)
+            : undefined,
         label: String(
           currentContentStatus.value?.readings[id]?.title ??
             record.title ??

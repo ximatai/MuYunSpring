@@ -35,6 +35,8 @@ import {
   confirmAction,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
+import { formatPlatformDateTime } from './platformDateTime';
+import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
 import { presentPlatformError } from './platformErrorFeedback';
 import { workflowAccountOptions } from './workflowAccountOptions';
 import RecordPicker from './RecordPicker.vue';
@@ -59,6 +61,10 @@ import {
 } from './workflowPresentation';
 
 const workflowLanguage = useLanguageContext();
+const timeZone = usePlatformTimeZoneContext();
+function roundTime(value?: string) {
+  return formatPlatformDateTime(value, { language: workflowLanguage, timeZone: timeZone?.value }).text;
+}
 function workflowTitle(value?: string) {
   return localizedWorkflowTitle(value, workflowLanguage);
 }
@@ -198,9 +204,13 @@ const currentInstanceId = computed(
 function instanceLabel(item: WorkflowRecordInstance) {
   return [
     workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
-    item.versionNo == null ? '' : `v${item.versionNo}`,
+    roundTime(item.startedAt),
+    item.versionNo == null
+      ? ''
+      : workflowLanguage.t('platform.workflow.definition-version', '定义版本 v{version}', {
+          version: item.versionNo,
+        }),
     workflowTitle(item.instanceStatus),
-    item.startedAt,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -233,9 +243,13 @@ const roundOptions = computed(() => {
     ...archives.value.map((item) => ({
       value: `history:${item.id}`,
       label: workflowLanguage.t(
-        'platform.screen.WorkflowRecordPanel.history-vvalue-value-value',
-        '历史 v{value1} · {value2} · {value3}',
-        { value1: item.versionNo, value2: workflowTitle(item.instanceStatus), value3: item.startedAt ?? '' },
+        'platform.workflow.archived-round',
+        '已归档 · {time} · 定义版本 v{version} · 归档时：{status}',
+        {
+          version: item.versionNo,
+          status: workflowTitle(item.instanceStatus),
+          time: roundTime(item.startedAt),
+        },
       ),
     })),
   ];
@@ -1088,9 +1102,13 @@ async function execute() {
       }}</strong
       ><span v-if="status">{{ workflowTitle(status.displayStatus) }}</span
       ><span v-if="bundle">{{
-        workflowLanguage.t('platform.workflow-record.status', '流程：{status}', {
-          status: workflowTitle(bundle.instance.instanceStatus),
-        })
+        workflowLanguage.t(
+          selectedHistory ? 'platform.workflow.archived-status' : 'platform.workflow-record.status',
+          selectedHistory ? '归档时状态：{status}' : '流程：{status}',
+          {
+            status: workflowTitle(bundle.instance.instanceStatus),
+          },
+        )
       }}</span
       ><UiButton :loading="loading" :disabled="busy || preparing || Boolean(activeAction)" @click="load">{{
         workflowLanguage.t('platform.screen.WorkflowRecordPanel.refresh-workflow', '刷新流程')

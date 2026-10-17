@@ -635,6 +635,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setRequireEnabled(source.getRequireEnabled());
         result.setProjectionMappings(source.getProjectionMappings());
         result.setAffectMappings(source.getAffectMappings());
+        result.setCandidateSubtitleProjection(source.getCandidateSubtitleProjection());
         return result;
     }
 
@@ -750,7 +751,7 @@ public class MetadataRelationChangeSetPreviewService {
                     String.valueOf(config.getTargetLabelField()), String.valueOf(config.getCardinality()),
                     String.valueOf(config.getTargetUnavailablePolicy()), String.valueOf(config.getRequireEnabled()),
                     String.valueOf(config.getProjectionMappings()),
-                    String.valueOf(config.getAffectMappings()));
+                    String.valueOf(config.getAffectMappings()), String.valueOf(config.getCandidateSubtitleProjection()));
         }
         if (property.dictionaryConfig() != null) {
             MetadataFieldConfig config = property.dictionaryConfig();

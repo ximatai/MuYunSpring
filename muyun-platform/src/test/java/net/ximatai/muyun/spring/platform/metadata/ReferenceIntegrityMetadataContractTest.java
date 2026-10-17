@@ -13,6 +13,7 @@ class ReferenceIntegrityMetadataContractTest {
         config.setRequireEnabled(true);
         config.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         config.setProjectionMappings("title:organizationTitle");
+        config.setCandidateSubtitleProjection("code");
 
         MetadataFieldReferenceConfig restored = MetadataFieldReferenceConfigDraft.fromConfig(config).toConfig();
 
@@ -20,6 +21,7 @@ class ReferenceIntegrityMetadataContractTest {
         assertThat(restored.getTargetUnavailablePolicy()).isEqualTo(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         assertThat(restored.getTargetModuleAlias()).isEqualTo("iam.organization");
         assertThat(restored.getProjectionMappings()).isEqualTo("title:organizationTitle");
+        assertThat(restored.getCandidateSubtitleProjection()).isEqualTo("code");
         assertThat(MetadataFieldReferenceConfigDraft.fromConfig(new MetadataFieldReferenceConfig()).requireEnabled()).isFalse();
     }
 }

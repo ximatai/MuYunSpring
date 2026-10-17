@@ -55,6 +55,41 @@ class ConfigurationReferenceContributorConfiguration {
             }
         };
     }
+    @Bean ConfigurationReferenceContributor fieldReferenceSubtitleReference(
+            ObjectProvider<MetadataFieldReferenceConfigService> configs, ObjectProvider<MetadataService> metadata,
+            ObjectProvider<MetadataFieldService> fields, ObjectProvider<ModuleMetadataFieldService> moduleFields,
+            ObjectProvider<ModuleMetadataRelationService> relations) {
+        var paths = new ConfigurationFieldPathReferenceResolver(metadata, fields, moduleFields, relations, configs);
+        return new ConfigurationReferenceContributor() {
+            @Override public ConfigurationReferenceTarget target() { return ConfigurationReferenceTarget.METADATA_FIELD; }
+            @Override public boolean protectsFieldEvolution() { return true; }
+            @Override public ConfigurationReference reference() {
+                return new ConfigurationReference("fieldReferenceSubtitle", "引用候选说明配置", "candidateSubtitleProjection");
+            }
+            @Override public Optional<String> findReferenceId(String targetId) {
+                var service = configs.getIfAvailable();
+                if (service == null || fields.getIfAvailable() == null || relations.getIfAvailable() == null) return Optional.empty();
+                for (var config : service.list(Criteria.of().isNotNull("candidateSubtitleProjection"), new PageRequest(0, Integer.MAX_VALUE))) {
+                    var owner = fields.getObject().select(config.getMetadataFieldId());
+                    if (owner == null) continue;
+                    var scope = Criteria.of().eq("metadataId", owner.getMetadataId());
+                    if (config.getRelationId() != null) scope.eq("id", config.getRelationId());
+                    for (var relation : relations.getObject().list(scope, new PageRequest(0, Integer.MAX_VALUE))) {
+                        var effective = service.findForRelation(owner.getId(), relation.getId());
+                        if (effective == null || !java.util.Objects.equals(config.getId(), effective.getId())) continue;
+                        var overrides = moduleFields.getIfAvailable();
+                        if (overrides != null && overrides.listByRelationId(relation.getId()).stream().anyMatch(field ->
+                                owner.getId().equals(field.getMetadataFieldId()) && field.getReferenceModuleAlias() != null
+                                        && !field.getReferenceModuleAlias().isBlank())) continue;
+                        if (paths.uses(relation, owner.getFieldName() + "." + config.getCandidateSubtitleProjection(),
+                                targetId, null, null)) return Optional.of(config.getId());
+                    }
+                }
+                return Optional.empty();
+            }
+        };
+    }
+
     @Bean ConfigurationReferenceContributor fieldReferenceTargetMetadataReference(ObjectProvider<MetadataFieldReferenceConfigService> service) {
         return contributor(ConfigurationReferenceTarget.METADATA, "fieldReferenceTargetMetadata", "字段引用配置", "targetMetadataId", service);
     }

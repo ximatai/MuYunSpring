@@ -18,13 +18,21 @@ public record MetadataFieldReferenceConfigDraft(
         ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
         List<String> projectionMappings,
         boolean requireEnabled,
-        List<String> affectMappings
+        List<String> affectMappings,
+        String candidateSubtitleProjection
 ) {
     public MetadataFieldReferenceConfigDraft(String targetModuleAlias, String targetMetadataId, String targetKeyField,
             String targetLabelField, ReferenceCardinality cardinality, ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
             List<String> projectionMappings, boolean requireEnabled) {
         this(targetModuleAlias, targetMetadataId, targetKeyField, targetLabelField, cardinality,
                 targetUnavailablePolicy, projectionMappings, requireEnabled, List.of());
+    }
+
+    public MetadataFieldReferenceConfigDraft(String targetModuleAlias, String targetMetadataId, String targetKeyField,
+            String targetLabelField, ReferenceCardinality cardinality, ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
+            List<String> projectionMappings, boolean requireEnabled, List<String> affectMappings) {
+        this(targetModuleAlias, targetMetadataId, targetKeyField, targetLabelField, cardinality,
+                targetUnavailablePolicy, projectionMappings, requireEnabled, affectMappings, null);
     }
 
     public MetadataFieldReferenceConfigDraft {
@@ -43,6 +51,7 @@ public record MetadataFieldReferenceConfigDraft(
         result.setRequireEnabled(requireEnabled);
         result.setProjectionMappings(MetadataFieldReferenceConfig.encodeProjections(projectionMappings));
         result.setAffectMappings(MetadataFieldReferenceConfig.encodeProjections(affectMappings));
+        result.setCandidateSubtitleProjection(candidateSubtitleProjection);
         return result;
     }
 
@@ -50,6 +59,6 @@ public record MetadataFieldReferenceConfigDraft(
         if (config == null) return null;
         return new MetadataFieldReferenceConfigDraft(config.getTargetModuleAlias(), config.getTargetMetadataId(),
                 config.getTargetKeyField(), config.getTargetLabelField(), config.getCardinality(),
-                config.getTargetUnavailablePolicy(), MetadataFieldReferenceConfig.projectionMappings(config), Boolean.TRUE.equals(config.getRequireEnabled()), MetadataFieldReferenceConfig.affectMappings(config));
+                config.getTargetUnavailablePolicy(), MetadataFieldReferenceConfig.projectionMappings(config), Boolean.TRUE.equals(config.getRequireEnabled()), MetadataFieldReferenceConfig.affectMappings(config), config.getCandidateSubtitleProjection());
     }
 }

@@ -187,6 +187,9 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         normalizeTargetIdentifiers(config);
         config.setTargetKeyField(normalizeFieldName(config.getTargetKeyField(), "targetKeyField"));
         config.setTargetLabelField(normalizeFieldName(config.getTargetLabelField(), "targetLabelField"));
+        String subtitle = normalizeBlank(config.getCandidateSubtitleProjection());
+        config.setCandidateSubtitleProjection(subtitle == null ? null
+                : new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(subtitle).key());
         FieldSpec sourceType = fieldTypeService.requireFieldType(sourceField.getFieldSpecAlias());
         if (sourceType.getFieldType() != FieldType.STRING && sourceType.getFieldType() != FieldType.TEXT) {
             throw new IllegalArgumentException("reference source field must be string/text: " + sourceField.getFieldName());
