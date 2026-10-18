@@ -72,9 +72,6 @@ public class DynamicSchemaService {
     }
 
     private <T> T withSchemaCacheInvalidation(Supplier<T> migration) {
-        // Another connection can replace the shared snapshot with committed schema while this
-        // transaction owns uncommitted DDL. Reconcile against this transaction's visible schema.
-        operations.resetDBInfo();
         try {
             return migration.get();
         } finally {

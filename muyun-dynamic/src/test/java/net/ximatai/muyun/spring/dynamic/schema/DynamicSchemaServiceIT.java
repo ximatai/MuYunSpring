@@ -631,6 +631,33 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldKeepTransactionalSchemaWhenAnotherConnectionDiscoversBeforePlanning() throws Exception {
+        String tableName = "app_schema_window_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        EntityDefinition entity = new EntityDefinition("cache_window", tableName, "Cache Window",
+                List.of(FieldDefinition.string("code", "Code")));
+        var mapper = new DynamicTableMapper() {
+            private int calls;
+            @Override
+            public net.ximatai.muyun.database.core.builder.TableWrapper toTable(EntityDefinition definition) {
+                if (++calls == 2) {
+                    // Reload the shared cache immediately before the next schema plan is discovered.
+                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        operations.resetDBInfo();
+                        operations.getDBInfo();
+                    }).join();
+                }
+                return super.toTable(definition);
+            }
+        };
+        var isolated = new DynamicSchemaService(operations, mapper,
+                new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator());
+        transactionProbe.ensureTwiceWithCommittedSchemaDiscovery(isolated, operations, entity, false);
+        try (Connection connection = dataSource.getConnection()) {
+            assertThat(tableShape(connection, tableName).columns()).contains("id", "code");
+        }
+    }
+
+    @Test
     void shouldRollbackRepeatedSchemaEnsureAfterAnotherConnectionReloadsTheSharedSchemaCache() throws Exception {
         String tableName = "app_schema_rollback_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
         EntityDefinition entity = new EntityDefinition("cache_rollback", tableName, "Cache Rollback",
