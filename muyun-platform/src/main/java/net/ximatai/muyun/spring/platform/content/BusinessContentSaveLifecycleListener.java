@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.ability.*;
 import net.ximatai.muyun.spring.common.content.ContentWriteContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import java.util.*;
@@ -16,8 +15,6 @@ public final class BusinessContentSaveLifecycleListener implements EntitySaveLif
     private final ApplicationEventPublisher events;
     private final ThreadLocal<Map<EntityContract, Map<String, BusinessContentStore.Baseline>>> baselines =
             ThreadLocal.withInitial(IdentityHashMap::new);
-    public BusinessContentSaveLifecycleListener(BusinessContentStore store) { this(store, ignored -> { }); }
-    @Autowired
     public BusinessContentSaveLifecycleListener(BusinessContentStore store, ApplicationEventPublisher events) {
         this.store = Objects.requireNonNull(store); this.events = Objects.requireNonNull(events);
     }

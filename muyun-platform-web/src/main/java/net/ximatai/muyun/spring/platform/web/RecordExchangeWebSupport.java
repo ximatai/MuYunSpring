@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import net.ximatai.muyun.database.core.orm.*;
 import net.ximatai.muyun.spring.ability.*;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.*;
 import net.ximatai.muyun.spring.common.content.ContentLanguageInputs;
@@ -21,6 +22,7 @@ import net.ximatai.muyun.spring.platform.content.*;
 import net.ximatai.muyun.spring.platform.exchange.*;
 import net.ximatai.muyun.spring.web.*;
 
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -690,6 +692,11 @@ public final class RecordExchangeWebSupport {
                                 .filter(item -> spec.relationCode().equals(item.relationCode()))
                                 .findFirst()
                                 .orElseThrow();
+                // A legacy override may carry visibility rules absent from the default paged reader.
+                if (!ChildAbility.supportsBoundedReads(
+                        AopUtils.getTargetClass(relation.childAbility())))
+                    throw new PlatformAccessDeniedException(
+                            "This detail relation has no bounded exchange reader");
                 children = relation.selectChildren(parent, Criteria.of(), PageRequest.of(1, limit));
             } else
                 throw new IllegalArgumentException(

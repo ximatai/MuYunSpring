@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.database.core.orm.*;
+import net.ximatai.muyun.spring.common.model.capability.SortCapable;
+import org.springframework.aop.framework.ProxyFactory;
 
 import net.ximatai.muyun.spring.ability.*;
 import net.ximatai.muyun.spring.ability.child.*;
@@ -190,11 +193,78 @@ class RecordExchangeWebSupportTest {
         verify(root, never()).fieldReadPolicy(any());
     }
 
+    @Test
+    void fileChildrenRejectLegacyVisibilityOverridesBeforeAnyBoundedStorageRead() {
+        for (var child : List.of(new LegacyChildReader(), new LegacySortedChildReader())) {
+            assertThat(child.selectChildRows(Criteria.of())).extracting(Sample::getId).containsExactly("visible");
+            for (boolean proxied : List.of(false, true)) {
+                var access = childAccess(proxied ? (ChildAbility<Sample>) new ProxyFactory(child).getProxy() : child);
+                assertThatThrownBy(() -> access.children("line", "parent-id", 100))
+                        .isInstanceOf(PlatformAccessDeniedException.class);
+                verifyNoInteractions(child.getDao());
+            }
+        }
+    }
+
+    @Test
+    void explicitlyMigratedChildReaderKeepsVisibilityAndFilePageBoundThroughSpringProxy() {
+        var child = new BoundedChildReader();
+        var access = childAccess((ChildAbility<Sample>) new ProxyFactory(child).getProxy());
+        assertThat(access.children("line", "parent-id", 17)).extracting(RecordExchangeAccess.Row::id)
+                .containsExactly("visible");
+        assertThat(child.page.getLimit()).isEqualTo(17);
+        assertThat(child.criteria.isEmpty()).isFalse();
+        verifyNoInteractions(child.getDao());
+    }
+
+    private RecordExchangeAccess childAccess(ChildAbility<Sample> child) {
+        var fixture = new Fixture(true, true);
+        var root = mock(RootAbility.class);
+        when(fixture.web.service()).thenReturn(root);
+        when(root.childRelations()).thenReturn(List.of(new ChildRelation<Sample, Sample>(
+                "lines", child, (row, parent) -> {}, "parentId", row -> List.of())));
+        when(fixture.actions.resolveActionCode("test.exchange", "view", Set.of("parent-id")))
+                .thenReturn(ActionExecutionContext.ofPlatformAction("test.exchange", PlatformAction.VIEW,
+                        Set.of("parent-id"), Optional.empty()));
+        when(fixture.actions.resolveFieldReadContext(eq("test.exchange_line"), anySet()))
+                .thenAnswer(call -> ActionExecutionContext.ofPlatformAction("test.exchange_line",
+                        PlatformAction.VIEW, call.getArgument(1), Optional.empty()));
+        fixture.support.template(fixture.web, new RecordExchangeService.Export("DATA", "en", "UTC"));
+        var captured = org.mockito.ArgumentCaptor.forClass(RecordExchangeAccess.class);
+        verify(fixture.exchange).template(captured.capture(), any());
+        return captured.getValue();
+    }
+
+    static class LegacyChildReader extends AbstractAbilityService<Sample> implements ChildAbility<Sample> {
+        LegacyChildReader() { super("test.exchange_line", Sample.class, mock(BaseDao.class)); }
+        @Override public List<Sample> selectChildRows(Criteria criteria) { return visibleRows(); }
+        static List<Sample> visibleRows() {
+            var row = new Sample(); row.setId("visible"); row.setTitle("Allowed row");
+            return List.of(row);
+        }
+    }
+    static class LegacySortedChildReader extends AbstractAbilityService<Sample>
+            implements ChildAbility<Sample>, SortAbility<Sample> {
+        LegacySortedChildReader() { super("test.exchange_line", Sample.class, mock(BaseDao.class)); }
+        @Override public List<Sample> sortedList(Criteria criteria) { return LegacyChildReader.visibleRows(); }
+    }
+    static class BoundedChildReader extends LegacyChildReader {
+        PageRequest page;
+        Criteria criteria;
+        @Override public List<Sample> selectChildRows(Criteria criteria, PageRequest page) {
+            this.criteria = criteria; this.page = page;
+            return selectChildRows(criteria);
+        }
+    }
+
     interface RootAbility extends ChildrenAbility<Sample>, FieldReadAbility {}
 
     interface OwnedAbility extends ChildAbility<Sample>, FieldReadAbility {}
 
-    public static class Sample extends StandardEntity {
+    public static class Sample extends StandardEntity implements SortCapable {
+        private Integer sortOrder;
+        public Integer getSortOrder() { return sortOrder; }
+        public void setSortOrder(Integer value) { sortOrder = value; }
         private String title;
 
         public String getTitle() {

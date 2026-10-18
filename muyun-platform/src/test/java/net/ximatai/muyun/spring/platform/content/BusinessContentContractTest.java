@@ -53,7 +53,7 @@ class BusinessContentContractTest {
     @Test void actionDeniedAndMissingIdentityCannotQueryHistoryStorage() {
         var store = mock(BusinessContentStore.class);
         var policies = mock(ActionExecutionPolicyService.class);
-        var service = new BusinessContentService(store, policies, new AllowAllDataScopeCriteriaService());
+        var service = BusinessContentTestServices.content(store, policies, new AllowAllDataScopeCriteriaService());
         var owner = new AbstractAbilityService<ContentFixture>("test.content", ContentFixture.class, mock(BaseDao.class)) { };
         assertThatThrownBy(() -> service.history(owner, "record", "title", PageRequest.of(1, 20)))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);

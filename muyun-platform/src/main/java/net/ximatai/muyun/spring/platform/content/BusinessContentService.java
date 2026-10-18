@@ -16,7 +16,6 @@ import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
@@ -33,19 +32,11 @@ public final class BusinessContentService {
     private final DataScopeCriteriaService scopes;
     private final ObjectProvider<DynamicRecordService> dynamicRecords;
     private final ObjectProvider<PlatformModuleActionService> moduleActions;
-    public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes) {
-        this(store, policies, scopes, null);
-    }
-    public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes,
-                                  ObjectProvider<DynamicRecordService> dynamicRecords) {
-        this(store, policies, scopes, dynamicRecords, null);
-    }
-    @Autowired
     public BusinessContentService(BusinessContentStore store, ActionExecutionPolicyService policies, DataScopeCriteriaService scopes,
                                   ObjectProvider<DynamicRecordService> dynamicRecords,
                                   ObjectProvider<PlatformModuleActionService> moduleActions) {
-        this.dynamicRecords = dynamicRecords;
-        this.moduleActions = moduleActions;
+        this.dynamicRecords = Objects.requireNonNull(dynamicRecords, "dynamicRecords");
+        this.moduleActions = Objects.requireNonNull(moduleActions, "moduleActions");
         this.store = Objects.requireNonNull(store); this.policies = Objects.requireNonNull(policies);
         this.scopes = Objects.requireNonNull(scopes);
     }
@@ -138,8 +129,8 @@ public final class BusinessContentService {
     private ChildRows childRows(CrudAbility<?> ability, String parentId, String relationCode,
                                String childId, PageRequest page, boolean requireBounded) {
         var parent = authorizedRecord(ability, parentId);
-        var records = dynamicRecords == null ? null : dynamicRecords.getIfAvailable();
-        if (!(ability instanceof ChildrenAbility<?>) && ability.getDao() instanceof DynamicRecordDao && records != null) {
+        if (!(ability instanceof ChildrenAbility<?>) && ability.getDao() instanceof DynamicRecordDao) {
+            var records = dynamicRecords.getObject();
             List<DynamicRecord> selected;
             try { selected = records.aggregateChildrenForView(ability.getModuleAlias(), parentId, relationCode, childId, page); }
             catch (UnsupportedOperationException legacy) {
@@ -245,9 +236,8 @@ public final class BusinessContentService {
         return Map.copyOf(allowed);
     }
     private ActionExecutionPolicy viewPolicy(String moduleAlias) {
-        var actions = moduleActions == null ? null : moduleActions.getIfAvailable();
-        return actions == null ? PlatformAction.VIEW.executionPolicy()
-                : actions.findDeclaredExecutionPolicy(moduleAlias, PlatformAction.VIEW.code()).orElseGet(PlatformAction.VIEW::executionPolicy);
+        return moduleActions.getObject().findDeclaredExecutionPolicy(moduleAlias, PlatformAction.VIEW.code())
+                .orElseGet(PlatformAction.VIEW::executionPolicy);
     }
     private <T extends EntityContract> T authorizedRecord(CrudAbility<T> ability, String recordId) {
         return authorizedRecord(ability, recordId, PlatformAction.VIEW);

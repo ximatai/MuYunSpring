@@ -155,7 +155,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(row.contentLanguageInputs()).isEmpty();
             row.setQuantity(12); unscoped.update(row);
             var unexpectedScopes = org.mockito.Mockito.mock(DataScopeCriteriaService.class);
-            var facade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), unexpectedScopes);
+            var facade = BusinessContentTestServices.content(store, new AllowAllActionExecutionPolicyService(), unexpectedScopes);
             assertThat(facade.history(unscoped, row.getId(), "title", HISTORY)).hasSize(1);
             assertThat(facade.history(unscoped, row.getId(), "title", HISTORY).getFirst().sourceLanguage()).isEqualTo("en");
             org.mockito.Mockito.verifyNoInteractions(unexpectedScopes);
@@ -657,7 +657,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
             var location = BusinessContentService.Location.record(row.getId());
             var initial = translationService.prepare(service, location, "title", "de", PlatformAction.CONTENT_EDIT);
             var draft = translationService.saveDraft(service, location, "title", "de", change(initial, "Autorisierter Text", null));
-            var viewOnly = new BusinessContentService(store, context -> {
+            var viewOnly = BusinessContentTestServices.content(store, context -> {
                 if (context.platformAction() != PlatformAction.VIEW)
                     throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("No maintenance right");
             }, new AllowAllDataScopeCriteriaService());
@@ -709,7 +709,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     return DataScopeCriteriaResult.unrestricted(criteria);
                 }
             };
-            var facade = new BusinessContentTranslationService(new BusinessContentService(store, policies,
+            var facade = new BusinessContentTranslationService(BusinessContentTestServices.content(store, policies,
                     new AllowAllDataScopeCriteriaService()), store, translations, transactions);
             try (var action = ActionExecutionContextHolder.use(ActionExecutionContext.ofPolicy(service.getModuleAlias(), resolved,
                     Set.of(row.getId()), CurrentUserContext.currentUser()))) {
@@ -819,7 +819,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                 }
             };
             var viewRecords = new DynamicRecordService(runtime, new AllowAllActionExecutionPolicyService(), viewWithoutQuery);
-            var viewContent = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), viewWithoutQuery);
+            var viewContent = BusinessContentTestServices.content(store, new AllowAllActionExecutionPolicyService(), viewWithoutQuery);
             assertThat(viewRecords.mainEntity(module.moduleAlias()).list(Criteria.of(), PageRequest.of(1, 10))).isEmpty();
             assertThat(viewContent.sources(viewRecords.mainEntity(module.moduleAlias()), parent.getId()).fields()).containsKey("description");
             assertThat(viewContent.history(viewRecords.mainEntity(module.moduleAlias()), parent.getId(), "description", HISTORY)).isEqualTo(parentHistory);
@@ -845,7 +845,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     return DataScopeCriteriaResult.unrestricted(criteria.eq("quantity", 7));
                 }
             };
-            var aggregateContent = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(),
+            var aggregateContent = BusinessContentTestServices.content(store, new AllowAllActionExecutionPolicyService(),
                     parentOnlyScope, beans.getBeanProvider(DynamicRecordService.class));
             var childSource = aggregateContent.childSources(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", child.getId());
             assertThat(aggregateContent.childSelection(records.mainEntity(module.moduleAlias()), parent.getId(), "lines", 10).ids())
@@ -881,7 +881,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                     return DataScopeCriteriaResult.unrestricted(criteria.eq("id", "not-visible"));
                 }
             };
-            var restrictedFacade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(), restricted);
+            var restrictedFacade = BusinessContentTestServices.content(store, new AllowAllActionExecutionPolicyService(), restricted);
             assertThatThrownBy(() -> restrictedFacade.childSources(runtime.entityService(module.moduleAlias(), "main"), parent.getId(), "lines", child.getId()))
                     .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             assertThatThrownBy(() -> restrictedFacade.history(runtime.entityService(module.moduleAlias(), "main"),
@@ -1331,7 +1331,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
                 records.entity(module.moduleAlias(), "line").insert(child); ids.add(child.getId());
             }
             var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("records", records);
-            var facade = new BusinessContentService(store, new AllowAllActionExecutionPolicyService(),
+            var facade = BusinessContentTestServices.content(store, new AllowAllActionExecutionPolicyService(),
                     new AllowAllDataScopeCriteriaService(), beans.getBeanProvider(DynamicRecordService.class));
             var observed = new ArrayList<Integer>();
             PlatformAbilityRuntime.configureReferenceTextReadListener(new net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener() {
@@ -1391,6 +1391,7 @@ class BusinessContentRepositoryIT extends PlatformPostgresIntegrationTest {
     static class TestApplication {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername()).password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build(); }
         @Bean ActionExecutionPolicyService policies() { return new AllowAllActionExecutionPolicyService(); }
+        @Bean net.ximatai.muyun.spring.platform.module.PlatformModuleActionService actions() { return BusinessContentTestServices.undeclaredActions(); }
         @Bean DataScopeCriteriaService scopes() { return new AllowAllDataScopeCriteriaService(); }
     }
 }

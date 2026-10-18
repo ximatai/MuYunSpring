@@ -6,6 +6,8 @@ import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.ObjectProvider;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -19,9 +21,9 @@ class BusinessContentReadPolicyTest {
 
     @BeforeEach @SuppressWarnings("unchecked") void install() {
         ObjectProvider<PlatformModuleActionService> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(actions);
+        when(provider.getObject()).thenReturn(actions);
         content = new BusinessContentService(mock(BusinessContentStore.class), mock(ActionExecutionPolicyService.class),
-                mock(DataScopeCriteriaService.class), null, provider);
+                mock(DataScopeCriteriaService.class), TestBeanProviders.empty(DynamicRecordService.class), provider);
         record.setId("text-record"); record.setTitle("private text");
         CurrentUserContext.use(CurrentUser.tenantUser("reader", "Reader", "tenant-a"));
     }
@@ -57,6 +59,15 @@ class BusinessContentReadPolicyTest {
         when(actions.findDeclaredExecutionPolicy(MODULE, "view")).thenReturn(Optional.empty());
         assertThat(content.readableFields(reader, record)).containsKey("title");
         assertProducerIdentity(PlatformAction.VIEW.executionPolicy());
+    }
+
+    @Test void missingPolicyCatalogueFailsClosedInsteadOfRestoringStandardFieldVisibility() {
+        var incomplete = new BusinessContentService(mock(BusinessContentStore.class), mock(ActionExecutionPolicyService.class),
+                mock(DataScopeCriteriaService.class), TestBeanProviders.empty(DynamicRecordService.class),
+                TestBeanProviders.empty(PlatformModuleActionService.class));
+        assertThatThrownBy(() -> incomplete.readableFields(reader, record))
+                .isInstanceOf(org.springframework.beans.factory.NoSuchBeanDefinitionException.class);
+        assertThat(reader.seen).isNull();
     }
 
     private void assertProducerIdentity(ActionExecutionPolicy expected) {
