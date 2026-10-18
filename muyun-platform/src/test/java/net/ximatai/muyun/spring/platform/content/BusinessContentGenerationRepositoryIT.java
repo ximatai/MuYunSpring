@@ -495,6 +495,43 @@ class BusinessContentGenerationRepositoryIT extends PlatformPostgresIntegrationT
         }
     }
 
+    @Test void parallelWorkersClaimDifferentJobsAndKeepTheirTrustedIdentity() throws Exception {
+        try (var actor = actor("us"); var tenant = TenantContext.use("tenant-a")) {
+            var first = insert(RAW, "zh-CN"); var second = insert(RAW, "zh-CN");
+            var firstJob = request(first, false); var secondJob = request(second, false);
+            var entered = new CountDownLatch(2); var release = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                var user = CurrentUserContext.currentUser().orElseThrow();
+                assertThat(user.userId()).isEqualTo("us");
+                assertThat(user.system()).isFalse();
+                assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+                entered.countDown(); await(release);
+                return response(EN);
+            }).when(gateway).generate(any());
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                var one = executor.submit(engine::runOne); var two = executor.submit(engine::runOne);
+                try {
+                    await(entered);
+                    assertThat(jobDao.findById(firstJob.reference()).getStatus()).isEqualTo("RUNNING");
+                    assertThat(jobDao.findById(secondJob.reference()).getStatus()).isEqualTo("RUNNING");
+                } finally { release.countDown(); }
+                assertThat(one.get(30, TimeUnit.SECONDS)).isTrue();
+                assertThat(two.get(30, TimeUnit.SECONDS)).isTrue();
+            }
+            for (var row : List.of(first, second)) {
+                var original = originals.latest(source(row));
+                assertThat(translations.history(source(row), BusinessContentStore.OriginalVersion.of(original),
+                        "en", PageRequest.of(1, 10))).hasSize(1);
+            }
+            for (var reference : List.of(firstJob.reference(), secondJob.reference())) {
+                var job = jobDao.findById(reference);
+                assertThat(job.getStatus()).isEqualTo("SUCCEEDED");
+                assertThat(job.getAttempts()).isEqualTo(1);
+            }
+            verify(gateway, times(2)).generate(any());
+        }
+    }
+
     @Test void expiredLeaseIsRecoverableAndItsDelayedOldResultCannotAppendAfterTheNewClaim() throws Exception {
         try (var actor = actor("us"); var tenant = TenantContext.use("tenant-a")) {
             var row = insert(RAW, "zh-CN"); var pending = request(row, false);

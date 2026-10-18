@@ -16,23 +16,29 @@ final class BusinessContentGenerationScheduling implements SmartLifecycle {
     private final BusinessContentGenerationService generations;
     private final long initialDelay;
     private final long delay;
+    private final int workers;
     private ThreadPoolTaskScheduler scheduler;
     private final AtomicLong nextWarningAt = new AtomicLong();
 
     BusinessContentGenerationScheduling(BusinessContentGenerationService generations,
             @Value("${muyun.content.generation-initial-delay-ms:60000}") long initialDelay,
-            @Value("${muyun.content.generation-delay-ms:1000}") long delay) {
+            @Value("${muyun.content.generation-delay-ms:1000}") long delay,
+            @Value("${muyun.content.generation-workers:1}") int workers) {
         if (initialDelay < 0 || initialDelay > 300_000 || delay < 100 || delay > 60_000)
             throw new IllegalArgumentException("Invalid content generation scan interval");
-        this.generations = generations; this.initialDelay = initialDelay; this.delay = delay;
+        if (workers < 1 || workers > 8)
+            throw new IllegalArgumentException("Content generation workers must be between 1 and 8");
+        this.generations = generations; this.initialDelay = initialDelay; this.delay = delay; this.workers = workers;
     }
 
     @Override public synchronized void start() {
         if (scheduler != null) return;
         var executor = new ThreadPoolTaskScheduler();
-        executor.setPoolSize(2); executor.setThreadNamePrefix("business-content-generation-");
+        executor.setPoolSize(workers + 1); executor.setThreadNamePrefix("business-content-generation-");
         executor.setWaitForTasksToCompleteOnShutdown(false); executor.initialize();
-        executor.scheduleWithFixedDelay(this::generate, Instant.now().plusMillis(initialDelay), Duration.ofMillis(delay));
+        Instant start = Instant.now().plusMillis(initialDelay);
+        for (int worker = 0; worker < workers; worker++)
+            executor.scheduleWithFixedDelay(this::generate, start, Duration.ofMillis(delay));
         executor.scheduleWithFixedDelay(this::cleanup, Instant.now().plusSeconds(60), Duration.ofHours(1));
         scheduler = executor;
     }
