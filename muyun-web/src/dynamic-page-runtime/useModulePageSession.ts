@@ -2,7 +2,10 @@ import { recordPresentationLabel } from '@muyun/web-core';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import { displayModuleRuntime, useLanguageContext, presentationLabel } from '@muyun/web-core';
 import { createRelationDraftRegistry } from './relationDraftController';
-import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
+import {
+  useModuleRecordDataChanges,
+  moduleContentPresentationDependencies,
+} from './useModuleRecordDataChanges';
 import { createRecordSaveRecovery } from './recordSaveRecovery';
 import { createRecordReferenceDisplay } from './recordReferenceDisplay';
 import {
@@ -11,6 +14,7 @@ import {
   recordFieldDisplay,
 } from './recordDisplayProjection';
 import type {
+  WebReferenceResolveItem,
   OptionItemDescriptor,
   OperationReceiptReference,
   OperationPresentation,
@@ -308,13 +312,16 @@ export function useModulePageSession(
               },
             };
       },
-      query(request) {
-        if (activeTreeResourceClient.value) return activeTreeResourceClient.value.query(request);
+      query(request, options) {
+        if (activeTreeResourceClient.value) return activeTreeResourceClient.value.query(request, options);
         const conditions = emptyNavigatorListScope.value ?? [];
-        return rawContext.crud.query({
-          ...request,
-          conditions: [...(request?.conditions ?? []), ...conditions],
-        });
+        return rawContext.crud.query(
+          {
+            ...request,
+            conditions: [...(request?.conditions ?? []), ...conditions],
+          },
+          options,
+        );
       },
       view: (id) => (activeTreeResourceClient.value ?? rawContext.crud).view(id),
       insert: (record, options) =>
@@ -859,13 +866,18 @@ export function useModulePageSession(
       const sourceValue = live.options.formValues()[scopedTree.sourceField];
       return typeof sourceValue === 'string' && sourceValue.trim() !== '';
     };
-    const candidate = (item: {
-      id: string;
-      title?: string;
-      hasChildren?: boolean;
-    }): ScopedTreePickerCandidate => ({
+    const candidate = (
+      item: Pick<
+        WebReferenceResolveItem,
+        'id' | 'title' | 'titleText' | 'titleContent' | 'subtitle' | 'subtitleContent' | 'hasChildren'
+      >,
+    ): ScopedTreePickerCandidate => ({
       id: item.id,
       title: item.title ?? item.id,
+      titleText: item.titleText,
+      titleContent: item.titleContent,
+      subtitle: item.subtitle,
+      subtitleContent: item.subtitleContent,
       // Older source resolvers omit this field, so keep those items expandable until their first
       // lazy load. Newer TREE_CHILDREN responses let the UI avoid a needless empty request.
       isLeaf: item.hasChildren === false,
@@ -1144,6 +1156,14 @@ export function useModulePageSession(
   );
   useModuleRecordDataChanges({
     moduleAlias: context.moduleAlias,
+    presentationModules: () => [
+      ...moduleContentPresentationDependencies(runtimeUiDescriptor.value),
+      ...[...formFields.value.values()].flatMap((field) =>
+        field.reference ? [field.reference.targetModuleAlias] : [],
+      ),
+      ...executableDetailRelations.value.map((relation) => relation.targetModuleAlias),
+      ...navigatorLevels.value.map((level) => level.context.moduleAlias),
+    ],
     recordId: () =>
       detailOpen.value && selectedRecord.value?.id != null ? String(selectedRecord.value.id) : undefined,
     blocked: () =>
@@ -1152,8 +1172,7 @@ export function useModulePageSession(
       detailLoading.value ||
       saving.value ||
       togglingEnabled.value ||
-      !tenantScopeReady.value ||
-      !runtimePageResolved.value,
+      (!props.recordOnly && (!tenantScopeReady.value || !runtimePageResolved.value)),
     invalidate: (ids) => context.invalidateRecordActions?.(ids),
     refreshList,
     refreshRecord: async (id, isCurrent) => {
@@ -2377,11 +2396,15 @@ export function useModulePageSession(
     return explorerRecordText(record, runtimePage.value?.explorer?.secondaryField);
   }
 
-  function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
+  function flatManagementItemOf(
+    record: CrudRecordListBase,
+    readings: Readonly<Record<string, string>> = {},
+  ): RecordExplorerItemDescriptor {
     const secondaryField = flatManagementContent.value?.secondaryField;
     const secondaryValue = explorerRecordText(record, secondaryField);
     return {
       title:
+        readings[runtimePage.value?.explorer?.titleField ?? 'title'] ??
         explorerRecordText(record, runtimePage.value?.explorer?.titleField) ??
         recordPresentationLabel(record, 'title', language) ??
         record.alias ??
@@ -2393,7 +2416,8 @@ export function useModulePageSession(
       // subtitle. Do not fall back to the record ID: it turns an omitted
       // secondary field into accidental technical noise for business pages.
       secondary:
-        secondaryValue == null || String(secondaryValue).trim() === '' ? undefined : String(secondaryValue),
+        readings[secondaryField ?? ''] ??
+        (secondaryValue == null || String(secondaryValue).trim() === '' ? undefined : String(secondaryValue)),
       muted: record.enabled === false,
     };
   }

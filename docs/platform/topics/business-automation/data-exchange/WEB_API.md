@@ -1,46 +1,30 @@
 # 导入导出 Web API
 
-本文按 URL 简要列功能点，不展开完整请求和响应结构。
+静态与动态标准模块继承 `RecordExchangeWeb`，须明确开启 `EXCHANGE`，所有入口保留正常租户、动作与业务范围校验。
 
-所有接口使用动态模块路径：
+## 公共入口
 
-- `/{moduleAlias}` 必须是合法平台模块别名。
-- 需要当前租户上下文，并校验租户有效。
-- 模块主实体必须开启 `EXCHANGE` 能力。
+基础路径 `/{moduleAlias}/exchange/files`：
 
-## 模板
+| POST 路径 | 输入 | 结果 |
+| --- | --- | --- |
+| `/template` | JSON `purpose: DATA`、可选 `language`、IANA `timeZone` | 带可验证文件身份的填写模板 |
+| `/preview` | multipart `file`，可选 JSON `command` | 文档身份、核对摘要、各表匹配字段、当前值、拟修改值、错误、待确认对象 |
+| `/import` | multipart `file` 与已核对 JSON `command` | 新增、更新、跳过、错误数量，逐行回执，失败文件 base64 |
+| `/export` | JSON `ids`、可选正常 `query`、`options` | xlsx 业务填写、译文维护或阅读文件 |
 
-基础路径：
+`options.purpose` 为 `DATA`、`TRANSLATIONS` 或 `READING`，后两者必须指定目标 `language`。`timeZone` 默认 `UTC`。查询导出不把当前页当作全量结果；单次最大 1000 行，超限须缩小范围。`ids` 与 `query` 同时提供时取交集。
 
-- `/{moduleAlias}/exchange`
+查询导出的 `X-MuYun-Content-Language` 保留成功列表查询的业务阅读语言，用于译文筛选与排序；它与 `options.language` 指定的文件输出语言分别表达。例如可以按英文译文查询，再导出德文阅读文件。身份交集在查询计数与分页前应用，行数限制作用于最终输出范围。
 
-接口：
+`command` 包含 `documentId`、`previewDigest`、各实体 `sheets`（`entityAlias`、`matchField`、`duplicateStrategy`），可选 `confirmations`、`sourceLanguage` 与 `resolutionLanguage`。确认项绑定文件行、引用字段、输入文本及实际候选对象 ID。核对摘要绑定文件与选项；修改任何一项后须重新预览。`resolutionLanguage` 只影响本次业务名称解析，不能改动译文维护文件的目标语言。
 
-- `POST /template`：下载导入模板，返回 xlsx 文件。请求可指定关闭引用下拉的字段和引用下拉数量上限。
+模板及数据文件采用两行表头。更新空白或缺列不修改，`__clearFields` 显式清空。`__exchangeRow` 为服务器验证的行身份，`__inputIdentity` 保持失败新行身份，`__contextOnly` 表示只读关联上下文，`__error` 仅为说明。人工译文文件使用独立原文和译文版本列；阅读文件的技术列与持久化用途阻止误回导。
 
-## 导入
+独立业务单元分别提交；主子表整单失败回滚。错误文件只含待修正单元及必要的只读关联上下文，可直接修正重传，不要求通过更换重复策略规避重复写入。已成功行继续修改须重新导出。
 
-基础路径：
+## 旧动态入口
 
-- `/{moduleAlias}/import`
+兼容保留 `/{moduleAlias}/exchange/template`、`/import/parse`、`/import/execute`、`/import/error-file/{token}`、`/export/data` 与 `/export/selected`。解析、执行和导出适配公共引擎，旧导出保留其分页与已编译查询语义。旧模板参数与协议 1 仍可读取。
 
-接口：
-
-- `POST /parse`：上传 xlsx 文件并解析，返回解析结果，不执行写入。
-- `POST /execute`：上传执行命令和 xlsx 文件，按主表及子表匹配字段、重复策略执行导入。
-- `POST /error-file/{token}`：下载导入错误文件。
-
-导入执行结果包含新增数、更新数、跳过数、错误数、是否部分成功、消息、错误文件名、错误文件 token 和按实体统计的 `summaries`。异常数表示诊断项数，不等同于去重后的失败记录数。错误文件保留受影响的完整主子组，附加说明列不参与重新导入写入。
-
-## 导出
-
-基础路径：
-
-- `/{moduleAlias}/export`
-
-接口：
-
-- `POST /data`：按查询条件导出动态模块数据，返回 xlsx 文件。
-- `POST /selected`：按选中记录 ID 导出动态模块数据，返回 xlsx 文件；可叠加查询上下文。
-
-导出请求复用 `WebQueryRequest` 查询上下文，与标准列表消费同一已发布执行计划，校验列表 `uiConfigId`，解释排序、查询模板、外部查询值、查询表单、手工条件和页面范围。默认沿用请求分页；`unpaged: true` 导出全部匹配记录。选中导出在此基础上追加选中 ID 条件，仍受相同查询范围约束。
+旧执行响应仍提供消息、文件名、token 与按实体汇总；token 下载只允许原操作人，且重新校验当前业务读取权限。文件身份不会授予任何记录访问权。新客户端优先使用公共入口，以获得明确核对与引用对象确认流程。

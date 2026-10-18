@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
@@ -34,6 +35,7 @@ final class PlatformAbilityDispatcher {
     private static volatile ReferencedByResolver referencedByResolver = ReferencedByResolver.NONE;
     private static volatile ReferenceLoadResolver referenceLoadResolver = ReferenceLoadResolver.NONE;
     private static volatile ReferenceReadObserver referenceReadObserver = ReferenceReadObserver.NONE;
+    private static volatile ReferenceTextReadListener referenceTextReadListener = ReferenceTextReadListener.NONE;
     private static volatile ChildAbilityResolver childAbilityResolver = ChildAbilityResolver.NONE;
     private static volatile EntitySaveLifecycleListener entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
 
@@ -170,6 +172,12 @@ final class PlatformAbilityDispatcher {
         return referenceReadObserver;
     }
 
+    static void setReferenceTextReadListener(ReferenceTextReadListener listener) {
+        referenceTextReadListener = listener == null ? ReferenceTextReadListener.NONE : listener;
+    }
+
+    static ReferenceTextReadListener referenceTextReadListener() { return referenceTextReadListener; }
+
     static <T extends EntityContract> void beforeTargetUnavailable(CrudAbility<T> ability,
                                                                     T entity,
                                                                     DeletionContext context,
@@ -188,6 +196,10 @@ final class PlatformAbilityDispatcher {
         net.ximatai.muyun.spring.ability.deletion.DeletionResource root =
                 new net.ximatai.muyun.spring.ability.deletion.DeletionResource(moduleAlias, recordId);
         return DeletionContext.root(moduleAlias, recordId, deletionLifecycleListener.open(root));
+    }
+
+    static void retainedRecordPurged(CrudAbility<?> ability, EntityContract entity) {
+        deletionLifecycleListener.retainedRecordPurged(ability, entity);
     }
 
     static DeletionContext resolveDeletionContext(String moduleAlias,
@@ -292,6 +304,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static <T extends EntityContract> void afterSelect(CrudAbility<T> ability, T entity) {
+        if (entity != null) referenceTextReadListener.onRecords(ability, java.util.List.of(entity));
         runFieldProtectionAfterSelect(ability, entity);
         runChildrenAfterSelect(ability, entity);
         runReferenceAfterSelect(ability, entity);
@@ -364,6 +377,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static void populateReferenceLoads(CrudAbility<?> ability, java.util.Collection<? extends EntityContract> entities) {
+        referenceTextReadListener.onRecords(ability, entities);
         referenceLoadResolver.populateAll(ability, entities);
     }
 

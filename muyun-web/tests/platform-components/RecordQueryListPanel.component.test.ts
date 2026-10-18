@@ -10,6 +10,7 @@ import {
   AppError,
   createLanguageContext,
   provideLanguageContext,
+  businessContentLanguageContext,
   translatedPresentation,
   type ModuleRuntimeContext,
   type HttpClient,
@@ -27,6 +28,78 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('clears reading state immediately across contexts and rejects old rows while the new schema is pending', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const readingLanguage = businessContentLanguageContext(language);
+    const old = createContext({ id: 'old', title: '旧业务' });
+    const next = createContext({ id: 'next', title: '新业务' });
+    const activeContext = ref(old);
+    const reloadKey = ref(0);
+    const first = {
+      records: [{ id: 'old', title: '旧业务' }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 20,
+      businessContent: { language: 'en', missingRecords: 1, readings: {} },
+    };
+    let releaseOld!: (value: typeof first) => void;
+    old.crud.query = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseOld = resolve;
+          }),
+      );
+    const schema = await next.crud.querySchema();
+    let releaseSchema!: (value: typeof schema) => void;
+    next.crud.querySchema = () =>
+      new Promise((resolve) => {
+        releaseSchema = resolve;
+      });
+    const nextQuery = vi.spyOn(next.crud, 'query');
+    const wrapper = shallowMount(
+      defineComponent({
+        setup() {
+          provideLanguageContext(language);
+          return () =>
+            h(RecordQueryListPanel, {
+              context: activeContext.value,
+              reloadKey: reloadKey.value,
+              title: 'Records',
+              columns: [{ key: 'title', title: 'Title' }],
+            });
+        },
+      }),
+      { global: { stubs: { RecordQueryListPanel: false } } },
+    );
+    await flushPromises();
+    const panel = wrapper.findComponent(RecordQueryListPanel);
+    reloadKey.value += 1;
+    await flushPromises();
+    activeContext.value = next;
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'BusinessContentQueryNotice' }).props('status')).toBeUndefined();
+    readingLanguage.setLanguage('de');
+    await flushPromises();
+    expect(nextQuery).not.toHaveBeenCalled();
+    releaseOld({ ...first, records: [{ id: 'stale', title: '迟到旧业务' }] });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordQueryListSurface' }).props('rows')).toEqual([]);
+    releaseSchema(schema);
+    await flushPromises();
+    expect(nextQuery).toHaveBeenCalledTimes(1);
+    expect(wrapper.findComponent({ name: 'RecordQueryListSurface' }).props('rows')[0].record.id).toBe('next');
+    expect(
+      panel
+        .emitted('loaded')
+        ?.flat()
+        .some((rows) => Array.isArray(rows) && rows.some((row) => row.id === 'stale')),
+    ).toBe(false);
+    wrapper.unmount();
+  });
+
   it('switches default table and filter labels without replacing raw records or repeating their query', async () => {
     const requests: WebQueryRequest[] = [];
     const raw = { id: 'record', title: '中文业务名称' };
@@ -134,6 +207,7 @@ describe('RecordQueryListPanel', () => {
     expect(controller.snapshot()).toEqual(
       expect.objectContaining({
         quickSearchEnabled: true,
+        contentLanguage: 'zh-CN',
         quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' }],
         rows: [
           {
@@ -847,8 +921,9 @@ describe('RecordQueryListPanel', () => {
   });
 
   it('keeps shared pagination visible but disabled while the list awaits its query scope', async () => {
+    const requests: WebQueryRequest[] = [];
     const wrapper = shallowMount(RecordQueryListPanel, {
-      props: { context: createContext({ id: 'note-1' }), title: '备注', ready: false },
+      props: { context: createContext({ id: 'note-1' }, requests), title: '备注', ready: false },
     });
 
     await flushPromises();
@@ -859,6 +934,13 @@ describe('RecordQueryListPanel', () => {
       tableVisible: false,
       paginationDisabled: true,
     });
+    expect(requests).toEqual([]);
+    await wrapper.setProps({ ready: true });
+    await flushPromises();
+    expect(requests).toHaveLength(1);
+    await wrapper.setProps({ ready: false });
+    await wrapper.vm.refresh();
+    expect(requests).toHaveLength(1);
     wrapper.unmount();
   });
 

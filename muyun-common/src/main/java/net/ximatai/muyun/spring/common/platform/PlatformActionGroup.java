@@ -9,6 +9,7 @@ public enum PlatformActionGroup {
     ENABLE(EntityCapability.ENABLE),
     RECYCLE_BIN(EntityCapability.RECYCLE_BIN),
     DATA_SCOPE(EntityCapability.DATA_SCOPE),
+    BUSINESS_CONTENT(EntityCapability.BUSINESS_CONTENT),
     EXCHANGE(EntityCapability.EXCHANGE);
 
     private final EntityCapability capability;

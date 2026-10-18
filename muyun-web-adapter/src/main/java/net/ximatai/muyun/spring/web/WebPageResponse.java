@@ -12,7 +12,13 @@ public record WebPageResponse<T>(List<T> records,
                                  long pages,
                                  boolean totalKnown,
                                  @JsonInclude(JsonInclude.Include.NON_NULL) Object navigation,
-                                 @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WebListQuerySummaryItem> summaries) {
+                                 @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WebListQuerySummaryItem> summaries,
+                                 @JsonInclude(JsonInclude.Include.NON_NULL) WebBusinessContentQueryStatus businessContent) {
+    public WebPageResponse(List<T> records, long total, int pageNum, int pageSize, long pages,
+                           boolean totalKnown, Object navigation, List<WebListQuerySummaryItem> summaries) {
+        this(records, total, pageNum, pageSize, pages, totalKnown, navigation, summaries, null);
+    }
+
     /** Source-compatible constructor for ordinary list responses without query summaries. */
     public WebPageResponse(List<T> records, long total, int pageNum, int pageSize, long pages,
                            boolean totalKnown, Object navigation) {
@@ -57,7 +63,11 @@ public record WebPageResponse<T>(List<T> records,
         );
     }
 
+    public WebPageResponse<T> withBusinessContent(WebBusinessContentQueryStatus status) {
+        return new WebPageResponse<>(records, total, pageNum, pageSize, pages, totalKnown, navigation, summaries, status);
+    }
+
     public WebPageResponse<T> withSummaries(List<WebListQuerySummaryItem> summaries) {
-        return new WebPageResponse<>(records, total, pageNum, pageSize, pages, totalKnown, navigation, summaries);
+        return new WebPageResponse<>(records, total, pageNum, pageSize, pages, totalKnown, navigation, summaries, businessContent);
     }
 }

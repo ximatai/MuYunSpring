@@ -25,7 +25,7 @@ public class WorkflowInstanceActionService {
     private final WorkflowNodeInstanceDao nodeDao;
     private final WorkflowRouteInstanceDao routeDao;
     private final WorkflowTaskDao taskDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimeEventFactory eventFactory;
     private final WorkflowArchiveService archiveService;
     private final WorkflowActionPolicyService actionPolicyService;
@@ -36,11 +36,11 @@ public class WorkflowInstanceActionService {
                                          WorkflowNodeInstanceDao nodeDao,
                                          WorkflowRouteInstanceDao routeDao,
                                          WorkflowTaskDao taskDao,
-                                         WorkflowEventDao eventDao,
+                                         WorkflowEventWriter eventWriter,
                                          WorkflowRuntimeEventFactory eventFactory,
                                          WorkflowArchiveService archiveService,
                                          Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory, archiveService, new WorkflowActionPolicyService(),
+        this(instanceDao, nodeDao, routeDao, taskDao, eventWriter, eventFactory, archiveService, new WorkflowActionPolicyService(),
                 approvalSummaryWriter, null);
     }
 
@@ -48,12 +48,12 @@ public class WorkflowInstanceActionService {
                                          WorkflowNodeInstanceDao nodeDao,
                                          WorkflowRouteInstanceDao routeDao,
                                          WorkflowTaskDao taskDao,
-                                         WorkflowEventDao eventDao,
+                                         WorkflowEventWriter eventWriter,
                                          WorkflowRuntimeEventFactory eventFactory,
                                          WorkflowArchiveService archiveService,
                                          WorkflowActionPolicyService actionPolicyService,
                                          Optional<WorkflowApprovalSummaryWriter> approvalSummaryWriter) {
-        this(instanceDao, nodeDao, routeDao, taskDao, eventDao, eventFactory, archiveService, actionPolicyService,
+        this(instanceDao, nodeDao, routeDao, taskDao, eventWriter, eventFactory, archiveService, actionPolicyService,
                 approvalSummaryWriter, null);
     }
 
@@ -62,7 +62,7 @@ public class WorkflowInstanceActionService {
                                          WorkflowNodeInstanceDao nodeDao,
                                          WorkflowRouteInstanceDao routeDao,
                                          WorkflowTaskDao taskDao,
-                                         WorkflowEventDao eventDao,
+                                         WorkflowEventWriter eventWriter,
                                          WorkflowRuntimeEventFactory eventFactory,
                                          WorkflowArchiveService archiveService,
                                          WorkflowActionPolicyService actionPolicyService,
@@ -72,7 +72,7 @@ public class WorkflowInstanceActionService {
         this.nodeDao = nodeDao;
         this.routeDao = routeDao;
         this.taskDao = taskDao;
-        this.eventDao = eventDao;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
         this.archiveService = archiveService;
         this.actionPolicyService = actionPolicyService == null ? new WorkflowActionPolicyService() : actionPolicyService;
@@ -145,7 +145,7 @@ public class WorkflowInstanceActionService {
 
         WorkflowEvent event = eventFactory.instanceReset(instance, operatorId, request.reason(), now);
         EntityLifecycle.prepareInsert(event, now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         dispatchInstanceAction(instance, nodes, tasks, WorkflowRuntimePluginEventType.AFTER_RESET, "reset",
                 operatorId, null, request.reason());
@@ -226,7 +226,7 @@ public class WorkflowInstanceActionService {
             default -> eventFactory.instanceTerminated(instance, operatorId, request.reason(), now);
         };
         EntityLifecycle.prepareInsert(event, now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         dispatchInstanceAction(instance, nodes, tasks, afterEvent(actionCode), actionCode, operatorId,
                 terminateMode, request.reason());

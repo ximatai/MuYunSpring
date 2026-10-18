@@ -7,6 +7,8 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import java.util.Objects;
 
@@ -45,24 +47,57 @@ public class PlatformMetadataSchemaEnsureService {
 
     private final class SchemaEnsureSynchronization implements TransactionSynchronization {
         private final Set<String> metadataIds = new LinkedHashSet<>();
+        private final Map<Object, Set<String>> savepoints = new LinkedHashMap<>();
         private PlatformMetadataSchemaEnsureService owner() { return PlatformMetadataSchemaEnsureService.this; }
+        @Override public void savepoint(Object savepoint) {
+            savepoints.put(savepoint, new LinkedHashSet<>(metadataIds));
+        }
+        @Override public void savepointRollback(Object savepoint) {
+            var pending = savepoints.get(savepoint);
+            if (pending == null) return;
+            metadataIds.clear();
+            metadataIds.addAll(pending);
+            boolean after = false;
+            var snapshots = savepoints.keySet().iterator();
+            while (snapshots.hasNext()) {
+                Object current = snapshots.next();
+                if (after) snapshots.remove();
+                if (current.equals(savepoint)) after = true;
+            }
+        }
         @Override public void beforeCommit(boolean readOnly) {
             // All field writes are visible; a schema failure still aborts the configuration transaction.
-            metadataIds.forEach(PlatformMetadataSchemaEnsureService.this::ensureNow);
+            new LinkedHashSet<>(metadataIds).forEach(PlatformMetadataSchemaEnsureService.this::ensureNow);
         }
     }
 
     public boolean ensureNow(String metadataId) {
-        return ensureNow(compiler.compile(metadataId));
+        boolean changed = ensureNow(compiler.compile(metadataId));
+        markEnsured(metadataId);
+        return changed;
     }
 
     public boolean ensureNow(Metadata metadata) {
-        return ensureNow(compiler.compile(metadata));
+        boolean changed = ensureNow(compiler.compile(metadata));
+        markEnsured(metadata.getId());
+        return changed;
     }
 
     /** Reconciles a changed definition with its previous shape, including safe column removal. */
     public boolean ensureNow(String metadataId, EntityDefinition previousEntity) {
-        return schemaService.ensureTable(compiler.compile(metadataId), previousEntity, null).isChanged();
+        boolean changed = schemaService.ensureTable(compiler.compile(metadataId), previousEntity, null).isChanged();
+        markEnsured(metadataId);
+        return changed;
+    }
+
+    private void markEnsured(String metadataId) {
+        if (metadataId == null || !TransactionSynchronizationManager.isSynchronizationActive()) return;
+        // Explicit publication has reconciled all writes so far. A later write registers a fresh
+        // request; replaying the earlier request can rediscover uncommitted DDL through a stale cache.
+        TransactionSynchronizationManager.getSynchronizations().stream()
+                .filter(sync -> sync instanceof SchemaEnsureSynchronization candidate && candidate.owner() == this)
+                .map(SchemaEnsureSynchronization.class::cast)
+                .forEach(pending -> pending.metadataIds.remove(metadataId));
     }
 
     public void dropNow(Metadata metadata) {

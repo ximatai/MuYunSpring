@@ -53,6 +53,10 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
 
     @Override
     public Object execute(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
+        return WorkflowOpinionInput.withLanguage(text(payload(request, "reasonSourceLanguage"), null),
+                () -> executeWithOpinionLanguage(context, request));
+    }
+    private Object executeWithOpinionLanguage(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {
         String workflowAction = requireText(context == null ? null : context.actionCode(), TextReference.code(
                 "platform.rejection.dynamic-workflow-action-executor.enter-a-workflow-action-code",
                 "workflow action code must not be blank"));
@@ -97,24 +101,22 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
 
     private WorkflowSubmitResult submitApproval(DynamicActionExecutionContext context,
                                                 DynamicActionExecutionRequest request) {
-        List<WorkflowManualRouteSelection> selections = manualRouteSelections(request);
-        if (!selections.isEmpty()) {
-            return submitService.submitApproval(moduleAlias(context), recordId(context, request), selections);
-        }
-        return submitService.submitApproval(moduleAlias(context), recordId(context, request),
-                selectedRouteKey(request), text(payload(request, "selectedReason"), null));
+        return submitService.submit(submission(WorkflowSubmitRequest.approval(
+                moduleAlias(context), recordId(context, request)), request));
     }
 
     private WorkflowSubmitResult submitWorkflow(DynamicActionExecutionContext context,
                                                 DynamicActionExecutionRequest request,
                                                 String definitionAlias) {
-        List<WorkflowManualRouteSelection> selections = manualRouteSelections(request);
-        if (!selections.isEmpty()) {
-            return submitService.submitWorkflow(moduleAlias(context), recordId(context, request), definitionAlias,
-                    selections);
-        }
-        return submitService.submitWorkflow(moduleAlias(context), recordId(context, request), definitionAlias,
-                selectedRouteKey(request), text(payload(request, "selectedReason"), null));
+        return submitService.submit(submission(WorkflowSubmitRequest.workflow(
+                moduleAlias(context), recordId(context, request), definitionAlias), request));
+    }
+
+    private WorkflowSubmitRequest submission(WorkflowSubmitRequest submit, DynamicActionExecutionRequest request) {
+        var selections = manualRouteSelections(request);
+        return (selections.isEmpty()
+                ? submit.withSelectedRoute(selectedRouteKey(request), text(payload(request, "selectedReason"), null))
+                : submit.withManualRouteSelections(selections)).withReason(text(payload(request, "reason"), null));
     }
 
     private String workflowDefinitionAlias(DynamicActionExecutionContext context,

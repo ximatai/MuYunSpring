@@ -25,6 +25,8 @@ export interface RecordQueryListResultRow {
 export interface RecordQueryListQuerySnapshot {
   /** The last successful server query, shared by exports without reconstructing filters. */
   request?: WebQueryRequest;
+  /** Business reading language captured with that successful query, independent of file output language. */
+  contentLanguage?: string;
   mode: 'normal' | 'recycleBin';
   status: 'waiting' | 'loading' | 'ready' | 'error';
   quickSearchEnabled: boolean;

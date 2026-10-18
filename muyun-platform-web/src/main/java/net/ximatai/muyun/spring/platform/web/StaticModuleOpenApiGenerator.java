@@ -118,6 +118,8 @@ public class StaticModuleOpenApiGenerator {
 
     private String responseSchema(RegisteredWebEndpoint endpoint, String mainSchemaName) {
         PlatformAction action = endpoint.definition().action();
+        if (java.util.Set.of("contentSources", "childContentSources").contains(endpoint.definition().operationCode())) return "BusinessContentSources";
+        if (java.util.Set.of("contentHistory", "childContentHistory").contains(endpoint.definition().operationCode())) return "BusinessContentRevisionList";
         String capabilitySchema = capabilityWebContract(endpoint)
                 .map(net.ximatai.muyun.spring.dynamic.capability.CapabilityActionContribution.CapabilityWebActionContract::openApiResponseSchema)
                 .orElse(null);

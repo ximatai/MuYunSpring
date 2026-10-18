@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.ability.reference;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +15,62 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReferenceReadPipelineTest {
     private static final ReferenceTarget CUSTOMER = ReferenceTarget.of("demo", "customer");
+
+    @AfterEach void resetTextListener() { PlatformAbilityRuntime.resetReferenceTextReadListener(); }
+
+    @Test void capturesAuthorizedTextIdentitiesWithoutReplacingRawValuesOrAddingTargetReads() {
+        var owner = record("id", "order", "customerIds", List.of("second", "hidden", "first"));
+        var facts = new ArrayList<ReferenceTextReadListener.Projection>();
+        PlatformAbilityRuntime.configureReferenceTextReadListener(facts::add);
+        var calls = new ArrayList<List<String>>();
+        var ability = new FakeReferenceAbility((ids, fields) -> {
+            calls.add(ids);
+            return Map.of("first", Map.of("title", "同名", "amount", 12),
+                    "second", Map.of("title", "同名", "amount", 7));
+        });
+        var plan = ReferencePlan.of("customerIds", CUSTOMER, ReferenceCardinality.MANY)
+                .withProjection("title", "customerTitles").withProjection("amount", "amounts");
+        new ReferenceReadPipeline<Map<String, Object>>(List.of(plan), List.of(), value -> value,
+                Map::putAll, ignored -> ability).populate(List.of(owner));
+        assertThat(calls).containsExactly(List.of("second", "hidden", "first"));
+        assertThat(owner).containsEntry("customerTitles", List.of("同名", "同名"))
+                .containsEntry("amounts", List.of(7, 12));
+        assertThat(facts).hasSize(1);
+        assertThat(facts.getFirst().sourceIds()).containsExactly("second", "hidden", "first");
+        assertThat(facts.getFirst().texts()).extracting(ReferenceTextReadListener.Text::recordId)
+                .containsExactly("second", "first");
+        assertThat(facts.getFirst().texts()).extracting(ReferenceTextReadListener.Text::originalText)
+                .containsExactly("同名", "同名");
+        assertThat(facts.getFirst().collection()).isTrue();
+    }
+
+    @Test void capturesTheActualTerminalIdentityAndSuppressesInaccessibleTargets() {
+        var terminal = ReferenceTarget.of("demo", "terminal");
+        var owner = record("id", "order", "customerId", "customer");
+        var facts = new ArrayList<ReferenceTextReadListener.Projection>();
+        PlatformAbilityRuntime.configureReferenceTextReadListener(facts::add);
+        var customer = new FakeReferenceAbility((ids, fields) -> Map.of("customer", Map.of("terminalId", "terminal")));
+        var target = new FakeReferenceAbility((ids, fields) -> Map.of("terminal", Map.of("title", "终点原文")));
+        var path = new ReferenceLoadPath("customerId", CUSTOMER,
+                List.of(new ReferenceLoadPath.Hop(terminal, "terminalId")), "title", "terminalTitle");
+        var plan = ReferencePlan.of("customerId", CUSTOMER, ReferenceCardinality.ONE);
+        new ReferenceReadPipeline<Map<String, Object>>(List.of(plan), List.of(path), value -> value, Map::putAll,
+                identity -> identity.equals(CUSTOMER) ? customer : target).populate(List.of(owner));
+        assertThat(owner).containsEntry("terminalTitle", "终点原文");
+        assertThat(facts).hasSize(1);
+        assertThat(facts.getFirst().texts()).containsExactly(new ReferenceTextReadListener.Text(terminal, "terminal", "title", "终点原文"));
+        facts.clear();
+        var hidden = new FakeReferenceAbility((ids, fields) -> Map.of());
+        var resolved = ReferenceLoadReader.readResolvedAll(path, List.of("customer"),
+                identity -> identity.equals(CUSTOMER) ? customer : hidden, ReferenceReadObserver.NONE);
+        assertThat(resolved).containsEntry("customer", null);
+        assertThat(ReferenceLoadReader.readAll(path, List.of("customer"),
+                identity -> identity.equals(CUSTOMER) ? customer : hidden)).containsEntry("customer", null);
+        new ReferenceReadPipeline<Map<String, Object>>(List.of(plan), List.of(path), value -> value, Map::putAll,
+                identity -> identity.equals(CUSTOMER) ? customer : hidden).populate(List.of(owner));
+        assertThat(owner).containsEntry("terminalTitle", null);
+        assertThat(facts).isEmpty();
+    }
 
     @Test
     void shouldBatchDirectProjectionsPerTargetAndPreserveManyOrder() {

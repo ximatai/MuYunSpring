@@ -5,6 +5,11 @@ import type {
   WebQueryRequest,
   WebTreeNode,
 } from '@muyun/web-contracts';
+import {
+  businessContentReadHeaders,
+  normalizeModuleListResponse,
+  normalizeModuleTreeResponse,
+} from '@muyun/web-core';
 import type { ModuleContext, ModuleTreeClient, StaticCountMutationResult } from '@muyun/web-core';
 
 export interface ScopedTreeModuleContextOptions {
@@ -91,56 +96,68 @@ function createTreeScopeClient<TRecord>(
   const hasScope = () => Object.keys(options.queryValues() ?? {}).length > 0;
   return {
     ...context.crud,
-    query: (request) => {
+    query: (request, queryOptions) => {
       const queryValues = options.queryValues();
       if (!hasScope()) {
         return emptyPageResponse<TRecord>(request);
       }
-      return context.crud.query({
-        ...request,
-        conditions: [
-          ...(request?.conditions ?? []),
-          ...Object.entries(queryValues ?? {}).map(([fieldName, value]) => ({
-            fieldName,
-            operator: 'EQ' as const,
-            values: [String(value)],
-          })),
-        ],
-      });
+      return context.crud.query(
+        {
+          ...request,
+          conditions: [
+            ...(request?.conditions ?? []),
+            ...Object.entries(queryValues ?? {}).map(([fieldName, value]) => ({
+              fieldName,
+              operator: 'EQ' as const,
+              values: [String(value)],
+            })),
+          ],
+        },
+        queryOptions,
+      );
     },
     tree: () => {
       if (!hasScope()) {
         return emptyTreeResponse<TRecord>();
       }
-      return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        path: options.treePath,
-        query: options.queryValues(),
-      });
+      return context.http
+        .request<WebListResponse<WebTreeNode<TRecord>>>({
+          path: options.treePath,
+          query: options.queryValues(),
+          headers: businessContentReadHeaders(),
+        })
+        .then(normalizeModuleTreeResponse);
     },
     treeFlat: (treeOptions) => {
       if (!hasScope()) {
         return emptyListResponse<TRecord>();
       }
-      return context.http.request<WebListResponse<TRecord>>({
-        path: treePathOf(options.treePath, treeOptions?.rootId),
-        query: {
-          ...options.queryValues(),
-          flat: true,
-          includeSelf: treeOptions?.includeSelf,
-        },
-      });
+      return context.http
+        .request<WebListResponse<TRecord>>({
+          path: treePathOf(options.treePath, treeOptions?.rootId),
+          query: {
+            ...options.queryValues(),
+            flat: true,
+            includeSelf: treeOptions?.includeSelf,
+          },
+          headers: businessContentReadHeaders(),
+        })
+        .then(normalizeModuleListResponse);
     },
     subtree: (id, subtreeOptions) => {
       if (!hasScope()) {
         return emptyTreeResponse<TRecord>();
       }
-      return context.http.request<WebListResponse<WebTreeNode<TRecord>>>({
-        path: treePathOf(options.treePath, id),
-        query: {
-          ...options.queryValues(),
-          ...subtreeOptions,
-        },
-      });
+      return context.http
+        .request<WebListResponse<WebTreeNode<TRecord>>>({
+          path: treePathOf(options.treePath, id),
+          query: {
+            ...options.queryValues(),
+            ...subtreeOptions,
+          },
+          headers: businessContentReadHeaders(),
+        })
+        .then(normalizeModuleTreeResponse);
     },
     sort: (id, request) => {
       if (!hasScope()) {

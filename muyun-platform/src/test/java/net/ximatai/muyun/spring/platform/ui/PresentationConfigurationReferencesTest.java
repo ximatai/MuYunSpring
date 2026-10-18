@@ -308,7 +308,7 @@ class PresentationConfigurationReferencesTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         private final ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
                 relationDao,
                 new PlatformModuleService(new TestMemoryDao<>(), event -> {}),
@@ -320,7 +320,7 @@ class PresentationConfigurationReferencesTest {
         private final ModuleMetadataFieldService moduleFieldService = new ModuleMetadataFieldService(moduleFieldDao,
                 relationService, metadataService, fieldService);
         private final MetadataFieldReferenceConfigService referenceConfigService =
-                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, null, new PlatformModuleService(new TestMemoryDao<>(), event -> {}), relationService, Optional.empty());
+                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, null, new PlatformModuleService(new TestMemoryDao<>(), event -> {}), relationService, net.ximatai.muyun.spring.platform.support.TestBeanProviders.of(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class, org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class)), Optional.empty());
         private final PlatformPageDefinitionService pageService = new PlatformPageDefinitionService(pageDao,
                 new PlatformModuleService(new TestMemoryDao<>(), event -> {}), relationService);
         private final PlatformPresentationVariantService variantService =

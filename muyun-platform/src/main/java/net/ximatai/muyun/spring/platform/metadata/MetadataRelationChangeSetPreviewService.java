@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.common.content.ContentPolicy;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
@@ -447,7 +448,13 @@ public class MetadataRelationChangeSetPreviewService {
         if (draft != null && binding == null) return null;
         MetadataFieldFixedDefaultDraft requested = draft == null ? null : draft.fixedDefault();
         try {
+            boolean contentEnabled = proposedField.getContentPolicy() != null && proposedField.getContentPolicy().enabled();
+            if (contentEnabled && (binding != null && binding.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE
+                    || proposedField.getId() != null && referenceConfigService != null
+                    && referenceConfigService.count(Criteria.of().eq("metadataFieldId", proposedField.getId())) > 0))
+                throw new IllegalArgumentException("Reference identity cannot declare business content: " + proposedField.getFieldName());
             if (fieldConfigService == null) {
+                if (contentEnabled) throw new IllegalArgumentException("Business content preflight is not configured");
                 if (requested != null) throw new IllegalArgumentException("当前环境未配置字段默认值发布。");
                 return binding;
             }
@@ -482,6 +489,7 @@ public class MetadataRelationChangeSetPreviewService {
             }
             // A field specification is shared; its base and every configured relation must remain valid.
             if (existingField != null && (!java.util.Objects.equals(existingField.getFieldSpecAlias(), proposedField.getFieldSpecAlias())
+                    || java.util.Objects.requireNonNullElse(existingField.getContentPolicy(), ContentPolicy.KEEP_ORIGINAL) != proposedField.getContentPolicy()
                     || Boolean.TRUE.equals(existingField.getRequired()) != Boolean.TRUE.equals(proposedField.getRequired()))) {
                 fieldConfigService.validateSharedFieldBehavior(proposedField, context.relation().getId(), candidate);
             } else {
@@ -627,6 +635,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setRequireEnabled(source.getRequireEnabled());
         result.setProjectionMappings(source.getProjectionMappings());
         result.setAffectMappings(source.getAffectMappings());
+        result.setCandidateSubtitleProjection(source.getCandidateSubtitleProjection());
         return result;
     }
 
@@ -709,6 +718,7 @@ public class MetadataRelationChangeSetPreviewService {
             if (mutation.fieldId() != null && fieldConfigService != null) {
                 MetadataField existing = savedFields.stream().filter(item -> mutation.fieldId().equals(item.getId())).findFirst().orElse(null);
                 boolean sharedChange = existing != null && (!java.util.Objects.equals(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
+                        || java.util.Objects.requireNonNullElse(existing.getContentPolicy(), ContentPolicy.KEEP_ORIGINAL) != field.getContentPolicy()
                         || Boolean.TRUE.equals(existing.getRequired()) != Boolean.TRUE.equals(field.getRequired()));
                 fieldConfigService.behaviorBaseline(mutation.fieldId(), context.relation().getId(), sharedChange).forEach(fact ->
                         facts.add("behaviorBaseline:" + mutation.fieldId() + "|" + fact));
@@ -717,7 +727,7 @@ public class MetadataRelationChangeSetPreviewService {
                     + field.getFieldName() + "|" + field.getColumnName() + "|" + field.getFieldSpecAlias() + "|"
                     + field.getTitle() + "|" + field.getRequired() + "|" + field.getUniqueField() + "|"
                     + field.getIndexed() + "|" + field.getSortableField() + "|" + field.getTitleField() + "|"
-                    + field.getEnabled() + "|" + field.getSortOrder());
+                    + field.getEnabled() + "|" + field.getSortOrder() + "|" + field.getContentPolicy());
             MetadataFieldPropertyChangeSetPlan property = mutation.property();
             if (property != null) {
                 facts.add("property:" + mutation.fieldId() + "|" + field.getFieldName() + "|" + property.kind() + "|"
@@ -741,7 +751,7 @@ public class MetadataRelationChangeSetPreviewService {
                     String.valueOf(config.getTargetLabelField()), String.valueOf(config.getCardinality()),
                     String.valueOf(config.getTargetUnavailablePolicy()), String.valueOf(config.getRequireEnabled()),
                     String.valueOf(config.getProjectionMappings()),
-                    String.valueOf(config.getAffectMappings()));
+                    String.valueOf(config.getAffectMappings()), String.valueOf(config.getCandidateSubtitleProjection()));
         }
         if (property.dictionaryConfig() != null) {
             MetadataFieldConfig config = property.dictionaryConfig();
@@ -757,6 +767,8 @@ public class MetadataRelationChangeSetPreviewService {
         result.setColumnName(source.getColumnName());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        result.setContentPolicy(java.util.Objects.requireNonNullElse(source.getContentPolicy(),
+                net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL));
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());
@@ -777,6 +789,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setVersion(existing.getVersion());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        if (source.getContentPolicy() != null) result.setContentPolicy(source.getContentPolicy());
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());

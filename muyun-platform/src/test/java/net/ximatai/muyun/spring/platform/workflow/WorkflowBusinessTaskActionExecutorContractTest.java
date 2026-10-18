@@ -62,6 +62,31 @@ class WorkflowBusinessTaskActionExecutorContractTest {
         verify(ability, never()).update(any());
     }
 
+    @Test void formSourceLanguagesStayBoundToTheSubmittedAuthorizedBusinessFields() {
+        var tasks = mock(WorkflowTaskDao.class); var instances = mock(WorkflowInstanceDao.class);
+        var runtime = mock(WorkflowModuleTaskRuntimeService.class); var actions = mock(WorkflowTaskActionFacade.class);
+        var task = new WorkflowTask(); task.setId("task"); task.setInstanceId("instance"); when(tasks.findById("task")).thenReturn(task);
+        var instance = new WorkflowInstance(); instance.setId("instance"); instance.setModuleAlias("sales.contract"); instance.setRecordId("record");
+        when(instances.findById("instance")).thenReturn(instance);
+        var guide = new WorkflowTaskGuide(); guide.setGuideKey("form"); guide.setGuideKind(WorkflowTaskGuideKind.OPEN_FORM);
+        guide.setGuideConfigText("{\"editableFields\":[\"description\"]}");
+        when(runtime.prepare("task", "operator")).thenReturn(new WorkflowModuleTaskProcessBundle("task", "instance", "version", "visit",
+                "sales.contract", "record", null, null, null, WorkflowModuleTaskEvaluation.manualConfirm(List.of(guide)), guide));
+        var executor = mock(ModuleRecordActionExecutor.class); when(executor.supports("sales.contract", "update")).thenReturn(true);
+        var beans = new DefaultListableBeanFactory(); beans.registerSingleton("executor", executor);
+        var service = new WorkflowBusinessTaskActionService(tasks, instances, runtime, actions, beans.getBeanProvider(ModuleRecordActionExecutor.class));
+        var sources = Map.of("description", new net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput("en", 2));
+        service.execute("task", "form", 3, Map.of("description", "Retest the seal."), Map.of(), "operator", "updated", List.of(), sources);
+        verify(executor).executeApprovalBusiness(new ModuleRecordActionCommand("sales.contract", "record", "update", 3,
+                Map.of("description", "Retest the seal."), Map.of(), sources));
+        clearInvocations(executor, actions);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.execute("task", "form", 3,
+                Map.of("description", "Retest the seal."), Map.of(), "operator", "updated", List.of(),
+                Map.of("privateField", new net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput("en", 2))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("explicitly submitted business fields");
+        verify(executor, never()).executeApprovalBusiness(any()); verifyNoInteractions(actions);
+    }
+
     private static final class DomainActionExecutor implements ModuleRecordActionExecutor, Ordered {
         private ModuleRecordActionCommand command;
         @Override public int getOrder() { return LOWEST_PRECEDENCE; }

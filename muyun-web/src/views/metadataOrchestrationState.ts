@@ -29,6 +29,7 @@ export type MetadataFieldDraft = Partial<MetadataField>;
 export type MetadataFieldPropertyKind = 'BASIC' | 'MODULE_REFERENCE' | 'DICTIONARY' | 'LEGACY_LOCKED';
 
 export interface MetadataFieldReferencePropertyConfig {
+  candidateSubtitleProjection?: string | null;
   targetModuleAlias?: string;
   targetMetadataId?: string;
   targetKeyField?: string;

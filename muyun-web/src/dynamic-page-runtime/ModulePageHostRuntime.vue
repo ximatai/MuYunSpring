@@ -1,7 +1,7 @@
 <script lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import { provideRelationDraftRegistry } from './relationDraftController';
-import type { CrudRecordListBase, QueryListRecord } from '@muyun/platform-components';
+import type { RecordActionItem, CrudRecordListBase, QueryListRecord } from '@muyun/platform-components';
 
 import {
   RecordPermissionDialog,
@@ -33,7 +33,7 @@ import {
 } from '@muyun/platform-components';
 
 import ModulePageBusinessState from './ModulePageBusinessState.vue';
-import ModuleDataExchangeSurface from './ModuleDataExchangeSurface.vue';
+import { RecordDataExchangeSurface as ModuleDataExchangeSurface } from '@muyun/platform-components';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue';
@@ -43,7 +43,7 @@ import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import TenantScopeExplorer from './TenantScopeExplorer.vue';
 
-import { computed, defineComponent, watch, type PropType } from 'vue';
+import { computed, defineComponent, ref, watch, type PropType } from 'vue';
 import { sessionViewBindings } from './sessionViewBindings';
 import type { ModulePageSessionView } from './useModulePageSession';
 import type { TenantScopeController } from './useTenantScopeController';
@@ -130,8 +130,25 @@ export default defineComponent({
       dispose: () => props.session.referenceRecordDetailBrowser.dispose(),
     });
     const businessVisible = computed(() => !props.pending && !props.businessError);
+    const dataExchange = ref<InstanceType<typeof ModuleDataExchangeSurface>>();
+    const fileActions = computed(() => (dataExchange.value?.action ? [dataExchange.value.action] : []));
+    function handlesFileAction(action: RecordActionItem) {
+      if (action.key !== '__platform-data-files') return false;
+      dataExchange.value?.openFiles();
+      return true;
+    }
+
     return {
       businessVisible,
+      dataExchange,
+      fileActions,
+      handlePageSurfaceAction: (action: RecordActionItem) => {
+        if (!handlesFileAction(action)) props.session.handlePlacedPageAction(action);
+      },
+      handleListSurfaceAction: (action: RecordActionItem) => {
+        if (!handlesFileAction(action)) props.session.handleListAction(action);
+      },
+
       bindWorkflowPanel(panel: unknown) {
         const workflow = panel as { mayLeave?: () => Promise<boolean> } | null;
         props.session.setWorkflowLeaveGuard(workflow?.mayLeave ? () => workflow.mayLeave!() : undefined);
@@ -381,18 +398,21 @@ export default defineComponent({
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
         <template v-if="businessVisible">
           <ModuleDataExchangeSurface
+            ref="dataExchange"
+            :show-trigger="false"
             :context="context"
             :query-controller="listQueryController"
+            :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
             :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
             :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
             @busy="setDataExchangeBusy"
             @changed="refreshList"
           />
           <RecordActionBar
-            v-if="placedPageActions.length"
+            v-if="placedPageActions.length || fileActions.length"
             :context="context"
-            :actions="placedPageActions"
-            @action="handlePlacedPageAction"
+            :actions="[...placedPageActions, ...fileActions]"
+            @action="handlePageSurfaceAction"
           />
           <RecordPanelButton
             v-if="context.can('sort') === true"
@@ -709,7 +729,7 @@ export default defineComponent({
           :standard-crud-actions="!managedPageActions"
           :standard-crud-row-actions="true"
           :standard-crud-row-action-keys="managedPageActions ? ['view'] : standardCrudRowActionKeys"
-          :extra-actions="[...enhancementActions, ...placedPageActions]"
+          :extra-actions="[...enhancementActions, ...placedPageActions, ...fileActions]"
           :additional-columns="enhancementColumns"
           :cell-components="enhancementCellComponents"
           :extra-row-actions-of="enhancementRowActionsFor"
@@ -734,7 +754,7 @@ export default defineComponent({
           @restored="handleRecycleBinRestore"
           @select="selectListDetailRecord"
           @row-dblclick="openListRecord"
-          @action="handleListAction"
+          @action="handleListSurfaceAction"
           @row-action="handleRowAction"
           @row-expand="updateListRowExpansion"
           @batch-action="
@@ -743,8 +763,11 @@ export default defineComponent({
         >
           <template v-if="listMode !== 'recycleBin'" #operations>
             <ModuleDataExchangeSurface
+              ref="dataExchange"
+              :show-trigger="false"
               :context="context"
               :query-controller="listQueryController"
+              :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
               :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
               :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
               @busy="setDataExchangeBusy"
@@ -1037,10 +1060,10 @@ export default defineComponent({
           <template #actions>
             <template v-if="businessVisible">
               <RecordActionBar
-                v-if="explorerExtraActions.length"
+                v-if="explorerExtraActions.length || fileActions.length"
                 :context="context"
-                :actions="explorerExtraActions"
-                @action="handlePlacedPageAction"
+                :actions="[...explorerExtraActions, ...fileActions]"
+                @action="handlePageSurfaceAction"
               />
               <RecordPanelButton
                 v-if="mainTreeScopeReady && context.can('sort') === true"
@@ -1149,6 +1172,16 @@ export default defineComponent({
           </aside>
         </template>
         <template v-if="businessVisible" #actions>
+          <ModuleDataExchangeSurface
+            ref="dataExchange"
+            :show-trigger="false"
+            :context="context"
+            :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
+            :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
+            :disabled="saving || editorMode !== 'view' || !mainTreeScopeReady"
+            @busy="setDataExchangeBusy"
+            @changed="refreshList"
+          />
           <ModuleRecordDetailActions
             :save-needs-check="recordSaveNeedsCheck"
             :checking-save="saving"
@@ -1224,7 +1257,10 @@ export default defineComponent({
               <WorkflowRecordPanel
                 :ref="bindWorkflowPanel"
                 @interaction-change="updateWorkflowInteraction"
-                v-if="editingRecord.id && context.abilities.has('approval') === true"
+                v-if="
+                  editingRecord.id &&
+                  (context.abilities.has('workflow') === true || context.abilities.has('approval') === true)
+                "
                 :context="context"
                 :record-id="String(editingRecord.id)"
                 @changed="handleWorkflowChanged"
@@ -1306,7 +1342,7 @@ export default defineComponent({
           :standard-crud-actions="!managedPageActions"
           :standard-crud-row-actions="true"
           :standard-crud-row-action-keys="managedPageActions ? ['view'] : standardCrudRowActionKeys"
-          :extra-actions="[...enhancementActions, ...placedPageActions]"
+          :extra-actions="[...enhancementActions, ...placedPageActions, ...fileActions]"
           :additional-columns="enhancementColumns"
           :cell-components="enhancementCellComponents"
           :extra-row-actions-of="enhancementRowActionsFor"
@@ -1331,7 +1367,7 @@ export default defineComponent({
           @restored="handleRecycleBinRestore"
           @select="selectStandaloneListRecord"
           @row-dblclick="openListRecord"
-          @action="handleListAction"
+          @action="handleListSurfaceAction"
           @row-action="handleRowAction"
           @row-expand="updateListRowExpansion"
           @batch-action="
@@ -1340,8 +1376,11 @@ export default defineComponent({
         >
           <template v-if="listMode !== 'recycleBin'" #operations>
             <ModuleDataExchangeSurface
+              ref="dataExchange"
+              :show-trigger="false"
               :context="context"
               :query-controller="listQueryController"
+              :selected-ids="selectedRecord?.id ? [selectedRecord.id] : []"
               :scope-key="JSON.stringify(navigatorListQueryValues ?? {})"
               :disabled="saving || editorMode !== 'view' || !navigatorListScopeReady"
               @busy="setDataExchangeBusy"

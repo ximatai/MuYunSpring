@@ -71,6 +71,15 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         if (version != null && !version.isNull()) {
             record.setVersion(version.asInt());
         }
+        JsonNode contentLanguages = root.get("$contentLanguages");
+        if (contentLanguages != null && !contentLanguages.isNull()) {
+            if (!contentLanguages.isObject()) throw new IllegalArgumentException("Content source languages must be an object");
+            try (JsonParser inputParser = contentLanguages.traverse(parser.getCodec())) {
+                inputParser.nextToken();
+                record.contentLanguageInputs(context.readValue(inputParser, context.getTypeFactory().constructMapType(
+                        Map.class, String.class, net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput.class)));
+            }
+        }
         JsonNode values = root.has("values") ? root.get("values") : root;
         if (values == null || values.isNull()) {
             return record;

@@ -94,6 +94,14 @@ public class DynamicOpenApiGenerator {
                     PlatformAction.VIEW.code()));
             operations.add(getOperation(descriptor.moduleAlias(), basePath + "/view/{id}", operationId(descriptor, "view"),
                     "View " + mainEntity.title(), null, "DynamicRecordResponse", PlatformAction.VIEW.code()));
+            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/view/{id}/content", operationId(descriptor, "contentSources"),
+                    "Business content sources " + mainEntity.title(), null, "BusinessContentSources", PlatformAction.VIEW.code()));
+            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/view/{id}/content/{field}/history", operationId(descriptor, "contentHistory"),
+                    "Business content source history " + mainEntity.title(), null, "BusinessContentRevisionList", PlatformAction.VIEW.code()));
+            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/view/{id}/relations/{relationCode}/{childId}/content", operationId(descriptor, "childContentSources"),
+                    "Aggregate child business content sources", null, "BusinessContentSources", PlatformAction.VIEW.code()));
+            operations.add(getOperation(descriptor.moduleAlias(), basePath + "/view/{id}/relations/{relationCode}/{childId}/content/{field}/history", operationId(descriptor, "childContentHistory"),
+                    "Aggregate child business content history", null, "BusinessContentRevisionList", PlatformAction.VIEW.code()));
             operations.add(operation(descriptor.moduleAlias(), basePath + "/view/{id}/attachments/query",
                     operationId(descriptor, "queryAttachments"),
                     "Query attachments " + mainEntity.title(), null, "RecordAttachmentList", PlatformAction.VIEW.code()));

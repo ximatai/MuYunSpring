@@ -84,6 +84,11 @@ public record EntityDefinition(
         schemaName = schemaName == null || schemaName.isBlank() ? DEFAULT_SCHEMA_NAME : schemaName;
         fields = fields == null ? List.of() : List.copyOf(fields);
         capabilities = normalizeCapabilities(capabilities);
+        if (fields.stream().anyMatch(field -> field.content().enabled())) {
+            var declared = EnumSet.copyOf(capabilities);
+            declared.add(EntityCapability.BUSINESS_CONTENT);
+            capabilities = Set.copyOf(declared);
+        }
         formulaRules = formulaRules == null ? List.of() : List.copyOf(formulaRules);
         tenantUniqueConstraints = tenantUniqueConstraints == null ? List.of() : List.copyOf(tenantUniqueConstraints);
         sortPartitionFields = sortPartitionFields == null ? List.of() : List.copyOf(sortPartitionFields);

@@ -465,6 +465,8 @@ public class MetadataRelationChangeSetApplyService {
         result.setColumnName(source.getColumnName());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        result.setContentPolicy(java.util.Objects.requireNonNullElse(source.getContentPolicy(),
+                net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL));
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());
@@ -485,6 +487,7 @@ public class MetadataRelationChangeSetApplyService {
         result.setVersion(existing.getVersion());
         result.setFieldSpecAlias(source.getFieldSpecAlias());
         result.setTitle(source.getTitle());
+        if (source.getContentPolicy() != null) result.setContentPolicy(source.getContentPolicy());
         result.setRequired(source.getRequired());
         result.setUniqueField(source.getUniqueField());
         result.setIndexed(source.getIndexed());

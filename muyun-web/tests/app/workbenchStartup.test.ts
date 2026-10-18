@@ -1282,3 +1282,49 @@ it('restores workspace and API titles from the owning application language resou
     configureWorkspaceViewContributions('owner-language-restore', []);
   }
 });
+
+it.each(['', '?MenuId=category'])(
+  'retains the current menu text source when restoring a default page title from a public URL %s',
+  async (query) => {
+    const { createLanguageContext, createCodeTextPresentation, presentationLabel } =
+      await import('@muyun/web-core');
+    const language = createLanguageContext({
+      languageTag: 'en',
+      resources: { en: { 'test.category-name': 'Equipment categories' } },
+    });
+    const titleText = createCodeTextPresentation('test.category-name', '设备分类', language);
+    const menu = {
+      id: 'category',
+      schemeId: 'default',
+      title: '设备分类',
+      titleText,
+      entryType: 'module' as const,
+      openMode: 'tab' as const,
+      moduleAlias: 'quality.category',
+    };
+    const restored = restoreWorkbenchStartupStateFromUrl(
+      { session: { currentUser }, menus: [{ record: menu, children: [] }], tabs: [] },
+      '/quality/categories' + query,
+      { dynamicModuleRoutes: { '/quality/categories': 'quality.category' } },
+      false,
+      language,
+    );
+    const descriptor = restored.tabs?.[0]?.pageDescriptor;
+    assert.ok(descriptor);
+    assert.equal(
+      presentationLabel(descriptor.title!, descriptor.titleText, language),
+      'Equipment categories',
+    );
+    assert.equal(descriptor.titleText?.source.sourceId, titleText.source.sourceId);
+    const customized: MenuTab = {
+      ...restored.tabs![0]!,
+      title: 'My equipment',
+      pageDescriptor: { ...descriptor, title: 'My equipment', titleText: undefined },
+    };
+    const reopened = openMenuTab([customized], menu, getMenuNavigationTarget(menu)!, {
+      dynamicModuleRoutes: { '/quality/categories': 'quality.category' },
+    });
+    assert.equal(reopened.tabs[0]?.pageDescriptor?.title, 'My equipment');
+    assert.equal(reopened.tabs[0]?.pageDescriptor?.titleText, undefined);
+  },
+);

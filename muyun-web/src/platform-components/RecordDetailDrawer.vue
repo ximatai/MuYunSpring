@@ -14,6 +14,7 @@ import {
 import { sidePanelHostKey } from '../vue-ui-antdv/components/sidePanelHost';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import type { DrawerPromotion } from './drawerPromotion';
+import { provideRecordSurfaceActivity } from './recordSurfaceActivity';
 
 const language = useLanguageContext();
 
@@ -51,6 +52,7 @@ const props = withDefaults(
 const resolvedCloseTitle = computed(
   () => props.closeTitle ?? language.t('platform.screen.RecordDetailDrawer.close', '关闭'),
 );
+provideRecordSurfaceActivity(() => props.open);
 
 defineSlots<{
   status(): unknown;

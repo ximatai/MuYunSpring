@@ -14,6 +14,11 @@ import java.util.List;
 public interface StaticCapabilityFacet {
     boolean supports(Object service);
 
+    /** Actions may be hosted by a shared domain HTTP bridge rather than a service operation. */
+    default List<net.ximatai.muyun.spring.common.platform.PlatformAction> standardActions(StaticCapabilityOperationContext context) {
+        return standardOperations(context).stream().map(PlatformOperationDefinition::action).distinct().toList();
+    }
+
     default List<PlatformOperationDefinition> standardOperations(StaticCapabilityOperationContext context) {
         return List.of();
     }

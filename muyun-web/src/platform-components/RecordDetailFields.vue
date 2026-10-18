@@ -5,6 +5,7 @@ import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import { useLanguageContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
+import RecordContentSourceField from './RecordContentSourceField.vue';
 import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 import RecordImageFileReferencePreview from './RecordImageFileReferencePreview.vue';
 import FileSizeText from './FileSizeText.vue';
@@ -33,6 +34,7 @@ const props = withDefaults(
     fields?: Map<string, RecordFormFieldDescriptor>;
     fallback?: Record<string, RecordFormFieldFallback>;
     optionContext?: ModuleContext<unknown>;
+    contentRelation?: import('@muyun/web-core').BusinessContentRelationScope;
     fileTransferContext?: ModuleContext<unknown>;
     displayOf?: RecordDetailDisplayResolver;
     emptyText?: string;
@@ -101,6 +103,7 @@ function displayValue(field: RecordFormFieldState) {
     emptyText: props.emptyText,
     optionItems: optionItems.value[field.fieldName],
     language,
+    originalValue: Boolean(props.optionContext && field.content && field.content.policy !== 'KEEP_ORIGINAL'),
   });
 }
 
@@ -271,6 +274,16 @@ function groupEndsAt(index: number) {
               :value="props.record[field.fieldName]"
               :summary="readonlyReferenceSummaryOf(props.record, field.referenceTitleField, language)"
               :empty-text="props.emptyText"
+            />
+            <RecordContentSourceField
+              v-else-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
+              :record="record"
+              :field-name="field.fieldName"
+              :content="field.content"
+              :context="optionContext"
+              :relation="contentRelation"
+              mode="view"
+              :display-text="displayValue(field)"
             />
             <span v-else>{{ displayValue(field) }}</span>
           </dd>

@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityAssociationViewDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -420,7 +421,7 @@ public class PlatformModuleDefinitionCompiler {
                 config.getCardinality(),
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
-        );
+        ).withCandidateSubtitleProjection(config.getCandidateSubtitleProjection());
     }
 
     private EntityReferenceDefinition moduleReference(ModuleMetadataField moduleField,
@@ -542,7 +543,8 @@ public class PlatformModuleDefinitionCompiler {
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
                 new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
         );
-        return definition.withInteractionRules(List.of(), config.affects());
+        return definition.withInteractionRules(List.of(), config.affects())
+                .withCandidateSubtitleProjection(config.getCandidateSubtitleProjection());
     }
 
     private List<EntityViewDefinition> views(List<ModuleMetadataRelation> relations, Map<String, Metadata> metadataById) {
@@ -630,6 +632,11 @@ public class PlatformModuleDefinitionCompiler {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toMap(Metadata::getAlias, metadata -> metadata));
         EntityDefinition main = mainEntity(mainEntityAlias, entities);
+        boolean contentEnabled = relations.stream()
+                .filter(relation -> relation.getRelationRole() == RelationRole.MAIN || relation.getRelationRole() == RelationRole.CHILD)
+                .map(relation -> metadataById.get(relation.getMetadataId())).filter(Objects::nonNull)
+                .anyMatch(metadata -> entities.stream().filter(entity -> entity.alias().equals(metadata.getAlias()))
+                        .anyMatch(entity -> entity.fields().stream().anyMatch(field -> field.content().enabled())));
         List<EntityActionDefinition> actions = actionService.listByModuleAliases(List.of(moduleAlias)).stream()
                 .filter(action -> !action.isBindingPending())
                 // The global reference action also authorizes source-side reference transport.
@@ -640,6 +647,10 @@ public class PlatformModuleDefinitionCompiler {
                         && (action.getEntityAlias() == null || action.getEntityAlias().isBlank()
                             || action.getEntityAlias().equals(mainEntityAlias))
                         && !main.supports(EntityCapability.REFERENCE)))
+                .filter(action -> !(Boolean.TRUE.equals(action.getSystemManaged())
+                        && action.getSourceType() == ModuleActionSourceType.DYNAMIC_MODULE
+                        && (PlatformAction.CONTENT_EDIT.matches(action.getActionCode()) || PlatformAction.CONTENT_CONFIRM.matches(action.getActionCode()))
+                        && !contentEnabled))
                 .map(action -> action(action, mainEntityAlias, metadataByAlias))
                 .toList();
         return withWorkflowActions(actions, main);

@@ -155,7 +155,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         ModuleMetadataFieldService moduleFieldHook = new ModuleMetadataFieldService(
                 new TestMemoryDao<>(), mock(ModuleMetadataRelationService.class), mock(MetadataService.class),
                 mock(MetadataFieldService.class), null, Optional.empty(), Optional.of(refreshCoordinator));

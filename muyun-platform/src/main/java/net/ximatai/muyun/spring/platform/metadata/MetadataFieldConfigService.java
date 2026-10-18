@@ -175,6 +175,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
 
     public void validateEffectiveBehavior(MetadataField field, MetadataFieldConfig base, MetadataFieldConfig override,
                                           ModuleMetadataField legacy) {
+        if (field.getContentPolicy() != null && field.getContentPolicy().enabled() && legacy != null
+                && legacy.getReferenceModuleAlias() != null && !legacy.getReferenceModuleAlias().isBlank())
+            throw new IllegalArgumentException("Reference identity cannot declare business content: " + field.getFieldName());
         MetadataFieldConfig dictionary = MetadataFieldConfig.effectiveDictionaryConfig(base, override);
         if (legacy != null && legacy.getDictionaryCategoryAlias() != null && !legacy.getDictionaryCategoryAlias().isBlank()) {
             dictionary = new MetadataFieldConfig();
@@ -241,6 +244,17 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         if (dictionary != null && dictionary.hasDictionaryBinding()) {
             definition = definition.dictionary(dictionary.getDictionaryApplicationAlias(), dictionary.getDictionaryCategoryAlias(),
                     dictionary.getSelectionMode());
+        }
+        if (field.getContentPolicy() != null && field.getContentPolicy().enabled()) {
+            if (Boolean.TRUE.equals(field.getSystemManaged()))
+                throw new IllegalArgumentException("System fields cannot declare business content: " + field.getFieldName());
+            // A staged ADD has no persistent field identity yet; this key is validation-only.
+            definition = definition.protection(protectionConfigService.definition(field.getId()))
+                    .storageForm(field.getFieldForm() == MetadataFieldForm.VIRTUAL
+                            ? net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm.VIRTUAL
+                            : net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm.PHYSICAL)
+                    .content(new net.ximatai.muyun.spring.common.content.ContentFieldDefinition(
+                            field.getId() == null ? "unpersisted-field" : field.getId(), field.getContentPolicy()));
         }
         FieldBehaviorSupport.validateBehavior(definition);
         Object normalized = definition.behavior().writeRules().normalize(

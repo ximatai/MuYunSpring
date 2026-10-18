@@ -27,7 +27,9 @@ public final class RecordReadProjectionProjector {
                 output.put(fieldName, wrapper.getPropertyValue(fieldName));
             }
         }
-        return Collections.unmodifiableMap(output);
+        var projected = Collections.unmodifiableMap(output);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, projected);
+        return projected;
     }
 
     public static List<Map<String, Object>> project(List<?> records, RecordReadProjection projection) {
@@ -56,7 +58,9 @@ public final class RecordReadProjectionProjector {
                 .distinct()
                 .filter(wrapper::isReadableProperty)
                 .forEach(fieldName -> output.put(fieldName, wrapper.getPropertyValue(fieldName)));
-        return Collections.unmodifiableMap(output);
+        var projected = Collections.unmodifiableMap(output);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, projected);
+        return projected;
     }
 
     private static List<String> responseFields(RecordReadProjection projection) {

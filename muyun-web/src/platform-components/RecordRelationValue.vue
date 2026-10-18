@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
+import RecordContentSourceField from './RecordContentSourceField.vue';
 import {
   resolveRecordBooleanStatusValue,
   type RecordFormFieldState,
@@ -11,11 +12,28 @@ import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
 import { readonlyReferenceSummaryOf } from './readonlyReferenceDisplay';
 defineOptions({ name: 'RecordRelationValue' });
 const language = useLanguageContext();
-defineProps<{ field: RecordFormFieldState; record: RecordFormRecord; text?: string }>();
+defineProps<{
+  field: RecordFormFieldState;
+  record: RecordFormRecord;
+  text?: string;
+  contentContext?: import('@muyun/web-core').ModuleContext<unknown>;
+  contentRelation?: import('@muyun/web-core').BusinessContentRelationScope;
+}>();
 </script>
 <template>
+  <RecordContentSourceField
+    v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
+    :record="record"
+    :field-name="field.fieldName"
+    :content="field.content"
+    :context="contentContext"
+    :relation="contentRelation"
+    mode="view"
+    :display-text="text ?? resolveRecordDetailDisplayValue(field, record)"
+    compact
+  />
   <RecordStatusTag
-    v-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
+    v-else-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
     :enabled="
       field.controlType === 'booleanStatus'
         ? resolveRecordBooleanStatusValue(record[field.fieldName])

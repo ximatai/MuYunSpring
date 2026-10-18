@@ -154,6 +154,11 @@ final class DynamicRecordRelationRuntime {
 
     DynamicReferenceResolveResponse resolveReference(String moduleAlias, String entityAlias, String sourceField,
                                                       DynamicReferenceResolveRequest request) {
+        return resolveReference(moduleAlias, entityAlias, sourceField, request, java.util.function.UnaryOperator.identity());
+    }
+
+    DynamicReferenceResolveResponse resolveReference(String moduleAlias, String entityAlias, String sourceField,
+            DynamicReferenceResolveRequest request, java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         DynamicReferenceDescriptor reference = reference(moduleAlias, entityAlias, sourceField);
         DynamicReferenceResolveRequest normalized = request == null
                 ? DynamicReferenceResolveRequest.query(null) : request;
@@ -162,11 +167,11 @@ final class DynamicRecordRelationRuntime {
             // Static targets execute their own REFERENCE data-scope policy through ReferenceAbility.
             // Do not force them through the dynamic runtime only because the source is metadata-driven.
             return access.entityService(moduleAlias, entityAlias)
-                    .resolveReference(sourceField, normalized.withCriteria(criteria));
+                    .resolveReference(sourceField, normalized.withCriteria(criteria), userLabelCriteria);
         }
         DataScopeCriteriaResult scope = access.readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
         return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
-                .resolveReference(sourceField, normalized.withCriteria(scope.criteria())));
+                .resolveReference(sourceField, normalized.withCriteria(scope.criteria()), userLabelCriteria));
     }
 
     String title(String moduleAlias, String entityAlias, String id) {

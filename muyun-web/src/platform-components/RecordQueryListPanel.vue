@@ -13,6 +13,7 @@ import {
   presentationLabel,
   userFacingErrorMessage,
   useLanguageContext,
+  businessContentLanguageContext,
   displayModuleRuntime,
   canQueryRecycleBin,
   createModuleContext,
@@ -46,12 +47,15 @@ import type {
   RecycleBinItem,
   ResolvedPageListQuerySummaryDescriptor,
   WebListQuerySummaryItem,
+  WebBusinessContentQueryStatus,
 } from '@muyun/web-contracts';
 
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
 import { useWorkspaceSortActivity, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
+import BusinessContentQueryNotice from './BusinessContentQueryNotice.vue';
+import RecordQuerySortSelector from './RecordQuerySortSelector.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
 import QueryGroupedSummary from './QueryGroupedSummary.vue';
 import QueryCriteriaComposer from './QueryCriteriaComposer.vue';
@@ -300,6 +304,7 @@ const descriptorLoadError = ref(false);
 const recordsLoadError = ref<() => string>();
 const quickSearchKeyword = ref('');
 const successfulRequest = ref<WebQueryRequest>();
+const successfulContentLanguage = ref<string>();
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
 /** Once opened, retain the draft editor while collapsed so reference resolution cannot be discarded. */
@@ -315,6 +320,23 @@ const persistentFieldReferenceValidity = ref<Record<string, ReferencePickerValid
 const persistentFieldEditorResetKey = ref(0);
 const advancedReferenceValidity = ref<Record<number, ReferencePickerValidity>>({});
 const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
+const contentLanguage = businessContentLanguageContext(language);
+const contentQueryStatus = ref<WebBusinessContentQueryStatus>();
+const currentContentStatus = computed(() =>
+  props.mode === 'normal' && contentQueryStatus.value?.language === contentLanguage.languageTag.value
+    ? contentQueryStatus.value
+    : undefined,
+);
+watch(
+  contentLanguage.languageTag,
+  () => {
+    if (!contentQueryStatus.value) return;
+    pageNum.value = 1;
+    void loadRecords();
+  },
+  { flush: 'sync' },
+);
+
 const optionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>({});
 const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>(
   {},
@@ -634,6 +656,7 @@ watch(
 watch(
   () => props.context,
   () => loadSchemaAndRecords(),
+  { flush: 'sync' },
 );
 
 watch(
@@ -645,6 +668,10 @@ watch(
       return;
     }
     records.value = [];
+    schemaRequestSeq += 1;
+    recordsRequestSeq += 1;
+    contentQueryStatus.value = undefined;
+    loading.value = false;
     total.value = 0;
     totalKnown.value = true;
     querySummaryValues.value = [];
@@ -715,25 +742,37 @@ watch(
 );
 
 async function loadSchemaAndRecords() {
+  const requestSeq = ++schemaRequestSeq;
+  recordsRequestSeq += 1;
+  contentQueryStatus.value = undefined;
+  successfulRequest.value = undefined;
+  records.value = [];
+  total.value = 0;
+  totalKnown.value = true;
+  selectedRowKeys.value = [];
+  querySummaryValues.value = [];
   if (!queryReady.value) {
+    loading.value = false;
     return;
   }
   queryControllerRevision += 1;
-  const requestSeq = ++schemaRequestSeq;
+  const context = props.context;
   loading.value = true;
   descriptorLoadError.value = false;
   recordsLoadError.value = undefined;
   try {
-    loadedRuntimeListView.value = await loadRuntimeListView();
+    const nextRuntimeListView = await loadRuntimeListView(context);
+    if (requestSeq !== schemaRequestSeq) return;
     const nextSchema =
       props.querySchema ??
-      (await props.context.crud.querySchema({
+      (await context.crud.querySchema({
         uiConfigId: props.uiConfigId,
         queryTemplateId: props.queryTemplateId,
       }));
     if (requestSeq !== schemaRequestSeq) {
       return;
     }
+    loadedRuntimeListView.value = nextRuntimeListView;
     schema.value = nextSchema;
     if (
       props.requiredExternalCriteriaKeys.some(
@@ -793,17 +832,14 @@ async function loadSchemaAndRecords() {
   }
 }
 
-async function loadRuntimeListView(): Promise<ResolvedViewDescriptor | undefined> {
+async function loadRuntimeListView(
+  context: ModuleContext<QueryListRecord>,
+): Promise<ResolvedViewDescriptor | undefined> {
   if (props.columns && props.columns.length > 0) {
     return undefined;
   }
-  try {
-    const runtimeContext = await props.context.runtime.ready;
-    return runtimeContext.uiDescriptor?.page?.list?.fields;
-  } catch (cause) {
-    descriptorLoadError.value = true;
-    throw cause;
-  }
+  const runtimeContext = await context.runtime.ready;
+  return runtimeContext.uiDescriptor?.page?.list?.fields;
 }
 
 async function loadRecords(updateLoading = true) {
@@ -865,10 +901,18 @@ async function loadRecords(updateLoading = true) {
   try {
     recordsLoadError.value = undefined;
     const request = buildQueryRequest();
-    const response = await props.context.crud.query(request);
+    const requestedContentLanguage = contentLanguage.languageTag.value;
+    const response = await props.context.crud.query(request, {
+      contentLanguage: requestedContentLanguage,
+    });
     if (requestSeq !== recordsRequestSeq) {
       return false;
     }
+    if (response.businessContent && response.businessContent.language !== contentLanguage.languageTag.value) {
+      pageNum.value = 1;
+      return loadRecords();
+    }
+    contentQueryStatus.value = response.businessContent;
     records.value = response.records;
     preloadRecordActionAvailability(response.records);
     selectedRowKeys.value = reconcileSelectedKeys(
@@ -882,6 +926,7 @@ async function loadRecords(updateLoading = true) {
     pageSize.value = response.pageSize;
     emit('loaded', response.records);
     successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
+    successfulContentLanguage.value = requestedContentLanguage;
     emit('queried', request);
     refreshRecycleBinSummary();
     return true;
@@ -1525,7 +1570,10 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   return {
     mode: props.mode,
     ...(status === 'ready' && successfulRequest.value
-      ? { request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest }
+      ? {
+          request: JSON.parse(JSON.stringify(successfulRequest.value)) as WebQueryRequest,
+          contentLanguage: successfulContentLanguage.value,
+        }
       : {}),
     status,
     quickSearchEnabled:
@@ -1762,6 +1810,45 @@ function recordKey(record: QueryListRecord) {
   return String(record[props.rowKey] ?? record.id ?? '');
 }
 
+const contentGenerationRecords = computed(() =>
+  records.value
+    .filter((record) => record.id)
+    .map((record) => {
+      const id = String(record.id);
+      const first = tableColumns.value[0]?.key;
+      return {
+        id,
+        version: record.version,
+        secondary:
+          typeof record.code === 'string' || typeof record.code === 'number'
+            ? String(record.code)
+            : undefined,
+        label: String(
+          currentContentStatus.value?.readings[id]?.title ??
+            record.title ??
+            record.code ??
+            (first ? (currentContentStatus.value?.readings[id]?.[first] ?? record[first]) : undefined) ??
+            id,
+        ),
+      };
+    }),
+);
+const contentGenerationFields = computed(() =>
+  Object.fromEntries(tableColumns.value.map((field) => [field.key, field.title])),
+);
+const contentGenerationSelected = computed(() =>
+  records.value
+    .filter((record) => record.id && selectedRowKeys.value.some((key) => String(key) === recordKey(record)))
+    .map((record) => String(record.id)),
+);
+
+function changeQuerySorts(sorts: WebSort[] | undefined) {
+  queryInteractionRevision.value++;
+  appliedSorts.value = sorts;
+  pageNum.value = 1;
+  void loadRecords();
+}
+
 function goPage(nextPage: number) {
   queryInteractionRevision.value += 1;
   pageNum.value = Math.min(Math.max(1, nextPage), pages.value);
@@ -1943,6 +2030,17 @@ defineExpose({ clearSelection, refresh });
       </div>
     </template>
     <template v-if="!sorting" #queryControls>
+      <RecordQuerySortSelector
+        v-if="currentContentStatus"
+        :fields="
+          queryFields.filter(
+            (field) => field.sortable && tableColumns.some((column) => column.key === field.name),
+          )
+        "
+        :sorts="appliedSorts"
+        :disabled="loading || queryActionsDisabled"
+        @change="changeQuerySorts"
+      />
       <UiButton
         v-if="advancedCriteriaVisible"
         class="record-query-list-advanced"
@@ -1960,6 +2058,14 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template #conditions>
+      <BusinessContentQueryNotice
+        :status="currentContentStatus"
+        :context="context"
+        :records="contentGenerationRecords"
+        :fields="contentGenerationFields"
+        :initially-selected="contentGenerationSelected"
+        @updated="loadRecords()"
+      />
       <section v-if="criteriaComposerMounted" v-show="conditionsExpanded" class="record-query-conditions">
         <QueryCriteriaComposer
           :key="criteriaComposerResetKey"
@@ -2017,6 +2123,7 @@ defineExpose({ clearSelection, refresh });
         :record="(record as QueryListRow).record"
         :column="tableColumns.find((item) => item.key === column.key)!"
         :cell-renderers="cellRenderers"
+        :reading="currentContentStatus?.readings[recordKey((record as QueryListRow).record)]?.[column.key]"
       />
     </template>
     <template #rowActions="{ record }">

@@ -38,11 +38,34 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test void projectsProducerContentPoliciesIntoEditorsAndReadViewsWithoutExpandingTheirFields() {
+        var content = new net.ximatai.muyun.spring.common.content.ContentFieldDefinition("stable-title",
+                net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);
+        var entity = new EntityDefinition("main", "main", "Main", List.of(
+                FieldDefinition.text("title", "Title").content(content), FieldDefinition.text("notes", "Notes")));
+        var ui = ModuleUiDefinition.builder("demo.content").page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields.field("title")))
+                .detail(detail -> detail.display(display -> display.field("title"))
+                        .editor(editor -> editor.field("title", field -> field.readOnly()).field("notes"))))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.content", "Content")
+                .entities(List.of(entity)).uiDefinition(ui).build());
+        var editor = descriptor.page().detail().editor().fields().getFirst();
+        assertThat(editor.content()).isEqualTo(content);
+        assertThat(editor.withUiState(UiRule.constant(true), UiRule.constant(false)).withComputedValue("preview")
+                .withInputRequirements(new FieldInputRequirements(false, false)).content()).isEqualTo(content);
+        assertThat(descriptor.page().detail().display().fields().getFirst().content()).isEqualTo(content);
+        assertThat(descriptor.page().list().fields().fields().getFirst().content()).isEqualTo(content);
+        assertThat(descriptor.page().detail().editor().fields().get(1).content()).isNull();
+        var dynamic = net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor.from(entity.fields().getFirst());
+        assertThat(dynamic.content()).isEqualTo(content);
+        assertThat(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor.from(entity.fields().getFirst(), null).content()).isEqualTo(content);
+    }
+
     @Test
     void applicationAliasInheritsTheActualIdPattern() {
         var definition = StaticModuleDefinition.builder("platform", "platform.application", "应用")
                 .modelClass(net.ximatai.muyun.spring.platform.application.Application.class).build();
-        assertThat(FieldWriteRuleProjection.staticFields(definition).get(new ViewFieldRef(null, "alias", null))
+        assertThat(ModelFieldProjection.staticFields(definition).get(new ViewFieldRef(null, "alias", null))
                 .behavior().validationRegex()).isEqualTo(net.ximatai.muyun.spring.common.util.PlatformNameRules.IDENTIFIER_PATTERN);
     }
 

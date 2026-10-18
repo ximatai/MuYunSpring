@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { businessContentLabel } from '@muyun/web-core';
+import { referencePickerDisplayTitle } from './referencePickerModel';
 import { normalizeError, userFacingErrorMessage, useLanguageContext } from '@muyun/web-core';
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -89,9 +91,9 @@ const summary = computed(() => {
   if (!candidate) return id;
   return candidate.unavailable
     ? language.t('platform.screen.ScopedTreePicker.value-unavailable', '{value1}（不可用）', {
-        value1: candidate.title,
+        value1: referencePickerDisplayTitle(candidate, language),
       })
-    : candidate.title;
+    : referencePickerDisplayTitle(candidate, language);
 });
 
 watch(
@@ -116,8 +118,16 @@ function remember(candidates: readonly ScopedTreePickerCandidate[]) {
 function toTreeNode(candidate: ScopedTreePickerCandidate): UiTreeNode {
   return {
     key: candidate.id,
-    title: candidate.title,
-    secondary: candidate.subtitle,
+    // Lazy trees retain these nodes; read labels reactively without clearing loaded branches or drafts.
+    get title() {
+      return referencePickerDisplayTitle({ ...candidate, subtitle: undefined }, language);
+    },
+    get secondary() {
+      return (
+        candidate.subtitle &&
+        (businessContentLabel(candidate.subtitle, candidate.subtitleContent, language) ?? candidate.subtitle)
+      );
+    },
     disabled: candidate.disabled || candidate.unavailable,
     muted: candidate.unavailable,
     isLeaf: candidate.isLeaf,
@@ -258,7 +268,9 @@ defineExpose({ open: openPicker });
         <div class="scoped-tree-picker-selection">
           <span>{{ language.t('platform.screen.ScopedTreePicker.current-selection', '当前选择') }}</span>
           <strong>{{
-            selectedCandidate?.title ?? language.t('platform.reference-picker.unselected', '尚未选择')
+            selectedCandidate
+              ? referencePickerDisplayTitle(selectedCandidate, language)
+              : language.t('platform.reference-picker.unselected', '尚未选择')
           }}</strong>
           <UiButton v-if="draftId" type="link" size="small" @click="draftId = undefined">{{
             language.t('platform.screen.ScopedTreePicker.clear', '清除')

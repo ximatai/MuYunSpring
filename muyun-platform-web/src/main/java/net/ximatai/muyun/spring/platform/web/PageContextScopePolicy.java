@@ -211,6 +211,18 @@ public final class PageContextScopePolicy {
         });
     }
 
+    /** Applies the same authoritative request scope to non-bean record representations. */
+    public static void requireRecordValues(List<PageContextBindingDefinition> bindings, String moduleAlias,
+                                          PlatformAction action, PageSelectionContextResolverRegistry selectionResolvers,
+                                          java.util.function.Function<String, Object> fieldValue) {
+        requiredScopeValues(bindings, moduleAlias, action, selectionResolvers).forEach((field, expected) -> {
+            if (!Objects.equals(expected.value(), fieldValue.apply(field))) {
+                throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                        "Record does not belong to the current page scope: " + field);
+            }
+        });
+    }
+
     private static Object resolveQueryValue(PageContextBindingDefinition binding, Map<String, ?> requestValues) {
         return PageContextServerValueResolver.resolve(binding).orElseGet(() ->
                 requestValues == null ? null : requestValues.get(binding.targetKey()));

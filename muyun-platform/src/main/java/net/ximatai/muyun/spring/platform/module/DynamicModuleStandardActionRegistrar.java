@@ -120,7 +120,7 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             if (event.moduleAlias() != null) aliases.add(event.moduleAlias());
             if (event.metadataId() != null) {
                 relations.getObject().list(Criteria.of().eq("metadataId", event.metadataId())
-                        .eq("relationRole", RelationRole.MAIN).isNull("tenantId"), new PageRequest(0, Integer.MAX_VALUE))
+                        .isNull("tenantId"), new PageRequest(0, Integer.MAX_VALUE))
                         .forEach(relation -> aliases.add(relation.getModuleAlias()));
             }
             aliases.forEach(alias -> register(moduleService.select(alias), false));
@@ -159,8 +159,14 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             actions.add(PlatformAction.RECYCLE_BIN_PURGE);
         }
         if (capabilities.contains(EntityCapability.DATA_SCOPE.name())) actions.add(PlatformAction.MANAGE_PERMISSIONS);
+        if (capabilities.contains(EntityCapability.EXCHANGE.name())) {
+            actions.add(PlatformAction.IMPORT); actions.add(PlatformAction.EXPORT);
+        }
+        if (capabilities.contains(EntityCapability.BUSINESS_CONTENT.name())) {
+            actions.add(PlatformAction.CONTENT_EDIT); actions.add(PlatformAction.CONTENT_CONFIRM);
+        }
         List<ModuleActionContribution> contributions = actions.stream()
-                .map(action -> contribution(module, action))
+                .map(action -> contribution(module, action, capabilities))
                 .toList();
         if (refreshRuntime) contributionRegistrar.registerAll(contributions);
         else contributionRegistrar.registerAllWithoutRuntimeRefresh(contributions);
@@ -194,6 +200,15 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
                                         new PageRequest(0, Integer.MAX_VALUE)) : List.of())
                         .capabilities().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet());
                 if (Boolean.TRUE.equals(definition.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE.name());
+                var contentMetadata = relations.getObject().list(Criteria.of().eq("moduleAlias", module.getAlias())
+                        .isNull("tenantId"), new PageRequest(0, Integer.MAX_VALUE)).stream()
+                        .filter(binding -> binding.getRelationRole() == RelationRole.MAIN || binding.getRelationRole() == RelationRole.CHILD)
+                        .map(ModuleMetadataRelation::getMetadataId).distinct().toList();
+                var contentFields = fields == null ? null : fields.getIfAvailable();
+                if (contentFields != null && !contentMetadata.isEmpty() && contentFields.list(Criteria.of().in("metadataId", contentMetadata)
+                        .isNull("tenantId"), new PageRequest(0, Integer.MAX_VALUE)).stream()
+                        .anyMatch(field -> field.getContentPolicy() != null && field.getContentPolicy().enabled()))
+                    capabilities.add(EntityCapability.BUSINESS_CONTENT.name());
                 ModuleMetadataRelation relation = main.getFirst();
                 return new CapabilitySnapshot(capabilities, relation.getId(), relation.getVersion(),
                         definition.getId(), definition.getVersion(), null);
@@ -213,11 +228,12 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
         return tenantId == null || tenantId.isBlank();
     }
 
-    private static ModuleActionContribution contribution(PlatformModule module, PlatformAction action) {
+    private static ModuleActionContribution contribution(PlatformModule module, PlatformAction action, Set<String> capabilities) {
         return new ModuleActionContribution(
                 module.getAlias(), null, action.code(), action.permissionActionCode(), action.title(),
                 null, null, null, action.actionAuth(), (action == PlatformAction.MANAGE_PERMISSIONS
-                        || action == PlatformAction.RECYCLE_BIN_QUERY), action.defaultGrantPolicy(),
+                        || action == PlatformAction.RECYCLE_BIN_QUERY || (action == PlatformAction.CONTENT_EDIT
+                        || action == PlatformAction.CONTENT_CONFIRM) && capabilities.contains(EntityCapability.DATA_SCOPE.name())), action.defaultGrantPolicy(),
                 null, null, null, null,
                 ModuleActionSourceType.DYNAMIC_MODULE, module.getAlias(), null,
                 null, null, null, true

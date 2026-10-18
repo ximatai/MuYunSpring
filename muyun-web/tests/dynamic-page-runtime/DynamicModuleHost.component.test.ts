@@ -48,6 +48,46 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModuleHttpProvider;
   });
 
+  it('preserves reading intent through the page-owned query adapter', async () => {
+    const languages: Array<string | null> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind: 'dynamic',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            moduleAlias: 'crm.customer',
+            page: { template: 'FLAT_MANAGEMENT', navigator: { levels: [] }, detail: {}, explorer: {} },
+          },
+        });
+      if (request.url.endsWith('/query')) languages.push(request.headers.get('X-MuYun-Content-Language'));
+      return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+    });
+    await flushPromises();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    await session.context.crud.query({ quickSearch: 'Gerät' }, { contentLanguage: 'de' });
+    expect(languages.at(-1)).toBe('de');
+    wrapper.unmount();
+  });
+
   it('switches an independently scoped draft between English and Chinese without changing its data or repeating requests', async () => {
     const language = createLanguageContext({ languageTag: 'en' });
     const calls: string[] = [];
@@ -167,7 +207,7 @@ describe('ModulePageHost', () => {
     wrapper.unmount();
   });
 
-  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'])(
+  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD', 'TREE_MANAGEMENT'])(
     'mounts exchange tools in the %s standard toolbar and blocks concurrent mutations',
     async (template) => {
       globalThis.fetch = async () =>
@@ -199,6 +239,7 @@ describe('ModulePageHost', () => {
               template: '<section><slot name="explorer-actions" /><slot name="explorer" /></section>',
             },
             RecordQueryListPanel: { template: '<section><slot name="operations" /></section>' },
+            RecordDetailPanel: { template: '<section><slot name="actions" /></section>' },
             ModuleDataExchangeSurface: false,
           },
         },
@@ -405,6 +446,75 @@ describe('ModulePageHost', () => {
     expect(sessions[0]!.selectedRecord?.version).toBe(2);
     expect(sessions[0]!.reloadKey).toBe(reloadKeys[0]! + 1);
     wrappers.forEach((wrapper) => wrapper.unmount());
+  });
+
+  it('refreshes a tenant-bound reference-only title from content facts without changing business values', async () => {
+    const { appDataChangeDispatcher } = await import('@/platform-admin-runtime/realtime');
+    const language = createLanguageContext({ languageTag: 'en' });
+    let translated = 'Initial translated title';
+    globalThis.fetch = async (input) => {
+      const path = new Request(input).url;
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          tenantRequired: true,
+          capabilities: [],
+          actions: [{ actionCode: 'view', authorized: true }],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page() },
+        });
+      if (path.endsWith('/actions/record-1')) return Response.json({ actions: [] });
+      if (path.endsWith('/view/record-1'))
+        return Response.json({
+          id: 'record-1',
+          title: '真实原文',
+          version: 1,
+          $contentTexts: { title: { originalText: '真实原文', readings: { en: translated } } },
+        });
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(
+      defineComponent({
+        setup() {
+          provideLanguageContext(language);
+          return () =>
+            h(ModulePageHost, {
+              descriptor: {
+                pageType: 'dynamic-module',
+                openMode: 'dynamic-runner',
+                hostType: 'module-page-host',
+                tabPolicy: { identity: 'by-target' },
+                target: { moduleAlias: 'crm.customer' },
+              },
+              recordOnly: { recordId: 'record-1' },
+            });
+        },
+      }),
+      {
+        global: {
+          stubs: { ModulePageHost: false, ManagementWorkspace: { template: '<section><slot /></section>' } },
+        },
+      },
+    );
+    const settle = async () => {
+      await flushPromises();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushPromises();
+    };
+    await settle();
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(session.detailTitle).toBe('Initial translated title');
+    translated = 'Updated translated title';
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'reference-only-content-title',
+      changes: [{ type: 'business-content-changed', moduleAlias: 'crm.customer' }],
+    });
+    await settle();
+    expect(session.detailTitle).toBe('Updated translated title');
+    expect(session.selectedRecord).toMatchObject({ title: '真实原文', version: 1 });
+    wrapper.unmount();
   });
 
   it('collection changes keep retained details on the recycle-bin read path', async () => {

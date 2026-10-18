@@ -1,10 +1,12 @@
 import { onUnmounted, watch } from 'vue';
-import { webDataChangeTypes } from '@muyun/web-contracts';
+import { provideRecordReadRefreshGuard } from '@muyun/web-core';
+import { webDataChangeTypes, type ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 
 interface ModuleRecordDataChangeOptions {
   moduleAlias: string;
   recordId: () => string | undefined;
+  presentationModules?: () => Iterable<string>;
   blocked: () => boolean;
   invalidate: (recordIds?: string[]) => void;
   refreshList: () => void;
@@ -15,6 +17,8 @@ interface ModuleRecordDataChangeOptions {
 
 /** Committed facts refresh read views; editors retain their drafts until interaction ends. */
 export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOptions) {
+  const readSessions = provideRecordReadRefreshGuard();
+  const blocked = () => options.blocked() || readSessions.blocked.value;
   const pendingRecords = new Set<string>();
   let collectionChanged = false;
   let pendingList = false;
@@ -23,13 +27,13 @@ export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOption
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function schedule() {
-    if (!active || running || timer || options.blocked() || !pendingList) return;
+    if (!active || running || timer || blocked() || !pendingList) return;
     timer = setTimeout(() => void flush(), 0);
   }
 
   async function flush() {
     timer = undefined;
-    if (!active || running || options.blocked() || !pendingList) return;
+    if (!active || running || blocked() || !pendingList) return;
     running = true;
     const id = options.recordId();
     const refreshDetail = Boolean(id && (collectionChanged || pendingRecords.has(id)));
@@ -37,11 +41,12 @@ export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOption
     collectionChanged = false;
     pendingRecords.clear();
     try {
+      readSessions.invalidate();
       options.refreshList();
       if (id && refreshDetail) {
         const refreshed = await options.refreshRecord(
           id,
-          () => active && options.recordId() === id && !options.blocked(),
+          () => active && options.recordId() === id && !blocked(),
         );
         if (!refreshed && active && options.recordId() === id) {
           pendingRecords.add(id);
@@ -57,13 +62,16 @@ export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOption
   }
 
   usePageDataChange({
-    moduleAlias: options.moduleAlias,
     predicate: (change) =>
+      (change.moduleAlias === options.moduleAlias ||
+        (change.type === webDataChangeTypes.businessContentChanged &&
+          [...(options.presentationModules?.() ?? [])].includes(change.moduleAlias))) &&
       [
         webDataChangeTypes.recordCreated,
         webDataChangeTypes.recordUpdated,
         webDataChangeTypes.recordDeleted,
         webDataChangeTypes.collectionChanged,
+        webDataChangeTypes.businessContentChanged,
       ].some((type) => type === change.type),
     handler: (_changeSet, changes) => {
       for (const change of changes) {
@@ -91,10 +99,35 @@ export function useModuleRecordDataChanges(options: ModuleRecordDataChangeOption
       schedule();
     },
   });
-  watch(options.blocked, schedule);
+  watch(blocked, schedule);
   onUnmounted(() => {
     active = false;
     if (timer) clearTimeout(timer);
     pendingRecords.clear();
   });
+}
+
+/** Only declared read surfaces participate; values and labels cannot manufacture dependencies. */
+export function moduleContentPresentationDependencies(ui?: ResolvedModuleUiDescriptor): string[] {
+  const views = [
+    ui?.defaultEditor,
+    ui?.page?.list?.fields,
+    ui?.page?.detail.display,
+    ui?.page?.detail.editor,
+    ...(ui?.editorSurfaces?.map((surface) => surface.editor) ?? []),
+    ...(ui?.editorContributions?.map((contribution) => contribution.editor) ?? []),
+  ];
+  return [
+    ...new Set([
+      ...views.flatMap(
+        (view) =>
+          view?.fields.flatMap((field) =>
+            [field.reference?.targetModuleAlias, field.referenceSummary?.targetModuleAlias].filter(
+              (alias): alias is string => Boolean(alias),
+            ),
+          ) ?? [],
+      ),
+      ...(ui?.detailRelations?.map((relation) => relation.targetModuleAlias) ?? []),
+    ]),
+  ];
 }

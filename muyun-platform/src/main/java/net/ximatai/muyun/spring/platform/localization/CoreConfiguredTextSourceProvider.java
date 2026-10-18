@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 @Service
 public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourceProvider {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
+    // Published snapshots use the workflow producer's internal enum format, independently of HTTP codecs.
+    private static final ObjectMapper WORKFLOW_SNAPSHOTS = new ObjectMapper().findAndRegisterModules();
     private final ObjectProvider<MenuService> menus;
     private final ObjectProvider<DictionaryItemService> dictionaries;
     private final ObjectProvider<WorkflowDefinitionService> definitions;
@@ -97,7 +99,7 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
 
     private List<TextReference> workflowSources(WorkflowVersion version) {
         try {
-            var snapshot = mapper.readValue(version.getSnapshotText(), WorkflowDesignDocument.class);
+            var snapshot = WORKFLOW_SNAPSHOTS.readValue(version.getSnapshotText(), WorkflowDesignDocument.class);
             var result = new ArrayList<TextReference>();
             for (var node : snapshot.nodes()) {
                 if (node.getTitle() != null && !node.getTitle().isBlank())
@@ -105,7 +107,7 @@ public class CoreConfiguredTextSourceProvider implements ConfiguredTextSourcePro
                 if (node.getNodeConfigText() == null || node.getNodeConfigText().isBlank()) continue;
                 var task = mapper.readTree(node.getNodeConfigText()).path("task");
                 if (task.isMissingNode()) continue;
-                var specification = mapper.treeToValue(task, WorkflowBusinessTaskSpec.class);
+                var specification = WORKFLOW_SNAPSHOTS.treeToValue(task, WorkflowBusinessTaskSpec.class);
                 for (var check : specification.checks()) {
                     if (check.getTitle() != null && !check.getTitle().isBlank())
                         result.add(ConfigurationTextSources.workflowCheckText(version.getId(), node.getNodeKey(), check.getCheckKey(), "title", check.getTitle()));

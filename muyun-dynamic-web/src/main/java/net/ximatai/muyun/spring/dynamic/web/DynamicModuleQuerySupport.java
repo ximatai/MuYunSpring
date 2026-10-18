@@ -33,8 +33,14 @@ import java.util.function.Function;
 final class DynamicModuleQuerySupport {
     Criteria criteria(ModuleExecutionPlan plan, WebQueryRequest request,
                       Function<List<DynamicQueryCondition>, Criteria> compiler) {
+        return criteria(plan, request, compiler, java.util.function.UnaryOperator.identity());
+    }
+
+    Criteria criteria(ModuleExecutionPlan plan, WebQueryRequest request,
+                      Function<List<DynamicQueryCondition>, Criteria> compiler,
+                      java.util.function.UnaryOperator<Criteria> userConditionTransform) {
         requireListUiConfig(plan, request == null ? null : request.uiConfigId());
-        Criteria controls = controlsCriteria(plan, request, compiler);
+        Criteria controls = userConditionTransform.apply(controlsCriteria(plan, request, compiler));
         Criteria navigatorCriteria = request == null || !hasText(request.uiConfigId()) ? Criteria.of()
                 : PageContextScopePolicy.criteria(plan.pageContextBindings().stream()
                         .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY).toList(),

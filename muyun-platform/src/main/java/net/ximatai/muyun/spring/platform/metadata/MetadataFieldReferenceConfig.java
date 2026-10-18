@@ -52,6 +52,10 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
     @Column(name = "target_label_field", type = ColumnType.VARCHAR, length = 64, comment = "Target reference label field")
     private String targetLabelField;
 
+    @Column(name = "candidate_subtitle_projection", type = ColumnType.VARCHAR, length = 256,
+            comment = "Authorized reference candidate subtitle path")
+    private String candidateSubtitleProjection;
+
     @Column(name = "cardinality", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Reference cardinality", defaultVal = @Default(varchar = "ONE"))
     private ReferenceCardinality cardinality = ReferenceCardinality.ONE;

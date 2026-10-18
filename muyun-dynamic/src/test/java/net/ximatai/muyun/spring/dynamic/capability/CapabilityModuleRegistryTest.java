@@ -169,8 +169,15 @@ class CapabilityModuleRegistryTest {
 
     @Test
     void shouldComposeSourceRuntimeFacetsFromActionOwnersAndKeepTheTreeSortBridgeExplicit() {
-        assertThat(registry.modules())
+        assertThat(registry.modules().stream().filter(module -> module.capability() != EntityCapability.BUSINESS_CONTENT))
                 .allSatisfy(module -> assertThat(module.actionContribution().staticRuntimeHandler()).isPresent());
+        var content = registry.require(EntityCapability.BUSINESS_CONTENT, BusinessContentCapabilityModule.class);
+        assertThat(content.staticFacet()).isPresent();
+        assertThat(content.staticFacet().orElseThrow().standardOperations(null)).isEmpty();
+        assertThat(content.staticRuntimeHandler()).isEmpty();
+        assertThat(content.dynamicRuntimeHandler()).isEmpty();
+        assertThat(content.isHttpOnlyDynamicAction(PlatformAction.CONTENT_EDIT)).isTrue();
+        assertThat(content.includesRecordActionDescriptor(PlatformAction.CONTENT_CONFIRM)).isFalse();
         assertThat(enable().actions().dynamicRuntimeHandler()).isPresent();
         assertThat(sort().actions().dynamicRuntimeHandler()).isPresent();
         assertThat(tree().actions().dynamicRuntimeHandler()).isEmpty();

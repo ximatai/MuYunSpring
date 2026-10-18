@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  provideRecordReadRefreshGuard,
   createAssistantTurnRequester,
   ModuleHttpProvider,
   useAssistantSurfaceHost,
@@ -36,6 +37,7 @@ import {
 } from './modulePageAssistantSurface';
 
 const language = useLanguageContext();
+provideRecordReadRefreshGuard();
 
 defineOptions({ name: 'ModulePageHostSession' });
 const props = defineProps<{

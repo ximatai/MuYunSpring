@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   useLanguageContext,
+  businessContentLanguages,
   normalizeError,
   userFacingErrorMessage,
   createWorkflowClient,
@@ -23,6 +24,7 @@ import type {
   WorkflowStatus,
   WorkflowTask,
   WorkflowTaskPreparation,
+  WorkflowRecordInstance,
 } from '@muyun/web-contracts';
 import {
   UiButton,
@@ -33,6 +35,8 @@ import {
   confirmAction,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
+import { formatPlatformDateTime } from './platformDateTime';
+import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
 import { presentPlatformError } from './platformErrorFeedback';
 import { workflowAccountOptions } from './workflowAccountOptions';
 import RecordPicker from './RecordPicker.vue';
@@ -56,7 +60,18 @@ import {
   workflowRouteSelectionTitle as localizedRouteSelectionTitle,
 } from './workflowPresentation';
 
+const recordActionsReady = ref(false);
+const canSubmitRecord = computed(
+  () => recordActionsReady.value && props.context.can('submitApproval', props.recordId) === true,
+);
+const canRevokeRecord = computed(
+  () => recordActionsReady.value && props.context.can('revoke', props.recordId) === true,
+);
 const workflowLanguage = useLanguageContext();
+const timeZone = usePlatformTimeZoneContext();
+function roundTime(value?: string) {
+  return formatPlatformDateTime(value, { language: workflowLanguage, timeZone: timeZone?.value }).text;
+}
 function workflowTitle(value?: string) {
   return localizedWorkflowTitle(value, workflowLanguage);
 }
@@ -68,6 +83,8 @@ const props = defineProps<{
   context: ModuleContext<Record<string, unknown>>;
   recordId: string;
   instanceId?: string;
+  /** Shows record submission only while this explicit instance still owns the current approval. */
+  recordSubmission?: boolean;
 }>();
 const emit = defineEmits<{
   changed: [];
@@ -94,6 +111,7 @@ const loading = ref(false),
   busy = ref(false),
   error = ref<() => string>();
 const activeAction = ref<WorkflowAction>();
+const reasonSourceLanguage = ref('__unknown__');
 const reason = ref(''),
   targetAssigneeId = ref(''),
   rejectMode = ref('restart');
@@ -182,6 +200,106 @@ async function cancelAction() {
 defineExpose({ mayLeave });
 const archives = ref<WorkflowHistoryInstance[]>([]),
   selectedHistory = ref<string>();
+const recordInstances = ref<WorkflowRecordInstance[]>([]);
+const selectedInstance = ref<string>();
+const instancePage = ref(1),
+  instancePages = ref(0),
+  instancePaging = ref(false);
+const selectedInstanceView = ref<WorkflowRecordInstance>();
+let instanceDirectoryRevision = 0;
+const currentInstanceId = computed(
+  () => props.instanceId ?? selectedInstance.value ?? status.value?.instanceId,
+);
+function instanceLabel(item: WorkflowRecordInstance) {
+  return [
+    workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
+    roundTime(item.startedAt),
+    item.versionNo == null
+      ? ''
+      : workflowLanguage.t('platform.workflow.definition-version', '定义版本 v{version}', {
+          version: item.versionNo,
+        }),
+    workflowTitle(item.instanceStatus),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+const roundOptions = computed(() => {
+  const current = recordInstances.value.map((item) => ({
+    value: `current:${item.id}`,
+    label: instanceLabel(item),
+  }));
+  const id = currentInstanceId.value;
+  if (
+    id &&
+    !current.some((item) => item.value === `current:${id}`) &&
+    !archives.value.some((item) => item.id === id)
+  )
+    current.unshift({
+      value: `current:${id}`,
+      label:
+        selectedInstanceView.value?.id === id
+          ? instanceLabel(selectedInstanceView.value)
+          : workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
+    });
+  if (status.value?.canSubmit || status.value?.displayStatus === 'UNSUBMITTED')
+    current.unshift({
+      value: '',
+      label: workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
+    });
+  return [
+    ...current,
+    ...archives.value.map((item) => ({
+      value: `history:${item.id}`,
+      label: workflowLanguage.t(
+        'platform.workflow.archived-round',
+        '已归档 · {time} · 定义版本 v{version} · 归档时：{status}',
+        {
+          version: item.versionNo,
+          status: workflowTitle(item.instanceStatus),
+          time: roundTime(item.startedAt),
+        },
+      ),
+    })),
+  ];
+});
+function selectRound(value: unknown) {
+  if (
+    busy.value ||
+    preparing.value ||
+    loading.value ||
+    activeAction.value ||
+    typeof value !== 'string' ||
+    !roundOptions.value.some((item) => item.value === value)
+  )
+    return;
+  selectedHistory.value = value.startsWith('history:') ? value.slice(8) : undefined;
+  if (!selectedHistory.value) {
+    selectedInstance.value = value.startsWith('current:') ? value.slice(8) : undefined;
+    selectedInstanceView.value = recordInstances.value.find((item) => item.id === selectedInstance.value);
+  }
+  void load();
+}
+async function pageInstances(page: number) {
+  if (instancePaging.value || activeAction.value || page < 1 || page > instancePages.value) return;
+  const token = ++instanceDirectoryRevision,
+    context = props.context,
+    recordId = props.recordId;
+  instancePaging.value = true;
+  try {
+    const response = await client.value.recordInstances(context.moduleAlias, recordId, page);
+    if (token !== instanceDirectoryRevision || context !== props.context || recordId !== props.recordId)
+      return;
+    recordInstances.value = response.records;
+    instancePage.value = response.pageNum;
+    instancePages.value = response.pages;
+  } catch (cause) {
+    if (token === instanceDirectoryRevision)
+      error.value = () => userFacingErrorMessage(normalizeError(cause), workflowLanguage);
+  } finally {
+    if (token === instanceDirectoryRevision) instancePaging.value = false;
+  }
+}
 const accountOptions = computed(() => workflowAccountOptions(props.context.http));
 const accountContext = computed(() =>
   createModuleContext<Record<string, unknown>>({ http: props.context.http, moduleAlias: 'iam.user' }),
@@ -338,6 +456,7 @@ async function executeBusinessAction(guideKey: string) {
   try {
     await client.value.executeGuide(taskId, guideKey, {
       reason: reason.value,
+      reasonSourceLanguage: reasonSourceLanguage.value === '__unknown__' ? null : reasonSourceLanguage.value,
       manualRouteSelections: routeSelections(),
     });
     activeAction.value = undefined;
@@ -426,9 +545,12 @@ const decidedBranchRoutes = computed(
     ) ?? [],
 );
 watch(
-  () => [props.context, props.recordId, props.instanceId],
+  () => [props.context, props.recordId, props.instanceId, props.recordSubmission],
   () => {
     selectedHistory.value = undefined;
+    selectedInstance.value = undefined;
+    selectedInstanceView.value = undefined;
+    instancePage.value = 1;
     void load();
   },
   { immediate: true },
@@ -439,18 +561,68 @@ function userTitle(record: { id?: string; title?: string }): string {
 }
 async function load() {
   const current = ++revision;
+  ++instanceDirectoryRevision;
+  instancePaging.value = false;
   ++formRequest;
   preparing.value = false;
   loading.value = true;
   error.value = undefined;
+  // A new round is unusable until its entire authorized snapshot has loaded successfully.
+  status.value = undefined;
+  recordActionsReady.value = false;
+  originalBundle.value = undefined;
+  tasks.value = [];
+  events.value = [];
+  actions.value = [];
+  branches.value = [];
+  archives.value = [];
+  recordInstances.value = [];
+  instancePages.value = 0;
+  activeAction.value = undefined;
+  taskProcess.value = undefined;
+  taskDraft.value = undefined;
+  taskGuideKey.value = undefined;
+  guideReadRecord.value = undefined;
+  guideListContext.value = undefined;
+  previewReady.value = false;
+  previewBundle.value = undefined;
+  previewTasks.value = [];
   try {
-    const [next, history] = await Promise.all([
-      client.value.status(props.context.moduleAlias, props.recordId),
+    const approvalEntry =
+      (!props.instanceId || props.recordSubmission) && props.context.abilities?.has('approval') !== false;
+    const [next, history, directory, availabilityReady] = await Promise.all([
+      approvalEntry
+        ? client.value.status(props.context.moduleAlias, props.recordId)
+        : Promise.resolve(undefined),
       client.value.history(props.context.moduleAlias, props.recordId),
+      !props.instanceId && props.context.abilities?.has('workflow') === true
+        ? client.value.recordInstances(props.context.moduleAlias, props.recordId, instancePage.value)
+        : Promise.resolve(undefined),
+      approvalEntry
+        ? props.context.recordActions(props.recordId).then(
+            () => true,
+            () => false,
+          )
+        : Promise.resolve(false),
     ]);
     if (current !== revision) return;
-    status.value = next;
+    recordActionsReady.value = availabilityReady;
+    status.value = props.instanceId && next?.instanceId !== props.instanceId ? undefined : next;
     archives.value = history;
+    recordInstances.value = directory?.records ?? [];
+    instancePages.value = directory?.pages ?? 0;
+    if (selectedHistory.value && !history.some((item) => item.id === selectedHistory.value))
+      selectedHistory.value = undefined;
+    const id = currentInstanceId.value;
+    if (!selectedHistory.value && id && history.some((item) => item.id === id)) {
+      selectedHistory.value = id;
+      if (!props.instanceId) selectedInstance.value = undefined;
+    }
+    if (!props.instanceId && !selectedHistory.value && !selectedInstance.value) {
+      selectedInstance.value = next?.instanceId ?? directory?.records[0]?.id;
+      selectedInstanceView.value = directory?.records.find((item) => item.id === selectedInstance.value);
+      if (!approvalEntry && !selectedInstance.value && history.length) selectedHistory.value = history[0]!.id;
+    }
     activeAction.value = undefined;
     if (selectedHistory.value) {
       const [graph, taskList, eventList] = await Promise.all([
@@ -466,14 +638,14 @@ async function load() {
       branches.value = [];
       return;
     }
-    const id = props.instanceId ?? next.instanceId;
-    if (id) {
+    const selectedId = currentInstanceId.value;
+    if (selectedId) {
       const [graph, taskList, eventList, available, choices] = await Promise.all([
-        client.value.bundle(id),
-        client.value.taskViews(id),
-        client.value.eventViews(id),
-        client.value.actions(id),
-        client.value.branches(id),
+        client.value.bundle(selectedId),
+        client.value.taskViews(selectedId),
+        client.value.eventViews(selectedId),
+        client.value.actions(selectedId),
+        client.value.branches(selectedId),
       ]);
       if (current !== revision) return;
       originalBundle.value = graph;
@@ -497,13 +669,23 @@ async function load() {
     if (current === revision) loading.value = false;
   }
 }
-async function choose(action: WorkflowAction) {
+async function choose(action: WorkflowAction | undefined) {
+  const current = revision;
+  if (!action || loading.value || preparing.value || selectedHistory.value) return;
+  if (action.actionCode === 'revoke' && !canRevokeRecord.value) return;
+  if (
+    action.actionCode !== 'submitApproval' &&
+    (!originalBundle.value || originalBundle.value.instance.id !== currentInstanceId.value)
+  )
+    return;
   if (activeAction.value && !(await mayLeave())) return;
+  if (current !== revision || loading.value || selectedHistory.value) return;
   error.value = undefined;
   validationRequestKey.value = 0;
   previewReady.value = false;
   activeAction.value = action;
   reason.value = '';
+  reasonSourceLanguage.value = '__unknown__';
   targetAssigneeId.value = '';
   rejectMode.value = action.defaultRejectResubmitMode ?? 'restart';
   manualRoutes.value = {};
@@ -527,7 +709,7 @@ async function choose(action: WorkflowAction) {
   }
 }
 async function prepareAddSign(action: WorkflowAction) {
-  const id = props.instanceId ?? status.value?.instanceId,
+  const id = currentInstanceId.value,
     current = revision;
   if (!id) return;
   preparing.value = true;
@@ -544,6 +726,7 @@ async function prepareAddSign(action: WorkflowAction) {
   }
 }
 async function preview() {
+  if (!canSubmitRecord.value || loading.value || selectedHistory.value) return;
   busy.value = true;
   try {
     branches.value = await client.value.submitBranches(props.context.moduleAlias, props.recordId);
@@ -588,7 +771,7 @@ function routeSelections() {
 }
 async function refreshManualChoices() {
   const action = activeAction.value;
-  const instanceId = props.instanceId ?? status.value?.instanceId;
+  const instanceId = currentInstanceId.value;
   if (
     !action ||
     (action.actionCode !== 'submitApproval' &&
@@ -763,8 +946,18 @@ async function saveAndComplete() {
     draft = taskDraft.value;
   if (!taskId || !taskGuideKey.value || !draft || busy.value || preparing.value) return;
   if (!manualSelectionValid()) return;
+  const current = revision,
+    context = props.context,
+    action = activeAction.value;
   validationRequestKey.value++;
   await nextTick();
+  if (
+    current !== revision ||
+    context !== props.context ||
+    action !== activeAction.value ||
+    draft !== taskDraft.value
+  )
+    return;
   if (!taskValidity.value.valid) {
     error.value = () =>
       workflowLanguage.t(
@@ -784,6 +977,12 @@ async function saveAndComplete() {
           .map((key) => [key, draft[key]]),
       ),
       reason: reason.value,
+      reasonSourceLanguage: reasonSourceLanguage.value === '__unknown__' ? null : reasonSourceLanguage.value,
+      contentLanguages: Object.fromEntries(
+        Object.entries((draft.$contentLanguages ?? {}) as Record<string, unknown>).filter(
+          ([field]) => taskFields.value.has(field) && Object.hasOwn(draft, field),
+        ),
+      ),
       manualRouteSelections: routeSelections(),
     });
     activeAction.value = undefined;
@@ -805,7 +1004,10 @@ async function saveAndComplete() {
 }
 async function execute() {
   const action = activeAction.value;
-  if (!action || busy.value || preparing.value) return;
+  if (!action || busy.value || preparing.value || loading.value || selectedHistory.value) return;
+  const instanceId = originalBundle.value?.instance.id;
+  if (action.actionCode !== 'submitApproval' && (!instanceId || instanceId !== currentInstanceId.value))
+    return;
   if (!manualSelectionValid()) return;
   if (action.actionCode === 'submitApproval' && !previewReady.value) {
     error.value = () =>
@@ -882,6 +1084,7 @@ async function execute() {
   const payload = {
     addSignSegment,
     reason: reason.value,
+    reasonSourceLanguage: reasonSourceLanguage.value === '__unknown__' ? null : reasonSourceLanguage.value,
     targetAssigneeId: action.targetAssigneeRequired ? targetAssigneeId.value : undefined,
     rejectResubmitMode: action.actionCode === 'reject' ? rejectMode.value : undefined,
     manualRouteSelections: selections,
@@ -892,8 +1095,8 @@ async function execute() {
     if (action.actionCode === 'submitApproval')
       await client.value.submit(props.context.moduleAlias, props.recordId, payload);
     else if (action.taskId) await client.value.taskAction(action.taskId, action.actionCode, payload);
-    else if (status.value?.instanceId)
-      await client.value.instanceAction(status.value.instanceId, action.actionCode, payload);
+    else if (instanceId) await client.value.instanceAction(instanceId, action.actionCode, payload);
+    else throw new Error('Workflow instance is unavailable');
     activeAction.value = undefined;
     showSuccessMessage(
       workflowLanguage.t('platform.screen.WorkflowRecordPanel.workflow-action-completed', '流程操作已完成'),
@@ -917,11 +1120,15 @@ async function execute() {
       <strong>{{
         workflowLanguage.t('platform.screen.WorkflowRecordPanel.approvals-and-tasks', '审批与任务')
       }}</strong
-      ><span>{{ workflowTitle(status?.displayStatus) }}</span
+      ><span v-if="status">{{ workflowTitle(status.displayStatus) }}</span
       ><span v-if="bundle">{{
-        workflowLanguage.t('platform.workflow-record.status', '流程：{status}', {
-          status: workflowTitle(bundle.instance.instanceStatus),
-        })
+        workflowLanguage.t(
+          selectedHistory ? 'platform.workflow.archived-status' : 'platform.workflow-record.status',
+          selectedHistory ? '归档时状态：{status}' : '流程：{status}',
+          {
+            status: workflowTitle(bundle.instance.instanceStatus),
+          },
+        )
       }}</span
       ><UiButton :loading="loading" :disabled="busy || preparing || Boolean(activeAction)" @click="load">{{
         workflowLanguage.t('platform.screen.WorkflowRecordPanel.refresh-workflow', '刷新流程')
@@ -931,34 +1138,33 @@ async function execute() {
     <p v-if="status?.errorMessage">
       {{ presentationLabel(status.errorMessage, status.errorMessageText, workflowLanguage) }}
     </p>
-    <label class="workflow-field" v-if="archives.length"
+    <label class="workflow-field" v-if="roundOptions.length"
       >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.view-workflow-rounds', '查看流程轮次')
       }}<UiSelect
-        :disabled="busy || preparing || Boolean(activeAction)"
-        :value="selectedHistory ?? ''"
-        :options="[
-          {
-            value: '',
-            label: workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
-          },
-          ...archives.map((item) => ({
-            value: item.id,
-            label: workflowLanguage.t(
-              'platform.screen.WorkflowRecordPanel.history-vvalue-value-value',
-              '历史 v{value1} · {value2} · {value3}',
-              {
-                value1: item.versionNo,
-                value2: workflowTitle(item.instanceStatus),
-                value3: item.startedAt ?? '',
-              },
-            ),
-          })),
-        ]"
-        @update:value="
-          selectedHistory = String($event) || undefined;
-          load();
+        :disabled="loading || busy || preparing || instancePaging || Boolean(activeAction)"
+        :value="
+          selectedHistory
+            ? `history:${selectedHistory}`
+            : currentInstanceId
+              ? `current:${currentInstanceId}`
+              : ''
         "
+        :options="roundOptions"
+        @update:value="selectRound"
     /></label>
+    <div v-if="instancePages > 1" class="workflow-operations">
+      <UiButton
+        :disabled="instancePage <= 1 || instancePaging || busy || Boolean(activeAction)"
+        @click="pageInstances(instancePage - 1)"
+        >{{ workflowLanguage.t('platform.content.previous', '上一页') }}</UiButton
+      >
+      <span>{{ instancePage }} / {{ instancePages }}</span>
+      <UiButton
+        :disabled="instancePage >= instancePages || instancePaging || busy || Boolean(activeAction)"
+        @click="pageInstances(instancePage + 1)"
+        >{{ workflowLanguage.t('platform.content.next', '下一页') }}</UiButton
+      >
+    </div>
     <p v-if="selectedHistory">
       {{
         workflowLanguage.t(
@@ -969,7 +1175,11 @@ async function execute() {
     </p>
     <div class="workflow-operations">
       <UiButton
-        v-if="!selectedHistory && (status?.canSubmit || status?.displayStatus === 'UNSUBMITTED')"
+        v-if="
+          !selectedHistory &&
+          canSubmitRecord &&
+          (status?.canSubmit || status?.displayStatus === 'UNSUBMITTED')
+        "
         type="primary"
         :loading="busy"
         :disabled="loading || Boolean(activeAction)"
@@ -989,7 +1199,11 @@ async function execute() {
       />
       <UiButton
         v-if="
-          !selectedHistory && status?.instanceId && ['PROCESSING', 'REJECTED'].includes(status.displayStatus)
+          !selectedHistory &&
+          canRevokeRecord &&
+          status?.instanceId &&
+          status.instanceId === currentInstanceId &&
+          status.displayStatus === 'PROCESSING'
         "
         :disabled="busy || Boolean(activeAction)"
         @click="
@@ -1003,7 +1217,7 @@ async function execute() {
           workflowLanguage.t('platform.screen.WorkflowRecordPanel.withdraw-application', '撤回申请')
         }}</UiButton
       >
-      <UiButton v-if="status?.instanceId" @click="showHistory = !showHistory">{{
+      <UiButton v-if="bundle?.instance.id" @click="showHistory = !showHistory">{{
         showHistory
           ? workflowLanguage.t('platform.screen.WorkflowRecordPanel.hide-processing-history', '收起办理记录')
           : workflowLanguage.t('platform.screen.WorkflowRecordPanel.processing-history', '办理记录')
@@ -1045,6 +1259,20 @@ async function execute() {
             "
             :rows="2"
         /></label>
+        <label class="workflow-field">
+          <span>{{ workflowLanguage.t('platform.content.source-language', '本次原文的填写语言') }}</span>
+          <UiSelect
+            v-model:value="reasonSourceLanguage"
+            :aria-label="workflowLanguage.t('platform.content.source-language', '本次原文的填写语言')"
+            :options="[
+              {
+                value: '__unknown__',
+                label: workflowLanguage.t('platform.content.unknown-language', '来源语言未确定'),
+              },
+              ...businessContentLanguages,
+            ]"
+          />
+        </label>
         <label class="workflow-field" v-if="activeAction.targetAssigneeRequired"
           >{{ workflowLanguage.t('platform.screen.WorkflowRecordPanel.recipient', '接收人')
           }}<RecordPicker
@@ -1429,6 +1657,9 @@ async function execute() {
         :events="events"
         :tasks="tasks"
         :nodes="bundle?.nodes ?? []"
+        :context="context"
+        :instance-id="selectedHistory ?? bundle?.instance?.id"
+        :history="Boolean(selectedHistory)"
       />
     </div>
     <details v-if="bundle" class="workflow-map">

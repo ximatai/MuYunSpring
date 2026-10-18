@@ -48,6 +48,12 @@ public class StaticReferenceResolveFacade {
     private final StaticAbilityCatalog abilities;
     private final DynamicRecordService dynamicRecords;
     private final java.util.Optional<RecordTextPresentationService> texts;
+    private BusinessContentRecordPresentationService content;
+    @Autowired(required = false)
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+
+    @Autowired(required = false)
+    public void setBusinessContentPresentation(BusinessContentRecordPresentationService content) { this.content = content; }
 
     @Autowired
     public StaticReferenceResolveFacade(StaticModuleDefinitionCatalog modules, StaticAbilityCatalog abilities,
@@ -100,7 +106,9 @@ public class StaticReferenceResolveFacade {
     private WebReferenceResolveResponse withSubtitles(ReferencePlan plan, WebReferenceResolveResponse response) {
         var result = net.ximatai.muyun.spring.web.WebReferenceCandidateSubtitles.apply(response, plan.target(),
                 plan.candidateSubtitleProjection(), selectionProjectionResolver());
-        return texts.map(service -> service.projectReference(plan.target().qualifiedName(), titleField(plan), result)).orElse(result);
+        var projected = texts.map(service -> service.projectReference(plan.target().qualifiedName(), titleField(plan), result)).orElse(result);
+        return content == null ? projected : content.projectReference(plan.target(), titleField(plan),
+                plan.candidateSubtitleProjection() == null ? null : plan.candidateSubtitleProjection().key(), projected);
     }
 
     /**
@@ -118,7 +126,10 @@ public class StaticReferenceResolveFacade {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
         Criteria criteria = candidateCriteria(plan, request);
         if (request.fuzzy() != null && !request.fuzzy().isBlank()) {
-            criteria.likeIgnoreCase(titleField(plan), QueryLikePattern.containsLiteral(request.fuzzy().trim()));
+            Criteria label = Criteria.of().likeIgnoreCase(titleField(plan), QueryLikePattern.containsLiteral(request.fuzzy().trim()));
+            var owner = abilities.findByTarget(plan.target()).orElseGet(() -> dynamicRecords == null ? null
+                    : dynamicRecords.entity(plan.target().moduleAlias(), plan.target().entityAlias()));
+            criteria.and(contentQueries == null || owner == null ? label : contentQueries.expandUserText(owner, label));
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);

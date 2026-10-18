@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
+
 import net.ximatai.muyun.spring.ability.reference.PlatformStandardReferences;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 
@@ -47,6 +49,22 @@ public class StaticRecordReadProjectionService {
     private final RelationProjectionReadService relationProjectionReadService;
     private final OptionSourceRegistry optionSourceRegistry;
     private RecordTextPresentationService recordTexts;
+    private BusinessContentListQueryService contentLists;
+
+    @Autowired(required = false)
+    public void setBusinessContentListQueryService(BusinessContentListQueryService service) { contentLists = service; }
+
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+
+    @Autowired(required = false)
+    public void setBusinessContentQueryService(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService service) {
+        this.contentQueries = service;
+    }
+
+    private QueryCompiler queryCompiler(ModuleExecutionPlan plan, CrudAbility<?> owner) {
+        return new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
+                criteria -> contentQueries == null ? criteria : contentQueries.expandUserText(owner, criteria));
+    }
 
     @Autowired(required = false)
     public void setRecordTextPresentationService(RecordTextPresentationService recordTexts) {
@@ -108,6 +126,36 @@ public class StaticRecordReadProjectionService {
                 modelClass(moduleAlias, recordService), recordService);
     }
 
+    /** Native reading order, followed by the owner's ordinary read and output projection. */
+    public <T extends net.ximatai.muyun.spring.common.model.contract.EntityContract> Optional<PageResult<T>>
+            queryContentOrderedList(String moduleAlias, QueryRequest request, Criteria additionalCriteria,
+                    PageRequest page, CrudAbility<T> owner, ActionExecutionPolicy policy, RecordReadVisibility visibility) {
+        if (contentLists == null || BusinessContentQueryWebContext.language().isEmpty()) return Optional.empty();
+        ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
+        QueryCompiler compiler = queryCompiler(plan, owner);
+        Sort[] sorts = compiler.sorts(request);
+        if (!contentLists.applies(owner, sorts)) return Optional.empty();
+        if (!visibility.action().matches(policy.actionCode())) throw new IllegalArgumentException("content query action mismatch");
+        Criteria criteria = andCriteria(compiler.criteria(request), additionalCriteria);
+        java.util.function.Function<Criteria, PageResult<T>> read = scoped -> {
+            Criteria effective = visibility.apply(owner, scoped);
+            RelationProjectionSqlPlan source = null;
+            StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElseThrow();
+            Optional<RecordReadProjection> projection = defaultListProjection(moduleAlias, owner);
+            if (projection.isPresent() && relationProjectionReadService.describeListQuery(
+                    staticModuleDefinitionCatalog.definitions(), definition, projection.get()).supported()) {
+                source = relationProjectionReadService.prepareListSource(staticModuleDefinitionCatalog.definitions(),
+                        definition, projection.get(), effective, sorts);
+            }
+            return contentLists.page(owner, source, effective, page, visibility, sorts);
+        };
+        if (owner instanceof DataScopeAbility<?> scoped) {
+            DataScopeCriteriaResult scope = scoped.readScopeByPolicy(policy, criteria);
+            return Optional.of(scoped.withDataScopeTenant(scope, () -> read.apply(scope.criteria())));
+        }
+        return Optional.of(read.apply(criteria));
+    }
+
     public boolean supportsDefaultListQuery(String moduleAlias, Object recordService) {
         StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
         if (definition == null) {
@@ -137,7 +185,9 @@ public class StaticRecordReadProjectionService {
 
     public Criteria queryCriteria(String moduleAlias, Object recordService, QueryRequest request) {
         QueryDescriptor descriptor = projectionAwareQueryDescriptor(moduleAlias, recordService);
-        return new QueryCompiler(descriptor).criteria(request);
+        return new QueryCompiler(descriptor, net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition.TREE,
+                criteria -> contentQueries == null || !(recordService instanceof CrudAbility<?> owner) ? criteria
+                        : contentQueries.expandUserText(owner, criteria)).criteria(request);
     }
 
     public Sort[] querySorts(String moduleAlias, Object recordService, QueryRequest request) {
@@ -172,7 +222,7 @@ public class StaticRecordReadProjectionService {
         // The compiled plan owns the query allow-list.  Do not re-read a controller/service
         // declaration while executing a migrated standard module request.
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        QueryCompiler compiler = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition());
+        QueryCompiler compiler = queryCompiler(plan, recordService);
         Criteria criteria = andCriteria(compiler.criteria(request), additionalCriteria);
         Sort[] sorts = compiler.sorts(request);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
@@ -205,7 +255,7 @@ public class StaticRecordReadProjectionService {
         if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
                 || aggregateQuery == null) return Optional.empty();
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
+        Criteria criteria = andCriteria(queryCompiler(plan, recordService)
                 .criteria(request), additionalCriteria);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
@@ -265,10 +315,12 @@ public class StaticRecordReadProjectionService {
                         ActionExecutionContextHolder.current().orElse(null)));
         PageResult<Map<String, Object>> page = relationProjectionReadService.queryListWithInternalFields(
                 staticModuleDefinitionCatalog.definitions(), definition, projection, criteria, pageRequest,
-                referenceSourceFields(projection, modelClass(moduleAlias, recordService)), sorts
+                postReadFields(projection, modelClass(moduleAlias, recordService), recordService), sorts
         ).orElse(null);
         if (page == null) return Optional.empty();
         Class<?> modelClass = modelClass(moduleAlias, recordService);
+        if (recordService instanceof CrudAbility<?> owner)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(owner, page.getRecords());
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
             if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
                 recordTexts.captureProjected(ability, projected, visibility);
@@ -340,13 +392,15 @@ public class StaticRecordReadProjectionService {
                 projection,
                 criteria,
                 pageRequest,
-                referenceSourceFields(projection, modelClass(moduleAlias, recordService)),
+                postReadFields(projection, modelClass(moduleAlias, recordService), recordService),
                 sorts
         ).orElse(null);
         if (page == null) {
             return Optional.empty();
         }
         Class<?> modelClass = modelClass(moduleAlias, recordService);
+        if (recordService instanceof CrudAbility<?> owner)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(owner, page.getRecords());
         List<Map<String, Object>> records = postProcessStaticOutput(modelClass, projection, page.getRecords(), projected -> {
             if (recordTexts != null && recordService instanceof CrudAbility<?> ability)
                 recordTexts.captureProjected(ability, projected, RecordReadVisibility.ACTIVE);
@@ -492,6 +546,8 @@ public class StaticRecordReadProjectionService {
         }
         List<String> internal = new java.util.ArrayList<>(projection.internalReadFields());
         internal.addAll(referenceSourceFields(projection, modelClass));
+        if (contentQueries != null && recordService instanceof CrudAbility<?> owner && !contentQueries.fields(owner).isEmpty())
+            internal.addAll(List.of("tenantId", "createdAt", "updatedAt", "version"));
         List<String> normalizedInternal = internal.stream().distinct().toList();
         if (normalizedInternal.equals(projection.internalReadFields())) {
             return projection;
@@ -533,6 +589,13 @@ public class StaticRecordReadProjectionService {
         return internal;
     }
 
+    private Set<String> postReadFields(RecordReadProjection projection, Class<?> modelClass, Object recordService) {
+        var fields = new LinkedHashSet<>(referenceSourceFields(projection, modelClass));
+        if (contentQueries != null && recordService instanceof CrudAbility<?> owner && !contentQueries.fields(owner).isEmpty())
+            fields.addAll(List.of("tenantId", "createdAt", "updatedAt", "version"));
+        return fields;
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private <T> WebPageResponse<T> projectResponse(WebPageResponse<T> response,
                                                    RecordReadProjection projection,
@@ -557,12 +620,14 @@ public class StaticRecordReadProjectionService {
                                                               RecordReadProjection projection,
                                                               List<Map<String, Object>> records,
                                                               java.util.function.Consumer<List<Map<String, Object>>> beforeRestriction) {
-        return ReferenceReadProjectionPostProcessor.apply(modelClass,
-                RecordReadProjectionPostProcessor.applyStaticOutput(
+        var projected = RecordReadProjectionPostProcessor.applyStaticOutput(
                         modelClass,
                         projection,
                         records,
-                        optionSourceRegistry),
+                        optionSourceRegistry);
+        for (int index = 0; index < records.size(); index++)
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(records.get(index), projected.get(index));
+        return ReferenceReadProjectionPostProcessor.apply(modelClass, projected,
                 outputFieldNames(projection, modelClass), beforeRestriction);
     }
 }

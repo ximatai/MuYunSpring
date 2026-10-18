@@ -181,6 +181,7 @@ public class StaticEntityDefinitionCompiler {
     private List<FieldDefinition> fields(Class<?> modelClass, boolean sortable) {
         List<FieldDefinition> fields = new ArrayList<>();
         var writeBindings = StaticFieldWriteRules.resolve(modelClass);
+        var contentFields = StaticContentFieldDefinitionCompiler.resolve(modelClass);
         for (Field field : declaredFields(modelClass)) {
             Column column = field.getAnnotation(Column.class);
             if (column == null) {
@@ -220,6 +221,7 @@ public class StaticEntityDefinitionCompiler {
             if (pattern != null) definition = definition.validationRegex(pattern.value());
             definition = StaticMeasureUnitFieldDefinitionCompiler.compile(definition, field);
             definition = StaticMoneyFieldDefinitionCompiler.compile(definition, field);
+            definition = definition.content(contentFields.getOrDefault(field.getName(), net.ximatai.muyun.spring.common.content.ContentFieldDefinition.NONE));
             fields.add(definition);
         }
         if (sortable && fields.stream().noneMatch(field -> field.fieldName().equals("sortOrder"))) {

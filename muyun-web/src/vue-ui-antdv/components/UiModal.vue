@@ -7,6 +7,7 @@ import { useUiBlockingOverlayVisibility } from '../blockingOverlays';
 const language = useLanguageContext();
 
 defineOptions({ name: 'UiModal', inheritAttrs: false });
+defineSlots<{ default?: () => unknown; operation?: () => unknown }>();
 
 const props = withDefaults(
   defineProps<{
@@ -17,6 +18,8 @@ const props = withDefaults(
     confirmLoading?: boolean;
     confirmDisabled?: boolean;
     closable?: boolean;
+    /** Keeps dialog actions reachable while long content scrolls within the viewport. */
+    scrollContent?: boolean;
     width?: number | string;
   }>(),
   {
@@ -25,6 +28,7 @@ const props = withDefaults(
     confirmLoading: false,
     confirmDisabled: false,
     closable: true,
+    scrollContent: false,
     width: 420,
   },
 );
@@ -61,6 +65,16 @@ const emit = defineEmits<{
     @cancel="emit('cancel')"
     @after-close="updateOverlayVisibility(false)"
   >
-    <div ref="overlayContent"><slot /></div>
+    <div ref="overlayContent" :class="{ 'ui-modal-scroll-content': scrollContent }"><slot /></div>
+    <template v-if="$slots.operation" #footer><slot name="operation" /></template>
   </AModal>
 </template>
+
+<style scoped>
+.ui-modal-scroll-content {
+  max-height: calc(100dvh - 260px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-inline: 3px;
+}
+</style>

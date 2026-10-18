@@ -167,7 +167,7 @@ export function restoreWorkbenchStartupStateFromUrl(
   const explicitTarget = explicitMenu ? getMenuNavigationTarget(explicitMenu) : undefined;
   const descriptorWithExplicitMenuTitle =
     explicitMenu && explicitTarget && explicitMenuOwnsDynamicDescriptor(explicitTarget, descriptor)
-      ? { ...descriptor, title: explicitMenu.title }
+      ? { ...descriptor, title: explicitMenu.title, titleText: explicitMenu.titleText }
       : descriptor;
   const workspaceDescriptor = restoredWorkspaceViewDescriptor(
     descriptorWithExplicitMenuTitle,
@@ -513,11 +513,15 @@ function createRestoredMenuTab(
   const descriptor = withPageInstanceKey(incomingDescriptor, instanceKey);
   const tab = createMenuTab(menu, target, options);
   const resolvedDescriptor = tab.pageDescriptor ?? descriptor;
+  const title =
+    descriptor.title === undefined
+      ? { title: menu.title, titleText: resolvedDescriptor.titleText }
+      : { title: descriptor.title };
   const pageDescriptor: PageDescriptor =
     isRouteDescriptor(descriptor) && isRouteDescriptor(resolvedDescriptor)
       ? {
           ...descriptor,
-          title: descriptor.title ?? menu.title,
+          ...title,
           menuId: menu.id,
           target: {
             ...descriptor.target,
@@ -528,7 +532,7 @@ function createRestoredMenuTab(
       : isUrlDescriptor(descriptor) && isUrlDescriptor(resolvedDescriptor)
         ? {
             ...descriptor,
-            title: descriptor.title ?? menu.title,
+            ...title,
             menuId: menu.id,
             target: {
               ...descriptor.target,
@@ -538,7 +542,7 @@ function createRestoredMenuTab(
           }
         : {
             ...descriptor,
-            title: descriptor.title ?? menu.title,
+            ...title,
             menuId: menu.id,
             tabPolicy: resolvedDescriptor.tabPolicy,
           };

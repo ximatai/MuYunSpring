@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadFacade;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.platform.reference.DynamicReferenceDeletionGuard;
 import net.ximatai.muyun.spring.platform.reference.PlatformReferenceTargetResolver;
@@ -118,6 +119,36 @@ public class MuYunSpringReferenceConfiguration {
     }
 
     @Bean
+    ReferenceTextReadListenerRegistration referenceTextReadListenerRegistration(
+            ObjectProvider<ReferenceTextReadListener> listenerProvider) {
+        var listeners = listenerProvider.orderedStream().toList();
+        ReferenceTextReadListener listener = listeners.isEmpty() ? ReferenceTextReadListener.NONE : new ReferenceTextReadListener() {
+            @Override public void onProjection(ReferenceTextReadListener.Projection projection) {
+                notifyListeners(consumer -> consumer.onProjection(projection));
+            }
+            @Override public void onCandidateSubtitles(ReferenceTextReadListener.CandidateSubtitles subtitles) {
+                notifyListeners(consumer -> consumer.onCandidateSubtitles(subtitles));
+            }
+            @Override public void onRecords(net.ximatai.muyun.spring.ability.CrudAbility<?> owner, java.util.Collection<?> records) {
+                notifyListeners(consumer -> consumer.onRecords(owner, records));
+            }
+            @Override public void onOwnerCopy(Object source, Object output) {
+                notifyListeners(consumer -> consumer.onOwnerCopy(source, output));
+            }
+            private void notifyListeners(java.util.function.Consumer<ReferenceTextReadListener> callback) {
+                for (var consumer : listeners) {
+                    try { callback.accept(consumer); }
+                    catch (RuntimeException exception) {
+                        // Optional presentation capture never blocks raw reads or logs business payloads.
+                        LOGGER.warn("Reference text projection listener failed and was ignored ({})", exception.getClass().getSimpleName());
+                    }
+                }
+            }
+        };
+        return new ReferenceTextReadListenerRegistration(listener);
+    }
+
+    @Bean
     /** 注册多跳引用字段加载解析器，静态与动态路径共享其投影语义。 */
     ReferenceLoadResolverRegistration referenceLoadResolverRegistration(ReferenceLoadResolver resolver) {
         return new ReferenceLoadResolverRegistration(resolver);
@@ -182,6 +213,13 @@ public class MuYunSpringReferenceConfiguration {
         public void destroy() {
             PlatformAbilityRuntime.resetReferenceReadObserver();
         }
+    }
+
+    static final class ReferenceTextReadListenerRegistration implements DisposableBean {
+        ReferenceTextReadListenerRegistration(ReferenceTextReadListener listener) {
+            PlatformAbilityRuntime.configureReferenceTextReadListener(listener);
+        }
+        @Override public void destroy() { PlatformAbilityRuntime.resetReferenceTextReadListener(); }
     }
 
     static final class ChildAbilityResolverRegistration implements DisposableBean {

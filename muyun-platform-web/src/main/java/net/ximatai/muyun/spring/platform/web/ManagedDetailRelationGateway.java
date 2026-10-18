@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.web.BusinessContentQueryWebContext;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -8,6 +9,7 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.VerifiedMutationScope;
@@ -42,6 +44,17 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
     private final ActionEndpointContextResolver actionContextResolver;
     private final ObjectMapper objectMapper;
     private final Map<RelationKey, StaticManagedDetailRelationHandler<?, ?>> handlers;
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
+    private BusinessContentListQueryService contentLists;
+
+    @Autowired(required = false)
+    public void setBusinessContentListQueryService(BusinessContentListQueryService service) { contentLists = service; }
+
+
+    @Autowired(required = false)
+    public void setBusinessContentQueryService(net.ximatai.muyun.spring.platform.content.BusinessContentQueryService service) {
+        contentQueries = service;
+    }
 
     @Autowired
     public ManagedDetailRelationGateway(ModuleExecutionPlanCatalog planCatalog,
@@ -110,7 +123,11 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
         Criteria criteria = runtime.handler().criteriaFor(runtime.parent());
         QueryAbility<?> queryAbility = runtime.handler().childService() instanceof QueryAbility<?> ability ? ability : null;
         if (queryAbility != null) {
-            Criteria requested = queryAbility.queryCriteria(WebQueryRequests.from(request));
+            Criteria requested = new QueryCompiler(queryAbility.queryDescriptor(),
+                    net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition.TREE,
+                    condition -> contentQueries == null ? condition
+                            : contentQueries.expandUserText(runtime.handler().childService(), condition))
+                    .criteria(WebQueryRequests.from(request));
             if (requested != null) criteria.and(requested);
         } else if (request != null && (!request.conditions().isEmpty() || request.criteria() != null && !request.criteria().isEmpty())) {
             throw new IllegalArgumentException("managed relation query conditions are not supported: " + relationCode);
@@ -144,14 +161,49 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
             DataScopeCriteriaResult scope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(),
                     action.actionPolicy(), criteria);
             Sort[] resolvedSorts = sorts == null ? new Sort[0] : sorts;
-            result = scoped.withDataScopeTenant(scope, () -> runtime.handler().childService().pageQuery(
+            result = scoped.withDataScopeTenant(scope, () -> queryChildPage(runtime.handler().childService(),
                     scope.criteria(), PageRequest.of(page.pageNum(), page.pageSize()), resolvedSorts));
         } else {
-            result = runtime.handler().childService().pageQuery(criteria,
+            result = queryChildPage(runtime.handler().childService(), criteria,
                     PageRequest.of(page.pageNum(), page.pageSize()), sorts == null ? new Sort[0] : sorts);
         }
-        return projectRelationOutput(runtime, WebPageResponse.from(WebOutputSupport.page(
+        WebPageResponse<?> output = projectRelationOutput(runtime, WebPageResponse.from(WebOutputSupport.page(
                 (CrudAbility) runtime.handler().childService(), (PageResult) result, FieldOutputContext.LIST)));
+        return contentQueryOutput(runtime, request, queryAbility, action, output);
+    }
+
+    private WebPageResponse<?> contentQueryOutput(RelationRuntime runtime, WebQueryRequest request,
+            QueryAbility<?> queryAbility, ActionExecutionContext action, WebPageResponse<?> output) {
+        if (contentQueries == null || BusinessContentQueryWebContext.language().isEmpty()) return output;
+        CrudAbility<?> owner = runtime.handler().childService();
+        var declared = contentQueries.fields(owner);
+        if (declared.isEmpty()) return output;
+        Set<String> fields = queryAbility == null ? Set.of() : queryAbility.queryDescriptor().fields().stream()
+                .map(net.ximatai.muyun.spring.ability.query.QueryField::fieldName)
+                .filter(declared::contains).collect(java.util.stream.Collectors.toSet());
+        Criteria coverage = runtime.handler().criteriaFor(runtime.parent());
+        if (queryAbility != null) coverage.and(new QueryCompiler(queryAbility.queryDescriptor(),
+                net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition.TREE,
+                user -> contentQueries.coverageUserScope(owner, user)).criteria(WebQueryRequests.from(request)));
+        String language = BusinessContentQueryWebContext.language().orElseThrow();
+        coverage.and(contentQueries.missingReadingCriteria(owner, fields, language));
+        long missing;
+        if (owner instanceof DataScopeAbility<?> scoped) {
+            var scope = scoped.readScopeByPolicy(runtime.relation().sourceModuleAlias(), action.actionPolicy(), coverage);
+            missing = scoped.withDataScopeTenant(scope, () -> owner.count(scope.criteria()));
+        } else missing = owner.count(coverage);
+        return output.withBusinessContent(new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus(language, missing,
+                contentLists == null ? Map.of() : contentLists.readings(owner, output.records(), declared),
+                runtime.relation().sourceModuleAlias().equals(runtime.relation().targetModuleAlias())
+                        ? new net.ximatai.muyun.spring.web.WebBusinessContentQueryStatus.GenerationScope(
+                                runtime.relation().sourceModuleAlias(), runtime.parent().getId(), runtime.relation().code()) : null));
+    }
+
+    private <T extends EntityContract> PageResult<T> queryChildPage(CrudAbility<T> owner, Criteria criteria,
+            PageRequest page, Sort... sorts) {
+        return contentLists != null && contentLists.applies(owner, sorts)
+                ? contentLists.page(owner, null, owner.activeCriteria(criteria), page, RecordReadVisibility.ACTIVE, sorts)
+                : owner.pageQuery(criteria, page, sorts);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

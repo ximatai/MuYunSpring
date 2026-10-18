@@ -1,11 +1,10 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.web.*;
-
 import jakarta.servlet.http.HttpServletRequest;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -13,11 +12,13 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
-import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
-import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
+import net.ximatai.muyun.spring.web.*;
+import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
+
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 
@@ -80,14 +81,28 @@ public class ActionEndpointContextResolver {
         }
         if (!endpoint.actionCodePathVariable().isBlank()) {
             if (!endpoint.value().isBlank() || contribution != null) {
-                throw new IllegalStateException("path-bound action cannot also declare a fixed action");
+                throw new IllegalStateException(
+                        "path-bound action cannot also declare a fixed action");
             }
             String actionCode = PlatformNameRules.requireActionCode(
                     pathVariable(request, endpoint.actionCodePathVariable()), "actionCode");
-            PlatformModuleAction action = registeredAction(moduleAlias, actionCode)
-                    .filter(value -> !endpoint.formContext() || Boolean.TRUE.equals(value.getFormSupported()))
-                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
-                            "module action is not published for this transport: " + moduleAlias + "." + actionCode));
+            PlatformModuleAction action =
+                    registeredAction(moduleAlias, actionCode)
+                            .filter(
+                                    value ->
+                                            !endpoint.formContext()
+                                                    || Boolean.TRUE.equals(
+                                                            value.getFormSupported()))
+                            .orElseThrow(
+                                    () ->
+                                            new PlatformException(
+                                                    PlatformErrorCodes.RESOURCE_NOT_FOUND,
+                                                    404,
+                                                    "module action is not published for this"
+                                                        + " transport: "
+                                                            + moduleAlias
+                                                            + "."
+                                                            + actionCode));
             return Optional.of(ActionExecutionContext.ofPolicy(moduleAlias, action.executionPolicy(),
                     customRecordIds(request, endpoint), CurrentUserContext.currentUser()));
         }
@@ -149,13 +164,27 @@ public class ActionEndpointContextResolver {
                 recordIds, CurrentUserContext.currentUser());
     }
 
-    /** Resolves a complete compiled action definition, then applies the persisted policy override. */
-    public ActionExecutionContext resolveAction(String moduleAlias,
-                                                StaticModuleActionDefinition action,
-                                                Set<String> recordIds) {
+    /** Producer field identity after an owning aggregate has authorized the read; grants are not inherited. */
+    public ActionExecutionContext resolveFieldReadContext(String moduleAlias, Set<String> recordIds) {
+        return ActionExecutionContext.ofPolicy(
+                moduleAlias,
+                resolvedPolicy(
+                        moduleAlias,
+                        net.ximatai.muyun.spring.common.platform.PlatformAction.VIEW
+                                .executionPolicy()),
+                recordIds,
+                CurrentUserContext.currentUser());
+    }
+
+    /**
+     * Resolves a complete compiled action definition, then applies the persisted policy override.
+     */
+    public ActionExecutionContext resolveAction(
+            String moduleAlias, StaticModuleActionDefinition action, Set<String> recordIds) {
         java.util.Objects.requireNonNull(action, "action must not be null");
         requireActionPublished(moduleAlias, action.actionCode());
-        ActionExecutionPolicy policy = resolvedCompiledPolicy(moduleAlias, action.executionPolicy());
+        ActionExecutionPolicy policy =
+                resolvedCompiledPolicy(moduleAlias, action.executionPolicy());
         return ActionExecutionContext.ofPolicy(moduleAlias, policy, recordIds, CurrentUserContext.currentUser());
     }
 

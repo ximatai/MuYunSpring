@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput;
+
 import net.ximatai.muyun.spring.ability.action.ActionMessage;
 import net.ximatai.muyun.spring.ability.action.MutationContextHolder;
 import net.ximatai.muyun.spring.common.platform.ModuleRecordActionCommand;
@@ -34,6 +36,13 @@ public class WorkflowBusinessTaskActionService {
     public Result execute(String taskId, String guideKey, Integer version, Map<String, Object> values,
                           Map<String, Object> payload, String operatorId, String reason,
                           List<WorkflowManualRouteSelection> manualRouteSelections) {
+        return execute(taskId, guideKey, version, values, payload, operatorId, reason, manualRouteSelections, Map.of());
+    }
+    @Transactional
+    public Result execute(String taskId, String guideKey, Integer version, Map<String, Object> values,
+                          Map<String, Object> payload, String operatorId, String reason,
+                          List<WorkflowManualRouteSelection> manualRouteSelections,
+                          Map<String, SourceInput> contentLanguages) {
         var task = WorkflowMutationLock.task(tasks, taskId);
         var process = runtime.prepare(taskId, operatorId);
         var guide = process.evaluation().guides().stream().filter(item -> guideKey.equals(item.getGuideKey()))
@@ -55,6 +64,9 @@ public class WorkflowBusinessTaskActionService {
                 "业务办理指引缺少动作编码"));
         if (guide.getGuideKind() == WorkflowTaskGuideKind.OPEN_FORM || "update".equals(action))
             WorkflowTaskFormPolicy.requireValues(guide, values);
+        if (contentLanguages != null && !contentLanguages.isEmpty()
+                && guide.getGuideKind() != WorkflowTaskGuideKind.OPEN_FORM && !"update".equals(action))
+            throw new IllegalArgumentException("Source languages belong to a task business-field update");
         if (payload != null && !payload.isEmpty()) throw PlatformErrors.badRequestText(TextReference.code(
                 "platform.rejection.workflow-business-task-action.action-parameters-come-from-the-published-guide-and-cannot-be-overridden",
                 "业务动作参数由已发布办理指引提供，不能由客户端覆盖"));
@@ -74,7 +86,7 @@ public class WorkflowBusinessTaskActionService {
                         "platform.rejection.workflow-business-task-action.business-action-executor-not-found",
                         "业务动作执行器不存在: {value1}"), Map.of("value1", String.valueOf(action))));
         Object businessResult = executor.executeApprovalBusiness(new ModuleRecordActionCommand(instance.getModuleAlias(), instance.getRecordId(),
-                action, version, values, configuredPayload));
+                action, version, values, configuredPayload, contentLanguages));
         var result = actions.execute("complete", WorkflowTaskActionRequest.builder(taskId, operatorId).reason(reason)
                 .manualRouteSelections(manualRouteSelections).build());
         MutationContextHolder.current().ifPresent(context -> {

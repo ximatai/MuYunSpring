@@ -1,10 +1,185 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import CrudRecordListExplorer from '@/platform-components/CrudRecordListExplorer.vue';
-import type { ModuleContext } from '@muyun/web-core';
+import {
+  createLanguageContext,
+  provideLanguageContext,
+  businessContentLanguageContext,
+  type ModuleContext,
+} from '@muyun/web-core';
+import { defineComponent, h } from 'vue';
 import type { WebPageResponse, WebQueryRequest } from '@muyun/web-contracts';
 
 describe('CrudRecordListExplorer', () => {
+  it('disables drag ordering under query sorting and advances the interaction signature for every sort change', async () => {
+    const requests: Array<WebQueryRequest | undefined> = [];
+    const moves: Array<{ id: string; request: unknown }> = [];
+    const context = createContext(requests, [{ id: 'first' }, { id: 'second' }], moves);
+    const query = context.crud.query;
+    context.crud.query = async (request, options) => ({
+      ...(await query(request, options)),
+      businessContent: { language: options!.contentLanguage!, missingRecords: 0, readings: {} },
+    });
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context, sorting: true } });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')![0]![0] as { interactionRevision(): string };
+    const list = () => wrapper.findComponent({ name: 'RecordListExplorer' });
+    const selector = () => wrapper.findComponent({ name: 'RecordQuerySortSelector' });
+    expect(list().props('sorting')).toBe(true);
+    let signature = controller.interactionRevision();
+    for (const desc of [false, true]) {
+      selector().vm.$emit('change', [{ field: 'title', desc }]);
+      await flushPromises();
+      expect(controller.interactionRevision()).not.toBe(signature);
+      signature = controller.interactionRevision();
+      expect(requests.at(-1)?.sorts).toEqual([{ field: 'title', desc }]);
+      expect(list().props('sorting')).toBe(false);
+      list().vm.$emit('sort', { dragRecord: { id: 'first' }, dropRecord: { id: 'second' }, position: 1 });
+      expect(moves).toEqual([]);
+    }
+    selector().vm.$emit('change', undefined);
+    await flushPromises();
+    expect(controller.interactionRevision()).not.toBe(signature);
+    expect(requests.at(-1)?.sorts).toBeUndefined();
+    expect(list().props('sorting')).toBe(true);
+    selector().vm.$emit('change', [{ field: 'title', desc: true }]);
+    await flushPromises();
+    context.crud.query = async () => {
+      throw new Error('Default order reload failed');
+    };
+    selector().vm.$emit('change', undefined);
+    await flushPromises();
+    // A failed reset retains the previous title-ordered rows, so dragging must stay disabled.
+    expect(list().props('sorting')).toBe(false);
+    list().vm.$emit('sort', { dragRecord: { id: 'first' }, dropRecord: { id: 'second' }, position: 1 });
+    expect(moves).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it.each(['query', 'schema'])(
+    'reissues the first query when language changes while the initial %s is pending',
+    async (pending) => {
+      const language = createLanguageContext({ languageTag: 'en' });
+      const readingLanguage = businessContentLanguageContext(language);
+      const raw = { id: 'equipment', title: '设备原名' };
+      const response = (tag: string) => ({
+        records: [raw],
+        total: 1,
+        pageNum: 1,
+        pageSize: 200,
+        pages: 1,
+        totalKnown: true,
+        businessContent: {
+          language: tag,
+          missingRecords: 0,
+          readings: { equipment: { title: tag === 'de' ? 'Gerät' : 'Equipment' } },
+        },
+      });
+      let resolveEnglish!: (value: ReturnType<typeof response>) => void;
+      const english = new Promise<ReturnType<typeof response>>((resolve) => {
+        resolveEnglish = resolve;
+      });
+      const requests: string[] = [];
+      const context = createContext([]);
+      const readySchema = await context.crud.querySchema();
+      let releaseSchema!: () => void;
+      const schemaWait = new Promise<void>((resolve) => {
+        releaseSchema = resolve;
+      });
+      if (pending === 'schema')
+        context.crud.querySchema = async () => {
+          await schemaWait;
+          return readySchema;
+        };
+      context.crud.query = async (_request, options) => {
+        requests.push(options!.contentLanguage!);
+        return options?.contentLanguage === 'de'
+          ? response('de')
+          : pending === 'query'
+            ? english
+            : response('en');
+      };
+      const wrapper = shallowMount(
+        defineComponent({
+          setup() {
+            provideLanguageContext(language);
+            return () => h(CrudRecordListExplorer, { context });
+          },
+        }),
+        { global: { stubs: { CrudRecordListExplorer: false } } },
+      );
+      await flushPromises();
+      readingLanguage.setLanguage('de');
+      resolveEnglish(response('en'));
+      releaseSchema();
+      await flushPromises();
+      expect(requests).toEqual(['en', 'de']);
+      const controller = wrapper
+        .findComponent(CrudRecordListExplorer)
+        .emitted('queryControllerChange')![0]![0] as { snapshot(): { contentLanguage?: string } };
+      expect(controller.snapshot().contentLanguage).toBe('de');
+      expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('titleOf')(raw)).toBe('Gerät');
+      expect(wrapper.findComponent(CrudRecordListExplorer).emitted('loaded')).toHaveLength(1);
+      expect(raw.title).toBe('设备原名');
+      wrapper.unmount();
+    },
+  );
+
+  it('reloads the reading language from page one and keeps translated labels outside raw selection data', async () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const readingLanguage = businessContentLanguageContext(language);
+    const raw = { id: 'equipment', title: '设备原名' };
+    const requests: Array<{ page?: number; language?: string }> = [];
+    const context = createContext([]);
+    context.crud.query = async (request, options) => {
+      requests.push({ page: request?.page?.pageNum, language: options?.contentLanguage });
+      return {
+        records: [raw],
+        total: 1,
+        pageNum: 1,
+        pageSize: 200,
+        pages: 1,
+        totalKnown: true,
+        businessContent: {
+          language: options!.contentLanguage!,
+          missingRecords: 2,
+          readings: { equipment: { title: options?.contentLanguage === 'de' ? 'Gerät' : 'Equipment' } },
+        },
+      };
+    };
+    const wrapper = shallowMount(
+      defineComponent({
+        setup() {
+          provideLanguageContext(language);
+          return () =>
+            h(CrudRecordListExplorer, {
+              context,
+              itemOf: (record) => ({ title: String(record.title), secondary: 'DEV-1' }),
+            });
+        },
+      }),
+      { global: { stubs: { CrudRecordListExplorer: false } } },
+    );
+    await flushPromises();
+    const explorer = () => wrapper.findComponent({ name: 'RecordListExplorer' });
+    expect(explorer().props('titleOf')(raw)).toBe('Equipment');
+    expect(explorer().props('itemOf')(raw)).toMatchObject({ title: 'Equipment', secondary: 'DEV-1' });
+    expect(wrapper.findComponent({ name: 'BusinessContentQueryNotice' }).props('records')).toEqual([
+      { id: 'equipment', version: undefined, label: 'Equipment', secondary: 'DEV-1' },
+    ]);
+    expect(wrapper.findComponent({ name: 'BusinessContentQueryNotice' }).props('status').missingRecords).toBe(
+      2,
+    );
+    readingLanguage.setLanguage('de');
+    await flushPromises();
+    expect(requests.at(-1)).toEqual({ page: 1, language: 'de' });
+    expect(explorer().props('titleOf')(raw)).toBe('Gerät');
+    explorer().vm.$emit('select', raw);
+    expect(wrapper.findComponent(CrudRecordListExplorer).emitted('select')?.at(-1)?.[0]).toEqual(raw);
+    expect(raw.title).toBe('设备原名');
+    wrapper.unmount();
+  });
+
   it('settles server search and reports the matching total without filtering result labels again', async () => {
     let resolveQuery!: (value: {
       records: Array<{ id: string; title: string }>;
@@ -406,6 +581,23 @@ function createContext(
   moduleAlias = 'iam.organization',
 ): ModuleContext<{ id: string }> {
   const crud = {
+    querySchema: async () => ({
+      scopeName: moduleAlias,
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [
+        {
+          name: 'title',
+          title: '名称',
+          sortable: true,
+          quickSearch: false,
+          valueType: 'STRING',
+          operators: ['EQ'],
+          defaultOperator: 'EQ',
+        },
+      ],
+      externalCriteria: [],
+      defaultSorts: [],
+    }),
     query: async (request?: WebQueryRequest) => {
       requests.push(request);
       return {

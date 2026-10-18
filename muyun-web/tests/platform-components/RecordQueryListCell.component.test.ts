@@ -235,3 +235,58 @@ it('switches delivered configuration cell labels in the owning language without 
     wrapper.unmount();
   }
 });
+
+it('shows a reading projection while preserving the raw record and explicit custom renderers', async () => {
+  const raw = Object.freeze({ id: 'equipment', title: '设备原名' });
+  const wrapper = shallowMount(RecordQueryListCell, {
+    props: { record: raw, column: { key: 'title', title: '名称' }, reading: 'Equipment' },
+  });
+  expect(wrapper.text()).toBe('Equipment');
+  expect(wrapper.find('.record-query-list-text').attributes('title')).toContain('设备原名');
+  expect(raw.title).toBe('设备原名');
+  await wrapper.setProps({ cellRenderers: { title: () => 'Special label' } });
+  expect(wrapper.text()).toBe('Special label');
+  await wrapper.setProps({ cellRenderers: {}, reading: undefined });
+  expect(wrapper.text()).toBe('设备原名');
+});
+
+it('keeps the original tooltip raw when the same record also carries a translated presentation snapshot', async () => {
+  const { mount } = await import('@vue/test-utils');
+  const { defineComponent, h, ref, nextTick } = await import('vue');
+  const { createLanguageContext, provideLanguageContext, businessContentLanguageContext } =
+    await import('@muyun/web-core');
+  const language = createLanguageContext({ languageTag: 'en' });
+  const record = Object.freeze({
+    id: 'one',
+    title: 'original source',
+    $contentTexts: {
+      title: { originalText: 'original source', readings: { en: 'Equipment', de: 'Gerät' } },
+    },
+  });
+  const reading = ref('Equipment');
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        provideLanguageContext(language);
+        return () =>
+          h(RecordQueryListCell, { record, column: { key: 'title', title: 'Name' }, reading: reading.value });
+      },
+    }),
+  );
+  try {
+    expect(wrapper.text()).toBe('Equipment');
+    expect(wrapper.find('.record-query-list-text').attributes('title')).toBe(
+      'Reading translation; original: original source',
+    );
+    businessContentLanguageContext(language).setLanguage('de');
+    reading.value = 'Gerät';
+    await nextTick();
+    expect(wrapper.text()).toBe('Gerät');
+    expect(wrapper.find('.record-query-list-text').attributes('title')).toBe(
+      'Reading translation; original: original source',
+    );
+    expect(record.title).toBe('original source');
+  } finally {
+    wrapper.unmount();
+  }
+});

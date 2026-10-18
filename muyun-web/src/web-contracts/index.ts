@@ -29,6 +29,22 @@ export interface WebPageResponse<T> {
   totalKnown: boolean;
   navigation?: unknown;
   summaries?: WebListQuerySummaryItem[];
+  businessContent?: WebBusinessContentQueryStatus;
+}
+
+/** Reading metadata is separate from business records and never participates in normal saves. */
+export interface WebBusinessContentQueryStatus {
+  language: string;
+  missingRecords: number;
+  readings: Record<string, Record<string, string>>;
+  generationScope?: BusinessContentGenerationSource | null;
+}
+
+/** Routing facts from the actual authorized query producer, never an execution permission. */
+export interface BusinessContentGenerationSource {
+  moduleAlias: string;
+  parentId?: string | null;
+  relationCode?: string | null;
 }
 
 /** Value of one footer summary for the complete result set of the current list query. */
@@ -42,6 +58,7 @@ export const webDataChangeTypes = {
   recordUpdated: 'record-updated',
   recordDeleted: 'record-deleted',
   collectionChanged: 'collection-changed',
+  businessContentChanged: 'business-content-changed',
 } as const;
 
 export type WebDataChangeType = (typeof webDataChangeTypes)[keyof typeof webDataChangeTypes];
@@ -853,7 +870,21 @@ export interface WebReferenceResolveRequest {
   navigatorTargetLevelKey?: string;
 }
 
+/** Disposable business reading text, independent of configuration resources and write values. */
+export interface BusinessContentTextPresentation {
+  originalText: string;
+  readings: Readonly<Record<string, string>>;
+}
+
+export interface RecordBusinessContentPresentation {
+  $contentTexts?: Readonly<
+    Record<string, BusinessContentTextPresentation | readonly (BusinessContentTextPresentation | null)[]>
+  >;
+}
+
 export interface WebReferenceResolveItem {
+  titleContent?: BusinessContentTextPresentation;
+  subtitleContent?: BusinessContentTextPresentation;
   id: string;
   title?: string;
   titleText?: TextPresentation;
@@ -1088,7 +1119,124 @@ export interface ResolvedFieldControlBindingDescriptor {
   valueType: string;
 }
 
+export interface BusinessContentField {
+  key: string;
+  policy: 'KEEP_ORIGINAL' | 'AUTO_TRANSLATE' | 'MANUAL_TRANSLATIONS';
+}
+export interface BusinessContentRevision {
+  revisionId?: string;
+  sourceKey: string;
+  revision: number;
+  text: string | null;
+  sourceLanguage: string | null;
+  authorId: string | null;
+  authorName?: string | null;
+  createdAt: string;
+  authoredAt: string | null;
+  revisionAuthorId: string | null;
+  revisionAuthorName?: string | null;
+  revisionKind: 'ORIGINAL_WRITE' | 'SOURCE_LANGUAGE_CORRECTION' | 'UNTRACKED_BASELINE';
+}
+export interface BusinessContentCurrentSource {
+  content: BusinessContentField;
+  text: string | null;
+  expectedRevision: number | null;
+  source: BusinessContentRevision | null;
+}
+export interface BusinessContentSources {
+  recordVersion: number | null;
+  fields: Record<string, BusinessContentCurrentSource>;
+}
+export interface BusinessContentLanguageInput {
+  languageTag: string | null;
+  expectedRevision: number | null;
+}
+export interface BusinessContentTranslationRevision {
+  revision: number;
+  kind: 'MACHINE' | 'DRAFT' | 'CONFIRMED' | 'REMOVED';
+  text: string | null;
+  authorId: string | null;
+  authorName: string | null;
+  createdAt: string;
+  reviewedDraftRevision: number | null;
+  generationReference: string | null;
+}
+export interface BusinessContentReadingField {
+  originalText: string | null;
+  source: BusinessContentRevision | null;
+  text: string | null;
+  actualLanguage: string | null;
+  originalFallback: boolean;
+  translation: BusinessContentTranslationRevision | null;
+  humanReviewRequired?: boolean;
+}
+export interface BusinessContentReading {
+  recordVersion: number | null;
+  language: string;
+  fields: Record<string, BusinessContentReadingField>;
+}
+/** Topic status only; carries no model credentials, business source text or execution scope. */
+export interface BusinessContentGenerationStatus {
+  state:
+    | 'DISABLED'
+    | 'ORIGINAL'
+    | 'SOURCE_UNKNOWN'
+    | 'READY'
+    | 'REMOVED'
+    | 'UNSUPPORTED'
+    | 'UNAVAILABLE'
+    | 'MISSING'
+    | 'PENDING'
+    | 'RUNNING'
+    | 'RETRY'
+    | 'FAILED'
+    | 'CANCELLED'
+    | 'STALE';
+  reference: string | null;
+  problem: string | null;
+  attempts: number;
+  retryAt: string | null;
+}
+export interface BusinessContentGenerationBatchCommand {
+  ids: string[];
+  language: string;
+  retry?: boolean;
+  includeChildren?: boolean;
+}
+export interface BusinessContentGenerationBatchResult {
+  language: string;
+  items: Array<{
+    recordId: string;
+    ownerId: string;
+    relationCode: string | null;
+    childId: string | null;
+    field: string | null;
+    status: BusinessContentGenerationStatus;
+  }>;
+}
+export interface BusinessContentTranslationMaintenance {
+  original: BusinessContentRevision & { revisionId: string };
+  expectedRevision: number | null;
+  draft: BusinessContentTranslationRevision | null;
+  confirmed: BusinessContentTranslationRevision | null;
+  machine: BusinessContentTranslationRevision | null;
+  /** Maintenance reference only; never an effective translation of the current original. */
+  previousHuman?: {
+    original: BusinessContentRevision & { revisionId: string };
+    translation: BusinessContentTranslationRevision;
+  } | null;
+}
+export interface BusinessContentTranslationChange {
+  sourceRevisionId: string;
+  sourceRevision: number;
+  expectedRevision: number | null;
+  text?: string;
+  reviewedDraftRevision?: number;
+}
+
 export interface ResolvedViewFieldDescriptor {
+  /** Producer-owned policy; absent means the field keeps only its original value. */
+  content?: BusinessContentField | null;
   /** Computed values are previews or are unavailable until the next successful save. */
   calculationTiming?: 'IMMEDIATE' | 'ON_SAVE' | null;
   inputRequirements?: {
@@ -2088,6 +2236,7 @@ export type {
   WorkflowAddSignExplanation,
   WorkflowDesign,
   WorkflowInstance,
+  WorkflowRecordInstance,
   WorkflowTask,
   WorkflowEvent,
   WorkflowAction,

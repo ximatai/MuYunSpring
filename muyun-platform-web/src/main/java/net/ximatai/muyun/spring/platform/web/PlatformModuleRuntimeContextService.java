@@ -697,11 +697,11 @@ public class PlatformModuleRuntimeContextService {
                 .forEach(field -> protectedFields.add(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()))));
         descriptor = AssistantFieldPolicyProjection.protect(descriptor, protectedFields);
         Map<ViewFieldRef, net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> writeFields = new LinkedHashMap<>();
-        if (facts != null) writeFields.putAll(FieldWriteRuleProjection.fields(facts.entities(), facts.mainEntityAlias()));
+        if (facts != null) writeFields.putAll(ModelFieldProjection.fields(facts.entities(), facts.mainEntityAlias()));
         relationTargets.stream().filter(DynamicDetailRelationTarget::aggregateChild).forEach(target ->
                 dynamicEntityFields(target.view().targetModuleAlias(), target.entity().entityAlias(), facts).forEach(field ->
                         writeFields.put(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()), field)));
-        descriptor = FieldWriteRuleProjection.project(descriptor, writeFields);
+        descriptor = ModelFieldProjection.project(descriptor, writeFields);
         // Formula projection needs the resolved aggregate-child relation code and its child editor
         // fields. Attach them before compiling browser-visible business rules.
         descriptor = descriptor.withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
@@ -1627,6 +1627,9 @@ public class PlatformModuleRuntimeContextService {
         actions.stream()
                 .map(PlatformModuleRuntimeAction::actionCode)
                 .forEach(actionCode -> inferCapabilities(capabilities, actionCode));
+        if (actions.stream().anyMatch(action -> action.category() == EntityActionCategory.WORKFLOW
+                && net.ximatai.muyun.spring.platform.workflow.DynamicWorkflowActionExecutor.EXECUTOR_KEY.equals(action.executorKey())
+                && !action.bindingPending())) capabilities.add(EntityCapability.WORKFLOW);
         normalizeCapabilities(capabilities);
         return Set.copyOf(capabilities);
     }

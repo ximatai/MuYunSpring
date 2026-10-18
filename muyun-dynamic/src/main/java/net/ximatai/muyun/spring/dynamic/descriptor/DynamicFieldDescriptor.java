@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.descriptor;
 
+import net.ximatai.muyun.spring.common.content.ContentFieldDefinition;
+
 import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
@@ -41,8 +43,42 @@ public record DynamicFieldDescriptor(
         boolean signed,
         String maskingPolicy,
         FieldMeasureUnitDefinition measureUnit,
-        FieldWriteRules writeRules
+        FieldWriteRules writeRules,
+        ContentFieldDefinition content
 ) {
+    public DynamicFieldDescriptor(
+        String fieldName,
+        FieldType type,
+        FieldTemporalSemantics temporalSemantics,
+        String title,
+        FieldStorageForm storageForm,
+        boolean required,
+        boolean unique,
+        boolean indexed,
+        boolean sortable,
+        boolean titleField,
+        Integer length,
+        Integer precision,
+        Integer scale,
+        OptionBinding optionBinding,
+        OptionSelectionMode selectionMode,
+        FieldOptionLoadDefinition optionLoad,
+        DynamicReferenceDescriptor reference,
+        List<DynamicFieldCompanionDescriptor> companions,
+        DynamicFieldQueryDescriptor query,
+        String defaultValue,
+        String validationRegex,
+        boolean copyable,
+        boolean writeProtected,
+        boolean encrypted,
+        boolean signed,
+        String maskingPolicy,
+        FieldMeasureUnitDefinition measureUnit,
+        FieldWriteRules writeRules
+    ) {
+        this(fieldName, type, temporalSemantics, title, storageForm, required, unique, indexed, sortable, titleField, length, precision, scale, optionBinding, selectionMode, optionLoad, reference, companions, query, defaultValue, validationRegex, copyable, writeProtected, encrypted, signed, maskingPolicy, measureUnit, writeRules, null);
+    }
+
     public DynamicFieldDescriptor(
         String fieldName,
         FieldType type,
@@ -115,7 +151,8 @@ public record DynamicFieldDescriptor(
                 field.protection().signatureMode().enabled(),
                 field.protection().maskingPolicy().enabled() ? field.protection().maskingPolicy().name() : null,
                 field.measureUnit(),
-                field.resolvedWriteRules()
+                field.resolvedWriteRules(),
+                field.content().enabled() ? field.content() : null
         );
     }
 
@@ -149,7 +186,8 @@ public record DynamicFieldDescriptor(
                 descriptor.signed(),
                 descriptor.maskingPolicy(),
                 descriptor.measureUnit(),
-                descriptor.writeRules()
+                descriptor.writeRules(),
+                descriptor.content()
         );
     }
 

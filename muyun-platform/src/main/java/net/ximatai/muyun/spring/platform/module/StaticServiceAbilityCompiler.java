@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Compiles static service interface composition into the shared platform capability vocabulary. */
+/** Compiles static service composition and model declarations into the shared platform capability vocabulary. */
 public final class StaticServiceAbilityCompiler {
     private StaticServiceAbilityCompiler() {
     }
@@ -69,10 +69,13 @@ public final class StaticServiceAbilityCompiler {
     }
 
     public static List<PlatformAction> standardActions(Object service, StaticCapabilityRegistry registry) {
-        return standardOperations(service, registry).stream()
-                .map(PlatformOperationDefinition::action)
-                .distinct()
-                .toList();
+        Set<EntityCapability> capabilities = compile(service, registry);
+        var context = new StaticCapabilityOperationContext(service, capabilities, operationMethods(service));
+        var disabled = disabledActions(service);
+        return registry.staticModules().stream().flatMap(module -> module.staticFacet().stream()
+                        .filter(facet -> capabilities.contains(module.capability()))
+                        .flatMap(facet -> facet.standardActions(context).stream()))
+                .filter(action -> !disabled.contains(action)).distinct().toList();
     }
 
     public static Map<PlatformAction, Method> operationMethods(Object service) {

@@ -24,6 +24,8 @@ import java.util.function.Supplier;
  */
 @Component
 public class CompiledNavigatorReferenceQueryContextResolver implements NavigatorReferenceQueryContextResolver {
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private net.ximatai.muyun.spring.platform.content.BusinessContentQueryService contentQueries;
     private final ModuleExecutionPlanCatalog executionPlans;
     private final PlatformModuleRuntimeContextService runtimeContexts;
 
@@ -38,7 +40,8 @@ public class CompiledNavigatorReferenceQueryContextResolver implements Navigator
                                   Supplier<Criteria> fallbackCriteria) {
         WebQueryRequest normalized = normalizeRequest(sourceModuleAlias, request);
         Criteria sourceCriteria = executionPlans.find(sourceModuleAlias)
-                .map(plan -> new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
+                .map(plan -> new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
+                        criteria -> contentQueries == null ? criteria : contentQueries.expandUserText(sourceService, criteria))
                         .criteria(WebQueryRequests.from(normalized)))
                 .orElseGet(() -> fallbackCriteria == null ? Criteria.of() : fallbackCriteria.get());
         return and(sourceCriteria, navigatorCriteria(sourceModuleAlias, normalized));

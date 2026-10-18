@@ -70,3 +70,56 @@ it('sends typed multipart commands and exports the full successful query instead
   });
   expect(query.page.pageNum).toBe(3);
 });
+
+it('binds review and import to explicit source intent, stable identities and object confirmations', async () => {
+  const receipt = { created: 1, updated: 0, skipped: 0, errorCount: 0, partialSuccess: false, rows: [] };
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({ documentId: 'document' })
+    .mockResolvedValueOnce({ data: receipt, changes: [] });
+  const client = createDataExchangeClient({ request }, 'quality.equipment_category');
+  const file = new File(['xlsx'], 'classification.xlsx');
+  const command = {
+    documentId: 'document',
+    previewDigest: 'reviewed-file-and-intent',
+    resolutionLanguage: 'de',
+    sourceLanguage: 'en',
+    sheets: [{ entityAlias: 'main', matchField: 'code', duplicateStrategy: 'OVERWRITE' as const }],
+    confirmations: [
+      { row: 'row-identity', field: 'categoryId', input: 'Maschinenname', candidateId: 'category-id' },
+    ],
+  };
+  await client.preview(file, command);
+  expect(request.mock.calls[0]?.[0].path).toBe('/quality.equipment_category/exchange/files/preview');
+  const body = request.mock.calls[0]?.[0].body as FormData;
+  expect(JSON.parse(await (body.get('command') as Blob).text())).toEqual(command);
+  expect(body.get('file')).toBe(file);
+  expect(await client.importFile(file, command)).toEqual(receipt);
+  const imported = request.mock.calls[1]?.[0];
+  expect(imported.path).toBe('/quality.equipment_category/exchange/files/import');
+  expect(JSON.parse(await (imported.body.get('command') as Blob).text())).toEqual(command);
+});
+
+it.each(['DATA', 'TRANSLATIONS', 'READING'] as const)(
+  'exports %s files under the same query and explicit file language',
+  async (purpose) => {
+    const request = vi.fn().mockResolvedValue(new Blob(['xlsx']));
+    const client = createDataExchangeClient({ request }, 'quality.exception');
+    const query = {
+      quickSearch: 'seal',
+      uiConfigId: 'published-list',
+      sorts: [{ field: 'title', desc: false }],
+    };
+    await client.exportFile(query, { purpose, language: 'de', timeZone: 'Europe/Berlin' }, undefined, {
+      contentLanguage: 'en',
+    });
+    expect(request.mock.calls[0]?.[0]).toEqual({
+      method: 'POST',
+      path: '/quality.exception/exchange/files/export',
+      body: { query, options: { purpose, language: 'de', timeZone: 'Europe/Berlin' }, ids: undefined },
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de', 'X-MuYun-Content-Language': 'en' },
+      responseType: 'blob',
+    });
+    expect(query.quickSearch).toBe('seal');
+  },
+);

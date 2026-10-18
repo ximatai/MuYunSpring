@@ -1,5 +1,5 @@
 /* eslint-disable vue/one-component-per-file -- Local slot fixtures cover distinct reference-field layouts. */
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError, type HttpClient } from '@/web-core';
@@ -51,6 +51,46 @@ function viewContext() {
 }
 
 describe('ReferenceRecordDetailBrowser', () => {
+  it('loads content provenance in its default target detail using the target VIEW context', async () => {
+    const content = { key: 'target-title', policy: 'MANUAL_TRANSLATIONS' };
+    const request = vi.fn(async ({ path }: { path: string }) => {
+      if (path.endsWith('/view-context')) {
+        const runtime = viewContext();
+        Object.assign(runtime.uiDescriptor.page.detail.display.fields[0]!, { content });
+        return runtime;
+      }
+      if (path.endsWith('/content'))
+        return {
+          recordVersion: 1,
+          fields: {
+            title: {
+              content,
+              text: '平台管理员',
+              expectedRevision: 1,
+              source: { revision: 1, text: '平台管理员', sourceLanguage: 'zh-CN', authorName: 'cn_author' },
+            },
+          },
+        };
+      return { id: 'user-1', version: 1, title: '平台管理员' };
+    });
+    const wrapper = mount(ReferenceRecordDetailBrowser, {
+      props: { http: { request } as unknown as HttpClient },
+      slots: { default: ReferenceField },
+      global: {
+        stubs: {
+          RecordDetailDrawer: { template: '<aside><slot /></aside>' },
+          UiModal: { template: '<div />' },
+        },
+      },
+    });
+    await wrapper.get('button').trigger('click');
+    await flushPromises();
+    expect(request.mock.calls.map(([options]) => options.path)).toContain('/iam.user/view/user-1/content');
+    expect(wrapper.text()).toContain('cn_author');
+    expect(wrapper.text()).toContain('原文修订历史');
+    wrapper.unmount();
+  });
+
   it('shows an explicit empty state when the target has no detail display fields', async () => {
     const http: HttpClient = {
       async request(options) {
@@ -108,7 +148,8 @@ describe('ReferenceRecordDetailBrowser', () => {
       '/platform.module/iam.user/view-context',
       '/iam.user/view/user-1',
     ]);
-    expect(requests.every((request) => request.headers === undefined)).toBe(true);
+    expect(requests[0]?.headers).toBeUndefined();
+    expect(requests[1]?.headers).toEqual({ 'X-MuYun-Content-Languages': 'zh-CN,en,de' });
     expect(wrapper.text()).toContain('平台管理员');
     wrapper.unmount();
   });

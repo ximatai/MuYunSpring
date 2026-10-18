@@ -47,6 +47,9 @@ class StaticModuleOpenApiGeneratorTest {
         assertThat(schemas.get("TaskUpdate").writeOperation())
                 .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.UPDATE);
         assertThat(schemas.get("TaskUpdate").partialUpdate()).isFalse();
+        assertThat(schemas.get("TaskCreate").properties().get("$contentLanguages").type()).isEqualTo("object");
+        assertThat(schemas.get("TaskUpdate").properties()).containsKey("$contentLanguages");
+        assertThat(schemas.get("Task").properties()).doesNotContainKey("$contentLanguages");
         assertThat(schemas.get("TaskUpdate").required()).isEmpty();
         assertThat(schemas.get("TaskUpdate").properties().get("code").required()).isFalse();
         assertThat(schemas.get("TaskUpdate").properties().get("code").writeRules()).isEqualTo(rules.withNonNull(true));
@@ -69,6 +72,20 @@ class StaticModuleOpenApiGeneratorTest {
         var updateOperation = (Map<String, Object>) pathItem.get("post");
         assertThat(updateOperation.get("parameters")).isEqualTo(List.of(Map.of(
                 "name", "id", "in", "path", "required", true, "schema", Map.of("type", "string"))));
+    }
+
+    @Test void shouldDescribeBusinessSourcesAsReadMetadataInsteadOfBusinessRecordPayloads() {
+        var entity = new EntityDefinition("main", "main", "Main", List.of(FieldDefinition.text("title", "Title")));
+        var module = StaticModuleDefinition.builder("demo", "demo.content", "Content").entities(List.of(entity)).build();
+        var endpoints = new RegisteredWebEndpointCatalog();
+        register(endpoints, endpoint("demo.content.contentSources", "demo.content", "contentSources", PlatformAction.VIEW,
+                RequestMethod.GET, "/demo.content/view/{id}/content"));
+        register(endpoints, endpoint("demo.content.contentHistory", "demo.content", "contentHistory", PlatformAction.VIEW,
+                RequestMethod.GET, "/demo.content/view/{id}/content/{field}/history"));
+        var document = new StaticModuleOpenApiGenerator(new StaticModuleDefinitionCatalog(List.of(module)), endpoints).generate("demo.content");
+        assertThat(document.operations()).extracting(operation -> operation.responseSchema())
+                .containsExactlyInAnyOrder("BusinessContentSources", "BusinessContentRevisionList");
+        assertThat(document.schemas().get("BusinessContentRevision").properties()).containsKeys("authorId", "revisionAuthorId", "authoredAt", "revisionKind");
     }
 
     @org.junit.jupiter.api.AfterEach

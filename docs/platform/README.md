@@ -55,7 +55,8 @@
 | [平台实时通信设计](REALTIME_COMMUNICATION.md)                               | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。                      |
 | [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
 | [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md)           | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。                                   |
-| [国际化专项治理](INTERNATIONALIZATION_GOVERNANCE.md)                       | 规定平台与业务填报界面的多语言目标、统一译法、译文独立发布、语言资源交付及业务内容多语言的阶段计划。                 |
+| [国际化专项治理](INTERNATIONALIZATION_GOVERNANCE.md)                       | 规定平台与业务填报界面的多语言目标、统一译法、译文独立发布、语言资源交付及业务内容多语言的来源分工。                 |
+| [业务内容多语言](topics/runtime/BUSINESS_CONTENT.md)       | 阶段 1—3 工程交付完成：原文来源、自动阅读、人工维护、查询引用、既有流程与动静共用 Excel；受控小范围试用，实际业务语义审阅及生产容量待确认。 |
 | [平台与智能助手协作建设方案](AI_COLLABORATION_ROADMAP.md)                 | 统一平台治理、智能体治理与交付演练的建设顺序，维护主干、分支取舍、代码证据、进度与下一步计划。                     |
 | [智能助手能力融合专项治理](AI_ASSISTANT_GOVERNANCE.md)                    | 维护助手分层、Surface 与能力适配、字段投影、确认执行、会话恢复和模型诊断契约；建设进度统一由协作方案维护。           |
 

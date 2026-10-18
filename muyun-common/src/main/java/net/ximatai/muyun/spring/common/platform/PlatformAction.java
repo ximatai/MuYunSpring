@@ -62,6 +62,13 @@ public enum PlatformAction {
             "授权", "Manage Record Permissions", PlatformActionLevel.RECORD, 10,
             ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.NONE, null),
 
+    CONTENT_EDIT(PlatformActionGroup.BUSINESS_CONTENT, "contentEdit", "platform.action.content-edit", "维护译文", "Maintain translations",
+            PlatformActionLevel.RECORD, 10,
+            ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.NONE, null),
+    CONTENT_CONFIRM(PlatformActionGroup.BUSINESS_CONTENT, "contentConfirm", "platform.action.content-confirm", "确认译文", "Confirm translations",
+            PlatformActionLevel.RECORD, 20,
+            ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.NONE, null),
+
     IMPORT(PlatformActionGroup.EXCHANGE, "import", "platform.action.import", "导入", "Import",
             PlatformActionLevel.LIST, 10,
             ActionAccessMode.AUTH_REQUIRED, true, false, ActionDefaultGrantPolicy.NONE, null),

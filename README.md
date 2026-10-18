@@ -170,6 +170,11 @@ npm run dev:backend --prefix muyun-web
 
 裸库首次启动会创建平台超级管理员：用户名 `admin`、密码 `admin123`、租户留空。该默认值只允许本地开发使用。
 
+质量协作样板可用 `./gradlew :muyun-boot:collaborationDemoBootRun --args='--spring.profiles.active=local'` 单独启动。
+它启用 `collaboration-demo`，安装静态设备分类、商品目录及动态质量异常单、检测明细、团队调查记录的配置。
+样板不预置人员或业务文本；通过正常租户、应用开通和授权流程使用 `quality` 应用。学校演示与质量协作样板分别启用，标准 `bootRun` 不装配这两类业务。
+业务内容多语言已完成阶段 1—3 的工程交付，两个样板具备受控小范围试用条件；接入与运行边界见[业务内容多语言](docs/platform/topics/runtime/BUSINESS_CONTENT.md)。实际业务语义审阅及生产容量确认仍待开展。
+
 ## 运行验证
 
 后端完整验证（单元测试、`*IT` 集成测试和模块边界检查）：

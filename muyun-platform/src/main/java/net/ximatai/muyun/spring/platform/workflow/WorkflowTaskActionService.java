@@ -38,7 +38,7 @@ public class WorkflowTaskActionService {
     private final WorkflowInstanceDao instanceDao;
     private final WorkflowNodeInstanceDao nodeInstanceDao;
     private final WorkflowRouteInstanceDao routeInstanceDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimeEventFactory eventFactory;
     private final WorkflowApprovalTaskPolicyService approvalTaskPolicyService;
     private final WorkflowActionPolicyService actionPolicyService;
@@ -58,7 +58,7 @@ public class WorkflowTaskActionService {
                                      WorkflowInstanceDao instanceDao,
                                      WorkflowNodeInstanceDao nodeInstanceDao,
                                      WorkflowRouteInstanceDao routeInstanceDao,
-                                     WorkflowEventDao eventDao,
+                                     WorkflowEventWriter eventWriter,
                                      WorkflowRuntimeEventFactory eventFactory,
                                      WorkflowApprovalTaskPolicyService approvalTaskPolicyService,
                                      WorkflowActionPolicyService actionPolicyService,
@@ -79,7 +79,7 @@ public class WorkflowTaskActionService {
         this.instanceDao = instanceDao;
         this.nodeInstanceDao = nodeInstanceDao;
         this.routeInstanceDao = routeInstanceDao;
-        this.eventDao = eventDao;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
         this.approvalTaskPolicyService = approvalTaskPolicyService;
         this.actionPolicyService = actionPolicyService == null ? new WorkflowActionPolicyService() : actionPolicyService;
@@ -140,7 +140,7 @@ public class WorkflowTaskActionService {
                 ? eventFactory.taskCompleted(instance, task, "auto_approve", operatorId,
                         "同一办理人连续审批，按已发布规则自动通过", null, now)
                 : eventFactory.taskCompleted(instance, task, "approve", operatorId, reason, now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
@@ -193,7 +193,7 @@ public class WorkflowTaskActionService {
                     || !downstream.getCreatedAt().isBefore(next.getActivatedAt()))) {
                 downstream.setTaskStatus(WorkflowTaskStatus.CANCELED); downstream.setDecision("revokeApprove");
                 downstream.setCompletedAt(now); updateTask(downstream, now);
-                eventDao.insert(eventFactory.taskCompleted(instance, downstream, "revokeApprove", operator, request.reason(), now));
+                eventWriter.insert(eventFactory.taskCompleted(instance, downstream, "revokeApprove", operator, request.reason(), now));
             }
             resetNodeForRetry(next); updateNode(next, now);
             resetRouteForRetry(route); updateRoute(route, now);
@@ -208,7 +208,7 @@ public class WorkflowTaskActionService {
         WorkflowTask retry = approvalRetry(task, now);
         for (var skipped : skippedVotes) {
             var restored = approvalRetry(skipped, now);
-            eventDao.insert(eventFactory.taskCreated(instance, node, restored, operator, now));
+            eventWriter.insert(eventFactory.taskCreated(instance, node, restored, operator, now));
         }
         var activeKeys = new java.util.LinkedHashSet<String>();
         nodes.stream().filter(item -> !node.getId().equals(item.getId()) && item.getNodeStatus() == WorkflowNodeStatus.ACTIVE)
@@ -217,8 +217,8 @@ public class WorkflowTaskActionService {
         instance.setCurrentNodeKeys(String.join(",", activeKeys)); instance.setLastActionCode("revokeApprove");
         instance.setLastActionReason(request.reason()); instance.setLastOperatorId(operator); instance.setLastOperatedAt(now); updateInstance(instance, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "revokeApprove", operator, request.reason(), now);
-        eventDao.insert(event);
-        WorkflowMutationFacts.recordChanged(instance); eventDao.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
+        eventWriter.insert(event);
+        WorkflowMutationFacts.recordChanged(instance); eventWriter.insert(eventFactory.taskCreated(instance, node, retry, operator, now));
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_REVOKE, "revokeApprove", operator, null, null, request.reason());
         return new WorkflowTaskActionResult(task, retry, node, instance, event);
     }
@@ -271,7 +271,7 @@ public class WorkflowTaskActionService {
         }
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "forceApprove", operatorId,
                 request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (node.getNodeStatus() == WorkflowNodeStatus.COMPLETED) {
@@ -339,10 +339,10 @@ public class WorkflowTaskActionService {
         EntityLifecycle.prepareInsert(resubmitTask, now);
         taskDao.insert(resubmitTask);
         WorkflowEvent event = eventFactory.taskRejected(instance, task, operatorId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
-        eventDao.insert(eventFactory.taskCreated(instance, resubmitTask, operatorId, now));
+        eventWriter.insert(eventFactory.taskCreated(instance, resubmitTask, operatorId, now));
         writeApprovalSummary(instance);
         dispatchTask(instance, node, task, WorkflowRuntimePluginEventType.AFTER_REJECT, "reject",
                 operatorId, null, null, request.reason());
@@ -417,10 +417,10 @@ public class WorkflowTaskActionService {
         EntityLifecycle.prepareInsert(createdTask, now);
         taskDao.insert(createdTask);
         WorkflowEvent event = eventFactory.nodeRolledBack(instance, currentNode, operatorId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
-        eventDao.insert(eventFactory.taskCreated(instance, previousNode, createdTask, operatorId, now));
+        eventWriter.insert(eventFactory.taskCreated(instance, previousNode, createdTask, operatorId, now));
         writeApprovalSummary(instance);
         dispatchTask(instance, currentNode, task, WorkflowRuntimePluginEventType.AFTER_ROLLBACK, "rollback",
                 operatorId, null, target.node().getNodeKey(), request.reason());
@@ -473,14 +473,14 @@ public class WorkflowTaskActionService {
         WorkflowTask createdTask = approvalTaskForNode(instance, node, assigneeId, now);
         EntityLifecycle.prepareInsert(createdTask, now);
         taskDao.insert(createdTask);
-        eventDao.insert(eventFactory.taskCreated(instance, node, createdTask, operatorId, now));
+        eventWriter.insert(eventFactory.taskCreated(instance, node, createdTask, operatorId, now));
         instance.setLastActionCode("resubmit_return_to_me");
         instance.setLastActionReason(request.reason());
         instance.setLastOperatorId(operatorId);
         instance.setLastOperatedAt(now);
         updateInstance(instance, now);
         WorkflowEvent event = eventFactory.taskResubmitted(instance, task, operatorId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         writeApprovalSummary(instance);
         return new WorkflowTaskActionResult(task, createdTask, node, instance, event);
@@ -538,7 +538,7 @@ public class WorkflowTaskActionService {
         updateNode(node, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "complete", operatorId,
                 request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         createDelegationCompletionNotice(instance, task, operatorId, now);
         if (!remaining) {
@@ -573,7 +573,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
@@ -599,7 +599,7 @@ public class WorkflowTaskActionService {
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskCompleted(instance, task, "notice", operatorId,
                 request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
@@ -633,7 +633,7 @@ public class WorkflowTaskActionService {
 
         WorkflowEvent event = eventFactory.taskTransferred(instance, task, operatorId,
                 "transfer to " + targetAssigneeId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         dispatchTask(instance, node, createdTask, WorkflowRuntimePluginEventType.AFTER_TRANSFER, "transfer",
                 operatorId, targetAssigneeId, null, request.reason());
@@ -712,7 +712,7 @@ public class WorkflowTaskActionService {
         WorkflowEvent event = eventFactory.addSign(instance, node, task, operatorId, request.reason(),
                 addSignPayload(node.getNodeKey(), plan.addedNodeKeys(), replacedRouteIds, editMode,
                         request.semanticJson(), request.layoutJson()), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.addSign(task, node, instance, event, editMode,
                 plan.addedNodeKeys(), replacedRouteIds);
@@ -747,7 +747,7 @@ public class WorkflowTaskActionService {
         task.setCompletedAt(now);
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskInvalidated(instance, task, operatorId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
@@ -767,7 +767,7 @@ public class WorkflowTaskActionService {
         task.setCompletedAt(now);
         updateTask(task, now);
         WorkflowEvent event = eventFactory.taskCanceled(instance, task, operatorId, request.reason(), now);
-        eventDao.insert(event);
+        eventWriter.insert(event);
         WorkflowMutationFacts.recordChanged(instance);
         return WorkflowTaskActionResult.of(task, event);
     }
@@ -1463,7 +1463,7 @@ public class WorkflowTaskActionService {
             other.setResultMessage(message);
             other.setCompletedAt(now);
             updateTask(other, now);
-            eventDao.insert(taskStatus == WorkflowTaskStatus.CANCELED
+            eventWriter.insert(taskStatus == WorkflowTaskStatus.CANCELED
                     ? eventFactory.taskCanceled(instance, other, operatorId, message, now)
                     : eventFactory.nodeRolledBack(instance, requireNode(other), operatorId, message, now));
         }
@@ -1747,7 +1747,7 @@ public class WorkflowTaskActionService {
             task.setResultMessage("approval node passed");
             task.setCompletedAt(now);
             updateTask(task, now);
-            eventDao.insert(eventFactory.taskSkipped(instance, task, operatorId, "approval node passed", now));
+            eventWriter.insert(eventFactory.taskSkipped(instance, task, operatorId, "approval node passed", now));
         }
     }
 

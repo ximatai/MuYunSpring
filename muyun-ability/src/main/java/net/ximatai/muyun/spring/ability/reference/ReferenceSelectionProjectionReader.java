@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Collections;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoadReader.ResolvedValue;
 
 /**
  * Batch reader for explicitly authorised picker selection projections.
@@ -24,6 +25,19 @@ public final class ReferenceSelectionProjectionReader {
                                                          List<String> sourceIds,
                                                          List<ReferenceSelectionProjection> projections,
                                                          ReferenceTargetResolver resolver) {
+        var resolved = readResolved(sourceTarget, sourceIds, projections, resolver);
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        resolved.forEach((id, fields) -> {
+            Map<String, Object> values = new LinkedHashMap<>();
+            fields.forEach((field, value) -> values.put(field, value == null ? null : value.value()));
+            result.put(id, Collections.unmodifiableMap(values));
+        });
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** Preserves authorized terminal identity alongside raw values; does not perform additional reads. */
+    public static Map<String, Map<String, ResolvedValue>> readResolved(ReferenceTarget sourceTarget,
+            List<String> sourceIds, List<ReferenceSelectionProjection> projections, ReferenceTargetResolver resolver) {
         if (sourceTarget == null || sourceIds == null || sourceIds.isEmpty()
                 || projections == null || projections.isEmpty()) {
             return Map.of();
@@ -36,16 +50,16 @@ public final class ReferenceSelectionProjectionReader {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        Map<String, Map<String, ResolvedValue>> result = new LinkedHashMap<>();
         for (ReferenceSelectionProjection projection : projections.stream()
                 .filter(java.util.Objects::nonNull).distinct().toList()) {
-            Map<String, Object> values = readOne(sourceTarget, ids, projection, resolver);
+            Map<String, ResolvedValue> values = readResolvedOne(sourceTarget, ids, projection, resolver);
             values.forEach((id, value) -> result.computeIfAbsent(id, ignored -> new LinkedHashMap<>())
                     .put(projection.key(), value));
         }
-        Map<String, Map<String, Object>> ordered = new LinkedHashMap<>();
+        Map<String, Map<String, ResolvedValue>> ordered = new LinkedHashMap<>();
         for (String id : ids) {
-            Map<String, Object> values = result.get(id);
+            Map<String, ResolvedValue> values = result.get(id);
             if (values != null) {
                 ordered.put(id, Collections.unmodifiableMap(new LinkedHashMap<>(values)));
             }
@@ -53,7 +67,7 @@ public final class ReferenceSelectionProjectionReader {
         return Collections.unmodifiableMap(new LinkedHashMap<>(ordered));
     }
 
-    private static Map<String, Object> readOne(ReferenceTarget sourceTarget,
+    private static Map<String, ResolvedValue> readResolvedOne(ReferenceTarget sourceTarget,
                                                List<String> sourceIds,
                                                ReferenceSelectionProjection projection,
                                                ReferenceTargetResolver resolver) {
@@ -63,12 +77,12 @@ public final class ReferenceSelectionProjectionReader {
                             sourceIds.size(), ReferenceReadObserver.Kind.DIRECT, null, projection.key(), 0));
             Map<String, Map<String, Object>> values = require(resolver, sourceTarget)
                     .projections(sourceIds, List.of(projection.targetField()));
-            Map<String, Object> result = new LinkedHashMap<>();
-            values.forEach((id, fields) -> result.put(id, fields.get(projection.targetField())));
+            Map<String, ResolvedValue> result = new LinkedHashMap<>();
+            values.forEach((id, fields) -> result.put(id, new ResolvedValue(sourceTarget, id, projection.targetField(), fields.get(projection.targetField()))));
             return result;
         }
         ReferenceLoadPath path = path(sourceTarget, projection, resolver);
-        return ReferenceLoadReader.readAll(path, sourceIds,
+        return ReferenceLoadReader.readResolvedAll(path, sourceIds,
                 target -> require(resolver, target), PlatformAbilityRuntime.referenceReadObserver());
     }
 

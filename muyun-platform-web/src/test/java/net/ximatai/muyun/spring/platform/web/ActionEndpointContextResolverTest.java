@@ -18,6 +18,21 @@ import static org.mockito.Mockito.when;
 class ActionEndpointContextResolverTest {
 
     @Test
+    void fieldReadsResolveTheProducerViewPolicyWithoutAnAuthorizationResult() {
+        var actions = mock(PlatformModuleActionService.class);
+        var view = new PlatformModuleAction();
+        view.setModuleAlias("test.child"); view.setActionCode("view"); view.setPermissionActionCode("query");
+        view.setActionLevel(EntityActionLevel.RECORD); view.setActionAuth(true); view.setDataAuth(true); view.setEnabled(true);
+        when(actions.findByModuleAliasAndActionCode("test.child","view")).thenReturn(view);
+        var context = new ActionEndpointContextResolver(actions).resolveFieldReadContext("test.child",java.util.Set.of("child-id"));
+        assertThat(context.moduleAlias()).isEqualTo("test.child");
+        assertThat(context.actionCode()).isEqualTo("view");
+        assertThat(context.permissionCode()).isEqualTo("test.child:query");
+        assertThat(context.recordIds()).containsExactly("child-id");
+        assertThat(context.authorizationResult()).isNull();
+    }
+
+    @Test
     void shouldApplyRegisteredModuleActionPolicyToIndependentStaticActionScope() throws Exception {
         ProjectionController controller = new ProjectionController();
         HandlerMethod handler = new HandlerMethod(controller,

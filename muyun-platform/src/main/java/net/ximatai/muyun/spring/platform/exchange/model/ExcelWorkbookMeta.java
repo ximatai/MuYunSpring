@@ -5,6 +5,12 @@ public record ExcelWorkbookMeta(
         String moduleAlias,
         String uiConfigId,
         String uiConfigTitle,
-        String timeZone
+        String timeZone,
+        String documentId,
+        String purpose,
+        String language
 ) {
+    public ExcelWorkbookMeta(String protocolVersion, String moduleAlias, String uiConfigId, String uiConfigTitle, String timeZone) {
+        this(protocolVersion, moduleAlias, uiConfigId, uiConfigTitle, timeZone, null, null, null);
+    }
 }

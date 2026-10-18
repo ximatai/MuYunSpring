@@ -28,6 +28,10 @@ public class DynamicImportValueConverter {
                                    ParsedSheet parsedSheet,
                                    List<String> row,
                                    ImportTemporalContext temporalContext) {
+        return convert(sheetPlan,parsedSheet,row,temporalContext,false);
+    }
+    public ParsedImportRow convert(DynamicImportPlan.SheetPlan sheetPlan,ParsedSheet parsedSheet,List<String> row,
+            ImportTemporalContext temporalContext,boolean preserveText) {
         if (sheetPlan == null) {
             throw new PlatformException("dynamic import sheet plan must not be null");
         }
@@ -36,12 +40,14 @@ public class DynamicImportValueConverter {
         }
         ImportTemporalContext effectiveTemporalContext =
                 temporalContext == null ? ImportTemporalContext.UTC : temporalContext;
-        LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row);
+        LinkedHashMap<String, String> valuesByFieldName = readRowByField(parsedSheet, row,preserveText);
         LinkedHashMap<String, String> rawValuesByFieldName = new LinkedHashMap<>();
         LinkedHashMap<String, Object> convertedValues = new LinkedHashMap<>();
 
         for (DynamicImportPlan.FieldPlan field : sheetPlan.fields()) {
-            String raw = normalizeText(valuesByFieldName.get(field.fieldName()));
+            String cell=valuesByFieldName.get(field.fieldName());
+            String raw = preserveText && !field.relateId() && !field.companion() && (field.fieldType()==FieldType.STRING || field.fieldType()==FieldType.TEXT)
+                    ? cell==null || cell.isBlank() ? null : cell : normalizeText(cell);
             rawValuesByFieldName.put(field.fieldName(), raw);
             valuesByFieldName.put(field.fieldName(), raw);
         }
@@ -50,7 +56,7 @@ public class DynamicImportValueConverter {
                 continue;
             }
             validateCompanionOnlyValue(field, valuesByFieldName);
-            Object converted = convertField(field, valuesByFieldName, effectiveTemporalContext);
+            Object converted = convertField(field, valuesByFieldName, effectiveTemporalContext,preserveText);
             if (converted != null) {
                 convertedValues.put(field.fieldName(), converted);
                 if (field.fieldType() == FieldType.ZONED_TIMESTAMP) {
@@ -80,20 +86,22 @@ public class DynamicImportValueConverter {
         }
     }
 
-    private LinkedHashMap<String, String> readRowByField(ParsedSheet parsedSheet, List<String> row) {
+    private LinkedHashMap<String, String> readRowByField(ParsedSheet parsedSheet, List<String> row,boolean preserveText) {
         LinkedHashMap<String, String> valuesByField = new LinkedHashMap<>();
         List<String> safeRow = row == null ? List.of() : row;
         for (ParsedColumn column : parsedSheet.columns()) {
             String raw = column.columnIndex() < safeRow.size() ? safeRow.get(column.columnIndex()) : null;
-            valuesByField.put(column.fieldName(), normalizeText(raw));
+            valuesByField.put(column.fieldName(), preserveText ? raw==null || raw.isBlank() ? null : raw : normalizeText(raw));
         }
         return valuesByField;
     }
 
     private Object convertField(DynamicImportPlan.FieldPlan field,
                                 Map<String, String> valuesByFieldName,
-                                ImportTemporalContext temporalContext) {
-        String raw = normalizeText(valuesByFieldName.get(field.fieldName()));
+                                ImportTemporalContext temporalContext,boolean preserveText) {
+        String cell=valuesByFieldName.get(field.fieldName());
+        String raw = preserveText && (field.fieldType()==FieldType.STRING || field.fieldType()==FieldType.TEXT)
+                ? cell==null || cell.isBlank() ? null : cell : normalizeText(cell);
         if (raw == null) {
             return null;
         }
@@ -109,6 +117,12 @@ public class DynamicImportValueConverter {
                 case ZONED_TIMESTAMP -> parseZonedTimestamp(field, raw, valuesByFieldName);
             };
         } catch (PlatformException ex) {
+            if (ex.httpStatus() == 400 && ex.targets().isEmpty()
+                    && net.ximatai.muyun.spring.common.exception.PlatformErrorCodes.VALIDATION_FAILED.equals(ex.code())) {
+                throw new PlatformException(ex.code(), ex.httpStatus(), ex.getMessage(), ex.getCause(),
+                        ex.scope(), List.of(net.ximatai.muyun.spring.common.exception.ErrorTarget.field(field.fieldName()).entity(field.entityAlias())),
+                        ex.details(), ex.messageArgs(), ex.textSource());
+            }
             throw ex;
         } catch (RuntimeException ex) {
             throw PlatformErrors.badRequestText(TextReference.code(

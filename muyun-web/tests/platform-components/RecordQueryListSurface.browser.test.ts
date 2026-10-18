@@ -246,3 +246,60 @@ it('keeps embedded task and audit tables at content height inside a tall drawer'
     wrapper.unmount();
   }
 });
+
+it('collapses file operations before the primary create action and restores them when the host grows', async () => {
+  await page.viewport(1280, 814);
+  const { default: RecordActionBar } = await import('@/platform-components/RecordActionBar.vue');
+  const { default: UiButton } = await import('@/vue-ui-antdv/components/UiButton.vue');
+  const wrapper = mount(RecordQueryListSurface, {
+    attachTo: document.body,
+    attrs: { style: 'width: 1000px; height: 400px' },
+    props: {
+      title: 'Quality exceptions',
+      quickSearchVisible: true,
+      columns: [],
+      rows: [],
+      tableVisible: false,
+    },
+    slots: {
+      operations: () =>
+        h(RecordActionBar, {
+          context: { action: () => ({ available: true }) } as never,
+          actions: [
+            { key: 'create', title: 'New', primary: true, iconName: 'plus' },
+            { key: 'files', title: 'Data files', actionLevel: 'secondary' },
+          ],
+        }),
+      queryControls: () => [h(UiButton, {}, () => 'Sort by'), h(UiButton, {}, () => 'Advanced filters')],
+    },
+  });
+  try {
+    const direct = () =>
+      wrapper.findAll('.adaptive-header-action-bar__visible button').map((button) => button.text());
+    for (const width of [1000, 780, 500, 1000]) {
+      wrapper.element.style.width = `${width}px`;
+      await wrapper.vm.$nextTick();
+      await expect
+        .poll(() => wrapper.get('.record-query-list-header').element.scrollWidth)
+        .toBeLessThanOrEqual(width);
+      await expect.poll(() => !direct().includes('Data files') || direct().includes('New')).toBe(true);
+      if (width === 1000) await expect.poll(() => direct().includes('New')).toBe(true);
+    }
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('shows zero pages for an empty server result without inventing a navigable page', async () => {
+  const wrapper = mount(RecordQueryListSurface, {
+    props: { columns: [], rows: [], pageable: true, pages: 0, pageNum: 1, total: 0 },
+  });
+  try {
+    expect(wrapper.text()).toContain('第 0 / 0 页');
+    expect(wrapper.get('[aria-label="上一页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="下一页"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.emitted('pageChange')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});

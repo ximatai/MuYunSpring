@@ -275,6 +275,15 @@ function displayRecord(
   };
 }
 
+// Every content column in a row shares the same draft snapshot and in-flight source read.
+// A changed draft or reference projection replaces the snapshot without sharing across sessions.
+const displaySnapshots = computed(
+  () => new Map(rows.value.map((row) => [row.__draftKey, displayRecord(row)])),
+);
+function rowDisplayRecord(row: DraftRow): RecordFormRecord {
+  return displaySnapshots.value.get(row.__draftKey) ?? displayRecord(row);
+}
+
 function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
   const field = resolveRecordFormFieldState(fieldName, {
     fields: formFields.value,
@@ -393,7 +402,9 @@ function toDraftRow(record: QueryListRecord): DraftRow {
 }
 
 function cloneRecord(record: QueryListRecord): QueryListRecord {
-  const clone = structuredClone(toRaw(record));
+  // Business records are JSON contracts; nested projections or language inputs can still
+  // contain reactive proxies after a field update spreads the row. Detach the full graph.
+  const clone = JSON.parse(JSON.stringify(record)) as QueryListRecord;
   delete clone.__draftKey;
   delete clone.__recycleSourceId;
   return clone;
@@ -868,12 +879,13 @@ onMounted(() => void load());
       <RecordFormFields
         :mode="rowMode(row)"
         v-if="editingEnabled && formFields.has(column.fieldName)"
-        :record="displayRecord(row)"
+        :record="rowDisplayRecord(row)"
         :fields="formFields"
         :field-names="[column.fieldName]"
         :picker-configs="pickerConfigsOf(row)"
         :option-context="sourceContext"
         :option-entity-alias="relation.targetEntityAlias"
+        :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
         :form-session-key="row.__draftKey"
         :disabled="row.id != null && !updateAllowed"
         :show-labels="false"
@@ -887,10 +899,12 @@ onMounted(() => void load());
       <RecordRelationValue
         v-else
         :field="
-          resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: displayRecord(row) })
+          resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: rowDisplayRecord(row) })
         "
-        :record="displayRecord(row)"
+        :record="rowDisplayRecord(row)"
         :text="relationDisplayText(row, column.fieldName)"
+        :content-context="sourceContext"
+        :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
       />
     </template>
   </RecordRelationTable>

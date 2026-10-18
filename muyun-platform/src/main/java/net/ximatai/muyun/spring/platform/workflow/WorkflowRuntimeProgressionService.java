@@ -29,7 +29,7 @@ public class WorkflowRuntimeProgressionService {
     private final WorkflowNodeInstanceDao nodeDao;
     private final WorkflowRouteInstanceDao routeDao;
     private final WorkflowTaskDao taskDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimeActivationService activationService;
     private final WorkflowInstanceStateService instanceStateService;
     private final WorkflowNodeInstanceStateService nodeStateService;
@@ -45,7 +45,7 @@ public class WorkflowRuntimeProgressionService {
                                              WorkflowNodeInstanceDao nodeDao,
                                              WorkflowRouteInstanceDao routeDao,
                                              WorkflowTaskDao taskDao,
-                                             WorkflowEventDao eventDao,
+                                             WorkflowEventWriter eventWriter,
                                              WorkflowRuntimeActivationService activationService,
                                              WorkflowInstanceStateService instanceStateService,
                                              WorkflowNodeInstanceStateService nodeStateService,
@@ -58,7 +58,7 @@ public class WorkflowRuntimeProgressionService {
         this.nodeDao = nodeDao;
         this.routeDao = routeDao;
         this.taskDao = taskDao;
-        this.eventDao = eventDao;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.activationService = activationService;
         this.instanceStateService = instanceStateService;
         this.nodeStateService = nodeStateService;
@@ -230,7 +230,7 @@ public class WorkflowRuntimeProgressionService {
         });
         events.forEach(event -> {
             EntityLifecycle.prepareInsert(event, now);
-            eventDao.insert(event);
+            eventWriter.insert(event);
         });
     }
 

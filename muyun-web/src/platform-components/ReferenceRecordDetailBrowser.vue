@@ -121,6 +121,7 @@ const hasLoadedFullSurface = () =>
       <RecordDetailFields
         :record="browser.active.value.record as RecordFormRecord"
         :fields="browser.fields.value"
+        :option-context="browser.activeContext.value"
         :file-transfer-context="browser.activeContext.value"
       />
     </slot>

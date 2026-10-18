@@ -123,7 +123,10 @@ record DynamicFormulaPreviewResponse(DynamicRecordResponse record,
 record DynamicRecordResponse(String id,
                              Integer version,
                              Map<String, Object> values,
-                             Map<String, List<DynamicRecordResponse>> children) {
+                             Map<String, List<DynamicRecordResponse>> children,
+                             @com.fasterxml.jackson.annotation.JsonProperty("$contentLanguages")
+                             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                             Map<String, net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput> contentLanguageInputs) {
     static DynamicRecordResponse from(DynamicRecord record) {
         if (record == null) {
             return null;
@@ -140,7 +143,7 @@ record DynamicRecordResponse(String id,
         values = new java.util.LinkedHashMap<>(values);
         values.putAll(PlatformAuditReferences.values(record));
         values = DynamicWebValues.losslessNumericWireValues(record, values);
-        return new DynamicRecordResponse(record.getId(), record.getVersion(), values, childResponses);
+        return new DynamicRecordResponse(record.getId(), record.getVersion(), values, childResponses, record.contentLanguageInputs());
     }
 }
 

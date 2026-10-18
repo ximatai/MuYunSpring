@@ -11,6 +11,63 @@ import static org.mockito.Mockito.when;
 
 class DefaultAiModelGatewayTest {
     @Test
+    void availabilityUsesTheLiveRouteWithoutCallingProviderAndDoesNotCacheTheDecision() {
+        var routes = mock(AiModelRouteResolver.class);
+        var client = mock(AiModelClient.class);
+        var gateway = new DefaultAiModelGateway(routes, client, 1, 1);
+        var route = new ResolvedAiModelRoute("provider", AiModelProtocol.OPENAI_COMPATIBLE,
+                "https://example.test/v1", "model", "secret");
+        when(routes.resolveCurrent()).thenThrow(new net.ximatai.muyun.spring.common.exception.PlatformConfigurationException("not configured"))
+                .thenReturn(route)
+                .thenThrow(new net.ximatai.muyun.spring.common.exception.PlatformException("disabled provider"))
+                .thenReturn(route);
+        assertThat(gateway.isTextGenerationAvailable()).isFalse();
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant")) {
+            assertThat(gateway.isTextGenerationAvailable()).isFalse();
+            org.mockito.Mockito.verifyNoInteractions(routes);
+            try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                    net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser("user", "User", "tenant"))) {
+                assertThat(gateway.isTextGenerationAvailable()).isFalse();
+                assertThat(gateway.isTextGenerationAvailable()).isTrue();
+                assertThat(gateway.isTextGenerationAvailable()).isFalse();
+                org.mockito.Mockito.verifyNoInteractions(client);
+                gateway.generate(AiTextRequest.userText("hello"));
+                verify(client).generate(org.mockito.Mockito.eq(route), org.mockito.Mockito.any());
+                verify(routes, times(4)).resolveCurrent();
+            }
+        }
+    }
+
+    @Test
+    void availabilityValidatesProviderAndResolvableCredentialsThroughTheNormalResolver() {
+        var configurations = mock(AiModelConfigurationService.class);
+        var providers = mock(AiModelProviderService.class);
+        var client = mock(AiModelClient.class);
+        var configuration = new AiModelConfiguration();
+        configuration.setProvider("provider"); configuration.setModelId("model");
+        configuration.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+        configuration.setApiKeyEnvironmentVariable("CONTENT_TEST_KEY");
+        var provider = new AiModelProvider(); provider.setId("provider");
+        provider.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE); provider.setBaseUrl("https://example.test/v1");
+        when(configurations.requireEffectiveConfiguration()).thenReturn(configuration);
+        when(providers.requireEnabled("provider")).thenReturn(provider);
+        var gateway = new DefaultAiModelGateway(new DefaultAiModelRouteResolver(configurations, providers,
+                new AiModelCredentialResolver(name -> null)), client);
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant");
+             var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                     net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser("user", "User", "tenant"))) {
+            assertThat(gateway.isTextGenerationAvailable()).isFalse();
+            configuration.setCredentialSource(AiModelCredentialSource.DIRECT);
+            configuration.setApiKey("test-key");
+            assertThat(gateway.isTextGenerationAvailable()).isTrue();
+            when(providers.requireEnabled("provider")).thenThrow(
+                    new net.ximatai.muyun.spring.common.exception.PlatformException("disabled"));
+            assertThat(gateway.isTextGenerationAvailable()).isFalse();
+            org.mockito.Mockito.verifyNoInteractions(client);
+        }
+    }
+
+    @Test
     void appliesRouteDefaultsToAllTransportsAndRejectsExplicitExcess() {
         var resolver = mock(AiModelRouteResolver.class);
         var client = mock(AiModelClient.class);

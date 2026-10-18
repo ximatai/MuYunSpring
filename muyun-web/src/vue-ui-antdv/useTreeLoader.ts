@@ -162,7 +162,9 @@ export function useTreeLoader(input: Pick<Options, 'nodes'> & Partial<Omit<Optio
         await waitMinimum(started, controller.signal);
         if (controller.signal.aborted || !indexTree(nodes.value).has(key)) return;
         const children =
-          result.mode === 'append' ? mergeTreePage(node.children ?? [], result.nodes) : result.nodes;
+          result.mode === 'append'
+            ? mergeTreePage(cache.value.get(key) ?? node.children ?? [], result.nodes)
+            : result.nodes;
         indexTree(children);
         const replaced = new Set<string>();
         if (result.mode === 'replace') {

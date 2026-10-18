@@ -100,6 +100,7 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("DynamicWebActionAvailabilityResponse", actionAvailabilityResponseSchema());
         schemas.put("DynamicWebActionContext", actionContextSchema());
         schemas.put("DynamicWebActionResultBody", actionResultBodySchema());
+        schemas.putAll(net.ximatai.muyun.spring.common.openapi.BusinessContentApiSchemas.schemas());
         schemas.put("PlatformWebError", platformWebErrorSchema());
         schemas.put("ErrorScope", errorScopeSchema());
         schemas.put("ErrorTarget", errorTargetSchema());
@@ -143,6 +144,7 @@ final class DynamicOpenApiSchemaFactory {
     private DynamicOpenApiDocument.Schema recordPayloadSchema(DynamicEntityDescriptor entity) {
         Map<String, DynamicOpenApiDocument.Property> properties = recordEnvelopeProperties(entity);
         properties.put("attachments", arrayProperty("RecordAttachmentCommand"));
+        properties.put("$contentLanguages", objectProperty("object"));
         return new DynamicOpenApiDocument.Schema("DynamicRecordPayload", "object", null,
                 List.of(), properties, null);
     }
@@ -296,6 +298,7 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("validationRegex", stringProperty(true));
         properties.put("copyable", booleanProperty(false));
         properties.put("writeProtected", booleanProperty(false));
+        properties.put("content", objectProperty("BusinessContentField"));
         properties.put("writeRules", objectProperty("FieldWriteRules"));
         return new DynamicOpenApiDocument.Schema("DynamicFieldDescriptor", "object", null,
                 List.of("fieldName", "type", "title"), properties, null);

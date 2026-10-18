@@ -74,7 +74,9 @@ function estimatedActionWidth(title: string) {
 function measure() {
   const element = root.value;
   if (!element) return;
-  const actionContainer = element.closest<HTMLElement>('.management-panel-header-actions');
+  const actionContainer = element.closest<HTMLElement>(
+    '.management-panel-header-actions, .drawer-operation-bar-actions',
+  );
   if (actionContainer && actionContainer.clientWidth > 0) {
     // This container is the layout contract shared by tree cards and drawers.
     // Measuring it directly prevents the action content from claiming title
@@ -106,6 +108,10 @@ onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(measure);
     if (root.value) resizeObserver.observe(root.value);
+    const region = root.value?.closest<HTMLElement>(
+      '.management-panel-header-actions, .drawer-operation-bar-actions',
+    );
+    if (region) resizeObserver.observe(region);
     const header = root.value?.closest<HTMLElement>('.management-panel-header');
     const titleGroup = header?.querySelector<HTMLElement>('.management-panel-header-title-group');
     if (header) {

@@ -15,14 +15,14 @@ public class WorkflowDelegationCompletionNoticeService {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private final WorkflowTaskDao taskDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimeEventFactory eventFactory;
 
     public WorkflowDelegationCompletionNoticeService(WorkflowTaskDao taskDao,
-                                                     WorkflowEventDao eventDao,
+                                                     WorkflowEventWriter eventWriter,
                                                      WorkflowRuntimeEventFactory eventFactory) {
         this.taskDao = taskDao;
-        this.eventDao = eventDao;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
     }
 
@@ -43,7 +43,7 @@ public class WorkflowDelegationCompletionNoticeService {
         WorkflowTask notice = noticeTask(instance, completedTask, principalId, actualProcessorId, now);
         EntityLifecycle.prepareInsert(notice, now);
         taskDao.insert(notice);
-        eventDao.insert(eventFactory.delegationCompleted(instance, completedTask, actualProcessorId,
+        eventWriter.insert(eventFactory.delegationCompleted(instance, completedTask, actualProcessorId,
                 eventPayload(completedTask, notice, actualProcessorId), now));
         return notice;
     }

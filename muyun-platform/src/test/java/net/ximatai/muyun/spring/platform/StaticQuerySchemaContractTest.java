@@ -96,7 +96,7 @@ class StaticQuerySchemaContractTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class))).querySchema();
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {}).querySchema();
         assertField(metadataField, "required", QueryValueType.BOOLEAN);
         assertField(metadataField, "uniqueField", QueryValueType.BOOLEAN);
         assertField(metadataField, "fieldName", QueryValueType.STRING);

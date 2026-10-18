@@ -363,3 +363,5 @@ export { default as WorkflowParticipantEditor } from './WorkflowParticipantEdito
 export { default as WorkflowBusinessTaskEditor } from './WorkflowBusinessTaskEditor.vue';
 
 export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.vue';
+
+export { default as RecordDataExchangeSurface } from './RecordDataExchangeSurface.vue';

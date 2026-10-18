@@ -55,8 +55,9 @@ public class DefaultWorkflowRecordSummaryResolver implements WorkflowRecordSumma
                 : ModuleTitleView.of(module);
         try {
             policy.requireRecordView(instance);
-            return new WorkflowRecordSummary(facts.displayTitle(instance.getModuleAlias(), instance.getRecordId()),
-                    directory.title(), true, directory.titleSource());
+            var title = facts.displayTitleView(instance.getModuleAlias(), instance.getRecordId());
+            return new WorkflowRecordSummary(title == null ? null : title.text(), directory.title(), true,
+                    directory.titleSource(), title == null ? null : title.contentText());
         } catch (PlatformAccessDeniedException denied) {
             return new WorkflowRecordSummary(null, directory.title(), false, directory.titleSource());
         }

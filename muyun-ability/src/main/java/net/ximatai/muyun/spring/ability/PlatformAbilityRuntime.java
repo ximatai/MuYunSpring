@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTextReadListener;
 
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
@@ -157,6 +158,18 @@ public final class PlatformAbilityRuntime {
 
     public static ReferenceReadObserver referenceReadObserver() {
         return PlatformAbilityDispatcher.referenceReadObserver();
+    }
+
+    public static void configureReferenceTextReadListener(ReferenceTextReadListener listener) {
+        PlatformAbilityDispatcher.setReferenceTextReadListener(listener);
+    }
+
+    public static void resetReferenceTextReadListener() {
+        PlatformAbilityDispatcher.setReferenceTextReadListener(ReferenceTextReadListener.NONE);
+    }
+
+    public static ReferenceTextReadListener referenceTextReadListener() {
+        return PlatformAbilityDispatcher.referenceTextReadListener();
     }
 
 }

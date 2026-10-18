@@ -46,7 +46,11 @@ export function recordMutationPayload(
   outputs.delete('version');
   return Object.fromEntries(
     Object.entries(record).filter(
-      ([fieldName]) => fieldName !== '$texts' && !fieldName.includes('.') && !outputs.has(fieldName),
+      ([fieldName]) =>
+        fieldName !== '$texts' &&
+        fieldName !== '$contentTexts' &&
+        !fieldName.includes('.') &&
+        !outputs.has(fieldName),
     ),
   );
 }

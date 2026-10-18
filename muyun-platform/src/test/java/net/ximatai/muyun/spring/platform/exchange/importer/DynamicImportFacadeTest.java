@@ -125,18 +125,21 @@ class DynamicImportFacadeTest {
                 Clock.fixed(Instant.parse("2026-06-09T00:00:00Z"), ZoneOffset.UTC));
         byte[] bytes = new byte[]{1, 2, 3};
 
-        String token = service.save(MODULE, "tenant_a", "errors.xlsx", bytes);
-        bytes[0] = 9;
+        try (var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser("tester", "Tester", "tenant_a"))) {
+            String token = service.save(MODULE, "tenant_a", "errors.xlsx", bytes);
+            bytes[0] = 9;
 
-        DynamicImportErrorFileService.ErrorFilePayload payload = service.get(MODULE, "tenant_a", token);
-        assertThat(payload.fileName()).isEqualTo("errors.xlsx");
-        assertThat(payload.content()).containsExactly(1, 2, 3);
+            DynamicImportErrorFileService.ErrorFilePayload payload = service.get(MODULE, "tenant_a", token);
+            assertThat(payload.fileName()).isEqualTo("errors.xlsx");
+            assertThat(payload.content()).containsExactly(1, 2, 3);
 
-        byte[] read = payload.content();
-        read[0] = 8;
-        assertThat(payload.content()).containsExactly(1, 2, 3);
-        assertThat(service.get("crm.customer", "tenant_a", token)).isNull();
-        assertThat(service.get(MODULE, "tenant_b", token)).isNull();
+            byte[] read = payload.content();
+            read[0] = 8;
+            assertThat(payload.content()).containsExactly(1, 2, 3);
+            assertThat(service.get("crm.customer", "tenant_a", token)).isNull();
+            assertThat(service.get(MODULE, "tenant_b", token)).isNull();
+        }
     }
 
     @Test

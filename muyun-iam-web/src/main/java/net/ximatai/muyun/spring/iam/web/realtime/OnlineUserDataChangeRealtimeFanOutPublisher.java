@@ -65,7 +65,9 @@ public final class OnlineUserDataChangeRealtimeFanOutPublisher implements DataCh
                             .map(change -> isSharedPresentationChange(change)
                                     ? new DataChange(change.type(),
                                             change.moduleAlias(), null, null, null, java.util.Map.of())
-                                    : DataChange.collectionChanged(change.moduleAlias()))
+                                    : DataChangeTypes.BUSINESS_CONTENT_CHANGED.equals(change.type())
+                                            ? new DataChange(change.type(), change.moduleAlias(), null, null, null, java.util.Map.of())
+                                            : DataChange.collectionChanged(change.moduleAlias()))
                             .distinct().filter(change -> canQueryModule.test(change.moduleAlias())).toList();
                     if (!hints.isEmpty()) messages.sendToUser(recipient.userId(), RealtimeDestinations.DATA_CHANGES,
                             RealtimeEnvelope.of(StompDataChangeRealtimePublisher.MESSAGE_TYPE, traceId,

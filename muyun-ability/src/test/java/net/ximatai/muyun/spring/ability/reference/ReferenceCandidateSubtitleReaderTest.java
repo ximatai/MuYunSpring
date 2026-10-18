@@ -43,6 +43,40 @@ class ReferenceCandidateSubtitleReaderTest {
     }
 
     @Test
+    void publishesActualTerminalIdentityAndAnExplicitWithdrawalWithoutExtraTargetReads() {
+        customers.values = Map.of("one", Map.of("organizationId", "org1"));
+        organizations.values = Map.of("org1", Map.of("title", " 同名 "));
+        var events = new java.util.ArrayList<ReferenceTextReadListener.CandidateSubtitles>();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTextReadListener(new ReferenceTextReadListener() {
+            public void onProjection(Projection projection) { }
+            public void onCandidateSubtitles(CandidateSubtitles subtitles) { events.add(subtitles); }
+        });
+        try {
+            var result = ReferenceCandidateSubtitleReader.readResolved(customer, List.of("one"),
+                    new ReferenceSelectionProjection("organizationId.title"), resolver);
+            assertThat(result.get("one")).isEqualTo(new ReferenceLoadReader.ResolvedValue(organization, "org1", "title", " 同名 "));
+            assertThat(events).hasSize(1);
+            assertThat(events.getFirst().sources()).isEqualTo(result);
+            assertThat(customers.reads).isEqualTo(1);
+            assertThat(organizations.reads).isEqualTo(1);
+            organizations.protectedField = "title";
+            ReferenceCandidateSubtitleReader.readResolved(customer, List.of("one"),
+                    new ReferenceSelectionProjection("organizationId.title"), resolver);
+            assertThat(events).hasSize(2);
+            assertThat(events.getLast().candidateIds()).containsExactly("one");
+            assertThat(events.getLast().sources()).isEmpty();
+            assertThat(customers.reads).isEqualTo(1);
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTextReadListener();
+        }
+    }
+
+    @Test void boundsCaptionsWithoutSplittingASupplementaryCharacter() {
+        assertThat(ReferenceCandidateSubtitleReader.label("x".repeat(499) + "😀" + "tail")).isEqualTo("x".repeat(499));
+        assertThat(ReferenceCandidateSubtitleReader.label("x".repeat(498) + "😀" + "tail")).isEqualTo("x".repeat(498) + "😀");
+    }
+
+    @Test
     void excludesProtectedTerminalAndHopBeforeReadingValues() {
         organizations.protectedField = "title";
         assertThat(ReferenceCandidateSubtitleReader.read(customer, List.of("one"),

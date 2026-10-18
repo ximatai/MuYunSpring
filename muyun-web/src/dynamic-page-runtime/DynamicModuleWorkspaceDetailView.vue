@@ -43,7 +43,10 @@ import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
-import { useModuleRecordDataChanges } from './useModuleRecordDataChanges';
+import {
+  useModuleRecordDataChanges,
+  moduleContentPresentationDependencies,
+} from './useModuleRecordDataChanges';
 import { applyReferenceRecordProjection } from './referenceRecordProjection';
 
 const language = useLanguageContext();
@@ -189,6 +192,7 @@ async function loadRecord() {
 
 useModuleRecordDataChanges({
   moduleAlias: context.moduleAlias,
+  presentationModules: () => moduleContentPresentationDependencies(context.runtime.snapshot()?.uiDescriptor),
   recordId: () => props.recordId,
   blocked: () =>
     mode.value !== 'view' ||
@@ -517,6 +521,7 @@ async function toggleEnabled() {
           v-if="mode === 'view'"
           :record="draft"
           :fields="fields"
+          :option-context="context"
           :file-transfer-context="context"
           :exclude-field-names="['enabled']"
         />
@@ -539,7 +544,10 @@ async function toggleEnabled() {
         <template v-if="mode === 'view'">
           <WorkflowRecordPanel
             @interaction-change="workflowInteraction = $event"
-            v-if="record.id && context.abilities.has('approval') === true"
+            v-if="
+              record.id &&
+              (context.abilities.has('workflow') === true || context.abilities.has('approval') === true)
+            "
             :context="context"
             :record-id="String(record.id)"
             @changed="handleWorkflowChanged"

@@ -21,6 +21,7 @@ const props = withDefaults(
   defineProps<{
     record: QueryListRecord;
     column: RecordQueryListColumn;
+    reading?: string;
     /** Legacy per-column renderers remain an extension of the standard list cell, not of a table shell. */
     cellRenderers?: Record<string, (record: QueryListRecord) => string>;
   }>(),
@@ -33,11 +34,23 @@ const language = useLanguageContext();
 const renderedValue = computed<unknown>(
   () => props.column.render?.(props.record) ?? props.cellRenderers[props.column.key]?.(props.record),
 );
-const displayValue = computed(() =>
+const originalDisplayValue = computed(() =>
   resolveRecordQueryListDisplayValue(props.record, props.column, props.cellRenderers, {
     timeZone: platformTimeZone?.value,
     language,
   }),
+);
+const displayValue = computed(() =>
+  renderedValue.value === undefined && !props.column.reference
+    ? (props.reading ?? originalDisplayValue.value)
+    : originalDisplayValue.value,
+);
+const readingTitle = computed(() =>
+  props.reading !== undefined && renderedValue.value === undefined && !props.column.reference
+    ? language.t('platform.content.list-reading-original', '阅读译文；原文：{original}', {
+        original: String(props.record[props.column.key] ?? originalDisplayValue.value),
+      })
+    : String(displayValue.value),
 );
 const dateTimeValue = computed(() =>
   scalarPresentationValue(renderedValue.value ?? props.record[props.column.key]),
@@ -84,7 +97,7 @@ function fileSizePresentationValue(value: unknown) {
     v-else-if="column.reference && referenceBrowser && renderedValue === undefined"
     class="record-query-list-text"
     :style="{ '--record-query-list-max-lines': String(column.maxDisplayLines ?? 1) }"
-    :title="String(displayValue)"
+    :title="readingTitle"
     ><ReadonlyReferenceValue
       :reference="column.reference"
       :value="record[column.key]"
@@ -94,7 +107,7 @@ function fileSizePresentationValue(value: unknown) {
     v-else
     class="record-query-list-text"
     :style="{ '--record-query-list-max-lines': String(column.maxDisplayLines ?? 1) }"
-    :title="String(displayValue)"
+    :title="readingTitle"
     >{{ displayValue }}</span
   >
 </template>

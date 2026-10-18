@@ -100,6 +100,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private ModuleMetadataFieldService moduleFields;
     @Autowired private MetadataFieldReferenceConfigService referenceConfigs;
     @Autowired private MetadataFieldDefinitionCompiler fieldCompiler;
+    @Autowired private MetadataFieldProtectionConfigService protections;
     @Autowired private DictionaryItemService dictionaryItems;
     @Autowired private PlatformModuleService moduleService;
     @Autowired private TestSchemaEnsureService schemaEnsureService;
@@ -205,6 +206,128 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @AfterEach
     void resetChildCreationTransactionRuntime() {
         PlatformAbilityRuntime.resetMutationTransactionOperator();
+    }
+
+    @Test
+    void contentPolicyPreflightRejectsLegacyReferencesOwnedByAnotherRelationBeforePublication() {
+        applyNewStringField("companyId", "company_id");
+        var saved = field("companyId");
+        String otherRelation = anotherModuleRelation();
+        var legacy = new ModuleMetadataField();
+        legacy.setRelationId(otherRelation); legacy.setMetadataFieldId(saved.getId());
+        legacy.setTitle("Other legacy company");
+        legacy.setReferenceModuleAlias(moduleAlias); legacy.setReferenceModuleKeyField("id");
+        legacy.setReferenceModuleLabelField("id"); moduleFields.insert(legacy);
+        var change = fieldSpecChangeProposal(saved, "string");
+        change.fieldDrafts().getFirst().field()
+                .setContentPolicy(net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE);
+        var checked = previewService.preview(moduleAlias, relationId, change);
+        assertThat(checked.valid()).isFalse();
+        assertThat(checked.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("Reference identity"));
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(change, checked.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        assertThat(field("companyId").getContentPolicy())
+                .isEqualTo(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+        assertThat(moduleFields.select(legacy.getId()).getReferenceModuleAlias()).isEqualTo(moduleAlias);
+    }
+
+    @Test
+    void contentPolicyPreflightRejectsNumericProtectedAndFinalDictionaryFieldsWithoutPublishing() {
+        var automatic = net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE;
+        var numeric = proposal("quantity", "quantity", "integer", false);
+        numeric.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var numericPreview = previewService.preview(moduleAlias, relationId, numeric);
+        assertThat(numericPreview.valid()).isFalse();
+        assertThat(numericPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(numeric, numericPreview.proposalFingerprint())))
+                .hasMessageContaining("validation failed");
+        assertThat(columnExists(metadata.getTableName(), "quantity")).isFalse();
+
+        var create = proposal("description", "description", stringSpecAlias, false);
+        var checked = previewService.preview(moduleAlias, relationId, create);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(create, checked.proposalFingerprint()));
+        var saved = field("description");
+        var protection = new MetadataFieldProtectionConfig();
+        protection.setMetadataFieldId(saved.getId());
+        protection.setMaskingPolicy(net.ximatai.muyun.spring.common.security.FieldMaskingPolicy.FULL);
+        protections.insert(protection);
+        var protectedUpdate = fieldSpecChangeProposal(saved, stringSpecAlias);
+        protectedUpdate.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var protectedPreview = previewService.preview(moduleAlias, relationId, protectedUpdate);
+        assertThat(protectedPreview.valid()).isFalse();
+        assertThat(protectedPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThat(field("description").getContentPolicy())
+                .isEqualTo(net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL);
+
+        var dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryApplicationAlias("crm"); dictionary.setDictionaryCategoryAlias("state");
+        dictionary.setSelectionMode(OptionSelectionMode.SINGLE);
+        var addition = proposal("state", "state", stringSpecAlias, false);
+        var field = addition.fieldDrafts().getFirst().field(); field.setContentPolicy(automatic);
+        var combined = new MetadataRelationChangeSetPreviewCommand(addition.expectedMetadataVersion(), Map.of(),
+                List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                        new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null, dictionary))));
+        var dictionaryPreview = previewService.preview(moduleAlias, relationId, combined);
+        assertThat(dictionaryPreview.valid()).isFalse();
+        assertThat(dictionaryPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+        assertThat(columnExists(metadata.getTableName(), "state")).isFalse();
+
+        protection.setEnabled(false); protections.update(protection);
+        var other = new MetadataFieldConfig();
+        other.setMetadataFieldId(saved.getId()); other.setRelationId(anotherModuleRelation());
+        other.setDictionaryApplicationAlias("crm"); other.setDictionaryCategoryAlias("state");
+        other.setSelectionMode(OptionSelectionMode.SINGLE); fieldConfigs.insert(other);
+        var sharedPreview = previewService.preview(moduleAlias, relationId, protectedUpdate);
+        assertThat(sharedPreview.valid()).as("field policy must remain valid in every relation").isFalse();
+        assertThat(sharedPreview.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                .anyMatch(message -> message.contains("unprotected physical text"));
+    }
+
+    @Test
+    void contentPolicySurvivesPublicationAndOmittedUpdatesAndBindsTheReviewedFingerprint() {
+        var automatic = net.ximatai.muyun.spring.common.content.ContentPolicy.AUTO_TRANSLATE;
+        var manual = net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS;
+        var keep = net.ximatai.muyun.spring.common.content.ContentPolicy.KEEP_ORIGINAL;
+        var create = proposal("description", "description", stringSpecAlias, false);
+        create.fieldDrafts().getFirst().field().setContentPolicy(automatic);
+        var preview = previewService.preview(moduleAlias, relationId, create);
+        assertThat(preview.errors()).isEmpty();
+        assertThat(preview.plan().fieldMutations().getFirst().field().getContentPolicy()).isEqualTo(automatic);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(create, preview.proposalFingerprint()));
+        var saved = field("description");
+        String fieldId = saved.getId();
+        assertThat(saved.getContentPolicy()).isEqualTo(automatic);
+        assertThat(fieldCompiler.compile(saved).content().policy()).isEqualTo(automatic);
+
+        var edit = fieldSpecChangeProposal(saved, stringSpecAlias);
+        assertThat(edit.fieldDrafts().getFirst().field().getContentPolicy()).isNull();
+        edit.fieldDrafts().getFirst().field().setTitle("Revised label");
+        preview = previewService.preview(moduleAlias, relationId, edit);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(edit, preview.proposalFingerprint()));
+        saved = field("description");
+        assertThat(saved.getId()).isEqualTo(fieldId);
+        assertThat(saved.getContentPolicy()).isEqualTo(automatic);
+
+        var change = fieldSpecChangeProposal(saved, stringSpecAlias);
+        change.fieldDrafts().getFirst().field().setContentPolicy(manual);
+        var reviewed = previewService.preview(moduleAlias, relationId, change);
+        change.fieldDrafts().getFirst().field().setContentPolicy(keep);
+        assertThat(previewService.preview(moduleAlias, relationId, change).proposalFingerprint())
+                .isNotEqualTo(reviewed.proposalFingerprint());
+        assertThatThrownBy(() -> applyService.apply(moduleAlias, relationId,
+                new MetadataRelationChangeSetApplyCommand(change, reviewed.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("fingerprint");
+        assertThat(field("description").getContentPolicy()).isEqualTo(automatic);
+        change.fieldDrafts().getFirst().field().setContentPolicy(manual);
+        applyService.apply(moduleAlias, relationId, new MetadataRelationChangeSetApplyCommand(change, reviewed.proposalFingerprint()));
+        assertThat(field("description").getContentPolicy()).isEqualTo(manual);
+        assertThat(fieldCompiler.compile(field("description")).content().key()).isEqualTo(saved.getId());
     }
 
     @Test
@@ -1708,7 +1831,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean MetadataFieldReferenceConfigService referenceConfigs(MetadataFieldReferenceConfigDao dao,
                 MetadataFieldService fields, MetadataService metadata, FieldSpecService specs,
                 PlatformModuleService modules, ModuleMetadataRelationService relations) {
-            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, Optional.empty());
+            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, net.ximatai.muyun.spring.platform.support.TestBeanProviders.of(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class, org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class)), Optional.empty());
         }
         @Bean ConfigurationReferenceContributor fieldReferenceReference(org.springframework.beans.factory.ObjectProvider<MetadataFieldReferenceConfigService> configs) {
             return new ConfigurationReferenceContributorConfiguration().fieldReferenceReference(configs);
@@ -1761,7 +1884,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                     empty.getBeanProvider(ModuleMetadataRelationService.class),
                     empty.getBeanProvider(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                configs);
+                configs, event -> {});
         }
         @Bean PlatformPageDefinitionService pageService(PlatformPageDefinitionDao dao, PlatformModuleService modules, ModuleMetadataRelationService relations) {
             return new PlatformPageDefinitionService(dao, modules, relations);

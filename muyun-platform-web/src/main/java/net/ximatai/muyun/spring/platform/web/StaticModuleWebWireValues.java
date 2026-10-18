@@ -40,7 +40,9 @@ final class StaticModuleWebWireValues {
             return record;
         }
         fieldTypes.forEach((fieldName, fieldType) -> adaptPath(values, fieldName.split("\\."), 0, fieldType));
-        return objectMapper.convertValue(values, Map.class);
+        Map<?, ?> output = objectMapper.convertValue(values, Map.class);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, output);
+        return output;
     }
 
     static WebPageResponse<?> adaptPage(WebPageResponse<?> response,
@@ -53,7 +55,7 @@ final class StaticModuleWebWireValues {
                 .map(record -> adapt(record, fieldTypes, objectMapper))
                 .toList();
         return new WebPageResponse<>(records, response.total(), response.pageNum(), response.pageSize(),
-                response.pages(), response.totalKnown(), response.navigation(), response.summaries());
+                response.pages(), response.totalKnown(), response.navigation(), response.summaries(), response.businessContent());
     }
 
     private static boolean isLosslessNumeric(FieldValueType fieldType) {

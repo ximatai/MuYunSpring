@@ -39,9 +39,23 @@ class DynamicWorkflowActionExecutorTest {
 
         Object result = executor.execute(context("submitApproval", "record-1"), request);
 
-        verify(submitService).submitApproval("sales.contract", "record-1", null, null);
+        verify(submitService).submit(WorkflowSubmitRequest.approval("sales.contract", "record-1"));
         assertThat(result).isInstanceOf(DynamicActionResultBody.class);
         assertThat(((DynamicActionResultBody) result).refresh()).isTrue();
+    }
+
+    @Test
+    void dynamicSubmissionRetainsTheSameOpinionAndLanguageAsTheRecordEndpoint() {
+        var request = DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("reason", "Nicht versenden.", "reasonSourceLanguage", "de"));
+        when(submitService.submit(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
+            assertThat(WorkflowOpinionInput.language()).isEqualTo("de");
+            return null;
+        });
+        executor.execute(context("submitApproval", "record-1"), request);
+        verify(submitService).submit(WorkflowSubmitRequest.approval("sales.contract", "record-1")
+                .withReason("Nicht versenden."));
+        assertThat(WorkflowOpinionInput.language()).isNull();
     }
 
     @Test
@@ -55,7 +69,7 @@ class DynamicWorkflowActionExecutorTest {
 
         executor.execute(context("submitApproval", "record-1"), request);
 
-        verify(submitService).submitApproval("sales.contract", "record-1", "leftRoute", "choose left");
+        verify(submitService).submit(WorkflowSubmitRequest.approval("sales.contract", "record-1").withSelectedRoute("leftRoute", "choose left"));
     }
 
     @Test
@@ -73,16 +87,14 @@ class DynamicWorkflowActionExecutorTest {
 
         executor.execute(context("submitApproval", "record-1"), request);
 
-        verify(submitService).submitApproval(org.mockito.ArgumentMatchers.eq("sales.contract"),
-                org.mockito.ArgumentMatchers.eq("record-1"),
-                org.mockito.ArgumentMatchers.argThat(selections ->
-                        selections.size() == 2
-                                && "branchA".equals(selections.get(0).branchNodeKey())
-                                && "routeA1".equals(selections.get(0).routeKey())
-                                && "choose A1".equals(selections.get(0).selectedReason())
-                                && "branchB".equals(selections.get(1).branchNodeKey())
-                                && "routeB2".equals(selections.get(1).routeKey())
-                                && "choose B2".equals(selections.get(1).selectedReason())));
+        verify(submitService).submit(org.mockito.ArgumentMatchers.argThat(submit ->
+                        submit.manualRouteSelections().size() == 2
+                                && "branchA".equals(submit.manualRouteSelections().get(0).branchNodeKey())
+                                && "routeA1".equals(submit.manualRouteSelections().get(0).routeKey())
+                                && "choose A1".equals(submit.manualRouteSelections().get(0).selectedReason())
+                                && "branchB".equals(submit.manualRouteSelections().get(1).branchNodeKey())
+                                && "routeB2".equals(submit.manualRouteSelections().get(1).routeKey())
+                                && "choose B2".equals(submit.manualRouteSelections().get(1).selectedReason())));
     }
 
     @Test
@@ -92,7 +104,7 @@ class DynamicWorkflowActionExecutorTest {
 
         executor.execute(context("submitWorkflow", "record-1"), request);
 
-        verify(submitService).submitWorkflow("sales.contract", "record-1", "sync", null, null);
+        verify(submitService).submit(WorkflowSubmitRequest.workflow("sales.contract", "record-1", "sync"));
     }
 
     @Test
@@ -115,7 +127,7 @@ class DynamicWorkflowActionExecutorTest {
 
         executor.execute(context("syncWorkflow", "record-1"), request);
 
-        verify(submitService).submitWorkflow("sales.contract", "record-1", "sync", null, null);
+        verify(submitService).submit(WorkflowSubmitRequest.workflow("sales.contract", "record-1", "sync"));
     }
 
     @Test
@@ -267,5 +279,13 @@ class DynamicWorkflowActionExecutorTest {
     private DynamicActionExecutionContext context(String actionCode, String recordId, String operator) {
         return new DynamicActionExecutionContext("sales.contract", "contract", actionCode, null,
                 recordId, "trace-1", "tenant-1", false, null, operator, "USER", null, null, null, null);
+    }    @Test
+    void dynamicActionsCarryAnExplicitOpinionLanguageWithoutLeakingItToTheCaller() {
+        org.mockito.Mockito.when(taskActionFacade.execute(org.mockito.ArgumentMatchers.eq("approve"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> { assertThat(WorkflowOpinionInput.language()).isEqualTo("de"); return null; });
+        executor.execute(context("approve", "record-1"), DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("taskId", "task-1", "reason", "Versand anhalten.", "reasonSourceLanguage", "de")));
+        assertThat(WorkflowOpinionInput.language()).isNull();
     }
+
 }

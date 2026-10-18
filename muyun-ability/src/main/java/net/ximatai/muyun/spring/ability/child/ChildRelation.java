@@ -4,6 +4,7 @@ import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
@@ -71,8 +72,25 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return childAbility;
     }
 
+    /** The same declared owning key used by aggregate reads and writes. */
+    public String childForeignKeyField() { return childForeignKeyField; }
+
     public List<C> incomingChildren(P parent) {
         return extractChildren.apply(parent);
+    }
+
+    /** A detached root-only patch must not turn populated read children into replacement input. */
+    public void omitIncomingChildren(P parent) {
+        if (incomingChildren(parent) == null) return;
+        if (populateChildren == null) throw new IllegalStateException("Root-only updates require a declared child population adapter");
+        populateChildren.accept(parent,null);
+        if (incomingChildren(parent) != null) throw new IllegalStateException("Child population adapter must preserve omitted input");
+    }
+
+    /** Infrastructure assembles an ordinary aggregate through its declared population adapter. */
+    public void assignIncomingChildren(P parent,List<C> rows) {
+        if (populateChildren == null) throw new IllegalStateException("Aggregate writes require a declared child population adapter");
+        populateChildren.accept(parent,List.copyOf(rows));
     }
 
     public ChildRelation<C, P> autoPopulate(BiConsumer<P, List<C>> value) {
@@ -107,6 +125,11 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
 
     public List<C> selectChildren(String parentId) {
         return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId));
+    }
+
+    /** Additional conditions narrow the declared owning key before pagination. */
+    public List<C> selectChildren(String parentId, Criteria criteria, PageRequest page) {
+        return childAbility.selectChildRows(Criteria.of().eq(childForeignKeyField, parentId).and(criteria), page);
     }
 
     /** One query for many visible parents; callers retain the requested-parent order in the result. */

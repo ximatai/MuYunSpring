@@ -5,8 +5,6 @@ import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.common.identity.CurrentUserTimeZoneResolver;
-import net.ximatai.muyun.spring.common.identity.CurrentUserOrganizationResolver;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
@@ -52,8 +50,7 @@ public class UserSessionService {
     private final Supplier<UserSessionPresenceLookup> userSessionPresenceLookup;
     private final Supplier<LoginAuditLogger> loginAuditLogger;
     private final Clock clock;
-    private final CurrentUserTimeZoneResolver currentUserTimeZoneResolver;
-    private final CurrentUserOrganizationResolver currentUserOrganizationResolver;
+    private final UserAccountIdentity identities;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired
@@ -75,8 +72,7 @@ public class UserSessionService {
         this.userSecurityEventPublisher = resolved.securityEventPublisher();
         this.userSessionLifecycleEventPublisher = lifecycleEventPublisher;
         this.clock = effectiveClock;
-        this.currentUserTimeZoneResolver = resolved.timeZoneResolver();
-        this.currentUserOrganizationResolver = resolved.organizationResolver();
+        this.identities = new UserAccountIdentity(resolved);
         this.userSessionPresenceLookup = resolved.presenceLookup();
         this.loginAuditLogger = resolved.loginAuditLogger();
     }
@@ -490,20 +486,7 @@ public class UserSessionService {
     }
 
     private CurrentUser currentUserOf(UserAccount user, boolean passwordChangeRequired) {
-        CurrentUser currentUser;
-        if (user.getTenantId() == null || user.getTenantId().isBlank()) {
-            currentUser = CurrentUser.systemUser(user.getId(), user.getUsername(), passwordChangeRequired);
-        } else {
-            currentUser = CurrentUser.tenantUser(user.getId(), user.getUsername(), user.getTenantId(),
-                    null, passwordChangeRequired);
-        }
-        currentUser = currentUserOrganizationResolver.resolveOrganizationId(currentUser)
-                .map(currentUser::withOrganizationId)
-                .orElse(currentUser);
-        CurrentUser resolvedCurrentUser = currentUser;
-        return currentUserTimeZoneResolver.resolveZoneId(resolvedCurrentUser)
-                .map(zoneId -> resolvedCurrentUser.withTimeZone(zoneId.getId()))
-                .orElse(resolvedCurrentUser);
+        return identities.currentUserOf(user, passwordChangeRequired);
     }
 
     private String normalizeBlank(String value) {

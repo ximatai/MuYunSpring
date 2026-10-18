@@ -1,4 +1,4 @@
-import { defineComponent, h, ref } from 'vue';
+import { defineComponent, h, reactive, ref } from 'vue';
 import {
   provideRelationDraftRegistry,
   createRelationDraftRegistry,
@@ -34,6 +34,45 @@ afterEach(() => {
 });
 
 describe('managed detail relation surface', () => {
+  it.each([true, false])('shares one source read across content columns (editable: %s)', async (editable) => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.listProjection = { fields: [{ fieldName: 'attributeAlias' }, { fieldName: 'title' }] };
+    const ui = descriptor();
+    for (const field of ui.editorContributions![0]!.editor.fields)
+      field.content = { key: field.fieldRef.fieldName, policy: 'AUTO_TRANSLATE' };
+    const pending: ((value: unknown) => void)[] = [];
+    const request = vi.fn(() => new Promise((done) => pending.push(done)));
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: ui,
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'child', version: 1, attributeAlias: '说明', title: '原名' }],
+        },
+        mutationEnabled: editable,
+      },
+      global: { stubs: { UiModal: { template: '<div />' } } },
+    });
+    await flushPromises();
+    expect(wrapper.findAll('[data-content-field]')).toHaveLength(2);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith({
+      path: '/platform.field_ui_control/view/parent/relations/properties/child/content',
+    });
+    expect(request).toHaveBeenCalledWith({
+      path: '/platform.field_ui_control/view/parent/relations/properties/child/content/reading',
+      query: { language: 'zh-CN' },
+    });
+    pending[0]!({ fields: {}, recordVersion: 1 });
+    pending[1]!({ fields: {}, recordVersion: 1, language: 'zh-CN' });
+    await flushPromises();
+    wrapper.unmount();
+  });
+
   it('uses the display list projection for independent child columns without mutating the query contract', async () => {
     const configured = relation('properties');
     configured.queryContract!.listProjection = { fields: [{ fieldName: 'attributeAlias', title: '属性' }] };
@@ -1202,6 +1241,47 @@ describe('managed detail relation surface', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it('publishes child edits with nested reactive content facts and language inputs', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor: descriptor(),
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'child', version: 2, attributeAlias: '原文' }],
+        },
+        mutationEnabled: true,
+      },
+    });
+    await flushPromises();
+    const field = wrapper.findComponent({ name: 'RecordFormFields' });
+    field.vm.$emit(
+      'update:field',
+      '$contentLanguages',
+      reactive({
+        attributeAlias: { languageTag: 'de', expectedRevision: 1 },
+      }),
+    );
+    await flushPromises();
+    field.vm.$emit('update:field', 'attributeAlias', 'Deutscher Entwurf');
+    await flushPromises();
+    const payload = wrapper.emitted('records-change')?.at(-1)?.[0];
+    expect(payload).toEqual([
+      {
+        id: 'child',
+        version: 2,
+        attributeAlias: 'Deutscher Entwurf',
+        $contentLanguages: { attributeAlias: { languageTag: 'de', expectedRevision: 1 } },
+      },
+    ]);
+    expect(() => structuredClone(payload)).not.toThrow();
+    wrapper.unmount();
+  });
+
   it('recovers retained children into the aggregate draft without writing immediately', async () => {
     const request = vi.fn(async (options: { path: string; method?: string }) => {
       expect(options.method).toBe('POST');
@@ -1419,11 +1499,12 @@ describe('managed detail relation surface', () => {
     const listContext = wrapper
       .findComponent({ name: 'RecordQueryListPanel' })
       .props('context') as ModuleContext<Record<string, unknown>>;
-    await listContext.crud.query();
+    await listContext.crud.query({ page: { pageNum: 1, pageSize: 10 } }, { contentLanguage: 'de' });
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         method: 'POST',
         path: '/platform.field_ui_control/view/select/relations/properties/query',
+        headers: { 'X-MuYun-Content-Language': 'de', 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       }),
     );
 

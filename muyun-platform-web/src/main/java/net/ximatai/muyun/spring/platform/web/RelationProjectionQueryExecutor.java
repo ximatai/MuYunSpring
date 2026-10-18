@@ -44,6 +44,23 @@ public class RelationProjectionQueryExecutor {
         if (plan == null || !plan.hasRelationProjection()) {
             throw new IllegalArgumentException("projection SQL plan must contain relation projections");
         }
+        return preparedPage(plan, criteria, pageRequest, additionalResponseFields, sorts);
+    }
+
+    /** Executes a bounded identity page without exposing internal query or sort columns. */
+    public PageResult<String> pageIdentities(RelationProjectionSqlPlan plan, Criteria criteria,
+                                              PageRequest pageRequest, Sort... sorts) {
+        if (plan == null || !plan.queryableFields().contains("id"))
+            throw new IllegalArgumentException("identity query requires a projected id");
+        var identityPlan = new RelationProjectionSqlPlan(plan.baseSql(), plan.baseParams(), plan.queryableFields(),
+                plan.sortableFields(), java.util.Set.of("id"), plan.relationOutputFields(), plan.databaseType(), plan.projectionGraph());
+        var result = preparedPage(identityPlan, criteria, pageRequest, java.util.Set.of(), sorts);
+        return PageResult.of(result.getRecords().stream().map(row -> String.valueOf(value(row, "id"))).toList(),
+                result.getTotal(), PageRequest.of(result.getPageNum(), result.getPageSize()));
+    }
+
+    private PageResult<Map<String, Object>> preparedPage(RelationProjectionSqlPlan plan, Criteria criteria,
+            PageRequest pageRequest, java.util.Set<String> additionalResponseFields, Sort... sorts) {
         PageRequest page = pageRequest == null ? PageRequest.of(1, 20) : pageRequest;
         CompiledCriteria compiled = compileCriteria(plan, criteria);
         LinkedHashMap<String, Object> params = jdbcParameters(plan.baseParams());

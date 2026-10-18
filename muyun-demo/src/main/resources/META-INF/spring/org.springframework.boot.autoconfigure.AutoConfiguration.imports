@@ -1,2 +1,3 @@
 net.ximatai.muyun.spring.demo.DemoBootstrapConfiguration
 net.ximatai.muyun.spring.demo.school.configuration.TeachingDemoConfiguration
+net.ximatai.muyun.spring.demo.quality.configuration.QualityDemoConfiguration

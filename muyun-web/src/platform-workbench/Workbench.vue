@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import LanguageSelector from './LanguageSelector.vue';
+import WorkbenchLanguageSettings from './WorkbenchLanguageSettings.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -641,7 +641,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             class="topbar-actions"
             :aria-label="language.t('platform.screen.Workbench.global-tools', '全局工具')"
           >
-            <LanguageSelector
+            <WorkbenchLanguageSettings
               :identity-scope="
                 startup?.session.currentUser
                   ? JSON.stringify([startup.session.currentUser.userId, startup.session.currentUser.tenantId])

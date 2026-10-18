@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
-        extends QueryViewWeb<T, S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration {
+        extends QueryViewWeb<T, S>, RecordLabelWeb<T>, StaticModuleServiceDeclaration, RecordExchangeWeb<T,S> {
     @Override
     default CrudAbility<?> staticModuleService() {
         return service();
@@ -147,7 +147,15 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         if (items.stream().map(WebListQuerySummaryItem::key).distinct().count() != items.size()) {
             throw new IllegalStateException("duplicate list query summary result key: " + webScopeName());
         }
-        return response.withSummaries(items);
+        WebPageResponse<T> result = response.withSummaries(items);
+        if (moduleAlias != null && runtime != null && runtime.hasPlan(moduleAlias)
+                && BusinessContentQueryWebContext.language().isPresent()) {
+            Criteria navigation = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+            applyMenuEntryQueryCriteria(navigation);
+            result = result.withBusinessContent(runtime.businessContentQueryStatus(moduleAlias, request, service(),
+                    navigation, StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY), response.records()));
+        }
+        return result;
     }
 
     @GetMapping("/query/schema")
@@ -184,6 +192,22 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     default WebPageResponse<T> query(@RequestBody(required = false) WebQueryRequest request) {
         return webScope(() -> {
             requireExecutionPlanAtRequest();
+            if ((request == null || !request.unpagedEnabled()) && BusinessContentQueryWebContext.language().isPresent()
+                    && moduleAliasForRuntime() != null && executionRuntime() != null
+                    && executionRuntime().hasPlan(moduleAliasForRuntime())) {
+                Criteria navigation = CrudWebRuntimeSupport.navigatorCriteria(this, request);
+                applyMenuEntryQueryCriteria(navigation);
+                WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+                var ordered = executionRuntime().queryContentOrderedList(moduleAliasForRuntime(),
+                        WebQueryRequests.from(CrudWebRuntimeSupport.withoutWorkspaceExternalValues(this, request)),
+                        navigation, PageRequest.of(page.pageNum(), page.pageSize()), service(),
+                        StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY), RecordReadVisibility.ACTIVE);
+                if (ordered.isPresent()) {
+                    var response = WebPageResponse.from(WebOutputSupport.page(service(), ordered.get(), FieldOutputContext.LIST));
+                    return attachListQuerySummaries(request,
+                            (WebPageResponse<T>) standardWirePage(projectStaticDefaultList(response)));
+                }
+            }
             if (request == null || !request.unpagedEnabled()) {
                 Optional<WebPageResponse<Map<String, Object>>> projected = queryStaticProjectedList(
                         request, RecordReadVisibility.ACTIVE);
@@ -275,6 +299,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @GetMapping("/view/{id}")
+    @CompiledRecordScope
     @ActionEndpoint(PlatformAction.VIEW)
     default T view(@PathVariable String id) {
         return webScope(() -> {
@@ -289,13 +314,258 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         });
     }
 
+    @GetMapping("/view/{id}/content")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentService.Sources contentSources(@PathVariable String id) {
+        return webScope(() -> BusinessContentWebSupport.current().sources(this, id));
+    }
+
+    @GetMapping("/view/{id}/content/{field}/history")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentService.SourceRevision> contentHistory(
+            @PathVariable String id, @PathVariable String field,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().history(this, id, field, PageRequest.of(page, size)));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentService.Sources childContentSources(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId) {
+        return webScope(() -> BusinessContentWebSupport.current().childSources(this, id, relationCode, childId));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/history")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentService.SourceRevision> childContentHistory(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().childHistory(this, id, relationCode, childId, field, PageRequest.of(page, size)));
+    }
+
     @GetMapping("/save-receipts/{requestId}")
     @ActionEndpoint(PlatformAction.VIEW)
     default RecordSaveRequestSupport.SaveReceipt saveReceipt(@PathVariable String requestId) {
         return RecordSaveRequestSupport.lookup(this, requestId);
     }
 
+    @GetMapping("/view/{id}/content/reading")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Reading contentReading(
+            @PathVariable String id, @RequestParam String language) {
+        return webScope(() -> BusinessContentWebSupport.current().reading(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), language));
+    }
+
+    @PostMapping("/content/generation/status")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result contentGenerationBatchStatus(@RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, null, null, command, false));
+    }
+
+    @PostMapping("/content/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result contentGenerationBatchRequest(@RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, null, null, command, true));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/content/generation/status")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result childContentGenerationBatchStatus(@PathVariable String id, @PathVariable String relationCode,
+            @RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, id, relationCode, command, false));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/content/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default BusinessContentGenerationBatch.Result childContentGenerationBatchRequest(@PathVariable String id, @PathVariable String relationCode,
+            @RequestBody BusinessContentGenerationBatch.Command command) {
+        return webScope(() -> BusinessContentWebSupport.current().generationBatch(this, id, relationCode, command, true));
+    }
+
+    @GetMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationStatus(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language) {
+        return webScope(() -> BusinessContentWebSupport.current().generation(this,
+                net.ximatai.muyun.spring.platform.content.BusinessContentService.Location.record(id), field, language, false, false));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status contentGenerationRequest(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestParam(defaultValue = "false") boolean retry) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().generation(this,
+                        net.ximatai.muyun.spring.platform.content.BusinessContentService.Location.record(id), field, language, true, retry)));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/prepare")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationPrepare(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language, "prepare", null)));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/review")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationReview(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language, "review", null)));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/draft")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationDraft(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language, "draft", change)));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/confirm")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    @BusinessMutation
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationConfirm(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language, "confirm", change)));
+    }
+
+    @PostMapping("/view/{id}/content/{field}/translations/{language}/remove")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    @BusinessMutation
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance contentTranslationRemove(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language, "remove", change)));
+    }
+
+    @GetMapping("/view/{id}/content/{field}/translations/{language}/history")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.TranslationRevision> contentTranslationHistory(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestParam String sourceRevisionId, @RequestParam int sourceRevision,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().translationHistory(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language,
+                sourceRevisionId, sourceRevision, PageRequest.of(page, size), PlatformAction.CONTENT_EDIT));
+    }
+
+    @GetMapping("/view/{id}/content/{field}/translations/{language}/review-history")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.TranslationRevision> contentTranslationReviewHistory(
+            @PathVariable String id, @PathVariable String field, @PathVariable String language,
+            @RequestParam String sourceRevisionId, @RequestParam int sourceRevision,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().translationHistory(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, null, null), field, language,
+                sourceRevisionId, sourceRevision, PageRequest.of(page, size), PlatformAction.CONTENT_CONFIRM));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/reading")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Reading childContentReading(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @RequestParam String language) {
+        return webScope(() -> BusinessContentWebSupport.current().reading(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), language));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationStatus(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
+            @PathVariable String field, @PathVariable String language) {
+        return webScope(() -> BusinessContentWebSupport.current().generation(this,
+                new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, false, false));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/generation")
+    @CompiledRecordScope
+    @ActionEndpoint(PlatformAction.VIEW)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentGenerationService.Status childContentGenerationRequest(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId,
+            @PathVariable String field, @PathVariable String language, @RequestParam(defaultValue = "false") boolean retry) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().generation(this,
+                        new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, true, retry)));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/prepare")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationPrepare(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, "prepare", null)));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/review")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationReview(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, "review", null)));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/draft")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationDraft(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, "draft", change)));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/confirm")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    @BusinessMutation
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationConfirm(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, "confirm", change)));
+    }
+
+    @PostMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/remove")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    @BusinessMutation
+    default net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Maintenance childContentTranslationRemove(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
+            @RequestBody net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.Change change) {
+        return MutationTenantScopeExecutor.forExistingRecord(this, id, () -> webScope(() ->
+                BusinessContentWebSupport.current().maintain(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language, "remove", change)));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/history")
+    @ActionEndpoint(PlatformAction.CONTENT_EDIT)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.TranslationRevision> childContentTranslationHistory(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
+            @RequestParam String sourceRevisionId, @RequestParam int sourceRevision,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().translationHistory(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language,
+                sourceRevisionId, sourceRevision, PageRequest.of(page, size), PlatformAction.CONTENT_EDIT));
+    }
+
+    @GetMapping("/view/{id}/relations/{relationCode}/{childId}/content/{field}/translations/{language}/review-history")
+    @ActionEndpoint(PlatformAction.CONTENT_CONFIRM)
+    default List<net.ximatai.muyun.spring.platform.content.BusinessContentTranslationService.TranslationRevision> childContentTranslationReviewHistory(
+            @PathVariable String id, @PathVariable String relationCode, @PathVariable String childId, @PathVariable String field, @PathVariable String language,
+            @RequestParam String sourceRevisionId, @RequestParam int sourceRevision,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        return webScope(() -> BusinessContentWebSupport.current().translationHistory(this, new net.ximatai.muyun.spring.platform.content.BusinessContentService.Location(id, relationCode, childId), field, language,
+                sourceRevisionId, sourceRevision, PageRequest.of(page, size), PlatformAction.CONTENT_CONFIRM));
+    }
+
     @PostMapping("/insert")
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     @ActionEndpoint(PlatformAction.CREATE)
     @StandardMutation(StandardMutationKind.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -328,6 +598,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     }
 
     @PostMapping("/update/{id}")
+    @CompiledRecordScope(CompiledRecordScope.Kind.SAVE)
     @ActionEndpoint(PlatformAction.UPDATE)
     @StandardMutation(StandardMutationKind.UPDATE)
     @Transactional

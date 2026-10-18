@@ -1,5 +1,6 @@
 import type { WebReferenceResolveRequest, WebReferenceResolveResponse } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
+import { businessContentReadHeaders } from './businessContentLanguage';
 
 /**
  * Resolves candidates for a source field, including source-defined filtering,
@@ -22,6 +23,7 @@ export function createReferenceResolveClient(
         method: 'POST',
         path: resolvePath ?? `${modulePath}/references/${encodeURIComponent(fieldName)}/resolve`,
         body: request,
+        headers: businessContentReadHeaders(),
       }),
   };
 }

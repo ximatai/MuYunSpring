@@ -3,6 +3,16 @@ import { createWorkflowClient, refreshWorkflowRecordActions } from '@/web-core/w
 import type { HttpClient } from '@/web-core/http';
 
 describe('workflow client public contracts', () => {
+  it('reads a bounded record-owned workflow directory independently of approval submission', async () => {
+    const response = { records: [{ id: 'workflow' }], total: 21, pageNum: 2, pageSize: 20, pages: 2 };
+    const request = vi.fn(async () => response);
+    const client = createWorkflowClient({ request } as unknown as HttpClient);
+    expect(await client.recordInstances('quality.exception', 'record/one', 2)).toBe(response);
+    expect(request).toHaveBeenCalledExactlyOnceWith({
+      path: '/workflow/runtime/record/quality.exception/record%2Fone/instances',
+      query: { page: 2, size: 20 },
+    });
+  });
   it('unwraps standard mutation receipts while retaining plain read results', async () => {
     const data = { instance: { id: 'instance' }, continued: true };
     const request = vi.fn(async () => ({ data, changeSetId: 'committed', changes: [] }));
@@ -51,6 +61,7 @@ describe('workflow client public contracts', () => {
     expect(request).toHaveBeenLastCalledWith({
       method: 'POST',
       path: '/workflow/runtime/workbench/todo/page',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       body: {
         query: {
           overtimeStatus: 'warned',
@@ -87,6 +98,7 @@ describe('workflow client public contracts', () => {
     expect(request).toHaveBeenCalledWith({
       method: 'POST',
       path: '/workflow/runtime/workbench/todo/query',
+      headers: { 'X-MuYun-Content-Languages': 'zh-CN,en,de' },
       body: { page: { pageNum: 2, pageSize: 30 }, moduleAlias: 'demo.purchase' },
     });
   });

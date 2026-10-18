@@ -5,7 +5,11 @@ import {
   type RecordPickerRecord,
   type ReferencePickerProvider,
 } from '@muyun/platform-components';
-import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
+import type {
+  WebReferenceResolveItem,
+  WebTreeNode,
+  ResolvedReferenceFieldDescriptor,
+} from '@muyun/web-contracts';
 import type { ReferenceResolveClient } from '@muyun/web-core';
 
 type SourceReferencePickerConfigOptions = {
@@ -77,17 +81,19 @@ export function createSourceReferencePickerConfigAssembler() {
     };
     if (reference.pickerMode !== 'TREE' || !options.legacyTreeLoaders) return config;
 
-    const pickerRecord = (item: {
-      id: string;
-      title?: string;
-      projections?: Record<string, unknown>;
-      affectPatch?: Record<string, unknown>;
-    }): RecordPickerRecord => ({
+    const pickerRecord = (
+      item: Pick<WebReferenceResolveItem, 'id' | 'title' | 'titleContent' | 'projections' | 'affectPatch'>,
+    ): RecordPickerRecord => ({
       id: item.id,
       title: item.title,
       ...(item.projections ?? {}),
+      ...(item.titleContent ? { $contentTexts: { title: item.titleContent } } : {}),
       projections: item.projections,
       affectPatch: item.affectPatch,
+    });
+    const treeNode = (node: WebTreeNode<WebReferenceResolveItem>): WebTreeNode<RecordPickerRecord> => ({
+      record: pickerRecord(node.record),
+      children: node.children.map(treeNode),
     });
     return {
       ...config,
@@ -107,7 +113,7 @@ export function createSourceReferencePickerConfigAssembler() {
           formValues: entry.live.options.formValues(),
           source: entry.live.options.source(),
         });
-        return response.tree ?? [];
+        return (response.tree ?? []).map(treeNode);
       },
       resolveOptions: async (values) => {
         const response = await entry.live.options.referenceResolver().resolve(pickerFieldName, {

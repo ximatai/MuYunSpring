@@ -2,13 +2,15 @@
 import {
   useLanguageContext,
   presentationLabel,
+  businessContentLabel,
   displayModuleRuntime,
   createModuleContext,
   createWorkflowClient,
   useModuleContext,
   withHttpHeaders,
+  type ModuleContext,
 } from '@muyun/web-core';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import type { ModuleTitleView, WorkflowWorkbenchCard, WorkflowWorkbenchFilters } from '@muyun/web-contracts';
@@ -130,19 +132,23 @@ const boards = computed(() =>
 const moduleOptions = computed(() =>
   Object.entries(moduleLabels.value).map(([value, label]) => ({ value, label })),
 );
+function businessTitle(card: WorkflowWorkbenchCard, currentTitle?: unknown) {
+  if (card.business?.readable === false)
+    return workflowLanguage.t(
+      'platform.screen.WorkflowWorkbenchView.restricted-business-record',
+      '受限业务记录',
+    );
+  const original = typeof currentTitle === 'string' ? currentTitle : card.business?.title;
+  return original != null
+    ? (businessContentLabel(original, card.business?.titleContentText, workflowLanguage) ?? original)
+    : workflowLanguage.t('platform.screen.WorkflowWorkbenchView.untitled-business-record', '未命名业务');
+}
 const rows = computed(() =>
   cards.value.map((card) => ({
     ...card,
     id: card.taskId ?? card.instanceId,
     nodeTitle: presentationLabel(card.nodeTitle ?? '', card.nodeTitleText, workflowLanguage),
-    title:
-      card.business?.readable === false
-        ? workflowLanguage.t(
-            'platform.screen.WorkflowWorkbenchView.restricted-business-record',
-            '受限业务记录',
-          )
-        : (card.business?.title ??
-          workflowLanguage.t('platform.screen.WorkflowWorkbenchView.untitled-business-record', '未命名业务')),
+    title: businessTitle(card),
     moduleTitle:
       card.business?.moduleTitle != null
         ? presentationLabel(card.business.moduleTitle, card.business.moduleTitleText, workflowLanguage)
@@ -216,15 +222,20 @@ const columns = computed(() => [
         },
       ]),
 ]);
-const recordContext = computed(() =>
-  selected.value
-    ? createModuleContext<Record<string, unknown>>({
-        http: scopedHttp.value,
-        language: workflowLanguage,
-        moduleAlias: selected.value.moduleAlias,
-        runtimeAccess: 'VIEW',
-      })
-    : undefined,
+const recordContext = shallowRef<ModuleContext<Record<string, unknown>>>();
+watch(
+  [() => selected.value?.moduleAlias, scopedHttp],
+  ([moduleAlias, http]) => {
+    recordContext.value = moduleAlias
+      ? createModuleContext<Record<string, unknown>>({
+          http,
+          language: workflowLanguage,
+          moduleAlias,
+          runtimeAccess: 'VIEW',
+        })
+      : undefined;
+  },
+  { immediate: true },
 );
 const businessRecord = ref<RecordFormRecord>(),
   originalBusinessFields = ref(new Map<string, RecordFormFieldDescriptor>()),
@@ -775,12 +786,12 @@ async function togglePolicy(policy: Delegation) {
     <RecordDetailDrawer
       :open="Boolean(selected)"
       :title="
-        (businessRecord?.title as string) ??
-        selected?.business?.title ??
-        workflowLanguage.t(
-          'platform.screen.WorkflowWorkbenchView.business-processing-details',
-          '业务办理详情',
-        )
+        selected
+          ? businessTitle(selected, businessRecord?.title)
+          : workflowLanguage.t(
+              'platform.screen.WorkflowWorkbenchView.business-processing-details',
+              '业务办理详情',
+            )
       "
       width="wide"
       :before-close="mayClose"
@@ -813,12 +824,13 @@ async function togglePolicy(policy: Delegation) {
         :option-context="recordContext"
       />
       <WorkflowRecordPanel
-        v-if="selected && recordContext && !businessError"
+        v-if="selected && recordContext && businessRecord && !businessLoading && !businessError"
         ref="panel"
         :key="selected.instanceId"
         :context="recordContext"
         :record-id="selected.recordId"
         :instance-id="selected.instanceId"
+        :record-submission="selected.taskKind === 'resubmit' && selected.taskStatus === 'todo'"
         @editing-change="editing = $event"
         @changed="afterChanged"
       />

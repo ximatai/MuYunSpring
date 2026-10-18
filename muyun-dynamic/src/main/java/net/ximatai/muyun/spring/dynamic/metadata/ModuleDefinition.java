@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
 import java.util.List;
+import java.util.EnumSet;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import java.util.Objects;
 
 public final class ModuleDefinition {
@@ -45,6 +47,14 @@ public final class ModuleDefinition {
         if (mainEntityAlias == null || mainEntityAlias.isBlank()) {
             mainEntityAlias = entities.isEmpty() ? null : entities.getFirst().alias();
         }
+        // Content is owned by the aggregate: a parent also governs maintenance of its declared children.
+        var contentOwners = net.ximatai.muyun.spring.dynamic.capability.BusinessContentCapabilityModule.aggregateOwners(entities, relations);
+        entities = entities.stream().map(entity -> {
+            if (!contentOwners.contains(entity.alias())) return entity;
+            var capabilities = EnumSet.copyOf(entity.capabilities());
+            capabilities.add(EntityCapability.BUSINESS_CONTENT);
+            return entity.withCapabilities(capabilities.toArray(EntityCapability[]::new));
+        }).toList();
         this.moduleAlias = moduleAlias;
         this.name = name;
         this.entities = entities;

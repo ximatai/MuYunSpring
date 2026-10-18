@@ -23,6 +23,13 @@ public final class ActionExecutionContextHolder {
         CURRENT.remove();
     }
 
+    /** Runs control-plane work without carrying a caller's business action into another execution. */
+    public static Scope without() {
+        ActionExecutionContext previous = CURRENT.get();
+        CURRENT.remove();
+        return new Scope(previous);
+    }
+
     public static final class Scope implements AutoCloseable {
         private final ActionExecutionContext previous;
 

@@ -20,6 +20,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DynamicRecordTest {
 
     @Test
+    void shouldOmitOnlyTheSelectedLoadedRelationAndItsPartialMutationFlag() {
+        var record = new DynamicRecord(contractEntity());
+        record.setPartialChildren("lines", List.of(new DynamicRecord(contractEntity())));
+        record.setChildren("other", List.of());
+        var draft = record.copy().omitChildren("lines");
+        assertThat(draft.getChildren()).containsOnlyKeys("other");
+        assertThat(draft.isPartialChildren("lines")).isFalse();
+        assertThat(record.getChildren("lines")).hasSize(1);
+        assertThat(record.isPartialChildren("lines")).isTrue();
+    }
+
+    @Test
     void shouldFillJsonDefaultAsACollectionWithoutChangingExplicitValues() {
         EntityDefinition entity = new EntityDefinition("entry", "app_entry", "Entry", List.of(
                 FieldDefinition.of("tags", FieldType.JSON, "Tags").defaultValue("[\"NEW\",\"DONE\"]")));

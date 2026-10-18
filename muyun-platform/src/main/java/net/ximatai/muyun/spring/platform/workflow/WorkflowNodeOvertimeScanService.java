@@ -23,16 +23,16 @@ public class WorkflowNodeOvertimeScanService {
 
     private final WorkflowNodeInstanceDao nodeDao;
     private final WorkflowInstanceDao instanceDao;
-    private final WorkflowEventDao eventDao;
+    private final WorkflowEventWriter eventWriter;
     private final WorkflowRuntimeEventFactory eventFactory;
 
     public WorkflowNodeOvertimeScanService(WorkflowNodeInstanceDao nodeDao,
                                            WorkflowInstanceDao instanceDao,
-                                           WorkflowEventDao eventDao,
+                                           WorkflowEventWriter eventWriter,
                                            WorkflowRuntimeEventFactory eventFactory) {
         this.nodeDao = nodeDao;
         this.instanceDao = instanceDao;
-        this.eventDao = eventDao;
+        this.eventWriter = java.util.Objects.requireNonNull(eventWriter, "eventWriter");
         this.eventFactory = eventFactory;
     }
 
@@ -103,7 +103,7 @@ public class WorkflowNodeOvertimeScanService {
         }
         WorkflowInstance instance = instanceDao.findById(node.getInstanceId());
         if (instance != null) {
-            eventDao.insert(eventFactory.overtimeWarned(instance, node, SYSTEM_OPERATOR,
+            eventWriter.insert(eventFactory.overtimeWarned(instance, node, SYSTEM_OPERATOR,
                     payload(node, node.getWarningDurationMinutes(), now, previousStatus, WorkflowOvertimeStatus.WARNED),
                     now));
         }
@@ -119,7 +119,7 @@ public class WorkflowNodeOvertimeScanService {
         }
         WorkflowInstance instance = instanceDao.findById(node.getInstanceId());
         if (instance != null) {
-            eventDao.insert(eventFactory.overtimeOverdue(instance, node, SYSTEM_OPERATOR,
+            eventWriter.insert(eventFactory.overtimeOverdue(instance, node, SYSTEM_OPERATOR,
                     payload(node, node.getOvertimeDurationMinutes(), now, previousStatus, WorkflowOvertimeStatus.OVERDUE),
                     now));
         }

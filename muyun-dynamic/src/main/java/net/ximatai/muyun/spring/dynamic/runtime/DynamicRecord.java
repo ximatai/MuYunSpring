@@ -23,6 +23,9 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRole;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicFieldValueSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 
+import net.ximatai.muyun.spring.common.content.ContentLanguageInputs;
+import net.ximatai.muyun.spring.common.content.ContentLanguageInputState;
+import net.ximatai.muyun.spring.common.content.ContentWriteContext.SourceInput;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.ArrayList;
@@ -37,7 +40,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapable, TitledCapable, DataScopeCapable,
-        ApprovalCapable {
+        ApprovalCapable, ContentLanguageInputs {
+    private ContentLanguageInputState contentLanguageInputs = new ContentLanguageInputState();
+    @Override public Map<String, SourceInput> contentLanguageInputs() { return contentLanguageInputs.inputs(); }
+    @Override public void contentLanguageInputs(Map<String, SourceInput> inputs) {
+        contentLanguageInputs.inputs(inputs);
+    }
+    @Override public Runnable consumeContentLanguageInputs() { return contentLanguageInputs.consume(); }
     private final EntityDefinition entity;
     private final Map<String, FieldDefinition> fields;
     private final Map<String, Object> values = new LinkedHashMap<>();
@@ -198,6 +207,16 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
 
     public boolean isPartialChildren(String relationCode) {
         return partialChildRelations.contains(relationCode);
+    }
+
+    /** Omit a loaded relation from a mutation without clearing its persisted children. */
+    public DynamicRecord omitChildren(String relationCode) {
+        if (relationCode == null || relationCode.isBlank()) {
+            throw new IllegalArgumentException("relationCode must not be blank");
+        }
+        children.remove(relationCode);
+        partialChildRelations.remove(relationCode);
+        return this;
     }
 
     public List<DynamicRecord> getChildren(String relationCode) {

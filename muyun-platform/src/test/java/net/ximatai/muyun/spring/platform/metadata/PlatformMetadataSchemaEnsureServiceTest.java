@@ -75,7 +75,7 @@ class PlatformMetadataSchemaEnsureServiceTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         String metadataId = metadataService.insert(metadata("crm", "customer"));
 
         fieldService.insert(field(metadataId, "customerName", "customer_name", "string"));
@@ -186,6 +186,77 @@ class PlatformMetadataSchemaEnsureServiceTest {
     }
 
     @Test
+    void explicitPublicationConsumesOnlyCurrentPendingEnsureAndLaterWritesRegisterAgain() {
+        for (int mode = 0; mode < 3; mode++) {
+            clearTransactionState();
+            try {
+                TestContext context = testContext();
+                RecordingSchemaService schema = new RecordingSchemaService();
+                var ensure = new PlatformMetadataSchemaEnsureService(context.compiler, schema);
+                String id = context.metadataService.insert(metadata("crm", "customer"));
+                context.fieldService.insert(titleField(id));
+                TransactionSynchronizationManager.initSynchronization();
+                TransactionSynchronizationManager.setActualTransactionActive(true);
+                ensure.ensure(id);
+                switch (mode) {
+                    case 0 -> ensure.ensureNow(id);
+                    case 1 -> ensure.ensureNow(context.metadataService.select(id));
+                    default -> ensure.ensureNow(id, context.compiler.compile(id));
+                }
+                TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.beforeCommit(false));
+                assertThat(schema.ensuredEntities).hasSize(1);
+                var description = titleField(id);
+                description.setFieldName("description"); description.setColumnName("description");
+                description.setTitleField(false);
+                context.fieldService.insert(description);
+                ensure.ensure(id);
+                TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.beforeCommit(false));
+                assertThat(schema.ensuredEntities).hasSize(2);
+                assertThat(schema.ensuredEntities.getLast().fields()).extracting(FieldDefinition::fieldName)
+                        .contains("title", "description");
+            } finally { clearTransactionState(); }
+        }
+    }
+
+    @Test
+    void rollingBackPublicationToASavepointRestoresItsEarlierPendingSchemaCheck() {
+        clearTransactionState();
+        try {
+            var context = testContext();
+            var schema = new RecordingSchemaService();
+            var ensure = new PlatformMetadataSchemaEnsureService(context.compiler, schema);
+            String id = context.metadataService.insert(metadata("crm", "customer"));
+            TransactionSynchronizationManager.initSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(true);
+            ensure.ensure(id);
+            Object savepoint = new Object();
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.savepoint(savepoint));
+            ensure.ensureNow(id);
+            assertThat(schema.ensuredEntities).hasSize(1);
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.savepointRollback(savepoint));
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.beforeCommit(false));
+            assertThat(schema.ensuredEntities).hasSize(2);
+        } finally { clearTransactionState(); }
+    }
+
+    @Test
+    void failedExplicitPublicationDoesNotConsumeThePendingSchemaCheck() {
+        clearTransactionState();
+        try {
+            var context = testContext();
+            var schema = new FailingSchemaService();
+            var ensure = new PlatformMetadataSchemaEnsureService(context.compiler, schema);
+            String id = context.metadataService.insert(metadata("crm", "customer"));
+            TransactionSynchronizationManager.initSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(true);
+            ensure.ensure(id);
+            assertThatThrownBy(() -> ensure.ensureNow(id)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.beforeCommit(false)))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("schema failed");
+        } finally { clearTransactionState(); }
+    }
+
+    @Test
     void shouldPropagateSchemaEnsureFailureWithoutTransaction() {
         TestContext context = testContext();
         PlatformMetadataSchemaEnsureService ensureService =
@@ -225,7 +296,7 @@ class PlatformMetadataSchemaEnsureServiceTest {
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
                 TestBeanProviders.empty(PlatformModuleService.class),
                 TestBeanProviders.empty(MetadataFieldReferenceConfigService.class),
-                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)));
+                TestBeanProviders.of(MetadataFieldConfigService.class, org.mockito.Mockito.mock(MetadataFieldConfigService.class)), event -> {});
         MetadataFieldConfigService configService = mock(MetadataFieldConfigService.class);
         MetadataFieldDefinitionCompiler fieldCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, configService,
@@ -321,6 +392,11 @@ class PlatformMetadataSchemaEnsureServiceTest {
 
         RecordingSchemaService() {
             super(null);
+        }
+
+        @Override
+        public MigrationResult ensureTable(EntityDefinition entity, EntityDefinition previous, MigrationOptions options) {
+            return ensureTable(entity, options);
         }
 
         @Override

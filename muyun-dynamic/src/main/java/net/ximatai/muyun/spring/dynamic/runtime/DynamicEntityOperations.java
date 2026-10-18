@@ -173,6 +173,11 @@ public final class DynamicEntityOperations implements
         return service.select(moduleAlias, entityAlias, id);
     }
 
+    /** VIEW-scoped storage facts for platform coordination, without display/aggregate loading. */
+    public DynamicRecord selectRawForView(String id) {
+        return service.selectRawForView(moduleAlias, entityAlias, id);
+    }
+
     @Override
     public DynamicRecord selectIgnoreSoftDelete(String id) {
         return service.selectIgnoreSoftDelete(moduleAlias, entityAlias, id);

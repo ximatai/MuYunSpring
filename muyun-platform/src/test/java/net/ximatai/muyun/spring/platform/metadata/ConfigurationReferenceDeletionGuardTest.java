@@ -86,6 +86,50 @@ class ConfigurationReferenceDeletionGuardTest {
         }
     }
 
+    @Test
+    void candidateSubtitleProtectsItsDeclaredFieldPathWithoutBlockingUnrelatedFields() {
+        var configs = org.mockito.Mockito.mock(MetadataFieldReferenceConfigService.class);
+        var fields = org.mockito.Mockito.mock(MetadataFieldService.class);
+        var relations = org.mockito.Mockito.mock(ModuleMetadataRelationService.class);
+        var source = new ModuleMetadataRelation(); source.setId("source-relation"); source.setMetadataId("source");
+        source.setModuleAlias("test.source"); source.setRelationRole(RelationRole.MAIN);
+        var target = new ModuleMetadataRelation(); target.setId("target-relation"); target.setMetadataId("target");
+        target.setModuleAlias("test.target"); target.setRelationRole(RelationRole.MAIN);
+        var owner = new MetadataField(); owner.setId("owner"); owner.setMetadataId("source"); owner.setFieldName("productId");
+        var code = new MetadataField(); code.setId("code"); code.setMetadataId("target"); code.setFieldName("code");
+        var config = new MetadataFieldReferenceConfig(); config.setId("binding"); config.setMetadataFieldId("owner");
+        config.setRelationId("source-relation"); config.setTargetMetadataId("target"); config.setTargetModuleAlias("test.target");
+        config.setCandidateSubtitleProjection("code");
+        org.mockito.Mockito.when(configs.list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenReturn(List.of(config));
+        org.mockito.Mockito.when(configs.findForRelation("owner", "source-relation")).thenReturn(config);
+        org.mockito.Mockito.when(fields.select("owner")).thenReturn(owner);
+        org.mockito.Mockito.when(fields.list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class)))
+                .thenReturn(List.of(owner), List.of(code), List.of(owner), List.of(code), List.of(owner), List.of(code));
+        org.mockito.Mockito.when(relations.list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class)))
+                .thenReturn(List.of(source), List.of(target), List.of(source), List.of(target), List.of(source), List.of(target));
+        var moduleFields = org.mockito.Mockito.mock(ModuleMetadataFieldService.class);
+        var contributor = new ConfigurationReferenceContributorConfiguration().fieldReferenceSubtitleReference(provider(configs),
+                provider(org.mockito.Mockito.mock(MetadataService.class)), provider(fields), provider(moduleFields), provider(relations));
+        assertThat(contributor.findReferenceId("code")).contains("binding");
+        assertThat(contributor.findReferenceId("unrelated-code")).isEmpty();
+        var changed = new MetadataField(); changed.setFieldName("renamedCode");
+        assertThatThrownBy(() -> new ConfigurationReferenceDeletionGuard(List.of(contributor)).assertCanChangeField(code, changed))
+                .isInstanceOf(PlatformException.class);
+        // A relation-scoped binding or a module-field override makes this stored default inactive.
+        org.mockito.Mockito.when(relations.list(org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenReturn(List.of(source));
+        var scoped = new MetadataFieldReferenceConfig(); scoped.setId("scoped");
+        org.mockito.Mockito.when(configs.findForRelation("owner", "source-relation")).thenReturn(scoped);
+        assertThat(contributor.findReferenceId("code")).isEmpty();
+        org.mockito.Mockito.when(configs.findForRelation("owner", "source-relation")).thenReturn(config);
+        var override = new ModuleMetadataField(); override.setMetadataFieldId("owner"); override.setReferenceModuleAlias("test.other");
+        org.mockito.Mockito.when(moduleFields.listByRelationId("source-relation")).thenReturn(List.of(override));
+        assertThat(contributor.findReferenceId("code")).isEmpty();
+    }
+
     private static void assertReferencedError(PlatformException error, ConfigurationReferenceTarget target,
                                               String resourceKey, String referenceId) {
         assertReferencedError(error, target, resourceKey, referenceId, "target-1");

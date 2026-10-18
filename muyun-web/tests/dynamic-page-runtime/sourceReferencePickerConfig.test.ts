@@ -115,3 +115,49 @@ describe('source reference picker config', () => {
     expect(tree.provider?.loadTree).toBeTypeOf('function');
   });
 });
+
+it('keeps business text snapshots on every legacy tree depth while preserving raw selection patches', async () => {
+  const titleContent = { originalText: '设备', readings: { en: 'Equipment', de: 'Gerät' } };
+  const item = {
+    id: 'a',
+    title: '设备',
+    titleContent,
+    projections: { code: 'A' },
+    affectPatch: { codeSnapshot: 'A' },
+  };
+  const resolve = vi.fn().mockResolvedValue({
+    options: [item],
+    results: [{ item }],
+    tree: [{ record: item, children: [{ record: { ...item, id: 'b' }, children: [] }] }],
+    total: 1,
+  });
+  const config = createSourceReferencePickerConfigAssembler()({
+    providerScopeKey: 'main',
+    sourceModuleAlias: 'test.product',
+    reference: { ...reference, pickerMode: 'TREE' },
+    pickerFieldName: 'categoryId',
+    referenceResolver: () => ({ resolve }),
+    formValues: () => ({ classId: 'one' }),
+    reloadRecord: () => undefined,
+    source: () => undefined,
+    legacyTreeLoaders: true,
+  });
+  const tree = await config.loadTree!();
+  expect(tree[0]?.record).toMatchObject({
+    id: 'a',
+    title: '设备',
+    $contentTexts: { title: titleContent },
+    affectPatch: item.affectPatch,
+  });
+  expect(tree[0]?.children[0]?.record).toMatchObject({
+    id: 'b',
+    title: '设备',
+    $contentTexts: { title: titleContent },
+  });
+  expect((await config.resolveOptions!(['a']))[0]).toMatchObject({
+    id: 'a',
+    title: '设备',
+    $contentTexts: { title: titleContent },
+  });
+  expect(item.projections).toEqual({ code: 'A' });
+});

@@ -40,6 +40,12 @@ final class DynamicRecordQueryRuntime {
         });
     }
 
+    DynamicRecord selectRawForView(String moduleAlias, String entityAlias, String id) {
+        var scope = access.readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
+                .listRaw(scope.criteria(), PageRequest.of(1, 1)).stream().findFirst().orElse(null));
+    }
+
     List<DynamicRecord> list(String moduleAlias, String entityAlias, Criteria criteria,
                              PageRequest pageRequest, Sort... sorts) {
         return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria,

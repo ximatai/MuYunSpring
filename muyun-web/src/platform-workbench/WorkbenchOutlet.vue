@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLanguageContext } from '@muyun/web-core';
+import { provideWorkspaceUnsavedStateRegistrar, useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type {
   BusinessRoutePageDescriptor,
@@ -23,6 +23,8 @@ import { resolvePageHostComponentName } from './pageHostRegistry';
 import { useWorkbenchNavigation } from './workbenchNavigation';
 import { createWorkspaceViewDescriptor } from './workspaceViews';
 import { syncModulePageWorkspaceViewContributions } from './modulePageWorkspaceViews';
+import { tabKeyOf } from './menuNavigation';
+import { registerWorkspaceViewUnsavedState } from './workspaceViewUnsavedState';
 
 const language = useLanguageContext();
 
@@ -32,6 +34,13 @@ const props = defineProps<{
   descriptor?: PageDescriptor;
 }>();
 const navigation = useWorkbenchNavigation();
+provideWorkspaceUnsavedStateRegistrar({
+  registerUnsavedState(source, isDirty, isBusy, sourceTitle) {
+    return props.descriptor
+      ? registerWorkspaceViewUnsavedState(tabKeyOf(props.descriptor), source, isDirty, isBusy, sourceTitle)
+      : () => {};
+  },
+});
 syncModulePageWorkspaceViewContributions();
 provideModulePageNavigation(
   navigation && {

@@ -30,24 +30,80 @@ const fields = defineComponent({
     return () => h('div', '业务编辑');
   },
 });
-function fixture(onChanged?: () => void, language?: LanguageContext, textBindings?: Ref<unknown>) {
+function fixture(
+  onChanged?: () => void,
+  language?: LanguageContext,
+  textBindings?: Ref<unknown>,
+  instanceId?: string,
+  workflowScenario?: { archived?: boolean; paged?: boolean; archiveIds?: string[] },
+) {
   const request = vi.fn(
-    async ({ path }: { path: string; method?: string; body?: unknown }): Promise<unknown> => {
+    async ({
+      path,
+      query,
+    }: {
+      path: string;
+      method?: string;
+      body?: unknown;
+      query?: { page?: number };
+    }): Promise<unknown> => {
       if (path.endsWith('/submit/status')) return { displayStatus: 'PROCESSING', instanceId: 'i' };
-      if (path === '/workflow/history/query') return { records: [] };
+      if (path === '/workflow/history/query')
+        return {
+          records: workflowScenario?.archived
+            ? (workflowScenario.archiveIds ?? ['i']).map((id, index) => ({
+                id,
+                versionNo: index + 1,
+                instanceStatus: 'completed',
+                startedAt: '2026-10-01T00:00:00Z',
+              }))
+            : [],
+        };
+      if (path.endsWith('/instances')) {
+        const page = query?.page ?? 1;
+        const ids = workflowScenario?.archived
+          ? []
+          : page === 2
+            ? ['i-next']
+            : workflowScenario?.paged
+              ? ['i', ...Array.from({ length: 19 }, (_, index) => `round-${index}`)]
+              : ['i'];
+        return {
+          records: ids.map((id) => ({
+            id,
+            title: `Collaboration ${id}`,
+            versionNo: 1,
+            instanceStatus: 'running',
+            approvalEnabled: false,
+          })),
+          pageNum: page,
+          pageSize: 20,
+          total: workflowScenario?.archived ? 0 : workflowScenario?.paged ? 21 : 1,
+          pages: workflowScenario?.archived ? 0 : workflowScenario?.paged ? 2 : 1,
+        };
+      }
       if (path.endsWith('/bundle'))
-        return { instance: { id: 'i', instanceStatus: 'running' }, nodes: [], routes: [] };
+        return {
+          instance: {
+            id: workflowScenario ? path.split('/').at(-2) : 'i',
+            instanceStatus: workflowScenario?.archived ? 'completed' : 'running',
+          },
+          nodes: [],
+          routes: [],
+        };
       if (path.endsWith('/actions'))
         return {
-          records: [
-            {
-              actionCode: 'complete',
-              title: '完成任务',
-              nodeKey: 'business',
-              taskId: 't',
-              reasonRequired: false,
-            },
-          ],
+          records: workflowScenario
+            ? [{ actionCode: 'reset', title: '重置', reasonRequired: true }]
+            : [
+                {
+                  actionCode: 'complete',
+                  title: '完成任务',
+                  nodeKey: 'business',
+                  taskId: 't',
+                  reasonRequired: false,
+                },
+              ],
         };
       if (path.endsWith('/prepare'))
         return {
@@ -75,7 +131,10 @@ function fixture(onChanged?: () => void, language?: LanguageContext, textBinding
   );
   const context = {
     moduleAlias: 'demo.purchase',
+    can: vi.fn(() => true),
+    recordActions: vi.fn(async () => ({})),
     http: { request },
+    ...(workflowScenario ? { abilities: { has: (code: string) => code === 'workflow' } } : {}),
     runtime: {
       ...(textBindings ? { snapshot: () => ({ textBindings: textBindings.value }) } : {}),
       ready: Promise.resolve({
@@ -92,11 +151,11 @@ function fixture(onChanged?: () => void, language?: LanguageContext, textBinding
     inheritAttrs: false,
     setup() {
       provideLanguageContext(language!);
-      return () => h(WorkflowRecordPanel, { context, recordId: 'r', onChanged });
+      return () => h(WorkflowRecordPanel, { context, recordId: 'r', onChanged, instanceId });
     },
   });
   const wrapper = mount(language ? Host : WorkflowRecordPanel, {
-    props: { context, recordId: 'r', onChanged },
+    props: { context, recordId: 'r', onChanged, instanceId },
     global: {
       stubs: {
         RecordDetailDrawer: drawer,
@@ -111,6 +170,191 @@ function fixture(onChanged?: () => void, language?: LanguageContext, textBinding
   });
   return { wrapper, request, context };
 }
+it('pages ordinary workflow rounds and sends instance actions to the selected authorized round', async () => {
+  const { wrapper, request } = fixture(undefined, undefined, undefined, undefined, { paged: true });
+  try {
+    await flushPromises();
+    expect(request.mock.calls.some(([call]) => call.path.endsWith('/submit/status'))).toBe(false);
+    expect(wrapper.text()).toContain('进行中');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '下一页')!
+      .trigger('click');
+    await flushPromises();
+    expect(
+      request.mock.calls.some(([call]) => call.path.endsWith('/instances') && call.query?.page === 2),
+    ).toBe(true);
+    const selector = wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((select) =>
+        select.props('options')?.some((item: { value: string }) => item.value === 'current:i-next'),
+      )!;
+    expect(selector.props('options').some((item: { value: string }) => item.value === 'current:i')).toBe(
+      true,
+    );
+    selector.vm.$emit('update:value', 'current:i-next');
+    await flushPromises();
+    expect(
+      request.mock.calls.some(([call]) => call.path === '/workflow/runtime/instance/i-next/bundle'),
+    ).toBe(true);
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+    await flushPromises();
+    await wrapper.find('textarea').setValue('Archive selected round');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('确认') && button.text().includes('重置'))!
+      .trigger('click');
+    await flushPromises();
+    expect(
+      request.mock.calls.some(([call]) => call.path === '/workflow/runtime/instance/i-next/actions/reset'),
+    ).toBe(true);
+  } finally {
+    wrapper.unmount();
+  }
+});
+it('preserves an explicit history selection when the workbench entry itself has been archived', async () => {
+  const { wrapper, request } = fixture(undefined, undefined, undefined, 'i', {
+    archived: true,
+    archiveIds: ['i', 'older'],
+  });
+  try {
+    await flushPromises();
+    const selector = wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((select) =>
+        select.props('options')?.some((item: { value: string }) => item.value === 'history:older'),
+      )!;
+    expect(selector.props('value')).toBe('history:i');
+    const archived = selector
+      .props('options')
+      .find((item: { value: string }) => item.value === 'history:i').label;
+    expect(archived).toContain('已归档');
+    expect(archived).toContain('定义版本 v1');
+    expect(archived).toContain('归档时：');
+    expect(wrapper.get('.workflow-record-panel > header').text()).toContain('归档时状态：');
+    expect(archived).toMatch(/2026-10-01 \d{2}:\d{2}:\d{2}/);
+    expect(archived).not.toContain('T00:00:00Z');
+    selector.vm.$emit('update:value', 'history:older');
+    await flushPromises();
+    expect(selector.props('value')).toBe('history:older');
+    expect(request.mock.calls.some(([call]) => call.path === '/workflow/history/older/bundle')).toBe(true);
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '办理记录')!
+      .trigger('click');
+    expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).props()).toMatchObject({
+      instanceId: 'older',
+      history: true,
+    });
+    expect(wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+it.each(['instances', 'bundle', 'tasks/view', 'events/view', 'actions', 'manual-branches'])(
+  'discards the previous actionable snapshot when loading another round fails at %s',
+  async (failure) => {
+    const { wrapper, request } = fixture(undefined, undefined, undefined, undefined, { paged: true });
+    try {
+      await flushPromises();
+      const oldActions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' });
+      expect(oldActions.exists()).toBe(true);
+      const selector = wrapper
+        .findAllComponents({ name: 'UiSelect' })
+        .find((select) =>
+          select.props('options')?.some((item: { value: string }) => item.value === 'current:round-0'),
+        )!;
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (call) => {
+        if (
+          (failure === 'instances' && call.path.endsWith('/instances')) ||
+          (call.path.includes('/instance/round-0/') && call.path.endsWith('/' + failure))
+        ) {
+          throw new Error('Selected workflow is unavailable');
+        }
+        return original(call);
+      });
+      selector.vm.$emit('update:value', 'current:round-0');
+      await flushPromises();
+      expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+      expect(wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).exists()).toBe(false);
+      expect(wrapper.find('textarea').exists()).toBe(false);
+      oldActions.vm.$emit('action', { key: '0' });
+      await flushPromises();
+      expect(wrapper.find('textarea').exists()).toBe(false);
+      expect(request.mock.calls.some(([call]) => /\/actions\/[^/]+$/.test(call.path))).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+it.each([undefined, 'i'])(
+  'opens archived ordinary workflow opinions without an approval gate (instance %s)',
+  async (instanceId) => {
+    const { wrapper, request } = fixture(undefined, undefined, undefined, instanceId, { archived: true });
+    try {
+      await flushPromises();
+      expect(request.mock.calls.some(([call]) => call.path.endsWith('/submit/status'))).toBe(false);
+      expect(request.mock.calls.some(([call]) => call.path === '/workflow/history/i/bundle')).toBe(true);
+      expect(request.mock.calls.some(([call]) => call.path === '/workflow/runtime/instance/i/bundle')).toBe(
+        false,
+      );
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '办理记录')!
+        .trigger('click');
+      expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).props()).toMatchObject({
+        instanceId: 'i',
+        history: true,
+      });
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+it('reads an explicitly selected ordinary workflow without querying unrelated approval submission status', async () => {
+  const { wrapper, request } = fixture(undefined, undefined, undefined, 'i');
+  try {
+    await flushPromises();
+    expect(request.mock.calls.some(([call]) => call.path.endsWith('/submit/status'))).toBe(false);
+    expect(wrapper.text()).toContain('进行中');
+    expect(wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).exists()).toBe(true);
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '办理记录')!
+      .trigger('click');
+    expect(wrapper.findComponent({ name: 'WorkflowTimeline' }).props('instanceId')).toBe('i');
+  } finally {
+    wrapper.unmount();
+  }
+});
+it.each(['i', 'newer'])(
+  'offers record resubmission only while the explicit pending round still owns the approval: %s',
+  async (currentId) => {
+    const { wrapper, request } = fixture(undefined, undefined, undefined, 'i');
+    try {
+      await flushPromises();
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'REJECTED', instanceId: currentId, canSubmit: true }
+          : original(options),
+      );
+      await wrapper.setProps({ recordSubmission: true });
+      await flushPromises();
+      expect(request.mock.calls.some(([call]) => call.path.endsWith('/submit/status'))).toBe(true);
+      expect(wrapper.findAll('button').some((button) => button.text() === '预览并提交审批')).toBe(
+        currentId === 'i',
+      );
+      expect(
+        request.mock.calls.some(([call]) => call.path === '/workflow/runtime/instance/newer/bundle'),
+      ).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
 it('opens task requirements immediately and protects refresh while editing', async () => {
   const { wrapper, request } = fixture();
   await flushPromises();
@@ -798,6 +1042,8 @@ it('localizes stable workflow actions and their frozen node labels in an indepen
   });
   const context = {
     moduleAlias: 'demo.purchase',
+    can: vi.fn(() => true),
+    recordActions: vi.fn(async () => ({})),
     http: { request },
     runtime: { ready: Promise.resolve({}) },
   } as unknown as ModuleContext<Record<string, unknown>>;
@@ -1206,3 +1452,112 @@ it('updates a retained submission rejection on language changes without rematchi
   expect(status.canSubmit).toBe(false);
   wrapper.unmount();
 });
+
+it('preserves the explicitly chosen opinion language and draft across interface language changes', async () => {
+  const language = createLanguageContext();
+  const { wrapper, request } = fixture(undefined, language);
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+  await flushPromises();
+  const sourceLanguage = wrapper
+    .findAllComponents({ name: 'UiSelect' })
+    .find(
+      (select) =>
+        select.props('ariaLabel') === language.t('platform.content.source-language', '本次原文的填写语言'),
+    )!;
+  expect(sourceLanguage.props('value')).toBe('__unknown__');
+  await wrapper.find('textarea').setValue('Bis zur Nachprüfung nicht versenden.');
+  sourceLanguage.vm.$emit('update:value', 'de');
+  await flushPromises();
+  language.setLanguage('en');
+  await flushPromises();
+  expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe(
+    'Bis zur Nachprüfung nicht versenden.',
+  );
+  expect(sourceLanguage.props('value')).toBe('de');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '确认到货')!
+    .trigger('click');
+  await flushPromises();
+  expect(
+    request.mock.calls.find(([entry]) => entry.path.endsWith('/guides/deliver/execute'))?.[0],
+  ).toMatchObject({
+    body: { reason: 'Bis zur Nachprüfung nicht versenden.', reasonSourceLanguage: 'de' },
+  });
+  wrapper.unmount();
+});
+
+it('carries task-form source inputs separately and only for editable submitted business fields', async () => {
+  const { wrapper, request } = fixture();
+  await flushPromises();
+  wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: '0' });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '登记到货')!
+    .trigger('click');
+  await flushPromises();
+  const form = wrapper.findComponent(fields);
+  form.vm.$emit('validity-change', { valid: true, errors: {} });
+  form.vm.$emit('update:field', 'remark', 'Retest the replacement seal.');
+  form.vm.$emit('update:field', '$contentLanguages', {
+    remark: { languageTag: 'en', expectedRevision: 2 },
+    privateField: { languageTag: 'de', expectedRevision: 1 },
+  });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保存业务并完成任务')!
+    .trigger('click');
+  await flushPromises();
+  expect(
+    request.mock.calls.find(([entry]) => entry.path.endsWith('/guides/form/execute'))?.[0],
+  ).toMatchObject({
+    body: {
+      values: { remark: 'Retest the replacement seal.' },
+      contentLanguages: { remark: { languageTag: 'en', expectedRevision: 2 } },
+    },
+  });
+  const submitted = request.mock.calls.find(([entry]) => entry.path.endsWith('/guides/form/execute'))?.[0]
+    .body as { values: unknown; contentLanguages: Record<string, unknown> };
+  expect(submitted.contentLanguages).not.toHaveProperty('privateField');
+  expect(submitted.values).not.toHaveProperty('$contentLanguages');
+  wrapper.unmount();
+});
+
+it.each(['denied', 'failed', 'allowed'] as const)(
+  'shows record submission and withdrawal only after current authorization: %s',
+  async (access) => {
+    const { wrapper, context, request } = fixture();
+    try {
+      await flushPromises();
+      vi.mocked(context.can).mockReturnValue(access === 'allowed');
+      if (access === 'failed') vi.mocked(context.recordActions).mockRejectedValue(new Error('unavailable'));
+      const original = request.getMockImplementation()!;
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'REJECTED', instanceId: 'i', canSubmit: true }
+          : original(options),
+      );
+      await wrapper.get('button').trigger('click');
+      await flushPromises();
+      const buttons = wrapper.findAll('button').map((button) => button.text());
+      expect(buttons.includes('预览并提交审批')).toBe(access === 'allowed');
+      expect(buttons.includes('撤回申请')).toBe(false);
+      request.mockImplementation(async (options) =>
+        options.path.endsWith('/submit/status')
+          ? { displayStatus: 'PROCESSING', instanceId: 'i', canSubmit: false }
+          : original(options),
+      );
+      await wrapper.get('button').trigger('click');
+      await flushPromises();
+      expect(wrapper.findAll('button').some((button) => button.text() === '撤回申请')).toBe(
+        access === 'allowed',
+      );
+      expect(buttons.includes('办理记录')).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

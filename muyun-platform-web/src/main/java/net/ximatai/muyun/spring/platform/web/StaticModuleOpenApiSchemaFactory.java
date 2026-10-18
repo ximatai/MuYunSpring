@@ -37,6 +37,7 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("TreeSortScopeRequest", treeSortScopeRequestSchema());
             schemas.put(entitySchemaName + "PageResponse", pageResponseSchema(entitySchemaName));
         }
+        schemas.putAll(net.ximatai.muyun.spring.common.openapi.BusinessContentApiSchemas.schemas());
         schemas.put("PlatformWebError", platformWebErrorSchema());
         return Map.copyOf(schemas);
     }
@@ -89,6 +90,7 @@ final class StaticModuleOpenApiSchemaFactory {
             properties.computeIfPresent(field.fieldName(), (ignored, property) ->
                     property.withRequired(false).withNullable(true));
         }
+        properties.put("$contentLanguages", objectProperty(null));
         // The standard update endpoint owns id in the path. Version is optional and falls back to
         // the current record; record-action request schemas retain their explicit required version.
         return new PlatformApiDocument.Schema(schemaName(entity) + suffix, "object", null, List.of(),

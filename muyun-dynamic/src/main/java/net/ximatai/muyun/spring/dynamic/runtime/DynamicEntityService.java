@@ -652,6 +652,13 @@ public class DynamicEntityService implements
     }
 
     @Override
+    public List<DynamicRecord> selectChildRows(Criteria criteria, PageRequest page) {
+        return dao.getEntity().supports(EntityCapability.SORT)
+                ? list(criteria, page, Sort.asc(PlatformAbilityFields.SORT_FIELD), Sort.asc("id"))
+                : ChildAbility.super.selectChildRows(criteria, page);
+    }
+
+    @Override
     public List<DynamicRecord> selectDeletedChildRows(Criteria criteria) {
         List<DynamicRecord> records = ChildAbility.super.selectDeletedChildRows(criteria);
         populateReferenceReadFields(records);
@@ -784,18 +791,24 @@ public class DynamicEntityService implements
 
     public DynamicReferenceResolveResponse resolveReference(String sourceField,
                                                             DynamicReferenceResolveRequest request) {
+        return resolveReference(sourceField, request, java.util.function.UnaryOperator.identity());
+    }
+
+    public DynamicReferenceResolveResponse resolveReference(String sourceField, DynamicReferenceResolveRequest request,
+            java.util.function.UnaryOperator<Criteria> userLabelCriteria) {
         EntityReferenceDefinition reference = referenceDefinition(sourceField);
         ReferencePlan plan = reference.plan();
+        DynamicReferenceResolver resolver;
         try {
-            return new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects())
-                    .resolve(request);
+            resolver = new DynamicReferenceResolver(this, plan, referenceService(plan.target()), reference.affects());
         } catch (ModuleDefinitionException dynamicTargetUnavailable) {
             var staticTarget = PlatformAbilityRuntime.referenceTargetResolver().resolve(plan.target());
             if (staticTarget.isEmpty()) {
                 throw dynamicTargetUnavailable;
             }
-            return new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects()).resolve(request);
+            resolver = new DynamicReferenceResolver(this, plan, staticTarget.get(), reference.affects());
         }
+        return resolver.resolve(request, userLabelCriteria);
     }
 
     @Override
@@ -856,6 +869,7 @@ public class DynamicEntityService implements
     }
 
     private void populateReferenceReadFields(List<DynamicRecord> records) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onRecords(this, records);
         populateDeclaredReferenceProjections(records);
         populateReferencedBys(records);
     }

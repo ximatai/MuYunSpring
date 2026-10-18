@@ -61,7 +61,7 @@ class WorkflowTaskActionServiceTest {
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 actionPolicyService,
@@ -76,13 +76,13 @@ class WorkflowTaskActionServiceTest {
 
     @Test
     void constructionRequiresTheLazyAutomaticApprovalProvider() {
-        assertThatThrownBy(() -> new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao,
+        assertThatThrownBy(() -> new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory, approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(),
                 mock(WorkflowDelegationService.class), null, null, taskEvaluator, taskSpecifications, checkResultDao, null))
                 .isInstanceOf(NullPointerException.class).hasMessage("automaticApprovals");
         @SuppressWarnings("unchecked") var provider = (org.springframework.beans.factory.ObjectProvider<WorkflowAutomaticApprovalService>)
                 mock(org.springframework.beans.factory.ObjectProvider.class);
-        new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, eventDao, eventFactory,
+        new WorkflowTaskActionService(taskDao, instanceDao, nodeDao, routeDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)), eventFactory,
                 approvalTaskPolicyService, actionPolicyService, progressionService, Optional.empty(),
                 mock(WorkflowDelegationService.class), null, null, taskEvaluator, taskSpecifications, checkResultDao, provider);
         verifyNoInteractions(provider);
@@ -151,7 +151,7 @@ class WorkflowTaskActionServiceTest {
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 policyService,
@@ -244,7 +244,7 @@ class WorkflowTaskActionServiceTest {
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 policyService,
@@ -1366,7 +1366,7 @@ class WorkflowTaskActionServiceTest {
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 policyService,
@@ -1781,7 +1781,7 @@ class WorkflowTaskActionServiceTest {
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 actionPolicyService,
@@ -1797,12 +1797,12 @@ class WorkflowTaskActionServiceTest {
 
     private WorkflowTaskActionService serviceWithDelegationCompletionNotice() {
         WorkflowDelegationCompletionNoticeService completionNoticeService =
-                new WorkflowDelegationCompletionNoticeService(taskDao, eventDao, eventFactory);
+                new WorkflowDelegationCompletionNoticeService(taskDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)), eventFactory);
         return new WorkflowTaskActionService(taskDao,
                 instanceDao,
                 nodeDao,
                 routeDao,
-                eventDao,
+                new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)),
                 eventFactory,
                 approvalTaskPolicyService,
                 actionPolicyService,

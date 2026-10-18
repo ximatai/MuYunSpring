@@ -30,14 +30,9 @@ it('record list explorer exposes visible secondary identity text', () => {
   assert.match(listSource, /secondary: recordSecondary\(record\)/);
   assert.match(listSource, /display-mode="flat"/);
   assert.match(listSource, /:allow-drop="canDropNode"/);
-  assert.match(
-    crudListSource,
-    /itemOf\?: \(record: CrudRecordListBase\) => RecordExplorerItemDescriptor \| undefined/,
-  );
   assert.match(crudListSource, /actionsOf\?: \(record: CrudRecordListBase\) => UiRecordInlineAction\[\]/);
   assert.match(crudListSource, /action: \[action: UiRecordInlineAction, record: CrudRecordListBase\]/);
   assert.match(crudListSource, /props\.subtitleOf[\s\S]*\? props\.subtitleOf\(record\)/);
-  assert.match(crudListSource, /:item-of="\(record\) => itemOf\?\.\(record as CrudRecordListBase\)"/);
   assert.match(crudListSource, /:actions-of="\(record\) => recordActions\(record as CrudRecordListBase\)"/);
   assert.match(
     crudListSource,
@@ -1107,7 +1102,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<TreeRecordExplorer\s+v-if="mainTreeScopeReady"/);
   assert.match(hostSource, /for \(const descendantKey of navigatorDescendantKeys\(levelKey\)\)/);
   assert.match(listPanelSource, /queryTemplateId: props\.queryTemplateId/);
-  assert.match(listPanelSource, /if \(!queryReady\.value\) \{\s*return;/);
   assert.match(listPanelSource, /uiDescriptor\?\.page\?\.list\?\.fields/);
   assert.match(listPanelSource, /props\.requiredExternalCriteriaKeys\.length > 0/);
   assert.match(hostSource, /resolvePageContextTargetValues\(pageContextBindings\.value, 'LIST_QUERY'/);

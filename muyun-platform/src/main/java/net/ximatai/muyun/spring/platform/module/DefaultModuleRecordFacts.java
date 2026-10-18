@@ -18,23 +18,39 @@ import java.util.Map;
 public class DefaultModuleRecordFacts implements ModuleRecordFacts {
     private final ObjectProvider<CrudAbility<?>> abilities;
     private final DynamicRecordService records;
+    private final ObjectProvider<ModuleRecordTitlePresentation> titlePresentations;
 
     public DefaultModuleRecordFacts(ObjectProvider<CrudAbility<?>> abilities, DynamicRecordService records) {
+        this(abilities, records, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DefaultModuleRecordFacts(ObjectProvider<CrudAbility<?>> abilities, DynamicRecordService records,
+            ObjectProvider<ModuleRecordTitlePresentation> titlePresentations) {
         this.abilities = abilities;
         this.records = records;
+        this.titlePresentations = titlePresentations;
     }
 
     @Override
     public String displayTitle(String moduleAlias, String recordId) {
+        return displayTitleView(moduleAlias, recordId).text();
+    }
+
+    @Override
+    public Title displayTitleView(String moduleAlias, String recordId) {
         var ability = abilities.orderedStream().filter(item -> moduleAlias.equals(item.getModuleAlias())).findFirst();
         if (ability.isEmpty()) {
             var record = records.select(moduleAlias, records.mainEntityAlias(moduleAlias), recordId);
-            if (record == null) return null;
+            if (record == null) return new Title(null, null);
             Object value = record.outputValues(net.ximatai.muyun.spring.common.security.FieldOutputContext.LIST).get("title");
-            return value == null ? null : String.valueOf(value);
+            String text = value == null ? null : String.valueOf(value);
+            var presentation = titlePresentations == null ? null : titlePresentations.getIfAvailable();
+            return new Title(text, text == null || presentation == null ? null : presentation.project(
+                    records.entity(moduleAlias, records.mainEntityAlias(moduleAlias)), record, "title", text));
         }
         var record = ability.get().select(recordId);
-        if (record == null) return null;
+        if (record == null) return new Title(null, null);
         String field = net.ximatai.muyun.spring.common.model.title.TitleFieldResolver
                 .resolveFieldName(record.getClass()).orElse("title");
         String value = net.ximatai.muyun.spring.common.model.title.TitleFieldResolver.readAsString(record);
@@ -43,7 +59,9 @@ public class DefaultModuleRecordFacts implements ModuleRecordFacts {
         Object rendered = ability.get() instanceof net.ximatai.muyun.spring.ability.security.FieldProtectionAbility<?> protectedAbility
                 ? protectedAbility.maskProtectedValue(field, value, net.ximatai.muyun.spring.common.security.FieldOutputContext.LIST)
                 : value;
-        return rendered == null ? null : String.valueOf(rendered);
+        String text = rendered == null ? null : String.valueOf(rendered);
+        var presentation = titlePresentations == null ? null : titlePresentations.getIfAvailable();
+        return new Title(text, text == null || presentation == null ? null : presentation.project(ability.get(), record, field, text));
     }
 
     @Override

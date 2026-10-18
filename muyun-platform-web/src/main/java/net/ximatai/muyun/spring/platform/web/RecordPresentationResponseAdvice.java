@@ -24,8 +24,14 @@ import java.util.*;
 public class RecordPresentationResponseAdvice implements ResponseBodyAdvice<Object> {
     private final ObjectProvider<RegisteredWebEndpointCatalog> endpoints;
     private final ObjectProvider<RecordTextPresentationService> texts;
+    private final ObjectProvider<BusinessContentRecordPresentationService> content;
     public RecordPresentationResponseAdvice(ObjectProvider<RegisteredWebEndpointCatalog> endpoints, ObjectProvider<RecordTextPresentationService> texts) {
-        this.endpoints = endpoints; this.texts = texts;
+        this(endpoints, texts, null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public RecordPresentationResponseAdvice(ObjectProvider<RegisteredWebEndpointCatalog> endpoints,
+            ObjectProvider<RecordTextPresentationService> texts, ObjectProvider<BusinessContentRecordPresentationService> content) {
+        this.endpoints = endpoints; this.texts = texts; this.content = content;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) { return true; }
     @Override public Object beforeBodyWrite(Object body, MethodParameter parameter, MediaType contentType,
@@ -44,7 +50,9 @@ public class RecordPresentationResponseAdvice implements ResponseBodyAdvice<Obje
         if (action == PlatformAction.UPDATE &&
                 WebAnnotationSupport.hasMergedMethodOrTypeAnnotation(method.getMethod(), method.getBeanType(), BusinessMutation.class)) return body;
         var presentation = texts.getIfAvailable();
-        return presentation == null ? body : presentation.projectCaptured(body);
+        var business = content == null ? null : content.getIfAvailable();
+        Object projected = business == null ? body : business.projectCaptured(body);
+        return presentation == null ? projected : presentation.projectCaptured(projected);
     }
 
 }

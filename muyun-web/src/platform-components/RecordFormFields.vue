@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import RecordFieldLabel from './RecordFieldLabel.vue';
+import RecordContentSourceField from './RecordContentSourceField.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -77,6 +78,7 @@ const props = withDefaults(
      * Ordinary module forms intentionally leave this absent.
      */
     optionEntityAlias?: string;
+    contentRelation?: import('@muyun/web-core').BusinessContentRelationScope;
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
     validationRequestKey?: number;
@@ -1142,6 +1144,19 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
         </div>
       </label>
+      <RecordContentSourceField
+        v-if="field.content && field.content.policy !== 'KEEP_ORIGINAL'"
+        :record="record"
+        :field-name="field.fieldName"
+        :content="field.content"
+        :context="optionContext"
+        :relation="contentRelation"
+        :mode="mode"
+        :disabled="disabled || field.readOnly"
+        :session-key="formSessionKey"
+        :compact="compact"
+        @change="emit('update:field', '$contentLanguages', $event as unknown as RecordFormFieldValue)"
+      />
     </div>
     <slot name="after-field" :field="field" />
     <div v-if="groupEndsAt(field, index)" class="record-form-group-divider" aria-hidden="true" />
@@ -1150,12 +1165,13 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 <style scoped>
 .record-form-field-host {
-  display: contents;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
 }
 .record-form-field-host--actions {
-  display: block;
   position: relative;
-  min-width: 0;
 }
 .record-form-field-host--actions > .record-form-field {
   padding-inline-end: 26px;

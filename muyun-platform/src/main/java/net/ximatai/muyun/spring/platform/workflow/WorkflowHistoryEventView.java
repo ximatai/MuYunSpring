@@ -39,7 +39,8 @@ public record WorkflowHistoryEventView(
         String message,
         String payloadText,
         Instant occurredAt,
-        String messageSourceText
+        String messageSourceText,
+        Integer version
 ) {
     /** Existing projections may omit the optional frozen system-message declaration. */
     public WorkflowHistoryEventView(
@@ -75,7 +76,7 @@ public record WorkflowHistoryEventView(
         String payloadText,
         Instant occurredAt
     ) {
-        this(originType, isAddSignRoute, addSignSourceNodeKey, addSignSourceNodeName, id, instanceId, nodeInstanceId, taskId, eventType, actionCode, operatorId, operatorTitle, actualProcessUserId, actualProcessUserTitle, processedByDelegation, assignmentKind, originalAssigneeId, originalAssigneeTitle, delegatedFromUserId, delegatedFromUserTitle, delegatedToUserId, delegatedToUserTitle, principalCanProcess, delegationPolicyId, delegationSnapshot, taskInvalidated, taskCanceled, reason, message, payloadText, occurredAt, null);
+        this(originType, isAddSignRoute, addSignSourceNodeKey, addSignSourceNodeName, id, instanceId, nodeInstanceId, taskId, eventType, actionCode, operatorId, operatorTitle, actualProcessUserId, actualProcessUserTitle, processedByDelegation, assignmentKind, originalAssigneeId, originalAssigneeTitle, delegatedFromUserId, delegatedFromUserTitle, delegatedToUserId, delegatedToUserTitle, principalCanProcess, delegationPolicyId, delegationSnapshot, taskInvalidated, taskCanceled, reason, message, payloadText, occurredAt, null, null);
     }
 
     public static final String ORIGIN_TYPE_DEFINITION = "DEFINITION";
@@ -120,7 +121,7 @@ public record WorkflowHistoryEventView(
                 task == null ? null : task.getAssignmentSnapshotText(),
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.INVALIDATED,
                 task != null && task.getTaskStatus() == WorkflowTaskStatus.CANCELED,
-                event.getReason(), event.getMessage(), event.getPayloadText(), event.getOccurredAt(), event.getMessageSourceText());
+                event.getReason(), event.getMessage(), event.getPayloadText(), event.getOccurredAt(), event.getMessageSourceText(), event.getVersion());
     }
 
     private static AddSignExplanation addSignExplanation(WorkflowEvent event,

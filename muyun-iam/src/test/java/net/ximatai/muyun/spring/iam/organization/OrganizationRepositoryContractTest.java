@@ -38,8 +38,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -257,6 +259,8 @@ class OrganizationRepositoryContractTest {
     private IDatabaseOperations<Object> mockedOperations() {
         IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
         when(operations.getDBInfo()).thenReturn(new DBInfo("POSTGRESQL").setName("muyun_test"));
+        when(operations.withFreshDBInfo(any())).thenAnswer(invocation ->
+                invocation.<Function<DBInfo, Object>>getArgument(0).apply(operations.getDBInfo()));
         when(operations.getDefaultSchemaName()).thenReturn(SCHEMA);
         return operations;
     }
@@ -276,6 +280,8 @@ class OrganizationRepositoryContractTest {
         IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
         when(operations.getMetaDataLoader()).thenReturn(loader);
         when(operations.getDBInfo()).thenReturn(dbInfo);
+        when(operations.withFreshDBInfo(any())).thenAnswer(invocation ->
+                invocation.<Function<DBInfo, Object>>getArgument(0).apply(operations.getDBInfo()));
         when(operations.getDefaultSchemaName()).thenReturn(SCHEMA);
         return operations;
     }
@@ -332,6 +338,8 @@ class OrganizationRepositoryContractTest {
         IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
         when(operations.getMetaDataLoader()).thenReturn(loader);
         when(operations.getDBInfo()).thenReturn(dbInfo);
+        when(operations.withFreshDBInfo(any())).thenAnswer(invocation ->
+                invocation.<Function<DBInfo, Object>>getArgument(0).apply(operations.getDBInfo()));
         when(operations.getDefaultSchemaName()).thenReturn(SCHEMA);
         return operations;
     }

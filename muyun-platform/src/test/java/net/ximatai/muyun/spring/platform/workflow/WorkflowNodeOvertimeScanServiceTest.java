@@ -29,7 +29,7 @@ class WorkflowNodeOvertimeScanServiceTest {
     private final WorkflowEventDao eventDao = mock(WorkflowEventDao.class);
     private final WorkflowRuntimeEventFactory eventFactory = new WorkflowRuntimeEventFactory();
     private final WorkflowNodeOvertimeScanService service = new WorkflowNodeOvertimeScanService(
-            nodeDao, instanceDao, eventDao, eventFactory);
+            nodeDao, instanceDao, new WorkflowEventWriter(eventDao, mock(org.springframework.context.ApplicationEventPublisher.class)), eventFactory);
 
     @Test
     void shouldIgnoreActiveApprovalNodeBeforeThreshold() {

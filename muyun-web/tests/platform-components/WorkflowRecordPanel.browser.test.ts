@@ -109,6 +109,8 @@ function fixture(initial: 'unsubmitted' | 'processing' | 'settlement') {
   };
   const context = {
     moduleAlias: 'test.expense',
+    can: () => true,
+    recordActions: async () => ({ recordId: 'expense', actions: [] }),
     http,
     crud: { view: async () => ({ ...record }) },
     runtime: {

@@ -1116,7 +1116,8 @@ class WorkflowRuntimeReadFacadeTest {
         var summaries = mock(WorkflowRecordSummaryResolver.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         var titleSource = net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource("sales.contract", "销售合同");
         when(summaries.resolve(any())).thenAnswer(call->((WorkflowInstance)call.getArgument(0)).getRecordId().equals("secret")
-                ? new WorkflowRecordSummary(null,"销售合同",false, titleSource) : new WorkflowRecordSummary("合同 ***", "销售合同", true, titleSource));
+                ? new WorkflowRecordSummary(null,"销售合同",false, titleSource) : new WorkflowRecordSummary("合同 ***", "销售合同", true, titleSource,
+                    new net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation("合同 ***", Map.of("en", "Contract", "de", "Vertrag"))));
         var paging = readFacade(WorkflowUserTitleResolver.NONE, summaries);
         var one = paging.workbenchPage("todo", "user-1", PageRequest.of(1,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
         var two = paging.workbenchPage("todo", "user-1", PageRequest.of(2,1), WorkflowWorkbenchQueryRequest.empty(), "合同");
@@ -1127,7 +1128,25 @@ class WorkflowRuntimeReadFacadeTest {
         assertThat(one.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-a");
         assertThat(two.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-b");
         assertThat(paging.workbenchPage("todo", "user-1", PageRequest.of(1,10), WorkflowWorkbenchQueryRequest.empty(), "secret").page().getTotal()).isZero();
-        verify(summaries,times(6)).resolve(any()); // two business records, once per response despite multiple tasks
+        var translated = paging.workbenchPage("todo", "user-1", PageRequest.of(2,1), WorkflowWorkbenchQueryRequest.empty(), "VERTRAG");
+        assertThat(translated.page().getTotal()).isEqualTo(2);
+        assertThat(translated.page().getRecords()).extracting(WorkflowWorkbenchCard::taskId).containsExactly("task-b");
+        assertThat(translated.page().getRecords().getFirst().business().title()).isEqualTo("合同 ***");
+        org.mockito.Mockito.doReturn(new WorkflowRecordSummary("改名", "销售合同", true, titleSource,
+                new net.ximatai.muyun.spring.common.content.BusinessContentTextPresentation("旧名", Map.of("en", "Obsolete"))))
+                .when(summaries).resolve(any());
+        assertThat(paging.workbenchPage("todo", "user-1", PageRequest.of(1,10), WorkflowWorkbenchQueryRequest.empty(), "obsolete").page().getTotal()).isZero();
+        verify(summaries,times(10)).resolve(any()); // two business records, once per response despite multiple tasks
+    }
+
+    @Test void recordWorkflowDirectoryRequiresOwningRecordViewBeforeReadingAnyInstance() {
+        var denied = new WorkflowActionPolicyService(context -> { throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("record view denied"); });
+        var reader = new WorkflowRuntimeReadFacade(instanceDao, taskDao, nodeDao, routeDao, eventDao,
+                mock(WorkflowTaskActionAvailabilityService.class), denied, new WorkflowTaskAssignmentPolicyService(),
+                WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE), WorkflowTestSupport.provider(WorkflowRecordSummaryResolver.NONE),
+                mock(WorkflowConditionService.class));
+        assertThatThrownBy(() -> reader.recordInstances("sales.contract", "record", PageRequest.of(1, 20))).hasMessage("record view denied");
+        verifyNoInteractions(instanceDao);
     }
 
     private WorkflowInstance instance(String id) {

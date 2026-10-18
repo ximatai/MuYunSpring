@@ -14,4 +14,8 @@ public interface DeletionLifecycleListener {
     default DeletionLifecycleSession open(DeletionResource root) {
         return DeletionLifecycleSession.NONE;
     }
+
+    /** Transactional copy cleanup, without opening a new deletion tree or recovery journal. */
+    default void retainedRecordPurged(net.ximatai.muyun.spring.ability.CrudAbility<?> ability,
+                                     net.ximatai.muyun.spring.common.model.contract.EntityContract entity) { }
 }

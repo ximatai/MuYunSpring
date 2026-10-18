@@ -1,6 +1,7 @@
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 export interface CrudRecordListBase {
   id?: string;
+  version?: number;
   title?: string;
   alias?: string;
   code?: string;

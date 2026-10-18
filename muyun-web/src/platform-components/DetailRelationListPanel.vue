@@ -69,12 +69,15 @@ const relationContext = computed<ModuleContext<QueryListRecord> | undefined>(() 
     moduleAlias: relation.targetModuleAlias,
     crud: {
       ...props.sourceContext.crud,
-      query: (request?: WebQueryRequest) =>
+      query: (request?: WebQueryRequest, options?: { contentLanguage?: string }) =>
         props.sourceContext.http
           .request<WebPageResponse<QueryListRecord>>({
             method: 'POST',
             path: queryPath,
             body: request,
+            ...(options?.contentLanguage
+              ? { headers: { 'X-MuYun-Content-Language': options.contentLanguage } }
+              : {}),
           })
           .then(normalizeModulePageResponse),
     },

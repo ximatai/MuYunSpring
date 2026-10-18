@@ -12,9 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Projects model-owned write requirements only onto fields already exposed by an editor. */
-final class FieldWriteRuleProjection {
-    private FieldWriteRuleProjection() { }
+/** Projects model-owned content policies and write requirements onto already exposed fields. */
+final class ModelFieldProjection {
+    private ModelFieldProjection() { }
 
     static Map<ViewFieldRef, FieldDefinition> fields(List<EntityDefinition> entities, String mainEntityAlias) {
         Map<ViewFieldRef, FieldDefinition> fields = new LinkedHashMap<>();
@@ -49,11 +49,14 @@ final class FieldWriteRuleProjection {
                                                Map<ViewFieldRef, FieldDefinition> fields) {
         if (descriptor == null || fields.isEmpty()) return descriptor;
         var page = descriptor.page();
-        if (page != null && page.detail() != null) {
+        if (page != null) {
             var detail = page.detail();
-            detail = new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
-                    detail.display(), view(detail.editor(), fields), detail.workspaceView(), detail.showSystemInfo());
-            page = new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(), page.list(),
+            if (detail != null) detail = new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
+                    view(detail.display(), fields), view(detail.editor(), fields), detail.workspaceView(), detail.showSystemInfo());
+            var list = page.list();
+            if (list != null) list = new ResolvedPageListDescriptor(list.searchPlaceholder(), view(list.fields(), fields),
+                    list.title(), list.subtitle(), list.relationExpansions(), list.persistentQueryControls(), list.querySummaries());
+            page = new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(), list,
                     page.treeResource(), detail, page.traits(), page.quickSearchFields(), page.actions(), page.managedActions());
         }
         return descriptor.withEditors(page, view(descriptor.defaultEditor(), fields),
@@ -64,10 +67,12 @@ final class FieldWriteRuleProjection {
     }
 
     private static ResolvedViewDescriptor view(ResolvedViewDescriptor view, Map<ViewFieldRef, FieldDefinition> fields) {
-        if (view == null || view.viewKind() != ModuleViewKind.FORM) return view;
+        if (view == null) return null;
         return view.withFields(view.fields().stream().map(field -> {
             var model = fields.get(new ViewFieldRef(field.fieldRef().relationCode(), field.fieldRef().fieldName(), null));
-            if (model == null || !model.isPhysical() || model.behavior().writeProtected()
+            if (model == null) return field;
+            field = field.withContent(model.content());
+            if (view.viewKind() != ModuleViewKind.FORM || !model.isPhysical() || model.behavior().writeProtected()
                     || Boolean.TRUE.equals(field.readOnly().constant())) return field;
             var rules = model.behavior().writeRules();
             // Server defaults satisfy insert requirements without requiring user input.

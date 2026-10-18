@@ -29,14 +29,22 @@ import java.util.Map;
 public class ExcelWorkbookParser {
     private final ExcelExchangeHeaderParser headerParser;
     private final ExcelExchangeProtocolValidator validator;
+    private final boolean preserveText;
 
     public ExcelWorkbookParser() {
-        this(new ExcelExchangeHeaderParser(), new ExcelExchangeProtocolValidator());
+        this(false);
+    }
+    public ExcelWorkbookParser(boolean preserveText) {
+        this(new ExcelExchangeHeaderParser(), new ExcelExchangeProtocolValidator(),preserveText);
     }
 
     ExcelWorkbookParser(ExcelExchangeHeaderParser headerParser, ExcelExchangeProtocolValidator validator) {
+        this(headerParser,validator,false);
+    }
+    private ExcelWorkbookParser(ExcelExchangeHeaderParser headerParser, ExcelExchangeProtocolValidator validator,boolean preserveText) {
         this.headerParser = headerParser;
         this.validator = validator;
+        this.preserveText=preserveText;
     }
 
     public ParsedWorkbook parse(byte[] bytes) {
@@ -140,7 +148,8 @@ public class ExcelWorkbookParser {
                 values.get(ExcelExchangeProtocol.META_KEY_MODULE_ALIAS),
                 values.get(ExcelExchangeProtocol.META_KEY_UI_CONFIG_ID),
                 values.get(ExcelExchangeProtocol.META_KEY_UI_CONFIG_TITLE),
-                values.get(ExcelExchangeProtocol.META_KEY_TIME_ZONE)
+                values.get(ExcelExchangeProtocol.META_KEY_TIME_ZONE),
+                values.get("documentId"), values.get("purpose"), values.get("language")
         );
     }
 
@@ -175,10 +184,12 @@ public class ExcelWorkbookParser {
                                      List<ParsedColumn> columns,
                                      DataFormatter formatter,
                                      FormulaEvaluator evaluator) {
-        List<String> values = new ArrayList<>(columns.size());
+        int width = columns.stream().mapToInt(ParsedColumn::columnIndex).max().orElse(-1) + 1;
+        List<String> values = new ArrayList<>(java.util.Collections.nCopies(width, null));
         for (ParsedColumn column : columns) {
             Cell cell = row == null ? null : row.getCell(column.columnIndex());
-            values.add(normalize(readCellValue(cell, formatter, evaluator)));
+            String value=readCellValue(cell,formatter,evaluator);
+            values.set(column.columnIndex(), preserveText ? value==null || value.isBlank() ? null : value : normalize(value));
         }
         return values;
     }
@@ -186,6 +197,15 @@ public class ExcelWorkbookParser {
     private String readCellValue(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
         if (cell == null) {
             return null;
+        }
+        // Exchange values are data, not Excel's rounded General/percentage/currency display.
+        // Keep formatted dates on the existing date path; large exact values are exported as text.
+        if (preserveText) {
+            var value = evaluator.evaluate(cell);
+            if (value != null && value.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC
+                    && !org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                return java.math.BigDecimal.valueOf(value.getNumberValue()).stripTrailingZeros().toPlainString();
+            }
         }
         return formatter.formatCellValue(cell, evaluator);
     }

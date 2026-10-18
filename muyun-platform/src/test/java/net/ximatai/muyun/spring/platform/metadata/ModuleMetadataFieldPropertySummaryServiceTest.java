@@ -59,6 +59,7 @@ class ModuleMetadataFieldPropertySummaryServiceTest {
         reference.setTargetKeyField("code");
         reference.setTargetLabelField("title");
         reference.setProjectionMappings("title:subjectCategoryIdTitle");
+        reference.setCandidateSubtitleProjection("code");
         when(relations.select("main")).thenReturn(relation);
         when(fields.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(field));
         when(references.findForRelation("subject-field", "main")).thenReturn(reference);
@@ -71,6 +72,7 @@ class ModuleMetadataFieldPropertySummaryServiceTest {
             assertThat(summary.bindingVersion()).isEqualTo(4);
             assertThat(summary.reference().targetKeyField()).isEqualTo("code");
             assertThat(summary.reference().targetLabelField()).isEqualTo("title");
+            assertThat(summary.reference().candidateSubtitleProjection()).isEqualTo("code");
             assertThat(summary.reference().projectionMappings()).containsExactly("title:subjectCategoryIdTitle");
         });
     }

@@ -40,6 +40,8 @@ public final class ReferenceSummaryRecordOutputTransformer implements RecordOutp
         List<String> outputs = summaries.stream().map(summary -> summary.outputField()).toList();
         List<Map<String, Object>> sources = records.stream().map(record -> {
             Map<String, Object> values = new LinkedHashMap<>();
+            values.put("id", record.getId());
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTextReadListener().onOwnerCopy(record, values);
             for (var summary : summaries) {
                 Object value = StaticReferenceResolver.readLoadedValue(record, summary.sourceField());
                 if (service instanceof FieldProtectionAbility<?> protection

@@ -28,8 +28,19 @@ class WorkflowHistoryQueryServiceTest {
     private final WorkflowHistoryInstanceDao historyDao = mock(WorkflowHistoryInstanceDao.class);
     private final WorkflowArchiveService archiveService = mock(WorkflowArchiveService.class);
     private final WorkflowActionPolicyService actionPolicyService = mock(WorkflowActionPolicyService.class);
+    private final net.ximatai.muyun.spring.platform.content.BusinessContentFacts contentFacts = mock(net.ximatai.muyun.spring.platform.content.BusinessContentFacts.class);
     private final WorkflowHistoryQueryService service = new WorkflowHistoryQueryService(
-            historyDao, archiveService, actionPolicyService);
+            historyDao, archiveService, actionPolicyService, WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE), contentFacts);
+
+    @Test
+    void manualAssemblyRequiresTheSameCleanupAndAuthorizationDependencies() {
+        assertThatThrownBy(() -> new WorkflowHistoryQueryService(historyDao, archiveService, actionPolicyService,
+                WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE), null))
+                .isInstanceOf(NullPointerException.class).hasMessage("contentFacts");
+        assertThatThrownBy(() -> new WorkflowHistoryQueryService(historyDao, archiveService, null,
+                WorkflowTestSupport.provider(WorkflowUserTitleResolver.NONE), contentFacts))
+                .isInstanceOf(NullPointerException.class).hasMessage("actionPolicyService");
+    }
 
     @Test
     void shouldQueryRecordHistoryByModuleAndRecord() {
@@ -169,6 +180,7 @@ class WorkflowHistoryQueryServiceTest {
         WorkflowHistoryInstance history = history("history-1");
         when(historyDao.findById("history-1")).thenReturn(history);
         when(historyDao.deleteById("history-1")).thenReturn(1);
+        when(archiveService.parseSnapshot(history)).thenReturn(snapshot(List.of(), List.of(), List.of(), List.of()));
 
         int deleted = service.deleteHistory("history-1");
 

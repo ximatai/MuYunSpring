@@ -99,7 +99,10 @@ function updateChildren(
     <WorkflowRecordPanel
       ref="workflowPanel"
       @interaction-change="emit('workflow-interaction-change', $event)"
-      v-if="record.id && context.abilities.has('approval') === true"
+      v-if="
+        record.id &&
+        (context.abilities.has('workflow') === true || context.abilities.has('approval') === true)
+      "
       :context="context"
       :record-id="String(record.id)"
       @changed="emit('workflow-changed')"

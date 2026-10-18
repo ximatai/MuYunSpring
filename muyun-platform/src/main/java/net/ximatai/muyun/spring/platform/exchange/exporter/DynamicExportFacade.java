@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.util.Objects;
 
 @Service
+@Deprecated(since = "0.26.17", forRemoval = false)
 public class DynamicExportFacade {
     private final DynamicExportExecutor executor;
     private final ExcelWorkbookPlanWriter workbookWriter;
