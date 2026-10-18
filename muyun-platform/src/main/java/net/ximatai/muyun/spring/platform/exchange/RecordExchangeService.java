@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.exchange;
 
+import net.ximatai.muyun.spring.platform.content.BusinessContentService;
+
 import static net.ximatai.muyun.spring.platform.exchange.RecordExchangeWorkbook.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -267,8 +269,8 @@ public final class RecordExchangeService {
                     var output = new LinkedHashMap<String, List<Map<String, Object>>>();
                     int count = 0;
                     for (String id : new LinkedHashSet<>(ids)) {
-                        var root = access.read(definition.main().alias(), null, id);
-                        count += exportRow(access, document, definition.main(), null, root, output);
+                        var root = access.readForExport(definition.main().alias(), null, id);
+                        count += exportRow(access, document, definition.main(), null, root.row(), root.sources(), output);
                         if (count > MAX_ROWS)
                             throw new IllegalArgumentException(
                                     "File exceeds 1000 rows; narrow the selection");
@@ -1137,11 +1139,22 @@ public final class RecordExchangeService {
             String parent,
             RecordExchangeAccess.Row row,
             Map<String, List<Map<String, Object>>> output) {
-        var rows = output.computeIfAbsent(entity.alias(), ignored -> new ArrayList<>());
         var sources =
                 entity.fields().stream().anyMatch(RecordExchangeDefinition.Field::content)
                         ? access.sources(entity.alias(), parent, row.id())
                         : null;
+        return exportRow(access, document, entity, parent, row, sources, output);
+    }
+
+    private int exportRow(
+            RecordExchangeAccess access,
+            RecordExchangeReceipt document,
+            RecordExchangeDefinition.Entity entity,
+            String parent,
+            RecordExchangeAccess.Row row,
+            BusinessContentService.Sources sources,
+            Map<String, List<Map<String, Object>>> output) {
+        var rows = output.computeIfAbsent(entity.alias(), ignored -> new ArrayList<>());
         if (TRANSLATIONS.equals(document.getPurpose())) {
             int count = 0;
             for (var field : entity.fields())

@@ -35,13 +35,20 @@ public final class BusinessContentWebSupport {
                 && attributes.getRequest().getAttribute(ATTRIBUTE) instanceof BusinessContentWebSupport support) return support;
         throw new IllegalStateException("Business content Web support is unavailable");
     }
-    public BusinessContentService.Sources sources(CrudWeb<?, ?> web, String id) {
-        web.view(id); // Includes the owning controller's menu, page selection and aggregate VIEW rules.
+    public record ViewedSources(net.ximatai.muyun.spring.common.model.contract.EntityContract record,
+                                BusinessContentService.Sources sources) { }
+
+    /** Keeps the live view result and provenance together for compound delivery consumers. */
+    public ViewedSources viewWithSources(CrudWeb<?, ?> web, String id) {
+        var record = web.view(id); // Retains controller overrides, menu, page and aggregate VIEW rules.
         var allowed = fields(web);
         var sources = content.sources(web.service(), id);
         Map<String, BusinessContentService.CurrentSource> visible = new LinkedHashMap<>();
         sources.fields().forEach((field, source) -> { if (allowed.contains(field)) visible.put(field, source); });
-        return new BusinessContentService.Sources(sources.recordVersion(), visible);
+        return new ViewedSources(record, new BusinessContentService.Sources(sources.recordVersion(), visible));
+    }
+    public BusinessContentService.Sources sources(CrudWeb<?, ?> web, String id) {
+        return viewWithSources(web, id).sources();
     }
     public List<BusinessContentService.SourceRevision> history(CrudWeb<?, ?> web, String id, String field, PageRequest page) {
         web.view(id);

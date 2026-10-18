@@ -141,6 +141,32 @@ class BusinessContentWebTest {
         }
     }
 
+    @Test void compoundViewKeepsOneControllerReadAndFiltersSourcesWithoutWeakeningAuthorization() {
+        var source = new BusinessContentService.CurrentSource(new ContentFieldDefinition("stable", ContentPolicy.AUTO_TRANSLATE),
+                "原文", 3, null);
+        when(content.sources(controller.service, "record")).thenReturn(new BusinessContentService.Sources(4,
+                Map.of("title", source, "unexposed", source)));
+        var support = new BusinessContentWebSupport(content, plans, translations);
+        var viewed = support.viewWithSources(controller, "record");
+        assertThat(controller.viewCount).isEqualTo(1);
+        assertThat(viewed.record().getId()).isEqualTo("record");
+        assertThat(viewed.sources().recordVersion()).isEqualTo(4);
+        assertThat(viewed.sources().fields()).containsOnlyKeys("title");
+        controller.denied = true;
+        clearInvocations(content);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> support.viewWithSources(controller, "record"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        verifyNoInteractions(content);
+    }
+
+    @Test void compoundViewDoesNotIgnoreSourceAuthorizationFailure() {
+        var support = new BusinessContentWebSupport(content, plans, translations);
+        when(content.sources(controller.service, "record")).thenThrow(new PlatformAccessDeniedException("source scope"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> support.viewWithSources(controller, "record"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        assertThat(controller.viewCount).isEqualTo(1);
+    }
+
     @Test void standardEndpointsExposeOnlyProducerFieldsAndRetainTheOwningViewBoundary() throws Exception {
         var source = new BusinessContentService.CurrentSource(new ContentFieldDefinition("stable", ContentPolicy.AUTO_TRANSLATE),
                 "中文原文", 3, null);
@@ -422,8 +448,10 @@ class BusinessContentWebTest {
     static class Controller implements CrudWeb<Row, CrudAbility<Row>> {
         @SuppressWarnings("unchecked") final CrudAbility<Row> service = mock(CrudAbility.class);
         boolean denied;
+        int viewCount;
         @Override public CrudAbility<Row> service() { return service; }
         @Override public Row view(String id) {
+            viewCount++;
             if (denied) throw new PlatformAccessDeniedException("Owning menu or page scope denied");
             var row = new Row(); row.setId(id); return row;
         }

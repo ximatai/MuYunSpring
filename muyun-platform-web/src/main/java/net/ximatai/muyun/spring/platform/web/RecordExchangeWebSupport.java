@@ -107,7 +107,10 @@ public final class RecordExchangeWebSupport {
         if (request.ids() != null && !request.ids().isEmpty() && request.query() != null) {
             selected = queryIds(web, request.query(), request.ids());
         }
-        return exchange.export(access, selected, request.options());
+        var exportIds = selected;
+        return WebOutputSupport.withViewSurface(
+                net.ximatai.muyun.spring.ability.output.RecordOutputSurface.EXPORT,
+                () -> exchange.export(access, exportIds, request.options()));
     }
 
     public RecordExchangeService.Preview compatibilityPreview(String module, byte[] bytes) {
@@ -611,6 +614,17 @@ public final class RecordExchangeWebSupport {
                             () ->
                                     new PlatformAccessDeniedException(
                                             "Exchange child is unavailable"));
+        }
+
+        @Override
+        public ExportRow readForExport(String entity, String parent, String id) {
+            var spec = definition.entity(entity);
+            if (!spec.main() || spec.fields().stream().noneMatch(RecordExchangeDefinition.Field::content))
+                return RecordExchangeAccess.super.readForExport(entity, parent, id);
+            return action(web, PlatformAction.VIEW, id, () -> {
+                var viewed = BusinessContentWebSupport.current().viewWithSources(web, id);
+                return new ExportRow(row(spec, viewed.record()), viewed.sources());
+            });
         }
 
         @Override

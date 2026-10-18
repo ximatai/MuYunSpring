@@ -29,6 +29,15 @@ public interface RecordExchangeAccess {
 
     Row read(String entity, String parentId, String id);
 
+    record ExportRow(Row row, BusinessContentService.Sources sources) {}
+
+    /** A producer may combine delivery reads while retaining its live record and source checks. */
+    default ExportRow readForExport(String entity, String parentId, String id) {
+        Row row = read(entity, parentId, id);
+        return new ExportRow(row, definition().entity(entity).fields().stream()
+                .anyMatch(RecordExchangeDefinition.Field::content) ? sources(entity, parentId, id) : null);
+    }
+
     List<Row> match(String entity, String parentId, String field, Object value);
 
     List<Row> children(String entity, String parentId, int limit);
