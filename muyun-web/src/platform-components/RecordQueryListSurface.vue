@@ -424,7 +424,8 @@ defineSlots<{
   justify-content: space-between;
   flex-wrap: wrap;
   color: var(--muyun-text-muted);
-  font-size: 13px;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 .record-query-list-footer-extensions {

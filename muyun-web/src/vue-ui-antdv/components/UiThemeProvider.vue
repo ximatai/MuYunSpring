@@ -42,5 +42,9 @@ onUnmounted(() => {
 <style scoped>
 .ui-theme-provider {
   display: contents;
+  color: var(--muyun-text);
+  font-family: var(--muyun-font-family);
+  font-size: var(--muyun-font-size-body);
+  line-height: var(--muyun-line-height-body);
 }
 </style>

@@ -339,15 +339,16 @@ function groupEndsAt(index: number) {
 
 dt {
   color: var(--muyun-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 dd {
   overflow-wrap: anywhere;
   margin: 4px 0 0;
   color: var(--muyun-text-body);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 .record-color-value {

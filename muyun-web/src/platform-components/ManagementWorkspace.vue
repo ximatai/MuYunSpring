@@ -178,8 +178,8 @@ const pageLayout = usePageLayout();
   --muyun-management-panel-padding-inline: 14px;
   --muyun-management-panel-header-height: 30px;
   --muyun-management-panel-header-gap: 8px;
-  --muyun-management-panel-title-font-size: 16px;
-  --muyun-management-panel-title-line-height: 22px;
+  --muyun-management-panel-title-font-size: var(--muyun-font-size-panel, 16px);
+  --muyun-management-panel-title-line-height: var(--muyun-line-height-panel, 22px);
   --muyun-management-panel-content-gap: 8px;
 
   min-width: 0;

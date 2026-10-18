@@ -192,6 +192,8 @@ StaticManagementLayout
   -> RecordDetailPanel
 ```
 
+流程定义等专用管理页同样使用 `StaticManagementLayout`，通过 `explorer` 提供自有加载的 `RecordListExplorer`，通过 `detail-actions` 提供当前对象的工作区动作，通过 `detail-operation` 提供配置表单的固定提交操作区。流程版本、画布和发布状态由页面维护，不强行套入普通 CRUD 状态机。新建与匹配规则编辑共用页面私有的 `WorkflowSelectionFields`，该组件只呈现受控字段，不负责身份作用域、数据加载或保存。`busy` 表达请求期间的导航锁，独立于 `mode`；加载中、加载失败和真实空列表必须分别反馈。页面留白由标准宿主提供，视图内部不重复增加一层外边距。
+
 两栏树管理页：
 
 ```text
@@ -217,7 +219,8 @@ RecordDetailPanel
 
 | 页面     | Explorer 组合                                                                                 | 状态口径                                                                                                         |
 | -------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 应用管理 | `StaticManagementLayout -> CrudRecordListExplorer -> RecordListExplorer -> RecordDetailPanel` | 平铺 CRUD 状态复用 `useFlatCrudManagementState`，详情区复用标准详情外壳。                                        |
+| 应用管理 | 标准模块运行器 → `StaticManagementLayout` → `CrudRecordListExplorer` / `RecordDetailPanel`    | 通过标准模块页面描述交付，复用统一 CRUD、权限、查询与详情会话。                                                  |
+| 审批流程 | `StaticManagementLayout` → `RecordListExplorer` / `RecordDetailPanel`                         | 自有流程定义、版本与发布会话；复用公共搜索、列表项、导航锁、详情卡片和固定操作区。                               |
 | 租户管理 | `StaticManagementLayout -> CrudRecordListExplorer -> RecordListExplorer -> RecordDetailPanel` | 平铺 CRUD 状态复用 `useFlatCrudManagementState`，不内置特殊租户保护规则，详情区复用标准详情外壳。                |
 | 组织管理 | `StaticManagementLayout -> TreeRecordExplorer -> RecordDetailPanel`                           | 页面直接依赖树能力，避免在主业务页套业务语义树封装，详情区复用标准详情外壳。                                     |
 | 部门管理 | `RecordExplorerPanel -> TreeRecordExplorer` 和 `RecordExplorerPanel -> TreeRecordExplorer`    | 左侧机构树只作为 scope 选择，不承载机构管理动作；部门树按机构 scope 加载和维护。                                 |
@@ -257,7 +260,6 @@ RecordDetailPanel
 ## 必填字段表达
 
 标准描述符表单与手工编排表单统一使用 `RecordFieldLabel` 表达字段标签及必填标记。描述符表单消费字段 `required`，手工表单显式声明 `required`，输入控件同时声明相应的必填语义。可选字段不显示标记；隐藏的必填字段必须有可用默认值，校验失败时应展示可修正的字段。必填表达不代替服务端校验。
-
 
 ### 公式输入框
 

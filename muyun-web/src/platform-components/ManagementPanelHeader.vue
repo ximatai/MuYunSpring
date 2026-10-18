@@ -163,13 +163,13 @@ const emit = defineEmits<{
   height: var(--muyun-management-panel-header-height, 30px);
   padding: 0;
   color: var(--muyun-text);
-  font-size: var(--muyun-management-panel-title-font-size, 16px);
+  font-size: var(--muyun-management-panel-title-font-size, var(--muyun-font-size-panel, 16px));
   font-weight: 700;
-  line-height: var(--muyun-management-panel-title-line-height, 22px);
+  line-height: var(--muyun-management-panel-title-line-height, var(--muyun-line-height-panel, 22px));
 }
 
 .management-panel-header-title--with-subtitle {
-  height: var(--muyun-management-panel-title-line-height, 22px);
+  height: var(--muyun-management-panel-title-line-height, var(--muyun-line-height-panel, 22px));
 }
 
 .management-panel-header-title {
@@ -189,8 +189,8 @@ const emit = defineEmits<{
   margin: 1px 0 0;
   overflow: hidden;
   color: var(--muyun-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--muyun-font-size-helper, 12px);
+  line-height: var(--muyun-line-height-helper, 18px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

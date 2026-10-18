@@ -3412,7 +3412,20 @@
       "platform.screen.ModuleDataExchangeSurface.reference-identity": "关联身份",
       "platform.screen.ModuleDataExchangeSurface.unreadable-reference": "关联对象名称当前不可读",
       "platform.screen.ModuleDataExchangeSurface.context-only-sheet": "仅用于关联已有业务，不重复写入，也无需选择匹配字段。",
-      "platform.screen.ModuleDataExchangeSurface.identity-policy-hint": "已导出的业务记录按文件中的身份更新；手填新行首次匹配到已有记录时，按下方策略处理。已提交行重传会跳过。"
+      "platform.screen.ModuleDataExchangeSurface.identity-policy-hint": "已导出的业务记录按文件中的身份更新；手填新行首次匹配到已有记录时，按下方策略处理。已提交行重传会跳过。",
+      "platform.workflow-config.no-definitions": "暂无流程，点击“新建流程”开始配置",
+      "platform.workflow-config.creation-help": "先创建草稿，再配置节点和参与人；发布后才会用于后续申请。",
+      "platform.workflow-config.alias-help": "小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。",
+      "platform.workflow-config.approval-help": "开启后回写业务记录的审批状态；关闭后仅编排任务流程。",
+      "platform.workflow-config.optional-matching": "适用范围与匹配规则（可选）",
+      "platform.workflow-config.organization-placeholder": "全部组织（可选指定组织）",
+      "platform.workflow-config.organization-help": "留空适用于全部组织；指定组织后包含其下级组织。",
+      "platform.workflow-config.global-scope-help": "当前为全局流程模板，适用于全部组织；组织选择需使用租户身份。",
+      "platform.workflow-config.priority-help": "填写整数，同一组织范围内数值越大越优先。",
+      "platform.workflow-config.fallback-help": "同一组织范围内无普通流程命中时使用；兜底流程不判断匹配条件。",
+      "platform.workflow-config.refresh-definitions": "刷新审批流程",
+      "platform.workflow-config.loading-definitions": "正在加载审批流程",
+      "platform.workflow-config.invalid-priority": "请输入 -2147483648 至 2147483647 范围内的整数。"
     }
   },
   "en": {
@@ -6829,7 +6842,20 @@
       "platform.screen.ModuleDataExchangeSurface.reference-identity": "Reference identity",
       "platform.screen.ModuleDataExchangeSurface.unreadable-reference": "Reference name is currently unavailable",
       "platform.screen.ModuleDataExchangeSurface.context-only-sheet": "Read-only context links existing business records. It is not written again and needs no matching field.",
-      "platform.screen.ModuleDataExchangeSurface.identity-policy-hint": "Exported business records are updated by their file identities. The policies below apply when handwritten new rows first match existing records. Already committed rows are skipped on retry."
+      "platform.screen.ModuleDataExchangeSurface.identity-policy-hint": "Exported business records are updated by their file identities. The policies below apply when handwritten new rows first match existing records. Already committed rows are skipped on retry.",
+      "platform.workflow-config.no-definitions": "No workflows yet. Select “New workflow” to get started.",
+      "platform.workflow-config.creation-help": "Create a draft, then configure nodes and participants. It takes effect after publication.",
+      "platform.workflow-config.alias-help": "Start with a lowercase letter; use lowercase letters, digits and underscores, up to 63 characters.",
+      "platform.workflow-config.approval-help": "When enabled, updates the business record’s approval status. Otherwise, orchestrates workflow tasks only.",
+      "platform.workflow-config.optional-matching": "Scope and matching rules (optional)",
+      "platform.workflow-config.organization-placeholder": "All organizations (or select an organization)",
+      "platform.workflow-config.organization-help": "Leave empty for all organizations. A selected organization includes its descendants.",
+      "platform.workflow-config.global-scope-help": "This is a global workflow template for all organizations. Organization selection requires a tenant identity.",
+      "platform.workflow-config.priority-help": "Enter an integer. Higher values take priority within the same organization scope.",
+      "platform.workflow-config.fallback-help": "Used when no regular workflow matches within the same organization scope. Fallback workflows ignore matching conditions.",
+      "platform.workflow-config.refresh-definitions": "Refresh approval workflows",
+      "platform.workflow-config.loading-definitions": "Loading approval workflows",
+      "platform.workflow-config.invalid-priority": "Enter an integer between -2147483648 and 2147483647."
     }
   },
   "fr": {

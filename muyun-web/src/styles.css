@@ -1,32 +1,8 @@
+@import '@muyun/vue-ui-antdv/styles.css';
+
 :root {
-  --muyun-surface: var(--muyun-support-surface, #fff);
-  --muyun-page-bg: var(--muyun-support-canvas, #f5f7fb);
-  --muyun-border: var(--muyun-support-border, #e6ecf4);
-  --muyun-border-subtle: var(--muyun-support-border-subtle, #eef2f7);
-  --muyun-text: var(--muyun-support-text, #171f2a);
-  --muyun-text-body: var(--muyun-support-text-body, #354255);
-  --muyun-text-muted: var(--muyun-support-text-muted, #566577);
-  --muyun-hover: var(--muyun-support-hover, #f7f9fc);
-  --muyun-hover-subtle: var(--muyun-support-elevated, #fbfcff);
-  --muyun-selected: var(--muyun-theme-soft, #ecf2fe);
-  --muyun-primary: var(--muyun-theme-base, #0052d9);
-  --muyun-danger-text: var(--muyun-danger-base, #e34d59);
-  --muyun-danger-bg: var(--muyun-danger-soft, #fdecee);
-  --muyun-success-text: var(--muyun-positive-base, #00a870);
-  --muyun-success-bg: var(--muyun-positive-soft, #edf9f5);
-  --muyun-success-border: var(--muyun-positive-border, #e3f3ec);
-  --muyun-warning-text: var(--muyun-warning-base, #ed7b2f);
   --muyun-standard-input-width: 280px;
-  --muyun-info-text: var(--muyun-info-base, #0052d9);
-  color: var(--muyun-text);
   background: var(--muyun-page-bg);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -41,13 +17,6 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-}
-
-button,
-input,
-textarea,
-select {
-  font: inherit;
 }
 
 #app {

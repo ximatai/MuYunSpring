@@ -1,3 +1,4 @@
+import { typographyCssVariables, uiTypography } from './typography';
 import { theme as antDesignTheme } from 'ant-design-vue';
 import type { ThemeConfig } from 'ant-design-vue/es/config-provider/context';
 
@@ -391,7 +392,7 @@ export function uiThemeSkinById(value: unknown): UiThemeSkin {
 }
 
 export function cssVariablesOf(theme: UiTheme): Record<`--muyun-${string}`, string> {
-  const variables: Record<`--muyun-${string}`, string> = {};
+  const variables = typographyCssVariables();
   const roles: Record<string, UiThemeTone | UiSupportTheme | UiSkinPickerTheme> = {
     theme: theme.theme,
     brandAccent: theme.brandAccent,
@@ -439,7 +440,25 @@ export function antDesignThemeOf(theme: UiTheme): ThemeConfig {
       controlItemBgActiveHover: theme.theme.focus,
       controlItemBgActiveDisabled: theme.support.disabled,
       borderRadius: 4,
-      fontSize: 13,
+      fontFamily: uiTypography.fontFamily,
+      fontWeightStrong: 700,
+      fontSize: uiTypography.body.fontSize,
+      fontSizeSM: uiTypography.helper.fontSize,
+      fontSizeLG: uiTypography.panel.fontSize,
+      fontSizeXL: uiTypography.page.fontSize,
+      fontSizeHeading1: uiTypography.page.fontSize,
+      fontSizeHeading2: uiTypography.page.fontSize,
+      fontSizeHeading3: uiTypography.panel.fontSize,
+      fontSizeHeading4: uiTypography.panel.fontSize,
+      fontSizeHeading5: uiTypography.section.fontSize,
+      lineHeight: uiTypography.body.lineHeight / uiTypography.body.fontSize,
+      lineHeightSM: uiTypography.helper.lineHeight / uiTypography.helper.fontSize,
+      lineHeightLG: uiTypography.panel.lineHeight / uiTypography.panel.fontSize,
+      lineHeightHeading1: uiTypography.page.lineHeight / uiTypography.page.fontSize,
+      lineHeightHeading2: uiTypography.page.lineHeight / uiTypography.page.fontSize,
+      lineHeightHeading3: uiTypography.panel.lineHeight / uiTypography.panel.fontSize,
+      lineHeightHeading4: uiTypography.panel.lineHeight / uiTypography.panel.fontSize,
+      lineHeightHeading5: uiTypography.section.lineHeight / uiTypography.section.fontSize,
       controlHeight: 30,
       controlHeightSM: 22,
       controlHeightLG: 38,

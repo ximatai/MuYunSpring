@@ -862,7 +862,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 :deep(.title-refresh-action .anticon) {
   display: block;
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 :deep(.title-refresh-action .ant-btn-icon) {
@@ -923,7 +923,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .app-topbar h1 {
   overflow: hidden;
   color: var(--muyun-support-text);
-  font-size: 16px;
+  font-size: var(--muyun-font-size-panel, 16px);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -972,7 +972,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   padding: 0 10px;
   justify-content: flex-start;
   color: var(--muyun-support-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 .icon-button:hover {
@@ -1099,7 +1099,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .user-meta strong {
   color: var(--muyun-support-text);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 .user-meta small {
@@ -1155,7 +1155,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   border-radius: 8px 8px 0 0 !important;
   background: var(--muyun-support-elevated) !important;
   color: var(--muyun-support-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
@@ -1199,7 +1199,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .empty-tabs {
   padding: 9px 4px;
   color: var(--muyun-support-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 .app-content {

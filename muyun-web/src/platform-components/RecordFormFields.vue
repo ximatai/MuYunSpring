@@ -1188,7 +1188,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   align-content: start;
   gap: var(--muyun-record-form-label-gap, 6px);
   color: var(--muyun-text-muted);
-  font-size: 13px;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 .record-form-field-heading {
@@ -1242,7 +1243,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   align-items: center;
   gap: 4px;
   color: var(--muyun-danger-base);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
+  line-height: var(--muyun-line-height-helper, 18px);
 }
 
 .record-form-field-calculation-preview {
@@ -1264,7 +1266,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 .record-form-scoped-tree-trigger small {
   color: var(--muyun-text-secondary);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
+  line-height: var(--muyun-line-height-helper, 18px);
 }
 
 .record-form-field-control :deep(.ant-select),

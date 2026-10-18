@@ -77,7 +77,7 @@ palette_surface_subtle   -> --muyun-support-hover    -> 普通 hover 和弱分�
 
 业务页面和 `platform-workbench` 只使用 `--muyun-theme-*`、`--muyun-support-*`、`--muyun-positive-*` 等语义变量。`vue-ui-antdv` 负责把同一主题映射到 Ant Design Vue 的 `ConfigProvider` 与必要的组件级 token；业务层不得直接引用 `--ant-*` 或 `colorPrimary`。
 
-`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界。默认的 `local` scope 将 CSS variables 写在 Provider 根节点，因此嵌套、卸载或临时预览主题不会污染应用其他区域。应用根使用唯一的 `global` scope 同步 variables 到 `document.documentElement`，以覆盖 Ant 的 Modal、Dropdown 等 Teleport 表面；卸载或切换 scope 时会恢复此前的 document 值。Provider 使用 `display: contents`，不额外介入业务页面的 flex/grid 布局。局部预览必须保持 `local`，并同时由 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
+`UiThemeProvider` 是语义颜色和 Ant 主题的同一作用域边界。默认的 `local` scope 将 CSS variables 写在 Provider 根节点，因此嵌套、卸载或临时预览主题不会污染应用其他区域。应用根使用唯一的 `global` scope 同步 variables 到 `document.documentElement`，以覆盖 Ant 的 Modal、Dropdown 等 Teleport 表面；卸载或切换 scope 时会恢复此前的 document 值。公共样式在根节点和每个 Provider 中重新解析 `--muyun-text-*`、`--muyun-surface` 等消费别名，避免局部主题继承外层已经解析的颜色；原生文字与 Ant 控件使用同一主题事实。Provider 使用 `display: contents`，不额外介入业务页面的 flex/grid 布局。局部预览必须保持 `local`，并同时由 Provider 包住 CSS 消费者与 Ant 组件，不能只改其中一侧。
 
 ## 内嵌皮肤与持久化
 

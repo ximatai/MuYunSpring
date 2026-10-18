@@ -10,6 +10,22 @@ import {
 } from '@/vue-ui-antdv/theme';
 
 describe('UiTheme', () => {
+  it('keeps the same text roles in CSS and UI controls across all skins', () => {
+    for (const skin of uiThemeSkins) {
+      const variables = cssVariablesOf(skin.theme);
+      const tokens = antDesignThemeOf(skin.theme).token!;
+      expect(variables['--muyun-font-size-body']).toBe('13px');
+      expect(variables['--muyun-font-size-helper']).toBe('12px');
+      expect(variables['--muyun-font-size-section']).toBe('14px');
+      expect(variables['--muyun-font-size-panel']).toBe('16px');
+      expect(variables['--muyun-font-size-page']).toBe('18px');
+      expect(`${tokens.fontSize}px`).toBe(variables['--muyun-font-size-body']);
+      expect(`${tokens.fontSizeSM}px`).toBe(variables['--muyun-font-size-helper']);
+      expect(`${tokens.fontSizeHeading4}px`).toBe(variables['--muyun-font-size-panel']);
+      expect(tokens.fontFamily).toBe(variables['--muyun-font-family']);
+      expect(Number(tokens.fontSize) * Number(tokens.lineHeight)).toBe(21);
+    }
+  });
   it('exposes semantic CSS variables from one theme input', () => {
     const variables = cssVariablesOf(defaultUiTheme);
 

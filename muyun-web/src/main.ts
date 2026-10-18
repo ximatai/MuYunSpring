@@ -1,4 +1,3 @@
-import '@muyun/vue-ui-antdv/styles.css';
 import './styles.css';
 
 import { createPinia } from 'pinia';
