@@ -5,6 +5,7 @@ import { FormulaExpressionEditor, RecordContentSectionHeading } from '@muyun/pla
 import { UiButton, UiCheckbox, UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import {
   codeSegmentTypes,
+  codeSourceTitle,
   newCodeSegment,
   newCodeSequence,
   type CodeRule,
@@ -17,12 +18,12 @@ const draft = defineModel<CodeRule>('rule', { required: true });
 const language = useLanguageContext();
 const t = (key: string, fallback: string) => language.t(`platform.code.config.${key}`, fallback);
 const sourceOptions = computed(() =>
-  props.sources.map((source) => ({ value: source.fieldName, label: source.title })),
+  props.sources.map((source) => ({ value: source.fieldName, label: codeSourceTitle(source, language) })),
 );
 const formulaFields = computed(() =>
   props.sources.map((source) => ({
     name: source.fieldName,
-    label: source.title,
+    label: codeSourceTitle(source, language),
     valueType: source.type,
   })),
 );

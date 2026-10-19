@@ -1,11 +1,14 @@
 import {
   actionResultData,
+  presentationLabel,
   OperationUsageError,
   codeOperationErrorMessage,
   platformLanguageContext,
   type LanguageContext,
   type HttpClient,
 } from '@muyun/web-core';
+
+import type { TextPresentation } from '@muyun/web-contracts';
 
 export type CodeMode = 'AUTO' | 'MANUAL' | 'AUTO_WITH_MANUAL_EDIT';
 export type CodeRole = 'PRIMARY' | 'NORMAL';
@@ -23,8 +26,14 @@ export type CodeSegmentType = (typeof codeSegmentTypes)[number];
 export interface CodeSource {
   fieldName: string;
   title: string;
+  titleText?: TextPresentation;
+  ownerTitle?: string | null;
   type: string;
   length?: number | null;
+}
+export function codeSourceTitle(source: CodeSource, language: LanguageContext = platformLanguageContext) {
+  const title = presentationLabel(source.title, source.titleText, language);
+  return source.ownerTitle ? `${source.ownerTitle} · ${title}` : title;
 }
 export interface CodeField {
   fieldName: string;
@@ -223,7 +232,7 @@ export function codeTrialContext(
             language,
             'platform.code.config.number-required',
             '{field}请输入有效数字',
-            { field: source.title },
+            { field: codeSourceTitle(source, language) },
           ),
         );
       result[source.fieldName] = number;
@@ -234,7 +243,7 @@ export function codeTrialContext(
             language,
             'platform.code.config.boolean-required',
             '{field}请输入 true 或 false',
-            { field: source.title },
+            { field: codeSourceTitle(source, language) },
           ),
         );
       result[source.fieldName] = value === 'true';

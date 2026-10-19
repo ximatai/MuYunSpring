@@ -11,6 +11,23 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class StaticModuleWebWireValuesTest {
+    @Test void rendersScientificDecimalsAsExactPlainTextIncludingNestedRecordsAndPages() {
+        var mapper = new ObjectMapper();
+        var original = Map.of("amount", new java.math.BigDecimal("1.2E+2"),
+                "tiny", new java.math.BigDecimal("1.234567890123456789E-8"),
+                "lines", List.of(Map.of("amount", new java.math.BigDecimal("9.007199254740993123E+20"))));
+        var fields = Map.of("amount", FieldValueType.DECIMAL, "tiny", FieldValueType.DECIMAL,
+                "lines.amount", FieldValueType.DECIMAL);
+        var output = mapper.valueToTree(StaticModuleWebWireValues.adapt(original, fields, mapper));
+        assertThat(output.path("amount").asText()).isEqualTo("120");
+        assertThat(output.path("tiny").asText()).isEqualTo("0.00000001234567890123456789");
+        assertThat(output.at("/lines/0/amount").asText()).isEqualTo("900719925474099312300");
+        var page = new WebPageResponse<>(List.of(original), 1, 1, 20, 1, true, null);
+        assertThat(mapper.valueToTree(StaticModuleWebWireValues.adaptPage(page, fields, mapper))
+                .at("/records/0/amount").asText()).isEqualTo("120");
+        assertThat(original.get("amount")).isEqualTo(new java.math.BigDecimal("1.2E+2"));
+    }
+
     @Test
     void preservesListQuerySummariesWhenAdaptingRecordsToWireValues() {
         WebPageResponse<Map<String, Object>> response = new WebPageResponse<>(

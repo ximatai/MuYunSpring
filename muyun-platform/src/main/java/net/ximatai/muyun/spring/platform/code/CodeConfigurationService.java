@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.dynamic.capability.BusinessCodeCapabilityModule;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.platform.metadata.*;
 import net.ximatai.muyun.spring.platform.module.*;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
@@ -34,7 +36,14 @@ public class CodeConfigurationService {
         this.fields = fields; this.bindings = bindings; this.compiler = compiler;
     }
 
-    public record Source(String fieldName, String title, String type, Integer length) { }
+    public record Source(String fieldName, String title, String type, Integer length, TextReference titleSource, String ownerTitle) {
+        public Source(String fieldName, String title, String type, Integer length) {
+            this(fieldName, title, type, length, PlatformFieldPolicy.titleSource(fieldName), null);
+        }
+        public Source {
+            if (titleSource != null) title = titleSource.originalText();
+        }
+    }
     public record Field(String fieldName, String title, Integer length, String metadataFieldId,
                         String bindingId, Integer bindingVersion, CodeFieldRole role, CodeTrigger trigger) { }
     public record Target(String moduleAlias, String entityAlias, String title, String source,
@@ -69,10 +78,10 @@ public class CodeConfigurationService {
                 StaticCodeFields.persistedFields(parent.service().modelClass()).forEach((name, field) -> {
                     if (parentProtected.contains(name)) return;
                     Column column = field.getAnnotation(Column.class);
-                    sources.add(new Source(parent.entityAlias() + "." + name, parent.entityAlias() + " · " + (column.comment().isBlank() ? name : column.comment()), field.getType().getSimpleName(), column.length()));
+                    sources.add(new Source(parent.entityAlias() + "." + name, (column.comment().isBlank() ? name : column.comment()), field.getType().getSimpleName(), column.length(), PlatformFieldPolicy.titleSource(name), parent.entityAlias()));
                 });
                 List.copyOf(sources).stream().filter(source -> !source.fieldName().contains(".")).forEach(source -> sources.add(
-                        new Source(service.codeEntityAlias() + "." + source.fieldName(), source.title(), source.type(), source.length())));
+                        new Source(service.codeEntityAlias() + "." + source.fieldName(), source.title(), source.type(), source.length(), source.titleSource(), null)));
             });
             var module = modules.resolveVisibleModule(service.getModuleAlias());
             var table = service.modelClass().getAnnotation(net.ximatai.muyun.database.core.annotation.Table.class);
@@ -117,11 +126,11 @@ public class CodeConfigurationService {
                 if (MetadataSystemFieldCatalog.isRuntimeReserved(field) && !businessContextField(parent, field)) continue;
                 var definition = compiler.compile(field);
                 if (!definition.isPhysical() || definition.protection().enabled()) continue;
-                sources.add(new Source(parent.getAlias() + "." + field.getFieldName(), parent.getTitle() + " · " + field.getTitle(), definition.type().name(), definition.length()));
+                sources.add(new Source(parent.getAlias() + "." + field.getFieldName(), field.getTitle(), definition.type().name(), definition.length(), PlatformFieldPolicy.titleSource(field.getFieldName()), parent.getTitle()));
             }
             List<Source> own = List.copyOf(sources);
             own.stream().filter(source -> !source.fieldName().contains(".")).forEach(source -> sources.add(
-                    new Source(schema.getAlias() + "." + source.fieldName(), source.title(), source.type(), source.length())));
+                    new Source(schema.getAlias() + "." + source.fieldName(), source.title(), source.type(), source.length(), source.titleSource(), null)));
         }
         return new Target(module, schema.getAlias(), schema.getTitle(), "DYNAMIC", relation.getId(), candidates, sources);
     }

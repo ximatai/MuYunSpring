@@ -26,6 +26,7 @@ import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
 import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
 import {
   codeTrialContext,
+  codeSourceTitle,
   codeTrialSources,
   createCodeConfigurationClient,
   newCodeRule,
@@ -576,13 +577,17 @@ async function trial() {
                   show-search
                   :disabled="busy"
                   :options="
-                    extraTrialOptions.map((source) => ({ value: source.fieldName, label: source.title }))
+                    extraTrialOptions.map((source) => ({
+                      value: source.fieldName,
+                      label: codeSourceTitle(source, language),
+                    }))
                   "
                 />
               </label>
               <div class="code-config__grid">
                 <label class="code-config__field" v-for="source in trialSources" :key="source.fieldName"
-                  >{{ source.title }}<UiInput v-model:value="trialValues[source.fieldName]" :disabled="busy"
+                  >{{ codeSourceTitle(source, language)
+                  }}<UiInput v-model:value="trialValues[source.fieldName]" :disabled="busy"
                 /></label>
                 <label class="code-config__field"
                   >{{ t('trial-sequence', '试算流水值')

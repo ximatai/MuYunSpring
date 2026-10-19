@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
 import {
   codeTrialContext,
+  codeSourceTitle,
   codeTrialSources,
   createCodeConfigurationClient,
   newCodeRule,
@@ -9,6 +10,7 @@ import {
   prepareCodeRule,
   type CodeTarget,
 } from '@/views/codeConfiguration';
+import { createLanguageContext } from '@muyun/web-core';
 import type { HttpClient } from '@muyun/web-core';
 
 const target: CodeTarget = {
@@ -20,6 +22,33 @@ const target: CodeTarget = {
   sources: [{ fieldName: 'quantity', title: '数量', type: 'INTEGER' }],
 };
 describe('business code configuration client', () => {
+  it('switches shared field labels without changing qualified source identity or custom labels', () => {
+    const language = createLanguageContext({ languageTag: 'en' });
+    const source = {
+      fieldName: 'purchase.version',
+      title: '版本号',
+      ownerTitle: '采购单',
+      type: 'Integer',
+      titleText: {
+        source: {
+          sourceKind: 'CODE' as const,
+          sourceId: 'query/field/version/title',
+          sourceVersion: 'v1',
+          originalText: '版本号',
+        },
+        languages: {
+          en: { text: 'Version', requestedTag: 'en', resourceTag: 'en', missing: false, fallback: false },
+        },
+      },
+    };
+    expect(codeSourceTitle(source, language)).toBe('采购单 · Version');
+    language.setLanguage('zh-CN');
+    expect(codeSourceTitle(source, language)).toBe('采购单 · 版本号');
+    expect(source.fieldName).toBe('purchase.version');
+    expect(codeSourceTitle({ fieldName: 'subject', title: '自定义业务标题', type: 'String' }, language)).toBe(
+      '自定义业务标题',
+    );
+  });
   it('leaves segment length unset so the sequence policy controls new rules', () => {
     const draft = newCodeRule(target, target.fields[0]!);
     draft.sequencePolicy!.sequenceLength = 6;

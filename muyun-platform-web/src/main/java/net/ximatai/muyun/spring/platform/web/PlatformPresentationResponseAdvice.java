@@ -44,7 +44,9 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         this.mapper = mapper; this.resolvers = resolvers; this.catalogs = catalogs;
     }
     @Override public boolean supports(MethodParameter parameter, Class<? extends HttpMessageConverter<?>> converter) {
-        return parameter.getContainingClass() == PlatformModuleRuntimeActionWebController.class ||
+        return net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target.class.isAssignableFrom(parameter.getParameterType()) ||
+                org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target.class ||
+                parameter.getContainingClass() == PlatformModuleRuntimeActionWebController.class ||
                 org.springframework.core.ResolvableType.forMethodParameter(parameter).getGeneric(0).resolve() == OpenApiModuleCatalogItem.class ||
                 net.ximatai.muyun.spring.ability.query.QuerySchema.class.isAssignableFrom(parameter.getParameterType()) ||
                 net.ximatai.muyun.spring.platform.module.ModuleTitleCatalog.class.isAssignableFrom(parameter.getParameterType()) || WebListResponse.class.isAssignableFrom(parameter.getParameterType()) ||
@@ -120,6 +122,11 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
         } else if (value instanceof net.ximatai.muyun.spring.ability.query.QuerySchema.PersistentControl control) {
             if (control.titleSource() != null && control.title().equals(control.titleSource().originalText()))
                 slots.add(new Slot(path, "title", control.titleSource()));
+        } else if (value instanceof net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target target) {
+            collect(target.sources(), path + "/sources", slots);
+        } else if (value instanceof net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source source) {
+            if (source.titleSource() != null && source.title().equals(source.titleSource().originalText()))
+                slots.add(new Slot(path, "title", source.titleSource(), Map.of(), false, true));
         } else if (value instanceof OpenApiModuleCatalogItem item) {
             if (item.titleSource() != null && item.title().equals(item.titleSource().originalText()))
                 slots.add(new Slot(path, "title", item.titleSource()));

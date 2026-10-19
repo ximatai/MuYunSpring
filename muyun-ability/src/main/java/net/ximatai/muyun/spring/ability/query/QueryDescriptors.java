@@ -78,9 +78,7 @@ public final class QueryDescriptors {
             "effectiveDate"
     );
     private static final Map<String, String> FIELD_TITLES = Map.ofEntries(
-            Map.entry("id", "ID"),
             Map.entry("parentId", "上级"),
-            Map.entry("tenantId", "租户"),
             Map.entry("applicationAlias", "应用别名"),
             Map.entry("moduleAlias", "模块别名"),
             Map.entry("metadataId", "元数据"),
@@ -97,10 +95,6 @@ public final class QueryDescriptors {
             Map.entry("title", "名称"),
             Map.entry("enabled", "启用状态"),
             Map.entry("sortOrder", "排序号"),
-            Map.entry("createdAt", "创建时间"),
-            Map.entry("updatedAt", "更新时间"),
-            Map.entry("deletedAt", "删除时间"),
-            Map.entry("deletedBy", "删除人"),
             Map.entry("publishedAt", "发布时间"),
             Map.entry("effectiveDate", "生效日期"),
             Map.entry("effectiveFrom", "生效开始"),
@@ -219,8 +213,9 @@ public final class QueryDescriptors {
             field = field.withSortable();
         }
         String title = FIELD_TITLES.get(fieldName);
-        if (net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.isAudit(fieldName)) {
-            field = field.withTitle(net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.find(fieldName).titleSource());
+        var platformTitle = net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.titleSource(fieldName);
+        if (platformTitle != null) {
+            field = field.withTitle(platformTitle);
         } else if (title != null) {
             field = field.withTitle(net.ximatai.muyun.spring.common.i18n.TextReference.code(
                     "query/field/" + fieldName + "/title", title));
