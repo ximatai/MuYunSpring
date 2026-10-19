@@ -106,6 +106,14 @@ public class CodeRecycleEntryService extends AbstractAbilityService<CodeRecycleE
         return entry;
     }
 
+    /** Same target transaction lock is held by the ledger when a manual or cross-rule assignment occupies a released value. */
+    void markOccupied(String ruleId, String basisKey, String periodKey, String value) {
+        var entry = findOne(Criteria.of().eq("ruleId", ruleId).eq("basisKey", normalizeBucket(basisKey))
+                .eq("periodKey", normalizeBucket(periodKey)).eq("recycledValue", value).eq("status", CodeRecycleStatus.AVAILABLE));
+        if (entry == null) return;
+        entry.setStatus(CodeRecycleStatus.USED); update(entry);
+    }
+
     public List<CodeRecycleEntry> selectByRuleId(String ruleId, int limit) {
         if (ruleId == null || ruleId.isBlank()) {
             return List.of();
@@ -114,6 +122,7 @@ public class CodeRecycleEntryService extends AbstractAbilityService<CodeRecycleE
                 net.ximatai.muyun.database.core.orm.Sort.desc("createdAt"));
     }
 
+    /** Internal write after CodeOpsActionService verifies matching inactive occupation facts. */
     public CodeRecycleEntry adjustStatus(String id, CodeRecycleStatus status) {
         if (status == null || status == CodeRecycleStatus.USED) {
             throw PlatformErrors.badRequestText(TextReference.code(

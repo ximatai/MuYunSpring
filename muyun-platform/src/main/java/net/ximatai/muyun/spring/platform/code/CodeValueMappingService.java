@@ -46,8 +46,14 @@ public class CodeValueMappingService extends StandardBusinessService<CodeValueMa
         if (mapping.getTitle() == null || mapping.getTitle().isBlank()) {
             mapping.setTitle(mapping.getTargetValue());
         }
+        requireRuleScope(mapping);
         if (mapping.getOrgScopeType() == null) {
             mapping.setOrgScopeType(CodeOrgScopeType.GLOBAL);
         }
     }
+    static void requireRuleScope(CodeValueMapping mapping) {
+        if (mapping.getOrgScopeType() == CodeOrgScopeType.ORG || mapping.getOrgScopeId() != null && !mapping.getOrgScopeId().isBlank())
+            throw new IllegalArgumentException("Mapping rows use their owning rule's organization scope");
+    }
+
 }

@@ -414,8 +414,8 @@ class CodeRepositoryIT extends PlatformPostgresIntegrationTest {
         }
 
         @Bean
-        CodeLedgerEntryService codeLedgerEntryService(CodeLedgerEntryDao ledgerEntryDao) {
-            return new CodeLedgerEntryService(ledgerEntryDao);
+        CodeLedgerEntryService codeLedgerEntryService(CodeLedgerEntryDao ledgerEntryDao, CodeRecycleEntryService recycleEntries) {
+            return new CodeLedgerEntryService(ledgerEntryDao, recycleEntries);
         }
 
         @Bean

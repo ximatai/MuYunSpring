@@ -407,7 +407,7 @@ class DynamicCodeCoordinatorTest {
         );
         CodeSequenceStateService stateService = new CodeSequenceStateService(new TestMemoryDao<>());
         CodeRecycleEntryService recycleService = new CodeRecycleEntryService(new TestMemoryDao<>());
-        CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>());
+        CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>(), recycleService);
         CodePreviewService previewService = new CodePreviewService(
                 new net.ximatai.muyun.spring.common.formula.FormulaEngine(clock),
                 clock

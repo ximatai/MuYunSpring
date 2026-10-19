@@ -25,8 +25,11 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         QueryAbility<CodeLedgerEntry> {
     public static final String MODULE_ALIAS = "platform.code_ledger_entry";
 
-    public CodeLedgerEntryService(BaseDao<CodeLedgerEntry, String> ledgerEntryDao) {
+    private final CodeRecycleEntryService recycleEntries;
+
+    public CodeLedgerEntryService(BaseDao<CodeLedgerEntry, String> ledgerEntryDao, CodeRecycleEntryService recycleEntries) {
         super(MODULE_ALIAS, CodeLedgerEntry.class, ledgerEntryDao);
+        this.recycleEntries = java.util.Objects.requireNonNull(recycleEntries, "recycleEntries");
     }
 
     public CodeLedgerEntry upsertActiveBinding(CodeRule rule,
@@ -54,6 +57,8 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
                     "platform.rejection.code-ledger-entry.code-value-is-already-occupied",
                     "Code value is already occupied: {value1}"), Map.of("value1", String.valueOf(codeValue)));
         }
+        if (entry.getId() != null && entry.getStatus() == CodeLedgerStatus.AVAILABLE)
+            recycleEntries.markOccupied(entry.getRuleId(), entry.getBasisKey(), entry.getPeriodKey(), entry.getCodeValue());
         entry.setRuleId(rule.getId());
         entry.setRecycleAllowed(Boolean.TRUE.equals(rule.getAllowRecycle()));
         entry.setBasisKey(normalizeBucket(basisKey));

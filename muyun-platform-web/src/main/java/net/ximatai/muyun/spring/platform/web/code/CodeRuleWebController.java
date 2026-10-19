@@ -205,32 +205,32 @@ public class CodeRuleWebController extends StaticModuleWebControllerAdapter<Code
         ));
     }
 
-    @PostMapping("/ops/recycleEntry/{id}/adjust")
-    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeRecycleEntry adjustRecycleEntry(@PathVariable String id,
+    @PostMapping("/ops/recycleEntry/{entryId}/adjust")
+    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeRecycleEntry adjustRecycleEntry(@PathVariable String entryId,
                                                @RequestBody RecycleAdjustRequest request) {
         return webScope(() -> requireOpsActionService().adjustRecycleEntry(
-                id,
+                entryId,
                 request.status(),
                 request.reason()
         ));
     }
 
-    @PostMapping("/ops/ledgerEntry/{id}/inspect")
-    @CustomActionEndpoint(value = "opsRecordQuery", title = "编码运维记录查询",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeLedgerInspection inspectLedgerEntry(@PathVariable String id) {
-        return webScope(() -> requireOpsActionService().inspectLedgerEntry(id));
+    @PostMapping("/ops/ledgerEntry/{entryId}/inspect")
+    @CustomActionEndpoint(value = "opsQuery", title = "编码运维查询",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeLedgerInspection inspectLedgerEntry(@PathVariable String entryId) {
+        return webScope(() -> requireOpsActionService().inspectLedgerEntry(entryId));
     }
 
-    @PostMapping("/ops/ledgerEntry/{id}/release")
-    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeLedgerEntry releaseLedgerEntry(@PathVariable String id,
+    @PostMapping("/ops/ledgerEntry/{entryId}/release")
+    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeLedgerEntry releaseLedgerEntry(@PathVariable String entryId,
                                               @RequestBody(required = false) ReleaseLedgerRequest request) {
         return webScope(() -> requireOpsActionService().releaseStaleLedgerEntry(
-                id,
+                entryId,
                 request == null ? null : request.reason()
         ));
     }

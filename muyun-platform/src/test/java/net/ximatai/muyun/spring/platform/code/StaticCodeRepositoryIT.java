@@ -26,6 +26,7 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired CodeConfigurationService configuration;
     @Autowired CodeRuntimeFacade codes;
     @Autowired CodeBusinessFormService forms;
+    @Autowired CodeOpsActionService ops;
     @Autowired CodeLedgerEntryService ledger;
     @Autowired CodeRecycleEntryService recycle;
     @Autowired CodeSaveLifecycleListener listener;
@@ -296,6 +297,107 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
                     .extracting(CodeBusinessFieldState::preview).isEqualTo("GLOBAL-0001");
         }
     }
+    @Test void operationsRetainSoftDeletedOwnersAndReleaseUsingOriginalFactsAfterTheRuleIsGone() {
+        String tenant = UUID.randomUUID().toString();
+        try (var scope = TenantContext.use(tenant)) {
+            var rule = saveRule("documentNo", "DOC-"); var row = row("retained"); service.insert(row); service.delete(row.getId());
+            var entry = ledger.activeBindings(MODULE, "static_code", row.getId()).getFirst();
+            rules.delete(rule.getId());
+            assertThat(ops.inspectLedgerEntry(entry.getId()).consistent()).isTrue();
+            assertThat(ops.releaseStaleLedgerEntry(entry.getId(), "soft-deleted owner").getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+            new org.springframework.jdbc.core.JdbcTemplate(source).update("delete from code_static_contract where id = ?", row.getId());
+            assertThat(ops.inspectLedgerEntry(entry.getId()).reason()).isEqualTo(CodeLedgerInconsistencyReason.RECORD_MISSING);
+            ops.releaseStaleLedgerEntry(entry.getId(), "physical orphan");
+            assertThat(ledger.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
+            assertThat(recycle.selectByRuleId(rule.getId(), 10)).singleElement().satisfies(value -> {
+                assertThat(value.getRecycledValue()).isEqualTo("DOC-0001"); assertThat(value.getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+            });
+        }
+    }
+    @Test void governanceChangesRecycleAndOccupationTogetherAndNeverReopensACurrentOwnersNumber() {
+        String tenant = UUID.randomUUID().toString(); String ownerEntryId;
+        try (var scope = TenantContext.use(tenant)) {
+            var rule = saveRule("documentNo", "DOC-"); var row = row("released"); service.insert(row); service.delete(row.getId()); service.purge(row.getId());
+            var pool = recycle.selectByRuleId(rule.getId(), 10).getFirst();
+            ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.DISCARDED, "retire");
+            assertThat(ledger.findByRuleAndValue(rule.getId(), "DOC-0001").getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
+            ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "reopen originally recyclable");
+            assertThat(ledger.findByRuleAndValue(rule.getId(), "DOC-0001").getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
+            var owner = row("new owner"); service.insert(owner); assertThat(owner.getDocumentNo()).isEqualTo("DOC-0001");
+            assertThatThrownBy(() -> ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "cannot steal"))
+                    .hasMessageContaining("inactive occupation");
+            assertThat(ledger.activeBindings(MODULE, "static_code", owner.getId())).hasSize(1);
+            ownerEntryId = ledger.activeBindings(MODULE, "static_code", owner.getId()).getFirst().getId();
+        }
+        try (var other = TenantContext.use(UUID.randomUUID().toString())) {
+            assertThatThrownBy(() -> ops.inspectLedgerEntry(ownerEntryId)).hasMessageContaining("does not exist");
+        }
+        try (var system = TenantContext.system("numbering inspection acceptance")) {
+            assertThat(ops.inspectLedgerEntry(ownerEntryId).consistent()).isTrue();
+        }
+    }
+    @Test void linkedStaticChangesAreAuditedAsAutomaticRatherThanManualEdits() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            aggregateRules(); var row = row("FIRST"); service.insert(row); var old = row.getDocumentNo();
+            row.setSubject("SECOND"); service.update(row);
+            assertThat(ledger.findByTargetAndValue(MODULE, "static_code", "documentNo", old).getLastAction())
+                    .isEqualTo(CodeLedgerAction.RELEASED_BY_LINKED_UPDATE);
+        }
+    }
+
+    @Test void systemBaselineAdjustmentTargetsTheRulesTenantAndManualCodeChangesKeepTheirAuditMeaning() {
+        String tenant = UUID.randomUUID().toString(); CodeRule rule;
+        try (var scope = TenantContext.use(tenant)) { rule = saveRule("documentNo", "DOC-"); }
+        try (var system = TenantContext.system("numbering baseline acceptance")) {
+            ops.setSequenceBaseline(rule.getId(), null, null, 30L, "tenant-specific baseline");
+        }
+        try (var scope = TenantContext.use(tenant)) {
+            var row = row("manual audit"); service.insert(row); assertThat(row.getDocumentNo()).isEqualTo("DOC-0031");
+            var changed = rules.viewRuleTree(rule.getId()); changed.setMode(CodeMode.AUTO_WITH_MANUAL_EDIT); rules.saveRuleTree(changed);
+            row.setDocumentNo(" MANUAL-7 "); service.update(row); assertThat(row.getDocumentNo()).isEqualTo("MANUAL-7");
+            assertThat(ledger.findByTargetAndValue(MODULE, "static_code", "documentNo", "DOC-0031").getLastAction())
+                    .isEqualTo(CodeLedgerAction.RELEASED_BY_MANUAL_EDIT);
+            var moving = rules.viewRuleTree(rule.getId()); moving.setFieldName("confirmationNo");
+            assertThatThrownBy(() -> rules.saveRuleTree(moving)).hasMessageContaining("cannot move");
+        }
+    }
+
+    @Test void repairNeverRecyclesANumberStillHeldByAnotherRetainedRecordOrOriginallyNonRecyclable() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveRule("documentNo", "DOC-"); var owner = row("drift"); service.insert(owner);
+            var entry = ledger.activeBindings(MODULE, "static_code", owner.getId()).getFirst();
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+            jdbc.update("update code_static_contract set document_no = 'EXTERNAL' where id = ?", owner.getId());
+            jdbc.update("insert into code_static_contract (id, tenant_id, subject, document_no, deleted) values (?, ?, 'retained other', 'DOC-0001', true)",
+                    UUID.randomUUID().toString().replace("-", ""), owner.getTenantId());
+            assertThat(ops.inspectLedgerEntry(entry.getId()).reason()).isEqualTo(CodeLedgerInconsistencyReason.OCCUPIED_BY_ANOTHER_RECORD);
+            assertThatThrownBy(() -> ops.releaseStaleLedgerEntry(entry.getId(), "must retain")).hasMessageContaining("cannot be released");
+            assertThat(ledger.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        }
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveRule("documentNo", "DISCARD-"); rule.setAllowRecycle(false); rules.saveRuleTree(rule);
+            var row = row("discard forever"); service.insert(row); service.delete(row.getId()); service.purge(row.getId());
+            var pool = recycle.selectByRuleId(rule.getId(), 10).getFirst();
+            assertThatThrownBy(() -> ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "not authorized by original policy"))
+                    .hasMessageContaining("inactive occupation");
+            assertThat(ledger.findByRuleAndValue(rule.getId(), "DISCARD-0001").getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
+        }
+    }
+
+    @Test void acceptingAReleasedCodeManuallyUnderANewRuleConsumesTheOriginalRecycleEntry() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var oldRule = saveRule("documentNo", "DOC-"); var old = row("old owner"); service.insert(old);
+            service.delete(old.getId()); service.purge(old.getId());
+            var pool = recycle.selectByRuleId(oldRule.getId(), 10).getFirst(); rules.disable(oldRule.getId());
+            var newRule = saveRule("documentNo", "DOC-"); newRule.setMode(CodeMode.AUTO_WITH_MANUAL_EDIT); rules.saveRuleTree(newRule);
+            var owner = row("manual new owner"); owner.setDocumentNo("DOC-0001"); service.insert(owner);
+            assertThat(recycle.select(pool.getId()).getStatus()).isEqualTo(CodeRecycleStatus.USED);
+            assertThat(ledger.activeBindings(MODULE, "static_code", owner.getId())).singleElement()
+                    .satisfies(entry -> assertThat(entry.getRuleId()).isEqualTo(newRule.getId()));
+            var next = row("automatic after manual"); service.insert(next); assertThat(next.getDocumentNo()).isEqualTo("DOC-0002");
+        }
+    }
+
     private void aggregateRules() {
         var main = saveRule("documentNo", "DOC-"); main.setLinkedUpdate(true);
         var parentSource = codeSource("subject", 16); parentSource.setSeparator("-");
@@ -359,6 +461,10 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
+        }
+        @Bean CodeOpsActionService codeOps(CodeRuleService rules, CodeSequenceStateService sequences, CodeIssueLogService logs,
+                CodeRecycleEntryService recycle, CodeLedgerEntryService ledger, net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService records) {
+            return new CodeOpsActionService(rules, sequences, logs, recycle, ledger, records);
         }
         @Bean CodeBusinessFormService codeForms(CodeTargetCatalog targets, CodeRuleService rules, CodeGenerateService generation, CodeBusinessTimeService time) {
             return new CodeBusinessFormService(targets, Optional.empty(), rules, generation, time, new com.fasterxml.jackson.databind.ObjectMapper());

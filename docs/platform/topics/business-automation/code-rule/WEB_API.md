@@ -31,9 +31,11 @@
 - `POST /ops/queryByBizObject`：按业务对象查询规则运维快照。
 - `POST /ops/sequenceState/locate`：定位规则、依据桶和期间桶对应的序列状态。
 - `POST /ops/sequenceState/baseline`：设置序列基线。
-- `POST /ops/recycleEntry/{id}/adjust`：调整回收池条目状态。
-- `POST /ops/ledgerEntry/{id}/inspect`：检查编码台账条目。
-- `POST /ops/ledgerEntry/{id}/release`：释放滞留台账占用。
+- `POST /ops/recycleEntry/{entryId}/adjust`：调整回收池条目状态。
+- `POST /ops/ledgerEntry/{entryId}/inspect`：检查编码台账条目。
+- `POST /ops/ledgerEntry/{entryId}/release`：释放滞留台账占用。
+
+台账与回收条目操作使用 `opsQuery/opsManage` 管理授权及实际租户隔离，不将条目 ID 当作规则 ID 做记录授权。检查返回 `MATCHED/RECORD_MISSING/VALUE_EMPTY/VALUE_CHANGED`，也可能返回禁止释放的 `TARGET_UNAVAILABLE/OCCUPIED_BY_ANOTHER_RECORD`。匹配持号的保留记录不会被释放；可释放的陈旧占用按原发号事实同步回收池和台账。回收调整禁止重开正在占用、已消费或原策略禁止回收的号码。
 
 ## 只读事实表
 

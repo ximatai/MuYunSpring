@@ -16,12 +16,16 @@ public final class CodeOccupationService {
         ledger.lockTarget(module, entity, field);
         CodeLedgerEntry entry = ledger.findActiveByTargetAndSourceRecord(module, entity, field, recordId);
         if (entry == null || !Objects.equals(entry.getCodeValue(), value)) return;
-        CodeRule original = new CodeRule();
-        original.setId(entry.getRuleId()); original.setModuleAlias(module); original.setEntityAlias(entity);
-        original.setFieldName(field); original.setAllowRecycle(Boolean.TRUE.equals(entry.getRecycleAllowed()));
+        CodeRule original = originalRule(entry);
         recycle.record(original, entry.getBasisKey(), entry.getPeriodKey(), entry.getCodeValue(), recordId);
         ledger.upsertInactiveBinding(original, value, entry.getBasisKey(), entry.getPeriodKey(), recordId,
                 Boolean.TRUE.equals(entry.getRecycleAllowed()) ? CodeLedgerStatus.AVAILABLE : CodeLedgerStatus.DISCARDED, action);
+    }
+    static CodeRule originalRule(CodeLedgerEntry entry) {
+        var original = new CodeRule(); original.setId(entry.getRuleId()); original.setTenantId(entry.getTenantId());
+        original.setModuleAlias(entry.getModuleAlias()); original.setEntityAlias(entry.getEntityAlias());
+        original.setFieldName(entry.getFieldName()); original.setAllowRecycle(Boolean.TRUE.equals(entry.getRecycleAllowed()));
+        return original;
     }
     public void releaseAll(String module, String entity, String recordId) {
         ledger.activeBindings(module, entity, recordId).stream().sorted(Comparator.comparing(CodeLedgerEntry::getFieldName))

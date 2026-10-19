@@ -36,6 +36,7 @@ public final class CodeMutationRuntime {
             if (hasText(requested)) {
                 String normalized = incoming.normalizeCode(rule.getFieldName(), String.valueOf(requested));
                 if (!Objects.equals(normalized, requested)) incoming.putGeneratedValue(rule.getFieldName(), normalized);
+                requested = normalized;
                 context.put(rule.getFieldName(), normalized);
                 if (context.containsKey(entity + "." + rule.getFieldName())) context.put(entity + "." + rule.getFieldName(), normalized);
             }
@@ -55,7 +56,8 @@ public final class CodeMutationRuntime {
             }
             if (before != null && !sameCode(oldValue, value))
                 occupations.release(module, entity, incoming.getId(), rule.getFieldName(), oldValue == null ? null : String.valueOf(oldValue),
-                        incoming.isExplicitlySet(rule.getFieldName()) ? CodeLedgerAction.RELEASED_BY_MANUAL_EDIT : CodeLedgerAction.RELEASED_BY_LINKED_UPDATE);
+                        incoming.isExplicitlySet(rule.getFieldName()) && !sameCode(requested, oldValue) && sameCode(requested, value)
+                                ? CodeLedgerAction.RELEASED_BY_MANUAL_EDIT : CodeLedgerAction.RELEASED_BY_LINKED_UPDATE);
             if (hasText(value)) {
                 var existing = ledgerEntryService.findActiveByTargetAndSourceRecord(module, entity, rule.getFieldName(), incoming.getId());
                 if (existing == null || !Objects.equals(existing.getCodeValue(), String.valueOf(value)))

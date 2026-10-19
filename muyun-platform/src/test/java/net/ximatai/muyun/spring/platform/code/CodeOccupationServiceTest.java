@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.*;
 
 class CodeOccupationServiceTest {
     @Test void releasePreservesOriginalScopePeriodAndRecyclingPolicyAfterRuleChanges() {
-        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>());
         var recycle = new CodeRecycleEntryService(new TestMemoryDao<>());
+        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>(), recycle);
         var rule = rule();
         rule.setAllowRecycle(true);
         ledger.upsertActiveBinding(rule, "SO-A0001", "category=A", "202606", "record-1");
@@ -21,8 +21,8 @@ class CodeOccupationServiceTest {
         assertThat(recycled.getPeriodKey()).isEqualTo("202606");
     }
     @Test void obsoleteOwnerCannotReleaseReassignedCode() {
-        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>());
         var recycle = new CodeRecycleEntryService(new TestMemoryDao<>());
+        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>(), recycle);
         var rule = rule(); rule.setAllowRecycle(true);
         var occupations = new CodeOccupationService(ledger, recycle);
         ledger.upsertActiveBinding(rule, "SO-0001", "scope", "day", "record-1");
@@ -32,7 +32,7 @@ class CodeOccupationServiceTest {
         assertThat(ledger.findByRuleAndValue("rule-1", "SO-0001").getSourceRecordId()).isEqualTo("record-2");
     }
     @Test void differentRulesCannotOccupyTheSameTargetValue() {
-        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>());
+        var ledger = new CodeLedgerEntryService(new TestMemoryDao<>(), new CodeRecycleEntryService(new TestMemoryDao<>()));
         var rule = rule();
         ledger.upsertActiveBinding(rule, "SO-0001", "scope", "day", "record-1");
         rule.setId("replacement-rule");

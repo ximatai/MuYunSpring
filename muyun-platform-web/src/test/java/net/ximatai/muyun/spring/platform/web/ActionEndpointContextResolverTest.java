@@ -17,6 +17,28 @@ import static org.mockito.Mockito.when;
 
 class ActionEndpointContextResolverTest {
 
+    @Test void numberingEntryGovernanceUsesManagementAuthorizationWithoutTreatingEntryIdsAsRuleIds() {
+        var controller = new net.ximatai.muyun.spring.platform.web.code.CodeRuleWebController(
+                mock(net.ximatai.muyun.spring.platform.code.CodePreviewService.class));
+        int checked = 0;
+        for (var method : controller.getClass().getMethods()) {
+            if (!java.util.Set.of("inspectLedgerEntry", "releaseLedgerEntry", "adjustRecycleEntry").contains(method.getName())) continue;
+            checked++;
+            var request = new MockHttpServletRequest();
+            request.setAttribute(org.springframework.web.servlet.HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE,
+                    java.util.Map.of("entryId", "ledger-or-pool-entry"));
+            var handler = new HandlerMethod(controller, method);
+            var context = new ActionEndpointContextResolver().resolve(request, handler,
+                    handler.getMethodAnnotation(CustomActionEndpoint.class)).orElseThrow();
+            assertThat(context.moduleAlias()).isEqualTo("platform.code_rule");
+            assertThat(context.actionCode()).isEqualTo(method.getName().equals("inspectLedgerEntry") ? "opsQuery" : "opsManage");
+            assertThat(context.actionPolicy().requiresDataScope()).isFalse();
+            assertThat(context.actionPolicy().actionAuth()).isTrue();
+            assertThat(context.recordIds()).isEmpty();
+        }
+        assertThat(checked).isEqualTo(3);
+    }
+
     @Test
     void fieldReadsResolveTheProducerViewPolicyWithoutAnAuthorizationResult() {
         var actions = mock(PlatformModuleActionService.class);

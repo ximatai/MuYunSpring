@@ -286,6 +286,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     @Override
     public void beforeUpdate(CodeRule rule, CodeRule existing) {
         beforeUpdate(rule);
+        if (existing != null && (!Objects.equals(existing.getModuleAlias(), rule.getModuleAlias())
+                || !Objects.equals(existing.getEntityAlias(), rule.getEntityAlias()) || !Objects.equals(existing.getFieldName(), rule.getFieldName())))
+            throw new PlatformException("Existing code rule cannot move to another business target");
         if (existing != null && !Boolean.TRUE.equals(existing.getEnabled()) && Boolean.TRUE.equals(rule.getEnabled())) {
             if (rule.getMode() != CodeMode.MANUAL && (rule.getSegments() == null || rule.getSegments().isEmpty())) {
                 CodeRule stored = viewRuleTree(rule.getId());
@@ -679,6 +682,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                         "platform.rejection.code-rule.code-value-mapping-must-not-be-null",
                         "Code value mapping must not be null"));
             }
+            CodeValueMappingService.requireRuleScope(mapping);
             if (mapping.getTargetValue() == null) {
                 throw PlatformErrors.badRequestText(TextReference.code(
                         "platform.rejection.code-rule.code-value-mapping-requires-targetvalue",

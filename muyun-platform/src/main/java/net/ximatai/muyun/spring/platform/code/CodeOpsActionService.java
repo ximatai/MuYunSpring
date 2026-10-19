@@ -44,11 +44,24 @@ public class CodeOpsActionService {
                     "platform.rejection.code-ops-action.code-recycle-entry-does-not-exist",
                     "Code recycle entry does not exist: {value1}"), Map.of("value1", String.valueOf(entryId)));
         }
-        CodeRecycleEntry adjusted = recycleEntryService.adjustStatus(entryId, status);
-        writeGovernanceLog(existing.getRuleId(), existing.getBasisKey(), existing.getPeriodKey(),
-                existing.getRecycledValue(), "Adjusted recycle entry status: " + existing.getStatus() + " -> "
-                        + status + reasonSuffix(reason));
-        return adjusted;
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use(existing.getTenantId())) {
+            var rule = requireRule(existing.getRuleId());
+            ledgerEntryService.lockTarget(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName());
+            existing = recycleEntryService.select(entryId);
+            var ledger = ledgerEntryService.findByTargetAndValue(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName(), existing.getRecycledValue());
+            if (ledger == null || ledger.getStatus() == CodeLedgerStatus.ACTIVE || existing.getStatus() == CodeRecycleStatus.USED
+                    || !Objects.equals(ledger.getRuleId(), existing.getRuleId()) || !Objects.equals(ledger.getBasisKey(), existing.getBasisKey())
+                    || !Objects.equals(ledger.getPeriodKey(), existing.getPeriodKey())
+                    || status == CodeRecycleStatus.AVAILABLE && !Boolean.TRUE.equals(ledger.getRecycleAllowed()))
+                throw new IllegalArgumentException("Recycle adjustment requires matching inactive occupation facts");
+            var before = existing.getStatus();
+            CodeRecycleEntry adjusted = recycleEntryService.adjustStatus(entryId, status);
+            ledger.setStatus(status == CodeRecycleStatus.AVAILABLE ? CodeLedgerStatus.AVAILABLE : CodeLedgerStatus.DISCARDED);
+            ledger.setLastAction(CodeLedgerAction.RELEASED_BY_GOVERNANCE); ledgerEntryService.update(ledger);
+            issueLogService.write(CodeOccupationService.originalRule(ledger), ledger.getBasisKey(), ledger.getPeriodKey(), ledger.getCodeValue(),
+                    CodeIssueLogStatus.SUCCESS, 0, "Adjusted recycle entry status: " + before + " -> " + status + reasonSuffix(reason));
+            return adjusted;
+        }
     }
 
     @Transactional
@@ -58,24 +71,27 @@ public class CodeOpsActionService {
                                                           Long currentValue,
                                                           String reason) {
         CodeRule rule = requireRule(ruleId);
-        Long beforeValue = null;
-        CodeSequenceState before = sequenceStateService.selectState(ruleId, basisKey, periodKey);
-        if (before != null) {
-            beforeValue = before.getCurrentValue();
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use(rule.getTenantId())) {
+            ledgerEntryService.lockTarget(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName());
+            Long beforeValue = null;
+            CodeSequenceState before = sequenceStateService.selectState(ruleId, basisKey, periodKey);
+            if (before != null) {
+                beforeValue = before.getCurrentValue();
+            }
+            CodeSequenceState state = sequenceStateService.setCurrentValue(ruleId, basisKey, periodKey, currentValue);
+            Long nextValue = rule.getSequencePolicy() == null
+                    ? null
+                    : sequenceStateService.previewNextValue(state.getCurrentValue(), rule.getSequencePolicy());
+            writeGovernanceLog(ruleId, state.getBasisKey(), state.getPeriodKey(), null,
+                    "Set sequence baseline: " + beforeValue + " -> " + state.getCurrentValue() + reasonSuffix(reason));
+            return new CodeSequenceBaselineResult(
+                    state,
+                    beforeValue,
+                    state.getCurrentValue(),
+                    nextValue,
+                    "Sequence baseline updated; next value: " + nextValue
+            );
         }
-        CodeSequenceState state = sequenceStateService.setCurrentValue(ruleId, basisKey, periodKey, currentValue);
-        Long nextValue = rule.getSequencePolicy() == null
-                ? null
-                : sequenceStateService.previewNextValue(state.getCurrentValue(), rule.getSequencePolicy());
-        writeGovernanceLog(ruleId, state.getBasisKey(), state.getPeriodKey(), null,
-                "Set sequence baseline: " + beforeValue + " -> " + state.getCurrentValue() + reasonSuffix(reason));
-        return new CodeSequenceBaselineResult(
-                state,
-                beforeValue,
-                state.getCurrentValue(),
-                nextValue,
-                "Sequence baseline updated; next value: " + nextValue
-        );
     }
 
     @Transactional
@@ -91,41 +107,69 @@ public class CodeOpsActionService {
 
     public CodeLedgerInspection inspectLedgerEntry(String entryId) {
         CodeLedgerEntry entry = requireActiveLedger(entryId);
-        CodeRule rule = requireRule(entry.getRuleId());
-        String currentValue = currentBusinessValue(rule, entry);
-        CodeLedgerInconsistencyReason reason = inspectReason(entry.getCodeValue(), currentValue);
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use(entry.getTenantId())) {
+            return inspect(entry);
+        }
+    }
+
+    private CodeLedgerInspection inspect(CodeLedgerEntry entry) {
+        if (!targetAvailable(entry)) return new CodeLedgerInspection(entry, null, false,
+                CodeLedgerInconsistencyReason.TARGET_UNAVAILABLE, false, "Business target is unavailable; occupation retained");
+        String currentValue = currentBusinessValue(entry);
+        var reason = inspectReason(entry.getCodeValue(), currentValue);
+        if (reason != CodeLedgerInconsistencyReason.MATCHED && occupiedByAnotherRecord(entry))
+            return new CodeLedgerInspection(entry, currentValue, false, CodeLedgerInconsistencyReason.OCCUPIED_BY_ANOTHER_RECORD,
+                    false, "Another retained business record holds this code; occupation retained");
         boolean consistent = reason == CodeLedgerInconsistencyReason.MATCHED;
-        return new CodeLedgerInspection(
-                entry,
-                currentValue,
-                consistent,
-                reason,
-                !consistent,
-                summary(entry.getCodeValue(), currentValue, reason)
-        );
+        return new CodeLedgerInspection(entry, currentValue, consistent, reason, !consistent,
+                summary(entry.getCodeValue(), currentValue, reason));
     }
 
     @Transactional
     public CodeLedgerEntry releaseStaleLedgerEntry(String entryId, String reason) {
         CodeLedgerEntry candidate = requireActiveLedger(entryId);
-        ledgerEntryService.lockTarget(candidate.getModuleAlias(), candidate.getEntityAlias(), candidate.getFieldName());
-        CodeLedgerInspection inspection = inspectLedgerEntry(entryId);
-        if (inspection.consistent()) {
-            writeGovernanceLog(inspection.entry().getRuleId(), inspection.entry().getBasisKey(),
-                    inspection.entry().getPeriodKey(), inspection.entry().getCodeValue(),
-                    "Ledger entry is consistent" + reasonSuffix(reason));
-            return inspection.entry();
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use(candidate.getTenantId())) {
+            ledgerEntryService.lockTarget(candidate.getModuleAlias(), candidate.getEntityAlias(), candidate.getFieldName());
+            CodeLedgerInspection inspection = inspectLedgerEntry(entryId);
+            if (!inspection.releaseAllowed()) {
+                if (!inspection.consistent()) throw new IllegalArgumentException("Occupation cannot be released: " + inspection.reason());
+                var retained = inspection.entry();
+                issueLogService.write(CodeOccupationService.originalRule(retained), retained.getBasisKey(), retained.getPeriodKey(), retained.getCodeValue(),
+                        CodeIssueLogStatus.SUCCESS, 0, "Ledger entry is consistent; occupation retained" + reasonSuffix(reason));
+                return retained;
+            }
+            var original = CodeOccupationService.originalRule(inspection.entry());
+            var entry = inspection.entry();
+            recycleEntryService.record(original, entry.getBasisKey(), entry.getPeriodKey(), entry.getCodeValue(), entry.getSourceRecordId());
+            CodeLedgerEntry released = ledgerEntryService.releaseStaleBinding(entry, original, CodeLedgerAction.RELEASED_BY_GOVERNANCE);
+            issueLogService.write(original, released.getBasisKey(), released.getPeriodKey(), released.getCodeValue(), CodeIssueLogStatus.SUCCESS, 0,
+                    "Released stale ledger entry; current business value: " + normalizeValue(inspection.currentValue()) + reasonSuffix(reason));
+            return released;
         }
-        CodeRule rule = requireRule(inspection.entry().getRuleId());
-        CodeLedgerEntry released = ledgerEntryService.releaseStaleBinding(
-                inspection.entry(),
-                rule,
-                CodeLedgerAction.RELEASED_BY_GOVERNANCE
-        );
-        writeGovernanceLog(rule.getId(), released.getBasisKey(), released.getPeriodKey(), released.getCodeValue(),
-                "Released stale ledger entry; current business value: "
-                        + normalizeValue(inspection.currentValue()) + reasonSuffix(reason));
-        return released;
+    }
+
+    private boolean targetAvailable(CodeLedgerEntry entry) {
+        var statics = ruleService.staticTarget(entry.getModuleAlias(), entry.getEntityAlias());
+        if (statics.isPresent()) {
+            var model = statics.get().modelClass(); var field = StaticCodeFields.persistedFields(model).get(entry.getFieldName());
+            return field != null && field.getType() == String.class
+                    && net.ximatai.muyun.spring.ability.security.StaticFieldProtectionResolver.resolve(model).fields().stream()
+                    .noneMatch(protectedField -> protectedField.fieldName().equals(entry.getFieldName()));
+        }
+        return recordService.moduleDefinitions().stream().filter(module -> module.moduleAlias().equals(entry.getModuleAlias()))
+                .flatMap(module -> module.entities().stream()).filter(entity -> entity.alias().equals(entry.getEntityAlias()))
+                .flatMap(entity -> entity.fields().stream()).anyMatch(field -> field.isPhysical() && field.type() == net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING
+                        && !field.protection().enabled() && field.fieldName().equals(entry.getFieldName()));
+    }
+
+    /** Governance checks physical retained rows, including soft deletes, within the ledger's actual tenant. */
+    private boolean occupiedByAnotherRecord(CodeLedgerEntry entry) {
+        var criteria = net.ximatai.muyun.database.core.orm.Criteria.of().eq(entry.getFieldName(), entry.getCodeValue())
+                .ne("id", entry.getSourceRecordId());
+        if (entry.getTenantId() == null) criteria.isNull("tenantId"); else criteria.eq("tenantId", entry.getTenantId());
+        var statics = ruleService.staticTarget(entry.getModuleAlias(), entry.getEntityAlias());
+        var dao = statics.isPresent() ? statics.get().getDao() : recordService.entity(entry.getModuleAlias(), entry.getEntityAlias()).getDao();
+        return !dao.query(criteria, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 1)).isEmpty();
     }
 
     private CodeLedgerEntry requireActiveLedger(String entryId) {
@@ -158,7 +202,7 @@ public class CodeOpsActionService {
         return rule;
     }
 
-    private String currentBusinessValue(CodeRule rule, CodeLedgerEntry entry) {
+    private String currentBusinessValue(CodeLedgerEntry entry) {
         var staticTarget = ruleService.staticTarget(entry.getModuleAlias(), entry.getEntityAlias());
         if (staticTarget.isPresent()) {
             var owner = staticTarget.get();
@@ -172,7 +216,7 @@ public class CodeOpsActionService {
         if (record == null) {
             return null;
         }
-        Object value = record.getValue(rule.getFieldName());
+        Object value = record.getValue(entry.getFieldName());
         return value == null ? "" : String.valueOf(value);
     }
 
@@ -192,6 +236,8 @@ public class CodeOpsActionService {
     private String summary(String ledgerValue, String currentValue, CodeLedgerInconsistencyReason reason) {
         return switch (reason) {
             case MATCHED -> "Ledger value matches business value";
+            case TARGET_UNAVAILABLE -> "Business target is unavailable";
+            case OCCUPIED_BY_ANOTHER_RECORD -> "Another retained business record holds this code";
             case RECORD_MISSING -> "Business record is missing";
             case VALUE_EMPTY -> "Business code value is empty";
             case VALUE_CHANGED -> "Business code value changed";

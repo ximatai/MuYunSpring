@@ -1740,6 +1740,15 @@ class MuYunSpringApplicationContextIT {
                 assertThat(dynamicRecordService.select(module, "target", record.getId()).getValue("documentNo")).isEqualTo("CFG-0001");
                 var ledger = applicationContext.getBean(net.ximatai.muyun.spring.platform.code.CodeLedgerEntryService.class);
                 assertThat(ledger.activeBindings(module, "target", record.getId()).getFirst().getCodeValue()).isEqualTo("CFG-0001");
+                String entryId = ledger.activeBindings(module, "target", record.getId()).getFirst().getId();
+                var inspection = restTemplate.exchange("/platform.code_rule/ops/ledgerEntry/" + entryId + "/inspect", HttpMethod.POST,
+                        new HttpEntity<>(headers), JsonNode.class);
+                assertThat(inspection.getStatusCode()).withFailMessage("code ledger inspection: %s", inspection.getBody()).isEqualTo(HttpStatus.OK);
+                assertThat(inspection.getBody().path("reason").asText()).isEqualTo("MATCHED");
+                var retained = restTemplate.exchange("/platform.code_rule/ops/ledgerEntry/" + entryId + "/release", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("reason", "consistent owner"), headers), JsonNode.class);
+                assertThat(retained.getStatusCode()).isEqualTo(HttpStatus.OK);
+                assertThat(retained.getBody().path("status").asText()).isEqualTo("ACTIVE");
             }
             binding.put("role", "NORMAL");
             var removal = restTemplate.exchange("/platform.code_rule/binding", HttpMethod.POST, new HttpEntity<>(binding, headers), JsonNode.class);
