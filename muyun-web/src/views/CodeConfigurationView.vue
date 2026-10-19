@@ -132,9 +132,6 @@ const trialSources = computed(() => [
   ...directTrialSources.value,
   ...extraTrialOptions.value.filter((source) => extraTrialFields.value.includes(source.fieldName)),
 ]);
-function targetTitle(item: CodeTarget) {
-  return item.moduleAlias === props.moduleAlias && props.moduleTitle ? props.moduleTitle : item.title;
-}
 let trialRequestSequence = 0;
 watch(
   () => JSON.stringify([draft.value, trialValues.value, trialSequence.value, extraTrialFields.value]),
@@ -410,7 +407,7 @@ async function trial() {
               :options="
                 targets.map((item) => ({
                   value: targetId(item),
-                  label: targetTitle(item),
+                  label: item.title,
                 }))
               "
               @update:value="selectTarget(String($event))"

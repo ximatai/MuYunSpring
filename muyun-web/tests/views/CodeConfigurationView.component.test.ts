@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { ref } from 'vue';
 import CodeConfigurationView from '@/views/CodeConfigurationView.vue';
-import { UiInput } from '@muyun/vue-ui-antdv';
+import { UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import type { CodeTarget } from '@/views/codeConfiguration';
 const { request, can, user } = vi.hoisted(() => ({
   request: vi.fn(),
@@ -49,6 +49,27 @@ beforeEach(() => {
   });
 });
 describe('CodeConfigurationView', () => {
+  it('preserves distinct main and child entity titles inside a module', async () => {
+    request.mockImplementation(async ({ path }) => {
+      if (path.includes('/targets'))
+        return [
+          { ...staticTarget, source: 'DYNAMIC', title: '采购单' },
+          { ...staticTarget, source: 'DYNAMIC', entityAlias: 'line', title: '采购明细' },
+        ];
+      return [];
+    });
+    const wrapper = wrapperOf();
+    await wrapper.setProps({ moduleTitle: '采购管理' });
+    await flushPromises();
+    expect(
+      wrapper
+        .findAllComponents(UiSelect)[0]!
+        .props('options')
+        .map((option) => option.label),
+    ).toEqual(['采购单', '采购明细']);
+    wrapper.unmount();
+  });
+
   it('waits for a system administrator to choose a tenant before requesting tenant-owned targets', async () => {
     user.tenantId = '';
     user.system = true;
