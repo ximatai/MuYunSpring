@@ -46,6 +46,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class AssistantWebControllerTest {
+    @Test
+    void availabilityExposesOnlyTheDecisionAndRequiresAuthentication() throws Exception {
+        var gateway = mock(net.ximatai.muyun.spring.platform.ai.AiModelGateway.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var controller = new AssistantWebController(new AssistantTurnService(gateway, mapper));
+        var mvc = standaloneSetup(controller)
+                .setControllerAdvice(new net.ximatai.muyun.spring.web.PlatformWebExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
+        try {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/platform.assistant/availability"))
+                    .andExpect(status().isUnauthorized());
+            try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "User", "tenant"));
+                 var tenant = TenantContext.use("tenant")) {
+                for (boolean available : new boolean[]{false, true}) {
+                    when(gateway.isTextGenerationAvailable()).thenReturn(available);
+                    var result = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/platform.assistant/availability"))
+                            .andExpect(status().isOk()).andReturn();
+                    assertThat(mapper.readTree(result.getResponse().getContentAsString()))
+                            .isEqualTo(mapper.readTree("{\"available\":" + available + "}"));
+                }
+            }
+        } finally { controller.closeStreams(); }
+    }
+
     static Stream<Arguments> providerUsageCases() {
         return Stream.of(false, true).flatMap(streaming -> Arrays.asList(
                 new AiTokenUsage(42L, 10L, 52L),

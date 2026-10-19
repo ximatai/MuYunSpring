@@ -400,12 +400,12 @@ it('emits a page refresh only after its workspace state permits reconstruction',
     () => true,
     () => busy,
   );
-  const workbench = wrapper.findComponent(Workbench);
-  workbench.vm.$emit('refreshPage', 'menu:A');
+  const refresh = wrapper.get('.workbench-page-refresh');
+  await refresh.trigger('click');
   await flushPromises();
   expect(wrapper.emitted('refreshPage')).toBeUndefined();
   busy = false;
-  workbench.vm.$emit('refreshPage', 'menu:A');
+  await refresh.trigger('click');
   await flushPromises();
   expect(discardFeedback.confirm).toHaveBeenCalledWith(
     expect.objectContaining({ title: '刷新页面', okText: '刷新' }),
@@ -413,7 +413,7 @@ it('emits a page refresh only after its workspace state permits reconstruction',
   );
   expect(wrapper.emitted('refreshPage')).toBeUndefined();
   discardFeedback.confirm.mockResolvedValue(true);
-  workbench.vm.$emit('refreshPage', 'menu:A');
+  await refresh.trigger('click');
   await flushPromises();
   expect(wrapper.emitted('refreshPage')).toEqual([['menu:A']]);
   wrapper.unmount();
@@ -533,4 +533,18 @@ it('lets an explicit tab rename replace a translated default title without chang
   expect(renamed.key).toBe(tab.key);
   expect(JSON.stringify(renamed.pageDescriptor?.target)).toBe(before);
   wrapper.unmount();
+});
+
+it('forwards the host-owned employee name to the shared workbench account button', async () => {
+  const wrapper = mount(AppWorkbenchShell, {
+    props: { startup: startup(), location: '/a', currentUserEmployeeName: '张三' },
+  });
+  try {
+    expect(wrapper.get('.user-meta strong').text()).toBe('tester');
+    expect(wrapper.get('.user-meta small').text()).toBe('张三');
+    await wrapper.setProps({ currentUserEmployeeName: undefined });
+    expect(wrapper.get('.user-meta small').text()).toBe('业务用户');
+  } finally {
+    wrapper.unmount();
+  }
 });

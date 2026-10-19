@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { assert, it, vi } from 'vitest';
 import type { RecycleBinItem, RestoreReport, PurgeReport } from '@/web-contracts/index.ts';
 import type { ModuleContext, ModuleRuntimeContextState } from '@/web-core/index.ts';
 import {
@@ -6,7 +6,7 @@ import {
   useRecycleBinState,
 } from '@/platform-components/recycleBinState.ts';
 import { useRecycleBinExplorerMode } from '@/platform-components/useRecycleBinExplorerMode.ts';
-import { ref, shallowRef } from 'vue';
+import { effectScope, nextTick, ref, shallowRef } from 'vue';
 
 interface Tenant {
   id?: string;
@@ -720,4 +720,132 @@ it('does not attach an old action report or reload to a replaced module context'
   assert.equal(state.pendingActions.value.length, 0);
   assert.equal(newRequests, 0);
   assert.equal(state.acting.value, false);
+});
+
+it('loads complete recycle navigation while preserving lifecycle facts from every batch', async () => {
+  const requests: number[] = [];
+  const context = createContext({
+    request: async (options) => {
+      const pageNum = (options.body as { page: { pageNum: number } }).page.pageNum;
+      requests.push(pageNum);
+      return {
+        records: [
+          {
+            record: { id: `tenant-${pageNum}` },
+            sourceDeleteOperationId: `op-${pageNum}`,
+            restorable: pageNum === 2,
+            purgeable: false,
+          },
+        ],
+        total: 2,
+        totalKnown: true,
+        pageNum,
+        pageSize: 1,
+        pages: 2,
+      };
+    },
+  });
+  const state = useRecycleBinState({ context });
+  assert.equal(await state.loadAll({}), true);
+  assert.deepEqual(requests, [1, 2]);
+  assert.deepEqual(
+    state.items.value.map((item) => item.sourceDeleteOperationId),
+    ['op-1', 'op-2'],
+  );
+  assert.equal(state.items.value[1].restorable, true);
+  assert.equal(state.total.value, 2);
+});
+
+it.each(['refresh', 'reloadKey', 'restore', 'purge'] as const)(
+  'preserves complete recycle navigation after %s, including filters and lifecycle facts',
+  async (trigger) => {
+    const reloadKey = ref(0);
+    const remaining = ['a', 'b', 'c'];
+    const requests: Array<{ page?: { pageNum: number }; quickSearch?: string }> = [];
+    const context = createContext({
+      request: async ({ path, body }) => {
+        if (!path.endsWith('/query')) {
+          remaining.shift();
+          return {
+            entries: [{ status: trigger === 'restore' ? 'RESTORED' : 'PURGED' }],
+          };
+        }
+        const request = body as { page?: { pageNum: number }; quickSearch?: string };
+        requests.push(request);
+        const pageNum = request.page?.pageNum ?? 1;
+        const id = remaining[pageNum - 1];
+        return {
+          records: id
+            ? [
+                {
+                  record: { id },
+                  sourceDeleteOperationId: `op-${id}`,
+                  restorable: true,
+                  purgeable: true,
+                },
+              ]
+            : [],
+          total: remaining.length,
+          totalKnown: true,
+          pageNum,
+          pageSize: 1,
+          pages: remaining.length,
+        };
+      },
+    });
+    const scope = effectScope();
+    const state = scope.run(() =>
+      useRecycleBinState({ context, reloadKey, recordTitle: (record) => record.id! }),
+    )!;
+    try {
+      await state.loadAll({ quickSearch: '筛选' });
+      assert.equal(state.items.value.length, 3);
+      requests.length = 0;
+      if (trigger === 'reloadKey') {
+        reloadKey.value++;
+        await nextTick();
+        await vi.waitFor(() => assert.equal(state.loading.value, false));
+      } else if (trigger === 'refresh') {
+        await state.load();
+      } else {
+        await state[trigger](state.items.value[0]);
+      }
+      assert.deepEqual(
+        state.items.value.map((item) => item.record.id),
+        remaining,
+      );
+      assert.deepEqual(
+        requests.map((request) => request.page?.pageNum),
+        remaining.map((_, index) => index + 1),
+      );
+      assert.equal(
+        requests.every((request) => request.quickSearch === '筛选'),
+        true,
+      );
+      assert.equal(
+        state.items.value.every((item) => item.restorable && item.purgeable),
+        true,
+      );
+    } finally {
+      scope.stop();
+    }
+  },
+);
+
+it('lets an explicit paged query replace complete mode and retains that page on refresh', async () => {
+  const pageNumbers: number[] = [];
+  const context = createContext({
+    request: async ({ body }) => {
+      const pageNum = (body as { page?: { pageNum: number } }).page?.pageNum ?? 1;
+      pageNumbers.push(pageNum);
+      return { records: [{ record: { id: String(pageNum) } }], total: 2, pageNum, pageSize: 1, pages: 2 };
+    },
+  });
+  const state = useRecycleBinState({ context });
+  await state.loadAll({});
+  await state.load({ page: { pageNum: 2, pageSize: 1 } });
+  await state.load();
+  assert.deepEqual(pageNumbers, [1, 2, 2, 2]);
+  assert.equal(state.items.value.length, 1);
+  assert.equal(state.pageNum.value, 2);
 });

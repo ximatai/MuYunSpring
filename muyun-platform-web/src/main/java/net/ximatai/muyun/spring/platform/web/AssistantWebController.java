@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.web.WebRequestContext;
 import net.ximatai.muyun.spring.web.PlatformWebError;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,6 +46,13 @@ public class AssistantWebController {
     public AssistantWebController(AssistantTurnService service) {
         this.service = service;
     }
+
+    @GetMapping("/availability")
+    public Availability availability() {
+        return new Availability(service.isAvailable());
+    }
+
+    public record Availability(boolean available) { }
 
     @PostMapping("/turn")
     public AssistantTurnWebResponse turn(@RequestBody AssistantTurnWebRequest request) {

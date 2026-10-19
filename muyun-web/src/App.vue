@@ -44,6 +44,7 @@ import {
   configureModuleContext,
   createAuthClient,
   createAssistantTurnRequester,
+  readAssistantAvailability,
   createConstructionPlanClient,
   createAssistantConversationClient,
   createMenuClient,
@@ -62,7 +63,6 @@ import {
 import { configureUserPreferenceBackend } from './web-core/userPreferences';
 import type {
   LoginResult,
-  CurrentUserProfile,
   MenuTab,
   MenuNavigationTarget,
   MenuRecord,
@@ -97,6 +97,8 @@ import { connectAppRealtime, disconnectAppRealtime } from './platform-admin-runt
 import './platform-admin-runtime/workspaceViews';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
+import { useCurrentUserProfile } from './app/useCurrentUserProfile';
+import { useAssistantAvailability } from './app/useAssistantAvailability';
 import LoginView from './app/LoginView.vue';
 import ThemeSkinPreferencesDialog from './app/ThemeSkinPreferencesDialog.vue';
 import {
@@ -407,7 +409,6 @@ const profileOpen = ref(false);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
 const profileError = ref<() => string>();
-const profile = ref<CurrentUserProfile>();
 const themeSkinPreferencesOpen = ref(false);
 const themeSkinSaving = ref(false);
 const themeSkinFailure = ref<ThemeSkinPreferenceFailure>();
@@ -487,6 +488,30 @@ async function refreshWorkbenchMenus() {
 
 const anonymousHttpClient = createBackendHttpClient({ withAuth: false });
 const authClient = createAuthClient(anonymousHttpClient);
+const {
+  profile,
+  refresh: refreshCurrentUserProfile,
+  save: saveCurrentUserProfile,
+} = useCurrentUserProfile({
+  currentUser: () => currentUser.value,
+  token: () => effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
+  client: authClient,
+});
+const assistantAvailability = useAssistantAvailability({
+  identity: () => {
+    const user = currentUser.value;
+    return user
+      ? JSON.stringify([
+          effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
+          user.userId,
+          user.tenantId,
+          user.organizationId,
+          user.system,
+        ])
+      : undefined;
+  },
+  load: (signal) => readAssistantAvailability(createBackendHttpClient(), signal),
+});
 const loginContextClient = createLoginContextClient(anonymousHttpClient);
 
 configureAuthenticationRecovery((error, token) => {
@@ -706,7 +731,7 @@ async function openCurrentUserProfile() {
   profileLoading.value = true;
   profileError.value = undefined;
   try {
-    profile.value = await authClient.currentProfile(token);
+    await refreshCurrentUserProfile();
   } catch (cause) {
     const failure = presentPlatformError(cause, {
       source: 'current-user-profile',
@@ -731,7 +756,7 @@ async function submitCurrentUserProfile(value: { mobile: string; email: string; 
   profileSaving.value = true;
   profileError.value = undefined;
   try {
-    profile.value = await authClient.updateCurrentProfile(value, token);
+    if (!(await saveCurrentUserProfile(value))) return;
     profileOpen.value = false;
     presentPlatformSuccess(
       platformLanguageContext.t('platform.screen.App.your-profile-has-been-saved', '个人资料已保存'),
@@ -1515,11 +1540,13 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         v-else
         v-model:active-tab-key="activeTabKey"
         :startup="startup"
+        :current-user-employee-name="profile?.employee?.title"
         :loading="loading"
         :error="error"
         :realtime-status="realtimeStatus"
         :theme-appearance="activeThemeSkin.theme.appearance"
         :locked-tab-keys="lockedTabKeys()"
+        :assistant-available="assistantAvailability.available.value"
         :assistant-request-turn="assistantRequestTurn"
         :construction-plan-client="constructionPlanClient"
         :assistant-workspace-contribution="configurationWorkspace"

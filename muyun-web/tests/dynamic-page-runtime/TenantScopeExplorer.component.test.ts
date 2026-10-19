@@ -7,7 +7,7 @@ import type { QueryListRecord } from '@muyun/platform-components';
 describe('TenantScopeExplorer', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('uses remote search for tenants beyond the initial explorer page without treating the search result as auto-selectable', async () => {
+  it('loads all tenant candidates and keeps remote search distinct from the initial full result', async () => {
     const searches: string[] = [];
     const urls: string[] = [];
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -21,20 +21,32 @@ describe('TenantScopeExplorer', () => {
           actions: [],
         });
       if (request.url.endsWith('/iam.tenant/navigator/reference/query')) {
-        const body = JSON.parse(String(init?.body ?? '{}')) as { quickSearch?: string };
+        const body = JSON.parse(String(init?.body ?? '{}')) as {
+          quickSearch?: string;
+          page: { pageNum: number; pageSize: number };
+        };
         searches.push(body.quickSearch ?? '');
         if (body.quickSearch === '第201')
           return Response.json({
             records: [{ id: 'tenant-201', title: '第201个租户' }],
             total: 1,
+            pageNum: 1,
+            pageSize: 200,
+            pages: 1,
             totalKnown: true,
           });
         return Response.json({
-          records: Array.from({ length: 200 }, (_, index) => ({
-            id: `tenant-${index + 1}`,
-            title: `租户${index + 1}`,
-          })),
+          records:
+            body.page.pageNum === 1
+              ? Array.from({ length: 200 }, (_, index) => ({
+                  id: `tenant-${index + 1}`,
+                  title: `租户${index + 1}`,
+                }))
+              : [{ id: 'tenant-201', title: '第201个租户' }],
           total: 201,
+          pageNum: body.page.pageNum,
+          pageSize: 200,
+          pages: 2,
           totalKnown: true,
         });
       }
@@ -54,14 +66,17 @@ describe('TenantScopeExplorer', () => {
     await flushPromises();
 
     expect({ searches, urls }).toEqual({
-      searches: ['', '第201'],
+      searches: ['', '', '第201'],
       urls: [
         'http://api.local/platform.module/iam.tenant/reference-context',
+        'http://api.local/iam.tenant/navigator/reference/query',
         'http://api.local/iam.tenant/navigator/reference/query',
         'http://api.local/iam.tenant/navigator/reference/query',
       ],
     });
     expect(wrapper.text()).toContain('第201个租户');
+    expect(wrapper.get('.management-panel-header-title-group').text()).toBe('租户');
+    expect(wrapper.find('.crud-record-list-pagination').exists()).toBe(false);
     expect(wrapper.emitted('loaded')).toEqual([
       [expect.any(Array), true, 201],
       [[{ id: 'tenant-201', title: '第201个租户' }], false, 1],

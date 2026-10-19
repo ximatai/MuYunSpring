@@ -87,6 +87,12 @@ public class AssistantTurnService {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
 
+    /** Configuration availability for the current trusted identity; never invokes the provider. */
+    public boolean isAvailable() {
+        requireAuthenticatedUser();
+        return gateway.isTextGenerationAvailable();
+    }
+
     private static AiToolDefinition presentSelectionTool() {
         Map<String, Object> option = Map.of(
                 "type", "object",

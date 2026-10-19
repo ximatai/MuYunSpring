@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, h, ref } from 'vue';
 import { Dropdown as ADropdown, Menu as AMenu } from 'ant-design-vue';
 import type { ItemType, MenuProps } from 'ant-design-vue';
 import type { UiDropdownItem } from '../types';
+import UiIcon from './UiIcon.vue';
 
 defineOptions({ name: 'UiDropdown', inheritAttrs: false });
 
@@ -21,7 +22,7 @@ const props = withDefaults(
 );
 
 defineSlots<{
-  default(props: { toggle: () => void }): unknown;
+  default(props: { toggle: () => void; open: boolean }): unknown;
 }>();
 
 const emit = defineEmits<{
@@ -30,12 +31,21 @@ const emit = defineEmits<{
 
 const open = ref(false);
 const menuItems = computed<ItemType[]>(() =>
-  props.items.map((item) => ({
-    key: item.key,
-    label: item.title,
-    disabled: item.disabled,
-    danger: item.danger,
-  })),
+  props.items.map((item) => {
+    const iconName = item.iconName;
+    return {
+      key: item.key,
+      label: item.title,
+      disabled: item.disabled,
+      danger: item.danger,
+      icon: iconName
+        ? () =>
+            h('span', { class: 'ui-dropdown-item-icon', 'aria-hidden': 'true' }, [
+              h(UiIcon, { name: iconName }),
+            ])
+        : undefined,
+    };
+  }),
 );
 const selectedKeys = computed(() => (props.selectedKey ? [props.selectedKey] : []));
 const placement = computed(() => (props.align === 'start' ? 'bottomLeft' : 'bottomRight'));
@@ -64,10 +74,20 @@ function handleMenuClick(event: Parameters<NonNullable<MenuProps['onClick']>>[0]
     @open-change="handleOpenChange"
   >
     <span class="ui-dropdown" :class="$attrs.class" :style="$attrs.style">
-      <slot :toggle="toggle" />
+      <slot :toggle="toggle" :open="open" />
     </span>
     <template #overlay>
       <AMenu :items="menuItems" :selected-keys="selectedKeys" @click="handleMenuClick" />
     </template>
   </ADropdown>
 </template>
+
+<style>
+.muyun-ui-dropdown-overlay .ui-dropdown-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  font-size: var(--muyun-font-size-section, 14px);
+}
+</style>

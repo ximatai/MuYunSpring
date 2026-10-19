@@ -99,7 +99,7 @@ it.each([true, false])(
               defaultSorts: [],
               quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
             } as T;
-          return { records, total: 2, pages: 1, totalKnown: true } as T;
+          return { records, total: 2, pageNum: 1, pageSize: 200, pages: 1, totalKnown: true } as T;
         },
       },
     });

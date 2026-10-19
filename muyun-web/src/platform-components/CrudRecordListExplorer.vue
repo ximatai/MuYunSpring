@@ -30,6 +30,7 @@ import type {
   QuerySchema,
 } from '@muyun/web-contracts';
 import { sortPartitionKey } from './sortPartitionKey';
+import { loadExplorerRecords } from './loadExplorerRecords';
 import type {
   RecordQueryListQueryController,
   RecordQueryListQuerySnapshot,
@@ -142,7 +143,7 @@ watch(
 );
 function changeQuerySorts(sorts: WebSort[] | undefined) {
   appliedSorts.value = sorts;
-  void loadRecords('interaction', 1);
+  void loadRecords('interaction');
 }
 
 const currentContentStatus = computed(() =>
@@ -153,7 +154,7 @@ const currentContentStatus = computed(() =>
 watch(
   contentLanguage.languageTag,
   () => {
-    if (contentQueryStatus.value) void loadRecords('reset', 1);
+    if (contentQueryStatus.value || loading.value) void loadRecords('reset');
   },
   { flush: 'sync' },
 );
@@ -161,9 +162,6 @@ let recordsRequestSeq = 0;
 let queryControllerRevision = 0;
 const loadedTotal = ref<number>();
 const loadedTotalKnown = ref(false);
-const pageNum = ref(1);
-const pageSize = ref(200);
-const pages = ref(1);
 const successfulRequest = ref<WebQueryRequest>();
 const successfulContentLanguage = ref<string>();
 const appliedKeyword = ref('');
@@ -258,12 +256,12 @@ watch(
   ],
   () => {
     assistantKeyword.value = props.keyword.trim();
-    void loadRecords('reset', 1);
+    void loadRecords('reset');
   },
   { deep: true },
 );
 
-async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage = pageNum.value) {
+async function loadRecords(reason: UiTreeChangeReason = 'reset') {
   queryControllerRevision += 1;
   const requestSeq = ++recordsRequestSeq;
   const context = props.context;
@@ -271,7 +269,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
   const keyword = props.keyword.trim();
   const requestedContentLanguage = contentLanguage.languageTag.value;
   const request: WebQueryRequest = {
-    page: { pageNum: requestedPage, pageSize: pageSize.value },
+    page: { pageNum: 1, pageSize: 200 },
     ...(appliedSorts.value ? { sorts: appliedSorts.value } : {}),
     ...(keyword ? { quickSearch: keyword } : {}),
     ...(props.externalQueryValues ? { externalQueryValues: { ...props.externalQueryValues } } : {}),
@@ -289,8 +287,6 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     loadedTotal.value = undefined;
     loadedTotalKnown.value = false;
     appliedKeyword.value = '';
-    pageNum.value = requestedPage;
-    pages.value = 1;
   }
   try {
     await context.runtime.ready;
@@ -299,7 +295,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     if (keyword && searchFields != null) request.quickSearchFields = [...searchFields];
     let response;
     if (mode === 'recycleBin') {
-      const loaded = await recycleBinState.load(request);
+      const loaded = await recycleBinState.loadAll(request, () => requestSeq === recordsRequestSeq);
       if (requestSeq !== recordsRequestSeq) return;
       if (!loaded) {
         loadError.value = true;
@@ -309,14 +305,15 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
         records: recycleBinState.items.value.map((item) => item.record),
         total: recycleBinState.total.value,
         totalKnown: recycleBinState.totalKnown.value,
-        pageNum: recycleBinState.pageNum.value,
-        pageSize: recycleBinState.pageSize.value,
-        pages: recycleBinState.pages.value,
       };
     } else {
-      response = await context.abilities.crud().query(request, { contentLanguage: requestedContentLanguage });
+      response = await loadExplorerRecords(
+        (batch) => context.abilities.crud().query(batch, { contentLanguage: requestedContentLanguage }),
+        request,
+        () => requestSeq === recordsRequestSeq,
+      );
     }
-    if (requestSeq !== recordsRequestSeq) return;
+    if (requestSeq !== recordsRequestSeq || !response) return;
     if ('businessContent' in response && response.businessContent && !contentQuerySchema.value) {
       const loadedSchema = await context.crud.querySchema();
       if (requestSeq !== recordsRequestSeq) return;
@@ -327,12 +324,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
       response.businessContent &&
       response.businessContent.language !== contentLanguage.languageTag.value
     ) {
-      await loadRecords('reset', 1);
-      return;
-    }
-    // Deletion can empty the last page. Re-read the last available page once.
-    if (response.totalKnown !== false && requestedPage > Math.max(1, response.pages)) {
-      await loadRecords(reason, Math.max(1, response.pages));
+      await loadRecords('reset');
       return;
     }
     changeReason.value = reason;
@@ -340,9 +332,6 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
     records.value = response.records;
     loadedTotal.value = response.total;
     loadedTotalKnown.value = response.totalKnown !== false;
-    pageNum.value = response.pageNum;
-    pageSize.value = response.pageSize;
-    pages.value = Math.max(1, response.pages);
     appliedKeyword.value = keyword;
     successfulRequest.value = JSON.parse(JSON.stringify(request)) as WebQueryRequest;
     successfulContentLanguage.value = requestedContentLanguage;
@@ -356,11 +345,6 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage =
   } finally {
     if (requestSeq === recordsRequestSeq) loading.value = false;
   }
-}
-
-function changePage(nextPage: number) {
-  if (loading.value || sortingRequest.value || nextPage < 1 || nextPage > pages.value) return;
-  void loadRecords('interaction', nextPage);
 }
 
 function recordItem(record: CrudRecordListBase) {
@@ -453,8 +437,8 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
       },
     ],
     ...(keyword ? { appliedQuickSearch: keyword } : {}),
-    pageNum: pageNum.value,
-    pageSize: pageSize.value,
+    pageNum: 1,
+    pageSize: Math.max(1, records.value.length),
     total,
     totalKnown,
     rows,
@@ -468,7 +452,6 @@ const queryController: RecordQueryListQueryController = {
     JSON.stringify({
       mode: props.mode,
       keyword: assistantKeyword.value,
-      pageNum: pageNum.value,
       sorts: appliedSorts.value,
     }),
   snapshot: queryControllerSnapshot,
@@ -679,7 +662,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :context="context"
       :records="contentGenerationRecords"
       :fields="contentGenerationFields"
-      @updated="loadRecords('interaction', pageNum)"
+      @updated="loadRecords('interaction')"
     />
     <UiButton v-if="loadError" type="text" @click="loadRecords()">{{
       language.t('platform.screen.CrudRecordListExplorer.reload', '重新加载')
@@ -705,28 +688,6 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       @action="(action, record) => handleAction(action, record as CrudRecordListBase)"
       @sort="handleSort"
     />
-    <footer v-if="loadedTotal !== undefined" class="crud-record-list-pagination">
-      <span>{{
-        loadedTotalKnown
-          ? language.t('platform.records.total', '共 {count} 条', { count: loadedTotal })
-          : language.t('platform.records.lower-bound', '至少 {count} 条', { count: loadedTotal })
-      }}</span>
-      <UiButton
-        :aria-label="language.t('platform.screen.CrudRecordListExplorer.previous-page', '上一页')"
-        :title="language.t('platform.screen.CrudRecordListExplorer.previous-page', '上一页')"
-        icon-name="left"
-        :disabled="loading || sortingRequest || pageNum <= 1"
-        @click="changePage(pageNum - 1)"
-      />
-      <span>{{ language.t('platform.records.page', '第 {page} 页', { page: pageNum }) }}</span>
-      <UiButton
-        :aria-label="language.t('platform.screen.CrudRecordListExplorer.next-page', '下一页')"
-        :title="language.t('platform.screen.CrudRecordListExplorer.next-page', '下一页')"
-        icon-name="right"
-        :disabled="loading || sortingRequest || pageNum >= pages"
-        @click="changePage(pageNum + 1)"
-      />
-    </footer>
   </div>
 </template>
 
@@ -742,14 +703,5 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 .crud-record-list-explorer :deep(.record-list-explorer) {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-.crud-record-list-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  padding: 8px;
 }
 </style>

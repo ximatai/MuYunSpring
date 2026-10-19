@@ -59,6 +59,8 @@ const props = withDefaults(
     /** The consumer router's current full path, including search and hash. */
     location: string;
     resolveOptions?: PageDescriptorResolveOptions;
+    /** Employee name from the host-owned current-user profile. */
+    currentUserEmployeeName?: string;
     loading?: boolean;
     error?: string;
     realtimeStatus?: WorkbenchRealtimeStatus;
@@ -426,6 +428,7 @@ async function restoreLockedTabs() {
 <template>
   <Workbench
     :startup="startup"
+    :current-user-employee-name="currentUserEmployeeName"
     :loading="loading"
     :error="error"
     :active-tab-key="activeTabKey"

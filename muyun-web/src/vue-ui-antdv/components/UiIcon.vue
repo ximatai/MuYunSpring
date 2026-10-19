@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ExternalLink, Pin, PinOff } from 'lucide-vue-next';
+import { ExternalLink, Pin, PinOff, Sparkles } from 'lucide-vue-next';
 import {
   AppstoreOutlined,
+  GlobalOutlined,
   BellOutlined,
   CheckOutlined,
   CloseOutlined,
@@ -36,6 +37,8 @@ defineOptions({ name: 'UiIcon', inheritAttrs: false });
 
 export type UiIconName =
   | 'app'
+  | 'language'
+  | 'assistant'
   | 'check'
   | 'close'
   | 'delete'
@@ -75,6 +78,8 @@ const props = defineProps<{
 const icons = {
   user: UserOutlined,
   app: AppstoreOutlined,
+  language: GlobalOutlined,
+  assistant: Sparkles,
   check: CheckOutlined,
   close: CloseOutlined,
   delete: DeleteOutlined,
@@ -107,7 +112,7 @@ const icons = {
   'swap-vertical': SwapOutlined,
 } as const;
 
-const lucideIconNames = new Set<UiIconName>(['open-in-new', 'pin', 'pin-off']);
+const lucideIconNames = new Set<UiIconName>(['assistant', 'open-in-new', 'pin', 'pin-off']);
 
 const icon = computed(() => icons[props.name]);
 const iconRotate = computed(() => (props.name === 'swap-vertical' ? 90 : undefined));

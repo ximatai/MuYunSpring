@@ -297,7 +297,7 @@ it('keeps tab drafts isolated and refreshes only the current page instance', asy
 
   expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('draft-a');
 
-  await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+  await wrapper.get('.workbench-page-refresh').trigger('click');
   await flushPromises();
 
   expect(wrapper.get<HTMLInputElement>('[data-testid="draft"]').element.value).toBe('initial:tab-a');

@@ -9,7 +9,12 @@ import WorkbenchMenuTree from '@/platform-workbench/WorkbenchMenuTree.vue';
 import { createWorkbenchMenuNodes, findWorkbenchMenuNodeById } from '@/platform-workbench/menuTreeModel.ts';
 import { userPreferences } from '@/web-core';
 
-config.global.stubs = { ...config.global.stubs, WorkbenchSidebarMenuEntry: false };
+config.global.stubs = {
+  ...config.global.stubs,
+  WorkbenchSidebarMenuEntry: false,
+  WorkbenchGlobalTools: false,
+  WorkbenchPageTitle: false,
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -954,8 +959,8 @@ describe('Workbench compact menu', () => {
 
     expect(wrapper.find('[aria-label="搜索"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="通知"]').exists()).toBe(false);
-    expect(wrapper.find('[aria-label="刷新当前页"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="皮肤切换"]').exists()).toBe(true);
+    expect(wrapper.find('.workbench-page-refresh').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="皮肤切换"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="设置"]').exists()).toBe(false);
     expect(wrapper.findComponent({ name: 'UiDropdown' }).props('items')).not.toContainEqual(
       expect.objectContaining({ key: 'settings' }),
@@ -966,7 +971,10 @@ describe('Workbench compact menu', () => {
     const wrapper = shallowMount(Workbench);
     const actions = wrapper.get('.topbar-actions');
 
-    expect(actions.find('[aria-label="皮肤切换"]').exists()).toBe(true);
+    expect(actions.find('[aria-label="皮肤切换"]').exists()).toBe(false);
+    expect(actions.findComponent({ name: 'UiDropdown' }).props('items')).toContainEqual(
+      expect.objectContaining({ key: 'themeSkin', iconName: 'skin' }),
+    );
     expect(actions.findComponent({ name: 'UiDropdown' }).exists()).toBe(true);
   });
 
@@ -977,13 +985,13 @@ describe('Workbench compact menu', () => {
     );
 
     expect(source).toMatch(/@media \(max-width: 720px\)[\s\S]*flex-wrap: nowrap/);
-    expect(source).toMatch(/@media \(max-width: 480px\)[\s\S]*\.topbar-title span,[\s\S]*\.user-meta/);
+    expect(source).toMatch(/@media \(max-width: 480px\)[\s\S]*\.workbench-brand-copy/);
   });
 
-  it('opens the shared theme skin preferences from the global toolbar', async () => {
+  it('opens the shared theme skin preferences from the account menu', async () => {
     const wrapper = shallowMount(Workbench);
 
-    await wrapper.get('[aria-label="皮肤切换"]').trigger('click');
+    wrapper.findComponent({ name: 'UiDropdown' }).vm.$emit('select', 'themeSkin');
 
     expect(wrapper.emitted('userCommand')).toEqual([['themeSkin']]);
   });
@@ -1006,12 +1014,25 @@ describe('Workbench compact menu', () => {
         },
       },
     });
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('disabled')).not.toBe('true');
-    expect(wrapper.get('[aria-label="刷新当前页"]').attributes('title')).toBe('刷新当前页');
+    expect(wrapper.get('.workbench-page-refresh').attributes('disabled')).not.toBe('true');
+    expect(wrapper.get('.workbench-page-refresh').attributes('title')).toBe('刷新当前页：应用管理');
 
-    await wrapper.get('[aria-label="刷新当前页"]').trigger('click');
+    await wrapper.get('.workbench-page-refresh').trigger('click');
 
     expect(wrapper.emitted('refreshPage')).toEqual([['application']]);
+    const startup = wrapper.props('startup')!;
+    await wrapper.setProps({
+      startup: {
+        ...startup,
+        tabs: [...(startup.tabs ?? []), { key: 'second', title: '另一个业务页' }],
+        activeTabKey: 'second',
+      },
+    });
+    expect(wrapper.get('.workbench-page-title-label').text()).toBe('另一个业务页');
+    await wrapper.get('.workbench-page-refresh-icon').trigger('click');
+    expect(wrapper.emitted('refreshPage')).toEqual([['application'], ['second']]);
+    await wrapper.setProps({ startup: { ...startup, tabs: [], activeTabKey: undefined } });
+    expect(wrapper.find('.workbench-page-refresh').exists()).toBe(false);
   });
 
   it('presents the shared module host without leaking its legacy dynamic route name', () => {
@@ -1038,7 +1059,8 @@ describe('Workbench compact menu', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('标准模块 / platform.field_ui_control');
+    expect(wrapper.get('.app-topbar').text()).toContain('字段 UI 控件');
+    expect(wrapper.get('.app-topbar').text()).not.toContain('platform.field_ui_control');
     expect(wrapper.text()).not.toContain('动态模块 / platform.field_ui_control');
   });
 
