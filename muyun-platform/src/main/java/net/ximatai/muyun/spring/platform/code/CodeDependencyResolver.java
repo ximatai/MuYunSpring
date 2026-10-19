@@ -7,7 +7,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class DynamicCodeDependencyResolver {
+public class CodeDependencyResolver {
     private static final Pattern FORMULA_PLACEHOLDER = Pattern.compile("\\{([^}]+)}");
     private static final Set<CodeSegmentType> SOURCE_DEPENDENCY_SEGMENT_TYPES = Set.of(
             CodeSegmentType.FIELD_VALUE,

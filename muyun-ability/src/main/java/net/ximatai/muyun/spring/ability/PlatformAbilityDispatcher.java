@@ -189,6 +189,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static <T extends EntityContract> void beforeRestore(CrudAbility<T> ability, T entity) {
+        entitySaveLifecycleListener.beforeRestore(ability, entity);
         runReferenceIntegrityValidation(ability, null, entity, false);
     }
 

@@ -15,6 +15,13 @@ public record CodeRuntimeCommand(
         String sourceRecordId,
         CodeValueUniquenessChecker uniquenessChecker
 ) {
+    public CodeRuntimeCommand {
+        moduleAlias = net.ximatai.muyun.spring.common.util.PlatformNameRules.requireModuleAlias(moduleAlias);
+        entityAlias = net.ximatai.muyun.spring.common.util.PlatformNameRules.requireIdentifier(entityAlias, "entityAlias");
+        fieldName = net.ximatai.muyun.spring.common.util.PlatformNameRules.requireFieldName(fieldName, "fieldName");
+        context = context == null ? Map.of() : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(context));
+    }
+
     public CodeRuntimeCommand(String moduleAlias,
                               String entityAlias,
                               String metadataFieldId,

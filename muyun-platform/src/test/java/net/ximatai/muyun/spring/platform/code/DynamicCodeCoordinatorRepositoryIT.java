@@ -69,6 +69,20 @@ import static org.mockito.Mockito.mock;
 class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest {
     private static final String TENANT_ID = "tenant-code";
 
+    @Autowired javax.sql.DataSource codeTestDataSource;
+    @Autowired org.springframework.transaction.PlatformTransactionManager codeTestTransactions;
+    @org.junit.jupiter.api.BeforeEach void installCodeMutationHost() {
+        CodeTestMutationHost.install(codeTestTransactions, codeTestDataSource);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureDeletionLifecycleListener(
+                new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(
+                        net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener.NONE,
+                        List.of(new CodeDeletionObserver(new CodeOccupationService(ledgerService, recycleService)))));
+    }
+    @org.junit.jupiter.api.AfterEach void resetCodeMutationHost() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetMutationTransactionOperator();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetDeletionLifecycleListener();
+    }
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("muyun.database.default-schema", () -> "public");
@@ -215,6 +229,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(reusableScenario.moduleAlias(), "main", reusable.getId());
+            recordService.entity(reusableScenario.moduleAlias(), "main").purge(reusable.getId());
         }
 
         CodeLedgerEntry reusableLedger = ledgerService.findByRuleAndValue(reusableRule.getId(), "SO-0001");
@@ -230,6 +245,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(discardScenario.moduleAlias(), "main", discarded.getId());
+            recordService.entity(discardScenario.moduleAlias(), "main").purge(discarded.getId());
         }
 
         CodeLedgerEntry discardLedger = ledgerService.findByRuleAndValue(discardRule.getId(), "SO-0001");
@@ -239,7 +255,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
-    void shouldReleaseCodesWhenDynamicRecordsAreDeletedInBatch() {
+    void shouldRetainCodeOccupationWhenDynamicRecordsAreSoftDeletedInBatch() {
         Scenario scenario = refreshScenario();
         CodeRule rule = saveRule(scenario, CodeMode.AUTO, true);
         DynamicRecord first = create(scenario, "first");
@@ -251,15 +267,15 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
 
         CodeLedgerEntry firstLedger = ledgerService.findByRuleAndValue(rule.getId(), "SO-0001");
-        assertThat(firstLedger.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(firstLedger.getLastAction()).isEqualTo(CodeLedgerAction.RELEASED_BY_DELETE);
-        assertThat(firstLedger.getSourceRecordId()).isNull();
-        assertThat(recycleEntry(rule, "SO-0001").getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+        assertThat(firstLedger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        assertThat(firstLedger.getLastAction()).isEqualTo(CodeLedgerAction.ASSIGNED);
+        assertThat(firstLedger.getSourceRecordId()).isEqualTo(first.getId());
+        assertThat(recycleEntry(rule, "SO-0001")).isNull();
 
         CodeLedgerEntry secondLedger = ledgerService.findByRuleAndValue(rule.getId(), "SO-0002");
-        assertThat(secondLedger.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(secondLedger.getSourceRecordId()).isNull();
-        assertThat(recycleEntry(rule, "SO-0002").getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+        assertThat(secondLedger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        assertThat(secondLedger.getSourceRecordId()).isEqualTo(second.getId());
+        assertThat(recycleEntry(rule, "SO-0002")).isNull();
     }
 
     @Test
@@ -317,6 +333,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(reusableScenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(reusableScenario.moduleAlias(), "main", first.getId());
+            recordService.entity(reusableScenario.moduleAlias(), "main").purge(first.getId());
         }
 
         DynamicRecord reused = create(reusableScenario, "reused");
@@ -333,6 +350,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord discarded = create(discardedScenario, "discarded");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(discardedScenario.moduleAlias(), "main", discarded.getId());
+            recordService.entity(discardedScenario.moduleAlias(), "main").purge(discarded.getId());
         }
         DynamicRecord afterDiscard = create(discardedScenario, "after-discard");
 
@@ -405,6 +423,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(scenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(scenario.moduleAlias(), "main", first.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(first.getId());
         }
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -431,6 +450,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(scenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(scenario.moduleAlias(), "main", first.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(first.getId());
         }
 
         int count = 8;
@@ -566,7 +586,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void dynamicCodeShouldUseInjectedOrganizationTimeZoneResolver() {
-        Scenario scenario = refreshScenario();
+        Scenario scenario = refreshScenario(true);
         CodeRule rule = saveDateRule(scenario);
 
         DynamicRecord record;
@@ -575,6 +595,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                     CurrentUser.tenantUser("user-1", "User", TENANT_ID, "org-shanghai"))) {
                 record = recordService.newRecord(scenario.moduleAlias(), "main")
                         .setValue("title", "time-zone");
+                record.setAuthOrganizationId("org-shanghai");
                 recordService.create(scenario.moduleAlias(), "main", record);
             }
         }
@@ -584,7 +605,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
-    void shouldFallbackDefaultBucketWhenOldCodeReleaseContextCannotRender() {
+    void shouldReleaseOriginalOccupationAfterRuleSourceChanges() {
         Scenario scenario = refreshScenario();
         CodeRule rule = saveLinkedRule(scenario, true);
         DynamicRecord record = create(scenario, "alpha");
@@ -597,14 +618,15 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             ruleService.saveRuleTree(changedRule);
             recordService.delete(scenario.moduleAlias(), "main", record.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(record.getId());
         }
 
         CodeLedgerEntry released = ledgerService.findByRuleAndValue(rule.getId(), "SO-alpha-0001");
         assertThat(released.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(released.getBasisKey()).isEqualTo(CodeSequenceState.DEFAULT_BUCKET);
+        assertThat(released.getBasisKey()).isEqualTo("title=alpha");
         CodeRecycleEntry recycle = recycleEntry(rule, "SO-alpha-0001");
         assertThat(recycle.getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
-        assertThat(recycle.getBasisKey()).isEqualTo(CodeSequenceState.DEFAULT_BUCKET);
+        assertThat(recycle.getBasisKey()).isEqualTo("title=alpha");
     }
 
     private DynamicRecord create(Scenario scenario, String title) {
@@ -647,7 +669,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
     }
 
-    private Scenario refreshScenario() {
+    private Scenario refreshScenario() { return refreshScenario(false); }
+
+    private Scenario refreshScenario(boolean dataScope) {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String moduleAlias = "crm.code_it_" + suffix;
         String tableName = "crm_code_it_" + suffix;
@@ -659,7 +683,8 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                         FieldDefinition.titleField().required(),
                         FieldDefinition.string("orderNo", "Order No").column("order_no").length(64)
                 ),
-                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
+                dataScope ? Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN, EntityCapability.DATA_SCOPE)
+                        : Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
         ))));
         return new Scenario(moduleAlias);
     }
@@ -676,7 +701,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                                 mainTableName,
                                 "Code Child Main",
                                 List.of(FieldDefinition.titleField().required()),
-                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
+                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
                         ),
                         new EntityDefinition(
                                 "line",
@@ -687,7 +712,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                                         FieldDefinition.titleField().required(),
                                         FieldDefinition.string("lineNo", "Line No").column("line_no").length(64)
                                 ),
-                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
+                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
                         )
                 ))
                 .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId")

@@ -61,6 +61,21 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     private final Optional<MetadataService> metadataService;
     private final Optional<MetadataFieldService> fieldService;
     private final Optional<OrganizationHierarchyService> organizationHierarchyService;
+    private final Optional<CodeTargetCatalog> staticTargets;
+
+    public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
+                           CodeRuleSegmentService segmentService,
+                           CodeSequencePolicyService sequencePolicyService,
+                           CodeValueMappingService mappingService,
+                           Optional<PlatformModuleService> moduleService,
+                           Optional<ModuleMetadataRelationService> relationService,
+                           Optional<ModuleMetadataFieldService> moduleFieldService,
+                           Optional<MetadataService> metadataService,
+                           Optional<MetadataFieldService> fieldService,
+                           Optional<OrganizationHierarchyService> organizationHierarchyService) {
+        this(ruleDao, segmentService, sequencePolicyService, mappingService, moduleService, relationService,
+                moduleFieldService, metadataService, fieldService, organizationHierarchyService, Optional.empty());
+    }
 
     @Autowired
     public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
@@ -72,7 +87,8 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                            Optional<ModuleMetadataFieldService> moduleFieldService,
                            Optional<MetadataService> metadataService,
                            Optional<MetadataFieldService> fieldService,
-                           Optional<OrganizationHierarchyService> organizationHierarchyService) {
+                           Optional<OrganizationHierarchyService> organizationHierarchyService,
+                           Optional<CodeTargetCatalog> staticTargets) {
         super(MODULE_ALIAS, CodeRule.class, ruleDao);
         this.segmentService = Objects.requireNonNull(segmentService, "segmentService must not be null");
         this.sequencePolicyService = Objects.requireNonNull(sequencePolicyService, "sequencePolicyService must not be null");
@@ -83,6 +99,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         this.metadataService = metadataService == null ? Optional.empty() : metadataService;
         this.fieldService = fieldService == null ? Optional.empty() : fieldService;
         this.organizationHierarchyService = organizationHierarchyService == null ? Optional.empty() : organizationHierarchyService;
+        this.staticTargets = Objects.requireNonNull(staticTargets, "staticTargets");
     }
 
     public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
@@ -265,7 +282,8 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             rule.setModuleMetadataFieldId(rule.getModuleMetadataFieldId().trim());
         }
         if (rule.getMetadataFieldId() != null && !rule.getMetadataFieldId().isBlank()) {
-            rule.setMetadataFieldId(PlatformNameRules.requireIdentifier(rule.getMetadataFieldId(), "metadataFieldId"));
+            // A field ID is a persisted identity, not a SQL identifier (generated IDs may start with a digit).
+            rule.setMetadataFieldId(rule.getMetadataFieldId().trim());
         }
         if (rule.getFieldName() != null && rule.getFieldName().isBlank()) {
             rule.setFieldName(null);
@@ -295,6 +313,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             rule.setAllowRecycle(Boolean.FALSE);
         }
         validatePrimaryUniqueness(rule);
+        validateScopeOverlap(rule);
         validateSequencePolicy(rule);
     }
 
@@ -312,7 +331,20 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         rule.setGlobalDefault(Boolean.FALSE);
     }
 
+    public Optional<net.ximatai.muyun.spring.ability.code.CodeAbility<?>> staticTarget(String moduleAlias, String entityAlias) {
+        return staticTargets.flatMap(catalog -> catalog.find(moduleAlias, entityAlias));
+    }
+
     private void validateTargetExists(CodeRule rule) {
+        var staticService = staticTarget(rule.getModuleAlias(), rule.getEntityAlias());
+        if (staticService.isPresent()) {
+            if (hasText(rule.getMetadataFieldId()) || hasText(rule.getModuleMetadataFieldId()))
+                throw new PlatformException("Static code targets do not accept dynamic metadata identifiers");
+            var field = StaticCodeFields.declarations(staticService.get().modelClass()).get(rule.getFieldName());
+            if (field == null) throw new PlatformException("Undeclared static business code field: " + rule.getFieldName());
+            rule.setFieldRole(field.primary() ? CodeFieldRole.PRIMARY : CodeFieldRole.NORMAL);
+            return;
+        }
         moduleService.ifPresent(service -> {
             if (service.resolveVisibleModule(rule.getModuleAlias()) == null) {
                 throw PlatformErrors.badRequestText(TextReference.code(
@@ -326,7 +358,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         ResolvedModuleMetadataField resolvedModuleField = resolveModuleMetadataField(rule);
         if (resolvedModuleField != null) {
             if (!Objects.equals(resolvedModuleField.moduleAlias(), rule.getModuleAlias())
-                    || !Objects.equals(resolvedModuleField.relationAlias(), rule.getEntityAlias())) {
+                    || !Objects.equals(resolvedModuleField.metadataAlias(), rule.getEntityAlias())) {
                 throw PlatformErrors.badRequestText(TextReference.code(
                         "platform.rejection.code-rule.code-rule-modulemetadatafieldid-does-not-belong-to-target-object",
                         "Code rule moduleMetadataFieldId does not belong to target object: {value1}"), Map.of("value1", String.valueOf(rule.getModuleMetadataFieldId())));
@@ -335,22 +367,12 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
             rule.setFieldName(resolvedModuleField.fieldName());
             return;
         }
-        ModuleMetadataRelation relation = relationService.get().list(Criteria.of()
-                        .eq("moduleAlias", rule.getModuleAlias())
-                        .eq("relationAlias", rule.getEntityAlias()),
-                ALL).stream().findFirst().orElse(null);
-        if (relation == null && metadataService.isPresent()) {
-            Metadata metadata = metadataService.get().list(Criteria.of().eq("alias", rule.getEntityAlias()), ALL)
-                    .stream()
-                    .findFirst()
-                    .orElse(null);
-            if (metadata != null) {
-                relation = relationService.get().list(Criteria.of()
-                                .eq("moduleAlias", rule.getModuleAlias())
-                                .eq("metadataId", metadata.getId()),
-                        ALL).stream().findFirst().orElse(null);
-            }
-        }
+        if (metadataService.isEmpty()) throw new PlatformException("Code target resolution requires metadata facts");
+        ModuleMetadataRelation relation = relationService.get().list(Criteria.of().eq("moduleAlias", rule.getModuleAlias()), ALL)
+                .stream().filter(candidate -> {
+                    Metadata metadata = metadataService.get().select(candidate.getMetadataId());
+                    return metadata != null && Objects.equals(metadata.getAlias(), rule.getEntityAlias());
+                }).findFirst().orElse(null);
         if (relation == null) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.code-rule.code-rule-requires-existing-module-entity",
@@ -381,9 +403,10 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     private MetadataField resolveField(String metadataId, CodeRule rule) {
         if (rule.getMetadataFieldId() != null && !rule.getMetadataFieldId().isBlank()) {
             MetadataField byId = fieldService.get().select(rule.getMetadataFieldId());
-            if (byId != null && Objects.equals(byId.getMetadataId(), metadataId)) {
-                return byId;
-            }
+            if (byId == null || !Objects.equals(byId.getMetadataId(), metadataId)
+                    || (hasText(rule.getFieldName()) && !Objects.equals(rule.getFieldName(), byId.getFieldName())))
+                throw new PlatformException("Code rule target field identity does not match the declared entity");
+            return byId;
         }
         return fieldService.get().list(Criteria.of()
                         .eq("metadataId", metadataId)
@@ -410,11 +433,21 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                         "platform.rejection.code-rule.business-object-can-only-have-one-primary-code-field",
                         "Business object can only have one PRIMARY code field: {value1}/{value2}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getEntityAlias())));
             }
-            if (sameScope(existing, rule)) {
-                throw PlatformErrors.badRequestText(TextReference.code(
-                        "platform.rejection.code-rule.code-rule-already-exists-for-target-field-in-the-same-scope",
-                        "Code rule already exists for target field in the same scope: {value1}/{value2}/{value3}"), Map.of("value1", String.valueOf(rule.getModuleAlias()), "value2", String.valueOf(rule.getEntityAlias()), "value3", String.valueOf(currentFieldKey)));
-            }
+
+        }
+    }
+
+    private void validateScopeOverlap(CodeRule rule) {
+        if (Boolean.FALSE.equals(rule.getEnabled())) return;
+        if (rule.getEffectiveFrom() != null && rule.getEffectiveTo() != null && rule.getEffectiveFrom().isAfter(rule.getEffectiveTo()))
+            throw new PlatformException("Code rule effective interval is invalid");
+        for (CodeRule existing : list(Criteria.of().eq("moduleAlias", rule.getModuleAlias())
+                .eq("entityAlias", rule.getEntityAlias()).eq("enabled", true), ALL)) {
+            if (Objects.equals(existing.getId(), rule.getId()) || !Objects.equals(targetFieldKey(existing), targetFieldKey(rule))
+                    || !sameScope(existing, rule)) continue;
+            boolean overlaps = (rule.getEffectiveFrom() == null || existing.getEffectiveTo() == null || !rule.getEffectiveFrom().isAfter(existing.getEffectiveTo()))
+                    && (existing.getEffectiveFrom() == null || rule.getEffectiveTo() == null || !existing.getEffectiveFrom().isAfter(rule.getEffectiveTo()));
+            if (overlaps) throw new PlatformException("Code rule already exists for target field in the same scope");
         }
     }
 
@@ -667,12 +700,8 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     }
 
     private String targetFieldKey(CodeRule rule) {
-        if (rule.getModuleMetadataFieldId() != null && !rule.getModuleMetadataFieldId().isBlank()) {
-            return rule.getModuleMetadataFieldId();
-        }
-        return rule.getMetadataFieldId() == null || rule.getMetadataFieldId().isBlank()
-                ? rule.getFieldName()
-                : rule.getMetadataFieldId();
+        // Configuration IDs locate the field; the normalized business target has one identity.
+        return rule.getFieldName();
     }
 
     private void validateResolveCommand(ResolveCodeRuleCommand command) {

@@ -44,7 +44,23 @@ public class CodeGenerateService {
         this.timeService = timeService == null ? new CodeBusinessTimeService(this.clock) : timeService;
     }
 
+    public CodePreviewResult preview(GenerateCodeCommand command) {
+        Objects.requireNonNull(command, "command");
+        LocalDateTime at = timeService.resolveBusinessLocalDateTime(command.organizationId(), command.at());
+        var resolved = ruleService.resolveRule(new ResolveCodeRuleCommand(command.moduleAlias(), command.entityAlias(),
+                command.moduleMetadataFieldId(), command.metadataFieldId(), command.fieldName(), command.organizationId(), at));
+        if (resolved == null) throw new PlatformException("No code rule resolved for target");
+        if (resolved.rule().getMode() == CodeMode.MANUAL) throw new PlatformException("Manual coding has no automatic preview");
+        return previewService.previewDraft(new PreviewCodeRuleCommand(resolved.rule(), command.context(), command.organizationId(), at, null));
+    }
+
     public GenerateCodeResult generate(GenerateCodeCommand command) {
+        return issue(command).result();
+    }
+
+    record Issuance(GenerateCodeResult result, CodeRule rule) { }
+
+    Issuance issue(GenerateCodeCommand command) {
         if (command == null) {
             throw new PlatformException("Code generate command must not be null");
         }
@@ -66,10 +82,10 @@ public class CodeGenerateService {
                     "platform.rejection.code-generate.no-code-rule-resolved-for-target",
                     "No code rule resolved for target: {value1}/{value2}"), Map.of("value1", String.valueOf(command.moduleAlias()), "value2", String.valueOf(command.entityAlias())));
         }
-        return generateResolved(resolved, context, at, command.uniquenessChecker());
+        return new Issuance(generateResolved(resolved, context, at, command.uniquenessChecker()), resolved.rule());
     }
 
-    private GenerateCodeResult generateResolved(ResolvedCodeRule resolved,
+    GenerateCodeResult generateResolved(ResolvedCodeRule resolved,
                                                 Map<String, Object> context,
                                                 LocalDateTime at,
                                                 CodeValueUniquenessChecker uniquenessChecker) {

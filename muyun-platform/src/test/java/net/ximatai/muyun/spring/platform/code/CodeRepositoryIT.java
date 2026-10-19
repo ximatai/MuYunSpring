@@ -41,6 +41,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(classes = CodeRepositoryIT.TestApplication.class)
 class CodeRepositoryIT extends PlatformPostgresIntegrationTest {
 
+    @Autowired javax.sql.DataSource codeTestDataSource;
+    @Autowired org.springframework.transaction.PlatformTransactionManager codeTestTransactions;
+    @org.junit.jupiter.api.BeforeEach void installCodeMutationHost() {
+        CodeTestMutationHost.install(codeTestTransactions, codeTestDataSource);
+    }
+    @org.junit.jupiter.api.AfterEach void resetCodeMutationHost() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetMutationTransactionOperator();
+    }
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");

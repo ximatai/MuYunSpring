@@ -33,7 +33,6 @@ public class DynamicCodeContextBuilder {
         LinkedHashMap<String, Object> context = new LinkedHashMap<>();
         if (parent != null) {
             Map<String, Object> parentContext = recordContext(parent);
-            context.putAll(parentContext);
             putPrefixedContext(context, parentEntityAlias, parentContext);
             putPrefixedContext(context, relationCode, parentContext);
         }
@@ -60,7 +59,6 @@ public class DynamicCodeContextBuilder {
         if (parentIncoming != null) {
             parentContext.putAll(recordContext(parentIncoming));
         }
-        context.putAll(parentContext);
         putPrefixedContext(context, parentEntityAlias, parentContext);
         putPrefixedContext(context, relationCode, parentContext);
 

@@ -105,7 +105,7 @@ class CodeOpsServiceTest {
         DynamicRecord record = new DynamicRecord(entity());
         record.setValue("orderNo", "SO-0002");
         when(recordService.entity("crm.order", "main")).thenReturn(operations);
-        when(operations.select("order-1")).thenReturn(record);
+        when(operations.selectIgnoreSoftDelete("order-1")).thenReturn(record);
 
         CodeLedgerInspection inspection = actionService.inspectLedgerEntry(active.getId());
 

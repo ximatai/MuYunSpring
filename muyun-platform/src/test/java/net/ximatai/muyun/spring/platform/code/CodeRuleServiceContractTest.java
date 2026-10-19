@@ -289,6 +289,7 @@ class CodeRuleServiceContractTest {
         stringType.setFieldType(FieldType.STRING);
         fieldTypeService.insert(stringType);
         MetadataField orderNo = new MetadataField();
+        orderNo.setId("0123456789abcdef0123456789abcdef");
         orderNo.setMetadataId(metadata.getId());
         orderNo.setFieldName("orderNo");
         orderNo.setColumnName("order_no");
@@ -298,7 +299,7 @@ class CodeRuleServiceContractTest {
         relation.setModuleAlias("crm.order");
         relation.setMetadataId(metadata.getId());
         relation.setRelationRole(RelationRole.MAIN);
-        relation.setRelationAlias("main");
+        relation.setRelationAlias("root");
         String relationId = relationService.insert(relation);
         ModuleMetadataField moduleField = moduleFieldService.ensureForRelation(relationId).getFirst();
 
@@ -324,6 +325,7 @@ class CodeRuleServiceContractTest {
         assertThat(saved.getModuleMetadataFieldId()).isEqualTo(moduleField.getId());
         assertThat(saved.getMetadataFieldId()).isEqualTo(orderNo.getId());
         assertThat(saved.getFieldName()).isEqualTo("orderNo");
+        assertThat(validatingService.saveRuleTree(saved).getMetadataFieldId()).isEqualTo(orderNo.getId());
         ResolvedCodeRule resolvedByModuleField = validatingService.resolveRule(new ResolveCodeRuleCommand(
                 "crm.order",
                 "main",

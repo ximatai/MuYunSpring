@@ -17,6 +17,9 @@ public final class CompositeEntitySaveLifecycleListener implements EntitySaveLif
         try { listeners.forEach(listener -> listener.beforeSave(ability, existing, incoming)); }
         catch (RuntimeException failure) { persistFailed(ability, incoming, failure); throw failure; }
     }
+    @Override public <T extends EntityContract> void beforeRestore(CrudAbility<T> ability, T retained) {
+        listeners.forEach(listener -> listener.beforeRestore(ability, retained));
+    }
     @Override public <T extends EntityContract> void persisted(CrudAbility<T> ability, T entity) {
         listeners.forEach(listener -> listener.persisted(ability, entity));
     }

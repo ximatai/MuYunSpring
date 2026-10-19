@@ -105,6 +105,8 @@ public class CodeOpsActionService {
 
     @Transactional
     public CodeLedgerEntry releaseStaleLedgerEntry(String entryId, String reason) {
+        CodeLedgerEntry candidate = requireActiveLedger(entryId);
+        ledgerEntryService.lockTarget(candidate.getModuleAlias(), candidate.getEntityAlias(), candidate.getFieldName());
         CodeLedgerInspection inspection = inspectLedgerEntry(entryId);
         if (inspection.consistent()) {
             writeGovernanceLog(inspection.entry().getRuleId(), inspection.entry().getBasisKey(),
@@ -155,8 +157,16 @@ public class CodeOpsActionService {
     }
 
     private String currentBusinessValue(CodeRule rule, CodeLedgerEntry entry) {
-        DynamicRecord record = recordService.entity(rule.getModuleAlias(), rule.getEntityAlias())
-                .select(entry.getSourceRecordId());
+        var staticTarget = ruleService.staticTarget(entry.getModuleAlias(), entry.getEntityAlias());
+        if (staticTarget.isPresent()) {
+            var owner = staticTarget.get();
+            var record = owner instanceof net.ximatai.muyun.spring.ability.SoftDeleteAbility<?> retained
+                    ? retained.selectIgnoreSoftDelete(entry.getSourceRecordId()) : owner.selectActiveRaw(entry.getSourceRecordId());
+            Object value = record == null ? null : StaticCodeFields.values(record).get(entry.getFieldName());
+            return record == null ? null : value == null ? "" : String.valueOf(value);
+        }
+        DynamicRecord record = recordService.entity(entry.getModuleAlias(), entry.getEntityAlias())
+                .selectIgnoreSoftDelete(entry.getSourceRecordId());
         if (record == null) {
             return null;
         }

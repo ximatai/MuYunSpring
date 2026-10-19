@@ -97,7 +97,7 @@ class DynamicCodeCoordinatorTest {
                 "SO-0001"
         );
         assertThat(ledger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
-        assertThat(ledger.getSourceRecordId()).isEqualTo("record-1");
+        assertThat(ledger.getSourceRecordId()).isEqualTo(record.getId());
     }
 
     @Test
@@ -252,7 +252,7 @@ class DynamicCodeCoordinatorTest {
     }
 
     @Test
-    void shouldReleaseCurrentCodeBeforeDynamicDelete() {
+    void shouldRetainCodeOccupationDuringSoftDeletion() {
         Services services = services();
         CodeRule rule = rule("orderNo", CodeMode.AUTO);
         rule.setAllowRecycle(Boolean.FALSE);
@@ -264,10 +264,9 @@ class DynamicCodeCoordinatorTest {
         recordService.delete(MODULE, "main", record.getId());
 
         CodeLedgerEntry oldLedger = services.ledgerService.findByRuleAndValue(rule.getId(), "SO-0001");
-        assertThat(oldLedger.getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
-        assertThat(oldLedger.getSourceRecordId()).isNull();
-        assertThat(services.recycleService.list(null, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst()
-                .getStatus()).isEqualTo(CodeRecycleStatus.DISCARDED);
+        assertThat(oldLedger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        assertThat(oldLedger.getSourceRecordId()).isEqualTo(record.getId());
+        assertThat(services.recycleService.list(null, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10))).isEmpty();
     }
 
     private DynamicRecordService dynamicService(Services services) {
@@ -284,11 +283,11 @@ class DynamicCodeCoordinatorTest {
                 services.ruleService,
                 services.generateService,
                 services.previewService,
-                null,
+                services.stateService,
                 services.ledgerService,
                 services.recycleService,
                 new DynamicRecordServiceProxy(holder),
-                null,
+                new CodeBusinessTimeService(clock),
                 clock
         );
         holder[0] = new DynamicRecordService(
@@ -309,7 +308,7 @@ class DynamicCodeCoordinatorTest {
         when(operations.getDefaultSchemaName()).thenReturn("public");
         when(operations.insertItem(anyString(), anyString(), anyMap(), anyString())).thenAnswer(invocation -> {
             Map<String, Object> body = new LinkedHashMap<>(invocation.getArgument(2));
-            String id = "record-" + ids.incrementAndGet();
+            String id = String.valueOf(body.get("id"));
             body.put("id", id);
             rows.put(id, body);
             return id;
@@ -338,7 +337,7 @@ class DynamicCodeCoordinatorTest {
         IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
         when(operations.getDBInfo()).thenReturn(new DBInfo("POSTGRESQL").setName("muyun_test"));
         when(operations.getDefaultSchemaName()).thenReturn("public");
-        when(operations.insertItem(anyString(), anyString(), anyMap(), anyString())).thenReturn("record-1", "record-2", "record-3");
+        when(operations.insertItem(anyString(), anyString(), anyMap(), anyString())).thenAnswer(call -> String.valueOf(((Map<?, ?>) call.getArgument(2)).get("id")));
         when(operations.query(anyString(), anyMap())).thenReturn(List.of());
         when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 0L));
         when(operations.patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString())).thenReturn(1);
@@ -415,14 +414,14 @@ class DynamicCodeCoordinatorTest {
         );
         CodeGenerateService generateService = new CodeGenerateService(ruleService, previewService, stateService,
                 recycleService, null, null, clock);
-        return new Services(ruleService, previewService, generateService, recycleService, ledgerService);
+        return new Services(ruleService, previewService, generateService, recycleService, ledgerService, stateService);
     }
 
     private record Services(CodeRuleService ruleService,
                             CodePreviewService previewService,
                             CodeGenerateService generateService,
                             CodeRecycleEntryService recycleService,
-                            CodeLedgerEntryService ledgerService) {
+                            CodeLedgerEntryService ledgerService, CodeSequenceStateService stateService) {
     }
 
     private Object safeValue(DynamicRecord record, String fieldName) {
