@@ -80,6 +80,7 @@ const rules = ref<CodeRule[]>([]);
 const draft = ref<CodeRule>();
 const original = ref('');
 const loading = ref(false);
+const loadFailed = ref(false);
 const saving = ref(false);
 const error = ref('');
 const feedback = ref('');
@@ -166,6 +167,12 @@ async function selectTarget(key: string) {
 }
 async function load() {
   const sequence = ++requestSequence;
+  loadFailed.value = false;
+  if (!hasRuleTenant.value) {
+    loading.value = false;
+    error.value = '';
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -175,7 +182,10 @@ async function load() {
     loading.value = false;
     await selectTarget(loaded[0] ? targetId(loaded[0]) : '');
   } catch (cause) {
-    if (sequence === requestSequence) error.value = messageOf(cause);
+    if (sequence === requestSequence) {
+      error.value = messageOf(cause);
+      loadFailed.value = true;
+    }
   } finally {
     if (sequence === requestSequence) loading.value = false;
   }
@@ -330,16 +340,23 @@ async function trial() {
       />
       <UiButton :disabled="busy || dirty" @click="load">{{ t('reload', '刷新') }}</UiButton>
     </header>
-    <p v-if="error" class="code-config__error" role="alert">{{ error }}</p>
+    <div v-if="error" class="code-config__error" role="alert">
+      <p>{{ error }}</p>
+      <UiButton v-if="loadFailed" :disabled="busy" @click="load">{{ t('retry', '重试加载') }}</UiButton>
+    </div>
     <p v-if="feedback" role="status">{{ feedback }}</p>
-    <UiSpin v-if="loading" :spinning="true"
+    <UiEmpty
+      v-if="!hasRuleTenant"
+      :description="t('select-tenant', '选择规则所属租户后，可维护该租户的编号规则。')"
+    />
+    <UiSpin v-else-if="loading" :spinning="true"
       ><p>{{ t('loading', '正在读取编码配置…') }}</p></UiSpin
     >
     <UiEmpty
-      v-else-if="targets.length === 0"
+      v-else-if="!error && targets.length === 0"
       :description="t('no-target', '当前模块尚未声明可配置的业务编码字段。')"
     />
-    <div v-else class="code-config__layout">
+    <div v-else-if="targets.length" class="code-config__layout">
       <aside class="code-config__directory">
         <label
           >{{ t('entity', '业务对象')

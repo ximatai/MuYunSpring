@@ -4,13 +4,17 @@ import { ref } from 'vue';
 import CodeConfigurationView from '@/views/CodeConfigurationView.vue';
 import { UiInput } from '@muyun/vue-ui-antdv';
 import type { CodeTarget } from '@/views/codeConfiguration';
-const { request, can } = vi.hoisted(() => ({ request: vi.fn(), can: vi.fn(() => true) }));
+const { request, can, user } = vi.hoisted(() => ({
+  request: vi.fn(),
+  can: vi.fn(() => true),
+  user: { tenantId: 'tenant-a', system: false },
+}));
 vi.mock('@muyun/web-core', async (original) => ({
   ...(await original<typeof import('@muyun/web-core')>()),
   useModuleContext: () => ({ http: { request }, can }),
 }));
 vi.mock('@/platform-admin-runtime/currentUserContext', () => ({
-  useCurrentUserContext: () => ref({ tenantId: 'tenant-a', system: false }),
+  useCurrentUserContext: () => ref(user),
 }));
 vi.mock('@muyun/platform-components', async (original) => ({
   ...(await original<typeof import('@muyun/platform-components')>()),
@@ -32,6 +36,8 @@ const wrapperOf = () =>
 const button = (wrapper: ReturnType<typeof wrapperOf>, title: string) =>
   wrapper.findAll('button').find((item) => item.text().replace(/\s+/g, '') === title)!;
 beforeEach(() => {
+  user.tenantId = 'tenant-a';
+  user.system = false;
   request.mockReset();
   can.mockReturnValue(true);
   request.mockImplementation(async ({ path, body }) => {
@@ -43,6 +49,33 @@ beforeEach(() => {
   });
 });
 describe('CodeConfigurationView', () => {
+  it('waits for a system administrator to choose a tenant before requesting tenant-owned targets', async () => {
+    user.tenantId = '';
+    user.system = true;
+    const wrapper = wrapperOf();
+    await flushPromises();
+    expect(request.mock.calls.some(([call]) => call.path.startsWith('/platform.code_rule/'))).toBe(false);
+    expect(wrapper.text()).toContain('选择规则所属租户后');
+    expect(wrapper.text()).not.toContain('尚未声明');
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', 'tenant-a');
+    await flushPromises();
+    expect(request.mock.calls.some(([call]) => call.path.includes('/targets'))).toBe(true);
+    expect(wrapper.text()).toContain('字段角色和触发方式由 Java 模型声明');
+    wrapper.unmount();
+  });
+  it('distinguishes a load failure from an empty catalog and offers a working retry', async () => {
+    request.mockRejectedValueOnce(new Error('offline'));
+    const wrapper = wrapperOf();
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('尚未声明');
+    await button(wrapper, '重试加载').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(button(wrapper, '新增规则')).toBeDefined();
+    wrapper.unmount();
+  });
   it('edits a static API-only declaration, trials without saving, then persists the full rule tree', async () => {
     const wrapper = wrapperOf();
     await flushPromises();

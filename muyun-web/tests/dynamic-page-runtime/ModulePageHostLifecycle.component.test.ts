@@ -964,3 +964,52 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
     configureModulePageEnhancementContributions('entry-language-test', []);
   }
 });
+
+it('renders and dispatches enhancement actions in an empty flat management explorer', async () => {
+  const { configureModulePageEnhancementContributions } =
+    await import('@/dynamic-page-runtime/modulePageEnhancements');
+  const moduleAlias = 'demo.flat_action';
+  const run = vi.fn();
+  configureModulePageEnhancementContributions('flat-action-test', [
+    {
+      id: 'flat-action-test',
+      target: { moduleAlias },
+      list: { actions: [{ key: 'configure', title: '编码工作台', run }] },
+    },
+  ]);
+  configureModuleContext({
+    http: {
+      async request(options) {
+        return (
+          options.path.endsWith('/context')
+            ? runtime(moduleAlias, { template: 'FLAT_MANAGEMENT' })
+            : { records: [], total: 0 }
+        ) as never;
+      },
+    },
+  });
+  const wrapper = mount(ModulePageHost, {
+    props: { descriptor: descriptor(moduleAlias) },
+    global: {
+      stubs: {
+        ...hostStubs,
+        StaticManagementLayout: {
+          template: '<section><slot name="explorer-actions" /><slot name="explorer" /></section>',
+        },
+        CrudRecordListExplorer: true,
+        RecordDataExchangeSurface: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const action = wrapper.findAll('button').find((item) => item.text().replace(/\s+/g, '') === '编码工作台');
+    expect(action).toBeDefined();
+    await action!.trigger('click');
+    await flushPromises();
+    expect(run).toHaveBeenCalledOnce();
+  } finally {
+    wrapper.unmount();
+    configureModulePageEnhancementContributions('flat-action-test', []);
+  }
+});

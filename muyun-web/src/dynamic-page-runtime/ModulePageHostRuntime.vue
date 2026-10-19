@@ -409,10 +409,10 @@ export default defineComponent({
             @changed="refreshList"
           />
           <RecordActionBar
-            v-if="placedPageActions.length || fileActions.length"
+            v-if="enhancementActions.length || placedPageActions.length || fileActions.length"
             :context="context"
-            :actions="[...placedPageActions, ...fileActions]"
-            @action="handlePageSurfaceAction"
+            :actions="[...enhancementActions, ...placedPageActions, ...fileActions]"
+            @action="handleListSurfaceAction"
           />
           <RecordPanelButton
             v-if="context.can('sort') === true"
