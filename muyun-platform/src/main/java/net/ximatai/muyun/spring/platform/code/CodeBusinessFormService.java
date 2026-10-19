@@ -57,7 +57,7 @@ public class CodeBusinessFormService {
                 try {
                     candidate = generation.previewResolved(selected, context, at).value();
                     context.put(rule.getFieldName(), candidate);
-                    if (context.containsKey(entity.alias() + "." + rule.getFieldName())) context.put(entity.alias() + "." + rule.getFieldName(), candidate);
+                    context.put(entity.alias() + "." + rule.getFieldName(), candidate);
                 } catch (IllegalArgumentException | PlatformException incompleteDraft) {
                     // Missing draft sources can prevent a candidate while the numbering mode is already authoritative.
                 }

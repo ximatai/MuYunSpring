@@ -761,6 +761,43 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
             assertThat(child).singleElement().extracting(CodeBusinessFieldState::preview).isEqualTo("LN-PARENT-0001");
         }
     }
+    @Test
+    void childPreviewFeedsQualifiedGeneratedCodeDependenciesEvenWhenTheDraftOmitsEveryCodeKey() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "crm.preview_dep_" + suffix;
+        var child = new EntityDefinition("line", "preview_line_" + suffix, "Line", List.of(
+                FieldDefinition.string("mainId", "Main").column("main_id").required(), FieldDefinition.titleField().required(),
+                FieldDefinition.string("firstNo", "First").column("first_no").length(64),
+                FieldDefinition.string("secondNo", "Second").column("second_no").length(64)), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE))
+                .withBusinessCodes(java.util.Map.of("firstNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null),
+                        "secondNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(false, null)));
+        refresher.refresh(ModuleDefinition.builder(module, "Qualified preview")
+                .entities(List.of(new EntityDefinition("main", "preview_main_" + suffix, "Main", List.of(FieldDefinition.titleField().required()), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)), child))
+                .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId").withAutoPopulate())).build());
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            for (String field : List.of("firstNo", "secondNo")) {
+                var rule = new CodeRule(); rule.setModuleAlias(module); rule.setEntityAlias("line"); rule.setFieldName(field);
+                var source = field.equals("firstNo") ? segment(CodeSegmentType.CONSTANT, "A", null)
+                        : segment(CodeSegmentType.FIELD_VALUE, null, "line.firstNo");
+                source.setSeparator("-"); rule.setSegments(List.of(source, sequenceSegment()));
+                var policy = new CodeSequencePolicy(); policy.setSequenceLength(4); rule.setSequencePolicy(policy); ruleService.saveRuleTree(rule);
+            }
+            var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+            var forms = new CodeBusinessFormService(new CodeTargetCatalog(factory.getBeanProvider(
+                    org.springframework.core.ResolvableType.forClass(net.ximatai.muyun.spring.ability.CrudAbility.class))),
+                    Optional.of(recordService), ruleService, formGeneration, new CodeBusinessTimeService(Clock.systemUTC()), new com.fasterxml.jackson.databind.ObjectMapper());
+            var draft = new java.util.LinkedHashMap<String, Object>(); draft.put("title", "line");
+            var states = forms.fields(module, new CodeBusinessFormRequest("line", draft, java.util.Map.of("title", "parent")));
+            assertThat(states).filteredOn(state -> state.fieldName().equals("secondNo")).singleElement()
+                    .extracting(CodeBusinessFieldState::preview).isEqualTo("A-0001-0001");
+            assertThat(draft).containsExactlyEntriesOf(java.util.Map.of("title", "line"));
+            var parent = recordService.newRecord(module, "main").setValue("title", "parent");
+            var line = recordService.newRecord(module, "line").setValue("title", "line"); parent.setChildren("lines", List.of(line));
+            recordService.create(module, "main", parent);
+            assertThat(line.getValue("firstNo")).isEqualTo("A-0001");
+            assertThat(line.getValue("secondNo")).isEqualTo("A-0001-0001");
+        }
+    }
     @Autowired private CodeGenerateService formGeneration;
 
     private Scenario refreshScenario() { return refreshScenario(false); }
