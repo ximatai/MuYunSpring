@@ -830,6 +830,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       class="record-form-field-host"
       :class="{
         'record-form-field-host--actions': $slots['field-actions'],
+        'record-form-field-host--code': field.businessCode && mode !== 'view',
+        'record-form-field-host--code-unlabelled': field.businessCode && mode !== 'view' && !showLabels,
         'record-form-field-full-row': field.columnSpan === 2,
       }"
       :data-page-composition-layout-key="
@@ -841,6 +843,40 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       <span v-if="$slots['field-actions']" class="record-form-field-actions"
         ><slot name="field-actions" :field="field"
       /></span>
+      <div v-if="field.businessCode && mode !== 'view'" class="record-form-code-help">
+        <UiPopover placement="bottomLeft">
+          <UiButton
+            type="text"
+            size="small"
+            icon-name="help"
+            icon-only
+            :aria-label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`"
+          />
+          <template #content>
+            <div class="record-form-code-details">
+              <strong>{{ field.label }}</strong>
+              <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
+                language.t('platform.form.code.primary', '主编码')
+              }}</span>
+              <p>{{ codeHint(field) }}</p>
+              <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
+                {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
+                  codeForms.policies.value.get(field.fieldName)?.preview
+                }}
+              </p>
+              <p
+                v-if="codeForms.errorOf(field.fieldName)"
+                :class="{ 'record-form-field-error': !codeForms.loading.value }"
+              >
+                {{ codeForms.errorOf(field.fieldName) }}
+              </p>
+              <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
+                {{ language.t('platform.form.retry', '重试') }}
+              </UiButton>
+            </div>
+          </template>
+        </UiPopover>
+      </div>
       <label
         class="record-form-field"
         :data-page-composition-layout-key="
@@ -850,6 +886,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         "
         :class="{
           'record-form-field--invalid': fieldShowsError(field),
+          'record-form-field--code': field.businessCode && mode !== 'view',
           'record-form-field-full-row': field.columnSpan === 2,
           'record-form-field--compact': compact,
           'record-form-field--validation-pulse': validationRequestKey > 0 && fieldInvalid(field),
@@ -859,7 +896,6 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         <div
           v-if="
             (showLabels && field.controlType !== 'imageFileTransfer') ||
-            (field.businessCode && mode !== 'view') ||
             optionFieldError(field) ||
             (!field.readOnly && editorFieldError(field))
           "
@@ -874,38 +910,6 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           >
             {{ field.label }}
           </RecordFieldLabel>
-          <UiPopover v-if="field.businessCode && mode !== 'view'" placement="bottomLeft">
-            <UiButton
-              type="text"
-              size="small"
-              icon-name="help"
-              icon-only
-              :aria-label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`"
-            />
-            <template #content>
-              <div class="record-form-code-details">
-                <strong>{{ field.label }}</strong>
-                <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
-                  language.t('platform.form.code.primary', '主编码')
-                }}</span>
-                <p>{{ codeHint(field) }}</p>
-                <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
-                  {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
-                    codeForms.policies.value.get(field.fieldName)?.preview
-                  }}
-                </p>
-                <p
-                  v-if="codeForms.errorOf(field.fieldName)"
-                  :class="{ 'record-form-field-error': !codeForms.loading.value }"
-                >
-                  {{ codeForms.errorOf(field.fieldName) }}
-                </p>
-                <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">{{
-                  language.t('platform.form.retry', '重试')
-                }}</UiButton>
-              </div>
-            </template>
-          </UiPopover>
           <div v-if="optionFieldError(field)" class="record-form-field-error">
             <span>{{ optionFieldError(field) }}</span>
             <UiButton
@@ -1276,8 +1280,25 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   gap: 8px;
   min-width: 0;
 }
-.record-form-field-host--actions {
+.record-form-field-host--actions,
+.record-form-field-host--code {
   position: relative;
+}
+.record-form-code-help {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  z-index: 1;
+}
+.record-form-field-host--actions > .record-form-code-help {
+  inset-inline-end: 26px;
+}
+.record-form-field--code .record-form-field-heading,
+.record-form-field-host--code-unlabelled > .record-form-field {
+  padding-inline-end: 30px;
+}
+.record-form-field-host--actions.record-form-field-host--code-unlabelled > .record-form-field {
+  padding-inline-end: 56px;
 }
 .record-form-field-host--actions > .record-form-field {
   padding-inline-end: 26px;
