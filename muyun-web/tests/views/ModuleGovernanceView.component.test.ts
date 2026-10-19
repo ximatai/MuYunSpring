@@ -7,6 +7,7 @@ import MetadataOrchestrationView from '@/views/MetadataOrchestrationView.vue';
 import ModuleExperienceProfileOverview from '@/views/ModuleExperienceProfileOverview.vue';
 import BusinessRuleGovernanceSurface from '@/views/BusinessRuleGovernanceSurface.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
+import CodeConfigurationView from '@/views/CodeConfigurationView.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import { RecordDetailPanel } from '@/platform-components';
 import type { ModuleGovernanceTab } from '@/views/moduleGovernanceWorkspaceView';
@@ -41,6 +42,19 @@ describe('ModuleGovernanceView', () => {
       key: 'preview',
       title: '业务预览',
     });
+  });
+
+  it('keeps business code binding and rule configuration inside module governance', () => {
+    const wrapper = mountGovernanceView({ moduleAlias: 'sales.invoice', governanceTab: 'codes' });
+    expect(wrapper.findComponent(CodeConfigurationView).props()).toMatchObject({
+      moduleAlias: 'sales.invoice',
+      embedded: true,
+    });
+    expect(wrapper.findComponent({ name: 'RecordRelationTabs' }).props('tabs')).toContainEqual({
+      key: 'codes',
+      title: '业务编码',
+    });
+    wrapper.unmount();
   });
 
   it('opens business-rule governance in the same module-scoped workbench', () => {

@@ -61,6 +61,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CodeRuleWebControllerTest {
+    @Test void readOnlyRulePagePublishesCompleteEnglishResources() {
+        var controller = new CodeRuleWebController(mock(CodePreviewService.class));
+        var definition = net.ximatai.muyun.spring.platform.web.StaticModuleDefinition.builder("platform", CodeRuleService.MODULE_ALIAS, "编码规则")
+                .modelClass(CodeRule.class).uiDefinition(controller.moduleUiDefinition()).build();
+        var descriptor = net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler.compile(definition);
+        var catalog = net.ximatai.muyun.spring.common.i18n.LanguageCatalog.load(getClass().getClassLoader(), "zh-CN");
+        var resources = net.ximatai.muyun.spring.common.i18n.TextResources.load(getClass().getClassLoader(), catalog);
+        var missing = descriptor.sourceTexts().values().stream().filter(source -> {
+            var translated = resources.resolve(source, Map.of(), "en");
+            return translated.missing() || translated.text().matches(".*[\\p{IsHan}].*");
+        }).map(net.ximatai.muyun.spring.common.i18n.TextReference::sourceId).toList();
+        assertThat(missing).isEmpty();
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private CodeRuleService ruleService;
     private CodePreviewService previewService;
@@ -194,6 +208,7 @@ class CodeRuleWebControllerTest {
         assertThat(captor.getValue().rule().getSegments()).singleElement()
                 .extracting(CodeRuleSegment::getFixedValue)
                 .isEqualTo("DRAFT");
+        verify(ruleService).validateRuleDraft(captor.getValue().rule());
         verifyNoMoreInteractions(ruleService);
     }
 

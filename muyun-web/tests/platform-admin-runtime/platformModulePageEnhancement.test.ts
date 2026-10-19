@@ -4,6 +4,7 @@ import {
   createWorkspaceViewRegistry,
 } from '@/platform-workbench/workspaceViews.ts';
 import {
+  codeRulePageEnhancement,
   dictionaryCategoryPageEnhancement,
   platformModuleActionPageEnhancement,
   platformModulePageEnhancement,
@@ -89,16 +90,37 @@ describe('platform module page enhancement', () => {
           moduleKind: 'static',
         }),
     ).toEqual({ visible: false });
-    expect(actions.map((action) => action.title)).toEqual(['审批流程', '添加到菜单', '动作', '低代码']);
+    expect(actions.map((action) => action.title)).toEqual([
+      '业务编码',
+      '审批流程',
+      '添加到菜单',
+      '动作',
+      '低代码',
+    ]);
   });
 
   it('exposes actions and the governance-backed low-code entry point in the module detail header', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
     expect(actions.map((action) => action.key)).toEqual([
+      'module-business-code',
       'module-workflow-workspace',
       'module-add-to-menu',
       'module-actions-workspace',
       'module-ui-orchestration-workspace',
     ]);
+  });
+  it('opens the code workbench for static API-only modules and registers it under its own capability module', () => {
+    const action = (platformModulePageEnhancement.detail?.actions ?? []).find(
+      (item) => item.key === 'module-business-code',
+    )!;
+    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' })).toEqual({ visible: true });
+    const openWorkspaceTab = vi.fn();
+    action.run({ record: { alias: 'api.invoice', title: '接口单据' }, openWorkspaceTab } as never);
+    const [view, input] = openWorkspaceTab.mock.calls[0]!;
+    expect(codeRulePageEnhancement.workspaceViews).toContain(view);
+    expect(view.moduleAlias).toBe('platform.code_rule');
+    expect(
+      createWorkspaceViewRegistry([view]).resolve(createWorkspaceViewDescriptor(view, input)),
+    ).toMatchObject({ input: { moduleAlias: 'api.invoice' } });
   });
 });

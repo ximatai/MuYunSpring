@@ -292,6 +292,7 @@ describe('module page enhancements', () => {
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
     ).toEqual([
+      'module-business-code',
       'module-workflow-workspace',
       'module-add-to-menu',
       'module-actions-workspace',

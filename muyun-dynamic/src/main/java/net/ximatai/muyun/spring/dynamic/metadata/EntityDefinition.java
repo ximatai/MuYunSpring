@@ -20,9 +20,19 @@ public record EntityDefinition(
         List<EntityFormulaRuleDefinition> formulaRules,
         List<TenantUniqueConstraintDefinition> tenantUniqueConstraints,
         List<String> sortPartitionFields,
-        Map<String, FileReferenceDefinition> fileReferences
+        Map<String, FileReferenceDefinition> fileReferences,
+        Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes
 ) {
     public static final String DEFAULT_SCHEMA_NAME = "public";
+
+    public EntityDefinition(String alias, String schemaName, String tableName, String name,
+                            List<FieldDefinition> fields, Set<EntityCapability> capabilities,
+                            List<EntityFormulaRuleDefinition> formulaRules,
+                            List<TenantUniqueConstraintDefinition> tenantUniqueConstraints,
+                            List<String> sortPartitionFields, Map<String, FileReferenceDefinition> fileReferences) {
+        this(alias, schemaName, tableName, name, fields, capabilities, formulaRules, tenantUniqueConstraints,
+                sortPartitionFields, fileReferences, Map.of());
+    }
 
     public EntityDefinition(String alias, String tableName, String name, List<FieldDefinition> fields) {
         this(alias, DEFAULT_SCHEMA_NAME, tableName, name, fields, Set.of(EntityCapability.CRUD), List.of(), List.of(), List.of(), Map.of());
@@ -81,12 +91,20 @@ public record EntityDefinition(
     }
 
     public EntityDefinition {
+        businessCodes = businessCodes == null ? Map.of() : Map.copyOf(businessCodes);
+        if (businessCodes.values().stream().filter(net.ximatai.muyun.spring.ability.code.CodeFieldDefinition::primary).count() > 1)
+            throw new IllegalArgumentException("Only one PRIMARY business code field is allowed: " + alias);
         schemaName = schemaName == null || schemaName.isBlank() ? DEFAULT_SCHEMA_NAME : schemaName;
         fields = fields == null ? List.of() : List.copyOf(fields);
         capabilities = normalizeCapabilities(capabilities);
         if (fields.stream().anyMatch(field -> field.content().enabled())) {
             var declared = EnumSet.copyOf(capabilities);
             declared.add(EntityCapability.BUSINESS_CONTENT);
+            capabilities = Set.copyOf(declared);
+        }
+        if (!businessCodes.isEmpty()) {
+            var declared = EnumSet.copyOf(capabilities);
+            declared.add(EntityCapability.BUSINESS_CODE);
             capabilities = Set.copyOf(declared);
         }
         formulaRules = formulaRules == null ? List.of() : List.copyOf(formulaRules);
@@ -97,27 +115,33 @@ public record EntityDefinition(
 
     public EntityDefinition withCapabilities(EntityCapability... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, Set.of(values), formulaRules,
-                tenantUniqueConstraints, sortPartitionFields, fileReferences);
+                tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes);
     }
 
     public EntityDefinition withFormulaRules(EntityFormulaRuleDefinition... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities,
-                values == null ? List.of() : List.of(values), tenantUniqueConstraints, sortPartitionFields, fileReferences);
+                values == null ? List.of() : List.of(values), tenantUniqueConstraints, sortPartitionFields, fileReferences, businessCodes);
     }
 
     public EntityDefinition withTenantUniqueConstraints(TenantUniqueConstraintDefinition... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                values == null ? List.of() : List.of(values), sortPartitionFields, fileReferences);
+                values == null ? List.of() : List.of(values), sortPartitionFields, fileReferences, businessCodes);
     }
 
     public EntityDefinition withSortPartitionFields(String... values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                tenantUniqueConstraints, values == null ? List.of() : List.of(values), fileReferences);
+                tenantUniqueConstraints, values == null ? List.of() : List.of(values), fileReferences, businessCodes);
     }
 
     public EntityDefinition withFileReferences(Map<String, FileReferenceDefinition> values) {
         return new EntityDefinition(alias, schemaName, tableName, name, fields, capabilities, formulaRules,
-                tenantUniqueConstraints, sortPartitionFields, values);
+                tenantUniqueConstraints, sortPartitionFields, values, businessCodes);
+    }
+
+    public EntityDefinition withBusinessCodes(Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> values) {
+        var declared = EnumSet.copyOf(capabilities); declared.remove(EntityCapability.BUSINESS_CODE);
+        return new EntityDefinition(alias, schemaName, tableName, name, fields, declared, formulaRules,
+                tenantUniqueConstraints, sortPartitionFields, fileReferences, values);
     }
 
     /**

@@ -9,6 +9,7 @@ public enum EntityCapability {
     SORT(CapabilityKind.FIELD_DECLARATION),
     REFERENCE(CapabilityKind.FIELD_DECLARATION),
     BUSINESS_CONTENT(CapabilityKind.FIELD_DECLARATION),
+    BUSINESS_CODE(CapabilityKind.FIELD_DECLARATION),
     ENABLE(CapabilityKind.FIELD_DECLARATION),
     DATA_SCOPE(CapabilityKind.FIELD_DECLARATION),
     RECYCLE_BIN(CapabilityKind.DEFINITION_DECLARATION),

@@ -35,7 +35,7 @@ public class CodeDependencyResolver {
     }
 
     Set<String> dependencyKeys(CodeRule rule) {
-        if (rule == null || rule.getSegments() == null || rule.getSegments().isEmpty()) {
+        if (rule == null || rule.getMode() == CodeMode.MANUAL || rule.getSegments() == null || rule.getSegments().isEmpty()) {
             return Set.of();
         }
         return rule.getSegments().stream()
@@ -45,6 +45,25 @@ public class CodeDependencyResolver {
                         : java.util.stream.Stream.of(segment.getSourceRef()))
                 .filter(this::hasText)
                 .collect(Collectors.toSet());
+    }
+
+    java.util.List<ResolvedCodeRule> orderedRules(java.util.List<ResolvedCodeRule> rules, String entityAlias) {
+        var byField = new java.util.TreeMap<String, ResolvedCodeRule>();
+        for (var rule : rules) byField.put(rule.rule().getFieldName(), rule);
+        var result = new java.util.ArrayList<ResolvedCodeRule>();
+        var visited = new java.util.HashSet<String>();
+        for (String field : byField.keySet()) visit(field, entityAlias, byField, visited, new java.util.LinkedHashSet<>(), result);
+        return java.util.List.copyOf(result);
+    }
+    private void visit(String field, String entity, Map<String, ResolvedCodeRule> rules, Set<String> visited,
+                       Set<String> path, java.util.List<ResolvedCodeRule> result) {
+        if (visited.contains(field)) return;
+        if (!path.add(field)) throw new IllegalArgumentException("Cyclic business code dependency: " + path + " -> " + field);
+        for (String source : dependencyKeys(rules.get(field).rule()).stream().sorted().toList()) {
+            String key = source.startsWith(entity + ".") ? source.substring(entity.length() + 1) : source;
+            if (rules.containsKey(key)) visit(key, entity, rules, visited, path, result);
+        }
+        path.remove(field); visited.add(field); result.add(rules.get(field));
     }
 
     private Set<String> formulaDependencies(String expression) {

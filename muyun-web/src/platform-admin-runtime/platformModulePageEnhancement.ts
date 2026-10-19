@@ -2,6 +2,7 @@ import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dyna
 import type { QueryListRecord } from '@muyun/platform-components';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
 import { workflowConfigurationWorkspaceView } from '../views/workflowConfigurationWorkspaceView';
+import { codeConfigurationWorkspaceView } from '../views/codeConfigurationWorkspaceView';
 import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
 import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
@@ -9,6 +10,7 @@ import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspac
 // Workspace definitions use the platform-workbench's serializable input
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
 // contract, so adapt them once at this composition edge.
+const codeWorkspaceView = codeConfigurationWorkspaceView as unknown as ModulePageWorkspaceView;
 const workflowWorkspaceView = workflowConfigurationWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as ModulePageWorkspaceView;
@@ -36,6 +38,16 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       },
     ],
     actions: [
+      {
+        key: 'module-business-code',
+        title: '业务编码',
+        titleKey: 'platform.code.config.title',
+        state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
+        run({ record, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (moduleAlias) openWorkspaceTab(codeWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
+        },
+      },
       {
         key: 'module-workflow-workspace',
         title: '审批流程',
@@ -149,3 +161,37 @@ function stringField(record: QueryListRecord, name: string): string | undefined 
   const value = record[name];
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
+
+/** Rule headers retain the standard list; the governed editor owns the complete rule tree. */
+export const codeRulePageEnhancement: ModulePageEnhancement = {
+  id: 'platform-business-code-configuration',
+  target: { moduleAlias: 'platform.code_rule' },
+  workspaceViews: [codeWorkspaceView],
+  standardActions: { disabled: ['create', 'edit', 'delete', 'enable', 'disable'] },
+  list: {
+    actions: [
+      {
+        key: 'business-code-workspace',
+        actionCode: 'configurationQuery',
+        title: '编码工作台',
+        titleKey: 'platform.code.config.workspace',
+        run({ openWorkspaceTab }) {
+          openWorkspaceTab(codeWorkspaceView, {});
+        },
+      },
+    ],
+  },
+  detail: {
+    actions: [
+      {
+        key: 'business-code-configure',
+        title: '配置编码',
+        titleKey: 'platform.code.config.configure',
+        run({ record, openWorkspaceTab }) {
+          if (typeof record.moduleAlias === 'string')
+            openWorkspaceTab(codeWorkspaceView, { moduleAlias: record.moduleAlias });
+        },
+      },
+    ],
+  },
+};

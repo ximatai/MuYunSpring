@@ -52,7 +52,7 @@ public class CodeGenerateService {
         if (resolved == null) throw new PlatformException("No code rule resolved for target");
         if (resolved.rule().getMode() == CodeMode.MANUAL) throw new PlatformException("Manual coding has no automatic preview");
         var preview = previewService.previewDraft(new PreviewCodeRuleCommand(resolved.rule(), command.context(), command.organizationId(), at, null));
-        return new CodePreviewResult(normalizeStaticValue(resolved.rule(), preview.value()), preview.segments());
+        return new CodePreviewResult(normalizeTargetValue(resolved.rule(), preview.value()), preview.segments());
     }
 
     public GenerateCodeResult generate(GenerateCodeCommand command) {
@@ -90,12 +90,11 @@ public class CodeGenerateService {
                                                 Map<String, Object> context,
                                                 LocalDateTime at,
                                                 CodeValueUniquenessChecker uniquenessChecker) {
-        return generateResolved(resolved, context, at, uniquenessChecker, value -> normalizeStaticValue(resolved.rule(), value));
+        return generateResolved(resolved, context, at, uniquenessChecker, value -> normalizeTargetValue(resolved.rule(), value));
     }
 
-    private String normalizeStaticValue(CodeRule rule, String value) {
-        var target = ruleService.staticTarget(rule.getModuleAlias(), rule.getEntityAlias());
-        return target.isPresent() ? StaticCodeFields.normalizeCode(target.get().modelClass(), rule.getFieldName(), value) : value;
+    private String normalizeTargetValue(CodeRule rule, String value) {
+        return ruleService.normalizeGeneratedValue(rule, value);
     }
 
     GenerateCodeResult generateResolved(ResolvedCodeRule resolved, Map<String, Object> context, LocalDateTime at,
@@ -213,6 +212,8 @@ public class CodeGenerateService {
 
     private String requireCode(String value) {
         if (value == null || value.isBlank()) throw new PlatformException("Generated business code must not be empty after normalization");
+        if (value.length() > net.ximatai.muyun.spring.ability.code.CodeFieldDefinition.MAX_CODE_LENGTH)
+            throw new PlatformException("Business code exceeds the platform code length limit");
         return value;
     }
 

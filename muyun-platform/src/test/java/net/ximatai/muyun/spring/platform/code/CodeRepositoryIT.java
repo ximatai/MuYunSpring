@@ -81,6 +81,28 @@ class CodeRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void aRejectedRuleEnablePreservesTheLastCommittedDependencyPlan() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            String module = uniqueModuleAlias();
+            var first = rule(module, "firstCode"); first.setFieldRole(CodeFieldRole.NORMAL); first.setSequencePolicy(null);
+            var source = new CodeRuleSegment(); source.setSegmentType(CodeSegmentType.FIELD_VALUE); source.setSourceRef("secondCode");
+            first.setSegments(List.of(source)); ruleService.saveRuleTree(first);
+            var second = rule(module, "secondCode"); second.setFieldRole(CodeFieldRole.NORMAL); second.setSequencePolicy(null); second.setEnabled(false);
+            var reverse = new CodeRuleSegment(); reverse.setSegmentType(CodeSegmentType.FIELD_VALUE); reverse.setSourceRef("firstCode");
+            second.setSegments(List.of(reverse)); var saved = ruleService.saveRuleTree(second);
+            assertThatThrownBy(() -> ruleService.enable(saved.getId(), saved.getVersion())).hasMessageContaining("Cyclic business code dependency");
+            var retained = ruleService.viewRuleTree(saved.getId());
+            assertThat(retained.getEnabled()).isFalse();
+            assertThat(retained.getSegments().getFirst().getSourceRef()).isEqualTo("firstCode");
+            var constant = new CodeRuleSegment(); constant.setSegmentType(CodeSegmentType.CONSTANT); constant.setFixedValue("SECOND");
+            retained.setSegments(List.of(constant)); retained.setEnabled(true); ruleService.saveRuleTree(retained);
+            assertThat(new CodeDependencyResolver().orderedRules(ruleService.resolveRules(
+                    new ResolveCodeRuleCommand(module, first.getEntityAlias(), null, null, null, null)), first.getEntityAlias()))
+                    .extracting(item -> item.rule().getFieldName()).containsExactly("secondCode", "firstCode");
+        }
+    }
+
+    @Test
     void shouldEnforceMigratedRequiredFieldsWithoutTrimmingCodeValues() {
         CodeRecycleEntry entry = new CodeRecycleEntry();
         entry.setRuleId(UUID.randomUUID().toString().replace("-", ""));

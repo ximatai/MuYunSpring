@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.ability.code.StaticCodeFields;
+
 import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
@@ -62,6 +64,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     private final Optional<MetadataFieldService> fieldService;
     private final Optional<OrganizationHierarchyService> organizationHierarchyService;
     private final Optional<CodeTargetCatalog> staticTargets;
+    private final Optional<CodeConfigurationService> configuration;
 
     public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
                            CodeRuleSegmentService segmentService,
@@ -77,7 +80,6 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                 moduleFieldService, metadataService, fieldService, organizationHierarchyService, Optional.empty());
     }
 
-    @Autowired
     public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
                            CodeRuleSegmentService segmentService,
                            CodeSequencePolicyService sequencePolicyService,
@@ -89,6 +91,17 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                            Optional<MetadataFieldService> fieldService,
                            Optional<OrganizationHierarchyService> organizationHierarchyService,
                            Optional<CodeTargetCatalog> staticTargets) {
+        this(ruleDao, segmentService, sequencePolicyService, mappingService, moduleService, relationService,
+                moduleFieldService, metadataService, fieldService, organizationHierarchyService, staticTargets, Optional.empty());
+    }
+
+    @Autowired
+    public CodeRuleService(BaseDao<CodeRule, String> ruleDao, CodeRuleSegmentService segmentService,
+                           CodeSequencePolicyService sequencePolicyService, CodeValueMappingService mappingService,
+                           Optional<PlatformModuleService> moduleService, Optional<ModuleMetadataRelationService> relationService,
+                           Optional<ModuleMetadataFieldService> moduleFieldService, Optional<MetadataService> metadataService,
+                           Optional<MetadataFieldService> fieldService, Optional<OrganizationHierarchyService> organizationHierarchyService,
+                           Optional<CodeTargetCatalog> staticTargets, Optional<CodeConfigurationService> configuration) {
         super(MODULE_ALIAS, CodeRule.class, ruleDao);
         this.segmentService = Objects.requireNonNull(segmentService, "segmentService must not be null");
         this.sequencePolicyService = Objects.requireNonNull(sequencePolicyService, "sequencePolicyService must not be null");
@@ -100,6 +113,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         this.fieldService = fieldService == null ? Optional.empty() : fieldService;
         this.organizationHierarchyService = organizationHierarchyService == null ? Optional.empty() : organizationHierarchyService;
         this.staticTargets = Objects.requireNonNull(staticTargets, "staticTargets");
+        this.configuration = Objects.requireNonNull(configuration, "configuration");
     }
 
     public CodeRuleService(BaseDao<CodeRule, String> ruleDao,
@@ -131,6 +145,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         List<CodeRuleSegment> segments = rule.getSegments() == null ? List.of() : new ArrayList<>(rule.getSegments());
         CodeSequencePolicy sequencePolicy = rule.getSequencePolicy();
         validateRuleTreeSemantics(rule, segments, sequencePolicy);
+        normalizeAndValidate(rule);
+        configuration.ifPresent(service -> service.validateRule(rule, segments));
+        validateDependencyPlans(rule);
         boolean updating = rule.getId() != null && select(rule.getId()) != null;
         if (updating) {
             update(rule);
@@ -140,6 +157,14 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         replaceSequencePolicy(rule, sequencePolicy);
         replaceSegments(rule, segments);
         return viewRuleTree(rule.getId());
+    }
+
+    /** Compiles a draft without persisting configuration or advancing numbering state. */
+    public void validateRuleDraft(CodeRule rule) {
+        if (rule == null) throw new PlatformException("Code rule draft must not be null");
+        List<CodeRuleSegment> segments = rule.getSegments() == null ? List.of() : rule.getSegments();
+        validateRuleTreeSemantics(rule, segments, rule.getSequencePolicy());
+        configuration.ifPresent(service -> service.validateRule(rule, segments));
     }
 
     public CodeRule viewRuleTree(String ruleId) {
@@ -180,6 +205,10 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                         command.metadataFieldId(), command.fieldName()))
                 .map(rule -> viewRuleTree(rule.getId()))
                 .toList();
+        return resolveCandidates(candidates, command.organizationId());
+    }
+
+    private List<ResolvedCodeRule> resolveCandidates(List<CodeRule> candidates, String organizationId) {
         if (candidates.isEmpty()) {
             return List.of();
         }
@@ -190,7 +219,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
 
         List<ResolvedCodeRule> resolved = new ArrayList<>();
         for (List<CodeRule> fieldCandidates : byField.values()) {
-            ResolvedCodeRule rule = resolveForField(fieldCandidates, command.organizationId());
+            ResolvedCodeRule rule = resolveForField(fieldCandidates, organizationId);
             if (rule != null) {
                 resolved.add(rule);
             }
@@ -206,6 +235,28 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
                     "Only one PRIMARY code field can be resolved for the same business object"));
         }
         return resolved;
+    }
+
+    private void validateDependencyPlans(CodeRule incoming) {
+        if (!Boolean.TRUE.equals(incoming.getEnabled())) return;
+        List<CodeRule> candidates = new ArrayList<>(selectRuleTreesByBusinessObject(incoming.getModuleAlias(), incoming.getEntityAlias())
+                .stream().filter(rule -> !Objects.equals(rule.getId(), incoming.getId())).filter(rule -> Boolean.TRUE.equals(rule.getEnabled())).toList());
+        candidates.add(incoming);
+        Set<String> organizations = new LinkedHashSet<>(); organizations.add(null);
+        var boundaries = new java.util.TreeSet<LocalDateTime>(); boundaries.add(LocalDateTime.MIN);
+        for (CodeRule rule : candidates) {
+            if (rule.getOrgScopeId() != null) organizations.add(rule.getOrgScopeId());
+            if (rule.getEffectiveFrom() != null) boundaries.add(rule.getEffectiveFrom());
+            if (rule.getEffectiveTo() != null) {
+                boundaries.add(rule.getEffectiveTo());
+                if (!rule.getEffectiveTo().equals(LocalDateTime.MAX)) boundaries.add(rule.getEffectiveTo().plusNanos(1));
+            }
+        }
+        var dependencies = new CodeDependencyResolver();
+        for (LocalDateTime at : boundaries) for (String organization : organizations) {
+            var effective = candidates.stream().filter(rule -> isEffective(rule, at)).toList();
+            dependencies.orderedRules(resolveCandidates(effective, organization), incoming.getEntityAlias());
+        }
     }
 
     public ResolvedCodeRule resolveRule(ResolveCodeRuleCommand command) {
@@ -231,6 +282,19 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
     public void beforeUpdate(CodeRule rule) {
         normalizeAndValidate(rule);
     }
+
+    @Override
+    public void beforeUpdate(CodeRule rule, CodeRule existing) {
+        beforeUpdate(rule);
+        if (existing != null && !Boolean.TRUE.equals(existing.getEnabled()) && Boolean.TRUE.equals(rule.getEnabled())) {
+            if (rule.getMode() != CodeMode.MANUAL && (rule.getSegments() == null || rule.getSegments().isEmpty())) {
+                CodeRule stored = viewRuleTree(rule.getId());
+                rule.setSegments(stored.getSegments()); rule.setSequencePolicy(stored.getSequencePolicy());
+            }
+            validateRuleDraft(rule); validateDependencyPlans(rule);
+        }
+    }
+
 
     private void replaceSequencePolicy(CodeRule rule, CodeSequencePolicy incoming) {
         CodeSequencePolicy existing = sequencePolicyService.selectByRuleId(rule.getId());
@@ -291,6 +355,7 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         if (rule.getFieldName() != null) {
             rule.setFieldName(PlatformNameRules.requireFieldName(rule.getFieldName(), "fieldName"));
         }
+        CodeConfigurationLocks.lock(rule.getModuleAlias(), rule.getEntityAlias());
         validateTargetExists(rule);
         rule.setFieldName(PlatformNameRules.requireFieldName(rule.getFieldName(), "fieldName"));
         if (rule.getTitle() == null || rule.getTitle().isBlank()) {
@@ -335,7 +400,14 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         return staticTargets.flatMap(catalog -> catalog.find(moduleAlias, entityAlias));
     }
 
+    public String normalizeGeneratedValue(CodeRule rule, String value) {
+        if (configuration.isPresent()) return configuration.get().normalizeValue(rule, value);
+        var target = staticTarget(rule.getModuleAlias(), rule.getEntityAlias());
+        return target.isPresent() ? StaticCodeFields.normalizeCode(target.get().modelClass(), rule.getFieldName(), value) : value;
+    }
+
     private void validateTargetExists(CodeRule rule) {
+        if (configuration.isPresent()) { configuration.get().validateTarget(rule); return; }
         var staticService = staticTarget(rule.getModuleAlias(), rule.getEntityAlias());
         if (staticService.isPresent()) {
             if (hasText(rule.getMetadataFieldId()) || hasText(rule.getModuleMetadataFieldId()))

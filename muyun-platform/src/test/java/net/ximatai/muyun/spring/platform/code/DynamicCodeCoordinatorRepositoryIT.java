@@ -158,9 +158,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void shouldIgnoreDisabledAndUnmatchedRules() {
-        Scenario disabledScenario = refreshScenario();
+        Scenario disabledScenario = refreshScenario(false, false);
         CodeRule disabledRule = saveRule(disabledScenario, CodeMode.AUTO, false);
-        Scenario unmatchedScenario = refreshScenario();
+        Scenario unmatchedScenario = refreshScenario(false, false);
 
         DynamicRecord disabled = create(disabledScenario, "disabled");
         DynamicRecord unmatched = create(unmatchedScenario, "unmatched");
@@ -174,9 +174,12 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void shouldGenerateMissingCodeDuringDynamicUpdate() {
-        Scenario scenario = refreshScenario();
+        Scenario scenario = refreshScenario(false, false);
         DynamicRecord record = create(scenario, "draft");
         CodeRule rule = saveRule(scenario, CodeMode.AUTO, true);
+        refresher.refresh(new ModuleDefinition(scenario.moduleAlias(), "Coding enabled", List.of(
+                recordService.newRecord(scenario.moduleAlias(), "main").getEntity().withBusinessCodes(java.util.Map.of(
+                        "orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null))))));
 
         DynamicRecord update = recordService.newRecord(scenario.moduleAlias(), "main")
                 .setValue("title", "confirmed");
@@ -674,7 +677,8 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         var scenario = new Scenario("crm.code_formula_" + suffix);
         var entity = new EntityDefinition("main", "code_formula_" + suffix, "Formula Code", List.of(
                 FieldDefinition.titleField().required(), FieldDefinition.string("orderNo", "Order No").column("order_no").length(64)), Set.of(EntityCapability.REFERENCE))
-                .withFormulaRules(net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition.calculation("finalTitle", "{title} = 'FINAL'"));
+                .withFormulaRules(net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition.calculation("finalTitle", "{title} = 'FINAL'"))
+                .withBusinessCodes(java.util.Map.of("orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null)));
         refresher.refresh(new ModuleDefinition(scenario.moduleAlias(), "Formula Code", List.of(entity)));
         var rule = saveLinkedRule(scenario, true);
         var record = create(scenario, "before-formula");
@@ -708,7 +712,8 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     private Scenario refreshScenario() { return refreshScenario(false); }
 
-    private Scenario refreshScenario(boolean dataScope) {
+    private Scenario refreshScenario(boolean dataScope) { return refreshScenario(dataScope, true); }
+    private Scenario refreshScenario(boolean dataScope, boolean coding) {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String moduleAlias = "crm.code_it_" + suffix;
         String tableName = "crm_code_it_" + suffix;
@@ -722,7 +727,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                 ),
                 dataScope ? Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN, EntityCapability.DATA_SCOPE)
                         : Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
-        ))));
+        ).withBusinessCodes(coding ? java.util.Map.of("orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null)) : java.util.Map.of()))));
         return new Scenario(moduleAlias);
     }
 
@@ -750,7 +755,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                                         FieldDefinition.string("lineNo", "Line No").column("line_no").length(64)
                                 ),
                                 Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
-                        )
+                        ).withBusinessCodes(java.util.Map.of("lineNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(false, null)))
                 ))
                 .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId")
                         .withAutoPopulate()

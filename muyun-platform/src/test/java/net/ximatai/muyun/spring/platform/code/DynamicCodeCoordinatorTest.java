@@ -356,7 +356,7 @@ class DynamicCodeCoordinatorTest {
                         FieldDefinition.string("orderNo", "Order No").column("order_no").length(64).unique()
                 ),
                 Set.of(EntityCapability.CRUD)
-        );
+        ).withBusinessCodes(Map.of("orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null)));
         return new ModuleDefinition(MODULE, "Order", List.of(entity));
     }
 

@@ -404,6 +404,25 @@ class CodeRuleServiceContractTest {
         assertThat(preview.value()).isEqualTo("DF");
     }
 
+    @Test
+    void rejectsCyclesWhenEnablingRulesAndOrdersAcyclicDependenciesBeforeTheirConsumers() {
+        var first = baseRule("firstCode", CodeFieldRole.NORMAL);
+        var firstSource = new CodeRuleSegment(); firstSource.setSegmentType(CodeSegmentType.FIELD_VALUE); firstSource.setSourceRef("secondCode");
+        first.setSegments(List.of(firstSource)); ruleService.saveRuleTree(first);
+        var second = baseRule("secondCode", CodeFieldRole.NORMAL);
+        var secondSource = new CodeRuleSegment(); secondSource.setSegmentType(CodeSegmentType.FIELD_VALUE); secondSource.setSourceRef("firstCode");
+        second.setSegments(List.of(secondSource));
+        assertThatThrownBy(() -> ruleService.saveRuleTree(second)).hasMessageContaining("Cyclic business code dependency");
+        second.setEnabled(false); ruleService.saveRuleTree(second);
+        second.setEnabled(true);
+        assertThatThrownBy(() -> ruleService.saveRuleTree(second)).hasMessageContaining("Cyclic business code dependency");
+        var constant = new CodeRuleSegment(); constant.setSegmentType(CodeSegmentType.CONSTANT); constant.setFixedValue("SECOND");
+        var revised = baseRule("secondCode", CodeFieldRole.NORMAL); revised.setId(second.getId()); revised.setVersion(second.getVersion()); revised.setSegments(List.of(constant));
+        ruleService.saveRuleTree(revised);
+        var ordered = new CodeDependencyResolver().orderedRules(List.of(new ResolvedCodeRule(first, null), new ResolvedCodeRule(revised, null)), "main");
+        assertThat(ordered).extracting(item -> item.rule().getFieldName()).containsExactly("secondCode", "firstCode");
+    }
+
     private CodeRule baseRule(String fieldName, CodeFieldRole role) {
         CodeRule rule = new CodeRule();
         rule.setModuleAlias("crm.order");

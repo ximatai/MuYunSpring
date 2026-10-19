@@ -22,6 +22,7 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
     static final String MODULE = "contract.static_code";
     @Autowired FixtureService service;
     @Autowired CodeRuleService rules;
+    @Autowired CodeConfigurationService configuration;
     @Autowired CodeRuntimeFacade codes;
     @Autowired CodeLedgerEntryService ledger;
     @Autowired CodeRecycleEntryService recycle;
@@ -52,6 +53,22 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
             });
             assertThat(service.select(record.getId()).getConfirmationNo()).isEqualTo("CONF-0001");
             assertThat(ledger.activeBindings(MODULE, "static_code", record.getId())).hasSize(2);
+        }
+    }
+    @Test void staticConfigurationDiscoversTheJavaContractAndRejectsInvalidDraftsWithoutMetadata() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var target = configuration.requireTarget(MODULE, "static_code");
+            assertThat(target.source()).isEqualTo("STATIC");
+            assertThat(target.relationId()).isNull();
+            assertThat(target.fields()).extracting(CodeConfigurationService.Field::fieldName)
+                    .containsExactlyInAnyOrder("documentNo", "confirmationNo");
+            assertThat(target.fields()).allSatisfy(field -> assertThat(field.metadataFieldId()).isNull());
+            var rule = saveRule("documentNo", "DOC-");
+            assertThat(rule.getFieldRole()).isEqualTo(CodeFieldRole.PRIMARY);
+            var invalid = new CodeRuleSegment(); invalid.setSegmentType(CodeSegmentType.FIELD_VALUE);
+            invalid.setSourceRef("unknownBusinessField"); rule.setSegments(List.of(invalid, rule.getSegments().getLast()));
+            assertThatThrownBy(() -> rules.saveRuleTree(rule)).hasMessageContaining("source");
+            assertThat(rules.viewRuleTree(rule.getId()).getSegments()).hasSize(2);
         }
     }
     @Test void failedFinalValidationRollsBackIssuanceAndLedger() {
@@ -161,7 +178,7 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
             saveRule("documentNo", "DOC-");
             var rule = saveRule("confirmationNo", "CONF-"); rule.setLinkedUpdate(true);
             var subject = new CodeRuleSegment(); subject.setSegmentType(CodeSegmentType.FIELD_VALUE); subject.setSourceRef("subject");
-            subject.setSeparator("-");
+            subject.setSeparator("-"); subject.setLength(32); subject.setTruncatePolicy(CodeTruncatePolicy.RIGHT);
             rule.setSegments(List.of(subject, rule.getSegments().getLast())); rules.saveRuleTree(rule);
             var row = row("FIRST"); service.insert(row);
             tx.executeWithoutResult(status -> {
@@ -200,9 +217,18 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
         @Bean FixtureService staticCodeService(StaticCodeDao dao) { return new FixtureService(dao); }
         @Bean CodeTargetCatalog codeTargets(ObjectProvider<CrudAbility<?>> services) { return new CodeTargetCatalog(services); }
         @Bean @Primary CodeRuleService staticRules(CodeRuleDao dao, CodeRuleSegmentService segments, CodeSequencePolicyService policies,
-                CodeValueMappingService mappings, CodeTargetCatalog targets) {
+                CodeValueMappingService mappings, CodeTargetCatalog targets, CodeConfigurationService configuration) {
             return new CodeRuleService(dao, segments, policies, mappings, Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(targets));
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(targets), Optional.of(configuration));
+        }
+        @Bean CodeConfigurationService codeConfiguration(CodeTargetCatalog targets) {
+            return new CodeConfigurationService(targets,
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
         }
         @Bean CodeRuntimeFacade codeFacade(CodeGenerateService generation, CodeRuleService rules, CodeLedgerEntryService ledger) {
             return new CodeRuntimeFacade(generation, rules, ledger);

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.ability.code.StaticCodeFields;
+
 import java.util.Map;
 import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;

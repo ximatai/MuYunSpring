@@ -32,6 +32,12 @@ public class ModuleMetadataField extends StandardSortableEntity {
             comment = "Metadata field id")
     private String metadataFieldId;
 
+    @Column(name = "business_code_role", type = ColumnType.VARCHAR, length = 32, comment = "Business object code role")
+    private net.ximatai.muyun.spring.platform.code.CodeFieldRole businessCodeRole;
+
+    @Column(name = "business_code_trigger", type = ColumnType.VARCHAR, length = 32, comment = "Business code generation timing")
+    private net.ximatai.muyun.spring.ability.code.CodeTrigger businessCodeTrigger;
+
     @Column(name = "default_value", type = ColumnType.VARCHAR, length = 512, comment = "Default value")
     private String defaultValue;
 

@@ -28,15 +28,26 @@ public final class CodeMutationRuntime {
     public void prepare(String module, String entity, CodeMutationRecord before, CodeMutationRecord incoming,
             List<ResolvedCodeRule> rules, String organization, LocalDateTime at, Map<String, Object> context,
             Map<String, Object> previousContext, Set<String> changedKeys) {
-        for (ResolvedCodeRule resolved : rules.stream().sorted(Comparator.comparing(item -> item.rule().getFieldName())).toList()) {
+        changedKeys = new LinkedHashSet<>(changedKeys);
+        for (ResolvedCodeRule resolved : dependencyResolver.orderedRules(rules, entity)) {
             CodeRule rule = resolved.rule();
             ledgerEntryService.lockTarget(module, entity, rule.getFieldName());
+            Object requested = context.get(rule.getFieldName());
+            if (hasText(requested)) {
+                String normalized = incoming.normalizeCode(rule.getFieldName(), String.valueOf(requested));
+                if (!Objects.equals(normalized, requested)) incoming.putGeneratedValue(rule.getFieldName(), normalized);
+                context.put(rule.getFieldName(), normalized);
+                if (context.containsKey(entity + "." + rule.getFieldName())) context.put(entity + "." + rule.getFieldName(), normalized);
+            }
             Object oldValue = before == null ? null : before.getValue(rule.getFieldName());
             if (rule.getMode() != CodeMode.MANUAL) {
                 if (before == null) applyCreateRule(module, entity, incoming, resolved, organization, at, context);
                 else applyUpdateRule(module, entity, before, incoming, resolved, organization, at, context, previousContext, changedKeys);
             }
             Object value = context.get(rule.getFieldName());
+            if (!sameCode(oldValue, value)) {
+                changedKeys.add(rule.getFieldName()); changedKeys.add(entity + "." + rule.getFieldName());
+            }
             if (hasText(value)) {
                 rejectOccupiedCode(rule, value, incoming.getId());
                 if (incoming.codeExists(rule.getFieldName(), String.valueOf(value)))
@@ -146,6 +157,7 @@ public final class CodeMutationRuntime {
                         || occupied(rule, value, record.getId()), value -> record.normalizeCode(rule.getFieldName(), value));
         record.putGeneratedValue(rule.getFieldName(), generated.value());
         context.put(rule.getFieldName(), generated.value());
+        context.put(entityAlias + "." + rule.getFieldName(), generated.value());
     }
 
     private boolean occupied(CodeRule rule, String value, String recordId) {

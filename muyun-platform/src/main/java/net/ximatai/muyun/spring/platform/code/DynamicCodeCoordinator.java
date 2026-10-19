@@ -16,6 +16,7 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
     private final CodeMutationRuntime mutations;
     private final DynamicRecordService records;
     private final CodeBusinessTimeService time;
+    private final CodeLedgerEntryService ledger;
     private final Clock clock;
     private final DynamicCodeContextBuilder contexts = new DynamicCodeContextBuilder();
 
@@ -23,6 +24,7 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
             CodeSequenceStateService sequences, CodeLedgerEntryService ledger, CodeRecycleEntryService recycle,
             @Lazy DynamicRecordService records, CodeBusinessTimeService time, Clock clock) {
         this.rules = Objects.requireNonNull(rules);
+        this.ledger = Objects.requireNonNull(ledger);
         this.records = Objects.requireNonNull(records);
         this.clock = Objects.requireNonNull(clock);
         this.time = Objects.requireNonNull(time);
@@ -75,7 +77,19 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
         if (incoming.getId() == null || incoming.getId().isBlank()) incoming.setId(Ids.newId());
         LocalDateTime at = time.resolveBusinessLocalDateTime(organization,
                 DynamicMutationContext.current().map(DynamicMutationContext::startedAt).orElseGet(clock::instant));
-        List<ResolvedCodeRule> resolved = rules.resolveRules(new ResolveCodeRuleCommand(module, entity, null, null, organization, at));
+        var declarations = incoming.getEntity().businessCodes();
+        if (declarations.isEmpty()) return;
+        List<ResolvedCodeRule> resolved = rules.resolveRules(new ResolveCodeRuleCommand(module, entity, null, null, organization, at))
+                .stream().filter(rule -> declarations.containsKey(rule.rule().getFieldName())).toList();
+        for (var declaration : declarations.entrySet()) {
+            if (resolved.stream().anyMatch(rule -> declaration.getKey().equals(rule.rule().getFieldName()))) continue;
+            Object value = context.get(declaration.getKey());
+            var owned = ledger.findActiveByTargetAndSourceRecord(module, entity, declaration.getKey(), incoming.getId());
+            boolean retained = owned != null && Objects.equals(owned.getCodeValue(), value);
+            boolean emptyExplicit = declaration.getValue().trigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.EXPLICIT
+                    && value == null && previous.get(declaration.getKey()) == null;
+            if (!retained && !emptyExplicit) throw new IllegalArgumentException("Code rule missing for declared field: " + declaration.getKey());
+        }
         Set<String> changed = new LinkedHashSet<>(context.keySet());
         changed.removeIf(key -> Objects.equals(context.get(key), previous.get(key)));
         mutations.prepare(module, entity, before == null ? null : adapt(module, entity, before), adapt(module, entity, incoming),
@@ -87,9 +101,17 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
             public Object getValue(String field) { return record.getValue(field); }
             public boolean isExplicitlySet(String field) { return record.isExplicitlySet(field); }
             public void putGeneratedValue(String field, Object value) { record.putGeneratedValue(field, value); }
+            public boolean allowsAutomaticGeneration(String field) {
+                return record.getEntity().businessCodes().get(field).trigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE;
+            }
             public String normalizeCode(String field, String value) {
-                return (String) record.getEntity().fields().stream().filter(item -> item.code().equals(field)).findFirst().orElseThrow()
-                        .behavior().writeRules().normalize(value);
+                var definition = record.getEntity().fields().stream().filter(item -> item.code().equals(field)).findFirst().orElseThrow();
+                String normalized = (String) definition.behavior().writeRules().normalize(value);
+                int limit = definition.length() != null && definition.length() > 0 ? Math.min(definition.length(),
+                        net.ximatai.muyun.spring.ability.code.CodeFieldDefinition.MAX_CODE_LENGTH) : net.ximatai.muyun.spring.ability.code.CodeFieldDefinition.MAX_CODE_LENGTH;
+                if (normalized != null && normalized.length() > limit)
+                    throw new IllegalArgumentException("Business code exceeds the target field length: " + limit);
+                return normalized;
             }
             public boolean codeExists(String field, String value) {
                 Criteria criteria = Criteria.of().eq(field, value);
