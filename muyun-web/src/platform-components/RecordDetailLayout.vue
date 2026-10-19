@@ -92,14 +92,14 @@ withDefaults(
   --muyun-detail-section-inner-gap: 8px;
   --muyun-detail-section-block-gap: 16px;
   --muyun-content-section-heading-color: var(--muyun-text);
-  --muyun-content-section-heading-font-size: 14px;
-  --muyun-content-section-heading-font-weight: 600;
-  --muyun-content-section-heading-line-height: 20px;
+  --muyun-content-section-heading-font-size: var(--muyun-font-size-section, 14px);
+  --muyun-content-section-heading-font-weight: 700;
+  --muyun-content-section-heading-line-height: var(--muyun-line-height-section, 20px);
   --muyun-content-section-subtitle-color: var(--muyun-text-muted);
-  --muyun-content-section-subtitle-font-size: 12px;
-  --muyun-content-section-subtitle-line-height: 18px;
-  --muyun-detail-relation-header-font-size: 12px;
-  --muyun-detail-relation-body-font-size: 12px;
+  --muyun-content-section-subtitle-font-size: var(--muyun-font-size-helper, 12px);
+  --muyun-content-section-subtitle-line-height: var(--muyun-line-height-helper, 18px);
+  --muyun-detail-relation-header-font-size: var(--muyun-font-size-body, 13px);
+  --muyun-detail-relation-body-font-size: var(--muyun-font-size-body, 13px);
   --muyun-detail-relation-header-row-height: 34px;
   --muyun-detail-relation-body-row-height: 30px;
 
@@ -179,7 +179,8 @@ withDefaults(
   margin: 0;
   overflow: hidden;
   color: var(--muyun-text);
-  font-size: 16px;
+  font-size: var(--muyun-font-size-panel, 16px);
+  line-height: var(--muyun-line-height-panel, 22px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -188,7 +189,8 @@ withDefaults(
   margin: 3px 0 0;
   overflow: hidden;
   color: var(--muyun-text-secondary);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
+  line-height: var(--muyun-line-height-helper, 18px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -38,7 +38,7 @@ it('refreshes bounded visible menu facts and invalidates earlier workspace token
     activeTabKey: 'page',
   };
   const wrapper = mount(Workbench, {
-    props: { startup, assistantRequestTurn: vi.fn() },
+    props: { startup, assistantAvailable: true, assistantRequestTurn: vi.fn() },
     slots: { default: () => h(Probe) },
   });
   await nextTick();
@@ -115,6 +115,7 @@ it.each([false, true])(
             Workbench,
             {
               startup: startup.value,
+              assistantAvailable: true,
               assistantRequestTurn: requestTurn,
               assistantWaitForPageReady: waitForPageReady,
               onSelectMenu: () => {
@@ -223,6 +224,7 @@ it('allows requirements planning and authorized navigation without a selected mo
         tabs: [{ key: 'page', instanceKey: 'page-instance', title: 'Page' }],
         activeTabKey: 'page',
       },
+      assistantAvailable: true,
       assistantRequestTurn: vi.fn(),
       constructionPlanClient: { confirm } as unknown as import('@muyun/web-core').ConstructionPlanClient,
       assistantWorkspaceContribution: {
@@ -317,6 +319,7 @@ it('projects the selected editor kind and continues a confirmed configuration wi
         tabs: [{ key: 'page', instanceKey: 'page-instance', title: '配置' }],
         activeTabKey: 'page',
       },
+      assistantAvailable: true,
       assistantRequestTurn: vi.fn(),
       assistantWorkspaceContribution: {
         current: () => ({ revision: 'catalog', facts: {} }),
@@ -407,6 +410,7 @@ it.each([
           tabs: [{ key: 'page', instanceKey: 'page-instance', title: '模块管理' }],
           activeTabKey: 'page',
         },
+        assistantAvailable: true,
         assistantRequestTurn: vi.fn(),
         assistantWorkspaceContribution: {
           current: () => ({ revision: JSON.stringify([editor.value, available.value]), facts: {} }),
@@ -503,3 +507,44 @@ it.each([
     wrapper.unmount();
   },
 );
+
+it('requires both authenticated identity and backend availability, closes and unregisters on revocation', async () => {
+  let host: AssistantSurfaceHost | undefined;
+  const Probe = defineComponent({
+    setup() {
+      host = useAssistantSurfaceHost();
+      return () => h('div');
+    },
+  });
+  const startup: WorkbenchStartupState = {
+    session: { currentUser: { userId: 'a', system: false, tenantId: 'tenant-a' } },
+    menus: [],
+    tabs: [{ key: 'page', instanceKey: 'page', title: 'Page' }],
+    activeTabKey: 'page',
+  };
+  const wrapper = mount(Workbench, {
+    props: { startup, assistantRequestTurn: vi.fn() },
+    slots: { default: () => h(Probe) },
+  });
+  try {
+    expect(wrapper.find('.assistant-toggle').exists()).toBe(false);
+    expect(host!.registry.snapshot()).toBeUndefined();
+    await wrapper.setProps({ assistantAvailable: true });
+    await wrapper.get('.assistant-toggle').trigger('click');
+    expect(wrapper.classes()).toContain('workbench-layout--assistant');
+    await wrapper.setProps({ assistantAvailable: false });
+    expect(wrapper.find('.assistant-toggle').exists()).toBe(false);
+    expect(wrapper.classes()).not.toContain('workbench-layout--assistant');
+    expect(host!.registry.snapshot()).toBeUndefined();
+    await wrapper.setProps({ assistantAvailable: true });
+    await wrapper.get('.assistant-toggle').trigger('click');
+    await wrapper.setProps({
+      startup: { ...startup, session: { currentUser: { userId: 'b', system: false, tenantId: 'tenant-b' } } },
+    });
+    expect(wrapper.classes()).not.toContain('workbench-layout--assistant');
+    await wrapper.setProps({ startup: undefined });
+    expect(wrapper.find('.assistant-toggle').exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});

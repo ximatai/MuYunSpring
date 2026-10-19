@@ -16,6 +16,8 @@ const props = withDefaults(
     refreshTitle: string;
     refreshable?: boolean;
     mode: 'view' | 'edit' | 'create';
+    /** Locks navigation while a page-owned request is running, without changing its editor mode. */
+    busy?: boolean;
     detailTitle: string;
     detailSubtitle?: string;
     mutedMessage?: string;
@@ -28,6 +30,7 @@ const props = withDefaults(
     mutedMessage: undefined,
     detailSubtitle: undefined,
     refreshable: true,
+    busy: false,
     explorerSearchKeyword: '',
     explorerSearchPlaceholder: undefined,
     explorerSearchable: true,
@@ -50,7 +53,7 @@ const emit = defineEmits<{
   <ManagementWorkspace
     class="static-management-page"
     :explorer-count="navigatorCount + 1"
-    :editing="mode !== 'view'"
+    :editing="mode !== 'view' || busy"
   >
     <ManagementExplorerColumn v-for="index in navigatorCount" :key="index">
       <slot name="navigator" :index="index - 1" />
@@ -98,6 +101,9 @@ const emit = defineEmits<{
       <template v-if="$slots['detail-content-bottom']" #content-bottom>
         <slot name="detail-content-bottom" />
       </template>
+      <template v-if="$slots['detail-operation']" #operation>
+        <slot name="detail-operation" />
+      </template>
       <template v-if="$slots['detail-outside-bottom']" #outside-bottom>
         <slot name="detail-outside-bottom" />
       </template>
@@ -130,6 +136,7 @@ const emit = defineEmits<{
 
 .static-management-sidebar :deep(.record-panel-create-button) {
   width: 28px;
+  min-width: 28px;
   height: 28px;
   padding: 0;
   border-radius: 999px;

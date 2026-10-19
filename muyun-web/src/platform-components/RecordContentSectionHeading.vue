@@ -28,7 +28,7 @@ defineProps<{
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  min-height: var(--muyun-content-section-heading-line-height, 20px);
+  min-height: var(--muyun-content-section-heading-line-height, var(--muyun-line-height-section, 20px));
 }
 
 .record-content-section-heading__copy {
@@ -48,17 +48,17 @@ h3,
 h3 {
   overflow: hidden;
   color: var(--muyun-content-section-heading-color, var(--muyun-text));
-  font-size: var(--muyun-content-section-heading-font-size, 13px);
-  font-weight: var(--muyun-content-section-heading-font-weight, 600);
-  line-height: var(--muyun-content-section-heading-line-height, 20px);
+  font-size: var(--muyun-content-section-heading-font-size, var(--muyun-font-size-section, 14px));
+  font-weight: var(--muyun-content-section-heading-font-weight, 700);
+  line-height: var(--muyun-content-section-heading-line-height, var(--muyun-line-height-section, 20px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .record-content-section-heading__subtitle {
   color: var(--muyun-content-section-subtitle-color, var(--muyun-text-muted));
-  font-size: var(--muyun-content-section-subtitle-font-size, 12px);
-  line-height: var(--muyun-content-section-subtitle-line-height, 18px);
+  font-size: var(--muyun-content-section-subtitle-font-size, var(--muyun-font-size-helper, 12px));
+  line-height: var(--muyun-content-section-subtitle-line-height, var(--muyun-line-height-helper, 18px));
   text-align: right;
 }
 

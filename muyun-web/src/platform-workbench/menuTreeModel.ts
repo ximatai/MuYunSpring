@@ -13,7 +13,6 @@ export interface WorkbenchMenuNode {
 export interface WorkbenchMegaMenuModel {
   root: WorkbenchMenuNode;
   groups: WorkbenchMenuNode[];
-  columns: WorkbenchMenuNode[][];
   activeDeepRoot?: WorkbenchMenuNode;
 }
 
@@ -109,65 +108,14 @@ export function firstDeepRootIdOf(node: WorkbenchMenuNode): string | undefined {
 export function buildWorkbenchMegaMenuModel(
   root: WorkbenchMenuNode,
   activeDeepRootId: string | undefined,
-  columnCount = 3,
 ): WorkbenchMegaMenuModel {
   const node = activeDeepRootId ? findWorkbenchMenuNodeById(root.children, activeDeepRootId) : undefined;
   const groups = root.children;
   return {
     root,
     groups,
-    columns: buildMegaMenuColumns(groups, columnCount),
     activeDeepRoot: node?.hasChildren ? node : undefined,
   };
-}
-
-function buildMegaMenuColumns(groups: WorkbenchMenuNode[], columnCount: number): WorkbenchMenuNode[][] {
-  if (groups.length === 0) {
-    return [];
-  }
-
-  const normalizedColumnCount = Math.max(1, Math.min(Math.floor(columnCount), groups.length));
-  const columns: WorkbenchMenuNode[][] = Array.from({ length: normalizedColumnCount }, () => []);
-  const targetWeight =
-    groups.reduce((total, group) => total + menuGroupWeight(group), 0) / normalizedColumnCount;
-  let columnIndex = 0;
-  let currentWeight = 0;
-
-  for (let index = 0; index < groups.length; index += 1) {
-    const group = groups[index];
-    const groupWeight = menuGroupWeight(group);
-    const remainingGroups = groups.length - index;
-    const remainingColumns = normalizedColumnCount - columnIndex;
-    const currentColumn = columns[columnIndex];
-    const shouldStartNextColumn =
-      currentColumn.length > 0 &&
-      columnIndex < normalizedColumnCount - 1 &&
-      (remainingGroups <= remainingColumns || currentWeight + groupWeight > targetWeight);
-
-    if (shouldStartNextColumn) {
-      columnIndex += 1;
-      currentWeight = 0;
-    }
-
-    columns[columnIndex].push(group);
-    currentWeight += groupWeight;
-  }
-
-  return columns;
-}
-
-function menuGroupWeight(group: WorkbenchMenuNode): number {
-  const titleWeight = titleLengthWeight(group.record.title);
-  const childWeight = group.children.reduce((total, child) => {
-    const branchWeight = child.hasChildren ? 0.7 + child.children.length * 0.25 : 0;
-    return total + 1 + branchWeight + titleLengthWeight(child.record.title) * 0.4;
-  }, 0);
-
-  return 1.25 + titleWeight + childWeight;
-}
-
-function titleLengthWeight(title: string): number {
-  return Math.max(0, Math.ceil(title.length / 10) - 1) * 0.35;
 }
 
 function createWorkbenchMenuNode(node: MenuTreeNode, language?: LanguageContext): WorkbenchMenuNode {

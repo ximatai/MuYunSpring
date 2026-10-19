@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
   displayModuleRuntime,
+  normalizeError,
+  userFacingErrorMessage,
   useLanguageContext,
   useModuleContext,
   createWorkflowDefinitionClient,
@@ -27,26 +29,28 @@ import {
   WorkflowDiagram,
   presentPlatformError,
   workflowTitle as localizedWorkflowTitle,
-  ManagementWorkspace,
-  ManagementExplorerColumn,
-  RecordExplorerPanel,
+  StaticManagementLayout,
   RecordListExplorer,
-  RecordDetailPanel,
   RecordDetailDrawer,
-  RecordPicker,
   RecordFieldLabel,
-  FormulaExpressionEditor,
+  RecordContentSectionHeading,
   resolveRecordFormFields,
   AdaptiveHeaderActionBar,
 } from '@muyun/platform-components';
 import {
   UiButton,
+  UiActionButton,
   UiInput,
   UiSelect,
   UiCheckbox,
+  UiEmpty,
+  UiError,
+  UiSpin,
   confirmAction,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
+import WorkflowSelectionFields from './WorkflowSelectionFields.vue';
+import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
@@ -74,12 +78,18 @@ const businessContext = createModuleContext({
   moduleAlias: props.moduleAlias,
   runtimeAccess: 'VIEW',
 });
-const organizationContext = createModuleContext<Record<string, unknown>>({
-  http: context.http,
-  language: workflowLanguage,
-  moduleAlias: 'iam.organization',
-  runtimeAccess: 'REFERENCE',
-});
+const currentUser = useCurrentUserContext();
+// Global templates have no tenant in which IAM organizations can be queried.
+const organizationContext = computed(() =>
+  currentUser?.value?.tenantId
+    ? createModuleContext<Record<string, unknown>>({
+        http: context.http,
+        language: workflowLanguage,
+        moduleAlias: 'iam.organization',
+        runtimeAccess: 'REFERENCE',
+      })
+    : undefined,
+);
 usePageDataChange({
   moduleAlias: props.moduleAlias,
   predicate: (change) => change.type === 'configuration-translations-changed',
@@ -210,6 +220,9 @@ function participantSummary(text?: string) {
     return workflowLanguage.t('platform.workflow-config.invalid-participants', '人员配置格式无效');
   }
 }
+const searchKeyword = ref('');
+const loadingDefinitions = ref(false);
+const definitionLoadError = ref<() => string>();
 const definitions = ref<WorkflowDefinition[]>([]),
   versions = ref<WorkflowVersion[]>([]);
 const selected = ref<WorkflowDefinition>(),
@@ -247,9 +260,13 @@ useWorkspaceViewUnsavedState(
   () => dirty.value || selectionDirty.value,
   () => busy.value,
 );
-watch([newTitle, organizationId, matchExpression, matchPriority, fallback], () => {
-  if (configuringSelection.value || creating.value) selectionDirty.value = true;
-});
+watch(
+  [newTitle, newAlias, approvalEnabled, organizationId, matchExpression, matchPriority, fallback],
+  () => {
+    if (configuringSelection.value || creating.value) selectionDirty.value = true;
+  },
+  { flush: 'sync' },
+);
 onMounted(() => {
   void reload();
   void loadFields();
@@ -266,9 +283,18 @@ async function run(operation: () => Promise<void>) {
   }
 }
 async function reload() {
-  await run(async () => {
+  if (busy.value || dirty.value || selectionDirty.value) return;
+  busy.value = true;
+  loadingDefinitions.value = true;
+  definitionLoadError.value = undefined;
+  try {
     definitions.value = await client.query();
-  });
+  } catch (cause) {
+    definitionLoadError.value = () => userFacingErrorMessage(normalizeError(cause), workflowLanguage);
+  } finally {
+    loadingDefinitions.value = false;
+    busy.value = false;
+  }
 }
 async function openDefinition(definition: WorkflowDefinition) {
   if (dirty.value || selectionDirty.value) {
@@ -280,27 +306,31 @@ async function openDefinition(definition: WorkflowDefinition) {
   }
   selectionDirty.value = false;
   await run(async () => {
-    selected.value = definition;
-    await loadCatalog(definition.id);
+    const nextCatalog = await client.catalog(definition.id);
+    const nextVersions = (await client.versions(definition.id)).sort((a, b) => b.versionNo - a.versionNo);
+    const latest = nextVersions[0];
+    const nextDesign = latest ? await client.design(definition.id, latest.id) : { nodes: [], links: [] };
     configuringSelection.value = false;
+    creating.value = false;
+    selected.value = definition;
+    catalog.value = nextCatalog;
+    versions.value = nextVersions;
+    version.value = latest;
+    design.value = nextDesign;
     newTitle.value = definition.title ?? definition.alias;
     organizationId.value = definition.organizationId ?? '';
     matchExpression.value = definition.matchExpression ?? '';
     matchPriority.value = String(definition.matchPriority ?? 0);
     fallback.value = definition.defaultDefinition === true;
-    creating.value = false;
-    versions.value = (await client.versions(definition.id)).sort((a, b) => b.versionNo - a.versionNo);
-    const latest = versions.value[0];
-    if (latest) await loadVersion(latest);
-    else {
-      version.value = undefined;
-      design.value = { nodes: [], links: [] };
-    }
+    selectedNodeKey.value = nextDesign.nodes[0]?.nodeKey ?? '';
+    selectedRouteKey.value = '';
+    propertyOpen.value = false;
   });
 }
 async function loadVersion(next: WorkflowVersion) {
+  const nextDesign = await client.design(selected.value!.id, next.id);
   version.value = next;
-  design.value = await client.design(selected.value!.id, next.id);
+  design.value = nextDesign;
   dirty.value = false;
   selectedNodeKey.value = design.value.nodes[0]?.nodeKey ?? '';
   selectedRouteKey.value = '';
@@ -311,8 +341,28 @@ async function switchVersion(id: string) {
   const next = versions.value.find((item) => item.id === id);
   if (next) await run(() => loadVersion(next));
 }
+function startCreation() {
+  if (busy.value || dirty.value || selectionDirty.value) return;
+  newTitle.value = '';
+  newAlias.value = '';
+  organizationId.value = '';
+  matchExpression.value = '';
+  matchPriority.value = '0';
+  fallback.value = false;
+  approvalEnabled.value = true;
+  creating.value = true;
+  selectionDirty.value = false;
+}
+const validPriority = computed(
+  () =>
+    /^-?\d+$/.test(matchPriority.value.trim()) &&
+    Number(matchPriority.value) >= -2147483648 &&
+    Number(matchPriority.value) <= 2147483647,
+);
+const validAlias = computed(() => /^[a-z][a-z0-9_]{0,62}$/.test(newAlias.value.trim()));
+const validSettings = computed(() => Boolean(newTitle.value.trim()) && validPriority.value);
 async function createDefinition() {
-  if (!newAlias.value.trim() || !newTitle.value.trim()) return;
+  if (!validAlias.value || !validSettings.value) return;
   await run(async () => {
     const definition = await client.create({
       alias: newAlias.value.trim(),
@@ -324,11 +374,20 @@ async function createDefinition() {
       defaultDefinition: fallback.value,
       enabled: true,
     });
-    selected.value = definition;
-    definitions.value.push(definition);
-    await loadCatalog(definition.id);
+    // The definition already exists after insert. Follow-up failures must not return to insertion.
     creating.value = false;
     selectionDirty.value = false;
+    selected.value = definition;
+    definitions.value.push(definition);
+    versions.value = [];
+    version.value = undefined;
+    design.value = { nodes: [], links: [] };
+    catalog.value = { tasks: [], queries: [], generations: [], associations: [] };
+    selectedNodeKey.value = '';
+    selectedRouteKey.value = '';
+    propertyOpen.value = false;
+    searchKeyword.value = '';
+    await loadCatalog(definition.id);
     const next = await client.upgrade(definition.id);
     versions.value = [next];
     version.value = next;
@@ -369,7 +428,7 @@ async function toggleSelection() {
   configuringSelection.value = true;
 }
 async function saveSelection() {
-  if (busy.value || !selected.value) return;
+  if (busy.value || !selected.value || !validSettings.value) return;
   await run(async () => {
     const saved = await client.saveSelection(selected.value!.id, {
       version: selected.value!.version,
@@ -625,110 +684,304 @@ function addRoute() {
 </script>
 <template>
   <section class="workflow-configuration">
-    <ManagementWorkspace :explorer-count="1" :editing="dirty || selectionDirty || busy">
-      <ManagementExplorerColumn
-        ><RecordExplorerPanel
-          :title="
-            workflowLanguage.t('platform.screen.WorkflowConfigurationView.approval-workflow', '审批流程')
+    <StaticManagementLayout
+      :explorer-title="
+        workflowLanguage.t('platform.screen.WorkflowConfigurationView.approval-workflow', '审批流程')
+      "
+      :refresh-title="workflowLanguage.t('platform.workflow-config.refresh-definitions', '刷新审批流程')"
+      :mode="creating ? 'create' : configuringSelection || dirty || selectionDirty ? 'edit' : 'view'"
+      :busy="busy"
+      :detail-title="
+        creating
+          ? workflowLanguage.t('platform.screen.WorkflowConfigurationView.new-workflow', '新建流程')
+          : (selected?.title ?? workflowLanguage.t('platform.workflow-config.configuration', '流程配置'))
+      "
+      v-model:explorer-search-keyword="searchKeyword"
+      @refresh="reload"
+    >
+      <template #explorer-actions>
+        <UiActionButton
+          class="record-panel-create-button"
+          icon-name="plus"
+          :title="workflowLanguage.t('platform.screen.WorkflowConfigurationView.new-workflow', '新建流程')"
+          :disabled="busy || creating || dirty || selectionDirty"
+          @click="startCreation"
+        />
+      </template>
+      <template #explorer>
+        <template v-if="definitionLoadError">
+          <UiError :message="definitionLoadError()" />
+          <UiButton type="text" @click="reload">{{
+            workflowLanguage.t('platform.screen.CrudRecordListExplorer.reload', '重新加载')
+          }}</UiButton>
+        </template>
+        <UiSpin
+          v-if="loadingDefinitions && !definitions.length"
+          :tip="workflowLanguage.t('platform.workflow-config.loading-definitions', '正在加载审批流程')"
+        />
+        <RecordListExplorer
+          v-else-if="!definitionLoadError || definitions.length"
+          :records="definitions"
+          :keyword="searchKeyword"
+          :empty-description="
+            workflowLanguage.t('platform.workflow-config.no-definitions', '暂无流程，点击“新建流程”开始配置')
           "
-          :searchable="false"
-          :refresh-disabled="busy || dirty"
-          @refresh="reload"
-        >
-          <template #actions
-            ><UiButton
-              :disabled="busy || dirty || selectionDirty"
-              @click="
-                creating = true;
-                newTitle = '';
-                newAlias = '';
-              "
-              >{{
-                workflowLanguage.t('platform.screen.WorkflowConfigurationView.new-workflow', '新建流程')
-              }}</UiButton
-            ></template
-          >
-          <RecordListExplorer
-            :records="definitions"
-            :selected-id="selected?.id"
-            :title-of="(item) => String(item.title ?? item.alias ?? '')"
-            :code-of="(item) => String(item.alias ?? '')"
-            :tag-of="(item) => workflowTitle(String(item.definitionStatus ?? ''))"
-            @select="openDefinition(definitions.find((item) => item.id === $event.id)!)"
-          /> </RecordExplorerPanel
-      ></ManagementExplorerColumn>
-      <RecordDetailPanel
-        :title="selected?.title ?? workflowLanguage.t('platform.workflow-config.configuration', '流程配置')"
-      >
-        <form v-if="creating" class="property-form" @submit.prevent="createDefinition">
-          <h3>
-            {{ workflowLanguage.t('platform.screen.WorkflowConfigurationView.new-workflow', '新建流程') }}
-          </h3>
-          <label class="workflow-field"
-            ><RecordFieldLabel required>{{
+          :selected-id="selected?.id"
+          :item-of="
+            (item) => ({
+              title: String(item.title ?? item.alias ?? ''),
+              secondary: String(item.alias ?? ''),
+              tag: workflowTitle(String(item.definitionStatus ?? '')),
+            })
+          "
+          @select="openDefinition(definitions.find((item) => item.id === $event.id)!)"
+        />
+      </template>
+      <template v-if="selected && !creating" #detail-actions>
+        <AdaptiveHeaderActionBar
+          class="configuration-action-bar"
+          :actions="configurationActions"
+          @action="configurationAction($event.key)"
+        />
+      </template>
+      <form v-if="creating" class="property-form" @submit.prevent="createDefinition">
+        <p class="settings-help">
+          {{
+            workflowLanguage.t(
+              'platform.workflow-config.creation-help',
+              '先创建草稿，再配置节点和参与人；发布后才会用于后续申请。',
+            )
+          }}
+        </p>
+        <label class="workflow-field"
+          ><RecordFieldLabel required>{{
+            workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
+          }}</RecordFieldLabel
+          ><UiInput
+            :disabled="busy"
+            v-model:value="newTitle"
+            required
+            :aria-label="
               workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
-            }}</RecordFieldLabel
-            ><UiInput
-              :disabled="busy"
-              v-model:value="newTitle"
-              :aria-label="
-                workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
-              " /></label
-          ><label class="workflow-field"
-            ><RecordFieldLabel required>{{
+            " /></label
+        ><label class="workflow-field"
+          ><RecordFieldLabel required>{{
+            workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
+          }}</RecordFieldLabel
+          ><UiInput
+            :disabled="busy"
+            v-model:value="newAlias"
+            required
+            :invalid="Boolean(newAlias.trim()) && !validAlias"
+            :aria-label="
               workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
-            }}</RecordFieldLabel
-            ><UiInput
-              :disabled="busy"
-              v-model:value="newAlias"
-              :aria-label="
-                workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
-              "
-          /></label>
+            "
+          /><small class="settings-help">{{
+            workflowLanguage.t(
+              'platform.workflow-config.alias-help',
+              '小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。',
+            )
+          }}</small></label
+        >
+        <div class="settings-wide workflow-field">
           <UiCheckbox :disabled="busy" v-model:checked="approvalEnabled">{{
             workflowLanguage.t(
               'platform.screen.WorkflowConfigurationView.govern-business-approval-status',
               '驱动业务审批状态',
             )
           }}</UiCheckbox
-          ><label class="workflow-field"
-            >{{
-              workflowLanguage.t(
-                'platform.screen.WorkflowConfigurationView.applicable-organization',
-                '适用组织',
-              )
-            }}<RecordPicker
-              :value="organizationId || undefined"
-              :context="organizationContext"
-              :disabled="busy"
-              mode="tree"
-              @update:value="organizationId = $event ?? ''" /></label
-          ><label class="workflow-field"
-            >{{
-              workflowLanguage.t('platform.screen.WorkflowConfigurationView.matching-condition', '匹配条件')
-            }}<FormulaExpressionEditor
-              :disabled="busy"
-              v-model:value="matchExpression"
-              :fields="fields"
-              :placeholder="
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.leave-empty-to-match-all-records',
-                  '留空匹配所有记录',
-                )
-              " /></label
-          ><label class="workflow-field"
-            >{{ workflowLanguage.t('platform.screen.WorkflowConfigurationView.priority', '优先级')
-            }}<UiInput :disabled="busy" v-model:value="matchPriority" type="number" /></label
-          ><UiCheckbox :disabled="busy" v-model:checked="fallback">{{
+          ><small class="settings-help">{{
             workflowLanguage.t(
-              'platform.screen.WorkflowConfigurationView.use-as-the-fallback-workflow-for-this',
-              '作为当前组织范围的兜底流程',
+              'platform.workflow-config.approval-help',
+              '开启后回写业务记录的审批状态；关闭后仅编排任务流程。',
             )
-          }}</UiCheckbox
-          ><UiButton
+          }}</small>
+        </div>
+        <details class="settings-wide">
+          <summary>
+            {{
+              workflowLanguage.t('platform.workflow-config.optional-matching', '适用范围与匹配规则（可选）')
+            }}
+          </summary>
+          <WorkflowSelectionFields
+            class="optional-settings"
+            v-model:organization-id="organizationId"
+            v-model:match-expression="matchExpression"
+            v-model:match-priority="matchPriority"
+            v-model:fallback="fallback"
+            :organization-context="organizationContext"
+            :fields="fields"
+            :disabled="busy"
+            :invalid-priority="!validPriority"
+          />
+        </details>
+      </form>
+      <template v-else-if="selected">
+        <div class="toolbar" :class="{ 'configuration-toolbar--properties': propertyOpen }">
+          <UiSelect
+            :value="version?.id"
+            :options="
+              versions.map((item) => ({
+                value: item.id,
+                label: workflowLanguage.t(
+                  'platform.screen.WorkflowConfigurationView.version-value-value',
+                  '版本 {value1} · {value2}',
+                  { value1: item.versionNo, value2: workflowTitle(item.publishStatus) },
+                ),
+              }))
+            "
+            :disabled="busy || dirty || selectionDirty || configuringSelection"
+            @update:value="switchVersion(String($event))"
+          />
+        </div>
+        <form v-if="configuringSelection" class="property-form" @submit.prevent="saveSelection">
+          <RecordContentSectionHeading
+            class="settings-wide"
+            :title="
+              workflowLanguage.t(
+                'platform.screen.WorkflowConfigurationView.workflow-matching-rules',
+                '流程匹配规则',
+              )
+            "
+          />
+          <label class="workflow-field"
+            ><RecordFieldLabel required>{{
+              workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
+            }}</RecordFieldLabel
+            ><UiInput :disabled="busy" v-model:value="newTitle" required
+          /></label>
+          <WorkflowSelectionFields
+            v-model:organization-id="organizationId"
+            v-model:match-expression="matchExpression"
+            v-model:match-priority="matchPriority"
+            v-model:fallback="fallback"
+            :organization-context="organizationContext"
+            :fields="fields"
+            :disabled="busy"
+            :invalid-priority="!validPriority"
+          />
+          <p class="settings-help">
+            {{
+              workflowLanguage.t(
+                'platform.screen.WorkflowConfigurationView.changes-affect-future-submissions-existing-instances-retain',
+                '调整仅影响后续提交，已有实例保留原发布版本和分派快照。',
+              )
+            }}
+          </p>
+        </form>
+        <p v-if="frozen">
+          {{
+            workflowLanguage.t(
+              'platform.screen.WorkflowConfigurationView.this-version-is-frozen-create-a-new',
+              '此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。',
+            )
+          }}
+        </p>
+        <p v-if="dirty">
+          {{
+            workflowLanguage.t(
+              'platform.screen.WorkflowConfigurationView.the-draft-has-unsaved-changes',
+              '草稿有未保存的修改',
+            )
+          }}
+        </p>
+        <div class="configuration-design" :class="{ 'configuration-design--properties': propertyOpen }">
+          <WorkflowDiagram
+            :key="version?.id"
+            :nodes="design.nodes"
+            :routes="design.links"
+            :selected-node-key="selectedNodeKey"
+            :selected-route-key="selectedRouteKey"
+            :layout-json="design.layoutJson"
+            :editable="editable"
+            interactive
+            @select="selectNode"
+            @select-route="selectRoute"
+            @layout-change="updateLayout"
+          />
+          <div class="toolbar">
+            <UiButton :disabled="!editable" @click="addNode">{{
+              workflowLanguage.t(
+                'platform.screen.WorkflowConfigurationView.insert-approval-node',
+                '插入审批节点',
+              )
+            }}</UiButton
+            ><UiButton :disabled="!editable" @click="addBranch">{{
+              workflowLanguage.t(
+                'platform.screen.WorkflowConfigurationView.insert-branch-and-convergence',
+                '插入分支与汇聚',
+              )
+            }}</UiButton
+            ><UiButton :disabled="!editable" @click="addRoute">{{
+              workflowLanguage.t('platform.screen.WorkflowConfigurationView.add-link', '添加连线')
+            }}</UiButton
+            ><UiSelect
+              :value="selectedRouteKey || undefined"
+              :placeholder="
+                workflowLanguage.t('platform.screen.WorkflowConfigurationView.select-link', '选择连线')
+              "
+              :options="
+                design.links.map((item) => ({
+                  value: item.routeKey,
+                  label: `${item.title ?? workflowLanguage.t('platform.workflow-config.route', '路径')}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
+                }))
+              "
+              @update:value="selectRoute(String($event))"
+            />
+          </div>
+        </div>
+        <RecordDetailDrawer
+          width="wide"
+          :open="propertyOpen"
+          :title="
+            node?.title
+              ? workflowLanguage.t('platform.workflow-config.node-properties', '节点属性 · {title}', {
+                  title: node.title,
+                })
+              : workflowLanguage.t('platform.workflow-config.route-properties', '路径属性')
+          "
+          @close="propertyOpen = false"
+        >
+          <WorkflowDesignProperties
+            :design="design"
+            :node-key="selectedNodeKey"
+            :route-key="selectedRouteKey"
+            :editable="editable"
+            :http="context.http"
+            :module-alias="moduleAlias"
+            :fields="fields"
+            :catalog="catalog"
+            :actions="actionOptions"
+            @update-node="updateNode"
+            @update-route="updateRoute"
+            @select-route="selectRoute"
+            @remove-node="removeNode"
+            @remove-route="removeRoute"
+            @append-branch-path="appendBranchPath"
+            @delete-branch="deleteBranch"
+          />
+          <template #operation
+            ><UiButton :disabled="busy" @click="propertyOpen = false">{{
+              workflowLanguage.t('platform.screen.WorkflowConfigurationView.finish-configuration', '完成配置')
+            }}</UiButton></template
+          >
+        </RecordDetailDrawer>
+      </template>
+      <UiEmpty
+        v-else
+        :description="
+          workflowLanguage.t(
+            'platform.screen.WorkflowConfigurationView.select-or-create-a-workflow-to-configure',
+            '选择或新建流程，配置节点、参与人、路径和业务完成条件。',
+          )
+        "
+      />
+      <template v-if="creating || configuringSelection" #detail-operation>
+        <template v-if="creating">
+          <UiButton
             type="primary"
             :loading="busy"
-            :disabled="busy || !newTitle.trim() || !newAlias.trim()"
+            :disabled="busy || !validSettings || !validAlias"
             @click="createDefinition"
             >{{
               workflowLanguage.t(
@@ -739,204 +992,25 @@ function addRoute() {
           ><UiButton :disabled="busy" @click="discardSettings">{{
             workflowLanguage.t('platform.screen.WorkflowConfigurationView.cancel-creation', '取消新建')
           }}</UiButton>
-        </form>
-        <template v-else-if="selected">
-          <div class="toolbar" :class="{ 'configuration-toolbar--properties': propertyOpen }">
-            <UiSelect
-              :value="version?.id"
-              :options="
-                versions.map((item) => ({
-                  value: item.id,
-                  label: workflowLanguage.t(
-                    'platform.screen.WorkflowConfigurationView.version-value-value',
-                    '版本 {value1} · {value2}',
-                    { value1: item.versionNo, value2: workflowTitle(item.publishStatus) },
-                  ),
-                }))
-              "
-              :disabled="busy || dirty"
-              @update:value="switchVersion(String($event))"
-            /><AdaptiveHeaderActionBar
-              class="configuration-action-bar"
-              :actions="configurationActions"
-              @action="configurationAction($event.key)"
-            />
-          </div>
-          <form v-if="configuringSelection" class="property-form" @submit.prevent="saveSelection">
-            <h3>
-              {{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.workflow-matching-rules',
-                  '流程匹配规则',
-                )
-              }}
-            </h3>
-            <label class="workflow-field"
-              ><RecordFieldLabel required>{{
-                workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
-              }}</RecordFieldLabel
-              ><UiInput :disabled="busy" v-model:value="newTitle"
-            /></label>
-            <label class="workflow-field"
-              >{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.applicable-organization',
-                  '适用组织',
-                )
-              }}<RecordPicker
-                :value="organizationId || undefined"
-                :context="organizationContext"
-                :disabled="busy"
-                mode="tree"
-                @update:value="organizationId = $event ?? ''"
-            /></label>
-            <label class="workflow-field"
-              >{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.matching-condition',
-                  '匹配条件',
-                )
-              }}<FormulaExpressionEditor :disabled="busy" v-model:value="matchExpression" :fields="fields"
-            /></label>
-            <label class="workflow-field"
-              >{{ workflowLanguage.t('platform.screen.WorkflowConfigurationView.priority', '优先级')
-              }}<UiInput :disabled="busy" v-model:value="matchPriority" type="number"
-            /></label>
-            <UiCheckbox :disabled="busy" v-model:checked="fallback">{{
-              workflowLanguage.t(
-                'platform.screen.WorkflowConfigurationView.use-as-the-fallback-workflow-for-this',
-                '作为当前组织范围的兜底流程',
-              )
-            }}</UiCheckbox>
-            <p>
-              {{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.changes-affect-future-submissions-existing-instances-retain',
-                  '调整仅影响后续提交，已有实例保留原发布版本和分派快照。',
-                )
-              }}
-            </p>
-            <UiButton type="primary" :loading="busy" :disabled="busy" @click="saveSelection">{{
+        </template>
+        <template v-else>
+          <UiButton
+            type="primary"
+            :loading="busy"
+            :disabled="busy || !validSettings"
+            @click="saveSelection"
+            >{{
               workflowLanguage.t(
                 'platform.screen.WorkflowConfigurationView.save-matching-rules',
                 '保存匹配规则',
               )
             }}</UiButton
-            ><UiButton :disabled="busy" @click="discardSettings">{{
-              workflowLanguage.t('platform.screen.WorkflowConfigurationView.cancel-changes', '取消修改')
-            }}</UiButton>
-          </form>
-          <p v-if="frozen">
-            {{
-              workflowLanguage.t(
-                'platform.screen.WorkflowConfigurationView.this-version-is-frozen-create-a-new',
-                '此版本已冻结。修改流程请创建新版本；已有实例继续使用原版本。',
-              )
-            }}
-          </p>
-          <p v-if="dirty">
-            {{
-              workflowLanguage.t(
-                'platform.screen.WorkflowConfigurationView.the-draft-has-unsaved-changes',
-                '草稿有未保存的修改',
-              )
-            }}
-          </p>
-          <div class="configuration-design" :class="{ 'configuration-design--properties': propertyOpen }">
-            <WorkflowDiagram
-              :key="version?.id"
-              :nodes="design.nodes"
-              :routes="design.links"
-              :selected-node-key="selectedNodeKey"
-              :selected-route-key="selectedRouteKey"
-              :layout-json="design.layoutJson"
-              :editable="editable"
-              interactive
-              @select="selectNode"
-              @select-route="selectRoute"
-              @layout-change="updateLayout"
-            />
-            <div class="toolbar">
-              <UiButton :disabled="!editable" @click="addNode">{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.insert-approval-node',
-                  '插入审批节点',
-                )
-              }}</UiButton
-              ><UiButton :disabled="!editable" @click="addBranch">{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.insert-branch-and-convergence',
-                  '插入分支与汇聚',
-                )
-              }}</UiButton
-              ><UiButton :disabled="!editable" @click="addRoute">{{
-                workflowLanguage.t('platform.screen.WorkflowConfigurationView.add-link', '添加连线')
-              }}</UiButton
-              ><UiSelect
-                :value="selectedRouteKey || undefined"
-                :placeholder="
-                  workflowLanguage.t('platform.screen.WorkflowConfigurationView.select-link', '选择连线')
-                "
-                :options="
-                  design.links.map((item) => ({
-                    value: item.routeKey,
-                    label: `${item.title ?? workflowLanguage.t('platform.workflow-config.route', '路径')}：${design.nodes.find((node) => node.nodeKey === item.sourceNodeKey)?.title} → ${design.nodes.find((node) => node.nodeKey === item.targetNodeKey)?.title}`,
-                  }))
-                "
-                @update:value="selectRoute(String($event))"
-              />
-            </div>
-          </div>
-          <RecordDetailDrawer
-            width="wide"
-            :open="propertyOpen"
-            :title="
-              node?.title
-                ? workflowLanguage.t('platform.workflow-config.node-properties', '节点属性 · {title}', {
-                    title: node.title,
-                  })
-                : workflowLanguage.t('platform.workflow-config.route-properties', '路径属性')
-            "
-            @close="propertyOpen = false"
-          >
-            <WorkflowDesignProperties
-              :design="design"
-              :node-key="selectedNodeKey"
-              :route-key="selectedRouteKey"
-              :editable="editable"
-              :http="context.http"
-              :module-alias="moduleAlias"
-              :fields="fields"
-              :catalog="catalog"
-              :actions="actionOptions"
-              @update-node="updateNode"
-              @update-route="updateRoute"
-              @select-route="selectRoute"
-              @remove-node="removeNode"
-              @remove-route="removeRoute"
-              @append-branch-path="appendBranchPath"
-              @delete-branch="deleteBranch"
-            />
-            <template #operation
-              ><UiButton :disabled="busy" @click="propertyOpen = false">{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.finish-configuration',
-                  '完成配置',
-                )
-              }}</UiButton></template
-            >
-          </RecordDetailDrawer>
+          ><UiButton :disabled="busy" @click="discardSettings">{{
+            workflowLanguage.t('platform.screen.WorkflowConfigurationView.cancel-changes', '取消修改')
+          }}</UiButton>
         </template>
-        <p v-else>
-          {{
-            workflowLanguage.t(
-              'platform.screen.WorkflowConfigurationView.select-or-create-a-workflow-to-configure',
-              '选择或新建流程，配置节点、参与人、路径和业务完成条件。',
-            )
-          }}
-        </p>
-      </RecordDetailPanel>
-    </ManagementWorkspace>
+      </template>
+    </StaticManagementLayout>
     <RecordDetailDrawer
       width="extraWide"
       :open="publishReviewOpen"
@@ -1107,7 +1181,6 @@ function addRoute() {
 </template>
 <style scoped>
 .workflow-configuration {
-  padding: 12px;
   height: 100%;
   min-width: 0;
   min-height: 0;
@@ -1115,7 +1188,6 @@ function addRoute() {
   overflow: hidden;
   container-type: inline-size;
 }
-header,
 .toolbar {
   display: flex;
   gap: 8px;
@@ -1123,28 +1195,33 @@ header,
   flex-wrap: wrap;
   margin-bottom: 16px;
 }
-h2 {
-  margin: 0 auto 0 0;
-  font-size: 18px;
-}
 .property-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 16px;
+  align-items: start;
   max-width: 850px;
 }
-.property-form h3 {
-  grid-column: 1/-1;
+.optional-settings {
+  margin-top: 16px;
 }
 .property-form p {
   grid-column: 1/-1;
 }
 .workflow-field {
   display: grid;
-  gap: 6px;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
 }
-.toolbar {
-  margin-top: 16px;
+.settings-wide {
+  grid-column: 1 / -1;
+}
+.settings-help {
+  margin: 0;
+  color: var(--muyun-text-secondary);
+  font-size: var(--muyun-font-size-helper, 12px);
+  line-height: var(--muyun-line-height-helper, 18px);
 }
 .configuration-action-bar {
   flex: 1 1 420px;

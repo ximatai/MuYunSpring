@@ -2213,6 +2213,10 @@ describe('ModulePageHost', () => {
             { id: 'other', title: '其他租户' },
           ],
           total: 2,
+          pageNum: 1,
+          pageSize: 200,
+          pages: 1,
+          totalKnown: true,
         }),
       );
       await settlement;

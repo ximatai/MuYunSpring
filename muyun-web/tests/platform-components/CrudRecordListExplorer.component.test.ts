@@ -229,16 +229,16 @@ describe('CrudRecordListExplorer', () => {
         { id: 'tenant-a', title: '演示租户' },
         { id: 'tenant-b', title: '正式租户' },
       ],
-      total: 201,
+      total: 2,
       pageNum: 1,
       pageSize: 200,
-      pages: 2,
+      pages: 1,
       totalKnown: true,
     });
     await flushPromises();
 
     await expect(settled).resolves.toMatchObject({ status: 'ready' });
-    expect(controller.snapshot()).toMatchObject({ total: 201, totalKnown: true, truncated: true });
+    expect(controller.snapshot()).toMatchObject({ total: 2, totalKnown: true, truncated: false });
 
     context.crud.query = async () => ({
       records: [{ id: 'hidden', title: '名称不同但备注匹配' }],
@@ -258,14 +258,16 @@ describe('CrudRecordListExplorer', () => {
     });
   });
 
-  it('reaches records beyond 200, refreshes the current page and resets search to page one', async () => {
+  it('loads complete navigation beyond 200 without pagination and reloads the whole result', async () => {
     const requests: WebQueryRequest[] = [];
     const context = createContext([]);
     context.crud.query = async (request = {}) => {
       requests.push(request);
       const page = request.page?.pageNum ?? 1;
       return {
-        records: [{ id: request.quickSearch ? 'match-250' : `page-${page}` }],
+        records: request.quickSearch
+          ? [{ id: 'match-250' }]
+          : Array.from({ length: page === 1 ? 200 : 50 }, (_, i) => ({ id: `row-${(page - 1) * 200 + i}` })),
         total: request.quickSearch ? 1 : 250,
         pageNum: page,
         pageSize: 200,
@@ -275,18 +277,13 @@ describe('CrudRecordListExplorer', () => {
     };
     const wrapper = shallowMount(CrudRecordListExplorer, { props: { context } });
     await flushPromises();
-    wrapper
-      .findAllComponents({ name: 'UiButton' })
-      .find((button) => button.attributes('aria-label') === '下一页')!
-      .vm.$emit('click');
-    await flushPromises();
-    expect(requests.at(-1)?.page?.pageNum).toBe(2);
-    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toEqual([
-      { id: 'page-2' },
-    ]);
+    expect(requests.map((request) => request.page?.pageNum)).toEqual([1, 2]);
+    expect(wrapper.find('.crud-record-list-pagination').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toHaveLength(250);
+    expect(wrapper.emitted('loaded')).toHaveLength(1);
     await wrapper.setProps({ reloadKey: 1 });
     await flushPromises();
-    expect(requests.at(-1)?.page?.pageNum).toBe(2);
+    expect(requests.map((request) => request.page?.pageNum)).toEqual([1, 2, 1, 2]);
     await wrapper.setProps({ keyword: '备注匹配' });
     await flushPromises();
     expect(requests.at(-1)).toMatchObject({ page: { pageNum: 1 }, quickSearch: '备注匹配' });
@@ -333,7 +330,7 @@ describe('CrudRecordListExplorer', () => {
     wrapper.unmount();
   });
 
-  it('returns to the available last page after deletion empties the current page', async () => {
+  it('rebuilds complete navigation after deletion removes the final batch', async () => {
     const requests: number[] = [];
     const context = createContext([]);
     let total = 201;
@@ -351,16 +348,11 @@ describe('CrudRecordListExplorer', () => {
     };
     const wrapper = shallowMount(CrudRecordListExplorer, { props: { context } });
     await flushPromises();
-    wrapper
-      .findAllComponents({ name: 'UiButton' })
-      .find((button) => button.attributes('aria-label') === '下一页')!
-      .vm.$emit('click');
-    await flushPromises();
     total = 200;
     await wrapper.setProps({ reloadKey: 1 });
     await flushPromises();
-    expect(requests).toEqual([1, 2, 2, 1]);
-    expect(wrapper.text()).toContain('第 1 页');
+    expect(requests).toEqual([1, 2, 1]);
+    expect(wrapper.text()).not.toContain('第 1 页');
     wrapper.unmount();
   });
 
@@ -425,24 +417,30 @@ describe('CrudRecordListExplorer', () => {
     expect(wrapper.emitted('sorted')).toEqual([[]]);
   });
 
-  it('uses the loaded row as an anchor even when the result has more records', async () => {
+  it('sorts against the complete navigation including records in later transport batches', async () => {
     const sortCalls: Array<{ id: string; request: unknown }> = [];
-    const wrapper = shallowMount(CrudRecordListExplorer, {
-      props: {
-        context: createContext([], [{ id: 'first' }, { id: 'second' }], sortCalls, [], 201),
-        sorting: true,
-      },
-    });
-
+    const rows = Array.from({ length: 201 }, (_, i) => ({ id: `row-${i}` }));
+    const context = createContext([], rows, sortCalls);
+    context.crud.query = async (request = {}) => {
+      const page = request.page!.pageNum;
+      return {
+        records: rows.slice((page - 1) * 200, page * 200),
+        total: 201,
+        pageNum: page,
+        pageSize: 200,
+        pages: 2,
+        totalKnown: true,
+      };
+    };
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context, sorting: true } });
     await flushPromises();
     wrapper.findComponent({ name: 'RecordListExplorer' }).vm.$emit('sort', {
-      dragRecord: { id: 'first' },
-      dropRecord: { id: 'second' },
-      position: 1,
+      dragRecord: rows[200],
+      dropRecord: rows[0],
+      position: -1,
     });
     await flushPromises();
-
-    expect(sortCalls).toEqual([{ id: 'first', request: { previousId: 'second', nextId: null } }]);
+    expect(sortCalls).toEqual([{ id: 'row-200', request: { previousId: null, nextId: 'row-0' } }]);
   });
 
   it('persists platform application moves at both flat-list boundaries', async () => {

@@ -34,6 +34,24 @@ import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
     @Test
+    void availabilityRequiresIdentityAndDelegatesOnlyTheConfigurationCheck() {
+        var gateway = mock(AiModelGateway.class);
+        var service = new AssistantTurnService(gateway, new ObjectMapper());
+        assertThatThrownBy(service::isAvailable).isInstanceOfSatisfying(PlatformException.class,
+                error -> assertThat(error.code()).isEqualTo("AUTH_REQUIRED"));
+        org.mockito.Mockito.verifyNoInteractions(gateway);
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "User", "tenant"));
+             var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use("tenant")) {
+            when(gateway.isTextGenerationAvailable()).thenReturn(false, true, false);
+            assertThat(service.isAvailable()).isFalse();
+            assertThat(service.isAvailable()).isTrue();
+            assertThat(service.isAvailable()).isFalse();
+        }
+        verify(gateway, org.mockito.Mockito.times(3)).isTextGenerationAvailable();
+        org.mockito.Mockito.verifyNoMoreInteractions(gateway);
+    }
+
+    @Test
     void usesTheFormalInterfaceLanguageWhileKeepingBusinessFactsVerbatim() {
         var gateway = mock(AiModelGateway.class);
         when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse("ready", List.of(), "stop", "r"));

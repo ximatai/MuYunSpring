@@ -6,6 +6,7 @@ import type { MenuNavigationTarget, MenuRecord, MenuTreeNode } from '@muyun/web-
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenuTree from './WorkbenchMenuTree.vue';
 import WorkbenchSidebarMenuEntry from './WorkbenchSidebarMenuEntry.vue';
+import { layoutMenuGroups } from './menuGroupLayout';
 import { createMenuHoverClickIntent } from './menuHoverClickIntent';
 import { isPointerHeadingToMenuPanel, type MenuPointerPosition } from './menuPointerAim';
 import {
@@ -71,10 +72,15 @@ const emit = defineEmits<{
 
 const MEGA_GROUP_COLUMN_MIN_WIDTH = 168;
 const MEGA_GROUP_COLUMN_GAP = 18;
-const MEGA_GROUP_HORIZONTAL_PADDING = 28;
+const MEGA_GROUP_PADDING = 14;
 const MEGA_PANEL_MAX_WIDTH = 1040;
 const MEGA_PANEL_SIDE_MARGIN = 24;
 const MEGA_PANEL_MAX_HEIGHT = 620;
+const MEGA_GROUP_GAP = 20;
+const MEGA_GROUP_TITLE_HEIGHT = 28;
+const MEGA_ENTRY_HEIGHT = 30;
+const MEGA_ENTRY_GAP = 2;
+const MEGA_GROUP_TITLE_GAP = 6;
 const MEGA_POINTER_AIM_IDLE_TIMEOUT = 500;
 const MEGA_POINTER_AIM_INVALID_MOVE_LIMIT = 2;
 const MENU_SWITCH_GRACE_PERIOD = 320;
@@ -98,6 +104,7 @@ const activeRootTop = ref(0);
 const activeRootHeight = ref(34);
 const megaPanelPreferredWidth = ref(820);
 const megaGroupColumnCount = ref(3);
+const megaGroupHeightBudget = ref(MEGA_PANEL_MAX_HEIGHT - MEGA_GROUP_PADDING * 2);
 const compactPanelBounds = ref<{ left: number; top: number; right: number; bottom: number }>();
 const sidebarSubmenuTop = ref(0);
 const sidebarSubmenuLeft = ref(0);
@@ -127,9 +134,25 @@ const activeRootNode = computed(() => {
 });
 const megaMenuModel = computed(() =>
   activeRootNode.value
-    ? buildWorkbenchMegaMenuModel(activeRootNode.value, activeDeepRootId.value, megaGroupColumnCount.value)
+    ? buildWorkbenchMegaMenuModel(activeRootNode.value, activeDeepRootId.value)
     : undefined,
 );
+const megaColumns = computed(() => {
+  const groups = megaMenuModel.value?.groups ?? [];
+  const heights = groups.map(
+    (group) =>
+      MEGA_GROUP_TITLE_HEIGHT +
+      MEGA_GROUP_TITLE_GAP +
+      group.children.length * MEGA_ENTRY_HEIGHT +
+      Math.max(0, group.children.length - 1) * MEGA_ENTRY_GAP,
+  );
+  return layoutMenuGroups(
+    heights,
+    megaGroupColumnCount.value,
+    megaGroupHeightBudget.value,
+    MEGA_GROUP_GAP,
+  ).map(({ start, end }) => groups.slice(start, end));
+});
 const megaOutlinePath = computed(() =>
   floatingMenuPanelOutlinePath(
     {
@@ -194,7 +217,7 @@ const compactOutlinePath = computed(() => {
     flyout,
   );
 });
-const megaColumnCount = computed(() => megaMenuModel.value?.columns.length ?? 1);
+
 const menuVisible = computed(() => props.presentation === 'expanded' || props.compactOpen);
 const isCompact = computed(() => props.presentation === 'compact');
 const rootChildrenUseFlyout = computed(() => isCompact.value || props.expandedMenuDepth === 1);
@@ -717,18 +740,23 @@ function updateMegaPanelLayout() {
       4,
       groupCount || 1,
       Math.floor(
-        (maxGroupWidth - MEGA_GROUP_HORIZONTAL_PADDING + MEGA_GROUP_COLUMN_GAP) /
+        (maxGroupWidth - MEGA_GROUP_PADDING * 2 + MEGA_GROUP_COLUMN_GAP) /
           (MEGA_GROUP_COLUMN_MIN_WIDTH + MEGA_GROUP_COLUMN_GAP),
       ) || 1,
     ),
   );
+  megaGroupColumnCount.value = columnCount;
+  megaGroupHeightBudget.value = Math.max(
+    0,
+    Math.min(MEGA_PANEL_MAX_HEIGHT, window.innerHeight - 16) - MEGA_GROUP_PADDING * 2,
+  );
+  const actualColumns = Math.max(1, megaColumns.value.length);
   const groupWidth =
-    columnCount * MEGA_GROUP_COLUMN_MIN_WIDTH +
-    Math.max(0, columnCount - 1) * MEGA_GROUP_COLUMN_GAP +
-    MEGA_GROUP_HORIZONTAL_PADDING;
+    actualColumns * MEGA_GROUP_COLUMN_MIN_WIDTH +
+    Math.max(0, actualColumns - 1) * MEGA_GROUP_COLUMN_GAP +
+    MEGA_GROUP_PADDING * 2;
   const preferredWidth = Math.min(availableWidth, MEGA_PANEL_MAX_WIDTH, groupWidth);
 
-  megaGroupColumnCount.value = columnCount;
   megaPanelPreferredWidth.value = Math.max(280, preferredWidth);
 }
 
@@ -1042,17 +1070,20 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
           '--mega-panel-top': `${megaPanelTop}px`,
           '--mega-panel-left': `${megaPanelLeft}px`,
           '--mega-panel-width': `${megaPanelPreferredWidth}px`,
-          '--mega-column-count': megaColumnCount,
+          '--mega-column-count': Math.max(1, megaColumns.length),
+          '--mega-group-gap': `${MEGA_GROUP_GAP}px`,
+          '--mega-group-padding': `${MEGA_GROUP_PADDING}px`,
+          '--mega-group-title-height': `${MEGA_GROUP_TITLE_HEIGHT}px`,
+          '--mega-entry-height': `${MEGA_ENTRY_HEIGHT}px`,
+          '--mega-entry-gap': `${MEGA_ENTRY_GAP}px`,
+          '--mega-group-title-gap': `${MEGA_GROUP_TITLE_GAP}px`,
+          '--mega-panel-max-height': `${MEGA_PANEL_MAX_HEIGHT}px`,
         }"
         @mouseenter="handleMenuEnter"
       >
         <div class="mega-body">
           <div class="mega-groups">
-            <div
-              v-for="(column, columnIndex) in megaMenuModel?.columns ?? []"
-              :key="`mega-column-${columnIndex}`"
-              class="mega-column"
-            >
+            <div v-for="(column, index) in megaColumns" :key="index" class="mega-column">
               <section v-for="group in column" :key="group.record.id" class="mega-group">
                 <button
                   class="mega-group-title"
@@ -1688,7 +1719,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   width: min(var(--mega-panel-width), calc(100vw - var(--mega-panel-left) - 24px));
-  max-height: calc(100vh - 16px);
+  max-height: min(var(--mega-panel-max-height), calc(100dvh - 16px));
   border: 0;
   border-radius: 0 8px 8px 0;
   background: var(--workbench-menu-surface);
@@ -1789,42 +1820,43 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
-  max-height: calc(100vh - 16px);
 }
 
 .mega-groups {
   display: grid;
   grid-template-columns: repeat(var(--mega-column-count), minmax(168px, 1fr));
   align-content: start;
+  align-items: start;
   gap: 18px;
   min-width: 0;
-  max-height: calc(100vh - 16px);
-  padding: 14px;
+  min-height: 0;
+  padding: var(--mega-group-padding);
   overflow: auto;
 }
 
 .mega-column {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: var(--mega-group-gap);
   min-width: 0;
 }
 
 .mega-group {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: var(--mega-group-title-gap);
   min-width: 0;
 }
 
 .mega-group-title {
   display: flex;
   align-items: center;
-  min-height: 24px;
-  padding: 2px 0;
-  color: var(--muyun-support-text-muted);
-  font-size: 12px;
-  font-weight: 800;
+  min-height: var(--mega-group-title-height);
+  padding: 2px 7px;
+  border-bottom: 1px solid var(--muyun-border-subtle);
+  color: var(--muyun-text-body);
+  font-size: var(--muyun-font-size-section, 14px);
+  font-weight: 700;
   cursor: default;
 }
 
@@ -1840,18 +1872,19 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 
 .mega-entry-list {
   display: grid;
-  gap: 2px;
+  gap: var(--mega-entry-gap);
 }
 
 .mega-entry {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
-  min-height: 30px;
+  min-height: var(--mega-entry-height);
   border-radius: 6px;
   background: transparent;
   color: var(--muyun-support-text-muted);
   font-size: 12px;
+  line-height: var(--muyun-line-height-helper, 18px);
   cursor: default;
   overflow: hidden;
 }
@@ -1859,7 +1892,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
 .mega-entry-main,
 .mega-entry-trigger {
   min-width: 0;
-  min-height: 30px;
+  min-height: var(--mega-entry-height);
   border: 0;
   background: transparent;
   color: inherit;
@@ -2029,7 +2062,7 @@ function isSelectedMenuAncestor(node: WorkbenchMenuNode) {
   }
 
   .workbench-menu--expanded .mega-column {
-    gap: 14px;
+    display: contents;
   }
 
   .mega-deep-tree {

@@ -4,6 +4,9 @@ import { createLanguageContext, provideLanguageContext } from '@muyun/web-core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
 import Workbench from '@/platform-workbench/Workbench.vue';
+import { createWorkspaceViewDescriptor } from '@/platform-workbench/workspaceViews';
+import { moduleGovernanceWorkspaceView } from '@/views/moduleGovernanceWorkspaceView';
+import { tabKeyOf } from '@/platform-workbench/menuNavigation';
 
 it('lets the owner retry a failed startup without opening a page or replaying an assistant request', async () => {
   const wrapper = mount(Workbench, { props: { error: '服务暂时无法连接' } });
@@ -42,15 +45,22 @@ it('switches account commands and workspace captions without changing command ID
     const menu = wrapper.findComponent({ name: 'UiDropdown' });
     const ids = menu.props('items').map((item: { key: string }) => item.key);
     expect(menu.props('items').map((item: { title: string }) => item.title)).toEqual([
+      'System administrator',
+      'Language settings',
+      'Appearance',
       'Change password',
       'My profile',
       'Sign out',
     ]);
-    expect(wrapper.text()).toContain('System administrator');
+    expect(wrapper.find('.workbench-page-refresh').exists()).toBe(false);
+    expect(wrapper.get('.user-button').text()).toContain('原始账户');
     language.setLanguage('zh-CN');
     await nextTick();
     expect(menu.props('items').map((item: { key: string }) => item.key)).toEqual(ids);
     expect(menu.props('items').map((item: { title: string }) => item.title)).toEqual([
+      '系统管理员',
+      '语言设置',
+      '皮肤切换',
       '修改密码',
       '个人信息',
       '退出登录',
@@ -84,9 +94,6 @@ it('presents realtime status through its own consumer language without changing 
 });
 
 it('shows translated workspace tab resources while preserving original tab titles and selection keys', async () => {
-  const { createWorkspaceViewDescriptor } = await import('@/platform-workbench/workspaceViews');
-  const { moduleGovernanceWorkspaceView } = await import('@/views/moduleGovernanceWorkspaceView');
-  const { tabKeyOf } = await import('@/platform-workbench/menuNavigation');
   const language = createLanguageContext({ languageTag: 'en' });
   const descriptor = createWorkspaceViewDescriptor(
     moduleGovernanceWorkspaceView,
@@ -121,11 +128,13 @@ it('shows translated workspace tab resources while preserving original tab title
     language.setLanguage('en');
     await nextTick();
     expect(tabs.props('tabs')[0].title).toBe('Low-code governance: 业务原名');
-    expect(wrapper.get('h1').text()).toBe('Low-code governance: 业务原名');
+    expect(wrapper.get('.tab-strip').text()).toContain('Low-code governance: 业务原名');
+    expect(wrapper.get('.workbench-page-title-label').text()).toBe('Low-code governance: 业务原名');
     language.setLanguage('zh-CN');
     await nextTick();
     expect(tabs.props('tabs')[0].title).toBe('低代码治理：业务原名');
-    expect(wrapper.get('h1').text()).toBe('低代码治理：业务原名');
+    expect(wrapper.get('.tab-strip').text()).toContain('低代码治理：业务原名');
+    expect(wrapper.get('.workbench-page-title-label').text()).toBe('低代码治理：业务原名');
     language.setLanguage('en');
     await nextTick();
     expect(tabs.props('tabs')[0].key).toBe(key);

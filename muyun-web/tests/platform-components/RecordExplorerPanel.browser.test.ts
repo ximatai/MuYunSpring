@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import { UiButton } from '@muyun/vue-ui-antdv';
+import RecordListExplorer from '@/platform-components/RecordListExplorer.vue';
 import RecordExplorerPanel from '@/platform-components/RecordExplorerPanel.vue';
 import '@/styles.css';
 import 'ant-design-vue/dist/reset.css';
@@ -116,4 +117,36 @@ it('keeps protection tags visible when nested tree labels are long', async () =>
   const title = item.querySelector('.ui-record-explorer-item-title')!;
   expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
   panel.unmount();
+});
+
+it('keeps the title free of counts and secondary footer visible while long flat navigation scrolls', async () => {
+  const panel = mount(RecordExplorerPanel, {
+    attachTo: document.body,
+    props: { title: '应用列表', refreshable: false },
+    attrs: { style: 'height: 360px; width: 280px;' },
+    slots: {
+      actions: () =>
+        h(
+          UiButton,
+          { iconName: 'plus', iconOnly: true, class: 'record-explorer-panel-create-action' },
+          () => '新增',
+        ),
+      default: () =>
+        h(RecordListExplorer, {
+          records: Array.from({ length: 250 }, (_, i) => ({ id: `record-${i}`, title: `应用 ${i}` })),
+        }),
+      footer: () => h(UiButton, { iconName: 'delete' }, () => '回收站'),
+    },
+  });
+  const header = panel.get('.record-explorer-panel-header').element.getBoundingClientRect();
+  expect(panel.get('.management-panel-header-title-group').text()).toBe('应用列表');
+  const footer = panel.get('.record-explorer-panel-footer').element.getBoundingClientRect();
+  await page.elementLocator(panel.get('[data-ui-tree-key="record-249"]').element).click();
+  const tree = panel.get('.ui-tree').element as HTMLElement;
+  expect(tree.scrollTop).toBeGreaterThan(0);
+  expect(panel.get('.record-explorer-panel-header').element.getBoundingClientRect().top).toBe(header.top);
+  expect(panel.get('.record-explorer-panel-footer').element.getBoundingClientRect().top).toBe(footer.top);
+  expect(
+    panel.get('[data-ui-tree-key="record-249"]').element.getBoundingClientRect().bottom,
+  ).toBeLessThanOrEqual(footer.top);
 });

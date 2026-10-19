@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button as AButton } from 'ant-design-vue';
-import { computed } from 'vue';
+import { computed, useAttrs } from 'vue';
 import UiIcon, { type UiIconName } from './UiIcon.vue';
 
 defineOptions({ name: 'UiButton', inheritAttrs: false });
@@ -38,6 +38,30 @@ const props = withDefaults(
   },
 );
 
+const attrs = useAttrs();
+const nativeButtonAttributeNames = new Set([
+  'id',
+  'role',
+  'tabindex',
+  'tabIndex',
+  'name',
+  'value',
+  'form',
+  'autofocus',
+]);
+// Forward native interaction state without exposing Ant-specific props through the adapter.
+function nativeButtonAttrs() {
+  return Object.fromEntries(
+    Object.entries(attrs).filter(
+      ([key]) =>
+        key.startsWith('aria-') ||
+        key.startsWith('data-') ||
+        nativeButtonAttributeNames.has(key) ||
+        /^on[A-Z]/.test(key),
+    ),
+  );
+}
+
 const solidForegroundClass = computed(() => {
   if (props.type !== 'primary') return undefined;
   return props.danger ? 'ui-button--danger-solid' : 'ui-button--theme-solid';
@@ -50,6 +74,7 @@ const emit = defineEmits<{
 
 <template>
   <AButton
+    v-bind="nativeButtonAttrs()"
     :type="type"
     :html-type="htmlType"
     :disabled="disabled"

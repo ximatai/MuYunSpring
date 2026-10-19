@@ -13,6 +13,8 @@ defineProps<{ required?: boolean }>();
 
 <style scoped>
 .record-field-label {
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
   display: inline-flex;
   align-items: baseline;
   min-width: 0;

@@ -122,9 +122,15 @@ it('content sections share one semantic heading language so dark skins preserve 
   assert.match(extensionSource, /<RecordContentSectionHeading :title="title"/);
   assert.match(formSource, /<RecordContentSectionHeading[\s\S]*class="record-form-group-heading"/);
   assert.match(headingSource, /color: var\(--muyun-content-section-heading-color, var\(--muyun-text\)\)/);
-  assert.match(layoutSource, /--muyun-content-section-heading-font-size: 14px/);
-  assert.match(layoutSource, /--muyun-content-section-heading-font-weight: 600/);
-  assert.match(layoutSource, /--muyun-content-section-heading-line-height: 20px/);
+  assert.match(
+    layoutSource,
+    /--muyun-content-section-heading-font-size: var\(--muyun-font-size-section, 14px\)/,
+  );
+  assert.match(layoutSource, /--muyun-content-section-heading-font-weight: 700/);
+  assert.match(
+    layoutSource,
+    /--muyun-content-section-heading-line-height: var\(--muyun-line-height-section, 20px\)/,
+  );
   assert.match(metaSource, /dt \{[\s\S]*color: var\(--muyun-support-text-muted\)/);
   assert.match(metaSource, /dd \{[\s\S]*color: var\(--muyun-support-text-body\)/);
   assert.notMatch(`${headingSource}\n${metaSource}`, /#334155|#64748b|#243447/);
@@ -187,13 +193,15 @@ it('workbench routes the skin toolbar entry to the shared preference dialog', ()
 
 it('workbench opens the signed-in user profile through the dedicated self-service contract', () => {
   const appSource = readSource('src/App.vue');
+  const profileSource = readSource('src/app/useCurrentUserProfile.ts');
   const profileDialogSource = readSource('src/app/CurrentUserProfileDialog.vue');
   const clientSource = readSource('src/web-core/clients.ts');
 
   assert.match(appSource, /command === 'profile'/);
   assert.match(appSource, /function openCurrentUserProfile\(\)/);
-  assert.match(appSource, /authClient\.currentProfile\(token\)/);
-  assert.match(appSource, /authClient\.updateCurrentProfile\(value, token\)/);
+  assert.match(appSource, /useCurrentUserProfile/);
+  assert.match(profileSource, /options\.client\.currentProfile\(token\)/);
+  assert.match(profileSource, /options\.client\.updateCurrentProfile\(value, token\)/);
   assert.match(appSource, /<CurrentUserProfileDialog/);
   assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
   assert.match(profileDialogSource, /保存联系方式/);
@@ -969,7 +977,7 @@ it('workbench exposes own password change through auth boundary', () => {
   const dialogSource = readSource('src/app/ChangeOwnPasswordDialog.vue');
   const authClientSource = readSource('src/web-core/clients.ts');
 
-  assert.match(workbenchSource, /key: 'changePassword'/);
+  assert.match(readSource('src/platform-workbench/WorkbenchGlobalTools.vue'), /key: 'changePassword'/);
   assert.match(workbenchSource, /\.workbench-layout \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
@@ -1192,14 +1200,17 @@ it('data table keeps platform typography when embedded by a consumer App', () =>
     tableSource,
     /\.ui-data-table\.is-fill-height :deep\(\.ant-table\) \{[\s\S]*?flex: 1 1 auto;[\s\S]*?height: auto;/,
   );
-  assert.match(tableSource, /\.ui-data-table :deep\(\.ant-table\)[\s\S]*font-size: 13px/);
   assert.match(
     tableSource,
-    /\.ant-table-thead > tr > th\),[\s\S]*\.ant-table-tbody > tr > td\)[\s\S]*font-size: 13px/,
+    /\.ui-data-table :deep\(\.ant-table\)[\s\S]*font-size: var\(--muyun-font-size-body, 13px\)/,
   );
   assert.match(
     tableSource,
-    /\.ant-table-thead > tr > th\),[\s\S]*\.ant-table-tbody > tr > td\)[\s\S]*line-height: 1\.5714285714/,
+    /\.ant-table-thead > tr > th\),[\s\S]*\.ant-table-tbody > tr > td\)[\s\S]*font-size: var\(--muyun-font-size-body, 13px\)/,
+  );
+  assert.match(
+    tableSource,
+    /\.ant-table-thead > tr > th\),[\s\S]*\.ant-table-tbody > tr > td\)[\s\S]*line-height: var\(--muyun-line-height-body, 21px\)/,
   );
 });
 
@@ -1278,7 +1289,7 @@ it('platform error feedback respects global error presentation slots', () => {
   assert.match(uiStylesSource, /transform: scaleX\(1\)/);
   assert.match(uiStylesSource, /animation: none/);
   assert.match(uiStylesSource, /transition: transform 280ms ease-out/);
-  assert.match(uiStylesSource, /font-size: 13px/);
+  assert.match(uiStylesSource, /font-size: var\(--muyun-font-size-body, 13px\)/);
   assert.match(uiStylesSource, /@keyframes muyun-feedback-countdown/);
   assert.match(staticCrudStateSource, /handlePlatformActionSuccess/);
 });

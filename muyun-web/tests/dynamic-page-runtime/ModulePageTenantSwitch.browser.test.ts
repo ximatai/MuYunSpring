@@ -65,10 +65,17 @@ it('keeps the tenant explorer and its search mounted while a new tenant business
         actions: [],
       });
     if (request.url.endsWith('/iam.organization/navigator/reference/query'))
-      return Response.json({ records: [], total: 0, totalKnown: true });
+      return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 200, pages: 0, totalKnown: true });
     if (request.url.endsWith('/iam.tenant/navigator/reference/query')) {
       tenantQueries += 1;
-      return Response.json({ records: tenants, total: tenants.length, totalKnown: true });
+      return Response.json({
+        records: tenants,
+        total: tenants.length,
+        pageNum: 1,
+        pageSize: 200,
+        pages: 1,
+        totalKnown: true,
+      });
     }
     if (request.url.endsWith('/crm.customer/query')) {
       const tenant = request.headers.get('X-MuYun-Tenant-Id') ?? '';

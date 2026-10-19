@@ -1,5 +1,10 @@
 import { expect, it, vi } from 'vitest';
-import { createAssistantTurnRequester, type HttpClient, type StreamingHttpClient } from '@muyun/web-core';
+import {
+  createAssistantTurnRequester,
+  readAssistantAvailability,
+  type HttpClient,
+  type StreamingHttpClient,
+} from '@muyun/web-core';
 
 it('sends a turn through the supplied scoped client without adding identity facts', async () => {
   const request = vi.fn(async () => ({ text: 'ok', toolCalls: [], finishReason: 'stop' }));
@@ -237,4 +242,16 @@ it('preserves the native model tool count even when interactions consume the pag
   };
   const requester = createAssistantTurnRequester(http);
   expect((await requester(input, new AbortController().signal)).modelToolCallCount).toBe(2);
+});
+
+it('reads current-identity availability without sending client identity or accepting truthy strings', async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({ available: true })
+    .mockResolvedValueOnce({ available: 'true' });
+  const signal = new AbortController().signal;
+  const client = { request } as HttpClient;
+  expect(await readAssistantAvailability(client, signal)).toBe(true);
+  expect(await readAssistantAvailability(client, signal)).toBe(false);
+  expect(request).toHaveBeenCalledWith({ method: 'GET', path: '/platform.assistant/availability', signal });
 });

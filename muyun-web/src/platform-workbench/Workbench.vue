@@ -1,16 +1,8 @@
 <script setup lang="ts">
-import WorkbenchLanguageSettings from './WorkbenchLanguageSettings.vue';
+import WorkbenchGlobalTools from './WorkbenchGlobalTools.vue';
+import WorkbenchPageTitle from './WorkbenchPageTitle.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import {
-  UiButton,
-  UiDropdown,
-  UiEmpty,
-  UiError,
-  UiIcon,
-  UiSpin,
-  UiTabs,
-  UiSidePanelHost,
-} from '@muyun/vue-ui-antdv';
+import { UiButton, UiEmpty, UiError, UiSpin, UiTabs, UiSidePanelHost } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
   MenuRecord,
@@ -18,7 +10,7 @@ import type {
   PageDescriptor,
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
-import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
+import type { UiTabItem } from '@muyun/vue-ui-antdv';
 import {
   createAssistantSurfaceRegistry,
   provideAssistantSurfaceHost,
@@ -54,6 +46,8 @@ const language = useLanguageContext();
 const props = withDefaults(
   defineProps<{
     startup?: WorkbenchStartupState;
+    /** Employee name from the host-owned current-user profile. */
+    currentUserEmployeeName?: string;
     loading?: boolean;
     error?: string;
     activeTabKey?: string;
@@ -62,6 +56,8 @@ const props = withDefaults(
     themeAppearance?: 'light' | 'dark';
     constructionPlanClient?: ConstructionPlanClient;
     assistantConversationClient?: AssistantConversationClient;
+    /** Trusted backend availability for the current identity; unknown defaults to unavailable. */
+    assistantAvailable?: boolean;
     assistantRequestTurn?: AssistantTurnRequester;
     assistantWorkspaceContribution?: AssistantWorkspaceContribution;
     assistantWaitForPageReady?: () => Promise<string>;
@@ -74,6 +70,7 @@ const props = withDefaults(
     lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
     themeAppearance: 'light',
+    assistantAvailable: false,
     assistantRequestTurn: undefined,
     assistantWaitForPageReady: undefined,
   },
@@ -172,6 +169,22 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
 );
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
+const assistantUsable = computed(
+  () =>
+    props.assistantAvailable === true &&
+    Boolean(props.startup?.session.currentUser) &&
+    Boolean(props.assistantRequestTurn),
+);
+const allowedAssistantRequester = computed(() =>
+  assistantUsable.value ? props.assistantRequestTurn : undefined,
+);
+watch(
+  [assistantIdentity, assistantUsable],
+  () => {
+    assistantOpen.value = false;
+  },
+  { flush: 'sync' },
+);
 async function settleAssistantNavigation(signal?: AbortSignal, requireFormal = false) {
   const expectedPageInstanceKey = props.assistantWaitForPageReady
     ? await props.assistantWaitForPageReady()
@@ -251,7 +264,7 @@ provideAssistantSurfaceHost({
 watch(activePageInstanceKey, (key) => assistantSurfaceRegistry.activate(key), { immediate: true });
 let unregisterWorkbenchAssistantSurface: (() => void) | undefined;
 watch(
-  [activePageInstanceKey, () => props.assistantRequestTurn, () => props.startup?.menus],
+  [activePageInstanceKey, allowedAssistantRequester, () => props.startup?.menus],
   ([pageInstanceKey, requestTurn]) => {
     unregisterWorkbenchAssistantSurface?.();
     unregisterWorkbenchAssistantSurface = undefined;
@@ -276,13 +289,6 @@ watch(
 );
 onUnmounted(() => unregisterWorkbenchAssistantSurface?.());
 const currentUser = computed(() => props.startup?.session.currentUser);
-const userDisplayName = computed(
-  () =>
-    currentUser.value?.username ??
-    currentUser.value?.userId ??
-    language.t('platform.screen.Workbench.not-signed-in', '未登录'),
-);
-const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
 const tenantLabel = computed(
   () => currentUser.value?.tenantId ?? language.t('platform.screen.Workbench.system-workspace', '系统工作区'),
 );
@@ -295,13 +301,6 @@ const tenantBrandTitle = computed(() => props.startup?.session.tenantBranding?.t
 const tenantBrandSubtitle = computed(
   () => props.startup?.session.tenantBranding?.subtitle?.trim() || tenantLabel.value,
 );
-const activePageTypeLabel = computed(() => pageTypeLabelOf(activePageDescriptor.value?.pageType));
-const activeTargetLabel = computed(() => targetLabelOf(activePageDescriptor.value));
-const userMenuItems = computed<UiDropdownItem[]>(() => [
-  { key: 'changePassword', title: language.t('platform.screen.Workbench.change-password', '修改密码') },
-  { key: 'profile', title: language.t('platform.screen.Workbench.my-profile', '个人信息') },
-  { key: 'logout', title: language.t('platform.screen.Workbench.sign-out', '退出登录'), danger: true },
-]);
 const menuPresentation = ref(
   normalizeWorkbenchMenuPresentation(userPreferences.get('workbench.menu-presentation', 'compact')),
 );
@@ -520,38 +519,6 @@ onUnmounted(() => {
   topbarResizeObserver?.disconnect();
   narrowViewportQuery?.removeEventListener('change', handleNarrowViewportChange);
 });
-
-function pageTypeLabelOf(pageType: string | undefined) {
-  if (pageType === 'dynamic-module') {
-    return language.t('platform.screen.Workbench.standard-module', '标准模块');
-  }
-  if (pageType === 'business-route') {
-    return language.t('platform.screen.Workbench.business-page', '业务页面');
-  }
-  if (pageType === 'platform-route') {
-    return language.t('platform.screen.Workbench.platform-page', '平台页面');
-  }
-  if (pageType === 'remote-url') {
-    return language.t('platform.screen.Workbench.online-page', '在线页面');
-  }
-  if (pageType === 'external-link') {
-    return language.t('platform.screen.Workbench.external-link', '外部链接');
-  }
-  return language.t('platform.screen.Workbench.workspace', '工作区');
-}
-
-function targetLabelOf(descriptor: PageDescriptor | undefined) {
-  if (!descriptor) {
-    return language.t('platform.screen.Workbench.no-entry-selected', '未选择入口');
-  }
-  if (descriptor.pageType === 'dynamic-module') {
-    return descriptor.target.moduleAlias;
-  }
-  if (descriptor.pageType === 'platform-route' || descriptor.pageType === 'business-route') {
-    return descriptor.target.route ?? descriptor.target.routeName ?? descriptor.target.pageKey ?? 'workspace';
-  }
-  return descriptor.target.url;
-}
 </script>
 
 <template>
@@ -609,77 +576,26 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
             </Transition>
             <Transition name="workbench-divider">
               <span
-                v-if="effectiveMenuPresentation === 'compact'"
+                v-if="effectiveMenuPresentation === 'compact' && activeTab"
                 class="header-title-divider"
                 aria-hidden="true"
               />
             </Transition>
-            <div class="topbar-title">
-              <div class="topbar-title-heading">
-                <h1>
-                  {{
-                    activeTab
-                      ? toTabItem(activeTab).title
-                      : language.t('platform.screen.Workbench.console', '控制台')
-                  }}
-                </h1>
-                <UiButton
-                  class="title-refresh-action"
-                  :aria-label="language.t('platform.screen.Workbench.refresh-current-page', '刷新当前页')"
-                  icon-name="reload"
-                  type="text"
-                  :title="language.t('platform.screen.Workbench.refresh-current-page', '刷新当前页')"
-                  :disabled="!activeTab"
-                  @click="refreshActivePage"
-                />
-              </div>
-              <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
-            </div>
+            <WorkbenchPageTitle
+              v-if="activeTab"
+              :title="toTabItem(activeTab).title"
+              @refresh="refreshActivePage"
+            />
           </div>
 
-          <div
-            class="topbar-actions"
-            :aria-label="language.t('platform.screen.Workbench.global-tools', '全局工具')"
-          >
-            <WorkbenchLanguageSettings
-              :identity-scope="
-                startup?.session.currentUser
-                  ? JSON.stringify([startup.session.currentUser.userId, startup.session.currentUser.tenantId])
-                  : undefined
-              "
-            />
-            <UiButton
-              v-if="assistantRequestTurn"
-              class="assistant-toggle"
-              :type="assistantOpen ? 'primary' : 'default'"
-              @click="assistantOpen = !assistantOpen"
-            >
-              {{ language.t('platform.screen.Workbench.ai-assistant', 'AI 助手') }}
-            </UiButton>
-            <button
-              class="icon-button skin-button"
-              type="button"
-              :aria-label="language.t('platform.screen.Workbench.appearance', '皮肤切换')"
-              :title="language.t('platform.screen.Workbench.change-appearance', '切换皮肤')"
-              @click="emit('userCommand', 'themeSkin')"
-            >
-              <UiIcon name="skin" />
-            </button>
-            <UiDropdown v-slot="{ toggle }" :items="userMenuItems" @select="handleUserCommand">
-              <button class="user-button" type="button" @click.stop="toggle">
-                <span class="avatar">{{ userInitial }}</span>
-                <span class="user-meta">
-                  <strong>{{ userDisplayName }}</strong>
-                  <small>{{
-                    currentUser?.system
-                      ? language.t('platform.screen.Workbench.system-administrator', '系统管理员')
-                      : language.t('platform.screen.Workbench.business-user', '业务用户')
-                  }}</small>
-                </span>
-                <UiIcon class="user-caret" name="down" />
-              </button>
-            </UiDropdown>
-          </div>
+          <WorkbenchGlobalTools
+            :current-user="currentUser"
+            :employee-name="currentUserEmployeeName"
+            :assistant-available="assistantUsable"
+            :assistant-open="assistantOpen"
+            @toggle-assistant="assistantUsable && (assistantOpen = !assistantOpen)"
+            @user-command="handleUserCommand"
+          />
         </header>
 
         <section class="workbench-mega-surface">
@@ -728,6 +644,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       </section>
     </main>
     <WorkbenchAssistantPanel
+      v-if="assistantUsable"
       :open="assistantOpen"
       :registry="assistantSurfaceRegistry"
       :construction-plan="constructionPlan"
@@ -806,72 +723,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   background: var(--muyun-support-surface);
 }
 
-.app-topbar h1,
-.workbench-eyebrow {
-  margin: 0;
-}
-
-.topbar-title {
-  display: grid;
-  min-width: 0;
-}
-
-.topbar-title-heading {
-  display: inline-flex;
-  max-width: 100%;
-  min-width: 0;
-  align-items: center;
-}
-
-.title-refresh-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 0;
-  min-width: 0;
-  height: 18px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  margin-inline-start: 0;
-  color: var(--muyun-support-text-muted);
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transition:
-    width 120ms ease,
-    margin-inline-start 120ms ease,
-    opacity 120ms ease;
-}
-
-.topbar-title-heading:hover .title-refresh-action,
-.title-refresh-action:focus-visible {
-  width: 12px;
-  margin-inline-start: 6px;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-:deep(.title-refresh-action.ant-btn-text:not(:disabled):hover),
-.title-refresh-action:focus-visible {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-}
-
-:deep(.title-refresh-action .anticon) {
-  display: block;
-  font-size: 12px;
-}
-
-:deep(.title-refresh-action .ant-btn-icon) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
 .topbar-identity {
   display: flex;
   align-items: center;
@@ -915,202 +766,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
 .header-title-divider {
   width: 1px;
-  height: 30px;
-  margin: 0 14px;
+  flex: 0 0 1px;
+  height: 20px;
+  margin: 0 12px;
   background: var(--muyun-support-border);
-}
-
-.app-topbar h1 {
-  overflow: hidden;
-  color: var(--muyun-support-text);
-  font-size: 16px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-title span {
-  overflow: hidden;
-  max-width: 560px;
-  margin-top: 3px;
-  color: var(--muyun-support-text-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--muyun-support-border);
-  border-radius: 7px;
-  background: var(--muyun-support-surface);
-  color: var(--muyun-support-text-body);
-  cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
-}
-
-.icon-button.wide {
-  width: auto;
-  min-width: 112px;
-  padding: 0 10px;
-  justify-content: flex-start;
-  color: var(--muyun-support-text-muted);
-  font-size: 12px;
-}
-
-.icon-button:hover {
-  border-color: var(--muyun-theme-border);
-  color: var(--muyun-theme-base);
-  box-shadow: 0 8px 18px rgb(15 23 42 / 8%);
-  transform: translateY(-1px);
-}
-
-.skin-button {
-  position: relative;
-  width: 29px;
-  height: 29px;
-  isolation: isolate;
-  overflow: hidden;
-  border-color: transparent;
-  color: var(--muyun-theme-base);
-  background:
-    linear-gradient(var(--muyun-support-surface), var(--muyun-support-surface)) padding-box,
-    var(--muyun-skin-picker-border-gradient) border-box;
-  background-size:
-    100% 100%,
-    220% 100%;
-  background-position:
-    0 0,
-    0 0;
-}
-
-.skin-button :deep(.anticon) {
-  position: relative;
-  z-index: 1;
-}
-
-.skin-button::before {
-  position: absolute;
-  inset: -14px;
-  z-index: -1;
-  content: '';
-  background: var(--muyun-skin-picker-glow);
-  opacity: 0;
-  transform: rotate(-20deg) scale(0.88);
-  transition:
-    opacity 180ms ease,
-    transform 320ms ease;
-}
-
-.skin-button:hover,
-.skin-button:focus-visible {
-  border-color: transparent;
-  background-position:
-    0 0,
-    100% 0;
-  box-shadow: inset 0 0 0 1px var(--muyun-skin-picker-focus-ring);
-  transform: none;
-}
-
-.skin-button:hover::before,
-.skin-button:focus-visible::before {
-  opacity: 1;
-  transform: rotate(0deg) scale(1);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .skin-button:hover,
-  .skin-button:focus-visible {
-    animation: skin-spectrum-shift 2.8s linear infinite;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skin-button,
-  .skin-button::before {
-    transition: none;
-  }
-}
-
-@keyframes skin-spectrum-shift {
-  to {
-    background-position:
-      0 0,
-      220% 0;
-  }
-}
-
-.user-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 154px;
-  height: 32px;
-  padding: 3px 7px 3px 3px;
-  border: 1px solid var(--muyun-support-border);
-  border-radius: 7px;
-  background: var(--muyun-support-surface);
-  color: var(--muyun-support-text);
-  cursor: pointer;
-}
-
-.avatar {
-  display: inline-grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--muyun-theme-base);
-  color: var(--muyun-support-surface);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.user-meta {
-  display: grid;
-  min-width: 0;
-  text-align: left;
-}
-
-.user-meta strong,
-.user-meta small {
-  overflow: hidden;
-  max-width: 104px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-meta strong {
-  color: var(--muyun-support-text);
-  font-size: 12px;
-}
-
-.user-meta small {
-  color: var(--muyun-support-text-muted);
-  font-size: 11px;
-}
-
-.user-caret {
-  margin-left: auto;
-  color: var(--muyun-support-text-muted);
-  font-size: 11px;
 }
 
 .tab-strip {
@@ -1155,7 +814,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   border-radius: 8px 8px 0 0 !important;
   background: var(--muyun-support-elevated) !important;
   color: var(--muyun-support-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
@@ -1199,7 +858,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 .empty-tabs {
   padding: 9px 4px;
   color: var(--muyun-support-text-muted);
-  font-size: 12px;
+  font-size: var(--muyun-font-size-helper, 12px);
 }
 
 .app-content {
@@ -1290,12 +949,6 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   .topbar-identity {
     flex: 1 1 auto;
   }
-
-  .topbar-actions {
-    flex: 0 0 auto;
-    justify-content: flex-start;
-    margin-left: 0;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1304,22 +957,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
   }
 
   .header-title-divider {
-    margin-inline: 8px;
-  }
-
-  .topbar-title span,
-  .user-meta {
     display: none;
   }
-
-  .user-button {
-    min-width: 0;
-    gap: 4px;
-    padding-right: 5px;
-  }
-
-  .user-caret {
-    margin-left: 0;
+  .topbar-identity :deep(.workbench-brand-copy) {
+    display: none;
   }
 }
 

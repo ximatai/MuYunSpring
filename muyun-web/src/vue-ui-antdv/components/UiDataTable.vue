@@ -370,8 +370,8 @@ function isRowDragHandleEvent(event: MouseEvent) {
 
 .ui-data-table :deep(.ant-table) {
   color: var(--muyun-text-body);
-  font-size: 13px;
-  line-height: 1.5714285714;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 /*
@@ -381,8 +381,8 @@ function isRowDragHandleEvent(event: MouseEvent) {
  */
 .ui-data-table :deep(.ant-table-thead > tr > th),
 .ui-data-table :deep(.ant-table-tbody > tr > td) {
-  font-size: 13px;
-  line-height: 1.5714285714;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 .ui-data-table :deep(.ant-table-thead > tr > th) {

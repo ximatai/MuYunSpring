@@ -27,6 +27,16 @@ export type AssistantTurnRequester = (
   progress?: AssistantTurnProgress,
 ) => Promise<AssistantTurnOutput>;
 
+/** Reads only the current backend identity's configuration decision, without exposing route details. */
+export async function readAssistantAvailability(http: HttpClient, signal?: AbortSignal): Promise<boolean> {
+  return (
+    field(
+      await http.request<unknown>({ method: 'GET', path: '/platform.assistant/availability', signal }),
+      'available',
+    ) === true
+  );
+}
+
 /** Uses the supplied transport as-is so page-owned tenant scope remains authoritative. */
 export function createAssistantTurnRequester(http: HttpClient): AssistantTurnRequester {
   if (!isHttpStreamClient(http)) {

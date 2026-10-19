@@ -1,5 +1,63 @@
 @import 'ant-design-vue/dist/reset.css';
 
+/* Re-resolve semantic aliases in each theme scope instead of inheriting a resolved outer skin. */
+:root,
+.ui-theme-provider {
+  --muyun-surface: var(--muyun-support-surface, #fff);
+  --muyun-page-bg: var(--muyun-support-canvas, #f5f7fb);
+  --muyun-border: var(--muyun-support-border, #e6ecf4);
+  --muyun-border-subtle: var(--muyun-support-border-subtle, #eef2f7);
+  --muyun-text: var(--muyun-support-text, #171f2a);
+  --muyun-text-body: var(--muyun-support-text-body, #354255);
+  --muyun-text-secondary: var(--muyun-support-text-muted, #566577);
+  --muyun-text-muted: var(--muyun-support-text-muted, #566577);
+  --muyun-hover: var(--muyun-support-hover, #f7f9fc);
+  --muyun-hover-subtle: var(--muyun-support-elevated, #fbfcff);
+  --muyun-selected: var(--muyun-theme-soft, #ecf2fe);
+  --muyun-primary: var(--muyun-theme-base, #0052d9);
+  --muyun-danger-text: var(--muyun-danger-base, #e34d59);
+  --muyun-danger-bg: var(--muyun-danger-soft, #fdecee);
+  --muyun-success-text: var(--muyun-positive-base, #00a870);
+  --muyun-success-bg: var(--muyun-positive-soft, #edf9f5);
+  --muyun-success-border: var(--muyun-positive-border, #e3f3ec);
+  --muyun-warning-text: var(--muyun-warning-base, #ed7b2f);
+  --muyun-info-text: var(--muyun-info-base, #0052d9);
+}
+
+:root {
+  color: var(--muyun-text);
+  font-family: var(
+    --muyun-font-family,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif
+  );
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
+}
+
+/* Browser heading defaults are not platform text roles. Components opt into a title role. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 700;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
 .ant-notification-notice.muyun-feedback-notification .ant-notification-notice-with-icon {
   display: inline-flex;
   align-items: center;
@@ -33,8 +91,8 @@
 .ant-notification-notice.muyun-feedback-notification .ant-notification-notice-message {
   margin-bottom: 0;
   margin-inline-start: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--muyun-font-size-body, 13px);
+  line-height: var(--muyun-line-height-body, 21px);
 }
 
 .ant-notification-notice.muyun-feedback-notification

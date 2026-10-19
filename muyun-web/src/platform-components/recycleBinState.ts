@@ -15,6 +15,7 @@ import {
 } from '@muyun/web-core';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recordLabelOf } from './actionConfirmation';
+import { loadExplorerRecords } from './loadExplorerRecords';
 import { handlePlatformActionSuccess } from './platformActionResultFeedback';
 
 export interface RecycleBinStateOptions<TRecord> {
@@ -87,6 +88,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
   const pageNum = ref(1);
   const pageSize = ref(20);
   let lastRequest: WebQueryRequest = defaultQueryRequest();
+  let lastLoadComplete = false;
   let loadRequestSeq = 0;
   let summaryRequestSeq = 0;
   let contextGeneration = 0;
@@ -97,6 +99,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       acting.value = false;
       actingOperationId.value = undefined;
       lastRequest = defaultQueryRequest();
+      lastLoadComplete = false;
       pageNum.value = 1;
       pageSize.value = 200;
       pendingActions.value = [];
@@ -130,18 +133,31 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
     );
   }
 
-  async function load(request: WebQueryRequest = lastRequest): Promise<boolean> {
+  /** Without a new query, refresh the existing scope using its established loading mode. */
+  async function load(request?: WebQueryRequest): Promise<boolean> {
+    return loadRecords(request ?? lastRequest, request === undefined ? lastLoadComplete : false);
+  }
+
+  async function loadRecords(
+    request: WebQueryRequest,
+    complete: boolean,
+    active: () => boolean = () => true,
+  ): Promise<boolean> {
     const requestSeq = ++loadRequestSeq;
     const context = toValue(options.context);
     loading.value = true;
     lastRequest = request;
+    lastLoadComplete = complete;
+    const current = () => active() && requestSeq === loadRequestSeq && context === toValue(options.context);
     try {
-      const response = await context.http.request<WebPageResponse<RecycleBinItem<TRecord>>>({
-        method: 'POST',
-        path: `/${context.moduleAlias}/recycle-bin/query`,
-        body: request,
-      });
-      if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
+      const query = (batch: WebQueryRequest) =>
+        context.http.request<WebPageResponse<RecycleBinItem<TRecord>>>({
+          method: 'POST',
+          path: `/${context.moduleAlias}/recycle-bin/query`,
+          body: batch,
+        });
+      const response = complete ? await loadExplorerRecords(query, request, current) : await query(request);
+      if (!current() || !response) return false;
       items.value = response.records;
       total.value = response.total;
       totalKnown.value = response.totalKnown !== false;
@@ -150,7 +166,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       pageSize.value = response.pageSize;
       return true;
     } catch (cause) {
-      if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
+      if (!current()) return false;
       items.value = [];
       total.value = 0;
       totalKnown.value = false;
@@ -246,6 +262,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
     isEmpty,
     recordTitleOf,
     load,
+    loadAll: (request: WebQueryRequest, current?: () => boolean) => loadRecords(request, true, current),
     refreshSummary,
     restore,
     purge,

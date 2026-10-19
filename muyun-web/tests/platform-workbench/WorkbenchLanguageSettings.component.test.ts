@@ -9,12 +9,13 @@ import {
 } from '@muyun/web-core';
 import WorkbenchLanguageSettings from '@/platform-workbench/WorkbenchLanguageSettings.vue';
 
-// The real popover lazily mounts controls. Preference ownership must not depend on that mount.
-const CollapsedPopover = defineComponent({
+// A closed dialog does not mount its controls; preference restoration must remain independent.
+const CollapsedDialog = defineComponent({
+  props: { open: Boolean },
   setup:
-    (_, { slots }) =>
+    (props, { slots }) =>
     () =>
-      slots.default?.(),
+      props.open ? slots.default?.() : null,
 });
 afterEach(() => vi.restoreAllMocks());
 it('restores both preferences before the settings controls are opened', async () => {
@@ -35,13 +36,14 @@ it('restores both preferences before the settings controls are opened', async ()
         return () => h(WorkbenchLanguageSettings, { identityScope: 'qa-user' });
       },
     }),
-    { global: { stubs: { UiPopover: CollapsedPopover } } },
+    { global: { stubs: { UiModal: CollapsedDialog } } },
   );
   await flushPromises();
   expect(language.languageTag.value).toBe('en');
   expect(businessContentLanguageContext(language).languageTag.value).toBe('de');
   expect(wrapper.findComponent({ name: 'UiSelect' }).exists()).toBe(false);
-  expect(wrapper.get('button').text()).toContain('Deutsch');
+  expect(wrapper.find('button').exists()).toBe(false);
+  expect(businessContentLanguageContext(language).languageTag.value).toBe('de');
   expect(userPreferences.restore).toHaveBeenCalledWith('business-content.language', undefined, {
     persistence: 'backend',
   });
@@ -65,16 +67,16 @@ it('omits a redundant interface choice with one enabled UI language while keepin
     setup:
       (_, { slots }) =>
       () =>
-        h('div', [slots.default?.(), slots.content?.()]),
+        h('div', [slots.default?.(), slots.operation?.()]),
   });
   const wrapper = mount(
     defineComponent({
       setup() {
         provideLanguageContext(language);
-        return () => h(WorkbenchLanguageSettings, { identityScope: 'one-country' });
+        return () => h(WorkbenchLanguageSettings, { identityScope: 'one-country', open: true });
       },
     }),
-    { global: { stubs: { UiPopover: Popover } } },
+    { global: { stubs: { UiModal: Popover } } },
   );
   await flushPromises();
   const controls = wrapper.findAllComponents({ name: 'UiSelect' });

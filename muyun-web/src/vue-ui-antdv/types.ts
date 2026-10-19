@@ -1,3 +1,4 @@
+import type { UiIconName } from './components/UiIcon.vue';
 import type { RecordInlineAction } from '@muyun/web-contracts';
 
 export type UiDataTableKey = string | number;
@@ -43,6 +44,7 @@ export interface UiTabItem {
 }
 
 export interface UiDropdownItem {
+  iconName?: UiIconName;
   key: string;
   title: string;
   disabled?: boolean;
