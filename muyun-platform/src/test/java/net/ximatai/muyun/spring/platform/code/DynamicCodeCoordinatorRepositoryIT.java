@@ -669,6 +669,43 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
     }
 
+    @Test void numberingReadsFinalFormulaValuesAndBindsThePersistedValue() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var scenario = new Scenario("crm.code_formula_" + suffix);
+        var entity = new EntityDefinition("main", "code_formula_" + suffix, "Formula Code", List.of(
+                FieldDefinition.titleField().required(), FieldDefinition.string("orderNo", "Order No").column("order_no").length(64)), Set.of(EntityCapability.REFERENCE))
+                .withFormulaRules(net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition.calculation("finalTitle", "{title} = 'FINAL'"));
+        refresher.refresh(new ModuleDefinition(scenario.moduleAlias(), "Formula Code", List.of(entity)));
+        var rule = saveLinkedRule(scenario, true);
+        var record = create(scenario, "before-formula");
+        assertThat(record.getValue("orderNo")).isEqualTo("SO-FINAL-0001");
+        assertThat(recordService.select(scenario.moduleAlias(), "main", record.getId()).getValue("orderNo")).isEqualTo("SO-FINAL-0001");
+        assertThat(ledgerService.findByRuleAndValue(rule.getId(), "SO-FINAL-0001").getSourceRecordId()).isEqualTo(record.getId());
+    }
+
+    @Test void systemUpdateResolvesAndOccupiesWithinTheRecordsTenant() {
+        var scenario = refreshScenario();
+        var firstRule = saveRule(scenario, CodeMode.AUTO, true);
+        String otherTenant = UUID.randomUUID().toString();
+        var otherRule = saveRule(scenario, CodeMode.AUTO, true, true, otherTenant);
+        var first = create(scenario, "first");
+        DynamicRecord other;
+        try (var tenant = TenantContext.use(otherTenant)) {
+            other = recordService.newRecord(scenario.moduleAlias(), "main").setValue("title", "other");
+            recordService.create(scenario.moduleAlias(), "main", other);
+        }
+        var patch = recordService.newRecord(scenario.moduleAlias(), "main").setValue("title", "system-update");
+        patch.setId(first.getId()); patch.setVersion(first.getVersion());
+        recordService.updateSystem(scenario.moduleAlias(), "main", patch, "contract system update");
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            assertThat(recordService.select(scenario.moduleAlias(), "main", first.getId()).getValue("title")).isEqualTo("system-update");
+            assertThat(ledgerService.findByRuleAndValue(firstRule.getId(), "SO-0001").getSourceRecordId()).isEqualTo(first.getId());
+        }
+        try (var tenant = TenantContext.use(otherTenant)) {
+            assertThat(ledgerService.findByRuleAndValue(otherRule.getId(), "SO-0001").getSourceRecordId()).isEqualTo(other.getId());
+        }
+    }
+
     private Scenario refreshScenario() { return refreshScenario(false); }
 
     private Scenario refreshScenario(boolean dataScope) {
@@ -727,6 +764,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     private CodeRule saveRule(Scenario scenario, CodeMode mode, boolean enabled, boolean allowRecycle) {
+        return saveRule(scenario, mode, enabled, allowRecycle, TENANT_ID);
+    }
+    private CodeRule saveRule(Scenario scenario, CodeMode mode, boolean enabled, boolean allowRecycle, String tenant) {
         CodeRule rule = new CodeRule();
         rule.setModuleAlias(scenario.moduleAlias());
         rule.setEntityAlias("main");
@@ -746,7 +786,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         policy.setSequenceLength(4);
         policy.setResetPolicy(CodeSequenceResetPolicy.NONE);
         rule.setSequencePolicy(policy);
-        try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
+        try (TenantContext.Scope ignored = TenantContext.use(tenant)) {
             return ruleService.saveRuleTree(rule);
         }
     }

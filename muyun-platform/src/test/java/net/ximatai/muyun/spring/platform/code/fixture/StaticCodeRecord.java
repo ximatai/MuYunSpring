@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.model.constraint.Required;
 @Getter @Setter
 @Table(name = "code_static_contract", comment = "Static business coding contract")
 public class StaticCodeRecord extends StandardEntity {
+    @net.ximatai.muyun.spring.common.model.constraint.NormalizeText
     @BusinessCode(primary = true)
     @Column(name = "document_no", type = ColumnType.VARCHAR, length = 64)
     private String documentNo;

@@ -43,6 +43,10 @@ public final class StaticCodeFields {
         if (record != null) FIELDS.get(record.getClass()).forEach((name, field) -> result.put(name, read(field, record)));
         return result;
     }
+    public static String normalizeCode(Class<?> type, String field, String value) {
+        var binding = net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules.resolve(type).get(field);
+        return binding == null ? value : (String) binding.rules().normalize(value);
+    }
     public static void write(Object record, String name, Object value) {
         Field field = FIELDS.get(record.getClass()).get(name);
         if (field == null || !field.isAnnotationPresent(BusinessCode.class))

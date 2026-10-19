@@ -84,7 +84,8 @@ public final class CodeMutationRuntime {
                     "platform.rejection.code-mutation-runtime.auto-code-field-does-not-accept-manual-value",
                     "AUTO code field does not accept manual value: {value1}"), Map.of("value1", String.valueOf(fieldName)));
         }
-        generateAndAssign(moduleAlias, entityAlias, record, rule, organizationId, at, context, null);
+        if (record.allowsAutomaticGeneration(fieldName))
+            generateAndAssign(moduleAlias, entityAlias, record, rule, organizationId, at, context, null);
     }
 
     private void applyUpdateRule(String moduleAlias,
@@ -120,10 +121,11 @@ public final class CodeMutationRuntime {
             return;
         }
         if (!hasText(oldValue)) {
+            if (!incoming.allowsAutomaticGeneration(fieldName)) return;
             generateAndAssign(moduleAlias, entityAlias, incoming, rule, organizationId, at, context, incoming.getId());
             return;
         }
-        if (!Boolean.TRUE.equals(rule.getLinkedUpdate())) {
+        if (!incoming.allowsAutomaticGeneration(fieldName) || !Boolean.TRUE.equals(rule.getLinkedUpdate())) {
             return;
         }
         if (dependsOnChangedField(rule, beforeContext, context, changedKeys)) {
@@ -141,7 +143,7 @@ public final class CodeMutationRuntime {
                                    String excludeRecordId) {
         GenerateCodeResult generated = generateService.generateResolved(new ResolvedCodeRule(rule, organizationId), context, at,
                 (candidate, value, candidateContext) -> record.codeExists(rule.getFieldName(), value)
-                        || occupied(rule, value, record.getId()));
+                        || occupied(rule, value, record.getId()), value -> record.normalizeCode(rule.getFieldName(), value));
         record.putGeneratedValue(rule.getFieldName(), generated.value());
         context.put(rule.getFieldName(), generated.value());
     }

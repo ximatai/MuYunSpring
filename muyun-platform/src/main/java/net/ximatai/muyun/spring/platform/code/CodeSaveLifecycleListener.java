@@ -34,6 +34,7 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
         @SuppressWarnings("unchecked") CodeAbility<T> service = (CodeAbility<T>) owner;
         Map<String, BusinessCode> fields = StaticCodeFields.declarations(owner.modelClass());
         rememberGeneratedDraft(incoming, fields.keySet());
+        net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules.normalize(owner.modelClass(), incoming);
         Map<String, Object> context = StaticCodeFields.values(incoming);
         Map<String, Object> previous = StaticCodeFields.values(existing);
         String organization = service.codeOrganizationId(incoming);
@@ -44,7 +45,8 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
                 Object value = context.get(declaration.getKey());
                 var owned = ledger.findActiveByTargetAndSourceRecord(owner.getModuleAlias(), service.codeEntityAlias(), declaration.getKey(), incoming.getId());
                 boolean retained = owned != null && Objects.equals(owned.getCodeValue(), value);
-                boolean emptyExplicit = declaration.getValue().trigger() == CodeTrigger.EXPLICIT && value == null;
+                boolean emptyExplicit = declaration.getValue().trigger() == CodeTrigger.EXPLICIT && value == null
+                        && previous.get(declaration.getKey()) == null;
                 if (!retained && !emptyExplicit)
                     throw new IllegalArgumentException("Code rule missing for declared field: " + declaration.getKey());
             }
@@ -52,7 +54,8 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
         resolved = resolved.stream().filter(rule -> {
             BusinessCode field = fields.get(rule.rule().getFieldName());
             if (field == null) throw new IllegalArgumentException("Code rule targets undeclared static field");
-            return field.trigger() == CodeTrigger.SAVE || context.get(rule.rule().getFieldName()) != null;
+            return field.trigger() == CodeTrigger.SAVE || context.get(rule.rule().getFieldName()) != null
+                    || previous.get(rule.rule().getFieldName()) != null;
         }).toList();
         Set<String> changed = new LinkedHashSet<>(context.keySet());
         changed.removeIf(key -> Objects.equals(context.get(key), previous.get(key)));
@@ -120,6 +123,8 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
             public String getId() { return record.getId(); }
             public Object getValue(String field) { return values.get(field); }
             public boolean isExplicitlySet(String field) { return true; }
+            public boolean allowsAutomaticGeneration(String field) { return StaticCodeFields.declarations(service.modelClass()).get(field).trigger() == CodeTrigger.SAVE; }
+            public String normalizeCode(String field, String value) { return StaticCodeFields.normalizeCode(service.modelClass(), field, value); }
             public void putGeneratedValue(String field, Object value) { StaticCodeFields.write(record, field, value); values.put(field, value); }
             public boolean codeExists(String field, String value) {
                 return !service.list(Criteria.of().eq(field, value).ne("id", record.getId()), new PageRequest(0, 1)).isEmpty();

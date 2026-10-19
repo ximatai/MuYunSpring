@@ -31,31 +31,46 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
 
     @Override public void beforeCreate(String module, String entity, DynamicRecord incoming) {
         if (incoming == null) return;
-        prepare(module, entity, null, incoming, contexts.recordContext(incoming), Map.of(), incoming.getAuthOrganizationId());
+        defer(incoming, () -> prepare(module, entity, null, incoming, contexts.recordContext(incoming), Map.of(), incoming.getAuthOrganizationId()));
     }
     @Override public void beforeUpdate(String module, String entity, DynamicRecord before, DynamicRecord incoming) {
         if (before == null || incoming == null) return;
-        Map<String, Object> current = contexts.mergedRecordContext(before, incoming);
-        String organization = incoming.isExplicitlySet("authOrganizationId") ? incoming.getAuthOrganizationId() : before.getAuthOrganizationId();
-        prepare(module, entity, before, incoming, current, contexts.recordContext(before), organization);
+        defer(incoming, () -> {
+            Map<String, Object> current = contexts.mergedRecordContext(before, incoming);
+            String organization = incoming.isExplicitlySet("authOrganizationId") ? incoming.getAuthOrganizationId() : before.getAuthOrganizationId();
+            prepare(module, entity, before, incoming, current, contexts.recordContext(before), organization);
+        });
     }
     @Override public void beforeRelationChildCreate(String module, String parentEntity, String relation, String entity,
             DynamicRecord parent, DynamicRecord child) {
         if (child == null) return;
-        prepare(module, entity, null, child, contexts.childRecordContext(parentEntity, relation, parent, entity, child), Map.of(),
-                child.getAuthOrganizationId() != null ? child.getAuthOrganizationId() : parent.getAuthOrganizationId());
+        defer(child, () -> prepare(module, entity, null, child, contexts.childRecordContext(parentEntity, relation, parent, entity, child), Map.of(),
+                child.getAuthOrganizationId() != null ? child.getAuthOrganizationId() : parent.getAuthOrganizationId()));
     }
     @Override public void beforeRelationChildUpdate(String module, String parentEntity, String relation, String entity,
             DynamicRecord parentBefore, DynamicRecord parentIncoming, DynamicRecord before, DynamicRecord incoming) {
         if (before == null || incoming == null) return;
-        String organization = before.getAuthOrganizationId();
-        if (incoming.isExplicitlySet("authOrganizationId")) organization = incoming.getAuthOrganizationId();
-        if (organization == null) organization = parentBefore.getAuthOrganizationId();
-        prepare(module, entity, before, incoming,
-                contexts.childMergedRecordContext(parentEntity, relation, parentBefore, parentIncoming, entity, before, incoming),
-                contexts.childRecordContext(parentEntity, relation, parentBefore, entity, before), organization);
+        defer(incoming, () -> {
+            String organization = before.getAuthOrganizationId();
+            if (incoming.isExplicitlySet("authOrganizationId")) organization = incoming.getAuthOrganizationId();
+            if (organization == null) organization = parentBefore.getAuthOrganizationId();
+            prepare(module, entity, before, incoming,
+                    contexts.childMergedRecordContext(parentEntity, relation, parentBefore, parentIncoming, entity, before, incoming),
+                    contexts.childRecordContext(parentEntity, relation, parentBefore, entity, before), organization);
+        });
+    }
+    private void defer(DynamicRecord record, Runnable preparation) {
+        DynamicMutationContext.current().orElseThrow(() -> new IllegalStateException("Business coding requires a dynamic mutation context"))
+                .prepareValuesFor(record, preparation);
     }
     private void prepare(String module, String entity, DynamicRecord before, DynamicRecord incoming,
+            Map<String, Object> context, Map<String, Object> previous, String organization) {
+        try (var tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.use(
+                before == null ? incoming.getTenantId() : before.getTenantId())) {
+            prepareInTenant(module, entity, before, incoming, context, previous, organization);
+        }
+    }
+    private void prepareInTenant(String module, String entity, DynamicRecord before, DynamicRecord incoming,
             Map<String, Object> context, Map<String, Object> previous, String organization) {
         if (incoming.getId() == null || incoming.getId().isBlank()) incoming.setId(Ids.newId());
         LocalDateTime at = time.resolveBusinessLocalDateTime(organization,
@@ -72,6 +87,10 @@ public class DynamicCodeCoordinator implements DynamicRecordMutationCoordinator 
             public Object getValue(String field) { return record.getValue(field); }
             public boolean isExplicitlySet(String field) { return record.isExplicitlySet(field); }
             public void putGeneratedValue(String field, Object value) { record.putGeneratedValue(field, value); }
+            public String normalizeCode(String field, String value) {
+                return (String) record.getEntity().fields().stream().filter(item -> item.code().equals(field)).findFirst().orElseThrow()
+                        .behavior().writeRules().normalize(value);
+            }
             public boolean codeExists(String field, String value) {
                 Criteria criteria = Criteria.of().eq(field, value);
                 if (record.getId() != null) criteria.ne("id", record.getId());

@@ -144,6 +144,38 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(ledger.findByRuleAndValue(rule.getId(), first.getDocumentNo()).getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
         }
     }
+    @Test void normalizedGeneratedValueIsTheOccupationValueForSaveAndExplicitApi() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveRule("documentNo", " DOC-");
+            rule.getSegments().getLast().setSeparator(" "); rules.saveRuleTree(rule);
+            var row = row("规范化"); service.insert(row);
+            assertThat(row.getDocumentNo()).isEqualTo("DOC-0001");
+            assertThat(ledger.activeBindings(MODULE, "static_code", row.getId()).getFirst().getCodeValue()).isEqualTo(row.getDocumentNo());
+            service.delete(row.getId()); service.restore(row.getId());
+            var command = CodeRuntimeCommand.builder(MODULE, "static_code", "documentNo").sourceRecordId("explicit-normalized").build();
+            tx.executeWithoutResult(status -> assertThat(codes.issueAndBind(command).value()).isEqualTo("DOC-0002"));
+        }
+    }
+    @Test void explicitTriggerDoesNotRegenerateOnOrdinaryLinkedUpdateAndCannotBeCleared() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            saveRule("documentNo", "DOC-");
+            var rule = saveRule("confirmationNo", "CONF-"); rule.setLinkedUpdate(true);
+            var subject = new CodeRuleSegment(); subject.setSegmentType(CodeSegmentType.FIELD_VALUE); subject.setSourceRef("subject");
+            subject.setSeparator("-");
+            rule.setSegments(List.of(subject, rule.getSegments().getLast())); rules.saveRuleTree(rule);
+            var row = row("FIRST"); service.insert(row);
+            tx.executeWithoutResult(status -> {
+                var command = CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo")
+                        .sourceRecordId(row.getId()).context(Map.of("subject", "FIRST")).build();
+                row.setConfirmationNo(codes.issueAndBind(command).value()); service.update(row);
+            });
+            row.setSubject("SECOND"); service.update(row);
+            assertThat(row.getConfirmationNo()).isEqualTo("FIRST-0001");
+            row.setConfirmationNo(null);
+            assertThatThrownBy(() -> service.update(row)).hasMessageContaining("cannot be cleared");
+            assertThat(service.select(row.getId()).getConfirmationNo()).isEqualTo("FIRST-0001");
+        }
+    }
     private CodeRuntimeCommand command(StaticCodeRecord record) {
         return CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo").sourceRecordId(record.getId()).build();
     }

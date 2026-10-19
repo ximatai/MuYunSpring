@@ -11,6 +11,7 @@ import java.util.Optional;
 public final class DynamicMutationContext implements AutoCloseable {
     private static final ThreadLocal<DynamicMutationContext> CURRENT = new ThreadLocal<>();
 
+    private final Map<DynamicRecord, Runnable> valuePreparations = new java.util.IdentityHashMap<>();
     private final DynamicMutationContext previous;
     private final Instant startedAt;
     private final RuntimeMutationSource mutationSource;
@@ -89,6 +90,17 @@ public final class DynamicMutationContext implements AutoCloseable {
         return Optional.ofNullable(CURRENT.get());
     }
 
+    /** Defer platform value generation until defaults, lifecycle and formulas have produced final inputs. */
+    public void prepareValuesFor(DynamicRecord record, Runnable preparation) {
+        valuePreparations.merge(Objects.requireNonNull(record), Objects.requireNonNull(preparation),
+                (first, next) -> () -> { first.run(); next.run(); });
+    }
+
+    void prepareValues(DynamicRecord record) {
+        Runnable preparation = valuePreparations.remove(record);
+        if (preparation != null) preparation.run();
+    }
+
     public Instant startedAt() {
         return startedAt;
     }
@@ -126,6 +138,7 @@ public final class DynamicMutationContext implements AutoCloseable {
 
     @Override
     public void close() {
+        valuePreparations.clear();
         if (CURRENT.get() == this) {
             if (previous == null) {
                 CURRENT.remove();

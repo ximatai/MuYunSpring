@@ -51,7 +51,8 @@ public class CodeGenerateService {
                 command.moduleMetadataFieldId(), command.metadataFieldId(), command.fieldName(), command.organizationId(), at));
         if (resolved == null) throw new PlatformException("No code rule resolved for target");
         if (resolved.rule().getMode() == CodeMode.MANUAL) throw new PlatformException("Manual coding has no automatic preview");
-        return previewService.previewDraft(new PreviewCodeRuleCommand(resolved.rule(), command.context(), command.organizationId(), at, null));
+        var preview = previewService.previewDraft(new PreviewCodeRuleCommand(resolved.rule(), command.context(), command.organizationId(), at, null));
+        return new CodePreviewResult(normalizeStaticValue(resolved.rule(), preview.value()), preview.segments());
     }
 
     public GenerateCodeResult generate(GenerateCodeCommand command) {
@@ -89,6 +90,16 @@ public class CodeGenerateService {
                                                 Map<String, Object> context,
                                                 LocalDateTime at,
                                                 CodeValueUniquenessChecker uniquenessChecker) {
+        return generateResolved(resolved, context, at, uniquenessChecker, value -> normalizeStaticValue(resolved.rule(), value));
+    }
+
+    private String normalizeStaticValue(CodeRule rule, String value) {
+        var target = ruleService.staticTarget(rule.getModuleAlias(), rule.getEntityAlias());
+        return target.isPresent() ? StaticCodeFields.normalizeCode(target.get().modelClass(), rule.getFieldName(), value) : value;
+    }
+
+    GenerateCodeResult generateResolved(ResolvedCodeRule resolved, Map<String, Object> context, LocalDateTime at,
+            CodeValueUniquenessChecker uniquenessChecker, java.util.function.UnaryOperator<String> normalize) {
         CodeRule rule = resolved.rule();
         if (rule.getMode() == CodeMode.MANUAL) {
             throw PlatformErrors.badRequestText(TextReference.code(
@@ -112,7 +123,7 @@ public class CodeGenerateService {
         int retry = 0;
         String lastGeneratedValue = null;
         try {
-            GenerateCodeResult recycled = tryConsumeRecycle(resolved, context, basisKey, periodKey, at, uniquenessChecker);
+            GenerateCodeResult recycled = tryConsumeRecycle(resolved, context, basisKey, periodKey, at, uniquenessChecker, normalize);
             if (recycled != null) {
                 writeIssueLog(rule, basisKey, periodKey, recycled.value(), CodeIssueLogStatus.SUCCESS, retry,
                         "Reused recycled code");
@@ -130,10 +141,11 @@ public class CodeGenerateService {
                         at,
                         sequenceValue
                 ));
-                lastGeneratedValue = rendered.value();
-                if (!isDuplicate(uniquenessChecker, resolved, rendered.value(), context)) {
+                String value = requireCode(normalize.apply(rendered.value()));
+                lastGeneratedValue = value;
+                if (!isDuplicate(uniquenessChecker, resolved, value, context)) {
                     GenerateCodeResult result = new GenerateCodeResult(
-                            rendered.value(),
+                            value,
                             rule.getId(),
                             rule.getModuleMetadataFieldId(),
                             rule.getMetadataFieldId(),
@@ -144,7 +156,7 @@ public class CodeGenerateService {
                             periodKey,
                             sequenceValue
                     );
-                    writeIssueLog(rule, basisKey, periodKey, rendered.value(), CodeIssueLogStatus.SUCCESS, retry,
+                    writeIssueLog(rule, basisKey, periodKey, value, CodeIssueLogStatus.SUCCESS, retry,
                             "Generated code");
                     return result;
                 }
@@ -167,7 +179,8 @@ public class CodeGenerateService {
                                                  String basisKey,
                                                  String periodKey,
                                                  LocalDateTime at,
-                                                 CodeValueUniquenessChecker uniquenessChecker) {
+                                                 CodeValueUniquenessChecker uniquenessChecker,
+                                                 java.util.function.UnaryOperator<String> normalize) {
         CodeRule rule = resolved.rule();
         if (recycleEntryService == null || !Boolean.TRUE.equals(rule.getAllowRecycle())) {
             return null;
@@ -176,7 +189,8 @@ public class CodeGenerateService {
         if (entry == null) {
             return null;
         }
-        if (isDuplicate(uniquenessChecker, resolved, entry.getRecycledValue(), context)) {
+        String value = requireCode(normalize.apply(entry.getRecycledValue()));
+        if (isDuplicate(uniquenessChecker, resolved, value, context)) {
             entry.setStatus(CodeRecycleStatus.AVAILABLE);
             recycleEntryService.update(entry);
             throw PlatformErrors.badRequestText(TextReference.code(
@@ -184,7 +198,7 @@ public class CodeGenerateService {
                     "Generated code already exists: {value1}"), Map.of("value1", String.valueOf(entry.getRecycledValue())));
         }
         return new GenerateCodeResult(
-                entry.getRecycledValue(),
+                value,
                 rule.getId(),
                 rule.getModuleMetadataFieldId(),
                 rule.getMetadataFieldId(),
@@ -195,6 +209,11 @@ public class CodeGenerateService {
                 periodKey,
                 null
         );
+    }
+
+    private String requireCode(String value) {
+        if (value == null || value.isBlank()) throw new PlatformException("Generated business code must not be empty after normalization");
+        return value;
     }
 
     private List<CodeRuleSegment> orderedSegments(CodeRule rule) {
