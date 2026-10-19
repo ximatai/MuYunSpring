@@ -384,6 +384,23 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @Test void reopeningRecycleEntriesRejectsRetainedHistoricalOwnersWithoutAnActiveLedger() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveRule("documentNo", "DOC-"); var old = row("released"); service.insert(old);
+            service.delete(old.getId()); service.purge(old.getId());
+            var pool = recycle.selectByRuleId(rule.getId(), 10).getFirst();
+            ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.DISCARDED, "retire");
+            new org.springframework.jdbc.core.JdbcTemplate(source).update(
+                    "insert into code_static_contract (id, tenant_id, subject, document_no, deleted) values (?, ?, 'historical owner', 'DOC-0001', true)",
+                    old.getId(), old.getTenantId());
+            assertThatThrownBy(() -> ops.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "must not reopen"))
+                    .hasMessageContaining("retained business record");
+            assertThat(recycle.select(pool.getId()).getStatus()).isEqualTo(CodeRecycleStatus.DISCARDED);
+            assertThat(ledger.findByRuleAndValue(rule.getId(), "DOC-0001").getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
+            var next = row("unblocked"); service.insert(next); assertThat(next.getDocumentNo()).isEqualTo("DOC-0002");
+        }
+    }
+
     @Test void acceptingAReleasedCodeManuallyUnderANewRuleConsumesTheOriginalRecycleEntry() {
         try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
             var oldRule = saveRule("documentNo", "DOC-"); var old = row("old owner"); service.insert(old);

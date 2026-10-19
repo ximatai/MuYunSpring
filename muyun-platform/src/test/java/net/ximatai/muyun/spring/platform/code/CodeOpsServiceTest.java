@@ -164,6 +164,18 @@ class CodeOpsServiceTest {
                 .hasMessageContaining("cannot be released");
         assertThat(ledgerService.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
     }
+    @Test void unavailableTargetsCannotReopenDiscardedRecycleEntries() {
+        var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
+        ledgerService.upsertActiveBinding(rule, "SO-0001", null, null, "original-owner");
+        var entry = ledgerService.upsertInactiveBinding(rule, "SO-0001", null, null, "original-owner",
+                CodeLedgerStatus.DISCARDED, CodeLedgerAction.RELEASED_BY_GOVERNANCE);
+        var pool = recycleService.record(rule, null, null, "SO-0001", null);
+        recycleService.adjustStatus(pool.getId(), CodeRecycleStatus.DISCARDED);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actionService.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "unavailable target"))
+                .hasMessageContaining("target is unavailable");
+        assertThat(ledgerService.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
+        assertThat(recycleService.select(pool.getId()).getStatus()).isEqualTo(CodeRecycleStatus.DISCARDED);
+    }
     @Test void aStoredRuleCannotMoveItsCountersAndRecyclePoolIntoAnotherBusinessTarget() {
         var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
         var changed = rule("otherNo", true); changed.setId(rule.getId()); changed.setVersion(rule.getVersion());

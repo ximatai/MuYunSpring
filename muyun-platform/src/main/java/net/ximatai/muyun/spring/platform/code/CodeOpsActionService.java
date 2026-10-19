@@ -54,6 +54,11 @@ public class CodeOpsActionService {
                     || !Objects.equals(ledger.getPeriodKey(), existing.getPeriodKey())
                     || status == CodeRecycleStatus.AVAILABLE && !Boolean.TRUE.equals(ledger.getRecycleAllowed()))
                 throw new IllegalArgumentException("Recycle adjustment requires matching inactive occupation facts");
+            if (status == CodeRecycleStatus.AVAILABLE) {
+                if (!targetAvailable(ledger)) throw new IllegalArgumentException("Business target is unavailable; recycle entry retained");
+                if (occupiedByRetainedRecord(ledger, false))
+                    throw new IllegalArgumentException("A retained business record holds this code; recycle entry retained");
+            }
             var before = existing.getStatus();
             CodeRecycleEntry adjusted = recycleEntryService.adjustStatus(entryId, status);
             ledger.setStatus(status == CodeRecycleStatus.AVAILABLE ? CodeLedgerStatus.AVAILABLE : CodeLedgerStatus.DISCARDED);
@@ -117,7 +122,7 @@ public class CodeOpsActionService {
                 CodeLedgerInconsistencyReason.TARGET_UNAVAILABLE, false, "Business target is unavailable; occupation retained");
         String currentValue = currentBusinessValue(entry);
         var reason = inspectReason(entry.getCodeValue(), currentValue);
-        if (reason != CodeLedgerInconsistencyReason.MATCHED && occupiedByAnotherRecord(entry))
+        if (reason != CodeLedgerInconsistencyReason.MATCHED && occupiedByRetainedRecord(entry, true))
             return new CodeLedgerInspection(entry, currentValue, false, CodeLedgerInconsistencyReason.OCCUPIED_BY_ANOTHER_RECORD,
                     false, "Another retained business record holds this code; occupation retained");
         boolean consistent = reason == CodeLedgerInconsistencyReason.MATCHED;
@@ -163,9 +168,9 @@ public class CodeOpsActionService {
     }
 
     /** Governance checks physical retained rows, including soft deletes, within the ledger's actual tenant. */
-    private boolean occupiedByAnotherRecord(CodeLedgerEntry entry) {
-        var criteria = net.ximatai.muyun.database.core.orm.Criteria.of().eq(entry.getFieldName(), entry.getCodeValue())
-                .ne("id", entry.getSourceRecordId());
+    private boolean occupiedByRetainedRecord(CodeLedgerEntry entry, boolean excludeOwner) {
+        var criteria = net.ximatai.muyun.database.core.orm.Criteria.of().eq(entry.getFieldName(), entry.getCodeValue());
+        if (excludeOwner) criteria.ne("id", entry.getSourceRecordId());
         if (entry.getTenantId() == null) criteria.isNull("tenantId"); else criteria.eq("tenantId", entry.getTenantId());
         var statics = ruleService.staticTarget(entry.getModuleAlias(), entry.getEntityAlias());
         var dao = statics.isPresent() ? statics.get().getDao() : recordService.entity(entry.getModuleAlias(), entry.getEntityAlias()).getDao();
