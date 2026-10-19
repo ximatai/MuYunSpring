@@ -3,12 +3,11 @@ package net.ximatai.muyun.spring.platform.code;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import java.util.stream.Collectors;
 
 public class CodeDependencyResolver {
-    private static final Pattern FORMULA_PLACEHOLDER = Pattern.compile("\\{([^}]+)}");
+    private final FormulaEngine formulas = new FormulaEngine();
     private static final Set<CodeSegmentType> SOURCE_DEPENDENCY_SEGMENT_TYPES = Set.of(
             CodeSegmentType.FIELD_VALUE,
             CodeSegmentType.VALUE_MAPPING,
@@ -25,10 +24,7 @@ public class CodeDependencyResolver {
             return false;
         }
         Set<String> dependencies = dependencyKeys(rule);
-        if (dependencies.isEmpty()) {
-            return rule.getSegments().stream()
-                    .anyMatch(segment -> segment.getSegmentType() == CodeSegmentType.FORMULA);
-        }
+        if (dependencies.isEmpty()) return false;
         return changedKeys.stream()
                 .filter(dependencies::contains)
                 .anyMatch(key -> !Objects.equals(valueOf(beforeContext, key), valueOf(afterContext, key)));
@@ -70,15 +66,7 @@ public class CodeDependencyResolver {
         if (expression == null || expression.isBlank()) {
             return Set.of();
         }
-        java.util.LinkedHashSet<String> dependencies = new java.util.LinkedHashSet<>();
-        Matcher matcher = FORMULA_PLACEHOLDER.matcher(expression);
-        while (matcher.find()) {
-            String key = matcher.group(1);
-            if (hasText(key)) {
-                dependencies.add(key);
-            }
-        }
-        return dependencies;
+        return formulas.referencedFields(expression);
     }
 
     private Object valueOf(Map<String, Object> context, String key) {
