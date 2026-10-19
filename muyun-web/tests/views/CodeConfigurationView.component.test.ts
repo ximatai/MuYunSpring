@@ -82,7 +82,7 @@ describe('CodeConfigurationView', () => {
     wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', 'tenant-a');
     await flushPromises();
     expect(request.mock.calls.some(([call]) => call.path.includes('/targets'))).toBe(true);
-    expect(wrapper.text()).toContain('字段角色和触发方式由 Java 模型声明');
+    expect(wrapper.text()).toContain('字段角色和生成时机由业务模型预设');
     wrapper.unmount();
   });
   it('distinguishes a load failure from an empty catalog and offers a working retry', async () => {
@@ -100,7 +100,7 @@ describe('CodeConfigurationView', () => {
   it('edits a static API-only declaration, trials without saving, then persists the full rule tree', async () => {
     const wrapper = wrapperOf();
     await flushPromises();
-    expect(wrapper.text()).toContain('字段角色和触发方式由 Java 模型声明');
+    expect(wrapper.text()).toContain('字段角色和生成时机由业务模型预设');
     await button(wrapper, '新增规则').trigger('click');
     expect(wrapper.findAllComponents(UiInput).some((input) => input.props('value') === 'NO-')).toBe(true);
     await button(wrapper, '试算').trigger('click');

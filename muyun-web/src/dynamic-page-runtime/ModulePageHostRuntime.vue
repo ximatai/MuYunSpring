@@ -445,7 +445,8 @@ export default defineComponent({
             :context="context"
             action-code="create"
             icon-only
-            :title="flatManagementContent?.createTitle"
+            :disabled="!recordCreationState().ready"
+            :title="recordCreationState().message ?? flatManagementContent?.createTitle"
             @click="createRootRecord"
           />
         </template>
@@ -1096,7 +1097,7 @@ export default defineComponent({
                 action-code="create"
                 icon-only
                 :title="explorerCreateAction.title"
-                :disabled="saving || explorerCreateAction.disabled"
+                :disabled="!recordCreationState().ready || explorerCreateAction.disabled"
                 @click="handlePlacedPageAction(explorerCreateAction)"
               />
               <ModuleActionButton
@@ -1105,7 +1106,9 @@ export default defineComponent({
                 :context="context"
                 action-code="create"
                 icon-only
+                :disabled="!recordCreationState().ready"
                 :title="
+                  recordCreationState().message ??
                   runtimePage?.treeResource?.createTitle ??
                   language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
                     value1: treeRootTitle,

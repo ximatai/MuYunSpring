@@ -61,6 +61,16 @@ function segmentKey(segment: CodeSegment) {
   if (!segmentKeys.has(segment)) segmentKeys.set(segment, ++keySequence);
   return segmentKeys.get(segment)!;
 }
+function hasAdvancedSettings(segment: CodeSegment) {
+  return (
+    segment.length != null ||
+    !!segment.separator ||
+    (segment.padMode ?? 'NONE') !== 'NONE' ||
+    (segment.truncatePolicy ?? 'NONE') !== 'NONE' ||
+    (segment.nullPolicy ?? 'ERROR') !== 'ERROR' ||
+    !!segment.sequenceBasis
+  );
+}
 function numeric(value: unknown) {
   return value === '' || value == null ? null : Number(value);
 }
@@ -150,61 +160,82 @@ function removeSegment(index: number) {
               :disabled="!editable"
               :fields="formulaFields"
           /></label>
-          <label class="code-format__field"
-            >{{ t('length', '片段长度')
-            }}<UiInput
+          <label v-if="['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)" class="code-format__field">
+            {{ t('length', '片段长度') }}
+            <UiInput
               :value="segment.length ?? undefined"
               type="number"
               :disabled="!editable"
               @update:value="segment.length = numeric($event)"
-          /></label>
-          <label class="code-format__field"
-            >{{ t('separator', '片段分隔符')
-            }}<UiInput v-model:value="segment.separator" :disabled="!editable"
-          /></label>
-          <label class="code-format__field"
-            >{{ t('padding', '补位')
-            }}<UiSelect
-              v-model:value="segment.padMode"
-              :disabled="!editable"
-              :options="enumOptions('padding', { NONE: '不补位', LEFT: '左侧补位', RIGHT: '右侧补位' })"
-          /></label>
-          <label class="code-format__field" v-if="segment.padMode !== 'NONE'"
-            >{{ t('pad-char', '补位字符') }}<UiInput v-model:value="segment.padChar" :disabled="!editable"
-          /></label>
-          <label class="code-format__field"
-            >{{ t('truncate', '超长截取')
-            }}<UiSelect
-              v-model:value="segment.truncatePolicy"
-              :disabled="!editable"
-              :options="enumOptions('truncate', { NONE: '保留原值', LEFT: '截去左侧', RIGHT: '截去右侧' })"
-          /></label>
-          <label class="code-format__field"
-            >{{ t('null-policy', '来源为空时')
-            }}<UiSelect
-              v-model:value="segment.nullPolicy"
-              :disabled="!editable"
-              :options="
-                enumOptions('null', {
-                  ERROR: '拒绝生成',
-                  SKIP_SEGMENT: '跳过该片段',
-                  USE_DEFAULT: '使用默认文字',
-                })
-              "
-          /></label>
-          <label
-            class="code-format__field"
-            v-if="segment.nullPolicy === 'USE_DEFAULT' && segment.segmentType !== 'CONSTANT'"
-            >{{ t('default-text', '默认文字')
-            }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
-          /></label>
-          <UiCheckbox
-            class="code-format__basis"
-            v-model:checked="segment.sequenceBasis"
-            :disabled="!editable || segment.segmentType === 'SEQUENCE'"
-            >{{ t('basis', '按该片段分别计数') }}</UiCheckbox
-          >
+            />
+          </label>
         </div>
+        <details class="code-format__advanced" :open="hasAdvancedSettings(segment)">
+          <summary>
+            {{ t('advanced-format', '高级设置')
+            }}<span v-if="hasAdvancedSettings(segment)"> · {{ t('configured', '已配置') }}</span>
+          </summary>
+          <div class="code-format__grid">
+            <label v-if="!['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)" class="code-format__field"
+              >{{
+                segment.segmentType === 'SEQUENCE'
+                  ? t('sequence-length-override', '片段长度（覆盖流水长度）')
+                  : t('length', '片段长度')
+              }}<UiInput
+                :value="segment.length ?? undefined"
+                type="number"
+                :disabled="!editable"
+                @update:value="segment.length = numeric($event)"
+            /></label>
+            <label class="code-format__field"
+              >{{ t('separator', '片段分隔符')
+              }}<UiInput v-model:value="segment.separator" :disabled="!editable"
+            /></label>
+            <label class="code-format__field"
+              >{{ t('padding', '补位')
+              }}<UiSelect
+                v-model:value="segment.padMode"
+                :disabled="!editable"
+                :options="enumOptions('padding', { NONE: '不补位', LEFT: '左侧补位', RIGHT: '右侧补位' })"
+            /></label>
+            <label class="code-format__field" v-if="segment.padMode !== 'NONE'"
+              >{{ t('pad-char', '补位字符') }}<UiInput v-model:value="segment.padChar" :disabled="!editable"
+            /></label>
+            <label class="code-format__field"
+              >{{ t('truncate', '超长截取')
+              }}<UiSelect
+                v-model:value="segment.truncatePolicy"
+                :disabled="!editable"
+                :options="enumOptions('truncate', { NONE: '保留原值', LEFT: '截去左侧', RIGHT: '截去右侧' })"
+            /></label>
+            <label class="code-format__field"
+              >{{ t('null-policy', '来源为空时')
+              }}<UiSelect
+                v-model:value="segment.nullPolicy"
+                :disabled="!editable"
+                :options="
+                  enumOptions('null', {
+                    ERROR: '拒绝生成',
+                    SKIP_SEGMENT: '跳过该片段',
+                    USE_DEFAULT: '使用默认文字',
+                  })
+                "
+            /></label>
+            <label
+              class="code-format__field"
+              v-if="segment.nullPolicy === 'USE_DEFAULT' && segment.segmentType !== 'CONSTANT'"
+              >{{ t('default-text', '默认文字')
+              }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
+            /></label>
+            <UiCheckbox
+              v-if="segment.segmentType !== 'SEQUENCE'"
+              class="code-format__basis"
+              v-model:checked="segment.sequenceBasis"
+              :disabled="!editable"
+              >{{ t('basis', '按该片段分别计数') }}</UiCheckbox
+            >
+          </div>
+        </details>
         <div v-if="segment.segmentType === 'VALUE_MAPPING'" class="code-format__mapping">
           <div
             v-for="(mapping, mappingIndex) in segment.mappings"
@@ -348,6 +379,11 @@ function removeSegment(index: number) {
 .code-format__segment-heading > :first-child {
   flex: 1;
   min-width: 140px;
+}
+.code-format__advanced summary {
+  cursor: pointer;
+  color: var(--muyun-text-secondary);
+  font-size: 13px;
 }
 .code-format__mapping {
   display: grid;

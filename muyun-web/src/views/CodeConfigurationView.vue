@@ -98,6 +98,12 @@ const trialValues = ref<Record<string, string>>({});
 const trialSequence = ref('1');
 const bindingRole = ref<CodeRole>('NORMAL');
 const bindingTrigger = ref<CodeTrigger>('SAVE');
+const trialElement = ref<HTMLDetailsElement>();
+function openTrial() {
+  if (!trialElement.value) return;
+  trialElement.value.open = true;
+  trialElement.value.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
 const localActivation = ref<InstanceType<typeof ModuleRuntimeActivationStatus>>();
 const refreshActivation = inject(moduleRuntimeActivationRefreshKey, undefined);
 const targetId = (target: CodeTarget) => `${target.moduleAlias}/${target.entityAlias}`;
@@ -425,7 +431,7 @@ async function trial() {
           /></label>
           <template v-if="field">
             <p v-if="target?.source === 'STATIC'">
-              {{ t('java-declaration', '字段角色和触发方式由 Java 模型声明。') }}
+              {{ t('java-declaration', '字段角色和生成时机由业务模型预设。') }}
             </p>
             <label class="code-config__field"
               >{{ t('role', '编码角色')
@@ -476,6 +482,9 @@ async function trial() {
         :subtitle="draft?.title || field?.title"
       >
         <template v-if="draft" #actions>
+          <UiButton v-if="draft.mode !== 'MANUAL'" :disabled="busy" @click="openTrial">{{
+            t('trial', '草稿试算')
+          }}</UiButton>
           <UiButton :disabled="busy" @click="cancel">{{ t('cancel', '取消修改') }}</UiButton>
           <UiButton type="primary" :disabled="!editable || bindingDirty" :loading="saving" @click="save">{{
             t('save-rule', '保存规则')
@@ -556,7 +565,7 @@ async function trial() {
               :sources="target?.sources ?? []"
               :editable="editable"
             />
-            <details class="code-config__trial">
+            <details ref="trialElement" class="code-config__trial">
               <summary>{{ t('trial', '草稿试算') }}</summary>
               <p>{{ t('trial-help', '试算不发号、不占用号码；正式编码以业务保存结果为准。') }}</p>
               <label v-if="extraTrialOptions.length" class="code-config__field code-config__trial-extra">

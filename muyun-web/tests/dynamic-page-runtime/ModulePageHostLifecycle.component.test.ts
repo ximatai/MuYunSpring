@@ -73,7 +73,7 @@ function pageBootstrap(menuId: string, moduleAlias = 'crm.customer') {
 const tenantExplorerStub = {
   name: 'TenantScopeExplorer',
   props: ['selectedId'],
-  emits: ['select', 'loaded'],
+  emits: ['select', 'deselect', 'loaded'],
   template: '<section />',
 };
 const queryListStub = {
@@ -102,6 +102,55 @@ function controlSessionUid(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('ModulePageHost lifecycle boundaries', () => {
+  it('keeps a flat business page ready after choosing its tenant', async () => {
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/crm.customer/query') return { records: [], total: 0 } as never;
+        return {
+          ...runtime('crm.customer', {
+            tenantRequired: !options.path.includes('iam.tenant'),
+            template: 'FLAT_MANAGEMENT',
+          }),
+          actions: [{ actionCode: 'create', authorized: true }],
+        } as never;
+      },
+    };
+    configureModuleContext({ http });
+    const wrapper = mount(ModulePageHost, {
+      props: { descriptor: descriptor('crm.customer') },
+      global: { stubs: hostStubs },
+    });
+    try {
+      await flushPromises();
+      const tenant = wrapper.findComponent(tenantExplorerStub);
+      tenant.vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+      await flushPromises();
+      const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+
+      expect(session.navigatorListScopeReady).toBe(true);
+      expect(wrapper.text()).not.toContain('请选择模块');
+      const createButton = () =>
+        wrapper
+          .findAllComponents({ name: 'ModuleActionButton' })
+          .find((button) => button.props('actionCode') === 'create')!;
+      expect(createButton().props('disabled')).toBe(false);
+      tenant.vm.$emit('deselect');
+      await flushPromises();
+      expect(wrapper.text()).toContain('请先选择租户');
+      const create = wrapper
+        .findAllComponents({ name: 'ModuleActionButton' })
+        .find((button) => button.props('actionCode') === 'create')!;
+      expect(create.props('disabled')).toBe(true);
+      expect(create.props('title')).toBe('请先选择租户');
+      tenant.vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('请先选择租户');
+      expect(createButton().props('disabled')).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('recreates the control session for entry identity changes but retains it for ordinary params', async () => {
     const requests: Array<{ path: string; menuId?: string }> = [];
     const http: HttpClient = {

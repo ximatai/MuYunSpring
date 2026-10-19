@@ -113,7 +113,7 @@ export function newCodeSegment(type: CodeSegmentType = 'CONSTANT'): CodeSegment 
     sortOrder: 0,
     fixedValue: type === 'CONSTANT' ? 'NO-' : null,
     dateFormat: type === 'SYSTEM_TIME' ? 'YYYYMMDD' : null,
-    length: type === 'SEQUENCE' ? 4 : null,
+    length: null,
     padMode: 'NONE',
     truncatePolicy: 'NONE',
     nullPolicy: 'ERROR',

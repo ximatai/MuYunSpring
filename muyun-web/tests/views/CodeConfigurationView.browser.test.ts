@@ -73,6 +73,11 @@ it.each([1004, 600])(
         .findAll('button')
         .find((button) => button.text().replace(/\s+/g, '') === '保存规则')!.element;
       const before = saveButton.getBoundingClientRect();
+      const advanced = wrapper.findAll<HTMLDetailsElement>('.code-format__advanced');
+      expect(advanced.every((details) => !details.element.open)).toBe(true);
+      for (let index = 0; index < advanced.length; index++) {
+        await page.getByText('高级设置', { exact: true }).nth(index).click();
+      }
       const content = wrapper.get('.code-config__editor .record-detail-layout-content').element;
       expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
       content.scrollTop = content.scrollHeight;
@@ -97,6 +102,12 @@ it.each([1004, 600])(
         const text = checkbox.element.lastElementChild!.getBoundingClientRect();
         expect(Math.abs(mark.top + mark.height / 2 - text.top - text.height / 2)).toBeLessThan(4);
       }
+      await page.getByRole('button', { name: '草稿试算', exact: true }).click();
+      expect(wrapper.get<HTMLDetailsElement>('.code-config__trial').element.open).toBe(true);
+      await expect
+        .poll(() => wrapper.get('.code-config__trial').element.getBoundingClientRect().top)
+        .toBeGreaterThanOrEqual(content.getBoundingClientRect().top - 1);
+      await expect.element(save).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width + 1);
     } finally {
       wrapper.unmount();

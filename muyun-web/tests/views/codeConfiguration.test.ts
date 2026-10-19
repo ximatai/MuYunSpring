@@ -20,6 +20,16 @@ const target: CodeTarget = {
   sources: [{ fieldName: 'quantity', title: '数量', type: 'INTEGER' }],
 };
 describe('business code configuration client', () => {
+  it('leaves segment length unset so the sequence policy controls new rules', () => {
+    const draft = newCodeRule(target, target.fields[0]!);
+    draft.sequencePolicy!.sequenceLength = 6;
+    expect(
+      prepareCodeRule(draft).segments.find((segment) => segment.segmentType === 'SEQUENCE')!.length,
+    ).toBeNull();
+    expect(prepareCodeRule(draft).sequencePolicy!.sequenceLength).toBe(6);
+    draft.segments[1]!.length = 8;
+    expect(prepareCodeRule(draft).segments[1]!.length).toBe(8);
+  });
   it('collects only direct dependencies, deduplicates them and preserves their declared input types', () => {
     const draft = newCodeRule(target, target.fields[0]!);
     draft.segments = [

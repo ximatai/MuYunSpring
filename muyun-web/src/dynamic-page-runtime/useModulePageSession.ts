@@ -1462,15 +1462,19 @@ export function useModulePageSession(
   function isLockedNavigator(levelKey: string): boolean {
     return navigatorEntryPolicy.value.lockedEntry?.navigatorKey === levelKey;
   }
-  const navigatorScopeUnavailableDescription = computed(
-    () =>
-      (navigatorEntryPolicy.value.lockedEntry?.unavailableDescriptionKey
-        ? language.t(
-            navigatorEntryPolicy.value.lockedEntry.unavailableDescriptionKey,
-            navigatorEntryPolicy.value.lockedEntry.unavailableDescription,
-          )
-        : navigatorEntryPolicy.value.lockedEntry?.unavailableDescription) ??
-      language.t('platform.screen.useModulePageSession.select-a-module', '请选择模块'),
+  const navigatorScopeUnavailableDescription = computed(() =>
+    !tenantScopeReady.value
+      ? language.t('platform.screen.recordCreationReadiness.select-a-tenant-first', '请先选择租户')
+      : ((navigatorEntryPolicy.value.lockedEntry?.unavailableDescriptionKey
+          ? language.t(
+              navigatorEntryPolicy.value.lockedEntry.unavailableDescriptionKey,
+              navigatorEntryPolicy.value.lockedEntry.unavailableDescription,
+            )
+          : navigatorEntryPolicy.value.lockedEntry?.unavailableDescription) ??
+        language.t(
+          'platform.screen.recordCreationReadiness.select-a-business-navigation-scope-first',
+          '请先选择业务导航范围',
+        )),
   );
   // A hidden locked navigator has no visual explorer to emit `loaded`. Resolve
   // its addressed record directly through the same REFERENCE query contract so
