@@ -19,6 +19,27 @@ public final class CodeTargetCatalog {
         if (matches.size() > 1) throw new PlatformException("Duplicate static business code target: " + moduleAlias + "/" + entityAlias);
         return matches.stream().findFirst();
     }
+    public Optional<CrudAbility<?>> staticModule(String moduleAlias) {
+        var matches = services.orderedStream().filter(service -> moduleAlias.equals(service.getModuleAlias())).toList();
+        if (matches.size() > 1) throw new PlatformException("Duplicate static module service: " + moduleAlias);
+        return matches.stream().findFirst();
+    }
+    public record ParentTarget(CrudAbility<?> service, net.ximatai.muyun.spring.ability.child.ChildRelation<?, ?> relation) {
+        public String entityAlias() {
+            return service instanceof CodeAbility<?> coded ? coded.codeEntityAlias()
+                    : service.getModuleAlias().substring(service.getModuleAlias().lastIndexOf('.') + 1);
+        }
+    }
+    public Optional<ParentTarget> parentOf(CodeAbility<?> child) {
+        List<ParentTarget> matches = new ArrayList<>();
+        services.orderedStream().filter(net.ximatai.muyun.spring.ability.child.ChildrenAbility.class::isInstance).forEach(service -> {
+            var parent = (net.ximatai.muyun.spring.ability.child.ChildrenAbility<?>) service;
+            parent.childRelations().stream().filter(relation -> relation.childAbility().getModuleAlias().equals(child.getModuleAlias())
+                    && relation.childAbility().modelClass().equals(child.modelClass())).forEach(relation -> matches.add(new ParentTarget(service, relation)));
+        });
+        if (matches.size() > 1) throw new PlatformException("Business code parent must resolve uniquely: " + child.getModuleAlias());
+        return matches.stream().findFirst();
+    }
     public List<CodeAbility<?>> staticTargets() {
         return services.orderedStream().filter(CodeAbility.class::isInstance).<CodeAbility<?>>map(service -> (CodeAbility<?>) service).toList();
     }

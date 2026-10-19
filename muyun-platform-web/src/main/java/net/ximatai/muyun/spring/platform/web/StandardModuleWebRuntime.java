@@ -70,6 +70,16 @@ public class StandardModuleWebRuntime {
         contentQueries = service;
     }
 
+    private net.ximatai.muyun.spring.platform.code.CodeBusinessFormService codeForms;
+    @Autowired(required = false)
+    public void setCodeForms(net.ximatai.muyun.spring.platform.code.CodeBusinessFormService service) { codeForms = service; }
+    public List<net.ximatai.muyun.spring.platform.code.CodeBusinessFieldState> codeFormState(String moduleAlias,
+            net.ximatai.muyun.spring.platform.code.CodeBusinessFormRequest request) {
+        requirePlan(moduleAlias);
+        if (codeForms == null) throw new IllegalStateException("Business code form runtime is not configured");
+        return codeForms.fields(moduleAlias, request);
+    }
+
     private QueryCompiler queryCompiler(ModuleExecutionPlan plan, CrudAbility<?> owner) {
         return new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition(),
                 criteria -> contentQueries == null ? criteria : contentQueries.expandUserText(owner, criteria));

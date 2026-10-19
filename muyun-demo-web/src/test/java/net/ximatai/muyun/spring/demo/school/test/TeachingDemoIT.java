@@ -1,6 +1,13 @@
 package net.ximatai.muyun.spring.demo.school.test;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.platform.code.*;
+import net.ximatai.muyun.spring.platform.workflow.*;
+import net.ximatai.muyun.spring.demo.school.receipt.*;
+import net.ximatai.muyun.spring.demo.school.purchase.*;
+import net.ximatai.muyun.spring.common.model.EntityLifecycle;
+import java.time.Instant;
+import java.util.Map;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.demo.DemoBootstrapTask;
@@ -197,6 +204,116 @@ public class TeachingDemoIT {
     private net.ximatai.muyun.spring.iam.department.DepartmentService departments;
     @Autowired
     private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
+
+    @Test
+    void apiOnlyStaticBusinessCreatesAndConfirmsThroughAuthorizedHttpWithoutPageOrMetadata() throws Exception {
+        var mapper = webApplicationContext.getBean(com.fasterxml.jackson.databind.ObjectMapper.class);
+        var receipts = webApplicationContext.getBean(ReceiptService.class);
+        var ledger = webApplicationContext.getBean(CodeLedgerEntryService.class);
+        var mvc = webAppContextSetup(webApplicationContext).build();
+        String tenant = DemoBootstrapTask.TENANT_ALIAS;
+        String id;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-api-owner", "Code API Owner"));
+             var scope = TenantContext.use(tenant)) {
+            numberRule(ReceiptService.MODULE_ALIAS, "receipt", "documentNo", "API-");
+            numberRule(ReceiptService.MODULE_ALIAS, "receipt", "confirmationNo", "CONF-");
+            try (var declarations = TenantContext.system("API-only declaration acceptance")) {
+                assertThat(metadataRelations.list(Criteria.of().eq("moduleAlias", ReceiptService.MODULE_ALIAS))).isEmpty();
+                assertThat(pageDefinitions.list(Criteria.of().eq("moduleAlias", ReceiptService.MODULE_ALIAS))).isEmpty();
+            }
+            var preview = mvc.perform(post("/education.receipt/code/form-state").contentType("application/json")
+                    .content("{\"record\":{\"subject\":\"API\"}}")).andReturn();
+            assertThat(preview.getResponse().getStatus()).as(preview.getResponse().getContentAsString()).isEqualTo(200);
+            assertThat(preview.getResponse().getContentAsString()).contains("API-0001");
+            var create = mvc.perform(post("/education.receipt/insert").contentType("application/json")
+                    .content("{\"subject\":\"API\"}")).andReturn();
+            assertThat(create.getResponse().getStatus()).as(create.getResponse().getContentAsString()).isEqualTo(201);
+            id = receipts.list(Criteria.of().eq("subject", "API")).getFirst().getId();
+            var saved = receipts.select(id);
+            assertThat(saved.getDocumentNo()).isEqualTo("API-0001"); assertThat(saved.getConfirmationNo()).isNull();
+            var confirmed = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                    .content(mapper.writeValueAsString(Map.of("expectedVersion", saved.getVersion())))).andReturn();
+            assertThat(confirmed.getResponse().getStatus()).as(confirmed.getResponse().getContentAsString()).isEqualTo(200);
+            var finalRow = receipts.select(id); assertThat(finalRow.getConfirmationNo()).isEqualTo("CONF-0001");
+            var stale = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                    .content(mapper.writeValueAsString(Map.of("expectedVersion", saved.getVersion())))).andReturn();
+            assertThat(stale.getResponse().getStatus()).isEqualTo(409);
+            var retry = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                    .content(mapper.writeValueAsString(Map.of("expectedVersion", finalRow.getVersion())))).andReturn();
+            assertThat(retry.getResponse().getStatus()).isEqualTo(200);
+            assertThat(ledger.activeBindings(ReceiptService.MODULE_ALIAS, "receipt", id)).hasSize(2);
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-api-owner", "Code API Owner"));
+             var scope = TenantContext.use("other_tenant")) {
+            var forbidden = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                    .content("{\"expectedVersion\":1}")).andReturn();
+            assertThat(forbidden.getResponse().getStatus()).isGreaterThanOrEqualTo(400);
+        }
+        try (var actor = CurrentUserContext.use(CurrentUser.tenantUser("receipt-no-grants", "No Grants", tenant));
+             var scope = TenantContext.use(tenant)) {
+            var denied = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                    .content("{\"expectedVersion\":1}")).andReturn();
+            assertThat(denied.getResponse().getStatus()).as(denied.getResponse().getContentAsString()).isEqualTo(403);
+        }
+        var anonymous = mvc.perform(post("/education.receipt/{id}/confirm", id).contentType("application/json")
+                .content("{\"expectedVersion\":1}")).andReturn();
+        assertThat(anonymous.getResponse().getStatus()).isIn(401, 403);
+    }
+
+    @Test
+    void purchaseNumberSurvivesRealApprovalSubmissionCompletionAndEditorProtection() {
+        var purchase = webApplicationContext.getBean(PurchaseRequestService.class);
+        var ledger = webApplicationContext.getBean(CodeLedgerEntryService.class);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser(DemoBootstrapTask.USER_ID, "Number Approver"));
+             var scope = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            numberRule(PurchaseRequestService.MODULE_ALIAS, "purchase_request", "documentNo", "PUR-");
+            var request = new PurchaseRequest(); request.setTitle("编号审批组合"); purchase.insert(request);
+            installNumberApproval(PurchaseRequestService.MODULE_ALIAS);
+            var submitted = webApplicationContext.getBean(WorkflowModuleSubmitService.class)
+                    .submitApproval(PurchaseRequestService.MODULE_ALIAS, request.getId());
+            assertThat(purchase.select(request.getId()).getApprovalStatus()).isEqualToIgnoringCase("processing");
+            assertThatThrownBy(() -> {var draft=purchase.select(request.getId());draft.setTitle("非法编辑");purchase.update(draft);})
+                    .isInstanceOf(PlatformException.class);
+            var task = submitted.draft().tasks().getFirst();
+            webApplicationContext.getBean(WorkflowTaskActionService.class).approve(
+                    WorkflowTaskActionRequest.builder(task.getId(), DemoBootstrapTask.USER_ID).build());
+            var approved = purchase.select(request.getId());
+            assertThat(approved.getApprovalStatus()).isEqualToIgnoringCase("approved");
+            assertThat(approved.getDocumentNo()).isEqualTo("PUR-0001");
+            assertThat(ledger.activeBindings(PurchaseRequestService.MODULE_ALIAS, "purchase_request", request.getId()))
+                    .singleElement().extracting(CodeLedgerEntry::getCodeValue).isEqualTo("PUR-0001");
+        }
+    }
+
+    private void numberRule(String module, String entity, String field, String prefix) {
+        var rule = new CodeRule(); rule.setModuleAlias(module); rule.setEntityAlias(entity); rule.setFieldName(field);
+        var literal = new CodeRuleSegment(); literal.setSegmentType(CodeSegmentType.CONSTANT); literal.setFixedValue(prefix);
+        var sequence = new CodeRuleSegment(); sequence.setSegmentType(CodeSegmentType.SEQUENCE); sequence.setLength(4);
+        rule.setSegments(List.of(literal, sequence)); var policy = new CodeSequencePolicy(); policy.setSequenceLength(4); rule.setSequencePolicy(policy);
+        webApplicationContext.getBean(CodeRuleService.class).saveRuleTree(rule);
+    }
+
+    private void installNumberApproval(String module) {
+        var definition = new WorkflowDefinition(); definition.setApplicationAlias("education"); definition.setModuleAlias(module);
+        definition.setAlias("number_approval_" + serial()); definition.setTitle("编号审批"); definition.setApprovalEnabled(true);
+        definition.setEnabled(true); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED); definition.setCurrentVersionNo(1);
+        EntityLifecycle.prepareInsert(definition, Instant.now()); webApplicationContext.getBean(WorkflowDefinitionService.class).insert(definition);
+        var version = new WorkflowVersion(); version.setDefinitionId(definition.getId()); version.setVersionNo(1);
+        version.setPublishStatus(WorkflowPublishStatus.PUBLISHED); version.setSnapshotText("{}");
+        EntityLifecycle.prepareInsert(version, Instant.now()); webApplicationContext.getBean(WorkflowVersionService.class).insert(version);
+        for (String key : List.of("start", "approve", "approved", "end")) {
+            var node = new WorkflowNodeDefinition(); node.setWorkflowVersionId(version.getId()); node.setNodeKey(key); node.setTitle(key);
+            node.setNodeType(key.equals("start") ? WorkflowNodeType.START : key.equals("end") ? WorkflowNodeType.END : key.equals("approved") ? WorkflowNodeType.MILESTONE : WorkflowNodeType.APPROVAL);
+            if (key.equals("approved")) node.setMilestoneType(WorkflowMilestoneType.APPROVAL_COMPLETED);
+            if (key.equals("approve")) node.setParticipantPolicyText("{\"rules\":[{\"type\":\"USER\",\"ids\":[\"demo_user_admin\"]}]}");
+            EntityLifecycle.prepareInsert(node, Instant.now()); webApplicationContext.getBean(WorkflowNodeDefinitionDao.class).insert(node);
+        }
+        for (String key : List.of("start", "approve", "approved")) {
+            var link = new WorkflowLinkDefinition(); link.setWorkflowVersionId(version.getId()); link.setRouteKey(key+"-next"); link.setTitle(key);
+            link.setSourceNodeKey(key); link.setTargetNodeKey(key.equals("start") ? "approve" : key.equals("approve") ? "approved" : "end");
+            EntityLifecycle.prepareInsert(link, Instant.now()); webApplicationContext.getBean(WorkflowLinkDefinitionDao.class).insert(link);
+        }
+    }
 
     @Test
     void actualDynamicStandardActionsKeepCodeTitlesThroughRegistrationCompilationAndWebProjection() throws Exception {

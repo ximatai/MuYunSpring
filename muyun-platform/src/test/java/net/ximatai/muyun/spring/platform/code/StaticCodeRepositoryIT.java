@@ -21,9 +21,11 @@ import static org.assertj.core.api.Assertions.*;
 class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
     static final String MODULE = "contract.static_code";
     @Autowired FixtureService service;
+    @Autowired LineService lines;
     @Autowired CodeRuleService rules;
     @Autowired CodeConfigurationService configuration;
     @Autowired CodeRuntimeFacade codes;
+    @Autowired CodeBusinessFormService forms;
     @Autowired CodeLedgerEntryService ledger;
     @Autowired CodeRecycleEntryService recycle;
     @Autowired CodeSaveLifecycleListener listener;
@@ -193,6 +195,123 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
             assertThat(service.select(row.getId()).getConfirmationNo()).isEqualTo("FIRST-0001");
         }
     }
+    @Test void staticPreviewReadsCurrentSequenceAndRecycleCandidatesWithoutConsumingEither() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            var rule = saveRule("documentNo", "DOC-");
+            var first = row("first"); service.insert(first);
+            var command = CodeRuntimeCommand.builder(MODULE, "static_code", "documentNo").build();
+            assertThat(codes.preview(command).value()).isEqualTo("DOC-0002");
+            assertThat(codes.preview(command).value()).isEqualTo("DOC-0002");
+            var second = row("second"); service.insert(second); assertThat(second.getDocumentNo()).isEqualTo("DOC-0002");
+            service.delete(first.getId()); service.purge(first.getId());
+            assertThat(codes.preview(command).value()).isEqualTo("DOC-0001");
+            assertThat(codes.preview(command).value()).isEqualTo("DOC-0001");
+            assertThat(recycle.selectByRuleId(rule.getId(), 10).getFirst().getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+            var third = row("third"); service.insert(third); assertThat(third.getDocumentNo()).isEqualTo("DOC-0001");
+        }
+    }
+    @Test void staticAggregateChildrenUseFinalParentCodesOwnSameNamedFieldsAndPreviousParentFactsForLinkedUpdates() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            aggregateRules();
+            var line = new StaticCodeLine(); line.setSubject("CHILD");
+            var parent = row("ROOT"); parent.setLines(List.of(line)); service.insert(parent);
+            assertThat(parent.getDocumentNo()).isEqualTo("ROOT-0001");
+            assertThat(line.getLineNo()).isEqualTo("ROOT-0001-CHILD-01");
+            parent.setSubject("NEXT"); service.update(parent);
+            assertThat(parent.getDocumentNo()).isEqualTo("NEXT-0002");
+            assertThat(lines.select(line.getId()).getLineNo()).isEqualTo("NEXT-0002-CHILD-02");
+            assertThat(ledger.activeBindings(LineService.MODULE, "static_code_line", line.getId())).singleElement()
+                    .extracting(CodeLedgerEntry::getCodeValue).isEqualTo("NEXT-0002-CHILD-02");
+            assertThat(configuration.requireTarget(LineService.MODULE, "static_code_line").sources())
+                    .extracting(CodeConfigurationService.Source::fieldName).contains("subject", "static_code.subject", "static_code.documentNo");
+        }
+    }
+    @Test void aFailedChildRollsBackBothCodesAndTheSameAggregateDraftCanBeRetried() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            aggregateRules();
+            var line = new StaticCodeLine(); var parent = row("RETRY"); parent.setLines(List.of(line));
+            assertThatThrownBy(() -> service.insert(parent)).isInstanceOf(RuntimeException.class);
+            assertThat(parent.getDocumentNo()).isNull(); assertThat(line.getLineNo()).isNull();
+            line.setSubject("CHILD"); service.insert(parent);
+            assertThat(parent.getDocumentNo()).isEqualTo("RETRY-0001");
+            assertThat(line.getLineNo()).isEqualTo("RETRY-0001-CHILD-01");
+        }
+    }
+    @Test void formPoliciesUseInstalledStaticDeclarationsAndKeepCandidatesOutOfDraftsAndLedger() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            aggregateRules();
+            var parent = new LinkedHashMap<String, Object>(); parent.put("subject", "ROOT");
+            var draft = new LinkedHashMap<String, Object>(); draft.put("subject", "CHILD");
+            var main = forms.fields(MODULE, new CodeBusinessFormRequest(null, parent, null));
+            assertThat(main).filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                    .satisfies(state -> { assertThat(state.preview()).isEqualTo("ROOT-0001"); assertThat(state.readOnly()).isTrue(); });
+            assertThat(main).filteredOn(state -> state.fieldName().equals("confirmationNo")).singleElement()
+                    .satisfies(state -> { assertThat(state.configured()).isFalse(); assertThat(state.trigger()).isEqualTo(CodeTrigger.EXPLICIT); });
+            var child = forms.fields(MODULE, new CodeBusinessFormRequest("lines", draft, parent));
+            assertThat(child).singleElement().extracting(CodeBusinessFieldState::preview).isEqualTo("ROOT-0001-CHILD-01");
+            assertThat(parent).containsExactlyEntriesOf(Map.of("subject", "ROOT"));
+            assertThat(draft).containsExactlyEntriesOf(Map.of("subject", "CHILD"));
+            assertThatThrownBy(() -> forms.fields(MODULE, new CodeBusinessFormRequest("arbitrary", draft, parent)))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+            var line = new StaticCodeLine(); line.setSubject("CHILD"); var row = row("ROOT"); row.setLines(List.of(line)); service.insert(row);
+            assertThat(row.getDocumentNo()).isEqualTo("ROOT-0001"); assertThat(line.getLineNo()).isEqualTo("ROOT-0001-CHILD-01");
+        }
+    }
+    @Test void formPolicyStillResolvesWhenSourcesAreIncompleteAndReflectsManualAndExplicitModes() {
+        try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
+            aggregateRules();
+            var main = forms.fields(MODULE, new CodeBusinessFormRequest(null, Map.of(), null));
+            assertThat(main).filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                    .satisfies(state -> { assertThat(state.configured()).isTrue(); assertThat(state.mode()).isEqualTo(CodeMode.AUTO); });
+            var rule = rules.resolveRules(new ResolveCodeRuleCommand(MODULE, "static_code", null, null, null, null)).stream()
+                    .map(ResolvedCodeRule::rule).filter(value -> "documentNo".equals(value.getFieldName())).findFirst().orElseThrow();
+            rule = rules.viewRuleTree(rule.getId()); rule.setMode(CodeMode.MANUAL); rule.setSegments(List.of()); rule.setSequencePolicy(null); rules.saveRuleTree(rule);
+            saveRule("confirmationNo", "CONF-");
+            var states = forms.fields(MODULE, new CodeBusinessFormRequest(null, Map.of(), null));
+            assertThat(states).filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                    .satisfies(state -> { assertThat(state.mode()).isEqualTo(CodeMode.MANUAL); assertThat(state.readOnly()).isFalse(); assertThat(state.preview()).isNull(); });
+            assertThat(states).filteredOn(state -> state.fieldName().equals("confirmationNo")).singleElement()
+                    .satisfies(state -> { assertThat(state.configured()).isTrue(); assertThat(state.readOnly()).isTrue(); assertThat(state.preview()).isNull(); });
+        }
+    }
+    @Test void formSelectorUsesTheStaticBusinessOrganizationContractRatherThanTheActorsAssignment() {
+        String tenant = UUID.randomUUID().toString();
+        try (var scope = TenantContext.use(tenant);
+             var actor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                     net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser("operator", "Operator", tenant, "actor-org"))) {
+            saveRule("documentNo", "GLOBAL-");
+            var scoped = new CodeRule(); scoped.setModuleAlias(MODULE); scoped.setEntityAlias("static_code"); scoped.setFieldName("documentNo");
+            scoped.setOrgScopeType(CodeOrgScopeType.ORG); scoped.setOrgScopeId("business-org"); scoped.setGlobalDefault(false);
+            var text = new CodeRuleSegment(); text.setSegmentType(CodeSegmentType.CONSTANT); text.setFixedValue("ORG-");
+            var sequence = new CodeRuleSegment(); sequence.setSegmentType(CodeSegmentType.SEQUENCE); sequence.setLength(4);
+            scoped.setSegments(List.of(text, sequence)); var policy = new CodeSequencePolicy(); policy.setSequenceLength(4); scoped.setSequencePolicy(policy);
+            rules.saveRuleTree(scoped);
+            var states = forms.fields(MODULE, new CodeBusinessFormRequest(null, Map.of("subject", "scoped", "businessOrganizationId", "business-org"), null));
+            assertThat(states).filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                    .extracting(CodeBusinessFieldState::preview).isEqualTo("ORG-0001");
+            var row = row("scoped"); row.setBusinessOrganizationId("business-org"); service.insert(row);
+            assertThat(row.getDocumentNo()).isEqualTo("ORG-0001");
+            var global = forms.fields(MODULE, new CodeBusinessFormRequest(null, Map.of("subject", "global"), null));
+            assertThat(global).filteredOn(state -> state.fieldName().equals("documentNo")).singleElement()
+                    .extracting(CodeBusinessFieldState::preview).isEqualTo("GLOBAL-0001");
+        }
+    }
+    private void aggregateRules() {
+        var main = saveRule("documentNo", "DOC-"); main.setLinkedUpdate(true);
+        var parentSource = codeSource("subject", 16); parentSource.setSeparator("-");
+        main.setSegments(List.of(parentSource, main.getSegments().getLast())); rules.saveRuleTree(main);
+        var rule = new CodeRule(); rule.setModuleAlias(LineService.MODULE); rule.setEntityAlias("static_code_line");
+        rule.setFieldName("lineNo"); rule.setLinkedUpdate(true);
+        var parentCode = codeSource("static_code.documentNo", 32); parentCode.setSeparator("-");
+        var subject = codeSource("subject", 8); subject.setSeparator("-");
+        var sequence = new CodeRuleSegment(); sequence.setSegmentType(CodeSegmentType.SEQUENCE); sequence.setLength(2);
+        rule.setSegments(List.of(parentCode, subject, sequence));
+        var policy = new CodeSequencePolicy(); policy.setSequenceLength(2); rule.setSequencePolicy(policy); rules.saveRuleTree(rule);
+    }
+    private CodeRuleSegment codeSource(String field, int length) {
+        var source = new CodeRuleSegment(); source.setSegmentType(CodeSegmentType.FIELD_VALUE); source.setSourceRef(field);
+        source.setLength(length); source.setTruncatePolicy(CodeTruncatePolicy.RIGHT); return source;
+    }
     private CodeRuntimeCommand command(StaticCodeRecord record) {
         return CodeRuntimeCommand.builder(MODULE, "static_code", "confirmationNo").sourceRecordId(record.getId()).build();
     }
@@ -206,15 +325,26 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
         var policy = new CodeSequencePolicy(); policy.setStartValue(1L); policy.setStepValue(1L); policy.setSequenceLength(4);
         rule.setSequencePolicy(policy); return rules.saveRuleTree(rule);
     }
-    static class FixtureService extends AbstractAbilityService<StaticCodeRecord> implements CodeAbility<StaticCodeRecord>, RecycleBinAbility<StaticCodeRecord> {
+    static class FixtureService extends AbstractAbilityService<StaticCodeRecord> implements CodeAbility<StaticCodeRecord>, RecycleBinAbility<StaticCodeRecord>, net.ximatai.muyun.spring.ability.child.ChildrenAbility<StaticCodeRecord> {
         public boolean isRecycleBinPurgeEnabled() { return true; }
         public void beforeRecycleBinPurge(String id) { }
-        FixtureService(StaticCodeDao dao) { super(MODULE, StaticCodeRecord.class, dao); }
+        @Override public String codeOrganizationId(StaticCodeRecord record) { return record.getBusinessOrganizationId(); }
+        @Override public boolean usesAutomaticChildRelations() { return false; }
+        private final LineService lines;
+        FixtureService(StaticCodeDao dao, LineService lines) { super(MODULE, StaticCodeRecord.class, dao); this.lines = lines; }
+        @Override public List<net.ximatai.muyun.spring.ability.child.ChildRelation<? extends net.ximatai.muyun.spring.common.model.contract.EntityContract, StaticCodeRecord>> childRelations() {
+            return List.of(new net.ximatai.muyun.spring.ability.child.ChildRelation<>("lines", lines, StaticCodeLine::setParentId, "parentId", StaticCodeRecord::getLines, StaticCodeLine::getParentId));
+        }
+    }
+    static class LineService extends AbstractAbilityService<StaticCodeLine> implements CodeAbility<StaticCodeLine>, net.ximatai.muyun.spring.ability.child.ChildAbility<StaticCodeLine> {
+        static final String MODULE = "contract.static_code_line";
+        LineService(StaticCodeLineDao dao) { super(MODULE, StaticCodeLine.class, dao); }
     }
     @org.springframework.boot.SpringBootConfiguration
     @Import(DynamicCodeCoordinatorRepositoryIT.TestApplication.class)
     static class Configuration {
-        @Bean FixtureService staticCodeService(StaticCodeDao dao) { return new FixtureService(dao); }
+        @Bean FixtureService staticCodeService(StaticCodeDao dao, LineService lines) { return new FixtureService(dao, lines); }
+        @Bean LineService lineService(StaticCodeLineDao dao) { return new LineService(dao); }
         @Bean CodeTargetCatalog codeTargets(ObjectProvider<CrudAbility<?>> services) { return new CodeTargetCatalog(services); }
         @Bean @Primary CodeRuleService staticRules(CodeRuleDao dao, CodeRuleSegmentService segments, CodeSequencePolicyService policies,
                 CodeValueMappingService mappings, CodeTargetCatalog targets, CodeConfigurationService configuration) {
@@ -229,6 +359,9 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
+        }
+        @Bean CodeBusinessFormService codeForms(CodeTargetCatalog targets, CodeRuleService rules, CodeGenerateService generation, CodeBusinessTimeService time) {
+            return new CodeBusinessFormService(targets, Optional.empty(), rules, generation, time, new com.fasterxml.jackson.databind.ObjectMapper());
         }
         @Bean CodeRuntimeFacade codeFacade(CodeGenerateService generation, CodeRuleService rules, CodeLedgerEntryService ledger) {
             return new CodeRuntimeFacade(generation, rules, ledger);

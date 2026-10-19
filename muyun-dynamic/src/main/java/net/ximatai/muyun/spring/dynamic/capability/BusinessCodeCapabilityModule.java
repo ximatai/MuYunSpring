@@ -35,6 +35,10 @@ public final class BusinessCodeCapabilityModule implements CapabilityModule, Cap
         for (String name : entity.businessCodes().keySet()) {
             var field = entity.fields().stream().filter(item -> item.fieldName().equals(name)).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Unknown business code field: " + name));
+            var write = field.resolvedWriteRules();
+            if (entity.businessCodes().get(name).trigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.EXPLICIT
+                    && (write.nonNull() || write.requiredOnInsert() || write.requiredOnUpdate()))
+                throw new IllegalArgumentException("EXPLICIT business code must allow unnumbered drafts: " + name);
             if (!isEligible(field))
                 throw new IllegalArgumentException("Business code requires an unprotected physical string field: " + name);
         }

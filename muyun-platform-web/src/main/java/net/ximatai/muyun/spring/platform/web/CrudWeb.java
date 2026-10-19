@@ -38,6 +38,18 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return service();
     }
 
+    /** Read-only field policies and candidates. It performs no record read, allocation or mutation. */
+    @PostMapping("/code/form-state")
+    @ActionEndpoint(PlatformAction.QUERY)
+    default List<net.ximatai.muyun.spring.platform.code.CodeBusinessFieldState> codeFormState(
+            @RequestBody(required = false) net.ximatai.muyun.spring.platform.code.CodeBusinessFormRequest request) {
+        return webScope(() -> {
+            StandardModuleWebRuntime runtime = executionRuntime();
+            if (runtime == null) throw new IllegalStateException("Business code forms require the standard module web runtime");
+            return runtime.codeFormState(webScopeName(), request);
+        });
+    }
+
     default StaticRecordReadProjectionService staticRecordReadProjectionService() {
         return null;
     }

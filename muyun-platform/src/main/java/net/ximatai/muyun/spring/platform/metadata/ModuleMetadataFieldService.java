@@ -290,6 +290,9 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                 || field.getFieldName().equals(relation.getForeignKey()))
             throw new PlatformException("Business code requires a persisted business string field: " + field.getFieldName());
         if (config.getBusinessCodeTrigger() == null) config.setBusinessCodeTrigger(net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE);
+        if (config.getBusinessCodeTrigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.EXPLICIT
+                && (Boolean.TRUE.equals(field.getRequired()) || Boolean.TRUE.equals(config.getRequiredOnInsert()) || Boolean.TRUE.equals(config.getRequiredOnUpdate())))
+            throw new PlatformException("EXPLICIT business code must allow unnumbered drafts: " + field.getFieldName());
         if (net.ximatai.muyun.spring.ability.TransactionScopeSupport.isTransactionActive())
             lockMutation("business-code-binding", java.util.Arrays.asList(config.getTenantId(), relation.getId()).toString());
         if (config.getBusinessCodeRole() == net.ximatai.muyun.spring.platform.code.CodeFieldRole.PRIMARY

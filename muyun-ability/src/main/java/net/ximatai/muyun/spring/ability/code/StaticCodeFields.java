@@ -29,8 +29,13 @@ public final class StaticCodeFields {
             }
             Set<String> protectedNames = net.ximatai.muyun.spring.ability.security.StaticFieldProtectionResolver.resolve(type).fields().stream()
                     .map(net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor::fieldName).collect(java.util.stream.Collectors.toSet());
+            var writeRules = net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules.resolve(type);
             for (Field field : fields.values()) if (field.isAnnotationPresent(BusinessCode.class)) {
                 var column = field.getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class);
+                var write = writeRules.get(field.getName());
+                if (field.getAnnotation(BusinessCode.class).trigger() == CodeTrigger.EXPLICIT
+                        && (!column.nullable() || write != null && (write.rules().requiredOnInsert() || write.rules().requiredOnUpdate())))
+                    throw new PlatformException("EXPLICIT business code must allow unnumbered drafts: " + field.getName());
                 if (net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.find(field.getName()) != null
                         || column.type() != net.ximatai.muyun.database.core.builder.ColumnType.VARCHAR || protectedNames.contains(field.getName())
                         || field.isAnnotationPresent(net.ximatai.muyun.spring.ability.reference.ReferenceTo.class))
@@ -42,13 +47,21 @@ public final class StaticCodeFields {
             return Collections.unmodifiableMap(fields);
         }
     };
+    private static final ClassValue<Map<String, Field>> PERSISTED = new ClassValue<>() {
+        @Override protected Map<String, Field> computeValue(Class<?> type) {
+            Map<String, Field> result = new LinkedHashMap<>();
+            for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass())
+                for (Field field : current.getDeclaredFields()) if (!Modifier.isStatic(field.getModifiers())
+                        && !Modifier.isTransient(field.getModifiers()) && field.isAnnotationPresent(net.ximatai.muyun.database.core.annotation.Column.class)) {
+                    field.setAccessible(true); result.putIfAbsent(field.getName(), field);
+                }
+            return Collections.unmodifiableMap(result);
+        }
+    };
     private StaticCodeFields() { }
     public static Map<String, Field> persistedFields(Class<?> type) {
-        Map<String, Field> result = new LinkedHashMap<>();
-        FIELDS.get(type).forEach((name, field) -> {
-            if (field.isAnnotationPresent(net.ximatai.muyun.database.core.annotation.Column.class)) result.put(name, field);
-        });
-        return Collections.unmodifiableMap(result);
+        FIELDS.get(type); // Validate declarations before exposing their physical source facts.
+        return PERSISTED.get(type);
     }
     public static Map<String, BusinessCode> declarations(Class<?> type) {
         Map<String, BusinessCode> result = new LinkedHashMap<>();
@@ -59,7 +72,7 @@ public final class StaticCodeFields {
     }
     public static Map<String, Object> values(Object record) {
         Map<String, Object> result = new LinkedHashMap<>();
-        if (record != null) FIELDS.get(record.getClass()).forEach((name, field) -> result.put(name, read(field, record)));
+        if (record != null) persistedFields(record.getClass()).forEach((name, field) -> result.put(name, read(field, record)));
         return result;
     }
     public static String normalizeCode(Class<?> type, String field, String value) {

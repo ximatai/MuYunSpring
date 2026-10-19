@@ -36,6 +36,15 @@ class BusinessCodeCapabilityModuleTest {
         assertThat(definition.businessCodes()).containsEntry("documentNo", new CodeFieldDefinition(true, CodeTrigger.EXPLICIT));
         assertThat(definition.supports(EntityCapability.BUSINESS_CODE)).isTrue();
     }
+    @Test void explicitDeclarationsRejectStorageAndSaveRequirementsBeforeActivation() {
+        for (var field : List.of(FieldDefinition.string("number", "Number").required(),
+                FieldDefinition.string("number", "Number").writeRules(new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false, null)),
+                FieldDefinition.string("number", "Number").writeRules(new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(false, true, null)))) {
+            var entity = new EntityDefinition("invoice", "invoice", "Invoice", List.of(field))
+                    .withBusinessCodes(Map.of("number", new CodeFieldDefinition(false, CodeTrigger.EXPLICIT)));
+            assertThatThrownBy(() -> new ModuleDefinitionValidator().validateEntity(entity)).hasMessageContaining("unnumbered drafts");
+        }
+    }
     @Table(name = "static_coded_invoice")
     static class Invoice {
         @BusinessCode(primary = true, trigger = CodeTrigger.EXPLICIT)

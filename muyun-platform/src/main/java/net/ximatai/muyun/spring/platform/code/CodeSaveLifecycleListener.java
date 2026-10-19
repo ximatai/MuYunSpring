@@ -16,6 +16,9 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
     private final CodeBusinessTimeService time;
     private final Clock clock;
     private final CodeLedgerEntryService ledger;
+    private CodeTargetCatalog targets;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCodeTargets(CodeTargetCatalog targets) { this.targets = targets; }
     public CodeSaveLifecycleListener(CodeRuleService rules, CodeGenerateService generate, CodePreviewService preview,
             CodeSequenceStateService sequences, CodeLedgerEntryService ledger, CodeRecycleEntryService recycle,
             CodeBusinessTimeService time, Clock clock) {
@@ -37,7 +40,23 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
         net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules.normalize(owner.modelClass(), incoming);
         Map<String, Object> context = StaticCodeFields.values(incoming);
         Map<String, Object> previous = StaticCodeFields.values(existing);
+        var parent = parentOf(service, incoming);
+        if (parent != null) {
+            String alias = parent.service() instanceof CodeAbility<?> code ? code.codeEntityAlias()
+                    : parent.service().getModuleAlias().substring(parent.service().getModuleAlias().lastIndexOf('.') + 1);
+            addQualified(context, service.codeEntityAlias(), StaticCodeFields.values(incoming));
+            addQualified(previous, service.codeEntityAlias(), StaticCodeFields.values(existing));
+            addQualified(context, alias, StaticCodeFields.values(parent.current()));
+            addQualified(previous, alias, StaticCodeFields.values(parent.before()));
+        }
         String organization = service.codeOrganizationId(incoming);
+        if (organization == null && parent != null) {
+            if (parent.service() instanceof CodeAbility<?> parentCode) {
+                @SuppressWarnings("unchecked") var coded = (CodeAbility<EntityContract>) parentCode;
+                organization = coded.codeOrganizationId(parent.current());
+            } else if (parent.current() instanceof net.ximatai.muyun.spring.common.model.capability.DataScopeCapable scoped)
+                organization = scoped.getAuthOrganizationId();
+        }
         LocalDateTime at = time.resolveBusinessLocalDateTime(organization, clock.instant());
         List<ResolvedCodeRule> resolved = rules.resolveRules(new ResolveCodeRuleCommand(owner.getModuleAlias(), service.codeEntityAlias(), null, null, organization, at));
         for (var declaration : fields.entrySet()) {
@@ -62,6 +81,21 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
         runtime.prepare(owner.getModuleAlias(), service.codeEntityAlias(), existing == null ? null : adapt(service, existing, previous),
                 adapt(service, incoming, context), resolved, organization, at, context, previous, changed);
     }
+    private net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.Parent parentOf(CodeAbility<?> child, EntityContract record) {
+        var active = net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.parentOf(child);
+        if (active.isPresent()) return active.get();
+        if (targets == null) return null;
+        var target = targets.parentOf(child);
+        if (target.isEmpty()) return null;
+        Object id = StaticCodeFields.values(record).get(target.get().relation().childForeignKeyField());
+        if (id == null) return null;
+        var parent = target.get().service().select(String.valueOf(id));
+        return parent == null ? null : new net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.Parent(target.get().service(), parent, parent);
+    }
+    private void addQualified(Map<String, Object> target, String alias, Map<String, Object> values) {
+        values.forEach((name, value) -> target.put(alias + "." + name, value));
+    }
+
     private void rememberGeneratedDraft(EntityContract record, Set<String> fields) {
         var rollback = org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations().stream()
                 .filter(CodeDraftRollback.class::isInstance).map(CodeDraftRollback.class::cast)

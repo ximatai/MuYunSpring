@@ -710,6 +710,59 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
     }
 
+    @Test
+    void workbookImportUsesTheSameNumberingLedgerAndRollsBackRejectedManualCodes() {
+        var scenario = refreshScenario(); var rule = saveRule(scenario, CodeMode.AUTO, true);
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            var imports = new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportFacade(recordService);
+            byte[] file = new net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter().writeToBytes(
+                    new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan(List.of(
+                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan("Code IT", "main", true,
+                                    List.of(new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("relateId", "关联标识"), new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("title", "标题")),
+                                    List.of(List.of("R-1", "import-one"), List.of("R-2", "import-two"))))));
+            var plan = new net.ximatai.muyun.spring.platform.exchange.importer.BuildDynamicImportPlanCommand(scenario.moduleAlias(), "title",
+                    net.ximatai.muyun.spring.platform.exchange.importer.ImportDuplicateStrategy.ERROR, List.of());
+            var result = transactionTemplate.execute(status -> imports.importWorkbook(new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportCommand(
+                    recordService.describe(scenario.moduleAlias()), file, plan)));
+            assertThat(result.executionResult().created()).isEqualTo(2);
+            assertThat(records(scenario)).extracting(row -> row.getValue("orderNo")).containsExactlyInAnyOrder("SO-0001", "SO-0002");
+            assertThat(ledgerEntries(rule)).hasSize(2);
+            byte[] invalid = new net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter().writeToBytes(
+                    new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan(List.of(
+                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan("Code IT", "main", true,
+                                    List.of(new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("relateId", "关联标识"), new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("title", "标题"),
+                                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("orderNo", "编号")),
+                                    List.of(List.of("R-3", "forged", "FAKE-1"))))));
+            assertThatThrownBy(() -> transactionTemplate.execute(status -> imports.importWorkbook(
+                    new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportCommand(recordService.describe(scenario.moduleAlias()), invalid, plan))))
+                    .hasMessageContaining("AUTO code field does not accept manual value");
+            assertThat(records(scenario)).hasSize(2); assertThat(ledgerEntries(rule)).hasSize(2);
+            var next = create(scenario, "after-failure"); assertThat(next.getValue("orderNo")).isEqualTo("SO-0003");
+        }
+    }
+
+    @Test
+    void dynamicFormPoliciesUseInstalledBindingsAndNeverAllocateOrExposeUnrelatedEntities() {
+        var scenario = refreshScenario(); saveRule(scenario, CodeMode.AUTO, true);
+        var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var targets = new CodeTargetCatalog(factory.getBeanProvider(org.springframework.core.ResolvableType.forClass(net.ximatai.muyun.spring.ability.CrudAbility.class)));
+        var forms = new CodeBusinessFormService(targets, Optional.of(recordService), ruleService,
+                formGeneration, new CodeBusinessTimeService(Clock.systemUTC()), new com.fasterxml.jackson.databind.ObjectMapper());
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            var states = forms.fields(scenario.moduleAlias(), new CodeBusinessFormRequest(null, java.util.Map.of("title", "draft"), null));
+            assertThat(states).singleElement().satisfies(state -> {
+                assertThat(state.fieldName()).isEqualTo("orderNo"); assertThat(state.preview()).isEqualTo("SO-0001"); assertThat(state.readOnly()).isTrue();
+            });
+            assertThatThrownBy(() -> forms.fields(scenario.moduleAlias(), new CodeBusinessFormRequest("foreign", java.util.Map.of(), null)))
+                    .isInstanceOf(PlatformException.class);
+            assertThat(create(scenario, "first").getValue("orderNo")).isEqualTo("SO-0001");
+            var childScenario = refreshChildScenario(); saveChildRuleUsingParentTitle(childScenario);
+            var child = forms.fields(childScenario.moduleAlias(), new CodeBusinessFormRequest("line", java.util.Map.of("title", "own"), java.util.Map.of("title", "PARENT")));
+            assertThat(child).singleElement().extracting(CodeBusinessFieldState::preview).isEqualTo("LN-PARENT-0001");
+        }
+    }
+    @Autowired private CodeGenerateService formGeneration;
+
     private Scenario refreshScenario() { return refreshScenario(false); }
 
     private Scenario refreshScenario(boolean dataScope) { return refreshScenario(dataScope, true); }

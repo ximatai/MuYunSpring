@@ -61,8 +61,19 @@ public class CodeConfigurationService {
             }).toList();
             var protectedNames = net.ximatai.muyun.spring.ability.security.StaticFieldProtectionResolver.resolve(service.modelClass()).fields().stream()
                     .map(net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor::fieldName).collect(java.util.stream.Collectors.toSet());
-            List<Source> sources = persisted.entrySet().stream().filter(entry -> !protectedNames.contains(entry.getKey())).map(entry -> new Source(entry.getKey(), entry.getValue().getAnnotation(Column.class).comment().isBlank() ? entry.getKey() : entry.getValue().getAnnotation(Column.class).comment(),
-                    entry.getValue().getType().getSimpleName(), entry.getValue().getAnnotation(Column.class).length())).toList();
+            List<Source> sources = new ArrayList<>(persisted.entrySet().stream().filter(entry -> !protectedNames.contains(entry.getKey())).map(entry -> new Source(entry.getKey(), entry.getValue().getAnnotation(Column.class).comment().isBlank() ? entry.getKey() : entry.getValue().getAnnotation(Column.class).comment(),
+                    entry.getValue().getType().getSimpleName(), entry.getValue().getAnnotation(Column.class).length())).toList());
+            statics.parentOf(service).ifPresent(parent -> {
+                var parentProtected = net.ximatai.muyun.spring.ability.security.StaticFieldProtectionResolver.resolve(parent.service().modelClass()).fields().stream()
+                        .map(net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor::fieldName).collect(java.util.stream.Collectors.toSet());
+                StaticCodeFields.persistedFields(parent.service().modelClass()).forEach((name, field) -> {
+                    if (parentProtected.contains(name)) return;
+                    Column column = field.getAnnotation(Column.class);
+                    sources.add(new Source(parent.entityAlias() + "." + name, parent.entityAlias() + " · " + (column.comment().isBlank() ? name : column.comment()), field.getType().getSimpleName(), column.length()));
+                });
+                List.copyOf(sources).stream().filter(source -> !source.fieldName().contains(".")).forEach(source -> sources.add(
+                        new Source(service.codeEntityAlias() + "." + source.fieldName(), source.title(), source.type(), source.length())));
+            });
             result.add(new Target(service.getModuleAlias(), service.codeEntityAlias(), service.codeEntityAlias(), "STATIC", null, candidates, sources));
         }
         List<PlatformModule> visible = moduleAlias == null ? modules.listVisibleModules()

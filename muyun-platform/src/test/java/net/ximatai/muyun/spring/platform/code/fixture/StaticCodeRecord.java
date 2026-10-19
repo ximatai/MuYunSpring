@@ -17,6 +17,9 @@ public class StaticCodeRecord extends StandardEntity {
     @BusinessCode(trigger = CodeTrigger.EXPLICIT)
     @Column(name = "confirmation_no", type = ColumnType.VARCHAR, length = 64)
     private String confirmationNo;
+    private java.util.List<StaticCodeLine> lines;
+    @Column(name = "business_organization_id", type = ColumnType.VARCHAR, length = 64)
+    private String businessOrganizationId;
     @Required
     @Column(name = "subject", type = ColumnType.VARCHAR, length = 100)
     private String subject;

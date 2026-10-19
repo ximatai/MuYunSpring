@@ -50,9 +50,27 @@ public class CodeGenerateService {
         var resolved = ruleService.resolveRule(new ResolveCodeRuleCommand(command.moduleAlias(), command.entityAlias(),
                 command.moduleMetadataFieldId(), command.metadataFieldId(), command.fieldName(), command.organizationId(), at));
         if (resolved == null) throw new PlatformException("No code rule resolved for target");
-        if (resolved.rule().getMode() == CodeMode.MANUAL) throw new PlatformException("Manual coding has no automatic preview");
-        var preview = previewService.previewDraft(new PreviewCodeRuleCommand(resolved.rule(), command.context(), command.organizationId(), at, null));
-        return new CodePreviewResult(normalizeTargetValue(resolved.rule(), preview.value()), preview.segments());
+        return previewResolved(resolved, command.context(), at);
+    }
+
+    /** Candidate only: reads the current buckets and recycle pool without advancing or logging issuance. */
+    CodePreviewResult previewResolved(ResolvedCodeRule resolved, Map<String, Object> context, LocalDateTime at) {
+        CodeRule rule = resolved.rule();
+        if (rule.getMode() == CodeMode.MANUAL) throw new PlatformException("Manual coding has no automatic preview");
+        boolean sequence = orderedSegments(rule).stream().anyMatch(segment -> segment.getSegmentType() == CodeSegmentType.SEQUENCE);
+        String basis = sequence ? buildBasisKey(rule, context, at) : CodeSequenceState.DEFAULT_BUCKET;
+        String period = sequence ? sequenceStateService.periodKey(rule.getSequencePolicy(), at) : CodeSequenceState.DEFAULT_BUCKET;
+        if (Boolean.TRUE.equals(rule.getAllowRecycle()) && recycleEntryService != null) {
+            var recycled = recycleEntryService.peekAvailable(rule.getId(), basis, period);
+            if (recycled != null) return new CodePreviewResult(normalizeTargetValue(rule, recycled.getRecycledValue()), List.of());
+        }
+        Long next = null;
+        if (sequence) {
+            var state = sequenceStateService.selectState(rule.getId(), basis, period);
+            next = sequenceStateService.previewNextValue(state == null ? null : state.getCurrentValue(), rule.getSequencePolicy());
+        }
+        var preview = previewService.previewDraft(new PreviewCodeRuleCommand(rule, context, resolved.resolvedOrganizationId(), at, next));
+        return new CodePreviewResult(normalizeTargetValue(rule, preview.value()), preview.segments());
     }
 
     public GenerateCodeResult generate(GenerateCodeCommand command) {

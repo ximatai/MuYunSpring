@@ -25,6 +25,15 @@ final class ModelFieldProjection {
         return fields;
     }
 
+    static Map<ViewFieldRef, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> codeFields(List<EntityDefinition> entities, String mainEntityAlias) {
+        Map<ViewFieldRef, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> fields = new LinkedHashMap<>();
+        for (var entity : entities) {
+            String resource = entity.alias().equals(mainEntityAlias) ? null : entity.alias();
+            entity.businessCodes().forEach((name, declaration) -> fields.put(new ViewFieldRef(resource, name, null), declaration));
+        }
+        return fields;
+    }
+
     static Map<ViewFieldRef, FieldDefinition> staticFields(StaticModuleDefinition definition) {
         var fields = fields(definition.entities(), definition.entities().isEmpty() ? null : definition.entities().getFirst().alias());
         Class<?> modelClass = definition.modelClass();
@@ -47,31 +56,36 @@ final class ModelFieldProjection {
 
     static ResolvedModuleUiDescriptor project(ResolvedModuleUiDescriptor descriptor,
                                                Map<ViewFieldRef, FieldDefinition> fields) {
+        return project(descriptor, fields, Map.of());
+    }
+    static ResolvedModuleUiDescriptor project(ResolvedModuleUiDescriptor descriptor,
+                                               Map<ViewFieldRef, FieldDefinition> fields,
+                                               Map<ViewFieldRef, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> codes) {
         if (descriptor == null || fields.isEmpty()) return descriptor;
         var page = descriptor.page();
         if (page != null) {
             var detail = page.detail();
             if (detail != null) detail = new ResolvedPageDetailDescriptor(detail.emptyDescription(), detail.createTitle(),
-                    view(detail.display(), fields), view(detail.editor(), fields), detail.workspaceView(), detail.showSystemInfo());
+                    view(detail.display(), fields, codes), view(detail.editor(), fields, codes), detail.workspaceView(), detail.showSystemInfo());
             var list = page.list();
-            if (list != null) list = new ResolvedPageListDescriptor(list.searchPlaceholder(), view(list.fields(), fields),
+            if (list != null) list = new ResolvedPageListDescriptor(list.searchPlaceholder(), view(list.fields(), fields, codes),
                     list.title(), list.subtitle(), list.relationExpansions(), list.persistentQueryControls(), list.querySummaries());
             page = new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(), list,
                     page.treeResource(), detail, page.traits(), page.quickSearchFields(), page.actions(), page.managedActions());
         }
-        return descriptor.withEditors(page, view(descriptor.defaultEditor(), fields),
+        return descriptor.withEditors(page, view(descriptor.defaultEditor(), fields, codes),
                         descriptor.editorSurfaces().stream().map(surface -> new ResolvedEditorSurfaceDescriptor(
-                                surface.key(), view(surface.editor(), fields))).toList())
+                                surface.key(), view(surface.editor(), fields, codes))).toList())
                 .withEditorContributions(descriptor.editorContributions().stream().map(contribution ->
-                        new ResolvedPageDetailEditorContribution(contribution.resource(), view(contribution.editor(), fields))).toList());
+                        new ResolvedPageDetailEditorContribution(contribution.resource(), view(contribution.editor(), fields, codes))).toList());
     }
 
-    private static ResolvedViewDescriptor view(ResolvedViewDescriptor view, Map<ViewFieldRef, FieldDefinition> fields) {
+    private static ResolvedViewDescriptor view(ResolvedViewDescriptor view, Map<ViewFieldRef, FieldDefinition> fields, Map<ViewFieldRef, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> codes) {
         if (view == null) return null;
         return view.withFields(view.fields().stream().map(field -> {
             var model = fields.get(new ViewFieldRef(field.fieldRef().relationCode(), field.fieldRef().fieldName(), null));
             if (model == null) return field;
-            field = field.withContent(model.content());
+            field = field.withContent(model.content()).withBusinessCode(codes.get(new ViewFieldRef(field.fieldRef().relationCode(), field.fieldRef().fieldName(), null)));
             if (view.viewKind() != ModuleViewKind.FORM || !model.isPhysical() || model.behavior().writeProtected()
                     || Boolean.TRUE.equals(field.readOnly().constant())) return field;
             var rules = model.behavior().writeRules();

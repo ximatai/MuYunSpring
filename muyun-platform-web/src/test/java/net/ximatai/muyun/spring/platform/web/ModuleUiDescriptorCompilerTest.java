@@ -38,6 +38,28 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
+    @Test void projectsCodeDeclarationsThroughEveryFieldCopyWithoutInventingHiddenFields() {
+        var code = new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE);
+        var entity = new EntityDefinition("main", "main", "Main", List.of(
+                FieldDefinition.string("documentNo", "Code").writeRules(new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, true, null)), FieldDefinition.string("hiddenNo", "Hidden")))
+                .withBusinessCodes(Map.of("documentNo", code, "hiddenNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(false, null)));
+        var ui = ModuleUiDefinition.builder("demo.code").page(PageTemplates.listDetailCard(page -> page
+                .list(list -> list.fields(fields -> fields.field("documentNo")))
+                .detail(detail -> detail.display(display -> display.field("documentNo"))
+                        .editor(editor -> editor.field("documentNo"))))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.code", "Code")
+                .entities(List.of(entity)).uiDefinition(ui).build());
+        var field = descriptor.page().detail().editor().fields().getFirst();
+        assertThat(descriptor.page().detail().editor().fields()).hasSize(1);
+        assertThat(field.businessCode()).isEqualTo(code);
+        assertThat(field.inputRequirements().requiredOnInsert()).isTrue();
+        assertThat(field.withUiState(UiRule.constant(true), UiRule.constant(false)).withComputedValue("preview")
+                .withInputRequirements(new FieldInputRequirements(false, false)).withReadOnly(UiRule.constant(true))
+                .withContent(null).withAssistantPolicy(null).businessCode()).isEqualTo(code);
+        assertThat(descriptor.page().detail().display().fields().getFirst().businessCode()).isEqualTo(code);
+        assertThat(descriptor.page().list().fields().fields().getFirst().businessCode()).isEqualTo(code);
+    }
+
     @Test void projectsProducerContentPoliciesIntoEditorsAndReadViewsWithoutExpandingTheirFields() {
         var content = new net.ximatai.muyun.spring.common.content.ContentFieldDefinition("stable-title",
                 net.ximatai.muyun.spring.common.content.ContentPolicy.MANUAL_TRANSLATIONS);

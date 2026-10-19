@@ -75,3 +75,13 @@
 接口：
 
 - `POST /code/preview`：按当前动态记录值预览业务编码。该入口走 `CREATE` 动作语义，用于保存前展示候选编码，不表示已正式占用。
+
+## 标准业务表单
+
+动静统一基础路径：`/{moduleAlias}`。
+
+- `POST /code/form-state`：`QUERY` 授权的只读策略与候选查询，不读取业务记录、不分配号码、不写占用。请求包含可选 `entityAlias`、当前 `record` 和子表的 `parent` 草稿；静态子表使用已声明的直接关系别名，动态子表使用实体别名。目标来自已安装定义，不能查询任意实体。
+- 响应逐字段返回 `fieldName/mode/trigger/readOnly/configured/preview`。字段 descriptor 中的 `businessCode` 仅声明 `primary/trigger`；机构、生效时间决定的模式不固化进页面定义。
+- 不完整来源可能暂时没有候选；缺少有效 `SAVE` 规则且尚未赋码时标准表单阻止提交并提示配置；编辑已赋码记录可只读保留原号，保存仍校验真实占用。`EXPLICIT` 字段可等待业务动作。候选必须与提交草稿隔离，最终编号以保存响应为准。
+
+静态无页面示例：`POST /education.receipt/insert` 接受 `subject`；`POST /education.receipt/{id}/confirm` 接受 `expectedVersion`，由专用 `confirm` 记录动作授权。该接口固定操作自己的确认号，不开放通用任意模块赋码。

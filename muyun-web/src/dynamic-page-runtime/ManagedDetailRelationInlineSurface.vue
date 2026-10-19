@@ -885,6 +885,7 @@ onMounted(() => void load());
         :picker-configs="pickerConfigsOf(row)"
         :option-context="sourceContext"
         :option-entity-alias="relation.targetEntityAlias"
+        :code-parent-record="parentRecord"
         :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
         :form-session-key="row.__draftKey"
         :disabled="row.id != null && !updateAllowed"

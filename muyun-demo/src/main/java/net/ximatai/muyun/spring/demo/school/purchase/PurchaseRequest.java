@@ -15,6 +15,9 @@ import java.math.BigDecimal;
 @Table(name = "education_purchase_request", comment = "教学采购申请")
 @Required(fields = "title")
 public class PurchaseRequest extends StandardApprovalEntity implements TitledCapable {
+    @net.ximatai.muyun.spring.ability.code.BusinessCode(primary = true)
+    @Column(name = "document_no", type = ColumnType.VARCHAR, length = 64, comment = "申请单号")
+    private String documentNo;
     @Column(name = "title", type = ColumnType.VARCHAR, length = 128, nullable = false)
     private String title;
     @Column(name = "amount", type = ColumnType.NUMERIC, precision = 18, scale = 2, comment = "采购金额")
