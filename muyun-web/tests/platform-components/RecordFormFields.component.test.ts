@@ -39,9 +39,11 @@ describe('RecordFormFields', () => {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
       expect(wrapper.text()).toContain('DOC-0001');
-      expect(wrapper.text()).toContain('主编码');
+      expect(wrapper.text()).not.toContain('主编码');
+      expect(await numberingDetails(wrapper)).toContain('主编码');
       expect(wrapper.find('input').exists()).toBe(false);
-      expect(wrapper.text().match(/保存时生成编号/g)).toHaveLength(1);
+      expect(wrapper.text()).not.toContain('保存时生成编号');
+      expect(await numberingDetails(wrapper)).toContain('保存时生成编号');
       expect(record).toEqual({});
       expect(wrapper.emitted('update:field')).toBeUndefined();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
@@ -50,7 +52,7 @@ describe('RecordFormFields', () => {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
-      expect(wrapper.text()).toContain('请手工填写业务编号');
+      expect(await numberingDetails(wrapper)).toContain('请手工填写业务编号');
       expect(wrapper.text()).not.toContain('保存时生成编号');
       await wrapper.get('input').setValue('HUMAN-1');
       expect(wrapper.emitted('update:field')?.at(-1)).toEqual(['documentNo', 'HUMAN-1']);
@@ -58,7 +60,7 @@ describe('RecordFormFields', () => {
       await wrapper.setProps({ formSessionKey: 'editable' });
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
-      expect(wrapper.text()).toContain('留空时自动编号，也可手工填写');
+      expect(await numberingDetails(wrapper)).toContain('留空时自动编号，也可手工填写');
     } finally {
       wrapper.unmount();
       vi.useRealTimers();
@@ -258,7 +260,7 @@ describe('RecordFormFields', () => {
     try {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
-      expect(wrapper.text()).toContain('可手工调整已有编号，不可清空');
+      expect(await numberingDetails(wrapper)).toContain('可手工调整已有编号，不可清空');
       expect(wrapper.text()).not.toContain('留空时自动编号');
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
       await wrapper.setProps({ record: { id: 'saved', documentNo: '' } });
@@ -270,7 +272,24 @@ describe('RecordFormFields', () => {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
-      expect(wrapper.text()).toContain('重试');
+      expect(wrapper.text()).toContain('编号策略读取失败');
+      expect(await numberingDetails(wrapper)).toContain('重试');
+      expect(wrapper.get('input').element.value).toBe('DOC-1');
+      await wrapper.get('button[aria-label$="编号说明"]').trigger('click');
+      await vi.advanceTimersByTimeAsync(250);
+      await flushPromises();
+      request.mockResolvedValue([
+        { fieldName: 'documentNo', mode: 'AUTO', trigger: 'SAVE', readOnly: true, configured: true },
+      ]);
+      const retry = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>('.ant-popover:not(.ant-popover-hidden) button'),
+      ).find((button) => button.textContent?.includes('重试'));
+      expect(retry).toBeDefined();
+      retry!.click();
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('编号策略读取失败');
+      expect(wrapper.text()).toContain('DOC-1');
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
     } finally {
       wrapper.unmount();
       vi.useRealTimers();
@@ -1840,4 +1859,20 @@ describe('RecordFormFields', () => {
 
 function moduleContext(moduleAlias: string, request: ReturnType<typeof vi.fn>): ModuleContext<unknown> {
   return { moduleAlias, http: { request } } as never;
+}
+
+async function numberingDetails(wrapper: ReturnType<typeof mount>) {
+  const trigger = wrapper.get('button[aria-label$="编号说明"]');
+  await trigger.trigger('click');
+  await vi.advanceTimersByTimeAsync(250);
+  await flushPromises();
+  const text = Array.from(
+    document.body.querySelectorAll('.ant-popover:not(.ant-popover-hidden) .record-form-code-details'),
+  )
+    .map((element) => element.textContent)
+    .join('');
+  await trigger.trigger('click');
+  await vi.advanceTimersByTimeAsync(250);
+  await flushPromises();
+  return text;
 }

@@ -7,6 +7,7 @@ import {
   UiButton,
   UiColorPicker,
   UiInput,
+  UiPopover,
   UiSelect,
   UiSwitch,
   UiTextArea,
@@ -160,6 +161,14 @@ function codeHint(field: RecordFormFieldState) {
       : language.t('platform.form.code.auto-editable', '留空时自动编号，也可手工填写');
   return language.t('platform.form.code.on-save', '保存时生成编号');
 }
+function codeStatus(field: RecordFormFieldState) {
+  if (codeForms.loading.value) return language.t('platform.form.code.loading', '正在读取编号策略…');
+  if (codeForms.error.value) return language.t('platform.form.code.unavailable', '编号策略读取失败');
+  if (codeForms.errorOf(field.fieldName))
+    return language.t('platform.form.code.unconfigured-short', '未配置编号规则');
+  return undefined;
+}
+
 function codeHasValue(field: RecordFormFieldState) {
   const value = props.record[field.fieldName];
   return value != null && String(value).trim() !== '';
@@ -850,6 +859,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         <div
           v-if="
             (showLabels && field.controlType !== 'imageFileTransfer') ||
+            (field.businessCode && mode !== 'view') ||
             optionFieldError(field) ||
             (!field.readOnly && editorFieldError(field))
           "
@@ -863,10 +873,39 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :required="field.required"
           >
             {{ field.label }}
-            <span v-if="field.businessCode?.primary" class="record-form-code-primary">{{
-              language.t('platform.form.code.primary', '主编码')
-            }}</span>
           </RecordFieldLabel>
+          <UiPopover v-if="field.businessCode && mode !== 'view'" placement="bottomLeft">
+            <UiButton
+              type="text"
+              size="small"
+              icon-name="help"
+              icon-only
+              :aria-label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`"
+            />
+            <template #content>
+              <div class="record-form-code-details">
+                <strong>{{ field.label }}</strong>
+                <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
+                  language.t('platform.form.code.primary', '主编码')
+                }}</span>
+                <p>{{ codeHint(field) }}</p>
+                <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
+                  {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
+                    codeForms.policies.value.get(field.fieldName)?.preview
+                  }}
+                </p>
+                <p
+                  v-if="codeForms.errorOf(field.fieldName)"
+                  :class="{ 'record-form-field-error': !codeForms.loading.value }"
+                >
+                  {{ codeForms.errorOf(field.fieldName) }}
+                </p>
+                <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">{{
+                  language.t('platform.form.retry', '重试')
+                }}</UiButton>
+              </div>
+            </template>
+          </UiPopover>
           <div v-if="optionFieldError(field)" class="record-form-field-error">
             <span>{{ optionFieldError(field) }}</span>
             <UiButton
@@ -900,14 +939,20 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           <span
             v-else-if="field.businessCode && field.readOnly && mode !== 'view'"
             class="record-form-code-value"
+            :class="{
+              'record-form-field-error':
+                !codeHasValue(field) && codeStatus(field) && !codeForms.loading.value,
+            }"
+            role="status"
           >
             <template v-if="codeHasValue(field)">{{ record[field.fieldName] }}</template>
+            <template v-else-if="codeStatus(field)">{{ codeStatus(field) }}</template>
             <template v-else-if="codeForms.policies.value.get(field.fieldName)?.preview"
               >{{ language.t('platform.form.code.candidate', '参考编号') }}：{{
                 codeForms.policies.value.get(field.fieldName)?.preview
               }}</template
             >
-            <template v-else>{{ language.t('platform.form.code.pending', '尚未生成') }}</template>
+            <template v-else>{{ codeHint(field) }}</template>
           </span>
           <RecordStatusSwitch
             v-else-if="field.controlType === 'enabledStatus'"
@@ -1191,28 +1236,17 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :placeholder="field.placeholder"
             @update:value="updateField(field.fieldName, $event)"
           />
-          <div v-if="field.businessCode && mode !== 'view'" class="record-form-code-hint">
-            {{ codeHint(field) }}
-            <span
-              v-if="
-                !field.readOnly &&
-                !codeHasValue(field) &&
-                codeForms.policies.value.get(field.fieldName)?.preview
-              "
-            >
-              · {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
-                codeForms.policies.value.get(field.fieldName)?.preview
-              }}</span
-            >
-            <span
-              v-if="codeForms.errorOf(field.fieldName)"
-              :class="{ 'record-form-field-error': !codeForms.loading.value }"
-              role="status"
-              >{{ codeForms.errorOf(field.fieldName) }}</span
-            >
-            <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">{{
-              language.t('platform.form.retry', '重试')
-            }}</UiButton>
+          <div
+            v-if="
+              field.businessCode &&
+              (!field.readOnly || codeHasValue(field)) &&
+              mode !== 'view' &&
+              codeStatus(field)
+            "
+            :class="{ 'record-form-field-error': !codeForms.loading.value }"
+            role="status"
+          >
+            {{ codeStatus(field) }}
           </div>
         </div>
       </label>
@@ -1381,9 +1415,13 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   font-size: 11px;
   color: var(--muyun-text-muted);
 }
-.record-form-code-hint {
-  font-size: 12px;
-  color: var(--muyun-text-muted);
+.record-form-code-details {
+  max-width: min(300px, calc(100vw - 48px));
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.record-form-code-details p {
+  margin: 6px 0 0;
 }
 .record-form-code-value {
   min-height: 30px;
