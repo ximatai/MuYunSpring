@@ -188,18 +188,22 @@ export function prepareCodeRule(
   });
   return result;
 }
+/** Direct inputs only; formula samples can be added from the source catalog without parsing formulas in the browser. */
 export function codeTrialSources(target: CodeTarget, rule?: CodeRule): CodeSource[] {
-  const sources = [...target.sources];
+  const selected = new Map<string, CodeSource>();
   for (const segment of rule?.segments ?? []) {
-    if (
-      segment.segmentType === 'CONTEXT_VAR' &&
-      segment.sourceRef &&
-      !sources.some((source) => source.fieldName === segment.sourceRef)
-    ) {
-      sources.push({ fieldName: segment.sourceRef, title: segment.sourceRef, type: 'STRING' });
-    }
+    if (!['FIELD_VALUE', 'VALUE_MAPPING', 'CONTEXT_VAR'].includes(segment.segmentType) || !segment.sourceRef)
+      continue;
+    const source = target.sources.find((source) => source.fieldName === segment.sourceRef);
+    if (source) selected.set(source.fieldName, source);
+    else if (segment.segmentType === 'CONTEXT_VAR')
+      selected.set(segment.sourceRef, {
+        fieldName: segment.sourceRef,
+        title: segment.sourceRef,
+        type: 'STRING',
+      });
   }
-  return sources;
+  return [...selected.values()];
 }
 /** No formula evaluation in the browser; only coerce explicitly entered trial values. */
 export function codeTrialContext(

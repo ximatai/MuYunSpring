@@ -14,11 +14,11 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Required(fields = "subject")
 public class Receipt extends StandardEntity {
     @BusinessCode(primary = true)
-    @Column(name = "document_no", type = ColumnType.VARCHAR, length = 64)
+    @Column(name = "document_no", type = ColumnType.VARCHAR, length = 64, comment = "回执单号")
     private String documentNo;
     @BusinessCode(trigger = CodeTrigger.EXPLICIT)
-    @Column(name = "confirmation_no", type = ColumnType.VARCHAR, length = 64)
+    @Column(name = "confirmation_no", type = ColumnType.VARCHAR, length = 64, comment = "确认编号")
     private String confirmationNo;
-    @Column(name = "subject", type = ColumnType.VARCHAR, length = 128, nullable = false)
+    @Column(name = "subject", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "回执主题")
     private String subject;
 }

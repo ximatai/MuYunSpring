@@ -137,7 +137,10 @@ export function useBusinessCodeForm(options: {
     const retained =
       options.mode() === 'edit' && initialAssigned.has(name) && hasValue(options.record()[name]);
     if (!policy || (!policy.configured && policy.trigger === 'SAVE' && !retained))
-      return options.language.t('platform.form.code.unconfigured', '尚未配置有效的编号规则，请联系管理员。');
+      return options.language.t(
+        'platform.form.code.unconfigured',
+        '尚未配置有效的编号规则，请管理员在「模块管理 → 业务编码」中完成配置。',
+      );
     return undefined;
   }
   return {

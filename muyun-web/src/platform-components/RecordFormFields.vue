@@ -150,9 +150,15 @@ const codeForms = useBusinessCodeForm({
   language,
 });
 function codeHint(field: RecordFormFieldState) {
-  return field.businessCode?.trigger === 'EXPLICIT'
-    ? language.t('platform.form.code.explicit', '由业务操作生成编号')
-    : language.t('platform.form.code.on-save', '保存时生成编号');
+  if (field.businessCode?.trigger === 'EXPLICIT')
+    return language.t('platform.form.code.explicit', '由业务操作生成编号');
+  const policy = codeForms.policies.value.get(field.fieldName);
+  if (policy?.mode === 'MANUAL') return language.t('platform.form.code.manual', '请手工填写业务编号');
+  if (policy?.mode === 'AUTO_WITH_MANUAL_EDIT')
+    return field.required
+      ? language.t('platform.form.code.edit-existing', '可手工调整已有编号，不可清空')
+      : language.t('platform.form.code.auto-editable', '留空时自动编号，也可手工填写');
+  return language.t('platform.form.code.on-save', '保存时生成编号');
 }
 function codeHasValue(field: RecordFormFieldState) {
   const value = props.record[field.fieldName];
@@ -901,7 +907,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
                 codeForms.policies.value.get(field.fieldName)?.preview
               }}</template
             >
-            <template v-else>{{ codeHint(field) }}</template>
+            <template v-else>{{ language.t('platform.form.code.pending', '尚未生成') }}</template>
           </span>
           <RecordStatusSwitch
             v-else-if="field.controlType === 'enabledStatus'"
@@ -1198,9 +1204,12 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
                 codeForms.policies.value.get(field.fieldName)?.preview
               }}</span
             >
-            <span v-if="codeForms.errorOf(field.fieldName)" class="record-form-field-error" role="status">{{
-              codeForms.errorOf(field.fieldName)
-            }}</span>
+            <span
+              v-if="codeForms.errorOf(field.fieldName)"
+              :class="{ 'record-form-field-error': !codeForms.loading.value }"
+              role="status"
+              >{{ codeForms.errorOf(field.fieldName) }}</span
+            >
             <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">{{
               language.t('platform.form.retry', '重试')
             }}</UiButton>

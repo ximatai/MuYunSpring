@@ -5,6 +5,7 @@ import {
   codeTrialSources,
   createCodeConfigurationClient,
   newCodeRule,
+  newCodeSegment,
   prepareCodeRule,
   type CodeTarget,
 } from '@/views/codeConfiguration';
@@ -19,6 +20,24 @@ const target: CodeTarget = {
   sources: [{ fieldName: 'quantity', title: '数量', type: 'INTEGER' }],
 };
 describe('business code configuration client', () => {
+  it('collects only direct dependencies, deduplicates them and preserves their declared input types', () => {
+    const draft = newCodeRule(target, target.fields[0]!);
+    draft.segments = [
+      { ...newCodeSegment('FIELD_VALUE'), sourceRef: 'quantity' },
+      { ...newCodeSegment('VALUE_MAPPING'), sourceRef: 'quantity' },
+      { ...newCodeSegment('FORMULA'), formulaExpr: '{quantity} + 1' },
+    ];
+    const catalog = {
+      ...target,
+      sources: [...target.sources, { fieldName: 'version', title: 'Version', type: 'LONG' }],
+    };
+    expect(codeTrialSources(catalog, draft)).toEqual([target.sources[0]]);
+    expect(codeTrialContext(codeTrialSources(catalog, draft), { quantity: '12', version: '99' })).toEqual({
+      quantity: 12,
+    });
+    expect(codeTrialSources(catalog, newCodeRule(target, target.fields[0]!))).toEqual([]);
+  });
+
   it('serializes reactive editor state with versions, ordered segments and tenant-independent target identities', async () => {
     const request = vi.fn().mockResolvedValue({ id: 'saved' });
     const client = createCodeConfigurationClient({ request } as HttpClient);
@@ -58,7 +77,6 @@ describe('business code configuration client', () => {
     draft.segments[0]!.sourceRef = 'fiscalYear';
     const sources = codeTrialSources(target, draft);
     expect(codeTrialContext(sources, { quantity: '12', fiscalYear: 'FY2026' })).toEqual({
-      quantity: 12,
       fiscalYear: 'FY2026',
     });
     await createCodeConfigurationClient({ request } as HttpClient).preview(

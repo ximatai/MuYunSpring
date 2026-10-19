@@ -74,7 +74,11 @@ public class CodeConfigurationService {
                 List.copyOf(sources).stream().filter(source -> !source.fieldName().contains(".")).forEach(source -> sources.add(
                         new Source(service.codeEntityAlias() + "." + source.fieldName(), source.title(), source.type(), source.length())));
             });
-            result.add(new Target(service.getModuleAlias(), service.codeEntityAlias(), service.codeEntityAlias(), "STATIC", null, candidates, sources));
+            var module = modules.resolveVisibleModule(service.getModuleAlias());
+            var table = service.modelClass().getAnnotation(net.ximatai.muyun.database.core.annotation.Table.class);
+            String title = module != null && module.getTitle() != null && !module.getTitle().isBlank() ? module.getTitle()
+                    : table != null && !table.comment().isBlank() ? table.comment() : service.codeEntityAlias();
+            result.add(new Target(service.getModuleAlias(), service.codeEntityAlias(), title, "STATIC", null, candidates, sources));
         }
         List<PlatformModule> visible = moduleAlias == null ? modules.listVisibleModules()
                 : Optional.ofNullable(modules.resolveVisibleModule(moduleAlias)).stream().toList();

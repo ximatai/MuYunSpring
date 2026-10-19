@@ -84,7 +84,7 @@ describe('CodeConfigurationView', () => {
     expect(wrapper.findAllComponents(UiInput).some((input) => input.props('value') === 'NO-')).toBe(true);
     await button(wrapper, '试算').trigger('click');
     await flushPromises();
-    expect(wrapper.find('output').text()).toBe('NO-0001');
+    expect(wrapper.find('output strong').text()).toBe('NO-0001');
     expect(request.mock.calls.some(([call]) => call.path.endsWith('/saveTree'))).toBe(false);
     await button(wrapper, '保存规则').trigger('click');
     await flushPromises();
@@ -100,6 +100,47 @@ describe('CodeConfigurationView', () => {
     expect(wrapper.text()).toContain('规则已保存');
     wrapper.unmount();
   }, 15_000);
+  it('keeps unused sources out of trial inputs and clears a result when the rule changes', async () => {
+    const wrapper = wrapperOf();
+    await flushPromises();
+    await button(wrapper, '新增规则').trigger('click');
+    expect(wrapper.findAll('label').some((label) => label.text() === '名称')).toBe(false);
+    const { UiSelect } = await import('@muyun/vue-ui-antdv');
+    const extra = wrapper.findAllComponents(UiSelect).find((select) => select.props('mode') === 'multiple')!;
+    extra.vm.$emit('update:value', ['title']);
+    await flushPromises();
+    expect(wrapper.findAll('label').some((label) => label.text() === '名称')).toBe(true);
+    await button(wrapper, '试算').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('output').exists()).toBe(true);
+    const name = wrapper.findAllComponents(UiInput).find((input) => input.props('value') === '单据编码')!;
+    name.vm.$emit('update:value', '修改后的规则');
+    await flushPromises();
+    expect(wrapper.find('output').exists()).toBe(false);
+    wrapper.unmount();
+  });
+  it('ignores a late trial response after the module identity changes', async () => {
+    const wrapper = wrapperOf();
+    await flushPromises();
+    await button(wrapper, '新增规则').trigger('click');
+    let resolve!: (value: unknown) => void;
+    request.mockImplementation(async ({ path }) => {
+      if (path.endsWith('/preview'))
+        return new Promise((done) => {
+          resolve = done;
+        });
+      if (path.includes('/targets')) return [];
+      return [];
+    });
+    await button(wrapper, '试算').trigger('click');
+    await wrapper.setProps({ moduleAlias: 'sales.other' });
+    await flushPromises();
+    resolve({ value: 'STALE', segments: [] });
+    await flushPromises();
+    expect(wrapper.find('output').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('STALE');
+    wrapper.unmount();
+  });
   it('requires a dynamic field binding before allowing a rule to be created', async () => {
     const dynamic = {
       ...staticTarget,

@@ -7,6 +7,24 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CodeConfigurationServiceTest {
+    @Test void staticCatalogUsesTheBusinessModuleTitleWithoutRequiringDynamicMetadataOrAPage() {
+        var catalog = mock(CodeTargetCatalog.class);
+        var modules = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class);
+        var service = mock(net.ximatai.muyun.spring.ability.code.CodeAbility.class);
+        when(service.getModuleAlias()).thenReturn("api.invoice"); when(service.codeEntityAlias()).thenReturn("invoice");
+        doReturn(net.ximatai.muyun.spring.platform.code.fixture.StaticCodeRecord.class).when(service).modelClass();
+        when(catalog.staticTargets()).thenReturn(List.of(service));
+        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule(); module.setTitle("业务单据");
+        when(modules.resolveVisibleModule("api.invoice")).thenReturn(module);
+        var configuration = new CodeConfigurationService(catalog, modules, null, null, null, null, null);
+        assertThat(configuration.targets("api.invoice")).singleElement().satisfies(target -> {
+            assertThat(target.title()).isEqualTo("业务单据"); assertThat(target.entityAlias()).isEqualTo("invoice");
+            assertThat(target.relationId()).isNull();
+        });
+        when(modules.resolveVisibleModule("api.invoice")).thenReturn(null);
+        assertThat(configuration.targets("api.invoice")).singleElement()
+                .extracting(CodeConfigurationService.Target::title).isEqualTo("Static business coding contract");
+    }
     private final CodeConfigurationService configuration = spy(new CodeConfigurationService(null, null, null, null, null, null, null));
     private void target(CodeFieldRole role, CodeTrigger trigger) {
         doReturn(List.of(new CodeConfigurationService.Target("api.invoice", "invoice", "单据", "STATIC", null,

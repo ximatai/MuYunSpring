@@ -89,6 +89,8 @@ const original = ref('');
 const loading = ref(false);
 const loadFailed = ref(false);
 const saving = ref(false);
+const trialing = ref(false);
+const extraTrialFields = ref<string[]>([]);
 const error = ref('');
 const feedback = ref('');
 const preview = ref<CodePreview>();
@@ -112,14 +114,36 @@ const dirty = computed(
   () => bindingDirty.value || (draft.value != null && JSON.stringify(draft.value) !== original.value),
 );
 
-const busy = computed(() => loading.value || saving.value);
+const busy = computed(() => loading.value || saving.value || trialing.value);
 useWorkspaceViewUnsavedState(
   () => t('title', '业务编码'),
   () => dirty.value,
   () => busy.value,
 );
 const editable = computed(() => canSave.value && !busy.value);
-const trialSources = computed(() => (target.value ? codeTrialSources(target.value, draft.value) : []));
+const directTrialSources = computed(() => (target.value ? codeTrialSources(target.value, draft.value) : []));
+const extraTrialOptions = computed(
+  () =>
+    target.value?.sources.filter(
+      (source) => !directTrialSources.value.some((direct) => direct.fieldName === source.fieldName),
+    ) ?? [],
+);
+const trialSources = computed(() => [
+  ...directTrialSources.value,
+  ...extraTrialOptions.value.filter((source) => extraTrialFields.value.includes(source.fieldName)),
+]);
+function targetTitle(item: CodeTarget) {
+  return item.moduleAlias === props.moduleAlias && props.moduleTitle ? props.moduleTitle : item.title;
+}
+let trialRequestSequence = 0;
+watch(
+  () => JSON.stringify([draft.value, trialValues.value, trialSequence.value, extraTrialFields.value]),
+  () => {
+    preview.value = undefined;
+    ++trialRequestSequence;
+  },
+  { flush: 'sync' },
+);
 const enumOptions = (entries: Record<string, string>) =>
   Object.entries(entries).map(([value, label]) => ({ value, label: t(`enum.${value}`, label) }));
 let requestSequence = 0;
@@ -142,6 +166,8 @@ function maySwitch() {
 function selectField(name: string) {
   if (!maySwitch()) return;
   fieldName.value = name;
+  trialValues.value = {};
+  extraTrialFields.value = [];
   resetBinding();
   setDraft(fieldRules.value[0]);
   error.value = '';
@@ -151,6 +177,8 @@ async function selectTarget(key: string) {
   if (!maySwitch()) return;
   const sequence = ++requestSequence;
   targetKey.value = key;
+  trialValues.value = {};
+  extraTrialFields.value = [];
   fieldName.value = '';
   rules.value = [];
   setDraft();
@@ -310,20 +338,22 @@ function modeChanged(mode: CodeMode) {
   }
 }
 async function trial() {
-  if (!draft.value || !target.value) return;
-  saving.value = true;
+  if (!draft.value || !target.value || busy.value) return;
+  const sequence = ++trialRequestSequence;
+  trialing.value = true;
   error.value = '';
   preview.value = undefined;
   try {
-    preview.value = await client.value.preview(
+    const result = await client.value.preview(
       draft.value,
       codeTrialContext(trialSources.value, trialValues.value, language),
       Number(trialSequence.value),
     );
+    if (sequence === trialRequestSequence) preview.value = result;
   } catch (cause) {
-    error.value = messageOf(cause);
+    if (sequence === trialRequestSequence) error.value = messageOf(cause);
   } finally {
-    saving.value = false;
+    trialing.value = false;
   }
 }
 </script>
@@ -380,11 +410,14 @@ async function trial() {
               :options="
                 targets.map((item) => ({
                   value: targetId(item),
-                  label: `${item.moduleAlias} · ${item.title}`,
+                  label: targetTitle(item),
                 }))
               "
               @update:value="selectTarget(String($event))"
           /></label>
+          <p v-if="target" class="code-config__identity">
+            {{ target.moduleAlias }} · {{ target.entityAlias }}
+          </p>
           <label class="code-config__field"
             >{{ t('field', '编码字段')
             }}<UiSelect
@@ -529,6 +562,18 @@ async function trial() {
             <details class="code-config__trial">
               <summary>{{ t('trial', '草稿试算') }}</summary>
               <p>{{ t('trial-help', '试算不发号、不占用号码；正式编码以业务保存结果为准。') }}</p>
+              <label v-if="extraTrialOptions.length" class="code-config__field code-config__trial-extra">
+                {{ t('trial-extra', '补充试算来源（公式等按需选择）') }}
+                <UiSelect
+                  v-model:value="extraTrialFields"
+                  mode="multiple"
+                  show-search
+                  :disabled="busy"
+                  :options="
+                    extraTrialOptions.map((source) => ({ value: source.fieldName, label: source.title }))
+                  "
+                />
+              </label>
               <div class="code-config__grid">
                 <label class="code-config__field" v-for="source in trialSources" :key="source.fieldName"
                   >{{ source.title }}<UiInput v-model:value="trialValues[source.fieldName]" :disabled="busy"
@@ -538,10 +583,13 @@ async function trial() {
                   }}<UiInput v-model:value="trialSequence" type="number" :disabled="busy"
                 /></label>
               </div>
-              <UiButton :disabled="busy || !context.can('preview')" @click="trial">{{
+              <UiButton :disabled="busy || !context.can('preview')" :loading="trialing" @click="trial">{{
                 t('run-trial', '试算')
               }}</UiButton>
-              <output v-if="preview" class="code-config__preview">{{ preview.value }}</output>
+              <output v-if="preview" class="code-config__preview">
+                <span>{{ t('trial-result', '试算结果') }}</span>
+                <strong>{{ preview.value }}</strong>
+              </output>
             </details>
           </template>
         </template>
@@ -588,6 +636,18 @@ async function trial() {
 }
 .code-config__date-start {
   grid-column: 1;
+}
+.code-config__identity {
+  color: var(--muyun-text-muted);
+  overflow-wrap: anywhere;
+}
+.code-config__trial-extra {
+  margin-top: 12px;
+}
+.code-config__preview strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
 }
 .code-config__editor {
   min-width: 0;

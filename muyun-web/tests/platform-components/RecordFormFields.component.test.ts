@@ -41,6 +41,7 @@ describe('RecordFormFields', () => {
       expect(wrapper.text()).toContain('DOC-0001');
       expect(wrapper.text()).toContain('主编码');
       expect(wrapper.find('input').exists()).toBe(false);
+      expect(wrapper.text().match(/保存时生成编号/g)).toHaveLength(1);
       expect(record).toEqual({});
       expect(wrapper.emitted('update:field')).toBeUndefined();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
@@ -49,8 +50,15 @@ describe('RecordFormFields', () => {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+      expect(wrapper.text()).toContain('请手工填写业务编号');
+      expect(wrapper.text()).not.toContain('保存时生成编号');
       await wrapper.get('input').setValue('HUMAN-1');
       expect(wrapper.emitted('update:field')?.at(-1)).toEqual(['documentNo', 'HUMAN-1']);
+      mode = 'AUTO_WITH_MANUAL_EDIT';
+      await wrapper.setProps({ formSessionKey: 'editable' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.text()).toContain('留空时自动编号，也可手工填写');
     } finally {
       wrapper.unmount();
       vi.useRealTimers();
@@ -128,44 +136,48 @@ describe('RecordFormFields', () => {
     }
   });
 
-  it('allows an unconfigured explicit field to wait for its business action', async () => {
-    vi.useFakeTimers();
-    const fields = new Map<string, RecordFormFieldDescriptor>([
-      [
-        'confirmationNo',
+  it.each([null, 'MANUAL'])(
+    'keeps an explicit field waiting for its business action with mode %s',
+    async (mode) => {
+      vi.useFakeTimers();
+      const fields = new Map<string, RecordFormFieldDescriptor>([
+        [
+          'confirmationNo',
+          {
+            fieldRef: { fieldName: 'confirmationNo' },
+            label: '确认号',
+            businessCode: { primary: false, trigger: 'EXPLICIT' },
+            inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+          },
+        ],
+      ]);
+      const request = vi.fn(async () => [
         {
-          fieldRef: { fieldName: 'confirmationNo' },
-          label: '确认号',
-          businessCode: { primary: false, trigger: 'EXPLICIT' },
-          inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+          fieldName: 'confirmationNo',
+          mode,
+          trigger: 'EXPLICIT',
+          readOnly: true,
+          configured: mode != null,
+          preview: null,
         },
-      ],
-    ]);
-    const request = vi.fn(async () => [
-      {
-        fieldName: 'confirmationNo',
-        mode: null,
-        trigger: 'EXPLICIT',
-        readOnly: true,
-        configured: false,
-        preview: null,
-      },
-    ]);
-    const wrapper = mount(RecordFormFields, {
-      props: { fields, record: {}, mode: 'create', optionContext: moduleContext('demo.document', request) },
-    });
-    try {
-      await vi.advanceTimersByTimeAsync(121);
-      await flushPromises();
-      expect(wrapper.text()).toContain('由业务操作生成编号');
-      expect(wrapper.find('input').exists()).toBe(false);
-      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
-      expect(wrapper.emitted('update:field')).toBeUndefined();
-    } finally {
-      wrapper.unmount();
-      vi.useRealTimers();
-    }
-  });
+      ]);
+      const wrapper = mount(RecordFormFields, {
+        props: { fields, record: {}, mode: 'create', optionContext: moduleContext('demo.document', request) },
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(121);
+        await flushPromises();
+        expect(wrapper.text().match(/由业务操作生成编号/g)).toHaveLength(1);
+        expect(wrapper.text()).not.toContain('请手工填写');
+        expect(wrapper.find('input').exists()).toBe(false);
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+        expect(wrapper.emitted('update:field')).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('keeps an existing code read-only and permits retained values after its rule expires', async () => {
     vi.useFakeTimers();
@@ -246,6 +258,8 @@ describe('RecordFormFields', () => {
     try {
       await vi.advanceTimersByTimeAsync(121);
       await flushPromises();
+      expect(wrapper.text()).toContain('可手工调整已有编号，不可清空');
+      expect(wrapper.text()).not.toContain('留空时自动编号');
       expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
       await wrapper.setProps({ record: { id: 'saved', documentNo: '' } });
       await vi.advanceTimersByTimeAsync(121);
