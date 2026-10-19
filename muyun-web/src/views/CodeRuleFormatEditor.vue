@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
-import { FormulaExpressionEditor } from '@muyun/platform-components';
+import { FormulaExpressionEditor, RecordContentSectionHeading } from '@muyun/platform-components';
 import { UiButton, UiCheckbox, UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import {
   codeSegmentTypes,
@@ -98,11 +98,12 @@ function removeSegment(index: number) {
 </script>
 <template>
   <section class="code-format">
-    <h3>{{ t('format', '编码格式') }}</h3>
+    <RecordContentSectionHeading :title="t('format', '编码格式')" />
     <ol class="code-format__segments">
       <li v-for="(segment, index) in draft.segments" :key="segmentKey(segment)">
         <div class="code-format__segment-heading">
           <UiSelect
+            :aria-label="t('segment-type', '片段类型')"
             :value="segment.segmentType"
             :disabled="!editable"
             :options="segmentOptions"
@@ -121,25 +122,27 @@ function removeSegment(index: number) {
           {{ t('bounded-help', '为公式或外部上下文设置长度与截取方式，确保编码不超出目标字段长度。') }}
         </p>
         <div class="code-format__grid">
-          <label v-if="segment.segmentType === 'CONSTANT'"
+          <label class="code-format__field" v-if="segment.segmentType === 'CONSTANT'"
             >{{ t('constant', '固定文字') }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
           /></label>
-          <label v-if="['FIELD_VALUE', 'VALUE_MAPPING'].includes(segment.segmentType)"
+          <label
+            class="code-format__field"
+            v-if="['FIELD_VALUE', 'VALUE_MAPPING'].includes(segment.segmentType)"
             >{{ t('source', '来源字段')
             }}<UiSelect v-model:value="segment.sourceRef" :disabled="!editable" :options="sourceOptions"
           /></label>
-          <label v-if="segment.segmentType === 'CONTEXT_VAR'"
+          <label class="code-format__field" v-if="segment.segmentType === 'CONTEXT_VAR'"
             >{{ t('context', '动作传入的上下文名称')
             }}<UiInput v-model:value="segment.sourceRef" :disabled="!editable"
           /></label>
-          <label v-if="segment.segmentType === 'SYSTEM_TIME'"
+          <label class="code-format__field" v-if="segment.segmentType === 'SYSTEM_TIME'"
             >{{ t('date-format', '时间格式')
             }}<UiSelect
               v-model:value="segment.dateFormat"
               :disabled="!editable"
               :options="dateFormats.map((value) => ({ value, label: value }))"
           /></label>
-          <label v-if="segment.segmentType === 'FORMULA'" class="code-format__wide"
+          <label class="code-format__field code-format__wide" v-if="segment.segmentType === 'FORMULA'"
             >{{ t('formula', '返回编码片段的公式')
             }}<FormulaExpressionEditor
               :value="segment.formulaExpr ?? ''"
@@ -147,7 +150,7 @@ function removeSegment(index: number) {
               :disabled="!editable"
               :fields="formulaFields"
           /></label>
-          <label
+          <label class="code-format__field"
             >{{ t('length', '片段长度')
             }}<UiInput
               :value="segment.length ?? undefined"
@@ -155,28 +158,28 @@ function removeSegment(index: number) {
               :disabled="!editable"
               @update:value="segment.length = numeric($event)"
           /></label>
-          <label
+          <label class="code-format__field"
             >{{ t('separator', '片段分隔符')
             }}<UiInput v-model:value="segment.separator" :disabled="!editable"
           /></label>
-          <label
+          <label class="code-format__field"
             >{{ t('padding', '补位')
             }}<UiSelect
               v-model:value="segment.padMode"
               :disabled="!editable"
               :options="enumOptions('padding', { NONE: '不补位', LEFT: '左侧补位', RIGHT: '右侧补位' })"
           /></label>
-          <label v-if="segment.padMode !== 'NONE'"
+          <label class="code-format__field" v-if="segment.padMode !== 'NONE'"
             >{{ t('pad-char', '补位字符') }}<UiInput v-model:value="segment.padChar" :disabled="!editable"
           /></label>
-          <label
+          <label class="code-format__field"
             >{{ t('truncate', '超长截取')
             }}<UiSelect
               v-model:value="segment.truncatePolicy"
               :disabled="!editable"
               :options="enumOptions('truncate', { NONE: '保留原值', LEFT: '截去左侧', RIGHT: '截去右侧' })"
           /></label>
-          <label
+          <label class="code-format__field"
             >{{ t('null-policy', '来源为空时')
             }}<UiSelect
               v-model:value="segment.nullPolicy"
@@ -189,11 +192,14 @@ function removeSegment(index: number) {
                 })
               "
           /></label>
-          <label v-if="segment.nullPolicy === 'USE_DEFAULT' && segment.segmentType !== 'CONSTANT'"
+          <label
+            class="code-format__field"
+            v-if="segment.nullPolicy === 'USE_DEFAULT' && segment.segmentType !== 'CONSTANT'"
             >{{ t('default-text', '默认文字')
             }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
           /></label>
           <UiCheckbox
+            class="code-format__basis"
             v-model:checked="segment.sequenceBasis"
             :disabled="!editable || segment.segmentType === 'SEQUENCE'"
             >{{ t('basis', '按该片段分别计数') }}</UiCheckbox
@@ -208,18 +214,25 @@ function removeSegment(index: number) {
             <UiInput
               v-model:value="mapping.sourceValue"
               :placeholder="t('mapping-source', '原值')"
+              :aria-label="t('mapping-source', '原值')"
               :disabled="!editable || mapping.defaultMapping"
             /><span>→</span
             ><UiInput
               v-model:value="mapping.targetValue"
               :placeholder="t('mapping-target', '编码文字')"
+              :aria-label="t('mapping-target', '编码文字')"
               :disabled="!editable"
-            /><UiCheckbox v-model:checked="mapping.defaultMapping" :disabled="!editable">{{
-              t('mapping-default', '其他值')
-            }}</UiCheckbox
-            ><UiButton :disabled="!editable" @click="segment.mappings.splice(mappingIndex, 1)">{{
-              t('remove', '删除')
-            }}</UiButton>
+            /><UiCheckbox
+              class="code-format__mapping-default"
+              v-model:checked="mapping.defaultMapping"
+              :disabled="!editable"
+              >{{ t('mapping-default', '其他值') }}</UiCheckbox
+            ><UiButton
+              class="code-format__mapping-remove"
+              :disabled="!editable"
+              @click="segment.mappings.splice(mappingIndex, 1)"
+              >{{ t('remove', '删除') }}</UiButton
+            >
           </div>
           <UiButton
             :disabled="!editable"
@@ -239,7 +252,7 @@ function removeSegment(index: number) {
     <UiButton :disabled="!editable" @click="addSegment">{{ t('add-segment', '增加片段') }}</UiButton>
     <div v-if="draft.sequencePolicy" class="code-format__grid">
       <h3 class="code-format__wide">{{ t('sequence', '流水策略') }}</h3>
-      <label
+      <label class="code-format__field"
         >{{ t('start', '起始值')
         }}<UiInput
           :value="draft.sequencePolicy.startValue ?? undefined"
@@ -247,7 +260,7 @@ function removeSegment(index: number) {
           :disabled="!editable"
           @update:value="draft!.sequencePolicy!.startValue = numeric($event)"
       /></label>
-      <label
+      <label class="code-format__field"
         >{{ t('step', '递增步长')
         }}<UiInput
           :value="draft.sequencePolicy.stepValue ?? undefined"
@@ -255,7 +268,7 @@ function removeSegment(index: number) {
           :disabled="!editable"
           @update:value="draft!.sequencePolicy!.stepValue = numeric($event)"
       /></label>
-      <label
+      <label class="code-format__field"
         >{{ t('sequence-length', '流水长度')
         }}<UiInput
           :value="draft.sequencePolicy.sequenceLength ?? undefined"
@@ -263,7 +276,7 @@ function removeSegment(index: number) {
           :disabled="!editable"
           @update:value="draft!.sequencePolicy!.sequenceLength = numeric($event)"
       /></label>
-      <label
+      <label class="code-format__field"
         >{{ t('maximum', '流水上限')
         }}<UiInput
           :value="draft.sequencePolicy.maxValue ?? undefined"
@@ -271,7 +284,7 @@ function removeSegment(index: number) {
           :disabled="!editable"
           @update:value="draft!.sequencePolicy!.maxValue = numeric($event)"
       /></label>
-      <label
+      <label class="code-format__field"
         >{{ t('reset', '计数周期')
         }}<UiSelect
           v-model:value="draft.sequencePolicy.resetPolicy"
@@ -280,7 +293,7 @@ function removeSegment(index: number) {
             enumOptions('reset', { NONE: '持续计数', DAY: '每天重置', MONTH: '每月重置', YEAR: '每年重置' })
           "
       /></label>
-      <label
+      <label class="code-format__field"
         >{{ t('overflow', '达到上限后')
         }}<UiSelect
           v-model:value="draft.sequencePolicy.overflowPolicy"
@@ -297,11 +310,17 @@ function removeSegment(index: number) {
   gap: 12px;
   margin: 14px 0;
 }
-.code-format label {
+.code-format__field {
+  grid-template-columns: minmax(0, 1fr);
+  line-height: 20px;
   display: grid;
   gap: 6px;
   font-size: 13px;
   min-width: 0;
+}
+.code-format__basis {
+  align-self: center;
+  align-items: center;
 }
 .code-format__wide {
   grid-column: 1 / -1;
@@ -335,15 +354,29 @@ function removeSegment(index: number) {
   gap: 8px;
 }
 .code-format__mapping-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(80px, 1fr) auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+.code-format__mapping-default,
+.code-format__mapping-remove {
+  white-space: nowrap;
 }
 .code-format__help {
   color: var(--muyun-text-secondary);
   font-size: 12px;
 }
 @media (max-width: 760px) {
+  .code-format__mapping-row {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .code-format__mapping-default {
+    grid-column: 1/3;
+  }
+  .code-format__mapping-remove {
+    justify-self: end;
+  }
   .code-format__grid {
     grid-template-columns: minmax(0, 1fr);
   }

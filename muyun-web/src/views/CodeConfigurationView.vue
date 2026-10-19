@@ -10,9 +10,16 @@ import {
   resolveOperationErrorMessage,
   withHttpHeaders,
 } from '@muyun/web-core';
-import { RecordPicker, presentPlatformError } from '@muyun/platform-components';
+import {
+  RecordPicker,
+  RecordExplorerPanel,
+  RecordDetailPanel,
+  ManagementPanelHeader,
+  RecordContentSectionHeading,
+  presentPlatformError,
+} from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { UiButton, UiCheckbox, UiEmpty, UiInput, UiSelect, UiSpin } from '@muyun/vue-ui-antdv';
+import { UiButton, UiCheckbox, UiEmpty, UiInput, UiSelect, UiSpin, UiError } from '@muyun/vue-ui-antdv';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import CodeRuleFormatEditor from './CodeRuleFormatEditor.vue';
 import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
@@ -323,25 +330,26 @@ async function trial() {
 
 <template>
   <section class="code-config">
-    <header class="code-config__header">
-      <h2>{{ t('title', '业务编码') }}</h2>
-      <label v-if="currentUser?.system && tenantContext" class="code-config__tenant"
-        >{{ t('tenant', '规则所属租户')
-        }}<RecordPicker
-          :value="selectedTenant || undefined"
-          :context="tenantContext"
-          :disabled="busy"
-          @update:value="selectTenant"
-      /></label>
-      <ModuleRuntimeActivationStatus
-        v-if="!embedded && target?.source === 'DYNAMIC'"
-        ref="localActivation"
-        :module-alias="target.moduleAlias"
-      />
-      <UiButton :disabled="busy || dirty" @click="load">{{ t('reload', '刷新') }}</UiButton>
-    </header>
+    <ManagementPanelHeader class="code-config__header" :title="t('title', '业务编码')">
+      <template #actions>
+        <label class="code-config__field code-config__tenant" v-if="currentUser?.system && tenantContext"
+          >{{ t('tenant', '规则所属租户')
+          }}<RecordPicker
+            :value="selectedTenant || undefined"
+            :context="tenantContext"
+            :disabled="busy"
+            @update:value="selectTenant"
+        /></label>
+        <ModuleRuntimeActivationStatus
+          v-if="!embedded && target?.source === 'DYNAMIC'"
+          ref="localActivation"
+          :module-alias="target.moduleAlias"
+        />
+        <UiButton :disabled="busy || dirty" @click="load">{{ t('reload', '刷新') }}</UiButton>
+      </template>
+    </ManagementPanelHeader>
     <div v-if="error" class="code-config__error" role="alert">
-      <p>{{ error }}</p>
+      <UiError :title="t('request-failed', '操作未完成')" :message="error" />
       <UiButton v-if="loadFailed" :disabled="busy" @click="load">{{ t('retry', '重试加载') }}</UiButton>
     </div>
     <p v-if="feedback" role="status">{{ feedback }}</p>
@@ -357,75 +365,92 @@ async function trial() {
       :description="t('no-target', '当前模块尚未声明可配置的业务编码字段。')"
     />
     <div v-else-if="targets.length" class="code-config__layout">
-      <aside class="code-config__directory">
-        <label
-          >{{ t('entity', '业务对象')
-          }}<UiSelect
-            :value="targetKey"
-            :disabled="busy"
-            :options="
-              targets.map((item) => ({
-                value: targetId(item),
-                label: `${item.moduleAlias} · ${item.title}`,
-              }))
-            "
-            @update:value="selectTarget(String($event))"
-        /></label>
-        <label
-          >{{ t('field', '编码字段')
-          }}<UiSelect
-            :value="fieldName"
-            :disabled="busy"
-            :options="target?.fields.map((item) => ({ value: item.fieldName, label: item.title })) ?? []"
-            @update:value="selectField(String($event))"
-        /></label>
-        <template v-if="field">
-          <p v-if="target?.source === 'STATIC'">
-            {{ t('java-declaration', '字段角色和触发方式由 Java 模型声明。') }}
-          </p>
-          <label
-            >{{ t('role', '编码角色')
+      <RecordExplorerPanel
+        class="code-config__directory"
+        :title="t('binding-title', '编码对象')"
+        :refreshable="false"
+        :searchable="false"
+      >
+        <div class="code-config__directory-fields">
+          <label class="code-config__field"
+            >{{ t('entity', '业务对象')
             }}<UiSelect
-              v-model:value="bindingRole"
-              :disabled="target?.source === 'STATIC' || !canBind || busy"
-              :options="enumOptions({ NORMAL: '业务编码', PRIMARY: '主编码' })"
-          /></label>
-          <label
-            >{{ t('trigger', '生成时机')
-            }}<UiSelect
-              v-model:value="bindingTrigger"
-              :disabled="target?.source === 'STATIC' || !canBind || busy"
-              :options="enumOptions({ SAVE: '首次保存', EXPLICIT: '领域动作显式生成' })"
-          /></label>
-          <div v-if="target?.source === 'DYNAMIC'" class="code-config__actions">
-            <UiButton :disabled="!canBind || busy || (dirty && !bindingDirty)" @click="bind(false)">{{
-              field.role ? t('save-binding', '保存字段配置') : t('enable-binding', '接入编码')
-            }}</UiButton>
-            <UiButton v-if="field.role" :disabled="!canBind || busy || dirty" @click="bind(true)">{{
-              t('remove-binding', '移除编码')
-            }}</UiButton>
-          </div>
-          <template v-if="field.role">
-            <h3>{{ t('rules', '编号规则') }}</h3>
-            <p v-if="!hasRuleTenant">
-              {{ t('select-tenant', '选择规则所属租户后，可维护该租户的编号规则。') }}
-            </p>
-            <UiButton
-              v-for="rule in fieldRules"
-              :key="rule.id"
+              :value="targetKey"
               :disabled="busy"
-              :class="{ 'code-config__selected': draft?.id === rule.id }"
-              @click="selectRule(rule)"
-              >{{ rule.title }} ·
-              {{ rule.enabled ? t('enabled', '已启用') : t('disabled', '未启用') }}</UiButton
-            >
-            <UiButton :disabled="!canSave || busy" @click="createRule">{{
-              t('new-rule', '新增规则')
-            }}</UiButton>
+              :options="
+                targets.map((item) => ({
+                  value: targetId(item),
+                  label: `${item.moduleAlias} · ${item.title}`,
+                }))
+              "
+              @update:value="selectTarget(String($event))"
+          /></label>
+          <label class="code-config__field"
+            >{{ t('field', '编码字段')
+            }}<UiSelect
+              :value="fieldName"
+              :disabled="busy"
+              :options="target?.fields.map((item) => ({ value: item.fieldName, label: item.title })) ?? []"
+              @update:value="selectField(String($event))"
+          /></label>
+          <template v-if="field">
+            <p v-if="target?.source === 'STATIC'">
+              {{ t('java-declaration', '字段角色和触发方式由 Java 模型声明。') }}
+            </p>
+            <label class="code-config__field"
+              >{{ t('role', '编码角色')
+              }}<UiSelect
+                v-model:value="bindingRole"
+                :disabled="target?.source === 'STATIC' || !canBind || busy"
+                :options="enumOptions({ NORMAL: '业务编码', PRIMARY: '主编码' })"
+            /></label>
+            <label class="code-config__field"
+              >{{ t('trigger', '生成时机')
+              }}<UiSelect
+                v-model:value="bindingTrigger"
+                :disabled="target?.source === 'STATIC' || !canBind || busy"
+                :options="enumOptions({ SAVE: '首次保存', EXPLICIT: '领域动作显式生成' })"
+            /></label>
+            <div v-if="target?.source === 'DYNAMIC'" class="code-config__actions">
+              <UiButton :disabled="!canBind || busy || (dirty && !bindingDirty)" @click="bind(false)">{{
+                field.role ? t('save-binding', '保存字段配置') : t('enable-binding', '接入编码')
+              }}</UiButton>
+              <UiButton v-if="field.role" :disabled="!canBind || busy || dirty" @click="bind(true)">{{
+                t('remove-binding', '移除编码')
+              }}</UiButton>
+            </div>
+            <template v-if="field.role">
+              <h3>{{ t('rules', '编号规则') }}</h3>
+              <p v-if="!hasRuleTenant">
+                {{ t('select-tenant', '选择规则所属租户后，可维护该租户的编号规则。') }}
+              </p>
+              <UiButton
+                v-for="rule in fieldRules"
+                :key="rule.id"
+                :disabled="busy"
+                :class="{ 'code-config__selected': draft?.id === rule.id }"
+                @click="selectRule(rule)"
+                >{{ rule.title }} ·
+                {{ rule.enabled ? t('enabled', '已启用') : t('disabled', '未启用') }}</UiButton
+              >
+              <UiButton :disabled="!canSave || busy" @click="createRule">{{
+                t('new-rule', '新增规则')
+              }}</UiButton>
+            </template>
           </template>
+        </div>
+      </RecordExplorerPanel>
+      <RecordDetailPanel
+        class="code-config__editor"
+        :title="t('rules', '编号规则')"
+        :subtitle="draft?.title || field?.title"
+      >
+        <template v-if="draft" #actions>
+          <UiButton :disabled="busy" @click="cancel">{{ t('cancel', '取消修改') }}</UiButton>
+          <UiButton type="primary" :disabled="!editable || bindingDirty" :loading="saving" @click="save">{{
+            t('save-rule', '保存规则')
+          }}</UiButton>
         </template>
-      </aside>
-      <div class="code-config__editor">
         <UiEmpty
           v-if="!draft"
           :description="
@@ -435,20 +460,12 @@ async function trial() {
           "
         />
         <template v-else>
-          <div class="code-config__actions">
-            <UiButton :disabled="!editable || bindingDirty" @click="save">{{
-              t('save-rule', '保存规则')
-            }}</UiButton>
-            <UiButton :disabled="busy" @click="cancel">{{ t('cancel', '取消修改') }}</UiButton>
-            <UiCheckbox v-model:checked="draft.enabled" :disabled="!editable">{{
-              t('enable-rule', '启用规则')
-            }}</UiCheckbox>
-          </div>
+          <RecordContentSectionHeading :title="t('basic-settings', '基础设置')" />
           <div class="code-config__grid">
-            <label
+            <label class="code-config__field"
               >{{ t('rule-title', '规则名称') }}<UiInput v-model:value="draft.title" :disabled="!editable"
             /></label>
-            <label
+            <label class="code-config__field"
               >{{ t('mode', '编号方式')
               }}<UiSelect
                 :value="draft.mode"
@@ -462,14 +479,14 @@ async function trial() {
                 "
                 @update:value="modeChanged($event as CodeMode)"
             /></label>
-            <label
+            <label class="code-config__field"
               >{{ t('scope', '适用范围')
               }}<UiSelect
                 v-model:value="draft.orgScopeType"
                 :disabled="!editable"
                 :options="enumOptions({ GLOBAL: '当前租户全部组织', ORG: '指定组织及其下级' })"
             /></label>
-            <label v-if="draft.orgScopeType === 'ORG'"
+            <label class="code-config__field" v-if="draft.orgScopeType === 'ORG'"
               >{{ t('organization', '适用组织')
               }}<RecordPicker
                 v-if="organizationContext"
@@ -480,23 +497,28 @@ async function trial() {
                 @update:value="draft!.orgScopeId = $event"
               /><span v-else>{{ t('tenant-required', '请使用租户身份选择组织。') }}</span></label
             >
-            <label
+            <label class="code-config__field code-config__date-start"
               >{{ t('effective-from', '开始生效时间（业务时区）')
               }}<UiInput v-model:value="draft.effectiveFrom" type="datetime-local" :disabled="!editable"
             /></label>
-            <label
+            <label class="code-config__field"
               >{{ t('effective-to', '结束生效时间（业务时区）')
               }}<UiInput v-model:value="draft.effectiveTo" type="datetime-local" :disabled="!editable"
             /></label>
-            <UiCheckbox
-              v-if="draft.mode !== 'MANUAL' && field?.trigger !== 'EXPLICIT'"
-              v-model:checked="draft.linkedUpdate"
-              :disabled="!editable"
-              >{{ t('linked', '来源字段变化时重新编号') }}</UiCheckbox
-            >
-            <UiCheckbox v-model:checked="draft.allowRecycle" :disabled="!editable">{{
-              t('recycle', '最终清理或改号后允许复用旧号码')
-            }}</UiCheckbox>
+            <div class="code-config__checks">
+              <UiCheckbox v-model:checked="draft.enabled" :disabled="!editable">{{
+                t('enable-rule', '启用规则')
+              }}</UiCheckbox>
+              <UiCheckbox
+                v-if="draft.mode !== 'MANUAL' && field?.trigger !== 'EXPLICIT'"
+                v-model:checked="draft.linkedUpdate"
+                :disabled="!editable"
+                >{{ t('linked', '来源字段变化时重新编号') }}</UiCheckbox
+              >
+              <UiCheckbox v-model:checked="draft.allowRecycle" :disabled="!editable">{{
+                t('recycle', '最终清理或改号后允许复用旧号码')
+              }}</UiCheckbox>
+            </div>
           </div>
           <template v-if="draft.mode !== 'MANUAL'">
             <CodeRuleFormatEditor
@@ -508,10 +530,10 @@ async function trial() {
               <summary>{{ t('trial', '草稿试算') }}</summary>
               <p>{{ t('trial-help', '试算不发号、不占用号码；正式编码以业务保存结果为准。') }}</p>
               <div class="code-config__grid">
-                <label v-for="source in trialSources" :key="source.fieldName"
+                <label class="code-config__field" v-for="source in trialSources" :key="source.fieldName"
                   >{{ source.title }}<UiInput v-model:value="trialValues[source.fieldName]" :disabled="busy"
                 /></label>
-                <label
+                <label class="code-config__field"
                   >{{ t('trial-sequence', '试算流水值')
                   }}<UiInput v-model:value="trialSequence" type="number" :disabled="busy"
                 /></label>
@@ -523,7 +545,7 @@ async function trial() {
             </details>
           </template>
         </template>
-      </div>
+      </RecordDetailPanel>
     </div>
   </section>
 </template>
@@ -536,56 +558,60 @@ async function trial() {
   min-height: 0;
   height: 100%;
 }
-.code-config__header,
-.code-config__actions,
-.code-config__segment-heading {
+.code-config__header {
+  flex: 0 0 auto;
+}
+.code-config__tenant {
+  width: 220px;
+}
+.code-config__actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-.code-config__header h2 {
-  margin: 0;
-  margin-right: auto;
-  font-size: 16px;
-}
-.code-config :deep(.ui-spin) {
-  min-height: 0;
-  flex: 1;
-}
 .code-config__layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
   min-height: 0;
   flex: 1;
 }
-.code-config__directory {
+.code-config__directory-fields {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 16px 12px 0;
   overflow: auto;
-  border-right: 1px solid var(--muyun-border-subtle);
+}
+.code-config .code-config__directory-fields > * {
+  flex: 0 0 auto;
+}
+.code-config__date-start {
+  grid-column: 1;
 }
 .code-config__editor {
-  padding: 0 16px 24px;
-  overflow: auto;
   min-width: 0;
 }
 .code-config__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 14px 0;
+  gap: 16px 12px;
+  margin: 12px 0 20px;
 }
-.code-config label {
+.code-config__field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   font-size: 13px;
+  line-height: 20px;
   min-width: 0;
 }
-.code-config__wide {
-  grid-column: 1 / -1;
+.code-config__checks {
+  grid-column: 1/-1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
 }
 .code-config h3 {
   font-size: 14px;
@@ -595,29 +621,6 @@ async function trial() {
   margin: 0;
   font-size: 13px;
 }
-.code-config__segments {
-  display: grid;
-  gap: 12px;
-  padding-left: 20px;
-}
-.code-config__segments > li {
-  padding: 12px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
-}
-.code-config__segment-heading > :first-child {
-  flex: 1;
-  min-width: 140px;
-}
-.code-config__mapping {
-  display: grid;
-  gap: 8px;
-}
-.code-config__mapping-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .code-config__trial {
   padding-top: 16px;
   margin-top: 16px;
@@ -626,6 +629,7 @@ async function trial() {
 .code-config__trial summary {
   cursor: pointer;
   margin-bottom: 10px;
+  font-weight: 600;
 }
 .code-config__preview {
   display: block;
@@ -633,26 +637,30 @@ async function trial() {
   margin-top: 10px;
   font-family: monospace;
   overflow-wrap: anywhere;
-  background: var(--muyun-surface);
+  background: var(--muyun-hover-subtle);
 }
 .code-config__error {
-  color: var(--muyun-danger);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
-.code-config__tenant {
-  min-width: 220px;
+.code-config__error :deep(.ant-alert) {
+  width: 100%;
 }
 .code-config__selected {
   outline: 1px solid var(--muyun-primary);
 }
 @media (max-width: 760px) {
-  .code-config__layout,
+  .code-config__layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 210px) minmax(0, 1fr);
+  }
   .code-config__grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .code-config__directory {
-    max-height: 260px;
-    border-right: 0;
-    border-bottom: 1px solid var(--muyun-border-subtle);
+  .code-config__tenant {
+    width: 160px;
   }
 }
 </style>
