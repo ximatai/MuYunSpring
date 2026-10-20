@@ -4,11 +4,12 @@ import {
   createWorkspaceViewRegistry,
 } from '@/platform-workbench/workspaceViews.ts';
 import {
-  codeRulePageEnhancement,
   dictionaryCategoryPageEnhancement,
   platformModuleActionPageEnhancement,
   platformModulePageEnhancement,
 } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
+
+import { workspaceViewContributions } from '@/platform-admin-runtime/workspaceViewContributions';
 
 describe('platform module page enhancement', () => {
   it('limits dictionary category parents to folders', () => {
@@ -117,7 +118,7 @@ describe('platform module page enhancement', () => {
     const openWorkspaceTab = vi.fn();
     action.run({ record: { alias: 'api.invoice', title: '接口单据' }, openWorkspaceTab } as never);
     const [view, input] = openWorkspaceTab.mock.calls[0]!;
-    expect(codeRulePageEnhancement.workspaceViews).toContain(view);
+    expect(workspaceViewContributions).toContain(view);
     expect(view.moduleAlias).toBe('platform.code_rule');
     expect(
       createWorkspaceViewRegistry([view]).resolve(createWorkspaceViewDescriptor(view, input)),

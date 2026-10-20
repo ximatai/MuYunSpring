@@ -33,8 +33,11 @@ class PlatformPresentationResponseAdviceTest {
                 "demo.purchase", "purchase", "采购", "STATIC", null, List.of(), List.of(
                 new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("createdAt", "Created at", "Instant", null),
                 new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("parent.createdAt", "创建时间", "Instant", null, source, "主单"),
-                new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("subject", "业务标题", "String", 80)));
-        var output = mapper.valueToTree(advice(Map.of(source, "Created at")).project(List.of(target)));
+                new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("subject", "业务标题", "String", 80)), "采购管理",
+                net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource("demo.purchase", "采购管理"));
+        var moduleSource = target.moduleTitleSource();
+        var output = mapper.valueToTree(advice(Map.of(source, "Created at", moduleSource, "Purchasing")).project(List.of(target)));
+        assertThat(output.at("/0/moduleTitleText/languages/en/text").asText()).isEqualTo("Purchasing");
         assertThat(output.at("/0/sources/0/title").asText()).isEqualTo("创建时间");
         assertThat(output.at("/0/sources/0/titleText/languages/en/text").asText()).isEqualTo("Created at");
         assertThat(output.at("/0/sources/1/fieldName").asText()).isEqualTo("parent.createdAt");

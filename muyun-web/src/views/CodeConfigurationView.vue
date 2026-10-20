@@ -9,10 +9,12 @@ import {
   OperationUsageError,
   resolveOperationErrorMessage,
   withHttpHeaders,
+  presentationLabel,
 } from '@muyun/web-core';
 import {
   RecordPicker,
   RecordExplorerPanel,
+  RecordListExplorer,
   RecordDetailDrawer,
   TenantScopeExplorer,
   ManagementWorkspace,
@@ -98,6 +100,23 @@ const organizationContext = computed(() =>
 const canSave = computed(() => hasRuleTenant.value && context.can('saveTree') === true);
 const canBind = computed(() => context.can('configureBinding') === true);
 const targets = ref<CodeTarget[]>([]);
+const selectedModule = ref(props.moduleAlias ?? '');
+const moduleKeyword = ref('');
+const moduleRecords = computed(() => {
+  const records = new Map<string, { id: string; title: string; code: string }>();
+  for (const item of targets.value) {
+    if (!item.fields.length || records.has(item.moduleAlias)) continue;
+    records.set(item.moduleAlias, {
+      id: item.moduleAlias,
+      title: presentationLabel(item.moduleTitle || item.moduleAlias, item.moduleTitleText, language),
+      code: item.moduleAlias,
+    });
+  }
+  return [...records.values()];
+});
+const moduleTargets = computed(() =>
+  targets.value.filter((item) => item.moduleAlias === selectedModule.value && item.fields.length > 0),
+);
 const targetKey = ref('');
 const fieldName = ref('');
 const rules = ref<CodeRule[]>([]);
@@ -210,6 +229,13 @@ function selectField(name: string) {
   error.value = '';
   feedback.value = '';
 }
+async function selectModule(alias: string) {
+  if (!maySwitch() || !moduleRecords.value.some((item) => item.id === alias)) return;
+  selectedModule.value = alias;
+  moduleKeyword.value = '';
+  feedback.value = '';
+  await selectTarget(moduleTargets.value[0] ? targetId(moduleTargets.value[0]) : '');
+}
 async function selectTarget(key: string) {
   if (!maySwitch()) return;
   const sequence = ++requestSequence;
@@ -252,7 +278,8 @@ async function load() {
     if (sequence !== requestSequence) return;
     targets.value = loaded;
     loading.value = false;
-    await selectTarget(loaded[0] ? targetId(loaded[0]) : '');
+    if (!moduleRecords.value.some((item) => item.id === selectedModule.value)) selectedModule.value = '';
+    await selectTarget(moduleTargets.value[0] ? targetId(moduleTargets.value[0]) : '');
   } catch (cause) {
     if (sequence === requestSequence) {
       error.value = messageOf(cause);
@@ -265,6 +292,8 @@ async function load() {
 watch(
   () => props.moduleAlias,
   () => {
+    selectedModule.value = props.moduleAlias ?? '';
+    moduleKeyword.value = '';
     setDraft();
     fieldName.value = '';
     targetKey.value = '';
@@ -278,6 +307,8 @@ watch(
   () => [currentUser?.value?.userId, currentUser?.value?.tenantId, currentUser?.value?.system],
   () => {
     selectedTenant.value = currentUser?.value?.tenantId ?? '';
+    selectedModule.value = props.moduleAlias ?? '';
+    moduleKeyword.value = '';
     setDraft();
     targets.value = [];
     rules.value = [];
@@ -289,6 +320,8 @@ watch(
 async function selectTenant(value?: string) {
   if (!maySwitch()) return;
   selectedTenant.value = value ?? '';
+  selectedModule.value = props.moduleAlias ?? '';
+  moduleKeyword.value = '';
   targets.value = [];
   rules.value = [];
   fieldName.value = '';
@@ -449,7 +482,7 @@ async function trial() {
     <p v-if="feedback && !editorOpen" role="status">{{ feedback }}</p>
     <ManagementWorkspace
       class="code-config__layout"
-      :explorer-count="currentUser?.system && tenantContext ? 1 : 0"
+      :explorer-count="(currentUser?.system && tenantContext ? 1 : 0) + (hasRuleTenant ? 1 : 0)"
       :editing="busy || dirty"
       list-surface
     >
@@ -466,6 +499,22 @@ async function trial() {
           @refresh="tenantReloadKey++"
         />
       </ManagementExplorerColumn>
+      <ManagementExplorerColumn v-if="hasRuleTenant">
+        <RecordExplorerPanel
+          :title="t('module', '所属模块')"
+          :refreshable="false"
+          :search-keyword="moduleKeyword"
+          @update:search-keyword="moduleKeyword = $event"
+        >
+          <RecordListExplorer
+            :records="moduleRecords"
+            :selected-id="selectedModule || undefined"
+            :keyword="moduleKeyword"
+            :empty-description="t('no-modules', '没有可配置业务编码的模块。')"
+            @select="selectModule(String($event.id))"
+          />
+        </RecordExplorerPanel>
+      </ManagementExplorerColumn>
       <div class="code-config__content">
         <UiEmpty
           v-if="!hasRuleTenant"
@@ -475,10 +524,14 @@ async function trial() {
           ><p>{{ t('loading', '正在读取编码配置…') }}</p></UiSpin
         >
         <UiEmpty
-          v-else-if="!error && targets.length === 0"
+          v-else-if="!error && moduleRecords.length === 0"
           :description="t('no-target', '当前模块尚未声明可配置的业务编码字段。')"
         />
-        <div v-else-if="targets.length" class="code-config__overview">
+        <UiEmpty
+          v-else-if="!selectedModule && targets.length"
+          :description="t('select-module', '选择模块后，配置业务对象的编码规则。')"
+        />
+        <div v-else-if="selectedModule && moduleTargets.length" class="code-config__overview">
           <RecordExplorerPanel
             class="code-config__directory"
             :title="t('binding-title', '编码对象')"
@@ -492,7 +545,7 @@ async function trial() {
                   :value="targetKey"
                   :disabled="busy"
                   :options="
-                    targets.map((item) => ({
+                    moduleTargets.map((item) => ({
                       value: targetId(item),
                       label: item.title,
                     }))

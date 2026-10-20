@@ -41,7 +41,7 @@ import java.util.Map;
 
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
-@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = CodeRuleService.MODULE_ALIAS, title = "编码规则")
+@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = CodeRuleService.MODULE_ALIAS, title = "业务编码", route = "/platform/code-rule")
 @PlatformMenu(parent = PlatformMenuGroups.BUSINESS_SUPPORT, order = 20)
 @RequestMapping({"/platform.code_rule", "/platform/code/rule"})
 public class CodeRuleWebController extends StaticModuleWebControllerAdapter<CodeRuleService> implements

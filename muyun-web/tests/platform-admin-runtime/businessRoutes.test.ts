@@ -7,12 +7,17 @@ import {
 } from '@/platform-admin-runtime/platformAdminRoutes.ts';
 import { validateAndCompileMenuRoutes } from '@/app/menuRouteCompiler.ts';
 import { routePageLoaders, staticRouteDefinitions } from '@/app/staticRouteDefinitions.ts';
-import { pageDescriptorFromUrl, pageDescriptorToUrl } from '@/platform-workbench/menuNavigation.ts';
+import {
+  pageDescriptorFromUrl,
+  pageDescriptorToUrl,
+  resolvePageDescriptor,
+} from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
 it('registers every static administration route and keeps role authorization internal', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_platform/workspace',
+    '/platform/code-rule',
     '/platform/translations',
     '/workflow/admin',
     '/workflow/workbench',
@@ -23,6 +28,7 @@ it('registers every static administration route and keeps role authorization int
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
+    'platform.code_rule': '/platform/code-rule',
     'platform.localization': '/platform/translations',
     'platform.workflow_admin': '/workflow/admin',
     'iam.workflow_workbench': '/workflow/workbench',
@@ -123,4 +129,26 @@ it('resolves the remaining static page only when both route and backend module m
     }),
     undefined,
   );
+});
+
+it('opens the declared code menu and restores its canonical URL as the same business page', () => {
+  const options = {
+    businessModuleRoutes: platformAdminModuleRoutes,
+    businessRoutePrefixes: platformAdminRoutePrefixes,
+  };
+  const clicked = resolvePageDescriptor(
+    {
+      menuId: 'code-menu',
+      menuType: 'route',
+      openMode: 'tab',
+      route: '/platform/code-rule',
+      moduleAlias: 'platform.code_rule',
+    },
+    options,
+  );
+  const restored = pageDescriptorFromUrl('/platform/code-rule', options);
+  assert.equal(clicked.pageType, 'business-route');
+  assert.equal(restored.pageType, 'business-route');
+  assert.equal(clicked.hostType, restored.hostType);
+  assert.equal('route' in clicked.target && clicked.target.route, '/platform/code-rule');
 });

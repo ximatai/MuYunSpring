@@ -123,6 +123,8 @@ public class PlatformPresentationResponseAdvice implements ResponseBodyAdvice<Ob
             if (control.titleSource() != null && control.title().equals(control.titleSource().originalText()))
                 slots.add(new Slot(path, "title", control.titleSource()));
         } else if (value instanceof net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target target) {
+            if (target.moduleTitleSource() != null)
+                slots.add(new Slot(path, "moduleTitle", target.moduleTitleSource(), Map.of(), false, true));
             collect(target.sources(), path + "/sources", slots);
         } else if (value instanceof net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source source) {
             if (source.titleSource() != null && source.title().equals(source.titleSource().originalText()))

@@ -14,12 +14,12 @@ class CodeConfigurationServiceTest {
         when(service.getModuleAlias()).thenReturn("api.invoice"); when(service.codeEntityAlias()).thenReturn("invoice");
         doReturn(net.ximatai.muyun.spring.platform.code.fixture.StaticCodeRecord.class).when(service).modelClass();
         when(catalog.staticTargets()).thenReturn(List.of(service));
-        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule(); module.setTitle("业务单据");
+        var module = new net.ximatai.muyun.spring.platform.module.PlatformModule(); module.setAlias("api.invoice"); module.setTitle("业务单据");
         when(modules.resolveVisibleModule("api.invoice")).thenReturn(module);
         var configuration = new CodeConfigurationService(catalog, modules, null, null, null, null, null);
         assertThat(configuration.targets("api.invoice")).singleElement().satisfies(target -> {
             assertThat(target.title()).isEqualTo("业务单据"); assertThat(target.entityAlias()).isEqualTo("invoice");
-            assertThat(target.relationId()).isNull();
+            assertThat(target.relationId()).isNull(); assertThat(target.moduleTitle()).isEqualTo("业务单据");
         });
         when(modules.resolveVisibleModule("api.invoice")).thenReturn(null);
         assertThat(configuration.targets("api.invoice")).singleElement()
@@ -30,7 +30,7 @@ class CodeConfigurationServiceTest {
         doReturn(List.of(new CodeConfigurationService.Target("api.invoice", "invoice", "单据", "STATIC", null,
                 List.of(new CodeConfigurationService.Field("documentNo", "编码", 32, null, null, null, role, trigger)),
                 List.of(new CodeConfigurationService.Source("title", "名称", "STRING", 80),
-                        new CodeConfigurationService.Source("documentNo", "编码", "STRING", 32))))).when(configuration).targets("api.invoice");
+                        new CodeConfigurationService.Source("documentNo", "编码", "STRING", 32)), "业务单据", null))).when(configuration).targets("api.invoice");
     }
     private CodeRule rule(CodeRuleSegment segment) {
         var rule = new CodeRule(); rule.setModuleAlias("api.invoice"); rule.setEntityAlias("invoice"); rule.setFieldName("documentNo");

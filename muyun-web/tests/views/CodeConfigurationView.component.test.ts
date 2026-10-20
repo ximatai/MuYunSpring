@@ -40,9 +40,9 @@ const staticTarget: CodeTarget = {
   fields: [{ fieldName: 'documentNo', title: '单据编码', role: 'PRIMARY', trigger: 'SAVE' }],
   sources: [{ fieldName: 'title', title: '名称', type: 'STRING' }],
 };
-const wrapperOf = () =>
+const wrapperOf = (overrides: { moduleAlias?: string } = {}) =>
   mount(CodeConfigurationView, {
-    props: { moduleAlias: 'sales.invoice', embedded: true },
+    props: { moduleAlias: 'sales.invoice', embedded: true, ...overrides },
     global: {
       stubs: {
         ModuleRuntimeActivationStatus: true,
@@ -68,6 +68,50 @@ beforeEach(() => {
   });
 });
 describe('CodeConfigurationView', () => {
+  it('selects a module before loading rules and keeps business objects within that module', async () => {
+    user.system = true;
+    const main = { ...staticTarget, moduleTitle: '销售管理', title: '销售单' };
+    const child = { ...main, entityAlias: 'line', title: '销售明细' };
+    const other = { ...staticTarget, moduleAlias: 'api.receipt', moduleTitle: '接口回执', title: '回执单' };
+    request.mockImplementation(async ({ path }) => (path.includes('/targets') ? [main, child, other] : []));
+    const wrapper = wrapperOf({ moduleAlias: undefined });
+    await flushPromises();
+    try {
+      const modules = wrapper.findComponent({ name: 'RecordListExplorer' });
+      expect(modules.props('records').map((record: { title: string }) => record.title)).toEqual([
+        '销售管理',
+        '接口回执',
+      ]);
+      expect(request.mock.calls.some(([call]) => call.path.includes('/rules?'))).toBe(false);
+      expect(wrapper.text()).toContain('选择模块后');
+      modules.vm.$emit('select', { id: 'sales.invoice' });
+      await flushPromises();
+      expect(
+        wrapper
+          .findAllComponents(UiSelect)[0]!
+          .props('options')
+          .map((option) => option.label),
+      ).toEqual(['销售单', '销售明细']);
+      expect(request.mock.calls.find(([call]) => call.path.includes('/rules?'))![0].path).toContain(
+        'moduleAlias=sales.invoice',
+      );
+      await button(wrapper, '新增规则').trigger('click');
+      const name = wrapper.findAllComponents(UiInput).find((input) => input.props('value') === '单据编码')!;
+      name.vm.$emit('update:value', '未保存规则');
+      await flushPromises();
+      modules.vm.$emit('select', { id: 'api.receipt' });
+      await flushPromises();
+      expect(modules.props('selectedId')).toBe('sales.invoice');
+      await button(wrapper, '取消修改').trigger('click');
+      wrapper.findComponent({ name: 'TenantScopeExplorer' }).vm.$emit('select', { id: 'tenant-b' });
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('selectedId')).toBeUndefined();
+      expect(wrapper.findAllComponents(UiSelect)).toHaveLength(0);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('preserves distinct main and child entity titles inside a module', async () => {
     request.mockImplementation(async ({ path }) => {
       if (path.includes('/targets'))

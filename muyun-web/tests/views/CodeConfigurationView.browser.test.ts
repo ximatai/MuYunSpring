@@ -18,6 +18,7 @@ it.each([1004, 600])(
     await page.viewport(width, 804);
     const target: CodeTarget = {
       moduleAlias: 'demo.purchase',
+      moduleTitle: '采购申请',
       entityAlias: 'purchase',
       title: '采购申请',
       source: 'STATIC',
@@ -54,9 +55,7 @@ it.each([1004, 600])(
             h('div', { style: 'height:700px' }, [
               h(UiThemeProvider, {}, () =>
                 h(UiSidePanelHost, {}, () =>
-                  h(ModuleContextProvider, { context }, () =>
-                    h(CodeConfigurationView, { moduleAlias: 'demo.purchase', embedded: true }),
-                  ),
+                  h(ModuleContextProvider, { context }, () => h(CodeConfigurationView, { embedded: true })),
                 ),
               ),
             ]);
@@ -67,6 +66,8 @@ it.each([1004, 600])(
     try {
       await flushPromises();
       expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+      await page.getByText('采购申请', { exact: true }).click();
+      await flushPromises();
       await page.getByRole('button', { name: '字段接入说明', exact: true }).click();
       await expect
         .element(page.getByText('字段角色和生成时机由业务模型预设。', { exact: true }))

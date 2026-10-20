@@ -169,6 +169,32 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldRenameTheDefaultCodeMenuAndPreserveAnOperatorTitle() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(net.ximatai.muyun.spring.platform.web.code.CodeRuleWebController.class,
+                    () -> new net.ximatai.muyun.spring.platform.web.code.CodeRuleWebController(null, null, null));
+            context.refresh();
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            Menu code = moduleMenu("platform.code_rule");
+            assertThat(code.getTitle()).isEqualTo("业务编码");
+            assertThat(code.getRoute()).isEqualTo("/platform/code-rule");
+            var task = new PlatformMenuContributionReconciliationTask(menuService,
+                    new PlatformMenuInitialDataDeclarationProvider(menuService, context));
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+                code.setTitle("编码规则"); menuService.update(code);
+            });
+            task.run();
+            assertThat(code.getTitle()).isEqualTo("业务编码");
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+                code.setTitle("单据编号设置"); menuService.update(code);
+            });
+            task.run();
+            assertThat(code.getTitle()).isEqualTo("单据编号设置");
+        }
+    }
+
+    @Test
     void shouldMigrateLegacyBusinessLogTitlesWithoutOverwritingCustomizedTitles() {
         try (GenericApplicationContext context = context(
                 LegacyLoginLogWeb.class, LegacyBusinessActivityLogWeb.class, LegacyRequestErrorLogWeb.class)) {

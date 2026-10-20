@@ -61,6 +61,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CodeRuleWebControllerTest {
+    @Test void menuOpensTheUnifiedBusinessCodeConfigurationRoute() {
+        var declaration = CodeRuleWebController.class.getAnnotation(net.ximatai.muyun.spring.platform.module.PlatformStaticModule.class);
+        assertThat(declaration.title()).isEqualTo("业务编码");
+        assertThat(declaration.route()).isEqualTo("/platform/code-rule");
+    }
+
     @Test void readOnlyRulePagePublishesCompleteEnglishResources() {
         var controller = new CodeRuleWebController(mock(CodePreviewService.class));
         var definition = net.ximatai.muyun.spring.platform.web.StaticModuleDefinition.builder("platform", CodeRuleService.MODULE_ALIAS, "编码规则")

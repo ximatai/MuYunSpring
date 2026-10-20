@@ -47,6 +47,8 @@ export interface CodeField {
 }
 export interface CodeTarget {
   moduleAlias: string;
+  moduleTitle?: string;
+  moduleTitleText?: TextPresentation;
   entityAlias: string;
   title: string;
   source: 'STATIC' | 'DYNAMIC';

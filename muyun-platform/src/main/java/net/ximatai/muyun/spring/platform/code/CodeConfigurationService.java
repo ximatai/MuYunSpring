@@ -47,7 +47,7 @@ public class CodeConfigurationService {
     public record Field(String fieldName, String title, Integer length, String metadataFieldId,
                         String bindingId, Integer bindingVersion, CodeFieldRole role, CodeTrigger trigger) { }
     public record Target(String moduleAlias, String entityAlias, String title, String source,
-                         String relationId, List<Field> fields, List<Source> sources) {
+                         String relationId, List<Field> fields, List<Source> sources, String moduleTitle, TextReference moduleTitleSource) {
         public Target { fields = List.copyOf(fields); sources = List.copyOf(sources); }
         Field requireField(String name) {
             return fields.stream().filter(field -> field.fieldName().equals(name)).findFirst()
@@ -87,7 +87,7 @@ public class CodeConfigurationService {
             var table = service.modelClass().getAnnotation(net.ximatai.muyun.database.core.annotation.Table.class);
             String title = module != null && module.getTitle() != null && !module.getTitle().isBlank() ? module.getTitle()
                     : table != null && !table.comment().isBlank() ? table.comment() : service.codeEntityAlias();
-            result.add(new Target(service.getModuleAlias(), service.codeEntityAlias(), title, "STATIC", null, candidates, sources));
+            result.add(new Target(service.getModuleAlias(), service.codeEntityAlias(), title, "STATIC", null, candidates, sources, module == null ? title : module.getTitle(), module == null ? null : module.titleSource()));
         }
         List<PlatformModule> visible = moduleAlias == null ? modules.listVisibleModules()
                 : Optional.ofNullable(modules.resolveVisibleModule(moduleAlias)).stream().toList();
@@ -96,14 +96,14 @@ public class CodeConfigurationService {
             try (var scope = net.ximatai.muyun.spring.common.tenant.TenantContext.use(module.getTenantId())) {
                 for (var relation : relations.list(Criteria.of().eq("moduleAlias", module.getAlias()), ALL)) {
                     Metadata schema = metadata.select(relation.getMetadataId());
-                    if (schema != null) result.add(dynamicTarget(module.getAlias(), relation, schema));
+                    if (schema != null) result.add(dynamicTarget(module, relation, schema));
                 }
             }
         }
         return result.stream().sorted(Comparator.comparing(Target::moduleAlias).thenComparing(Target::entityAlias)).toList();
     }
 
-    private Target dynamicTarget(String module, ModuleMetadataRelation relation, Metadata schema) {
+    private Target dynamicTarget(PlatformModule module, ModuleMetadataRelation relation, Metadata schema) {
         List<Field> candidates = new ArrayList<>();
         List<Source> sources = new ArrayList<>();
         for (MetadataField field : fields.list(Criteria.of().eq("metadataId", schema.getId()), ALL)) {
@@ -132,7 +132,7 @@ public class CodeConfigurationService {
             own.stream().filter(source -> !source.fieldName().contains(".")).forEach(source -> sources.add(
                     new Source(schema.getAlias() + "." + source.fieldName(), source.title(), source.type(), source.length(), source.titleSource(), null)));
         }
-        return new Target(module, schema.getAlias(), schema.getTitle(), "DYNAMIC", relation.getId(), candidates, sources);
+        return new Target(module.getAlias(), schema.getAlias(), schema.getTitle(), "DYNAMIC", relation.getId(), candidates, sources, module.getTitle(), module.titleSource());
     }
 
     private boolean businessContextField(Metadata schema, MetadataField field) {

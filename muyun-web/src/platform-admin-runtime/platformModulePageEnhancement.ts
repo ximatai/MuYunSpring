@@ -161,37 +161,3 @@ function stringField(record: QueryListRecord, name: string): string | undefined 
   const value = record[name];
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
-
-/** Rule headers retain the standard list; the governed editor owns the complete rule tree. */
-export const codeRulePageEnhancement: ModulePageEnhancement = {
-  id: 'platform-business-code-configuration',
-  target: { moduleAlias: 'platform.code_rule' },
-  workspaceViews: [codeWorkspaceView],
-  standardActions: { disabled: ['create', 'edit', 'delete', 'enable', 'disable'] },
-  list: {
-    actions: [
-      {
-        key: 'business-code-workspace',
-        actionCode: 'configurationQuery',
-        title: '编码工作台',
-        titleKey: 'platform.code.config.workspace',
-        run({ openWorkspaceTab }) {
-          openWorkspaceTab(codeWorkspaceView, {});
-        },
-      },
-    ],
-  },
-  detail: {
-    actions: [
-      {
-        key: 'business-code-configure',
-        title: '配置编码',
-        titleKey: 'platform.code.config.configure',
-        run({ record, openWorkspaceTab }) {
-          if (typeof record.moduleAlias === 'string')
-            openWorkspaceTab(codeWorkspaceView, { moduleAlias: record.moduleAlias });
-        },
-      },
-    ],
-  },
-};

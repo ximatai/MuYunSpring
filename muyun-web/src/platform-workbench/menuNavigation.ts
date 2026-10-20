@@ -150,11 +150,12 @@ export function resolvePageDescriptor(
   }
 
   if (target.menuType === 'route') {
-    const dynamicModuleAlias =
-      options.dynamicModuleRoutes?.[target.route] ??
-      (target.moduleAlias && target.route === canonicalDynamicModulePath(target.moduleAlias, options)
-        ? target.moduleAlias
-        : undefined);
+    const dynamicModuleAlias = !isBusinessRoutePath(target.route, options)
+      ? (options.dynamicModuleRoutes?.[target.route] ??
+        (target.moduleAlias && target.route === canonicalDynamicModulePath(target.moduleAlias, options)
+          ? target.moduleAlias
+          : undefined))
+      : undefined;
     if (dynamicModuleAlias) {
       return {
         pageType: 'dynamic-module',
