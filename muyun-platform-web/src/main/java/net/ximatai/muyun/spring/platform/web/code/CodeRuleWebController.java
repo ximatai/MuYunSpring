@@ -147,7 +147,7 @@ public class CodeRuleWebController extends StaticModuleWebControllerAdapter<Code
                 throw new net.ximatai.muyun.spring.common.exception.PlatformException("Manual coding has no automatic preview");
             CodePreviewResult result = previewService.previewDraft(new PreviewCodeRuleCommand(
                     rule,
-                    normalized.context(),
+                    configuration == null ? normalized.context() : configuration.previewContext(rule, normalized.context()),
                     normalized.organizationId(),
                     time == null ? normalized.at() : time.resolveBusinessLocalDateTime(normalized.organizationId(), normalized.at()),
                     normalized.sequenceValue()

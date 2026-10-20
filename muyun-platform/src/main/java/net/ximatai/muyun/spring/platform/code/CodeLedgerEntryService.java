@@ -107,6 +107,11 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
     }
 
     /** Serializes issuance and ownership changes until the outer business transaction completes. */
+    /** Every multi-field lifecycle path acquires target locks in this order, independently of evaluation order. */
+    public void lockTargets(String module, String entity, java.util.Collection<String> fields) {
+        fields.stream().distinct().sorted().forEach(field -> lockTarget(module, entity, field));
+    }
+
     public void lockTarget(String module, String entity, String field) {
         if (net.ximatai.muyun.spring.ability.TransactionScopeSupport.isTransactionActive()) {
             lockMutation("code-target", java.util.Arrays.asList(

@@ -81,6 +81,87 @@ class CodeRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void multiFieldSavingAndFinalReleaseUseOneTransactionLockOrder() throws Exception {
+        String tenant = UUID.randomUUID().toString();
+        String module = uniqueModuleAlias();
+        var preview = new CodePreviewService();
+        var runtime = new CodeMutationRuntime(generateService, preview, stateService, ledgerService, recycleService, java.time.Clock.systemUTC());
+        var occupations = new CodeOccupationService(ledgerService, recycleService);
+        java.util.function.Function<String, Map<String, Object>> save = id -> {
+            Map<String, Object> values = new java.util.LinkedHashMap<>();
+            var record = new CodeMutationRecord() {
+                public String getId() { return id; }
+                public Object getValue(String field) { return values.get(field); }
+                public boolean isExplicitlySet(String field) { return false; }
+                public void putGeneratedValue(String field, Object value) { values.put(field, value); }
+                public boolean codeExists(String field, String value) { return false; }
+            };
+            runtime.prepare(module, "main", null, record, ruleService.resolveRules(
+                    new ResolveCodeRuleCommand(module, "main", null, null, null, null)), null,
+                    LocalDateTime.parse("2026-06-08T10:00:00"), values, Map.of(), java.util.Set.of());
+            return Map.copyOf(values);
+        };
+        try (var scope = TenantContext.use(tenant)) {
+            ruleService.saveRuleTree(rule(module, "b"));
+            var dependent = rule(module, "a"); dependent.setFieldRole(CodeFieldRole.NORMAL); dependent.setSequencePolicy(null);
+            dependent.setSegments(List.of(segment(CodeSegmentType.FIELD_VALUE, null, "b"), segment(CodeSegmentType.CONSTANT, "-A", null)));
+            ruleService.saveRuleTree(dependent);
+            transactionTemplate.execute(status -> save.apply("old-record"));
+        }
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(codeTestDataSource);
+        var firstSaveLock = new CountDownLatch(1);
+        var releaseAttempted = new CountDownLatch(1);
+        var saving = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var releasing = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var operation = new ThreadLocal<String>();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureMutationTransactionOperator(
+                new net.ximatai.muyun.spring.ability.MutationTransactionOperator() {
+                    public <T> T execute(java.util.function.Supplier<T> work) { return transactionTemplate.execute(status -> work.get()); }
+                    public void lock(String scope, String key) {
+                        String partition = scope.length() + ":" + scope + ":" + key;
+                        boolean target = scope.endsWith(":code-target");
+                        if (target && "release".equals(operation.get()) && releasing.getAndSet(false)) {
+                            // Attempt the release's first real PostgreSQL lock before the save continues.
+                            // This forces the old b->a / a->b interleaving without sleeps or scheduling assumptions.
+                            jdbc.queryForObject("select pg_try_advisory_xact_lock(hashtextextended(?, 0))", Boolean.class, partition);
+                            releaseAttempted.countDown();
+                        }
+                        jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?, 0))", Object.class, partition);
+                        if (target && "save".equals(operation.get()) && saving.getAndSet(false)) {
+                            firstSaveLock.countDown();
+                            awaitCodeLock(releaseAttempted);
+                        }
+                    }
+                });
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var saved = executor.submit(() -> {
+                try (var scope = TenantContext.use(tenant)) {
+                    operation.set("save");
+                    return transactionTemplate.execute(status -> save.apply("new-record"));
+                } finally { operation.remove(); }
+            });
+            var released = executor.submit(() -> {
+                awaitCodeLock(firstSaveLock);
+                try (var scope = TenantContext.use(tenant)) {
+                    operation.set("release");
+                    transactionTemplate.executeWithoutResult(status -> occupations.releaseAll(module, "main", "old-record"));
+                } finally { operation.remove(); }
+            });
+            assertThat(saved.get(15, TimeUnit.SECONDS)).containsEntry("b", "SO-0002").containsEntry("a", "SO-0002-A");
+            released.get(15, TimeUnit.SECONDS);
+        }
+        try (var scope = TenantContext.use(tenant)) {
+            assertThat(ledgerService.activeBindings(module, "main", "old-record")).isEmpty();
+            assertThat(ledgerService.activeBindings(module, "main", "new-record")).hasSize(2);
+        }
+    }
+
+    private static void awaitCodeLock(CountDownLatch latch) {
+        try { assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue(); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+    }
+
+    @Test
     void aRejectedRuleEnablePreservesTheLastCommittedDependencyPlan() {
         try (var scope = TenantContext.use(UUID.randomUUID().toString())) {
             String module = uniqueModuleAlias();

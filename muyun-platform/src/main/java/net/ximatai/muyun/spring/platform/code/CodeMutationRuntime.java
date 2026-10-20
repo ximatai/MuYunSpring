@@ -29,9 +29,10 @@ public final class CodeMutationRuntime {
             List<ResolvedCodeRule> rules, String organization, LocalDateTime at, Map<String, Object> context,
             Map<String, Object> previousContext, Set<String> changedKeys) {
         changedKeys = new LinkedHashSet<>(changedKeys);
-        for (ResolvedCodeRule resolved : dependencyResolver.orderedRules(rules, entity)) {
+        var ordered = dependencyResolver.orderedRules(rules, entity);
+        ledgerEntryService.lockTargets(module, entity, ordered.stream().map(item -> item.rule().getFieldName()).toList());
+        for (ResolvedCodeRule resolved : ordered) {
             CodeRule rule = resolved.rule();
-            ledgerEntryService.lockTarget(module, entity, rule.getFieldName());
             Object requested = context.get(rule.getFieldName());
             if (hasText(requested)) {
                 String normalized = incoming.normalizeCode(rule.getFieldName(), String.valueOf(requested));

@@ -28,7 +28,9 @@ public final class CodeOccupationService {
         return original;
     }
     public void releaseAll(String module, String entity, String recordId) {
-        ledger.activeBindings(module, entity, recordId).stream().sorted(Comparator.comparing(CodeLedgerEntry::getFieldName))
+        var entries = ledger.activeBindings(module, entity, recordId);
+        ledger.lockTargets(module, entity, entries.stream().map(CodeLedgerEntry::getFieldName).toList());
+        entries.stream().sorted(Comparator.comparing(CodeLedgerEntry::getFieldName))
                 .forEach(entry -> release(module, entity, recordId, entry.getFieldName(), entry.getCodeValue(), CodeLedgerAction.RELEASED_BY_DELETE));
     }
 }

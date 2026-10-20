@@ -97,6 +97,37 @@ describe('business code configuration client', () => {
     expect(codeTrialSources(catalog, newCodeRule(target, target.fields[0]!))).toEqual([]);
   });
 
+  it('keeps exact numeric trial values on the shared field wire through JSON transport', async () => {
+    const sources = [
+      { fieldName: 'serial', title: '序号', type: 'LONG' },
+      { fieldName: 'amount', title: '金额', type: 'BigDecimal' },
+      { fieldName: 'rate', title: '比率', type: 'DECIMAL' },
+      { fieldName: 'quantity', title: '数量', type: 'INTEGER' },
+    ];
+    const context = codeTrialContext(sources, {
+      serial: '9007199254740993',
+      amount: '123456789012345678.12',
+      rate: '1.00',
+      quantity: '12',
+    });
+    expect(context).toEqual({
+      serial: '9007199254740993',
+      amount: '123456789012345678.12',
+      rate: '1.00',
+      quantity: 12,
+    });
+    const request = vi.fn().mockResolvedValue({ value: 'preview', segments: [] });
+    await createCodeConfigurationClient({ request } as HttpClient).preview(
+      newCodeRule(target, target.fields[0]!),
+      context,
+      1,
+    );
+    expect(JSON.parse(JSON.stringify(request.mock.calls[0]![0].body)).context).toEqual(context);
+    expect(() => codeTrialContext(sources, { serial: '1.5' })).toThrow();
+    expect(() => codeTrialContext(sources, { amount: 'NaN' })).toThrow();
+    expect(() => codeTrialContext(sources, { quantity: '9007199254740993' })).toThrow();
+  });
+
   it('serializes reactive editor state with versions, ordered segments and tenant-independent target identities', async () => {
     const request = vi.fn().mockResolvedValue({ id: 'saved' });
     const client = createCodeConfigurationClient({ request } as HttpClient);

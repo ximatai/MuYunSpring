@@ -7,6 +7,40 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CodeConfigurationServiceTest {
+    @Test void exactTrialWireValuesMatchBusinessValuesIncludingMappingsAndNumericFormulas() {
+        var sources = List.of(new CodeConfigurationService.Source("serial", "序号", "Long", null),
+                new CodeConfigurationService.Source("amount", "金额", "DECIMAL", null),
+                new CodeConfigurationService.Source("rate", "比率", "BigDecimal", null));
+        doReturn(List.of(new CodeConfigurationService.Target("api.invoice", "invoice", "单据", "STATIC", null,
+                List.of(), sources, "单据", null))).when(configuration).targets("api.invoice");
+        var serial = segment(CodeSegmentType.FIELD_VALUE, "serial");
+        var rule = rule(serial);
+        var amount = segment(CodeSegmentType.FIELD_VALUE, "amount");
+        var mapping = segment(CodeSegmentType.VALUE_MAPPING, "rate");
+        var entry = new CodeValueMapping(); entry.setSourceValue("1.00"); entry.setTargetValue("ONE");
+        mapping.setMappings(List.of(entry));
+        var formula = segment(CodeSegmentType.FORMULA, null); formula.setFormulaExpr("{rate} + 1");
+        rule.setSegments(List.of(serial, amount, mapping, formula));
+        java.util.Map<String, Object> wire = java.util.Map.of("serial", "9007199254740993",
+                "amount", "123456789012345678.12", "rate", "1.00");
+        var decoded = configuration.previewContext(rule, wire);
+        assertThat(decoded.get("serial")).isEqualTo(9007199254740993L);
+        assertThat(decoded.get("amount")).isEqualTo(new java.math.BigDecimal("123456789012345678.12"));
+        assertThat(decoded.get("rate")).isEqualTo(new java.math.BigDecimal("1.00"));
+        var preview = new CodePreviewService();
+        var browser = preview.previewDraft(new PreviewCodeRuleCommand(rule, decoded, null, null, null));
+        var business = preview.previewDraft(new PreviewCodeRuleCommand(rule, java.util.Map.of(
+                "serial", 9007199254740993L, "amount", new java.math.BigDecimal("123456789012345678.12"),
+                "rate", new java.math.BigDecimal("1.00")), null, null, null));
+        assertThat(browser).isEqualTo(business);
+        assertThat(browser.value()).contains("9007199254740993", "123456789012345678.12", "ONE", "2.0");
+        assertThat(wire.get("serial")).isInstanceOf(String.class);
+        assertThatThrownBy(() -> configuration.previewContext(rule, java.util.Map.of("serial", "9223372036854775808")))
+                .hasMessageContaining("Invalid numeric trial value");
+        assertThatThrownBy(() -> configuration.previewContext(rule, java.util.Map.of("amount", "NaN")))
+                .hasMessageContaining("Invalid numeric trial value");
+    }
+
     @Test void configurationAvailabilityUsesDeclaredFieldsEvenWithoutRulesOrRuntimeActivation() {
         var modules = mock(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class);
         var service = spy(new CodeConfigurationService(null, modules, null, null, null, null, null,

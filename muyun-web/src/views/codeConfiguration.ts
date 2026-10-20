@@ -8,6 +8,7 @@ import {
   type HttpClient,
 } from '@muyun/web-core';
 
+import { decodeNumberEditorValue } from '@muyun/platform-components';
 import type { TextPresentation } from '@muyun/web-contracts';
 
 export type CodeMode = 'AUTO' | 'MANUAL' | 'AUTO_WITH_MANUAL_EDIT';
@@ -260,8 +261,18 @@ export function codeTrialContext(
     const value = values[source.fieldName];
     if (value === undefined || value === '') continue;
     if (codeTrialSourceKind(source) === 'number') {
-      const number = Number(value);
-      if (!Number.isFinite(number))
+      const type = source.type.toUpperCase();
+      const number = decodeNumberEditorValue(
+        value,
+        type === 'LONG'
+          ? 'LONG'
+          : ['DECIMAL', 'BIGDECIMAL'].includes(type)
+            ? 'DECIMAL'
+            : ['INT', 'INTEGER'].includes(type)
+              ? 'INTEGER'
+              : undefined,
+      );
+      if (number === undefined)
         throw new OperationUsageError(
           codeOperationErrorMessage(
             language,

@@ -886,6 +886,7 @@ it('uses typed trial controls and keeps false and zero in the preview context', 
     sources: [
       { fieldName: 'active', title: '是否到货', type: 'Boolean' },
       { fieldName: 'amount', title: '金额', type: 'BigDecimal' },
+      { fieldName: 'serial', title: '序号', type: 'Long' },
       { fieldName: 'date', title: '日期', type: 'LocalDate' },
       { fieldName: 'at', title: '时间', type: 'DATETIME' },
     ],
@@ -906,7 +907,7 @@ it('uses typed trial controls and keeps false and zero in the preview context', 
     await wrapper
       .findAllComponents(UiSelect)
       .find((select) => select.props('mode') === 'multiple')!
-      .vm.$emit('update:value', ['active', 'amount', 'date', 'at']);
+      .vm.$emit('update:value', ['active', 'amount', 'serial', 'date', 'at']);
     const label = (text: string) => wrapper.findAll('label').find((item) => item.text().startsWith(text))!;
     await label('是否到货').findComponent(UiSelect).vm.$emit('update:value', 'false');
     expect(label('金额').findComponent(UiInput).props('type')).toBe('number');
@@ -917,7 +918,18 @@ it('uses typed trial controls and keeps false and zero in the preview context', 
     await flushPromises();
     expect(request.mock.calls.find(([call]) => call.path.endsWith('/preview'))![0].body.context).toEqual({
       active: false,
-      amount: 0,
+      amount: '0',
+    });
+    await label('金额').findComponent(UiInput).vm.$emit('update:value', '123456789012345678.12');
+    await label('序号').findComponent(UiInput).vm.$emit('update:value', '9007199254740993');
+    await button(wrapper, '刷新试算').trigger('click');
+    await flushPromises();
+    expect(
+      request.mock.calls.filter(([call]) => call.path.endsWith('/preview')).at(-1)![0].body.context,
+    ).toEqual({
+      active: false,
+      amount: '123456789012345678.12',
+      serial: '9007199254740993',
     });
   } finally {
     wrapper.unmount();

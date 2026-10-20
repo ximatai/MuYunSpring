@@ -142,10 +142,12 @@ public final class CodeSaveLifecycleListener implements EntitySaveLifecycleListe
             fields = rules.selectRuleTreesByBusinessObject(module, entity).stream().map(CodeRule::getFieldName)
                     .collect(java.util.stream.Collectors.toSet());
         } else return;
-        for (String field : fields.stream().sorted().toList()) {
+        var occupiedFields = fields.stream().filter(field -> values.get(field) != null
+                && !String.valueOf(values.get(field)).isBlank()).sorted().toList();
+        ledger.lockTargets(module, entity, occupiedFields);
+        for (String field : occupiedFields) {
             Object value = values.get(field);
             if (value == null || String.valueOf(value).isBlank()) continue;
-            ledger.lockTarget(module, entity, field);
             var entry = ledger.findByTargetAndValue(module, entity, field, String.valueOf(value));
             if (entry == null || entry.getStatus() != CodeLedgerStatus.ACTIVE || !Objects.equals(entry.getSourceRecordId(), record.getId()))
                 throw net.ximatai.muyun.spring.common.exception.PlatformErrors.conflict("platform.code.restore-conflict",

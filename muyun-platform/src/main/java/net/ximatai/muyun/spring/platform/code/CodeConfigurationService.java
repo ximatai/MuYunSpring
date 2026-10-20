@@ -217,6 +217,25 @@ public class CodeConfigurationService {
         return new Field(field.fieldName(), field.title(), field.length(), field.metadataFieldId(), field.bindingId(), field.bindingVersion(), role, trigger);
     }
 
+    /** Decode exact browser wire values to the same Java numeric types used by business records. */
+    public Map<String, Object> previewContext(CodeRule rule, Map<String, Object> supplied) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>(supplied == null ? Map.of() : supplied);
+        for (Source source : requireTarget(rule.getModuleAlias(), rule.getEntityAlias()).sources()) {
+            Object value = result.get(source.fieldName());
+            if (value == null) continue;
+            try {
+                switch (source.type().toUpperCase(java.util.Locale.ROOT)) {
+                    case "LONG" -> result.put(source.fieldName(), Long.valueOf(value.toString().trim()));
+                    case "DECIMAL", "BIGDECIMAL" -> result.put(source.fieldName(), new java.math.BigDecimal(value.toString().trim()));
+                    default -> { }
+                }
+            } catch (NumberFormatException invalid) {
+                throw rejection("invalid-preview-number", "Invalid numeric trial value for field: {value1}", source.fieldName());
+            }
+        }
+        return result;
+    }
+
     public void validateRule(CodeRule rule, List<CodeRuleSegment> segments) {
         Field field = validateTarget(rule);
         Target target = requireTarget(rule.getModuleAlias(), rule.getEntityAlias());
