@@ -365,3 +365,5 @@ export { default as WorkflowBusinessTaskEditor } from './WorkflowBusinessTaskEdi
 export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.vue';
 
 export { default as RecordDataExchangeSurface } from './RecordDataExchangeSurface.vue';
+
+export { default as TenantScopeExplorer } from './TenantScopeExplorer.vue';

@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { expect, it } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
-import { UiThemeProvider } from '@muyun/vue-ui-antdv';
+import { UiThemeProvider, UiSidePanelHost } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
 import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
@@ -53,8 +53,10 @@ it.each([1004, 600])(
           return () =>
             h('div', { style: 'height:700px' }, [
               h(UiThemeProvider, {}, () =>
-                h(ModuleContextProvider, { context }, () =>
-                  h(CodeConfigurationView, { moduleAlias: 'demo.purchase', embedded: true }),
+                h(UiSidePanelHost, {}, () =>
+                  h(ModuleContextProvider, { context }, () =>
+                    h(CodeConfigurationView, { moduleAlias: 'demo.purchase', embedded: true }),
+                  ),
                 ),
               ),
             ]);
@@ -64,15 +66,17 @@ it.each([1004, 600])(
     );
     try {
       await flushPromises();
-      const save = page.getByRole('button', { name: '保存规则', exact: true });
-      await expect.element(save).toBeVisible();
-      expect(wrapper.find('select:disabled').exists()).toBe(false);
-      expect(wrapper.text()).not.toContain('字段角色和生成时机由业务模型预设。');
+      expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
       await page.getByRole('button', { name: '字段接入说明', exact: true }).click();
       await expect
         .element(page.getByText('字段角色和生成时机由业务模型预设。', { exact: true }))
         .toBeVisible();
       await userEvent.keyboard('{Escape}');
+      await page.getByRole('button', { name: /申请单号.*未启用/ }).click();
+      await flushPromises();
+      const save = page.getByRole('button', { name: '保存规则', exact: true });
+      await expect.element(save).toBeVisible();
+      expect(wrapper.find('select:disabled').exists()).toBe(false);
       const policy = wrapper.get<HTMLDetailsElement>('.code-config__policy');
       expect(policy.element.open).toBe(false);
       expect(policy.get('summary').text()).toContain('旧号可复用');
@@ -84,11 +88,8 @@ it.each([1004, 600])(
       await page.getByRole('spinbutton', { name: '起始值', exact: true }).fill('21');
       await page.elementLocator(sequence.get('summary').element).click();
       expect(sequence.findAll('input')[0]!.element.value).toBe('21');
-      const editor = wrapper.get('.code-config__editor').element.getBoundingClientRect();
-      const directoryField = wrapper
-        .get('.code-config__directory-fields > label')
-        .element.getBoundingClientRect();
-      expect(directoryField.height).toBeLessThan(70);
+      const editor = document.querySelector('.ant-drawer-content')!.getBoundingClientRect();
+
       const saveButton = wrapper
         .findAll('button')
         .find((button) => button.text().replace(/\s+/g, '') === '保存规则')!.element;
@@ -103,7 +104,8 @@ it.each([1004, 600])(
       for (let index = 0; index < advanced.length; index++) {
         await page.elementLocator(advanced[index]!.get('summary').element).click();
       }
-      const content = wrapper.get('.code-config__editor .record-detail-layout-content').element;
+      const content = document.querySelector('.ant-drawer-content .record-detail-layout-content')!;
+      await expect.poll(() => content.clientHeight).toBeLessThan(700);
       expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
       content.scrollTop = content.scrollHeight;
       await expect.element(save).toBeVisible();

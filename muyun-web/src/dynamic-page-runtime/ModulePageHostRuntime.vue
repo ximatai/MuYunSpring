@@ -41,7 +41,7 @@ import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
-import TenantScopeExplorer from './TenantScopeExplorer.vue';
+import { TenantScopeExplorer } from '@muyun/platform-components';
 
 import { computed, defineComponent, ref, watch, type PropType } from 'vue';
 import { sessionViewBindings } from './sessionViewBindings';

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-import { ref } from 'vue';
+import { ref, defineComponent, h } from 'vue';
 import CodeConfigurationView from '@/views/CodeConfigurationView.vue';
-import { UiInput, UiSelect } from '@muyun/vue-ui-antdv';
+import { UiInput, UiSelect, confirmAction } from '@muyun/vue-ui-antdv';
 import { newCodeRule, type CodeTarget } from '@/views/codeConfiguration';
 const { request, can, user } = vi.hoisted(() => ({
   request: vi.fn(),
@@ -20,6 +20,18 @@ vi.mock('@muyun/platform-components', async (original) => ({
   ...(await original<typeof import('@muyun/platform-components')>()),
   presentPlatformError: vi.fn(),
 }));
+vi.mock('@muyun/vue-ui-antdv', async (original) => ({
+  ...(await original<typeof import('@muyun/vue-ui-antdv')>()),
+  confirmAction: vi.fn(async () => false),
+}));
+const drawer = defineComponent({
+  name: 'RecordDetailDrawer',
+  props: ['open', 'beforeClose'],
+  emits: ['close'],
+  setup(props, { slots }) {
+    return () => (props.open ? h('section', [slots['header-actions']?.(), slots.default?.()]) : null);
+  },
+});
 const staticTarget: CodeTarget = {
   moduleAlias: 'sales.invoice',
   entityAlias: 'invoice',
@@ -31,7 +43,14 @@ const staticTarget: CodeTarget = {
 const wrapperOf = () =>
   mount(CodeConfigurationView, {
     props: { moduleAlias: 'sales.invoice', embedded: true },
-    global: { stubs: { ModuleRuntimeActivationStatus: true, RecordPicker: true } },
+    global: {
+      stubs: {
+        ModuleRuntimeActivationStatus: true,
+        RecordPicker: true,
+        RecordDetailDrawer: drawer,
+        TenantScopeExplorer: true,
+      },
+    },
   });
 const button = (wrapper: ReturnType<typeof wrapperOf>, title: string) =>
   wrapper.findAll('button').find((item) => item.text().replace(/\s+/g, '') === title)!;
@@ -79,13 +98,36 @@ describe('CodeConfigurationView', () => {
     expect(wrapper.text()).toContain('选择规则所属租户后');
     expect(wrapper.text()).not.toContain('尚未声明');
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
-    wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', 'tenant-a');
+    wrapper.findComponent({ name: 'TenantScopeExplorer' }).vm.$emit('select', { id: 'tenant-a' });
     await flushPromises();
     expect(request.mock.calls.some(([call]) => call.path.includes('/targets'))).toBe(true);
     expect(wrapper.text()).not.toContain('字段角色和生成时机由业务模型预设');
     expect(wrapper.find('button[aria-label="字段接入说明"]').exists()).toBe(true);
     wrapper.unmount();
   });
+  it('automatically selects a sole tenant only from the initial complete candidate set', async () => {
+    user.tenantId = '';
+    user.system = true;
+    const wrapper = wrapperOf();
+    await flushPromises();
+    try {
+      const tenant = wrapper.findComponent({ name: 'TenantScopeExplorer' });
+      tenant.vm.$emit('loaded', [{ id: 'tenant-a' }], false, 1);
+      await flushPromises();
+      expect(tenant.props('selectedId')).toBeUndefined();
+      tenant.vm.$emit('loaded', [{ id: 'tenant-a' }], true, 2);
+      await flushPromises();
+      expect(tenant.props('selectedId')).toBeUndefined();
+      tenant.vm.$emit('loaded', [{ id: 'tenant-a' }], true, 1);
+      await flushPromises();
+      expect(tenant.props('selectedId')).toBe('tenant-a');
+      const targetsCall = request.mock.calls.find(([call]) => call.path.includes('/targets'))![0];
+      expect(targetsCall.headers).toMatchObject({ 'X-MuYun-Tenant-Id': 'tenant-a' });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('distinguishes a load failure from an empty catalog and offers a working retry', async () => {
     request.mockRejectedValueOnce(new Error('offline'));
     const wrapper = wrapperOf();
@@ -240,6 +282,8 @@ describe('CodeConfigurationView', () => {
     const wrapper = wrapperOf();
     await flushPromises();
     try {
+      expect(wrapper.find('.code-config__editor').exists()).toBe(false);
+      await button(wrapper, '单据编码·未启用').trigger('click');
       expect(wrapper.findAll<HTMLDetailsElement>('details').every((details) => !details.element.open)).toBe(
         true,
       );
@@ -280,6 +324,37 @@ describe('CodeConfigurationView', () => {
       expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
         segments: [expect.anything(), expect.objectContaining({ length: 6 })],
       });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+  it('protects unsaved drawer edits and tenant selection until they are discarded', async () => {
+    user.system = true;
+    const wrapper = wrapperOf();
+    await flushPromises();
+    try {
+      const tenant = wrapper.findComponent({ name: 'TenantScopeExplorer' });
+      expect(wrapper.find('.code-config__header').findComponent({ name: 'RecordPicker' }).exists()).toBe(
+        false,
+      );
+      expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+      await button(wrapper, '新增规则').trigger('click');
+      const title = wrapper.findAllComponents(UiInput).find((input) => input.props('value') === '单据编码')!;
+      title.vm.$emit('update:value', '未保存草稿');
+      await flushPromises();
+      expect(tenant.props('disabled')).toBe(true);
+      tenant.vm.$emit('select', { id: 'tenant-b' });
+      await flushPromises();
+      expect(tenant.props('selectedId')).toBe('tenant-a');
+      const drawer = wrapper.findComponent({ name: 'RecordDetailDrawer' });
+      expect(await drawer.props('beforeClose')()).toBe(false);
+      expect(wrapper.text()).toContain('保存规则');
+      vi.mocked(confirmAction).mockResolvedValueOnce(true);
+      expect(await drawer.props('beforeClose')()).toBe(true);
+      drawer.vm.$emit('close');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+      expect(tenant.props('disabled')).toBe(false);
     } finally {
       wrapper.unmount();
     }

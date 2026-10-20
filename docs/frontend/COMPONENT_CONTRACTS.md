@@ -166,3 +166,5 @@ configureModulePageEnhancements([
   },
 ]);
 ```
+
+`TenantScopeExplorer` 是标准管理页与专用工作台共用的租户导航，放在 `ManagementWorkspace` 的左侧 `ManagementExplorerColumn` 中。候选加载区分首次完整结果与搜索结果；仅首次完整结果确认唯一候选时可自动选择，切换仍受宿主的忙碌与草稿保护约束。

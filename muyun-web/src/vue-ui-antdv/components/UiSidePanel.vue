@@ -101,6 +101,7 @@ async function requestOutsideClose() {
     :keyboard="outsideDismissalAllowed"
     :closable="false"
     :header-style="{ display: 'none' }"
+    :content-wrapper-style="{ height: '100%' }"
     :body-style="{ height: '100%', padding: 0 }"
     :root-style="rootStyle"
     :class="$attrs.class"
