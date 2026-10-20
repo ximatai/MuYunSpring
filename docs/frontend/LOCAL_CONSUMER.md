@@ -45,6 +45,12 @@ npm link <muyun-spring-repository>/build/consumer-npm/staging/web-app
 
 正式 npm 发布后，本地 tarball 消费者验证仍保留，并作为发布前检查。
 
+## 顶栏业务扩展
+
+业务 App 可在 `AppWorkbenchShell` 的 `#topbar-actions="{ currentUser }"` 插槽中放入自己的 Vue 组件，入口位于账号菜单左侧；同一插槽支持多个组件，未接入时不占位。图标、样式、下拉菜单、显隐与业务请求由 App 控制，可复用公开的 `UiButton`、`UiDropdown` 和 `UiIcon`；打开业务页使用 `useWorkbenchNavigation()`，沿用工作台页签导航。
+
+完整接入片段与组件见[顶栏业务入口示例](../../muyun-web/examples/business-web/README.md#工作台顶栏业务入口)。框架宿主中的演示图标仅在开发环境显示，业务 App 通过插槽自行装配；界面显隐不替代服务端授权。
+
 ## 宿主请求与认证恢复
 
 标准模块、角色范围导航和用户在线状态共用宿主注入的 HTTP factory。辅助模块 API 通过
