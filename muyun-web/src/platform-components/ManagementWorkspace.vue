@@ -133,6 +133,7 @@ const pageLayout = usePageLayout();
       'management-workspace--composer': layout === 'composer',
       'management-workspace--detail-surface': detailSurface,
       'management-workspace--list-surface': listSurface,
+      'management-workspace--multiple-explorers': effectiveExplorerCount > 1,
       'management-workspace--without-explorer': !hasExplorer,
       'management-workspace--with-collapsed-explorer': hasCollapsedExplorers,
     }"
@@ -182,6 +183,7 @@ const pageLayout = usePageLayout();
   --muyun-management-panel-title-line-height: var(--muyun-line-height-panel, 22px);
   --muyun-management-panel-content-gap: 8px;
 
+  container: management-workspace / inline-size;
   min-width: 0;
   min-height: 100%;
   overflow-x: auto;
@@ -264,7 +266,17 @@ const pageLayout = usePageLayout();
 /* Keep an explorer and its list usable inside a narrow workbench pane.  The
    desktop minimum widths are intentionally generous, but must not force the
    host to horizontally clip its primary navigation at tablet widths. */
-@media (max-width: 980px) {
+/* Two navigators need to release the desktop list minimum sooner than one. */
+@container management-workspace (max-width: 1360px) {
+  .management-workspace--list-surface.management-workspace--multiple-explorers > .management-workspace__grid {
+    grid-template-columns:
+      repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
+      minmax(0, 1.5fr);
+    gap: 8px;
+  }
+}
+
+@container management-workspace (max-width: 1080px) {
   .management-workspace--list-surface > .management-workspace__grid {
     grid-template-columns:
       repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
@@ -273,10 +285,11 @@ const pageLayout = usePageLayout();
   }
 }
 
-@media (max-width: 760px) {
-  .management-workspace--list-surface > .management-workspace__grid {
+@container management-workspace (max-width: 760px) {
+  .management-workspace--list-surface > .management-workspace__grid,
+  .management-workspace--list-surface.management-workspace--multiple-explorers > .management-workspace__grid {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(200px, 0.7fr) minmax(320px, 1fr);
+    grid-template-rows: repeat(var(--muyun-management-explorer-count), minmax(80px, 0.35fr)) minmax(0, 1fr);
   }
 }
 </style>
