@@ -209,3 +209,68 @@ it.each(uiThemeSkins)(
     }
   },
 );
+
+it('hosts a custom dropdown before the account on desktop and phone', async () => {
+  const { default: AppWorkbenchShell } = await import('@/consumer/AppWorkbenchShell.vue');
+  const { UiButton, UiDropdown } = await import('@muyun/vue-ui-antdv');
+  const selected: string[] = [];
+  const wrapper = mount(AppWorkbenchShell, {
+    attachTo: document.body,
+    props: {
+      location: '/',
+      startup: {
+        session: { currentUser: { userId: 'admin', username: 'admin', system: true } },
+        menus: [],
+        tabs: [],
+      },
+    },
+    slots: {
+      'topbar-actions': ({ currentUser }) =>
+        h(
+          UiDropdown,
+          {
+            items: [{ key: 'report', title: '业务报表' }],
+            onSelect: (key: string) => selected.push(key),
+          },
+          {
+            default: ({ toggle, open }: { toggle: () => void; open: boolean }) =>
+              h(UiButton, {
+                ariaLabel: `业务入口：${currentUser?.username}`,
+                'aria-haspopup': 'menu',
+                'aria-expanded': open,
+                iconOnly: true,
+                iconName: 'app',
+                style: { borderRadius: '50%', width: '36px', height: '36px' },
+                onClick: (event: MouseEvent) => {
+                  event.stopPropagation();
+                  toggle();
+                },
+              }),
+          },
+        ),
+    },
+  });
+  try {
+    for (const width of [1004, 375, 320]) {
+      await page.viewport(width, 804);
+      await flushPromises();
+      const button = wrapper.get('button[aria-label="业务入口：admin"]');
+      const rect = button.element.getBoundingClientRect();
+      const account = wrapper.get('.user-button').element.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThanOrEqual(32);
+      expect(rect.right).toBeLessThanOrEqual(account.left);
+      expect(account.right).toBeLessThanOrEqual(width);
+      expect(Math.abs(rect.top + rect.height / 2 - (account.top + account.height / 2))).toBeLessThan(1);
+      expect(getComputedStyle(button.element).borderRadius).toBe('50%');
+      await page.elementLocator(button.element).click();
+      await expect.element(page.getByRole('menuitem', { name: '业务报表', exact: true })).toBeVisible();
+      await page.getByRole('menuitem', { name: '业务报表', exact: true }).click();
+      await expect.poll(() => button.attributes('aria-expanded')).toBe('false');
+      expect(wrapper.get('.user-button').attributes('aria-expanded')).toBe('false');
+    }
+    expect(selected).toEqual(['report', 'report', 'report']);
+    expect(wrapper.emitted('userCommand')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});

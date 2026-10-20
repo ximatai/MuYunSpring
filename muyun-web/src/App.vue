@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   defineComponent,
   h,
   nextTick,
@@ -150,6 +151,11 @@ import {
   type ThemeSkinPreferenceFailure,
   themeSkinPreferenceKey,
 } from './app/themeSkinPreference';
+
+// Local host demonstration; excluded from production builds.
+const DevelopmentTopbarActions = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('./app/DevelopmentTopbarActions.vue'))
+  : undefined;
 
 /**
  * KeepAlive must see one stable host component. The tab key is the cache key;
@@ -1562,6 +1568,9 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
         @retry-load="!loading && loadWorkbench()"
         @user-command="handleUserCommand"
       >
+        <template v-if="DevelopmentTopbarActions" #topbar-actions="{ currentUser: slotUser }">
+          <DevelopmentTopbarActions :current-user="slotUser" />
+        </template>
         <template #default>
           <KeepAlive :max="pageCacheMax">
             <component

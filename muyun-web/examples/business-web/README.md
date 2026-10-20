@@ -18,3 +18,26 @@
 表单只保存 `accountManagerId`。联系人标题是独立展示投影，由选择与按 ID 回显更新，不持久化到客户记录。列表选择先修改查询草稿，只有点击“查询”才把草稿应用为列表条件；在弹窗中取消不会修改已应用条件。字典值应继续使用其独立的字典契约，不应套用记录引用组件。
 
 先在 `muyun-web` 目录运行 `npm run verify:consumer`，确认当前源码产出的 tarball 可由独立消费者构建。若要运行本示例，在示例目录安装依赖后，再安装仓库 `build/consumer-npm/` 下本次产出的 `ximatai-muyun-web-app-<version>.tgz`；锁文件中的已发布旧包不保证包含新增引用出口。随后运行 `npm run dev`，可在负责人选择器中搜索 `苏南乔`（位于默认第一页之后）或翻页选择，再观察表单保存 ID 与显示标题分离。列表中选择负责人后先取消，可确认已应用条件不变；再次选择并点击“查询”，列表才按该 ID 过滤。
+
+## 工作台顶栏业务入口
+
+`AppWorkbenchShell` 和 `Workbench` 提供 `topbar-actions` 作用域插槽，位于账号入口紧邻左侧，平台助手入口之后。业务 App 在装配工作台时提供组件即可；同一插槽可放多个组件，排列顺序由 App 决定。未提供时不占用额外空间。
+
+```vue
+<AppWorkbenchShell
+  v-model:startup="startup"
+  :location="router.currentRoute.value.fullPath"
+  @navigate="({ url, mode }) => router[mode](url)"
+>
+  <template #topbar-actions="{ currentUser }">
+    <BusinessTopbarActions :current-user="currentUser" />
+  </template>
+  <template #default="{ pageDescriptor }">
+    <!-- 原有的平台页面或业务 RouterView -->
+  </template>
+</AppWorkbenchShell>
+```
+
+`src/BusinessTopbarActions.vue` 展示自定义图标按钮外观和下拉菜单，并通过 `useWorkbenchNavigation().openRoute` 打开业务页面。示例中的客户路由需由消费 App 注册。该组件供工作台宿主接入，不挂在当前独立的引用组件演示页上。
+
+平台组合包公开 `UiDropdown`、`UiIcon` 及 `UiDropdownItem`、`UiIconName`，业务可复用平台交互，也可在插槽中使用自己的 Vue 组件、SVG 和样式。插槽提供随宿主会话更新的 `currentUser`（未登录时可能为空）；业务组件自行维护请求、显隐和菜单状态，并负责图标入口的可访问名称、键盘操作及窄屏适配。界面显隐不替代服务端授权。顶栏适合紧凑入口，较大内容应使用下拉浮层、弹窗或业务页面承载。

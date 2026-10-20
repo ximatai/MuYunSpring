@@ -595,7 +595,11 @@ onUnmounted(() => {
             :assistant-open="assistantOpen"
             @toggle-assistant="assistantUsable && (assistantOpen = !assistantOpen)"
             @user-command="handleUserCommand"
-          />
+          >
+            <template v-if="$slots['topbar-actions']" #topbar-actions="context">
+              <slot name="topbar-actions" v-bind="context" />
+            </template>
+          </WorkbenchGlobalTools>
         </header>
 
         <section class="workbench-mega-surface">

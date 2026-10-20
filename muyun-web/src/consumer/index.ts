@@ -64,6 +64,8 @@ export type {
 // freedom to evolve without making each implementation detail an App contract.
 export {
   UiButton,
+  UiDropdown,
+  UiIcon,
   confirmAction,
   UiDataTable,
   UiSidePanel,
@@ -74,7 +76,12 @@ export {
   UiSwitch,
   UiTextArea,
 } from '../vue-ui-antdv/index';
-export type { UiDatePickerMode, UiDatePickerPrecision } from '../vue-ui-antdv/index';
+export type {
+  UiDropdownItem,
+  UiIconName,
+  UiDatePickerMode,
+  UiDatePickerPrecision,
+} from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
 export { default as LoginView } from '../app/LoginView.vue';

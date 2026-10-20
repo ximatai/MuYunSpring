@@ -548,3 +548,59 @@ it('forwards the host-owned employee name to the shared workbench account button
     wrapper.unmount();
   }
 });
+
+it('renders reactive host actions before the account and keeps their navigation in the shell', async () => {
+  let navigation: WorkbenchNavigation | undefined;
+  const HostAction = defineComponent({
+    props: { username: String },
+    setup(props) {
+      navigation = useWorkbenchNavigation();
+      return () =>
+        h(
+          'button',
+          {
+            class: 'business-action',
+            style: { color: 'red' },
+            onClick: () => navigation?.openRoute('/business/report'),
+          },
+          props.username ?? 'guest',
+        );
+    },
+  });
+  const wrapper = mount(AppWorkbenchShell, {
+    props: { startup: startup(), location: tabs[0]!.fullPath },
+    slots: {
+      'topbar-actions': ({ currentUser }) => h(HostAction, { username: currentUser?.username }),
+    },
+  });
+  try {
+    await flushPromises();
+    const actions = wrapper.get('.topbar-business-actions');
+    expect(actions.text()).toBe('tester');
+    expect(actions.get('button').attributes('style')).toContain('color: red');
+    expect(actions.element.nextElementSibling?.querySelector('.user-button')).toBe(
+      wrapper.get('.user-button').element,
+    );
+    await actions.get('button').trigger('click');
+    expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'push' });
+    expect(
+      (wrapper.emitted('update:startup')?.at(-1)?.[0] as WorkbenchStartupState).tabs?.some((tab) =>
+        tab.fullPath?.startsWith('/business/report'),
+      ),
+    ).toBe(true);
+    const next = startup();
+    next.session.currentUser.username = 'another-user';
+    await wrapper.setProps({ startup: next });
+    expect(actions.text()).toBe('another-user');
+    expect(wrapper.emitted('userCommand')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('leaves no business action container when the consumer provides no topbar slot', () => {
+  const wrapper = mountShell();
+  expect(wrapper.find('.topbar-business-actions').exists()).toBe(false);
+  expect(wrapper.find('.user-button').exists()).toBe(true);
+  wrapper.unmount();
+});
