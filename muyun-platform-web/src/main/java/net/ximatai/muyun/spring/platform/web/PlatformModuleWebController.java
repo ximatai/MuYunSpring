@@ -18,11 +18,13 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.code.CodeConfigurationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,6 +64,21 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
     private PlatformOpenApiCatalogService openApiCatalogService;
     @Autowired
     private DynamicRuntimeActivationService runtimeActivation;
+
+    @Autowired
+    private ObjectProvider<CodeConfigurationService> codeConfiguration;
+
+    @GetMapping("/{id}/code-configuration")
+    @ActionEndpoint(PlatformAction.VIEW)
+    public CodeConfigurationService.Availability codeConfiguration(
+            @PathVariable String id) {
+        String requestTenantId = TenantContext.currentTenantId().orElse(null);
+        return webScope(() -> {
+            try (var scope = TenantContext.use(requestTenantId)) {
+                return codeConfiguration.getObject().availability(id);
+            }
+        });
+    }
 
     @Autowired
     public PlatformModuleWebController(PlatformDynamicRuntimeRefreshService runtimeRefreshService) {

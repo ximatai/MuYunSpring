@@ -712,7 +712,7 @@ describe('managed detail relation surface', () => {
     });
 
     const addButton = wrapper
-      .findAllComponents({ name: 'RecordPanelButton' })
+      .findAllComponents({ name: 'RecordRelationActionButton' })
       .find((button) => button.props('iconName') === 'plus');
     expect(addButton).toBeDefined();
     addButton!.vm.$emit('click');
@@ -1418,7 +1418,7 @@ describe('managed detail relation surface', () => {
 
     const recycleButton = () =>
       wrapper
-        .findAllComponents({ name: 'RecordPanelButton' })
+        .findAllComponents({ name: 'RecordRelationActionButton' })
         .find((button) => button.props('iconName') === 'delete');
 
     expect(recycleButton()).toBeUndefined();

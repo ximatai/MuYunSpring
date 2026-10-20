@@ -192,3 +192,27 @@ describe('source-owned reference query values', () => {
     expect(wrapper.findComponent({ name: 'RecordPicker' }).exists()).toBe(true);
   });
 });
+
+it('keeps UTC conversion in the query field while sharing the platform date picker', async () => {
+  const { default: UiDatePicker } = await import('@/vue-ui-antdv/components/UiDatePicker.vue');
+  const wrapper = mount(QueryValueEditor, {
+    props: {
+      field: { name: 'createdAt', title: '创建时间', valueType: 'INSTANT', operators: ['BETWEEN'] },
+      operator: 'BETWEEN',
+      values: ['2026-10-20T01:02:03Z', '2026-10-21T01:02:03Z'],
+    },
+  });
+  try {
+    const pickers = wrapper.findAllComponents(UiDatePicker);
+    expect(pickers).toHaveLength(2);
+    expect(pickers[0]!.props('value')).toBeDefined();
+    pickers[0]!.vm.$emit('update:value', '2026-10-22T14:15:37');
+    expect(wrapper.emitted('update:values')?.at(-1)).toEqual([
+      [new Date('2026-10-22T14:15:37').toISOString().replace('.000Z', 'Z'), '2026-10-21T01:02:03Z'],
+    ]);
+    pickers[1]!.vm.$emit('update:value', '');
+    expect(wrapper.emitted('update:values')?.at(-1)).toEqual([['2026-10-20T01:02:03Z']]);
+  } finally {
+    wrapper.unmount();
+  }
+});

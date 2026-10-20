@@ -1009,7 +1009,7 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['amount', '0.123456789012345678']);
   });
 
-  it('uses native date and datetime transports for executable field-control renderers', () => {
+  it('uses the platform date pickers while preserving date and UTC record transports', () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
         'deliveryDate',
@@ -1035,10 +1035,12 @@ describe('RecordFormFields', () => {
 
     expect(inputs.map((input) => input.props('type'))).toEqual(['date', 'datetime-local']);
     expect(inputs[1].props('step')).toBe('1');
-    inputs[0].vm.$emit('update:value', '2026-08-21');
+    const pickers = wrapper.findAllComponents({ name: 'UiDatePicker' });
+    expect(pickers.map((picker) => picker.props('mode'))).toEqual(['date', 'datetime']);
+    pickers[0].vm.$emit('update:value', '2026-08-21');
     const localDateTime = String(inputs[1].props('value'));
     expect(localDateTime).toMatch(/^2026-08-20T\d{2}:30:00$/);
-    inputs[1].vm.$emit('update:value', '2026-08-21T11:00:37');
+    pickers[1].vm.$emit('update:value', '2026-08-21T11:00:37');
     expect(wrapper.emitted('update:field')).toContainEqual(['deliveryDate', '2026-08-21']);
     expect(wrapper.emitted('update:field')).toContainEqual([
       'scheduledAt',

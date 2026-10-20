@@ -10,6 +10,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   DownOutlined,
+  UpOutlined,
   EditOutlined,
   ExportOutlined,
   EyeOutlined,
@@ -44,6 +45,7 @@ export type UiIconName =
   | 'delete'
   | 'download'
   | 'down'
+  | 'up'
   | 'edit'
   | 'export'
   | 'eye'
@@ -85,6 +87,7 @@ const icons = {
   delete: DeleteOutlined,
   download: DownloadOutlined,
   down: DownOutlined,
+  up: UpOutlined,
   edit: EditOutlined,
   export: ExportOutlined,
   eye: EyeOutlined,

@@ -477,7 +477,9 @@ class StaticCodeRepositoryIT extends PlatformPostgresIntegrationTest {
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class),
                     org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService.class),
-                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService.class),
+                    org.mockito.Mockito.mock(net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService.class));
         }
         @Bean CodeOpsActionService codeOps(CodeRuleService rules, CodeSequenceStateService sequences, CodeIssueLogService logs,
                 CodeRecycleEntryService recycle, CodeLedgerEntryService ledger, net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService records) {

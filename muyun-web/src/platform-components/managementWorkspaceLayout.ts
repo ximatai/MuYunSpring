@@ -48,3 +48,28 @@ export function listDetailWorkspaceMinWidth(explorerCount: number): number {
     columnGap
   );
 }
+
+/** Width-based folds are independent of manual folds: closing a navigator must
+ * enlarge the primary surface, rather than unexpectedly restoring another one. */
+export function workspaceAutoCollapsedIds(options: {
+  width: number;
+  explorerCount: number;
+  explorers: readonly { id: string }[];
+  primaryMinWidth: number;
+}): string[] {
+  const { width, explorerCount, explorers, primaryMinWidth } = options;
+  if (width <= 0) return [];
+  const { explorerWidth, columnGap } = MANAGEMENT_WORKSPACE_LAYOUT;
+  let folded = 0;
+  const requiredWidth = () =>
+    (explorerCount - folded) * (explorerWidth + columnGap) +
+    primaryMinWidth +
+    (folded ? MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth + columnGap : 0);
+  const result: string[] = [];
+  for (const explorer of explorers) {
+    if (requiredWidth() <= width) break;
+    result.push(explorer.id);
+    folded++;
+  }
+  return result;
+}

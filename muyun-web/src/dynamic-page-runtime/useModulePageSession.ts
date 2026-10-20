@@ -1689,7 +1689,10 @@ export function useModulePageSession(
     () => pageEnhancement.value?.list?.rowActions ?? [],
   );
   function enhancementRowActionsFor(record: QueryListRecord) {
-    return enhancementRowActions.value.map(({ state, ...action }) => ({ ...action, ...state?.(record) }));
+    return enhancementRowActions.value.map(({ state, ...action }) => ({
+      ...action,
+      ...state?.(record, modulePageActionStateContext()),
+    }));
   }
   const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
     () => pageEnhancement.value?.list?.batchActions ?? [],
@@ -1783,7 +1786,7 @@ export function useModulePageSession(
   const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(() => {
     const record = selectedRecord.value;
     return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => {
-      const resolvedState = record ? state?.(record) : { visible: false };
+      const resolvedState = record ? state?.(record, modulePageActionStateContext()) : { visible: false };
       return {
         ...action,
         ...resolvedState,

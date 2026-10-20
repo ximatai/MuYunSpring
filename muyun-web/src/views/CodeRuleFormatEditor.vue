@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch, toRaw } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import { FormulaExpressionEditor, RecordContentSectionHeading } from '@muyun/platform-components';
 import { UiButton, UiCheckbox, UiInput, UiSelect, UiHelp } from '@muyun/vue-ui-antdv';
@@ -12,8 +12,9 @@ import {
   type CodeSegment,
   type CodeSegmentType,
   type CodeSource,
+  type CodeTrigger,
 } from './codeConfiguration';
-const props = defineProps<{ sources: CodeSource[]; editable: boolean }>();
+const props = defineProps<{ sources: CodeSource[]; editable: boolean; trigger?: CodeTrigger }>();
 const draft = defineModel<CodeRule>('rule', { required: true });
 const language = useLanguageContext();
 const t = (key: string, fallback: string) => language.t(`platform.code.config.${key}`, fallback);
@@ -58,10 +59,38 @@ const dateFormats = [
 ];
 const segmentKeys = new WeakMap<CodeSegment, number>();
 let keySequence = 0;
+const segmentDrafts = new WeakMap<CodeSegment, Map<CodeSegmentType, CodeSegment>>();
+let inactiveSequencePolicy: CodeRule['sequencePolicy'] = null;
+watch(
+  () => draft.value,
+  () => {
+    inactiveSequencePolicy = null;
+  },
+);
 function segmentKey(segment: CodeSegment) {
+  segment = toRaw(segment);
   if (!segmentKeys.has(segment)) segmentKeys.set(segment, ++keySequence);
   return segmentKeys.get(segment)!;
 }
+function hasNullableSource(segment: CodeSegment) {
+  return ['FIELD_VALUE', 'CONTEXT_VAR', 'VALUE_MAPPING', 'FORMULA'].includes(segment.segmentType);
+}
+function canGroupSequence(segment: CodeSegment) {
+  return !!draft.value.sequencePolicy && !['CONSTANT', 'SEQUENCE'].includes(segment.segmentType);
+}
+const inheritedSequenceLength = computed(() =>
+  language.t('platform.code.config.inherited-sequence-length', '继承流水长度：{length}', {
+    length: draft.value.sequencePolicy?.sequenceLength ?? '—',
+  }),
+);
+const sequenceLimit = computed(() => {
+  const length = draft.value.sequencePolicy?.sequenceLength;
+  if (length == null || !Number.isInteger(length) || length < 1 || length > 18) return '';
+  return language.t('platform.code.config.sequence-limit-hint', '按 {length} 位流水，最大 {maximum}', {
+    length,
+    maximum: '9'.repeat(length),
+  });
+});
 function hasAdvancedSettings(segment: CodeSegment) {
   return (
     segment.length != null ||
@@ -98,16 +127,26 @@ function numeric(value: unknown) {
 function syncPolicy() {
   if (!draft.value) return;
   if (draft.value.segments.some((segment) => segment.segmentType === 'SEQUENCE'))
-    draft.value.sequencePolicy ??= newCodeSequence();
-  else draft.value.sequencePolicy = null;
+    draft.value.sequencePolicy ??= inactiveSequencePolicy ?? newCodeSequence();
+  else {
+    inactiveSequencePolicy = draft.value.sequencePolicy ?? inactiveSequencePolicy;
+    draft.value.sequencePolicy = null;
+  }
 }
 function changeSegment(index: number, type: CodeSegmentType) {
   if (!draft.value) return;
-  draft.value.segments[index] = {
-    ...newCodeSegment(type),
-    id: draft.value.segments[index]?.id,
-    version: draft.value.segments[index]?.version,
+  const current = draft.value.segments[index]!;
+  if (current.segmentType === type) return;
+  const history = segmentDrafts.get(toRaw(current)) ?? new Map<CodeSegmentType, CodeSegment>();
+  history.set(current.segmentType, JSON.parse(JSON.stringify(current)) as CodeSegment);
+  const replacement = {
+    ...(history.get(type) ?? newCodeSegment(type)),
+    id: current.id,
+    version: current.version,
   };
+  segmentKeys.set(replacement, segmentKey(current));
+  segmentDrafts.set(replacement, history);
+  draft.value.segments[index] = replacement;
   syncPolicy();
 }
 function addSegment() {
@@ -130,9 +169,10 @@ function removeSegment(index: number) {
 <template>
   <section class="code-format">
     <RecordContentSectionHeading :title="t('format', '编码格式')" />
-    <ol class="code-format__segments">
+    <ol class="code-format__segments" role="list">
       <li v-for="(segment, index) in draft.segments" :key="segmentKey(segment)">
         <div class="code-format__segment-heading">
+          <span class="code-format__segment-number">{{ index + 1 }}</span>
           <UiSelect
             :aria-label="t('segment-type', '片段类型')"
             :value="segment.segmentType"
@@ -146,16 +186,40 @@ function removeSegment(index: number) {
           >
             {{ t('bounded-help', '为公式或外部上下文设置长度与截取方式，确保编码不超出目标字段长度。') }}
           </UiHelp>
-          <UiButton :disabled="!editable || index === 0" @click="moveSegment(index, -1)">{{
-            t('up', '上移')
-          }}</UiButton
-          ><UiButton
-            :disabled="!editable || index === draft.segments.length - 1"
-            @click="moveSegment(index, 1)"
-            >{{ t('down', '下移') }}</UiButton
-          ><UiButton :disabled="!editable" @click="removeSegment(index)">{{ t('remove', '删除') }}</UiButton>
+          <div class="code-format__segment-actions">
+            <UiButton
+              type="text"
+              icon-name="up"
+              icon-only
+              size="small"
+              :title="t('up', '上移')"
+              :aria-label="t('up', '上移')"
+              :disabled="!editable || index === 0"
+              @click="moveSegment(index, -1)"
+            />
+            <UiButton
+              type="text"
+              icon-name="down"
+              icon-only
+              size="small"
+              :title="t('down', '下移')"
+              :aria-label="t('down', '下移')"
+              :disabled="!editable || index === draft.segments.length - 1"
+              @click="moveSegment(index, 1)"
+            />
+            <UiButton
+              type="text"
+              icon-name="delete"
+              icon-only
+              size="small"
+              :title="t('remove', '删除')"
+              :aria-label="t('remove', '删除')"
+              :disabled="!editable"
+              @click="removeSegment(index)"
+            />
+          </div>
         </div>
-        <div class="code-format__grid">
+        <div v-if="segment.segmentType !== 'SEQUENCE'" class="code-format__grid">
           <label class="code-format__field" v-if="segment.segmentType === 'CONSTANT'"
             >{{ t('constant', '固定文字') }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
           /></label>
@@ -167,8 +231,14 @@ function removeSegment(index: number) {
           /></label>
           <label class="code-format__field" v-if="segment.segmentType === 'CONTEXT_VAR'"
             >{{ t('context', '动作传入的上下文名称')
-            }}<UiInput v-model:value="segment.sourceRef" :disabled="!editable"
-          /></label>
+            }}<UiSelect
+              v-if="(props.trigger ?? draft.fieldTrigger ?? 'SAVE') !== 'EXPLICIT'"
+              v-model:value="segment.sourceRef"
+              :disabled="!editable"
+              :options="sourceOptions"
+            />
+            <UiInput v-else v-model:value="segment.sourceRef" :disabled="!editable" />
+          </label>
           <label class="code-format__field" v-if="segment.segmentType === 'SYSTEM_TIME'"
             >{{ t('date-format', '时间格式')
             }}<UiSelect
@@ -200,6 +270,12 @@ function removeSegment(index: number) {
             }}<span v-if="hasAdvancedSettings(segment)"> · {{ advancedSummary(segment) }}</span>
           </summary>
           <div class="code-format__grid">
+            <p
+              v-if="segment.segmentType !== 'SEQUENCE' && !segment.length"
+              class="code-format__help code-format__wide"
+            >
+              {{ t('length-dependent-hint', '设置片段长度后，补位与超长截取才会生效。') }}
+            </p>
             <label v-if="!['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)" class="code-format__field"
               >{{
                 segment.segmentType === 'SEQUENCE'
@@ -207,25 +283,26 @@ function removeSegment(index: number) {
                   : t('length', '片段长度')
               }}<UiInput
                 :value="segment.length ?? undefined"
+                :placeholder="segment.segmentType === 'SEQUENCE' ? inheritedSequenceLength : undefined"
                 type="number"
                 :disabled="!editable"
                 @update:value="segment.length = numeric($event)"
             /></label>
-            <label class="code-format__field"
-              >{{ t('separator', '片段分隔符')
-              }}<UiInput v-model:value="segment.separator" :disabled="!editable"
-            /></label>
-            <label class="code-format__field"
+            <label
+              v-if="segment.segmentType !== 'SEQUENCE' || (segment.padMode ?? 'NONE') !== 'NONE'"
+              class="code-format__field"
               >{{ t('padding', '补位')
               }}<UiSelect
                 v-model:value="segment.padMode"
                 :disabled="!editable"
                 :options="enumOptions('padding', { NONE: '不补位', LEFT: '左侧补位', RIGHT: '右侧补位' })"
             /></label>
-            <label class="code-format__field" v-if="segment.padMode !== 'NONE'"
+            <label class="code-format__field" v-if="(segment.padMode ?? 'NONE') !== 'NONE'"
               >{{ t('pad-char', '补位字符') }}<UiInput v-model:value="segment.padChar" :disabled="!editable"
             /></label>
-            <label class="code-format__field"
+            <label
+              v-if="segment.segmentType !== 'SEQUENCE' || (segment.truncatePolicy ?? 'NONE') !== 'NONE'"
+              class="code-format__field"
               >{{ t('truncate', '超长截取')
               }}<UiSelect
                 v-model:value="segment.truncatePolicy"
@@ -233,6 +310,12 @@ function removeSegment(index: number) {
                 :options="enumOptions('truncate', { NONE: '保留原值', LEFT: '截去左侧', RIGHT: '截去右侧' })"
             /></label>
             <label class="code-format__field"
+              >{{ t('separator', '片段后分隔符')
+              }}<UiInput v-model:value="segment.separator" :disabled="!editable"
+            /></label>
+            <label
+              v-if="hasNullableSource(segment) || (segment.nullPolicy ?? 'ERROR') !== 'ERROR'"
+              class="code-format__field"
               >{{ t('null-policy', '来源为空时')
               }}<UiSelect
                 v-model:value="segment.nullPolicy"
@@ -242,18 +325,28 @@ function removeSegment(index: number) {
                     ERROR: '拒绝生成',
                     SKIP_SEGMENT: '跳过该片段',
                     USE_DEFAULT: '使用默认文字',
-                  })
+                  }).map((option) =>
+                    segment.segmentType === 'VALUE_MAPPING' && option.value === 'USE_DEFAULT'
+                      ? { ...option, label: t('use-default-source', '使用来源默认值') }
+                      : option,
+                  )
                 "
             /></label>
             <label
               class="code-format__field"
               v-if="segment.nullPolicy === 'USE_DEFAULT' && segment.segmentType !== 'CONSTANT'"
-              >{{ t('default-text', '默认文字')
-              }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
-            /></label>
+              >{{
+                segment.segmentType === 'VALUE_MAPPING'
+                  ? t('mapping-fallback', '来源默认值')
+                  : t('default-text', '默认文字')
+              }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable" />
+              <span v-if="segment.segmentType === 'VALUE_MAPPING'" class="code-format__help">{{
+                t('mapping-fallback-hint', '默认值仍需匹配下方映射。')
+              }}</span>
+            </label>
             <UiCheckbox
-              v-if="segment.segmentType !== 'SEQUENCE'"
-              class="code-format__basis"
+              v-if="canGroupSequence(segment) || segment.sequenceBasis"
+              class="code-format__basis code-format__wide"
               v-model:checked="segment.sequenceBasis"
               :disabled="!editable"
               >{{ t('basis', '按该片段分别计数') }}</UiCheckbox
@@ -304,9 +397,16 @@ function removeSegment(index: number) {
         </div>
       </li>
     </ol>
-    <UiButton :disabled="!editable" @click="addSegment">{{ t('add-segment', '增加片段') }}</UiButton>
+    <UiButton
+      type="dashed"
+      icon-name="plus"
+      :aria-label="t('add-segment', '增加片段')"
+      :disabled="!editable"
+      @click="addSegment"
+      >{{ t('add-segment', '增加片段') }}</UiButton
+    >
     <div v-if="draft.sequencePolicy" class="code-format__grid">
-      <h3 class="code-format__wide">{{ t('sequence', '流水策略') }}</h3>
+      <RecordContentSectionHeading class="code-format__wide" :title="t('sequence', '流水策略')" />
       <label class="code-format__field"
         >{{ t('sequence-length', '流水长度')
         }}<UiInput
@@ -352,7 +452,9 @@ function removeSegment(index: number) {
               type="number"
               :disabled="!editable"
               @update:value="draft!.sequencePolicy!.maxValue = numeric($event)"
-          /></label>
+            />
+            <span v-if="sequenceLimit" class="code-format__help">{{ sequenceLimit }}</span>
+          </label>
           <label class="code-format__field"
             >{{ t('overflow', '达到上限后')
             }}<UiSelect
@@ -366,11 +468,14 @@ function removeSegment(index: number) {
   </section>
 </template>
 <style scoped>
+.code-format {
+  container: code-rule-format / inline-size;
+}
 .code-format__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin: 14px 0;
+  margin: 10px 0;
 }
 .code-format__field {
   grid-template-columns: minmax(0, 1fr);
@@ -387,14 +492,15 @@ function removeSegment(index: number) {
 .code-format__wide {
   grid-column: 1 / -1;
 }
-.code-format h3 {
-  font-size: 14px;
-  margin: 8px 0;
-}
 .code-format__segments {
   display: grid;
   gap: 12px;
-  padding-left: 20px;
+  padding: 0;
+  margin: 12px 0;
+  list-style: none;
+}
+.code-format__segments > li > .code-format__grid > .code-format__field:only-child {
+  grid-column: 1 / -1;
 }
 .code-format__segments > li {
   padding: 12px;
@@ -407,9 +513,25 @@ function removeSegment(index: number) {
   gap: 8px;
   flex-wrap: wrap;
 }
-.code-format__segment-heading > :first-child {
+.code-format__segment-heading :deep(.ui-select-pass-through > .ant-select) {
   flex: 1;
-  min-width: 140px;
+  min-width: 120px;
+}
+.code-format__segment-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--muyun-hover-subtle);
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+.code-format__segment-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
 }
 .code-format__advanced summary,
 .code-format__sequence-advanced summary {
@@ -434,8 +556,9 @@ function removeSegment(index: number) {
 .code-format__help {
   color: var(--muyun-text-secondary);
   font-size: 12px;
+  margin: 0;
 }
-@media (max-width: 760px) {
+@container code-rule-format (max-width: 520px) {
   .code-format__mapping-row {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
@@ -445,6 +568,8 @@ function removeSegment(index: number) {
   .code-format__mapping-remove {
     justify-self: end;
   }
+}
+@container code-rule-format (max-width: 380px) {
   .code-format__grid {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -27,13 +27,17 @@ public class CodeConfigurationService {
     private final MetadataFieldService fields;
     private final ModuleMetadataFieldService bindings;
     private final MetadataFieldDefinitionCompiler compiler;
+    private final MetadataFieldReferenceConfigService references;
+    private final net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService permissions;
     private final FormulaEngine formulas = new FormulaEngine();
 
     public CodeConfigurationService(CodeTargetCatalog statics, PlatformModuleService modules,
             ModuleMetadataRelationService relations, MetadataService metadata, MetadataFieldService fields,
-            ModuleMetadataFieldService bindings, MetadataFieldDefinitionCompiler compiler) {
+            ModuleMetadataFieldService bindings, MetadataFieldDefinitionCompiler compiler,
+            MetadataFieldReferenceConfigService references, net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService permissions) {
         this.statics = statics; this.modules = modules; this.relations = relations; this.metadata = metadata;
         this.fields = fields; this.bindings = bindings; this.compiler = compiler;
+        this.references = Objects.requireNonNull(references); this.permissions = Objects.requireNonNull(permissions);
     }
 
     public record Source(String fieldName, String title, String type, Integer length, TextReference titleSource, String ownerTitle) {
@@ -56,6 +60,18 @@ public class CodeConfigurationService {
     }
     public record BindingCommand(String moduleAlias, String entityAlias, String fieldName,
                                  CodeFieldRole role, CodeTrigger trigger, Integer expectedVersion) { }
+
+    /** Model configuration facts only; independent of tenant-owned numbering rules and runtime activation. */
+    public record Availability(boolean configurable, String reason) { }
+
+    public Availability availability(String moduleAlias) {
+        PlatformModule module = modules.resolveVisibleModule(moduleAlias);
+        if (module == null) return new Availability(false, "unavailable");
+        List<Target> owned = targets(moduleAlias);
+        if (owned.stream().anyMatch(target -> !target.fields().isEmpty())) return new Availability(true, null);
+        if (module.getModuleKind() != ModuleKind.DYNAMIC) return new Availability(false, "not-declared");
+        return new Availability(false, owned.isEmpty() ? "no-model" : "no-fields");
+    }
 
     public List<Target> targets(String moduleAlias) {
         List<Target> result = new ArrayList<>();
@@ -114,6 +130,7 @@ public class CodeConfigurationService {
                 sources.add(new Source(field.getFieldName(), field.getTitle(), definition.type().name(), definition.length()));
             if (BusinessCodeCapabilityModule.isEligible(definition) && !Boolean.TRUE.equals(field.getSystemManaged())
                     && field.getOwnerFieldId() == null
+                    && references.findForRelation(field.getId(), relation.getId()) == null
                     && (binding == null || binding.getReferenceModuleAlias() == null || binding.getReferenceModuleAlias().isBlank())
                     && !field.getFieldName().equals(relation.getForeignKey()))
                 candidates.add(new Field(field.getFieldName(), field.getTitle(), definition.length(), field.getId(),
@@ -166,20 +183,38 @@ public class CodeConfigurationService {
         return requireTarget(target.moduleAlias(), target.entityAlias());
     }
 
+    /** Executed inside the rule save transaction; previews and disabled drafts never install a declaration. */
+    public void prepareActivation(CodeRule rule) {
+        if (!Boolean.TRUE.equals(rule.getEnabled())) return;
+        Target target = requireTarget(rule.getModuleAlias(), rule.getEntityAlias());
+        // Validate and normalize all supplied identities before the first shared metadata write.
+        validateTarget(rule);
+        Field field = target.requireField(rule.getFieldName());
+        if (!target.source().equals("DYNAMIC") || field.role() != null) return;
+        permissions.requireAuthorized(net.ximatai.muyun.spring.common.platform.ActionExecutionContext.ofActionCode(
+                CodeRuleService.MODULE_ALIAS, "configureBinding", Set.of(), net.ximatai.muyun.spring.common.identity.CurrentUserContext.currentUser()));
+        if (!net.ximatai.muyun.spring.ability.TransactionScopeSupport.isTransactionActive())
+            throw new IllegalStateException("First code activation requires the rule transaction");
+        bind(new BindingCommand(target.moduleAlias(), target.entityAlias(), field.fieldName(), rule.getFieldRole(), rule.getFieldTrigger(), field.bindingVersion()));
+    }
+
     public Field validateTarget(CodeRule rule) {
         Target target = requireTarget(rule.getModuleAlias(), rule.getEntityAlias());
         Field field = target.fields().stream().filter(candidate -> Objects.equals(candidate.fieldName(), rule.getFieldName())
                 || rule.getMetadataFieldId() != null && rule.getMetadataFieldId().equals(candidate.metadataFieldId())
                 || rule.getModuleMetadataFieldId() != null && rule.getModuleMetadataFieldId().equals(candidate.bindingId()))
                 .findFirst().orElseThrow(() -> rejection("unknown-target", "Unknown business code target field"));
-        if (field.role() == null) throw rejection("binding-required", "Declare the business code field before configuring a rule");
+        if (field.role() == null && !target.source().equals("DYNAMIC"))
+            throw rejection("binding-required", "Declare the business code field before configuring a rule");
         if (rule.getFieldName() != null && !rule.getFieldName().equals(field.fieldName())
                 || rule.getMetadataFieldId() != null && !rule.getMetadataFieldId().equals(field.metadataFieldId())
                 || rule.getModuleMetadataFieldId() != null && !rule.getModuleMetadataFieldId().equals(field.bindingId()))
             throw rejection("identifier-mismatch", "Business code target identifiers disagree");
-        rule.setFieldName(field.fieldName()); rule.setFieldRole(field.role());
+        CodeFieldRole role = field.role() != null ? field.role() : rule.getFieldRole() == null ? CodeFieldRole.NORMAL : rule.getFieldRole();
+        CodeTrigger trigger = field.role() != null ? field.trigger() : rule.getFieldTrigger() == null ? CodeTrigger.SAVE : rule.getFieldTrigger();
+        rule.setFieldName(field.fieldName()); rule.setFieldRole(role); rule.setFieldTrigger(trigger);
         rule.setMetadataFieldId(field.metadataFieldId()); rule.setModuleMetadataFieldId(field.bindingId());
-        return field;
+        return new Field(field.fieldName(), field.title(), field.length(), field.metadataFieldId(), field.bindingId(), field.bindingVersion(), role, trigger);
     }
 
     public void validateRule(CodeRule rule, List<CodeRuleSegment> segments) {

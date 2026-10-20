@@ -40,6 +40,7 @@ writeFileSync(
       // Importing the runtime registers first-party page and workspace contributions.
       // Consumers must retain these initializers as well as the explicit stylesheet.
       sideEffects: true,
+      dependencies: { dayjs: rootPackage.dependencies.dayjs },
       peerDependencies: {
         vue: rootPackage.dependencies.vue,
         'ant-design-vue': rootPackage.dependencies['ant-design-vue'],
@@ -84,7 +85,10 @@ await build({
     outDir: join(stagingDirectory, 'dist'),
     lib: { entry: consumerEntry, formats: ['es'], fileName: 'index' },
     rollupOptions: {
-      external: ['vue', 'ant-design-vue', '@ant-design/icons-vue'],
+      external: (id) =>
+        ['vue', 'ant-design-vue', '@ant-design/icons-vue', 'dayjs'].includes(id) ||
+        id.startsWith('ant-design-vue/') ||
+        id.startsWith('dayjs/'),
     },
   },
 });

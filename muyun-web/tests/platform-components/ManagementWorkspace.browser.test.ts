@@ -106,9 +106,10 @@ it('keeps detail actions visible and locks only the workspace with a pending sor
 });
 
 it.each([1280, 1004, 600])(
-  'fits a two-navigator list in a %spx host and releases collapsed rows',
+  'fits the primary surface and preserves manual folds in a %spx host',
   async (width) => {
     await page.viewport(1600, 900);
+    const hostWidth = ref(width);
     const navigator = defineComponent({
       props: { title: String },
       setup(props) {
@@ -121,14 +122,16 @@ it.each([1280, 1004, 600])(
         setup() {
           providePageLayout('workspace');
           return () =>
-            h('div', { style: `width:${width}px;height:520px` }, [
-              h(ManagementWorkspace, { explorerCount: 2, listSurface: true }, () => [
+            h('div', { style: `width:${hostWidth.value}px;height:520px` }, [
+              h(ManagementWorkspace, { explorerCount: 2 }, () => [
                 ...['租户', '模块'].map((title) =>
                   h(ManagementExplorerColumn, { title, collapsible: true }, () => h(navigator, { title })),
                 ),
-                h('section', { class: 'test-primary', style: 'min-width:0;min-height:0' }, [
+                h(
+                  'section',
+                  { class: 'test-primary', style: 'min-width:0;min-height:0' },
                   h('button', '新增规则'),
-                ]),
+                ),
               ]),
             ]);
         },
@@ -136,30 +139,37 @@ it.each([1280, 1004, 600])(
       { attachTo: document.body },
     );
     try {
+      const host = wrapper.get<HTMLElement>('.management-workspace').element;
       const primary = wrapper.get('.test-primary').element;
-      const host = wrapper.get('.management-workspace').element;
-      const assertFits = () => {
-        const bounds = primary.getBoundingClientRect();
-        const container = host.getBoundingClientRect();
-        expect(bounds.right).toBeLessThanOrEqual(container.right + 1);
-        expect(bounds.bottom).toBeLessThanOrEqual(container.bottom + 1);
-        expect(bounds.width).toBeGreaterThan(200);
-        expect(bounds.height).toBeGreaterThan(150);
-      };
-      assertFits();
-      for (const title of ['租户', '模块']) {
-        await page.getByRole('button', { name: `收起${title}`, exact: true }).click();
-        await expect
-          .poll(() => wrapper.findAll('.management-explorer-column--collapsed').length)
-          .toBe(title === '租户' ? 1 : 2);
-        await expect
-          .poll(() => primary.getBoundingClientRect().right)
-          .toBeLessThanOrEqual(host.getBoundingClientRect().right + 1);
-        await expect
-          .poll(() => primary.getBoundingClientRect().bottom)
-          .toBeLessThanOrEqual(host.getBoundingClientRect().bottom + 1);
-        assertFits();
+      const folded = () => wrapper.findAll('.management-explorer-column--collapsed');
+      await expect.poll(() => folded().length).toBe(width >= 1144 ? 0 : width >= 900 ? 1 : 2);
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      expect(primary.getBoundingClientRect().width).toBeGreaterThanOrEqual(Math.min(560, width - 48));
+      if (width === 1004) {
+        await page.getByRole('button', { name: '收起模块', exact: true }).click();
+        await expect.poll(() => folded().length).toBe(2);
+        await expect.poll(() => primary.getBoundingClientRect().width).toBe(width - 48);
+        await page.getByRole('button', { name: '展开模块', exact: true }).click();
+        await expect.poll(() => folded().length).toBe(1);
       }
+      if (width < 1144) {
+        await page.getByRole('button', { name: '展开租户', exact: true }).click();
+        await expect
+          .poll(() => wrapper.find('.management-explorer-column--preview-open').exists())
+          .toBe(true);
+        expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      }
+      hostWidth.value = 1280;
+      await expect.poll(() => folded().length).toBe(0);
+      await page.getByRole('button', { name: '收起租户', exact: true }).click();
+      await expect.poll(() => folded().length).toBe(1);
+      hostWidth.value = 600;
+      await expect.poll(() => folded().length).toBe(2);
+      hostWidth.value = 1280;
+      await expect.poll(() => folded().length).toBe(1);
+      expect(folded()[0]!.text()).toContain('租户');
+      await page.getByRole('button', { name: '展开租户', exact: true }).click();
+      await expect.poll(() => folded().length).toBe(0);
       await page.getByRole('button', { name: '新增规则', exact: true }).click();
     } finally {
       wrapper.unmount();

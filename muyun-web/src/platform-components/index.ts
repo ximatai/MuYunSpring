@@ -61,6 +61,7 @@ export { default as RecordDetailExtensionSection } from './RecordDetailExtension
 export { default as RecordRelationTabs } from './RecordRelationTabs.vue';
 export { default as DetailRelationListPanel } from './DetailRelationListPanel.vue';
 export { default as RecordDetailPanel } from './RecordDetailPanel.vue';
+export { default as RecordRelationActionButton } from './RecordRelationActionButton.vue';
 export { default as RecordPanelButton } from './RecordPanelButton.vue';
 export { default as RecordSelectionCheckbox } from './RecordSelectionCheckbox.vue';
 export { default as RecordPanelState } from './RecordPanelState.vue';

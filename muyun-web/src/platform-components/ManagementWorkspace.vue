@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, provide, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, provide, reactive, ref } from 'vue';
 import {
   collapsedExplorerTabHeight,
+  workspaceAutoCollapsedIds,
   MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT,
   MANAGEMENT_WORKSPACE_LAYOUT,
 } from './managementWorkspaceLayout';
@@ -54,14 +55,44 @@ provide(
   computed(() => props.editing === true || sortingBusy.value),
 );
 
+const hostElement = ref<HTMLElement>();
+const hostWidth = ref(0);
+let resizeObserver: ResizeObserver | undefined;
+onMounted(() => {
+  if (!hostElement.value || typeof ResizeObserver === 'undefined') return;
+  hostWidth.value = hostElement.value.clientWidth;
+  resizeObserver = new ResizeObserver(([entry]) => {
+    if (entry) hostWidth.value = entry.contentRect.width;
+  });
+  resizeObserver.observe(hostElement.value);
+});
+onUnmounted(() => resizeObserver?.disconnect());
+
 const explorerCount = computed(() => Math.max(0, Math.trunc(props.explorerCount)));
 type ExplorerState = ManagementWorkspaceExplorerRegistration & { collapsed: boolean; order: number };
 
 const explorers = reactive<Record<string, ExplorerState>>({});
 let nextExplorerOrder = 0;
+// Composer owns its positional canvas layout. Ordinary management navigation
+// yields space to its primary surface, without persisting automatic decisions.
+const autoCollapsedIds = computed(() =>
+  workspaceAutoCollapsedIds({
+    width: props.layout === 'composer' ? 0 : hostWidth.value,
+    explorerCount: explorerCount.value,
+    explorers: Object.values(explorers).sort((a, b) => a.order - b.order),
+    primaryMinWidth: props.detailSurface
+      ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth +
+        MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth +
+        MANAGEMENT_WORKSPACE_LAYOUT.columnGap
+      : props.listSurface
+        ? MANAGEMENT_WORKSPACE_LAYOUT.listMinWidth
+        : MANAGEMENT_WORKSPACE_LAYOUT.detailMinWidth,
+  }),
+);
+const adaptive = computed(() => props.layout !== 'composer' && Object.keys(explorers).length > 0);
 const collapsedExplorers = computed(() =>
   Object.values(explorers)
-    .filter((explorer) => explorer.collapsed)
+    .filter((explorer) => isExplorerCollapsed(explorer.id))
     .sort((left, right) => left.order - right.order),
 );
 const collapsedExplorerCount = computed(() => collapsedExplorers.value.length);
@@ -96,12 +127,12 @@ function unregisterExplorer(id: string) {
 }
 
 function isExplorerCollapsed(id: string) {
-  return explorers[id]?.collapsed === true;
+  return explorers[id]?.collapsed === true || autoCollapsedIds.value.includes(id);
 }
 
 function toggleExplorer(id: string) {
   const explorer = explorers[id];
-  if (explorer) explorer.collapsed = !explorer.collapsed;
+  if (explorer) explorer.collapsed = !isExplorerCollapsed(id);
 }
 
 function collapsedExplorerOffset(id: string) {
@@ -127,8 +158,10 @@ const pageLayout = usePageLayout();
 
 <template>
   <section
+    ref="hostElement"
     class="management-workspace"
     :class="{
+      'management-workspace--adaptive': adaptive,
       'management-workspace--constrained': pageLayout === 'workspace',
       'management-workspace--composer': layout === 'composer',
       'management-workspace--detail-surface': detailSurface,
@@ -266,22 +299,21 @@ const pageLayout = usePageLayout();
 /* Keep an explorer and its list usable inside a narrow workbench pane.  The
    desktop minimum widths are intentionally generous, but must not force the
    host to horizontally clip its primary navigation at tablet widths. */
-/* Two navigators need to release the desktop list minimum sooner than one. */
+/* Navigation keeps the same platform width across surfaces; only the primary
+   list releases its desktop minimum. Two navigators need that release sooner. */
 @container management-workspace (max-width: 1360px) {
   .management-workspace--list-surface.management-workspace--multiple-explorers > .management-workspace__grid {
     grid-template-columns:
-      repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
-      minmax(0, 1.5fr);
-    gap: 8px;
+      repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
+      minmax(0, 1fr);
   }
 }
 
 @container management-workspace (max-width: 1080px) {
   .management-workspace--list-surface > .management-workspace__grid {
     grid-template-columns:
-      repeat(var(--muyun-management-explorer-count), minmax(0, 1fr))
-      minmax(0, 1.5fr);
-    gap: 8px;
+      repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
+      minmax(0, 1fr);
   }
 }
 
@@ -291,5 +323,14 @@ const pageLayout = usePageLayout();
     grid-template-columns: 1fr;
     grid-template-rows: repeat(var(--muyun-management-explorer-count), minmax(80px, 0.35fr)) minmax(0, 1fr);
   }
+}
+
+/* Keep navigation horizontal; folded navigators remain available on the rail.
+   At phone widths, the primary card itself may use the remaining host width. */
+.management-workspace--adaptive:not(.management-workspace--detail-surface) > .management-workspace__grid {
+  grid-template-columns:
+    repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
+    minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 </style>

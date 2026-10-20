@@ -356,8 +356,11 @@ export interface ModulePageActionContribution extends RecordActionItem {
 
 export interface ModulePageRecordActionContribution extends RecordActionItem {
   key: string;
-  /** Resolves record-specific visibility or enabled state without letting business code own the table shell. */
-  state?(record: QueryListRecord): Partial<Pick<RecordActionItem, 'visible' | 'disabled'>> | undefined;
+  /** Resolves record-specific visibility or enabled state. The optional page context identifies authorized auxiliary facts loaded by activate(). */
+  state?(
+    record: QueryListRecord,
+    context?: ModulePageActionStateContext,
+  ): Partial<Pick<RecordActionItem, 'visible' | 'disabled'>> | undefined;
   run(context: ModulePageRecordActionContext): void | Promise<void>;
 }
 

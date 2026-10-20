@@ -232,7 +232,7 @@ it('renders an external metadata field inline before it is dropped into an exist
     expect(
       preview.get('.record-form-field-host:has(.page-composer-external-field-preview--dragging)').text(),
     ).toContain('复核日期');
-    expect(preview.get('input[type="date"]').attributes('type')).toBe('date');
+    expect(preview.getComponent({ name: 'UiDatePicker' }).props('mode')).toBe('date');
     expect(preview.findAll('.record-form-field').map((field) => field.text())).toEqual([
       expect.stringContaining('复核日期'),
       expect.stringContaining('考试名称'),
@@ -723,8 +723,9 @@ it('uses relation value facts for the same scalar editor families as the runtime
 
   expect(
     wrapper
-      .get('[data-page-composition-layout-key="edit:relation:participants:field:deliveryDate"] input')
-      .attributes('type'),
+      .get('[data-page-composition-layout-key="edit:relation:participants:field:deliveryDate"]')
+      .getComponent({ name: 'UiDatePicker' })
+      .props('mode'),
   ).toBe('date');
   expect(
     wrapper

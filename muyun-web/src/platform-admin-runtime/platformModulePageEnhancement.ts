@@ -6,6 +6,8 @@ import { codeConfigurationWorkspaceView } from '../views/codeConfigurationWorksp
 import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
 import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
+import { activateModuleCodeCatalog, canConfigureModuleCodes } from './moduleCodeConfiguration';
+import ModuleCodeConfigurationStatus from './ModuleCodeConfigurationStatus.vue';
 
 // Workspace definitions use the platform-workbench's serializable input
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
@@ -25,6 +27,13 @@ const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as Mo
 export const platformModulePageEnhancement: ModulePageEnhancement = {
   id: 'platform-module-workspace-actions',
   target: { moduleAlias: 'platform.module' },
+  activate: ({ module }) => activateModuleCodeCatalog(module),
+  card: {
+    assistant: {
+      component: ModuleCodeConfigurationStatus,
+      placement: { boundary: 'inside', position: 'bottom' },
+    },
+  },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
   workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView, workflowWorkspaceView],
@@ -42,10 +51,16 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
         key: 'module-business-code',
         title: '业务编码',
         titleKey: 'platform.code.config.title',
-        state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
-        run({ record, openWorkspaceTab }) {
+        state: (record, context) => ({
+          visible:
+            !!context &&
+            !!moduleAliasOf(record) &&
+            canConfigureModuleCodes(context.module, moduleAliasOf(record)!),
+        }),
+        run({ record, module, openWorkspaceTab }) {
           const moduleAlias = moduleAliasOf(record);
-          if (moduleAlias) openWorkspaceTab(codeWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
+          if (moduleAlias && canConfigureModuleCodes(module, moduleAlias))
+            openWorkspaceTab(codeWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
         },
       },
       {

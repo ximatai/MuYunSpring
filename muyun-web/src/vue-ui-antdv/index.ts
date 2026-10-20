@@ -110,3 +110,6 @@ export { useUiBlockingOverlayState } from './blockingOverlays';
 
 export { default as UiLanguageProvider } from './components/UiLanguageProvider.vue';
 export { registerUiLanguageLocales } from './languageLocales';
+
+export { default as UiDatePicker } from './components/UiDatePicker.vue';
+export type { UiDatePickerMode, UiDatePickerPrecision } from './datePickerValue';

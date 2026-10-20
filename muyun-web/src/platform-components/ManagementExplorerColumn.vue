@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { useLanguageContext } from '@muyun/web-core';
-import { computed, getCurrentInstance, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue';
+import {
+  computed,
+  getCurrentInstance,
+  inject,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch,
+} from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import {
   MANAGEMENT_EXPLORER_COLUMN_CONTEXT,
@@ -87,7 +97,12 @@ watch(
   { immediate: true },
 );
 
+function dismissPreview(event: KeyboardEvent) {
+  if (event.key === 'Escape' && previewOpen.value) closePreview();
+}
+onMounted(() => document.addEventListener('keydown', dismissPreview));
 onUnmounted(() => {
+  document.removeEventListener('keydown', dismissPreview);
   closePreview();
   clearCollapseTimers();
   if (expandStartTimer) clearTimeout(expandStartTimer);
@@ -102,9 +117,15 @@ function restore() {
   const measuredTabWidth = tabTriggerElement.value?.getBoundingClientRect().width ?? 0;
   tabTransitionWidth.value =
     measuredTabWidth > 0 ? measuredTabWidth : MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT.railWidth;
+  // A narrow host keeps the navigator in an overlay instead of pushing the
+  // primary card outside the workspace. Clicking also works without hover.
+  workspace?.toggleExplorer(id);
+  if (collapsed.value) {
+    openPreview();
+    return;
+  }
   closePreview();
   expanding.value = true;
-  workspace?.toggleExplorer(id);
   void nextTick(() => {
     animateWorkspacePush(workspaceLayoutBeforeRestore);
     // Read the newly restored panel once so its drawer start state is committed
@@ -449,7 +470,10 @@ watch(collapsed, (isCollapsed) => {
   top: 0;
   left: 100%;
   visibility: hidden;
-  width: var(--muyun-management-explorer-width, 280px);
+  width: min(
+    var(--muyun-management-explorer-width, 280px),
+    calc(100cqw - var(--muyun-management-collapsed-rail-offset, 48px))
+  );
   height: min(600px, calc(100vh - 120px));
   min-height: 320px;
   border-radius: 8px;

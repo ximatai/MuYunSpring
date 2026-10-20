@@ -56,6 +56,15 @@ export interface CodeTarget {
   fields: CodeField[];
   sources: CodeSource[];
 }
+export interface CodeConfigurationAvailability {
+  configurable: boolean;
+  reason?: 'no-model' | 'no-fields' | 'not-declared' | 'unavailable' | null;
+}
+export function readCodeConfigurationAvailability(http: HttpClient, moduleAlias: string) {
+  return http.request<CodeConfigurationAvailability>({
+    path: `/platform.module/${encodeURIComponent(moduleAlias)}/code-configuration`,
+  });
+}
 export interface CodeMapping {
   id?: string;
   version?: number;
@@ -102,6 +111,7 @@ export interface CodeRule {
   moduleMetadataFieldId?: string | null;
   metadataFieldId?: string | null;
   fieldRole?: CodeRole;
+  fieldTrigger?: CodeTrigger;
   mode: CodeMode;
   enabled: boolean;
   linkedUpdate: boolean;
@@ -151,6 +161,7 @@ export function newCodeRule(target: CodeTarget, field: CodeField): CodeRule {
     moduleMetadataFieldId: field.bindingId,
     metadataFieldId: field.metadataFieldId,
     fieldRole: field.role ?? 'NORMAL',
+    fieldTrigger: field.trigger ?? 'SAVE',
     mode: 'AUTO',
     enabled: false,
     linkedUpdate: false,
@@ -161,6 +172,19 @@ export function newCodeRule(target: CodeTarget, field: CodeField): CodeRule {
     segments: [newCodeSegment(), newCodeSegment('SEQUENCE')],
     sequencePolicy: newCodeSequence(),
   };
+}
+/** Match the rule's supported dependency kinds without parsing formula expressions in the browser. */
+export function codeRuleSupportsRenumbering(rule: CodeRule): boolean {
+  return (
+    rule.mode !== 'MANUAL' &&
+    rule.fieldTrigger !== 'EXPLICIT' &&
+    rule.segments.some(
+      (segment) =>
+        segment.segmentType === 'FORMULA' ||
+        (['FIELD_VALUE', 'CONTEXT_VAR', 'VALUE_MAPPING'].includes(segment.segmentType) &&
+          !!segment.sourceRef?.trim()),
+    )
+  );
 }
 export function prepareCodeRule(
   rule: CodeRule,
@@ -194,6 +218,7 @@ export function prepareCodeRule(
     result.linkedUpdate = false;
   } else if (!result.segments.some((segment) => segment.segmentType === 'SEQUENCE'))
     result.sequencePolicy = null;
+  if (!codeRuleSupportsRenumbering(result)) result.linkedUpdate = false;
   result.segments.forEach((segment, index) => {
     segment.sortOrder = index;
   });
@@ -216,6 +241,14 @@ export function codeTrialSources(target: CodeTarget, rule?: CodeRule): CodeSourc
   }
   return [...selected.values()];
 }
+/** Source types are shared by static Java declarations and dynamic column metadata. */
+export function codeTrialSourceKind(source: CodeSource): 'boolean' | 'number' | 'date' | 'datetime' | 'text' {
+  if (/^(BOOLEAN|BOOL)$/i.test(source.type)) return 'boolean';
+  if (/^(INT|INTEGER|LONG|DECIMAL|DOUBLE|FLOAT|NUMBER|BIGDECIMAL)$/i.test(source.type)) return 'number';
+  if (/^(DATE|LOCALDATE)$/i.test(source.type)) return 'date';
+  if (/^(DATETIME|LOCALDATETIME)$/i.test(source.type)) return 'datetime';
+  return 'text';
+}
 /** No formula evaluation in the browser; only coerce explicitly entered trial values. */
 export function codeTrialContext(
   sources: readonly CodeSource[],
@@ -226,7 +259,7 @@ export function codeTrialContext(
   for (const source of sources) {
     const value = values[source.fieldName];
     if (value === undefined || value === '') continue;
-    if (/^(INT|INTEGER|LONG|DECIMAL|DOUBLE|FLOAT|NUMBER|BIGDECIMAL)$/i.test(source.type)) {
+    if (codeTrialSourceKind(source) === 'number') {
       const number = Number(value);
       if (!Number.isFinite(number))
         throw new OperationUsageError(
@@ -238,7 +271,7 @@ export function codeTrialContext(
           ),
         );
       result[source.fieldName] = number;
-    } else if (/^(BOOLEAN|BOOL)$/i.test(source.type)) {
+    } else if (codeTrialSourceKind(source) === 'boolean') {
       if (value !== 'true' && value !== 'false')
         throw new OperationUsageError(
           codeOperationErrorMessage(
@@ -292,7 +325,12 @@ export function createCodeConfigurationClient(
         }),
       );
     },
-    async preview(rule: CodeRule, context: Record<string, unknown>, sequenceValue: number) {
+    async preview(
+      rule: CodeRule,
+      context: Record<string, unknown>,
+      sequenceValue: number,
+      signal?: AbortSignal,
+    ) {
       if (!Number.isSafeInteger(sequenceValue) || sequenceValue < 0)
         throw new OperationUsageError(
           codeOperationErrorMessage(
@@ -305,6 +343,7 @@ export function createCodeConfigurationClient(
         await http.request<CodePreview>({
           method: 'POST',
           path: root + '/preview',
+          ...(signal ? { signal } : {}),
           body: {
             rule: prepareCodeRule(rule, language),
             context,

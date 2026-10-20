@@ -167,6 +167,37 @@ class PlatformConfigurationWebControllerTest {
     }
 
     @Test
+    void shouldReadModuleCodeAvailabilityWithoutRequiringATenantOrReturningRules() throws Exception {
+        var service = mock(PlatformModuleService.class);
+        var configuration = mock(net.ximatai.muyun.spring.platform.code.CodeConfigurationService.class);
+        var controller = new PlatformModuleWebController();
+        ReflectionTestUtils.setField(controller, "service", service);
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("configuration", configuration);
+        ReflectionTestUtils.setField(controller, "codeConfiguration", beans.getBeanProvider(net.ximatai.muyun.spring.platform.code.CodeConfigurationService.class));
+        when(configuration.availability("platform.localization")).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).isEmpty();
+            return new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Availability(false, "not-declared");
+        });
+        var mvc = abilityAwareMvc(controller);
+        mvc.perform(get("/platform.module/platform.localization/code-configuration"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configurable").value(false))
+                .andExpect(jsonPath("$.reason").value("not-declared"));
+        verify(configuration).availability("platform.localization");
+        org.mockito.Mockito.verifyNoMoreInteractions(configuration);
+        when(configuration.availability("tenant.invoice")).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            return new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Availability(true, null);
+        });
+        try (var scope = TenantContext.use("tenant-a")) {
+            assertThat(controller.codeConfiguration("tenant.invoice").configurable()).isTrue();
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+        }
+        assertThat(TenantContext.currentTenantId()).isEmpty();
+    }
+
+    @Test
     void shouldExposeStandardModuleTreeWithinNavigatorApplicationScope() throws Exception {
         PlatformModuleService service = mock(PlatformModuleService.class);
         PlatformModuleWebController controller = new PlatformModuleWebController();

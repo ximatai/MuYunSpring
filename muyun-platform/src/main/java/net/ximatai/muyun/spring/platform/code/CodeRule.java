@@ -42,6 +42,10 @@ public class CodeRule extends StandardEnabledSortableEntity {
             defaultVal = @Default(varchar = "NORMAL"))
     private CodeFieldRole fieldRole = CodeFieldRole.NORMAL;
 
+    /** Draft intent before first activation; calibrated from the shared field declaration afterwards. */
+    @Column(name = "field_trigger", type = ColumnType.VARCHAR, length = 32, comment = "Code field trigger snapshot")
+    private net.ximatai.muyun.spring.ability.code.CodeTrigger fieldTrigger;
+
     @Column(name = "mode", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code mode",
             defaultVal = @Default(varchar = "AUTO"))
     private CodeMode mode = CodeMode.AUTO;

@@ -9,6 +9,8 @@ import {
   platformModulePageEnhancement,
 } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 
+import { moduleCodeCatalog } from '@/platform-admin-runtime/moduleCodeConfiguration';
+import type { ModuleContext } from '@muyun/web-core';
 import { workspaceViewContributions } from '@/platform-admin-runtime/workspaceViewContributions';
 
 describe('platform module page enhancement', () => {
@@ -110,13 +112,34 @@ describe('platform module page enhancement', () => {
       'module-ui-orchestration-workspace',
     ]);
   });
-  it('opens the code workbench for static API-only modules and registers it under its own capability module', () => {
+  it('only opens code configuration for modules with actual configurable fields, including API-only modules', async () => {
     const action = (platformModulePageEnhancement.detail?.actions ?? []).find(
       (item) => item.key === 'module-business-code',
     )!;
-    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' })).toEqual({ visible: true });
+    const module = {
+      http: {
+        request: vi.fn(async ({ path }: { path: string }) => ({
+          configurable: path.includes('api.invoice'),
+          reason: 'not-declared',
+        })),
+      },
+    } as unknown as ModuleContext<Record<string, unknown>>;
+    const stateContext = { module };
+    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: false,
+    });
+    await moduleCodeCatalog(module).refresh('api.invoice');
+    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: true,
+    });
+    expect(action.state?.({ alias: 'platform.localization', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: false,
+    });
+    expect(action.state?.({ alias: 'draft.empty', moduleKind: 'dynamic' }, stateContext)).toEqual({
+      visible: false,
+    });
     const openWorkspaceTab = vi.fn();
-    action.run({ record: { alias: 'api.invoice', title: '接口单据' }, openWorkspaceTab } as never);
+    action.run({ record: { alias: 'api.invoice', title: '接口单据' }, module, openWorkspaceTab } as never);
     const [view, input] = openWorkspaceTab.mock.calls[0]!;
     expect(workspaceViewContributions).toContain(view);
     expect(view.moduleAlias).toBe('platform.code_rule');

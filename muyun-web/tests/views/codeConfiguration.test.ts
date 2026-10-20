@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
 import {
+  codeRuleSupportsRenumbering,
   codeTrialContext,
   codeSourceTitle,
   codeTrialSources,
@@ -58,6 +59,25 @@ describe('business code configuration client', () => {
     expect(prepareCodeRule(draft).sequencePolicy!.sequenceLength).toBe(6);
     draft.segments[1]!.length = 8;
     expect(prepareCodeRule(draft).segments[1]!.length).toBe(8);
+  });
+  it('only submits renumbering for automatic save rules with source dependencies', () => {
+    const draft = newCodeRule(target, { ...target.fields[0]!, trigger: 'SAVE' });
+    draft.linkedUpdate = true;
+    expect(codeRuleSupportsRenumbering(draft)).toBe(false);
+    expect(prepareCodeRule(draft).linkedUpdate).toBe(false);
+    for (const segmentType of ['FIELD_VALUE', 'VALUE_MAPPING', 'CONTEXT_VAR', 'FORMULA'] as const) {
+      draft.segments[0] = { ...newCodeSegment(segmentType), sourceRef: 'quantity' };
+      expect(codeRuleSupportsRenumbering(draft)).toBe(true);
+      expect(prepareCodeRule(draft).linkedUpdate).toBe(true);
+    }
+    draft.fieldTrigger = 'EXPLICIT';
+    expect(codeRuleSupportsRenumbering(draft)).toBe(false);
+    expect(prepareCodeRule(draft).linkedUpdate).toBe(false);
+    draft.fieldTrigger = 'SAVE';
+    draft.mode = 'MANUAL';
+    expect(codeRuleSupportsRenumbering(draft)).toBe(false);
+    expect(prepareCodeRule(draft).linkedUpdate).toBe(false);
+    expect(draft.linkedUpdate).toBe(true);
   });
   it('collects only direct dependencies, deduplicates them and preserves their declared input types', () => {
     const draft = newCodeRule(target, target.fields[0]!);

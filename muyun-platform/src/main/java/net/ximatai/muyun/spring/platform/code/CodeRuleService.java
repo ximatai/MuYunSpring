@@ -358,7 +358,9 @@ public class CodeRuleService extends AbstractAbilityService<CodeRule> implements
         if (rule.getFieldName() != null) {
             rule.setFieldName(PlatformNameRules.requireFieldName(rule.getFieldName(), "fieldName"));
         }
+        if (rule.getEnabled() == null) rule.setEnabled(Boolean.TRUE);
         CodeConfigurationLocks.lock(rule.getModuleAlias(), rule.getEntityAlias());
+        configuration.ifPresent(service -> service.prepareActivation(rule));
         validateTargetExists(rule);
         rule.setFieldName(PlatformNameRules.requireFieldName(rule.getFieldName(), "fieldName"));
         if (rule.getTitle() == null || rule.getTitle().isBlank()) {
