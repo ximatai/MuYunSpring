@@ -2,6 +2,7 @@
 import { Popover as APopover } from 'ant-design-vue';
 
 defineOptions({ name: 'UiPopover', inheritAttrs: false });
+const open = defineModel<boolean>('open');
 
 withDefaults(
   defineProps<{
@@ -25,7 +26,14 @@ withDefaults(
 </script>
 
 <template>
-  <APopover :trigger="trigger" :placement="placement" :class="$attrs.class" :style="$attrs.style">
+  <APopover
+    :open="open"
+    :trigger="trigger"
+    :placement="placement"
+    :class="$attrs.class"
+    :style="$attrs.style"
+    @open-change="open = $event"
+  >
     <slot />
     <template #content><slot name="content" /></template>
   </APopover>

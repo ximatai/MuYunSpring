@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { ref } from 'vue';
 import CodeConfigurationView from '@/views/CodeConfigurationView.vue';
 import { UiInput, UiSelect } from '@muyun/vue-ui-antdv';
-import type { CodeTarget } from '@/views/codeConfiguration';
+import { newCodeRule, type CodeTarget } from '@/views/codeConfiguration';
 const { request, can, user } = vi.hoisted(() => ({
   request: vi.fn(),
   can: vi.fn(() => true),
@@ -82,7 +82,8 @@ describe('CodeConfigurationView', () => {
     wrapper.findComponent({ name: 'RecordPicker' }).vm.$emit('update:value', 'tenant-a');
     await flushPromises();
     expect(request.mock.calls.some(([call]) => call.path.includes('/targets'))).toBe(true);
-    expect(wrapper.text()).toContain('字段角色和生成时机由业务模型预设');
+    expect(wrapper.text()).not.toContain('字段角色和生成时机由业务模型预设');
+    expect(wrapper.find('button[aria-label="字段接入说明"]').exists()).toBe(true);
     wrapper.unmount();
   });
   it('distinguishes a load failure from an empty catalog and offers a working retry', async () => {
@@ -100,7 +101,8 @@ describe('CodeConfigurationView', () => {
   it('edits a static API-only declaration, trials without saving, then persists the full rule tree', async () => {
     const wrapper = wrapperOf();
     await flushPromises();
-    expect(wrapper.text()).toContain('字段角色和生成时机由业务模型预设');
+    expect(wrapper.text()).not.toContain('字段角色和生成时机由业务模型预设');
+    expect(wrapper.find('button[aria-label="字段接入说明"]').exists()).toBe(true);
     await button(wrapper, '新增规则').trigger('click');
     expect(wrapper.findAllComponents(UiInput).some((input) => input.props('value') === 'NO-')).toBe(true);
     await button(wrapper, '试算').trigger('click');
@@ -182,6 +184,8 @@ describe('CodeConfigurationView', () => {
     const wrapper = wrapperOf();
     await flushPromises();
     expect(button(wrapper, '新增规则')).toBeUndefined();
+    expect(wrapper.get<HTMLDetailsElement>('.code-config__binding').element.open).toBe(true);
+    expect(wrapper.get('.code-config__binding summary').text()).toContain('未接入编码');
     await button(wrapper, '接入编码').trigger('click');
     await flushPromises();
     expect(request.mock.calls.find(([call]) => call.path.endsWith('/binding'))![0].body).toMatchObject({
@@ -190,6 +194,8 @@ describe('CodeConfigurationView', () => {
       expectedVersion: null,
     });
     expect(button(wrapper, '新增规则')).toBeDefined();
+    expect(wrapper.get<HTMLDetailsElement>('.code-config__binding').element.open).toBe(false);
+    expect(wrapper.get('.code-config__binding summary').text()).not.toContain('未接入编码');
     wrapper.unmount();
   });
   it('retains the draft after a rejected save and blocks discarding edits by switching targets', async () => {
@@ -211,5 +217,54 @@ describe('CodeConfigurationView', () => {
     );
     expect(button(wrapper, '刷新').attributes('disabled')).toBeDefined();
     wrapper.unmount();
+  });
+  it('keeps configured policies discoverable but collapsed and preserves them when saving', async () => {
+    const rule = {
+      ...newCodeRule(staticTarget, staticTarget.fields[0]!),
+      id: 'existing',
+      allowRecycle: true,
+      linkedUpdate: true,
+      effectiveFrom: '2026-01-01T00:00',
+    };
+    rule.sequencePolicy!.startValue = 20;
+    rule.sequencePolicy!.stepValue = 3;
+    rule.sequencePolicy!.maxValue = 999;
+    rule.sequencePolicy!.overflowPolicy = 'RESET';
+    rule.segments[1]!.length = 6;
+    request.mockImplementation(async ({ path, body }) => {
+      if (path.includes('/targets')) return [staticTarget];
+      if (path.includes('/rules?')) return [rule];
+      if (path.endsWith('/saveTree')) return body;
+      return undefined;
+    });
+    const wrapper = wrapperOf();
+    await flushPromises();
+    try {
+      expect(wrapper.findAll<HTMLDetailsElement>('details').every((details) => !details.element.open)).toBe(
+        true,
+      );
+      expect(wrapper.get('.code-config__policy summary').text()).toContain('旧号可复用');
+      expect(wrapper.get('.code-config__policy summary').text()).toContain('限时生效');
+      expect(wrapper.get('.code-format__sequence-advanced summary').text()).toContain('20');
+      expect(wrapper.get('.code-format__sequence-advanced summary').text()).toContain('从起点重新尝试');
+      expect(
+        wrapper
+          .findAll('.code-format__advanced summary')
+          .some((summary) => summary.text().includes('已配置')),
+      ).toBe(true);
+      expect(button(wrapper, '刷新').attributes('disabled')).toBeUndefined();
+      await button(wrapper, '保存规则').trigger('click');
+      await flushPromises();
+      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+        id: 'existing',
+        allowRecycle: true,
+        linkedUpdate: true,
+        effectiveFrom: '2026-01-01T00:00',
+        sequencePolicy: { startValue: 20, stepValue: 3, maxValue: 999, overflowPolicy: 'RESET' },
+      });
+      expect(rule.segments[1]!.length).toBe(6);
+    } finally {
+      wrapper.unmount();
+    }
   });
 });

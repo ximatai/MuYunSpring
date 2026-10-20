@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
 import {
   createModuleContext,
   useLanguageContext,
@@ -19,7 +19,16 @@ import {
   presentPlatformError,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { UiButton, UiCheckbox, UiEmpty, UiInput, UiSelect, UiSpin, UiError } from '@muyun/vue-ui-antdv';
+import {
+  UiButton,
+  UiCheckbox,
+  UiEmpty,
+  UiInput,
+  UiSelect,
+  UiSpin,
+  UiError,
+  UiHelp,
+} from '@muyun/vue-ui-antdv';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import CodeRuleFormatEditor from './CodeRuleFormatEditor.vue';
 import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
@@ -95,6 +104,7 @@ const extraTrialFields = ref<string[]>([]);
 const error = ref('');
 const feedback = ref('');
 const preview = ref<CodePreview>();
+const previewElement = ref<HTMLOutputElement>();
 const trialValues = ref<Record<string, string>>({});
 const trialSequence = ref('1');
 const bindingRole = ref<CodeRole>('NORMAL');
@@ -110,6 +120,21 @@ const refreshActivation = inject(moduleRuntimeActivationRefreshKey, undefined);
 const targetId = (target: CodeTarget) => `${target.moduleAlias}/${target.entityAlias}`;
 const target = computed(() => targets.value.find((item) => targetId(item) === targetKey.value));
 const field = computed(() => target.value?.fields.find((item) => item.fieldName === fieldName.value));
+const bindingSummary = computed(() =>
+  [
+    t(`enum.${bindingRole.value}`, bindingRole.value === 'PRIMARY' ? '主编码' : '业务编码'),
+    t(`enum.${bindingTrigger.value}`, bindingTrigger.value === 'SAVE' ? '首次保存' : '业务操作时生成'),
+  ].join(' · '),
+);
+const rulePolicySummary = computed(() =>
+  [
+    draft.value?.effectiveFrom || draft.value?.effectiveTo ? t('limited-period', '限时生效') : '',
+    draft.value?.linkedUpdate ? t('linked-short', '来源变化重编') : '',
+    draft.value?.allowRecycle ? t('recycle-short', '旧号可复用') : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
+);
 const fieldRules = computed(() => rules.value.filter((rule) => rule.fieldName === fieldName.value));
 const bindingDirty = computed(
   () =>
@@ -353,7 +378,12 @@ async function trial() {
       codeTrialContext(trialSources.value, trialValues.value, language),
       Number(trialSequence.value),
     );
-    if (sequence === trialRequestSequence) preview.value = result;
+    if (sequence === trialRequestSequence) {
+      preview.value = result;
+      await nextTick();
+      if (sequence === trialRequestSequence)
+        previewElement.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }
   } catch (cause) {
     if (sequence === trialRequestSequence) error.value = messageOf(cause);
   } finally {
@@ -419,9 +449,6 @@ async function trial() {
               "
               @update:value="selectTarget(String($event))"
           /></label>
-          <p v-if="target" class="code-config__identity">
-            {{ target.moduleAlias }} · {{ target.entityAlias }}
-          </p>
           <label class="code-config__field"
             >{{ t('field', '编码字段')
             }}<UiSelect
@@ -431,31 +458,62 @@ async function trial() {
               @update:value="selectField(String($event))"
           /></label>
           <template v-if="field">
-            <p v-if="target?.source === 'STATIC'">
-              {{ t('java-declaration', '字段角色和生成时机由业务模型预设。') }}
-            </p>
-            <label class="code-config__field"
-              >{{ t('role', '编码角色')
-              }}<UiSelect
-                v-model:value="bindingRole"
-                :disabled="target?.source === 'STATIC' || !canBind || busy"
-                :options="enumOptions({ NORMAL: '业务编码', PRIMARY: '主编码' })"
-            /></label>
-            <label class="code-config__field"
-              >{{ t('trigger', '生成时机')
-              }}<UiSelect
-                v-model:value="bindingTrigger"
-                :disabled="target?.source === 'STATIC' || !canBind || busy"
-                :options="enumOptions({ SAVE: '首次保存', EXPLICIT: '领域动作显式生成' })"
-            /></label>
-            <div v-if="target?.source === 'DYNAMIC'" class="code-config__actions">
-              <UiButton :disabled="!canBind || busy || (dirty && !bindingDirty)" @click="bind(false)">{{
-                field.role ? t('save-binding', '保存字段配置') : t('enable-binding', '接入编码')
-              }}</UiButton>
-              <UiButton v-if="field.role" :disabled="!canBind || busy || dirty" @click="bind(true)">{{
-                t('remove-binding', '移除编码')
-              }}</UiButton>
+            <div v-if="target?.source === 'STATIC'" class="code-config__binding-summary">
+              <span>{{ bindingSummary }}</span>
+              <UiHelp :label="t('binding-info', '字段接入说明')">
+                <p>{{ t('java-declaration', '字段角色和生成时机由业务模型预设。') }}</p>
+                <dl class="code-config__identity">
+                  <dt>{{ t('module', '所属模块') }}</dt>
+                  <dd>{{ target.moduleAlias }}</dd>
+                  <dt>{{ t('entity', '业务对象') }}</dt>
+                  <dd>{{ target.entityAlias }}</dd>
+                  <dt>{{ t('field', '编码字段') }}</dt>
+                  <dd>{{ field.fieldName }}</dd>
+                </dl>
+              </UiHelp>
             </div>
+            <details
+              v-else
+              :key="`${targetKey}/${fieldName}`"
+              class="code-config__binding"
+              :open="!field.role"
+            >
+              <summary>
+                {{ t('binding-settings', '字段接入配置') }} ·
+                {{ field.role ? bindingSummary : t('not-bound', '未接入编码')
+                }}<span v-if="bindingDirty"> · {{ t('unsaved-binding', '待保存') }}</span>
+              </summary>
+              <label class="code-config__field"
+                >{{ t('role', '编码角色')
+                }}<UiSelect
+                  v-model:value="bindingRole"
+                  :disabled="!canBind || busy"
+                  :options="enumOptions({ NORMAL: '业务编码', PRIMARY: '主编码' })"
+              /></label>
+              <label class="code-config__field"
+                >{{ t('trigger', '生成时机')
+                }}<UiSelect
+                  v-model:value="bindingTrigger"
+                  :disabled="!canBind || busy"
+                  :options="enumOptions({ SAVE: '首次保存', EXPLICIT: '业务操作时生成' })"
+              /></label>
+              <div v-if="target?.source === 'DYNAMIC'" class="code-config__actions">
+                <UiButton :disabled="!canBind || busy || (dirty && !bindingDirty)" @click="bind(false)">{{
+                  field.role ? t('save-binding', '保存字段配置') : t('enable-binding', '接入编码')
+                }}</UiButton>
+                <UiButton v-if="field.role" :disabled="!canBind || busy || dirty" @click="bind(true)">{{
+                  t('remove-binding', '移除编码')
+                }}</UiButton>
+              </div>
+              <dl v-if="target" class="code-config__identity">
+                <dt>{{ t('module', '所属模块') }}</dt>
+                <dd>{{ target.moduleAlias }}</dd>
+                <dt>{{ t('entity', '业务对象') }}</dt>
+                <dd>{{ target.entityAlias }}</dd>
+                <dt>{{ t('field', '编码字段') }}</dt>
+                <dd>{{ field.fieldName }}</dd>
+              </dl>
+            </details>
             <template v-if="field.role">
               <h3>{{ t('rules', '编号规则') }}</h3>
               <p v-if="!hasRuleTenant">
@@ -537,29 +595,51 @@ async function trial() {
                 @update:value="draft!.orgScopeId = $event"
               /><span v-else>{{ t('tenant-required', '请使用租户身份选择组织。') }}</span></label
             >
-            <label class="code-config__field code-config__date-start"
-              >{{ t('effective-from', '开始生效时间（业务时区）')
-              }}<UiInput v-model:value="draft.effectiveFrom" type="datetime-local" :disabled="!editable"
-            /></label>
-            <label class="code-config__field"
-              >{{ t('effective-to', '结束生效时间（业务时区）')
-              }}<UiInput v-model:value="draft.effectiveTo" type="datetime-local" :disabled="!editable"
-            /></label>
-            <div class="code-config__checks">
+            <div class="code-config__checks" :class="{ 'code-config__status': draft.orgScopeType !== 'ORG' }">
               <UiCheckbox v-model:checked="draft.enabled" :disabled="!editable">{{
                 t('enable-rule', '启用规则')
               }}</UiCheckbox>
-              <UiCheckbox
-                v-if="draft.mode !== 'MANUAL' && field?.trigger !== 'EXPLICIT'"
-                v-model:checked="draft.linkedUpdate"
-                :disabled="!editable"
-                >{{ t('linked', '来源字段变化时重新编号') }}</UiCheckbox
-              >
-              <UiCheckbox v-model:checked="draft.allowRecycle" :disabled="!editable">{{
-                t('recycle', '最终清理或改号后允许复用旧号码')
-              }}</UiCheckbox>
             </div>
           </div>
+          <details :key="draft.id ?? 'new'" class="code-config__policy">
+            <summary>
+              {{ t('rule-policy', '生效时间与编号策略')
+              }}<span v-if="rulePolicySummary"> · {{ rulePolicySummary }}</span>
+            </summary>
+            <div class="code-config__policy-help">
+              <UiHelp :label="t('rule-policy-help-title', '生效与编号策略说明')">
+                <p>
+                  {{
+                    t(
+                      'rule-policy-help',
+                      '生效时间按业务时区计算，留空表示不限制。来源变化重编适用于保存时生成的自动编号；软删除仍保留编号占用，只有最终清理或改号后才按规则回收旧号。',
+                    )
+                  }}
+                </p>
+              </UiHelp>
+            </div>
+            <div class="code-config__grid">
+              <label class="code-config__field code-config__date-start"
+                >{{ t('effective-from-short', '开始生效时间')
+                }}<UiInput v-model:value="draft.effectiveFrom" type="datetime-local" :disabled="!editable"
+              /></label>
+              <label class="code-config__field"
+                >{{ t('effective-to-short', '结束生效时间')
+                }}<UiInput v-model:value="draft.effectiveTo" type="datetime-local" :disabled="!editable"
+              /></label>
+              <div class="code-config__checks">
+                <UiCheckbox
+                  v-if="draft.mode !== 'MANUAL' && field?.trigger !== 'EXPLICIT'"
+                  v-model:checked="draft.linkedUpdate"
+                  :disabled="!editable"
+                  >{{ t('linked', '来源字段变化时重新编号') }}</UiCheckbox
+                >
+                <UiCheckbox v-model:checked="draft.allowRecycle" :disabled="!editable">{{
+                  t('recycle-short-label', '允许复用旧号')
+                }}</UiCheckbox>
+              </div>
+            </div>
+          </details>
           <template v-if="draft.mode !== 'MANUAL'">
             <CodeRuleFormatEditor
               v-model:rule="draft"
@@ -567,10 +647,17 @@ async function trial() {
               :editable="editable"
             />
             <details ref="trialElement" class="code-config__trial">
-              <summary>{{ t('trial', '草稿试算') }}</summary>
-              <p>{{ t('trial-help', '试算不发号、不占用号码；正式编码以业务保存结果为准。') }}</p>
+              <summary>
+                {{ t('trial', '草稿试算')
+                }}<span class="code-config__muted"> · {{ t('trial-short', '仅预览，不占号') }}</span>
+              </summary>
+              <div class="code-config__trial-help">
+                <UiHelp :label="t('trial-help-title', '试算说明')">
+                  {{ t('trial-help', '试算不发号、不占用号码；正式编码以业务保存结果为准。') }}
+                </UiHelp>
+              </div>
               <label v-if="extraTrialOptions.length" class="code-config__field code-config__trial-extra">
-                {{ t('trial-extra', '补充试算来源（公式等按需选择）') }}
+                {{ t('trial-extra-short', '补充试算来源') }}
                 <UiSelect
                   v-model:value="extraTrialFields"
                   mode="multiple"
@@ -597,7 +684,7 @@ async function trial() {
               <UiButton :disabled="busy || !context.can('preview')" :loading="trialing" @click="trial">{{
                 t('run-trial', '试算')
               }}</UiButton>
-              <output v-if="preview" class="code-config__preview">
+              <output v-if="preview" ref="previewElement" class="code-config__preview">
                 <span>{{ t('trial-result', '试算结果') }}</span>
                 <strong>{{ preview.value }}</strong>
               </output>
@@ -684,6 +771,11 @@ async function trial() {
   gap: 12px 24px;
   align-items: center;
 }
+.code-config__status {
+  grid-column: auto;
+  align-self: end;
+  min-height: 30px;
+}
 .code-config h3 {
   font-size: 14px;
   margin: 8px 0;
@@ -693,9 +785,52 @@ async function trial() {
   font-size: 13px;
 }
 .code-config__trial {
+  position: relative;
   padding-top: 16px;
   margin-top: 16px;
   border-top: 1px solid var(--muyun-border-subtle);
+}
+.code-config__binding-summary,
+.code-config__policy-help,
+.code-config__trial-help {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-config__identity dt {
+  font-weight: 600;
+}
+.code-config__identity dd {
+  margin-inline-start: 0;
+  margin-bottom: 8px;
+}
+.code-config__policy,
+.code-config__binding {
+  margin: 12px 0;
+}
+.code-config__policy {
+  position: relative;
+}
+.code-config__policy-help,
+.code-config__trial-help {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+}
+.code-config__trial-help {
+  top: 16px;
+}
+.code-config__policy summary,
+.code-config__trial summary {
+  padding-inline-end: 30px;
+}
+.code-config__policy summary,
+.code-config__binding summary {
+  cursor: pointer;
+}
+.code-config__muted {
+  color: var(--muyun-text-muted);
+  font-weight: 400;
 }
 .code-config__trial summary {
   cursor: pointer;

@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { expect, it } from 'vitest';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { UiThemeProvider } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
@@ -24,7 +24,8 @@ it.each([1004, 600])(
       fields: [{ fieldName: 'documentNo', title: '申请单号', role: 'PRIMARY', trigger: 'SAVE' }],
       sources: [],
     };
-    const rule = { ...newCodeRule(target, target.fields[0]!), id: 'rule' };
+    const rule = { ...newCodeRule(target, target.fields[0]!), id: 'rule', allowRecycle: true };
+    rule.sequencePolicy!.startValue = 20;
     rule.segments = [
       {
         ...newCodeSegment('VALUE_MAPPING'),
@@ -39,6 +40,7 @@ it.each([1004, 600])(
         async request(options: HttpRequestOptions) {
           if (options.path.includes('/targets')) return [target];
           if (options.path.includes('/rules?')) return [rule];
+          if (options.path.endsWith('/preview')) return { value: 'PREVIEW-0021', segments: [] };
           return undefined;
         },
       },
@@ -64,6 +66,24 @@ it.each([1004, 600])(
       await flushPromises();
       const save = page.getByRole('button', { name: '保存规则', exact: true });
       await expect.element(save).toBeVisible();
+      expect(wrapper.find('select:disabled').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('字段角色和生成时机由业务模型预设。');
+      await page.getByRole('button', { name: '字段接入说明', exact: true }).click();
+      await expect
+        .element(page.getByText('字段角色和生成时机由业务模型预设。', { exact: true }))
+        .toBeVisible();
+      await userEvent.keyboard('{Escape}');
+      const policy = wrapper.get<HTMLDetailsElement>('.code-config__policy');
+      expect(policy.element.open).toBe(false);
+      expect(policy.get('summary').text()).toContain('旧号可复用');
+      expect(policy.find('input[type="datetime-local"]').isVisible()).toBe(false);
+      const sequence = wrapper.get<HTMLDetailsElement>('.code-format__sequence-advanced');
+      expect(sequence.element.open).toBe(false);
+      expect(sequence.get('summary').text()).toContain('20');
+      await page.elementLocator(sequence.get('summary').element).click();
+      await page.getByRole('spinbutton', { name: '起始值', exact: true }).fill('21');
+      await page.elementLocator(sequence.get('summary').element).click();
+      expect(sequence.findAll('input')[0]!.element.value).toBe('21');
       const editor = wrapper.get('.code-config__editor').element.getBoundingClientRect();
       const directoryField = wrapper
         .get('.code-config__directory-fields > label')
@@ -109,6 +129,15 @@ it.each([1004, 600])(
         .toBeGreaterThanOrEqual(content.getBoundingClientRect().top - 1);
       await expect.element(save).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width + 1);
+      await page.getByRole('button', { name: /^试\s*算$/ }).click();
+      await expect.element(page.getByText('PREVIEW-0021', { exact: true })).toBeVisible();
+      await expect
+        .poll(() => wrapper.get('output').element.getBoundingClientRect().bottom)
+        .toBeLessThanOrEqual(content.getBoundingClientRect().bottom + 1);
+      expect(wrapper.get('output').element.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        content.getBoundingClientRect().top,
+      );
+      await expect.element(save).toBeVisible();
     } finally {
       wrapper.unmount();
     }

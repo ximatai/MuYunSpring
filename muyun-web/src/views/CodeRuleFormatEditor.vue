@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import { FormulaExpressionEditor, RecordContentSectionHeading } from '@muyun/platform-components';
-import { UiButton, UiCheckbox, UiInput, UiSelect } from '@muyun/vue-ui-antdv';
+import { UiButton, UiCheckbox, UiInput, UiSelect, UiHelp } from '@muyun/vue-ui-antdv';
 import {
   codeSegmentTypes,
   codeSourceTitle,
@@ -72,6 +72,19 @@ function hasAdvancedSettings(segment: CodeSegment) {
     !!segment.sequenceBasis
   );
 }
+const sequenceSummary = computed(() => {
+  const policy = draft.value.sequencePolicy;
+  if (!policy) return '';
+  const parts = [
+    policy.startValue != null && policy.startValue !== 1
+      ? `${t('start', '起始值')} ${policy.startValue}`
+      : '',
+    policy.stepValue != null && policy.stepValue !== 1 ? `${t('step', '递增步长')} ${policy.stepValue}` : '',
+    policy.maxValue != null ? `${t('maximum', '流水上限')} ${policy.maxValue}` : '',
+    policy.overflowPolicy === 'RESET' ? t('enum.overflow.RESET', '从起点重新尝试') : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : t('defaults', '默认设置');
+});
 function numeric(value: unknown) {
   return value === '' || value == null ? null : Number(value);
 }
@@ -120,6 +133,12 @@ function removeSegment(index: number) {
             :options="segmentOptions"
             @update:value="changeSegment(index, $event as CodeSegmentType)"
           />
+          <UiHelp
+            v-if="['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)"
+            :label="t('bounded-help-title', '片段长度说明')"
+          >
+            {{ t('bounded-help', '为公式或外部上下文设置长度与截取方式，确保编码不超出目标字段长度。') }}
+          </UiHelp>
           <UiButton :disabled="!editable || index === 0" @click="moveSegment(index, -1)">{{
             t('up', '上移')
           }}</UiButton
@@ -129,9 +148,6 @@ function removeSegment(index: number) {
             >{{ t('down', '下移') }}</UiButton
           ><UiButton :disabled="!editable" @click="removeSegment(index)">{{ t('remove', '删除') }}</UiButton>
         </div>
-        <p v-if="['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)" class="code-format__help">
-          {{ t('bounded-help', '为公式或外部上下文设置长度与截取方式，确保编码不超出目标字段长度。') }}
-        </p>
         <div class="code-format__grid">
           <label class="code-format__field" v-if="segment.segmentType === 'CONSTANT'"
             >{{ t('constant', '固定文字') }}<UiInput v-model:value="segment.fixedValue" :disabled="!editable"
@@ -171,7 +187,7 @@ function removeSegment(index: number) {
             />
           </label>
         </div>
-        <details class="code-format__advanced" :open="hasAdvancedSettings(segment)">
+        <details class="code-format__advanced">
           <summary>
             {{ t('advanced-format', '高级设置')
             }}<span v-if="hasAdvancedSettings(segment)"> · {{ t('configured', '已配置') }}</span>
@@ -285,36 +301,12 @@ function removeSegment(index: number) {
     <div v-if="draft.sequencePolicy" class="code-format__grid">
       <h3 class="code-format__wide">{{ t('sequence', '流水策略') }}</h3>
       <label class="code-format__field"
-        >{{ t('start', '起始值')
-        }}<UiInput
-          :value="draft.sequencePolicy.startValue ?? undefined"
-          type="number"
-          :disabled="!editable"
-          @update:value="draft!.sequencePolicy!.startValue = numeric($event)"
-      /></label>
-      <label class="code-format__field"
-        >{{ t('step', '递增步长')
-        }}<UiInput
-          :value="draft.sequencePolicy.stepValue ?? undefined"
-          type="number"
-          :disabled="!editable"
-          @update:value="draft!.sequencePolicy!.stepValue = numeric($event)"
-      /></label>
-      <label class="code-format__field"
         >{{ t('sequence-length', '流水长度')
         }}<UiInput
           :value="draft.sequencePolicy.sequenceLength ?? undefined"
           type="number"
           :disabled="!editable"
           @update:value="draft!.sequencePolicy!.sequenceLength = numeric($event)"
-      /></label>
-      <label class="code-format__field"
-        >{{ t('maximum', '流水上限')
-        }}<UiInput
-          :value="draft.sequencePolicy.maxValue ?? undefined"
-          type="number"
-          :disabled="!editable"
-          @update:value="draft!.sequencePolicy!.maxValue = numeric($event)"
       /></label>
       <label class="code-format__field"
         >{{ t('reset', '计数周期')
@@ -325,13 +317,44 @@ function removeSegment(index: number) {
             enumOptions('reset', { NONE: '持续计数', DAY: '每天重置', MONTH: '每月重置', YEAR: '每年重置' })
           "
       /></label>
-      <label class="code-format__field"
-        >{{ t('overflow', '达到上限后')
-        }}<UiSelect
-          v-model:value="draft.sequencePolicy.overflowPolicy"
-          :disabled="!editable"
-          :options="enumOptions('overflow', { ERROR: '拒绝生成', RESET: '从起点重新尝试' })"
-      /></label>
+      <details class="code-format__sequence-advanced code-format__wide">
+        <summary>
+          {{ t('sequence-advanced', '流水高级设置') }}<span> · {{ sequenceSummary }}</span>
+        </summary>
+        <div class="code-format__grid">
+          <label class="code-format__field"
+            >{{ t('start', '起始值')
+            }}<UiInput
+              :value="draft.sequencePolicy.startValue ?? undefined"
+              type="number"
+              :disabled="!editable"
+              @update:value="draft!.sequencePolicy!.startValue = numeric($event)"
+          /></label>
+          <label class="code-format__field"
+            >{{ t('step', '递增步长')
+            }}<UiInput
+              :value="draft.sequencePolicy.stepValue ?? undefined"
+              type="number"
+              :disabled="!editable"
+              @update:value="draft!.sequencePolicy!.stepValue = numeric($event)"
+          /></label>
+          <label class="code-format__field"
+            >{{ t('maximum', '流水上限')
+            }}<UiInput
+              :value="draft.sequencePolicy.maxValue ?? undefined"
+              type="number"
+              :disabled="!editable"
+              @update:value="draft!.sequencePolicy!.maxValue = numeric($event)"
+          /></label>
+          <label class="code-format__field"
+            >{{ t('overflow', '达到上限后')
+            }}<UiSelect
+              v-model:value="draft.sequencePolicy.overflowPolicy"
+              :disabled="!editable"
+              :options="enumOptions('overflow', { ERROR: '拒绝生成', RESET: '从起点重新尝试' })"
+          /></label>
+        </div>
+      </details>
     </div>
   </section>
 </template>
@@ -381,7 +404,8 @@ function removeSegment(index: number) {
   flex: 1;
   min-width: 140px;
 }
-.code-format__advanced summary {
+.code-format__advanced summary,
+.code-format__sequence-advanced summary {
   cursor: pointer;
   color: var(--muyun-text-secondary);
   font-size: 13px;

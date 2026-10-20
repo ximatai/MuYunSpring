@@ -7,7 +7,7 @@ import {
   UiButton,
   UiColorPicker,
   UiInput,
-  UiPopover,
+  UiHelp,
   UiSelect,
   UiSwitch,
   UiTextArea,
@@ -844,38 +844,29 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         ><slot name="field-actions" :field="field"
       /></span>
       <div v-if="field.businessCode && mode !== 'view'" class="record-form-code-help">
-        <UiPopover placement="bottomLeft">
-          <UiButton
-            type="text"
-            size="small"
-            icon-name="help"
-            icon-only
-            :aria-label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`"
-          />
-          <template #content>
-            <div class="record-form-code-details">
-              <strong>{{ field.label }}</strong>
-              <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
-                language.t('platform.form.code.primary', '主编码')
-              }}</span>
-              <p>{{ codeHint(field) }}</p>
-              <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
-                {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
-                  codeForms.policies.value.get(field.fieldName)?.preview
-                }}
-              </p>
-              <p
-                v-if="codeForms.errorOf(field.fieldName)"
-                :class="{ 'record-form-field-error': !codeForms.loading.value }"
-              >
-                {{ codeForms.errorOf(field.fieldName) }}
-              </p>
-              <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
-                {{ language.t('platform.form.retry', '重试') }}
-              </UiButton>
-            </div>
-          </template>
-        </UiPopover>
+        <UiHelp :label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`">
+          <div class="record-form-code-details">
+            <strong>{{ field.label }}</strong>
+            <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
+              language.t('platform.form.code.primary', '主编码')
+            }}</span>
+            <p>{{ codeHint(field) }}</p>
+            <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
+              {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
+                codeForms.policies.value.get(field.fieldName)?.preview
+              }}
+            </p>
+            <p
+              v-if="codeForms.errorOf(field.fieldName)"
+              :class="{ 'record-form-field-error': !codeForms.loading.value }"
+            >
+              {{ codeForms.errorOf(field.fieldName) }}
+            </p>
+            <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
+              {{ language.t('platform.form.retry', '重试') }}
+            </UiButton>
+          </div>
+        </UiHelp>
       </div>
       <label
         class="record-form-field"
