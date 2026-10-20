@@ -61,6 +61,8 @@ muyun-web/src/app                   框架仓库自身的启动、登录和开�
 
 `AppWorkbenchShell` 是组合包提供的受控工作台壳层：它集中菜单、页签、锁定页签偏好和工作台内页面导航，但不拥有消费 App 的 Router。业务 App 将 Router 的 `currentRoute.fullPath` 作为 `location` 传入，并在 Shell 发出 `navigate` 请求时以自己的 `router.push` 或 `router.replace` 执行导航。这样标准工作台 URL 恢复与业务页面 host 始终经过同一条消费 App 路由链路，业务 App 不会因为平台组件直接写浏览器 history 而发生 URL 与 `RouterView` 不一致。
 
+`AppWorkbenchShell` 与 `Workbench` 在账号入口左侧提供 `topbar-actions` 作用域插槽，向业务组件传入当前 `currentUser`。平台负责入口排列；业务 App 拥有组件、图标、样式、菜单、显隐和请求生命周期，可通过公开 `UiDropdown`、`UiIcon` 组合交互，通过 `useWorkbenchNavigation` 进入标准页签导航。该扩展属于消费 App 的代码装配，不进入动态页面元数据或平台管理页注册。接入示例见 `muyun-web/examples/business-web/README.md`。
+
 消费 App 可通过 `loadMenus` 提供带身份上下文的菜单读取；Shell 的 `refreshMenus` 仅更新导航树，保留已打开页签及编辑状态。`openMenu` 与侧栏点击共用打开方式和菜单身份，页面扩展不自行拼装业务 URL。
 
 ## 能力分层

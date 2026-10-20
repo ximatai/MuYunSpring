@@ -445,6 +445,9 @@ async function restoreLockedTabs() {
     @user-command="emit('userCommand', $event)"
     @retry-load="emit('retryLoad')"
   >
+    <template v-if="$slots['topbar-actions']" #topbar-actions="context">
+      <slot name="topbar-actions" v-bind="context" />
+    </template>
     <template #default="{ pageDescriptor }">
       <slot :page-descriptor="pageDescriptor" />
     </template>

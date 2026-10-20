@@ -1,5 +1,10 @@
 // This entry is built by the independently installed business consumer's Vite.
 export {
+  AppWorkbenchShell,
+  UiButton,
+  UiDropdown,
+  UiIcon,
+  useWorkbenchNavigation,
   UiDatePicker,
   UiLanguageProvider,
   createBackendHttpClient,

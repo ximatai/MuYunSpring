@@ -7,6 +7,11 @@ import type * as Consumer from '../../../src/consumer';
 
 type ConsumerContract = Pick<
   typeof Consumer,
+  | 'AppWorkbenchShell'
+  | 'UiButton'
+  | 'UiDropdown'
+  | 'UiIcon'
+  | 'useWorkbenchNavigation'
   | 'UiDatePicker'
   | 'UiLanguageProvider'
   | 'createBackendHttpClient'
@@ -343,6 +348,69 @@ it('ships the string date picker with the host language context and shared vendo
     context.setLanguage('zh-CN');
     await Vue.nextTick();
     expect(wrapper.getComponent({ name: 'ADatePicker' }).props('locale')?.lang.locale).toBe('zh_CN');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('ships host-owned topbar components with the shell navigation and reactive user context', async () => {
+  const HostTools = Vue.defineComponent({
+    props: { username: String },
+    setup(props) {
+      const navigation = sdk.useWorkbenchNavigation();
+      return () =>
+        Vue.h(
+          sdk.UiDropdown,
+          {
+            items: [{ key: 'report', title: 'Business report' }],
+            onSelect: () => navigation?.openRoute('/business/report'),
+          },
+          {
+            default: ({ toggle, open }: { toggle: () => void; open: boolean }) =>
+              Vue.h(
+                sdk.UiButton,
+                {
+                  ariaLabel: `Business tools: ${props.username}`,
+                  'aria-expanded': open,
+                  'aria-haspopup': 'menu',
+                  onClick: (event: MouseEvent) => {
+                    event.stopPropagation();
+                    toggle();
+                  },
+                },
+                { default: () => Vue.h(sdk.UiIcon, { name: 'app' }) },
+              ),
+          },
+        );
+    },
+  });
+  const startup: Consumer.WorkbenchStartupState = {
+    session: { currentUser: { userId: 'one', username: 'first', system: false } },
+    menus: [],
+    tabs: [],
+  };
+  const wrapper = mount(sdk.AppWorkbenchShell, {
+    props: { startup, location: '/' },
+    slots: {
+      'topbar-actions': ({ currentUser }) => Vue.h(HostTools, { username: currentUser?.username }),
+    },
+  });
+  try {
+    await flushPromises();
+    const action = wrapper.get('button[aria-label="Business tools: first"]');
+    expect(action.find('svg').exists()).toBe(true);
+    await action.trigger('click');
+    expect(action.attributes('aria-expanded')).toBe('true');
+    wrapper.getComponent(HostTools).getComponent(sdk.UiDropdown).vm.$emit('select', 'report');
+    expect(wrapper.emitted('navigate')?.at(-1)?.[0]).toMatchObject({ mode: 'push', url: '/business/report' });
+    expect(wrapper.emitted('userCommand')).toBeUndefined();
+    await wrapper.setProps({
+      startup: {
+        ...startup,
+        session: { currentUser: { userId: 'two', username: 'second', system: false } },
+      },
+    });
+    expect(wrapper.find('button[aria-label="Business tools: second"]').exists()).toBe(true);
   } finally {
     wrapper.unmount();
   }

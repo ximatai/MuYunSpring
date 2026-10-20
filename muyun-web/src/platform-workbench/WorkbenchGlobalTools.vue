@@ -11,6 +11,11 @@ const props = defineProps<{
   assistantAvailable: boolean;
   assistantOpen: boolean;
 }>();
+defineSlots<{
+  /** Host-owned global actions, rendered immediately before the account menu. */
+  'topbar-actions'(props: { currentUser?: CurrentUser }): unknown;
+}>();
+
 const emit = defineEmits<{
   toggleAssistant: [];
   userCommand: [key: string];
@@ -97,6 +102,9 @@ function handleMenuSelect(key: string) {
         language.t('platform.screen.Workbench.ai-assistant', 'AI 助手')
       }}</span></UiButton
     >
+    <div v-if="$slots['topbar-actions']" class="topbar-business-actions">
+      <slot name="topbar-actions" :current-user="currentUser" />
+    </div>
     <UiDropdown v-slot="{ toggle, open }" :items="userMenuItems" @select="handleMenuSelect">
       <button
         class="user-button"
@@ -131,6 +139,12 @@ function handleMenuSelect(key: string) {
   align-items: center;
   gap: 4px;
   margin-inline-start: auto;
+}
+.topbar-business-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 .topbar-actions :deep(.workbench-tool.ant-btn),
 .user-button {
