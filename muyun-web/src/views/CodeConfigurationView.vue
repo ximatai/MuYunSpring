@@ -341,6 +341,11 @@ function cancel() {
   setDraft(draft.value?.id ? rules.value.find((rule) => rule.id === draft.value?.id) : undefined);
   error.value = '';
 }
+function cancelBinding() {
+  resetBinding();
+  error.value = '';
+  feedback.value = '';
+}
 async function bind(remove = false) {
   if (!target.value || !field.value || saving.value) return;
   saving.value = true;
@@ -547,6 +552,9 @@ async function trial() {
                   <div v-if="target?.source === 'DYNAMIC'" class="code-config__actions">
                     <UiButton :disabled="!canBind || busy || (dirty && !bindingDirty)" @click="bind(false)">{{
                       field.role ? t('save-binding', '保存字段配置') : t('enable-binding', '接入编码')
+                    }}</UiButton>
+                    <UiButton v-if="bindingDirty" :disabled="busy" @click="cancelBinding">{{
+                      t('cancel-binding', '取消接入修改')
                     }}</UiButton>
                     <UiButton v-if="field.role" :disabled="!canBind || busy || dirty" @click="bind(true)">{{
                       t('remove-binding', '移除编码')
@@ -863,6 +871,7 @@ async function trial() {
   justify-content: space-between;
   align-items: center;
 }
+.code-config__rules-heading > *,
 .code-config__binding-summary > * {
   flex: 0 0 auto;
 }

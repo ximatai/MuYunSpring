@@ -240,6 +240,31 @@ describe('CodeConfigurationView', () => {
     expect(wrapper.get('.code-config__binding summary').text()).not.toContain('未接入编码');
     wrapper.unmount();
   });
+  it('cancels binding changes from the overview without opening the rule drawer or saving', async () => {
+    user.system = true;
+    request.mockImplementation(async ({ path }) => {
+      if (path.includes('/targets')) return [{ ...staticTarget, source: 'DYNAMIC', relationId: 'relation' }];
+      return [];
+    });
+    const wrapper = wrapperOf();
+    await flushPromises();
+    try {
+      const binding = wrapper.get('.code-config__binding');
+      binding.findAllComponents(UiSelect)[1]!.vm.$emit('update:value', 'EXPLICIT');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'TenantScopeExplorer' }).props('disabled')).toBe(true);
+      expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(false);
+      await button(wrapper, '取消接入修改').trigger('click');
+      expect(binding.findAllComponents(UiSelect)[1]!.props('value')).toBe('SAVE');
+      expect(wrapper.findComponent({ name: 'TenantScopeExplorer' }).props('disabled')).toBe(false);
+      expect(request.mock.calls.some(([call]) => call.path.endsWith('/binding'))).toBe(false);
+      await button(wrapper, '新增规则').trigger('click');
+      expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).exists()).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('retains the draft after a rejected save and blocks discarding edits by switching targets', async () => {
     const wrapper = wrapperOf();
     await flushPromises();
