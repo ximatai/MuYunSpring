@@ -479,6 +479,7 @@ function removeSegment(index: number) {
 }
 .code-format__field {
   grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   line-height: 20px;
   display: grid;
   gap: 6px;

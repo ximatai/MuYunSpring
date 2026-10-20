@@ -1132,13 +1132,37 @@ async function trial(revealResult = false) {
               <aside class="code-config__trial" :aria-label="t('trial', '草稿试算')">
                 <RecordContentSectionHeading :title="t('trial', '草稿试算')" />
                 <p class="code-config__muted">{{ t('auto-trial-short', '自动试算，不占号') }}</p>
-                <output v-if="preview" ref="previewElement" class="code-config__preview">
-                  <span>{{ t('trial-result', '试算结果') }}</span>
-                  <strong>{{ preview.value }}</strong>
-                </output>
-                <div v-else class="code-config__preview">
-                  <span>{{ t('trial-result', '试算结果') }}</span>
-                  <p class="code-config__muted">
+                <div class="code-config__preview">
+                  <div class="code-config__preview-heading">
+                    <span>{{ t('trial-result', '试算结果') }}</span>
+                    <UiButton
+                      type="text"
+                      icon-name="reload"
+                      icon-only
+                      size="small"
+                      :title="t('refresh-trial', '刷新试算')"
+                      :aria-label="t('refresh-trial', '刷新试算')"
+                      :disabled="!trialReady || trialing"
+                      :loading="trialing"
+                      @click="trial(true)"
+                    />
+                  </div>
+                  <div
+                    v-if="trialError"
+                    ref="trialErrorElement"
+                    tabindex="-1"
+                    class="code-config__trial-error"
+                  >
+                    <UiError :title="t('trial-failed', '试算未完成')" :message="trialError" />
+                  </div>
+                  <output
+                    v-else-if="preview"
+                    ref="previewElement"
+                    :aria-label="t('trial-result', '试算结果')"
+                  >
+                    <strong>{{ preview.value }}</strong>
+                  </output>
+                  <p v-else class="code-config__muted">
                     {{
                       trialScheduled || trialing
                         ? t('trial-updating', '正在更新…')
@@ -1164,9 +1188,6 @@ async function trial(revealResult = false) {
                     />
                   </label>
                 </details>
-                <div v-if="trialError" ref="trialErrorElement" tabindex="-1" class="code-config__trial-error">
-                  <UiError :title="t('trial-failed', '试算未完成')" :message="trialError" />
-                </div>
                 <div class="code-config__trial-fields">
                   <label class="code-config__field" v-for="source in trialSources" :key="source.fieldName"
                     >{{ codeSourceTitle(source, language)
@@ -1205,16 +1226,6 @@ async function trial(revealResult = false) {
                       :disabled="busy"
                   /></label>
                 </div>
-                <UiButton
-                  type="text"
-                  icon-name="reload"
-                  size="small"
-                  :aria-label="t('refresh-trial', '刷新试算')"
-                  :disabled="!trialReady || trialing"
-                  :loading="trialing"
-                  @click="trial(true)"
-                  >{{ t('refresh-trial', '刷新试算') }}</UiButton
-                >
                 <p v-if="preview?.segments.length" class="code-config__muted">
                   {{ t('segment-results', '片段结果（不含分隔符）') }}
                 </p>
@@ -1293,6 +1304,15 @@ async function trial(revealResult = false) {
 }
 .code-config__trial-extra {
   margin: 0;
+}
+.code-config__preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.code-config__preview > .code-config__muted {
+  margin: 6px 0 0;
 }
 .code-config__preview strong {
   display: block;
