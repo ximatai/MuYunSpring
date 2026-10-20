@@ -250,9 +250,18 @@ describe('CodeConfigurationView', () => {
       expect(
         wrapper
           .findAll('.code-format__advanced summary')
-          .some((summary) => summary.text().includes('已配置')),
+          .some((summary) => summary.text().includes('长度覆盖 6 位')),
       ).toBe(true);
-      expect(button(wrapper, '刷新').attributes('disabled')).toBeUndefined();
+      const length = wrapper
+        .findAllComponents(UiInput)
+        .find((input) => input.element.closest('label')?.textContent?.trim() === '流水长度')!;
+      await length.vm.$emit('update:value', 8);
+      await flushPromises();
+      expect(wrapper.findAll('.code-format__advanced summary')[1]!.text()).toContain('长度覆盖 6 位');
+      expect(wrapper.findAll<HTMLDetailsElement>('details').every((details) => !details.element.open)).toBe(
+        true,
+      );
+      expect(button(wrapper, '刷新').attributes('disabled')).toBeDefined();
       await button(wrapper, '保存规则').trigger('click');
       await flushPromises();
       expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
@@ -260,9 +269,17 @@ describe('CodeConfigurationView', () => {
         allowRecycle: true,
         linkedUpdate: true,
         effectiveFrom: '2026-01-01T00:00',
-        sequencePolicy: { startValue: 20, stepValue: 3, maxValue: 999, overflowPolicy: 'RESET' },
+        sequencePolicy: {
+          sequenceLength: 8,
+          startValue: 20,
+          stepValue: 3,
+          maxValue: 999,
+          overflowPolicy: 'RESET',
+        },
       });
-      expect(rule.segments[1]!.length).toBe(6);
+      expect(request.mock.calls.find(([call]) => call.path.endsWith('/saveTree'))![0].body).toMatchObject({
+        segments: [expect.anything(), expect.objectContaining({ length: 6 })],
+      });
     } finally {
       wrapper.unmount();
     }

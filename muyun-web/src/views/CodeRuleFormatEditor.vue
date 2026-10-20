@@ -72,6 +72,13 @@ function hasAdvancedSettings(segment: CodeSegment) {
     !!segment.sequenceBasis
   );
 }
+function advancedSummary(segment: CodeSegment) {
+  if (segment.segmentType === 'SEQUENCE' && segment.length != null)
+    return language.t('platform.code.config.sequence-length-override-summary', '长度覆盖 {length} 位', {
+      length: segment.length,
+    });
+  return t('configured', '已配置');
+}
 const sequenceSummary = computed(() => {
   const policy = draft.value.sequencePolicy;
   if (!policy) return '';
@@ -190,7 +197,7 @@ function removeSegment(index: number) {
         <details class="code-format__advanced">
           <summary>
             {{ t('advanced-format', '高级设置')
-            }}<span v-if="hasAdvancedSettings(segment)"> · {{ t('configured', '已配置') }}</span>
+            }}<span v-if="hasAdvancedSettings(segment)"> · {{ advancedSummary(segment) }}</span>
           </summary>
           <div class="code-format__grid">
             <label v-if="!['FORMULA', 'CONTEXT_VAR'].includes(segment.segmentType)" class="code-format__field"

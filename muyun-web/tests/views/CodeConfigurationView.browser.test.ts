@@ -31,7 +31,7 @@ it.each([1004, 600])(
         ...newCodeSegment('VALUE_MAPPING'),
         mappings: [{ sourceValue: 'a', targetValue: 'A', defaultMapping: false, enabled: true }],
       },
-      newCodeSegment('SEQUENCE'),
+      { ...newCodeSegment('SEQUENCE'), length: 4 },
     ];
     const context = {
       moduleAlias: 'platform.code_rule',
@@ -95,8 +95,13 @@ it.each([1004, 600])(
       const before = saveButton.getBoundingClientRect();
       const advanced = wrapper.findAll<HTMLDetailsElement>('.code-format__advanced');
       expect(advanced.every((details) => !details.element.open)).toBe(true);
+      await page.getByRole('spinbutton', { name: '流水长度', exact: true }).fill('6');
+      await expect
+        .element(page.elementLocator(advanced[1]!.get('summary').element))
+        .toHaveTextContent('长度覆盖 4 位');
+      expect(advanced[1]!.element.open).toBe(false);
       for (let index = 0; index < advanced.length; index++) {
-        await page.getByText('高级设置', { exact: true }).nth(index).click();
+        await page.elementLocator(advanced[index]!.get('summary').element).click();
       }
       const content = wrapper.get('.code-config__editor .record-detail-layout-content').element;
       expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
