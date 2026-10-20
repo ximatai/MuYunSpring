@@ -14,7 +14,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 @Getter
 @Setter
 @Table(name = "platform_code_ledger_entry", comment = "Platform code ledger entry")
-@CompositeIndex(columns = {"tenant_id", "rule_id", "code_value"}, unique = true)
+@CompositeIndex(columns = {"tenant_id", "module_alias", "entity_alias", "field_name", "code_value"}, unique = true)
 public class CodeLedgerEntry extends StandardEntity {
     @Indexed
     @Column(name = "rule_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code rule id")
@@ -56,6 +56,11 @@ public class CodeLedgerEntry extends StandardEntity {
     @Column(name = "status", type = ColumnType.VARCHAR, length = 16, nullable = false, comment = "Ledger status",
             defaultVal = @Default(varchar = "ACTIVE"))
     private CodeLedgerStatus status = CodeLedgerStatus.ACTIVE;
+
+    @Column(name = "recycle_allowed", type = ColumnType.BOOLEAN, nullable = false,
+            defaultVal = @Default(bool = net.ximatai.muyun.database.core.annotation.TrueOrFalse.FALSE),
+            comment = "Original issuance recycling policy")
+    private Boolean recycleAllowed = Boolean.FALSE;
 
     @Column(name = "last_action", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Last lifecycle action",
             defaultVal = @Default(varchar = "ASSIGNED"))

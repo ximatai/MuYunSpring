@@ -14,6 +14,7 @@ import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.v
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
 import ModuleBusinessPreview from './ModuleBusinessPreview.vue';
+import CodeConfigurationView from './CodeConfigurationView.vue';
 import ModuleMenuGovernanceSurface from '../platform-admin-runtime/module-menu/ModuleMenuGovernanceSurface.vue';
 import { moduleGovernanceTabs, type ModuleGovernanceTab } from './moduleGovernanceWorkspaceView';
 
@@ -48,6 +49,7 @@ const tabs = computed<Array<{ key: ModuleGovernanceTab; title: string }>>(() => 
   { key: 'metadata', title: language.t('platform.governance.tab.metadata', '元数据') },
   { key: 'actions', title: language.t('platform.governance.tab.actions', '动作') },
   { key: 'rules', title: language.t('platform.governance.tab.rules', '业务规则') },
+  { key: 'codes', title: language.t('platform.code.config.title', '业务编码') },
   { key: 'ui', title: language.t('platform.governance.tab.ui', '页面配置') },
   { key: 'menu', title: language.t('platform.governance.tab.menu', '业务入口') },
   { key: 'preview', title: language.t('platform.governance.tab.preview', '业务预览') },
@@ -69,6 +71,8 @@ const activePanel = computed<{ component: Component; props: Record<string, unkno
       return { component: ModuleActionManagementView, props: { ...moduleProps, moduleKind: 'dynamic' } };
     case 'rules':
       return { component: BusinessRuleGovernanceSurface, props: moduleProps };
+    case 'codes':
+      return { component: CodeConfigurationView, props: { ...moduleProps, embedded: true } };
     case 'ui':
       return { component: PageCompositionWorkspace, props: moduleProps };
     case 'menu':

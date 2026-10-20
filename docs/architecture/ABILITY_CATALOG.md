@@ -32,6 +32,7 @@
 | 树形结构 | `TreeAbility` + `TreeCapable.parentId/sortOrder` | 父子、祖先后代、根节点、环保护、同级排序 | 已包含排序，无需重复实现 `SortAbility`；`parentId` 自动加入排序分区 |
 | 作为引用候选目标 | `ReferenceAbility` + `TitledCapable` | 标题、候选、引用投影与原始完整性事实读取 | `@TitleField` 可指定标题来源，不能替代接口的 `TitledCapable` 类型约束 |
 | 字段加密、签名或脱敏 | `FieldProtectionAbility` + 字段注解 | 存储保护、验签、按输出上下文脱敏 | 宿主配置密钥/provider；存储保护与展示脱敏各有执行边界 |
+| 自动或显式生成业务编码 | `CodeAbility` + 模型 `@BusinessCode` | 静态与动态共用生成、占用和旧码释放语义；标准事务内保存 | 静态领域动作可通过 `CodeRuntimeFacade` 显式预览、取号和绑定，不要求动态元数据或页面；见[业务编码](../platform/topics/business-automation/code-rule/OVERVIEW.md) |
 | 减少重复读取 | `CacheAbility` | ID / 全量列表缓存、副本隔离、写后失效、事务内绕过 | 缓存读取自动维护引用依赖，普通查询与事务内读取不改写共享缓存依赖；当前为进程内失效 |
 
 标准字段名和含义在动静两侧保持一致。拥有 `deleted`、`enabled` 等字段本身不等于 Service 已开启相应行为。不要因“开箱即用”自动开放恢复、最终清理或推断业务级联。

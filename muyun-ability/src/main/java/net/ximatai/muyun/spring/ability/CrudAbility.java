@@ -148,12 +148,12 @@ public interface CrudAbility<T extends EntityContract> {
                     PlatformManagedMutationGuard.beforeUpdate(this, entity, platformManagedExisting);
             if (platformManagedDecision.lightweight()) {
                 PlatformAbilityDispatcher.beforeUpdateSave(this, existing, platformManagedDecision.record());
-                return updatePreparedRecord(platformManagedDecision.record(), expectedVersion, false);
+                return updatePreparedRecord(platformManagedDecision.record(), existing, expectedVersion, false);
             }
             beforeUpdate(entity, existing);
             validateTreePlacementIfNeeded(entity);
             PlatformAbilityDispatcher.beforeUpdateSave(this, existing, entity);
-            return updatePreparedRecord(entity, expectedVersion, true);
+            return updatePreparedRecord(entity, existing, expectedVersion, true);
         });
     }
 
@@ -432,7 +432,7 @@ public interface CrudAbility<T extends EntityContract> {
                 : null;
     }
 
-    private int updatePreparedRecord(T entity, Integer expectedVersion, boolean dispatchPlatformAfterUpdate) {
+    private int updatePreparedRecord(T entity, T existing, Integer expectedVersion, boolean dispatchPlatformAfterUpdate) {
         int updated;
         try {
             try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
@@ -443,7 +443,7 @@ public interface CrudAbility<T extends EntityContract> {
                 throw new OptimisticLockException("record version conflict: " + entity.getId());
             }
             if (dispatchPlatformAfterUpdate) {
-                PlatformAbilityDispatcher.afterUpdate(this, entity, updated);
+                PlatformAbilityDispatcher.afterUpdate(this, existing, entity, updated);
                 afterUpdate(entity, updated);
             }
             afterChanged(entity);

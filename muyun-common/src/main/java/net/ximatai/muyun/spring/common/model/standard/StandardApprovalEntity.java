@@ -15,28 +15,28 @@ public abstract class StandardApprovalEntity extends StandardEntity implements A
     @Column(name = PlatformAbilityFields.APPROVAL_INSTANCE_COLUMN,
             type = ColumnType.VARCHAR,
             length = PlatformAbilityFields.APPROVAL_INSTANCE_LENGTH,
-            comment = "Current approval workflow instance id")
+            comment = "审批实例")
     private String approvalInstanceId;
 
     @Column(name = PlatformAbilityFields.APPROVAL_STATUS_COLUMN,
             type = ColumnType.VARCHAR,
             length = PlatformAbilityFields.APPROVAL_STATUS_LENGTH,
-            comment = "Current approval status")
+            comment = "审批状态")
     private String approvalStatus;
 
     @Column(name = PlatformAbilityFields.APPROVAL_SUBMITTED_BY_COLUMN,
             type = ColumnType.VARCHAR,
             length = PlatformAbilityFields.APPROVAL_SUBMITTED_BY_LENGTH,
-            comment = "Approval submitted by")
+            comment = "审批提交人")
     private String approvalSubmittedBy;
 
     @Column(name = PlatformAbilityFields.APPROVAL_SUBMITTED_AT_COLUMN,
             type = ColumnType.TIMESTAMP,
-            comment = "Approval submitted at")
+            comment = "审批提交时间")
     private Instant approvalSubmittedAt;
 
     @Column(name = PlatformAbilityFields.APPROVAL_COMPLETED_AT_COLUMN,
             type = ColumnType.TIMESTAMP,
-            comment = "Approval completed at")
+            comment = "审批完成时间")
     private Instant approvalCompletedAt;
 }

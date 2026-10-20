@@ -25,16 +25,23 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         QueryAbility<CodeLedgerEntry> {
     public static final String MODULE_ALIAS = "platform.code_ledger_entry";
 
-    public CodeLedgerEntryService(BaseDao<CodeLedgerEntry, String> ledgerEntryDao) {
+    private final CodeRecycleEntryService recycleEntries;
+
+    public CodeLedgerEntryService(BaseDao<CodeLedgerEntry, String> ledgerEntryDao, CodeRecycleEntryService recycleEntries) {
         super(MODULE_ALIAS, CodeLedgerEntry.class, ledgerEntryDao);
+        this.recycleEntries = java.util.Objects.requireNonNull(recycleEntries, "recycleEntries");
     }
 
-    public synchronized CodeLedgerEntry upsertActiveBinding(CodeRule rule,
+    public CodeLedgerEntry upsertActiveBinding(CodeRule rule,
                                                             String codeValue,
                                                             String basisKey,
                                                             String periodKey,
                                                             String sourceRecordId) {
-        CodeLedgerEntry entry = findByRuleAndValue(rule.getId(), codeValue);
+        lockTarget(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName());
+        CodeLedgerEntry owned = findActiveByTargetAndSourceRecord(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName(), sourceRecordId);
+        if (owned != null && !Objects.equals(owned.getCodeValue(), codeValue))
+            throw new net.ximatai.muyun.spring.common.exception.PlatformException("Record already owns another business code for this field");
+        CodeLedgerEntry entry = findByTargetAndValue(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName(), codeValue);
         if (entry == null) {
             entry = new CodeLedgerEntry();
             entry.setRuleId(rule.getId());
@@ -42,12 +49,18 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
             entry.setModuleAlias(rule.getModuleAlias());
             entry.setEntityAlias(rule.getEntityAlias());
             entry.setFieldName(rule.getFieldName());
+        } else if (entry.getStatus() == CodeLedgerStatus.DISCARDED) {
+            throw new net.ximatai.muyun.spring.common.exception.PlatformException("Code value has been discarded: " + codeValue);
         } else if (entry.getStatus() == CodeLedgerStatus.ACTIVE
                 && !Objects.equals(entry.getSourceRecordId(), sourceRecordId)) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.code-ledger-entry.code-value-is-already-occupied",
                     "Code value is already occupied: {value1}"), Map.of("value1", String.valueOf(codeValue)));
         }
+        if (entry.getId() != null && entry.getStatus() == CodeLedgerStatus.AVAILABLE)
+            recycleEntries.markOccupied(entry.getRuleId(), entry.getBasisKey(), entry.getPeriodKey(), entry.getCodeValue());
+        entry.setRuleId(rule.getId());
+        entry.setRecycleAllowed(Boolean.TRUE.equals(rule.getAllowRecycle()));
         entry.setBasisKey(normalizeBucket(basisKey));
         entry.setPeriodKey(normalizeBucket(periodKey));
         entry.setSourceRecordId(sourceRecordId);
@@ -61,14 +74,15 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         return entry;
     }
 
-    public synchronized CodeLedgerEntry upsertInactiveBinding(CodeRule rule,
+    public CodeLedgerEntry upsertInactiveBinding(CodeRule rule,
                                                               String codeValue,
                                                               String basisKey,
                                                               String periodKey,
                                                               String sourceRecordId,
                                                               CodeLedgerStatus status,
                                                               CodeLedgerAction action) {
-        CodeLedgerEntry entry = findByRuleAndValue(rule.getId(), codeValue);
+        lockTarget(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName());
+        CodeLedgerEntry entry = findByTargetAndValue(rule.getModuleAlias(), rule.getEntityAlias(), rule.getFieldName(), codeValue);
         if (entry == null) {
             entry = new CodeLedgerEntry();
             entry.setRuleId(rule.getId());
@@ -79,6 +93,8 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
         }
         entry.setBasisKey(normalizeBucket(basisKey));
         entry.setPeriodKey(normalizeBucket(periodKey));
+        if (entry.getId() != null && entry.getStatus() == CodeLedgerStatus.ACTIVE && !Objects.equals(entry.getSourceRecordId(), sourceRecordId))
+            throw new net.ximatai.muyun.spring.common.exception.PlatformException("Cannot release another record's code");
         entry.setSourceRecordId(null);
         entry.setStatus(status == null ? CodeLedgerStatus.DISCARDED : status);
         entry.setLastAction(action == null ? CodeLedgerAction.RELEASED_BY_DELETE : action);
@@ -88,6 +104,31 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
             update(entry);
         }
         return entry;
+    }
+
+    /** Serializes issuance and ownership changes until the outer business transaction completes. */
+    /** Every multi-field lifecycle path acquires target locks in this order, independently of evaluation order. */
+    public void lockTargets(String module, String entity, java.util.Collection<String> fields) {
+        fields.stream().distinct().sorted().forEach(field -> lockTarget(module, entity, field));
+    }
+
+    public void lockTarget(String module, String entity, String field) {
+        if (net.ximatai.muyun.spring.ability.TransactionScopeSupport.isTransactionActive()) {
+            lockMutation("code-target", java.util.Arrays.asList(
+                    net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse(""),
+                    module, entity, field).toString());
+        }
+    }
+
+    public CodeLedgerEntry findByTargetAndValue(String module, String entity, String field, String value) {
+        return findOne(Criteria.of().eq("moduleAlias", module).eq("entityAlias", entity)
+                .eq("fieldName", field).eq("codeValue", value));
+    }
+
+    public List<CodeLedgerEntry> activeBindings(String module, String entity, String recordId) {
+        return list(Criteria.of().eq("moduleAlias", module).eq("entityAlias", entity)
+                .eq("sourceRecordId", recordId).eq("status", CodeLedgerStatus.ACTIVE),
+                new PageRequest(0, Integer.MAX_VALUE));
     }
 
     public CodeLedgerEntry findByRuleAndValue(String ruleId, String codeValue) {
@@ -132,7 +173,7 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
                     "platform.rejection.code-ledger-entry.code-ledger-entry-does-not-exist",
                     "Code ledger entry does not exist"));
         }
-        CodeLedgerStatus targetStatus = Boolean.TRUE.equals(rule.getAllowRecycle())
+        CodeLedgerStatus targetStatus = Boolean.TRUE.equals(entry.getRecycleAllowed())
                 ? CodeLedgerStatus.AVAILABLE
                 : CodeLedgerStatus.DISCARDED;
         entry.setSourceRecordId(null);
@@ -152,8 +193,8 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
     public void beforeInsert(CodeLedgerEntry entry) {
         applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
-                        .eq("ruleId", entry.getRuleId())
-                        .eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
+                        .eq("moduleAlias", entry.getModuleAlias()).eq("entityAlias", entry.getEntityAlias())
+                        .eq("fieldName", entry.getFieldName()).eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
                                 "platform.rejection.code-ledger-entry.code-ledger-entry-already-exists-for-value",
                                 "Code ledger entry already exists for value: {value1}/{value2}"), Map.of("value1", String.valueOf(entry.getRuleId()), "value2", String.valueOf(entry.getCodeValue()))));
     }
@@ -162,8 +203,8 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
     public void beforeUpdate(CodeLedgerEntry entry) {
         applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
-                        .eq("ruleId", entry.getRuleId())
-                        .eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
+                        .eq("moduleAlias", entry.getModuleAlias()).eq("entityAlias", entry.getEntityAlias())
+                        .eq("fieldName", entry.getFieldName()).eq("codeValue", entry.getCodeValue()), () -> PlatformErrors.badRequestText(TextReference.code(
                                 "platform.rejection.code-ledger-entry.code-ledger-entry-already-exists-for-value",
                                 "Code ledger entry already exists for value: {value1}/{value2}"), Map.of("value1", String.valueOf(entry.getRuleId()), "value2", String.valueOf(entry.getCodeValue()))));
     }

@@ -259,7 +259,19 @@ public class PlatformModuleDefinitionCompiler {
                 capabilities,
                 formulaRules(relation),
                 List.of(),
-                metadata.getSortPartitionFields() == null ? List.of() : List.copyOf(metadata.getSortPartitionFields()));
+                metadata.getSortPartitionFields() == null ? List.of() : List.copyOf(metadata.getSortPartitionFields()))
+                .withBusinessCodes(businessCodes(relation.getId()));
+    }
+
+    private Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes(String relationId) {
+        Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> result = new LinkedHashMap<>();
+        if (moduleFieldService != null) for (ModuleMetadataField field : moduleFieldService.listByRelationId(relationId)) {
+            if (field.getBusinessCodeRole() != null) result.put(requireField(field).getFieldName(),
+                    new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(
+                            field.getBusinessCodeRole() == net.ximatai.muyun.spring.platform.code.CodeFieldRole.PRIMARY,
+                            field.getBusinessCodeTrigger()));
+        }
+        return result;
     }
 
     private List<EntityFormulaRuleDefinition> formulaRules(ModuleMetadataRelation relation) {

@@ -20,16 +20,23 @@ public class CodeBusinessPreviewService {
     private final CodeRuleService ruleService;
     private final CodePreviewService previewService;
     private final Clock clock;
+    private final CodeBusinessTimeService time;
 
-    @Autowired
     public CodeBusinessPreviewService(CodeRuleService ruleService, CodePreviewService previewService) {
         this(ruleService, previewService, Clock.systemDefaultZone());
     }
 
     public CodeBusinessPreviewService(CodeRuleService ruleService, CodePreviewService previewService, Clock clock) {
+        this(ruleService, previewService, clock, new CodeBusinessTimeService(clock));
+    }
+
+    @Autowired
+    public CodeBusinessPreviewService(CodeRuleService ruleService, CodePreviewService previewService, Clock clock,
+                                     CodeBusinessTimeService time) {
         this.ruleService = Objects.requireNonNull(ruleService, "ruleService must not be null");
         this.previewService = Objects.requireNonNull(previewService, "previewService must not be null");
-        this.clock = clock == null ? Clock.systemDefaultZone() : clock;
+        this.clock = Objects.requireNonNull(clock);
+        this.time = Objects.requireNonNull(time);
     }
 
     public List<CodeBusinessPreviewItem> preview(String moduleAlias,
@@ -48,7 +55,7 @@ public class CodeBusinessPreviewService {
                     "platform.rejection.code-business-preview.code-business-preview-requires-entityalias",
                     "Code business preview requires entityAlias"));
         }
-        LocalDateTime effectiveAt = at == null ? LocalDateTime.now(clock) : at;
+        LocalDateTime effectiveAt = time.resolveBusinessLocalDateTime(organizationId, at);
         Map<String, Object> safeContext = context == null ? Map.of() : new LinkedHashMap<>(context);
         return ruleService.resolveRules(new ResolveCodeRuleCommand(
                         moduleAlias,

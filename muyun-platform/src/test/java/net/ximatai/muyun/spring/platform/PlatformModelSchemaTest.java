@@ -326,7 +326,7 @@ class PlatformModelSchemaTest {
                         "source_record_id", "status");
         assertThat(columnNames(mapper.toTable(CodeLedgerEntry.class)))
                 .contains("id", "rule_id", "module_alias", "entity_alias", "field_name", "code_value",
-                        "basis_key", "period_key", "source_record_id", "status", "last_action");
+                        "basis_key", "period_key", "source_record_id", "status", "last_action", "recycle_allowed");
         assertThat(columnDefault(mapper.toTable(CodeRecycleEntry.class), "basis_key")).isEqualTo("'__DEFAULT__'");
         assertThat(columnDefault(mapper.toTable(CodeRecycleEntry.class), "period_key")).isEqualTo("'__DEFAULT__'");
         assertThat(columnDefault(mapper.toTable(CodeRecycleEntry.class), "status")).isEqualTo("'AVAILABLE'");
@@ -337,7 +337,7 @@ class PlatformModelSchemaTest {
         assertThat(uniqueIndexes(mapper.toTable(CodeSequenceState.class)))
                 .contains(List.of("tenant_id", "rule_id", "basis_key", "period_key"));
         assertThat(uniqueIndexes(mapper.toTable(CodeLedgerEntry.class)))
-                .contains(List.of("tenant_id", "rule_id", "code_value"));
+                .contains(List.of("tenant_id", "module_alias", "entity_alias", "field_name", "code_value"));
         assertThat(uniqueIndexes(mapper.toTable(CodeRecycleEntry.class)))
                 .contains(List.of("tenant_id", "rule_id", "basis_key", "period_key", "recycled_value"));
     }

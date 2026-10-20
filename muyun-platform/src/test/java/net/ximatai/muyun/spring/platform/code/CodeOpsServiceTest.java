@@ -27,7 +27,7 @@ class CodeOpsServiceTest {
     private final CodeSequenceStateService stateService = new CodeSequenceStateService(new TestMemoryDao<>());
     private final CodeIssueLogService issueLogService = new CodeIssueLogService(new TestMemoryDao<>());
     private final CodeRecycleEntryService recycleService = new CodeRecycleEntryService(new TestMemoryDao<>());
-    private final CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>());
+    private final CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>(), recycleService);
     private final DynamicRecordService recordService = mock(DynamicRecordService.class);
     private final CodeOpsQueryService queryService = new CodeOpsQueryService(
             ruleService,
@@ -104,8 +104,10 @@ class CodeOpsServiceTest {
         DynamicEntityOperations operations = mock(DynamicEntityOperations.class);
         DynamicRecord record = new DynamicRecord(entity());
         record.setValue("orderNo", "SO-0002");
+        when(recordService.moduleDefinitions()).thenReturn(List.of(new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition("crm.order", "Order", List.of(entity()))));
         when(recordService.entity("crm.order", "main")).thenReturn(operations);
-        when(operations.select("order-1")).thenReturn(record);
+        when(operations.selectIgnoreSoftDelete("order-1")).thenReturn(record);
+        when(operations.getDao()).thenReturn(new TestMemoryDao<>());
 
         CodeLedgerInspection inspection = actionService.inspectLedgerEntry(active.getId());
 
@@ -115,6 +117,9 @@ class CodeOpsServiceTest {
 
         CodeLedgerEntry released = actionService.releaseStaleLedgerEntry(active.getId(), "manual cleanup");
 
+        assertThat(recycleService.selectByRuleId(rule.getId(), 10)).singleElement().satisfies(entry -> {
+            assertThat(entry.getRecycledValue()).isEqualTo("SO-0001"); assertThat(entry.getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+        });
         assertThat(released.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
         assertThat(released.getSourceRecordId()).isNull();
         assertThat(released.getLastAction()).isEqualTo(CodeLedgerAction.RELEASED_BY_GOVERNANCE);
@@ -147,6 +152,49 @@ class CodeOpsServiceTest {
                             .extracting(CodeLedgerEntry::getStatus)
                             .isEqualTo(CodeLedgerStatus.AVAILABLE);
                 });
+    }
+
+    @Test void unavailableTargetsAreReportedButNeverInterpretedAsMissingRecords() {
+        var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
+        var entry = ledgerService.upsertActiveBinding(rule, "SO-0001", null, null, "missing-module-record");
+        var inspection = actionService.inspectLedgerEntry(entry.getId());
+        assertThat(inspection.reason()).isEqualTo(CodeLedgerInconsistencyReason.TARGET_UNAVAILABLE);
+        assertThat(inspection.releaseAllowed()).isFalse();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actionService.releaseStaleLedgerEntry(entry.getId(), "cannot prove absence"))
+                .hasMessageContaining("cannot be released");
+        assertThat(ledgerService.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+    }
+    @Test void unavailableTargetsCannotReopenDiscardedRecycleEntries() {
+        var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
+        ledgerService.upsertActiveBinding(rule, "SO-0001", null, null, "original-owner");
+        var entry = ledgerService.upsertInactiveBinding(rule, "SO-0001", null, null, "original-owner",
+                CodeLedgerStatus.DISCARDED, CodeLedgerAction.RELEASED_BY_GOVERNANCE);
+        var pool = recycleService.record(rule, null, null, "SO-0001", null);
+        recycleService.adjustStatus(pool.getId(), CodeRecycleStatus.DISCARDED);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actionService.adjustRecycleEntry(pool.getId(), CodeRecycleStatus.AVAILABLE, "unavailable target"))
+                .hasMessageContaining("target is unavailable");
+        assertThat(ledgerService.select(entry.getId()).getStatus()).isEqualTo(CodeLedgerStatus.DISCARDED);
+        assertThat(recycleService.select(pool.getId()).getStatus()).isEqualTo(CodeRecycleStatus.DISCARDED);
+    }
+    @Test void aStoredRuleCannotMoveItsCountersAndRecyclePoolIntoAnotherBusinessTarget() {
+        var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
+        var changed = rule("otherNo", true); changed.setId(rule.getId()); changed.setVersion(rule.getVersion());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ruleService.saveRuleTree(changed)).hasMessageContaining("cannot move");
+    }
+    @Test void mappingRowsCannotSilentlyDeclareAnUnsupportedIndependentOrganizationScope() {
+        var mapping = new CodeValueMapping(); mapping.setSegmentId("segment"); mapping.setSourceValue("a"); mapping.setTargetValue("A");
+        mapping.setOrgScopeType(CodeOrgScopeType.ORG); mapping.setOrgScopeId("organization");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mappingService.insert(mapping)).hasMessageContaining("owning rule");
+    }
+
+    @Test void retypedHistoricalFieldsAreUnavailableForAutomaticRelease() {
+        var rule = rule("orderNo", true); ruleService.saveRuleTree(rule);
+        var entry = ledgerService.upsertActiveBinding(rule, "SO-0001", null, null, "historical-row");
+        var retyped = new EntityDefinition("main", "crm_order", "Order", List.of(FieldDefinition.integer("orderNo", "Changed type")));
+        when(recordService.moduleDefinitions()).thenReturn(List.of(new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition("crm.order", "Order", List.of(retyped))));
+        assertThat(actionService.inspectLedgerEntry(entry.getId()).reason()).isEqualTo(CodeLedgerInconsistencyReason.TARGET_UNAVAILABLE);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actionService.releaseStaleLedgerEntry(entry.getId(), "cannot confirm old semantics"))
+                .hasMessageContaining("cannot be released");
     }
 
     private EntityDefinition entity() {

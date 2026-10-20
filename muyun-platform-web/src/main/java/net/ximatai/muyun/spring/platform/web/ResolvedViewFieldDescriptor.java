@@ -29,7 +29,36 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           AssistantFieldPolicy assistantPolicy,
                                           FieldInputRequirements inputRequirements,
                                           CalculationTiming calculationTiming,
+                                          ContentFieldDefinition content,
+                                          net.ximatai.muyun.spring.ability.code.CodeFieldDefinition businessCode) {
+    /** Compatible constructor for descriptors predating business coding declarations. */
+    public ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
+                                          String label,
+                                          UiRule<Boolean> visible,
+                                          UiRule<Boolean> required,
+                                          UiRule<Boolean> readOnly,
+                                          String uiType,
+                                          ResolvedFieldControlDescriptor fieldControl,
+                                          FieldValueType valueType,
+                                          FieldValuePresentation valuePresentation,
+                                          String width,
+                                          Integer columnSpan,
+                                          String align,
+                                          Boolean fixed,
+                                          BooleanStatusPresentation booleanStatus,
+                                          ResolvedOptionFieldDescriptor option,
+                                          ResolvedReferenceFieldDescriptor reference,
+                                          ResolvedReferenceSummaryFieldDescriptor referenceSummary,
+                                          Integer maxDisplayLines,
+                                          String treeRootTitle,
+                                          String overrideOf,
+                                          AssistantFieldPolicy assistantPolicy,
+                                          FieldInputRequirements inputRequirements,
+                                          CalculationTiming calculationTiming,
                                           ContentFieldDefinition content) {
+        this(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content, null);
+    }
+
     /** Compatible constructor for descriptors predating business content policies. */
     public ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           String label,
@@ -289,32 +318,38 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         return value;
     }
 
+    public ResolvedViewFieldDescriptor withBusinessCode(net.ximatai.muyun.spring.ability.code.CodeFieldDefinition value) {
+        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType,
+                valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary,
+                maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content, value);
+    }
+
     public ResolvedViewFieldDescriptor withContent(ContentFieldDefinition value) {
-        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, value != null && value.enabled() ? value : null);
+        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, value != null && value.enabled() ? value : null, businessCode);
     }
 
     public ResolvedViewFieldDescriptor withAssistantPolicy(AssistantFieldPolicy value) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width,
                 columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary,
-                maxDisplayLines, treeRootTitle, overrideOf, value, inputRequirements, calculationTiming, content);
+                maxDisplayLines, treeRootTitle, overrideOf, value, inputRequirements, calculationTiming, content, businessCode);
     }
 
     public ResolvedViewFieldDescriptor withUiState(UiRule<Boolean> visible, UiRule<Boolean> readOnly) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content, businessCode);
     }
 
     public ResolvedViewFieldDescriptor withInputRequirements(FieldInputRequirements value) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, value, calculationTiming, content);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, value, calculationTiming, content, businessCode);
     }
 
     public ResolvedViewFieldDescriptor withReadOnly(UiRule<Boolean> value) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, value, uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, calculationTiming, content, businessCode);
     }
 
     public ResolvedViewFieldDescriptor withComputedValue(String hint) {
@@ -325,6 +360,6 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, UiRule.constant(false),
                 new UiRule<>(true, null, hint), uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, timing, content);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements, timing, content, businessCode);
     }
 }

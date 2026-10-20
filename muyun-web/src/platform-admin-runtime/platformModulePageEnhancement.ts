@@ -2,13 +2,17 @@ import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dyna
 import type { QueryListRecord } from '@muyun/platform-components';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
 import { workflowConfigurationWorkspaceView } from '../views/workflowConfigurationWorkspaceView';
+import { codeConfigurationWorkspaceView } from '../views/codeConfigurationWorkspaceView';
 import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
 import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
+import { activateModuleCodeCatalog, canConfigureModuleCodes } from './moduleCodeConfiguration';
+import ModuleCodeConfigurationStatus from './ModuleCodeConfigurationStatus.vue';
 
 // Workspace definitions use the platform-workbench's serializable input
 // contract. The enhancement boundary exposes the equivalent dynamic-runtime
 // contract, so adapt them once at this composition edge.
+const codeWorkspaceView = codeConfigurationWorkspaceView as unknown as ModulePageWorkspaceView;
 const workflowWorkspaceView = workflowConfigurationWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleActionWorkspaceView = moduleActionManagementWorkspaceView as unknown as ModulePageWorkspaceView;
 const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as ModulePageWorkspaceView;
@@ -23,6 +27,13 @@ const moduleGovernanceWorkspace = moduleGovernanceWorkspaceView as unknown as Mo
 export const platformModulePageEnhancement: ModulePageEnhancement = {
   id: 'platform-module-workspace-actions',
   target: { moduleAlias: 'platform.module' },
+  activate: ({ module }) => activateModuleCodeCatalog(module),
+  card: {
+    assistant: {
+      component: ModuleCodeConfigurationStatus,
+      placement: { boundary: 'inside', position: 'bottom' },
+    },
+  },
   // The hand-authored workspace remains an explicit extension for dynamic executor binding;
   // it has no menu identity and is not the general action-management entry.
   workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView, workflowWorkspaceView],
@@ -36,6 +47,22 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
       },
     ],
     actions: [
+      {
+        key: 'module-business-code',
+        title: '业务编码',
+        titleKey: 'platform.code.config.title',
+        state: (record, context) => ({
+          visible:
+            !!context &&
+            !!moduleAliasOf(record) &&
+            canConfigureModuleCodes(context.module, moduleAliasOf(record)!),
+        }),
+        run({ record, module, openWorkspaceTab }) {
+          const moduleAlias = moduleAliasOf(record);
+          if (moduleAlias && canConfigureModuleCodes(module, moduleAlias))
+            openWorkspaceTab(codeWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
+        },
+      },
       {
         key: 'module-workflow-workspace',
         title: '审批流程',

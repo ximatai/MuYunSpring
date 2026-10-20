@@ -6,6 +6,7 @@ export const moduleGovernanceTabs = [
   'metadata',
   'actions',
   'rules',
+  'codes',
   'ui',
   'menu',
   'preview',

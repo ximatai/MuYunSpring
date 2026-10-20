@@ -69,6 +69,20 @@ import static org.mockito.Mockito.mock;
 class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest {
     private static final String TENANT_ID = "tenant-code";
 
+    @Autowired javax.sql.DataSource codeTestDataSource;
+    @Autowired org.springframework.transaction.PlatformTransactionManager codeTestTransactions;
+    @org.junit.jupiter.api.BeforeEach void installCodeMutationHost() {
+        CodeTestMutationHost.install(codeTestTransactions, codeTestDataSource);
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureDeletionLifecycleListener(
+                new net.ximatai.muyun.spring.ability.deletion.CompositeDeletionLifecycleListener(
+                        net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener.NONE,
+                        List.of(new CodeDeletionObserver(new CodeOccupationService(ledgerService, recycleService)))));
+    }
+    @org.junit.jupiter.api.AfterEach void resetCodeMutationHost() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetMutationTransactionOperator();
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetDeletionLifecycleListener();
+    }
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("muyun.database.default-schema", () -> "public");
@@ -144,9 +158,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void shouldIgnoreDisabledAndUnmatchedRules() {
-        Scenario disabledScenario = refreshScenario();
+        Scenario disabledScenario = refreshScenario(false, false);
         CodeRule disabledRule = saveRule(disabledScenario, CodeMode.AUTO, false);
-        Scenario unmatchedScenario = refreshScenario();
+        Scenario unmatchedScenario = refreshScenario(false, false);
 
         DynamicRecord disabled = create(disabledScenario, "disabled");
         DynamicRecord unmatched = create(unmatchedScenario, "unmatched");
@@ -160,9 +174,12 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void shouldGenerateMissingCodeDuringDynamicUpdate() {
-        Scenario scenario = refreshScenario();
+        Scenario scenario = refreshScenario(false, false);
         DynamicRecord record = create(scenario, "draft");
         CodeRule rule = saveRule(scenario, CodeMode.AUTO, true);
+        refresher.refresh(new ModuleDefinition(scenario.moduleAlias(), "Coding enabled", List.of(
+                recordService.newRecord(scenario.moduleAlias(), "main").getEntity().withBusinessCodes(java.util.Map.of(
+                        "orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null))))));
 
         DynamicRecord update = recordService.newRecord(scenario.moduleAlias(), "main")
                 .setValue("title", "confirmed");
@@ -215,6 +232,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(reusableScenario.moduleAlias(), "main", reusable.getId());
+            recordService.entity(reusableScenario.moduleAlias(), "main").purge(reusable.getId());
         }
 
         CodeLedgerEntry reusableLedger = ledgerService.findByRuleAndValue(reusableRule.getId(), "SO-0001");
@@ -230,6 +248,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(discardScenario.moduleAlias(), "main", discarded.getId());
+            recordService.entity(discardScenario.moduleAlias(), "main").purge(discarded.getId());
         }
 
         CodeLedgerEntry discardLedger = ledgerService.findByRuleAndValue(discardRule.getId(), "SO-0001");
@@ -239,7 +258,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
-    void shouldReleaseCodesWhenDynamicRecordsAreDeletedInBatch() {
+    void shouldRetainCodeOccupationWhenDynamicRecordsAreSoftDeletedInBatch() {
         Scenario scenario = refreshScenario();
         CodeRule rule = saveRule(scenario, CodeMode.AUTO, true);
         DynamicRecord first = create(scenario, "first");
@@ -251,15 +270,15 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
 
         CodeLedgerEntry firstLedger = ledgerService.findByRuleAndValue(rule.getId(), "SO-0001");
-        assertThat(firstLedger.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(firstLedger.getLastAction()).isEqualTo(CodeLedgerAction.RELEASED_BY_DELETE);
-        assertThat(firstLedger.getSourceRecordId()).isNull();
-        assertThat(recycleEntry(rule, "SO-0001").getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+        assertThat(firstLedger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        assertThat(firstLedger.getLastAction()).isEqualTo(CodeLedgerAction.ASSIGNED);
+        assertThat(firstLedger.getSourceRecordId()).isEqualTo(first.getId());
+        assertThat(recycleEntry(rule, "SO-0001")).isNull();
 
         CodeLedgerEntry secondLedger = ledgerService.findByRuleAndValue(rule.getId(), "SO-0002");
-        assertThat(secondLedger.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(secondLedger.getSourceRecordId()).isNull();
-        assertThat(recycleEntry(rule, "SO-0002").getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
+        assertThat(secondLedger.getStatus()).isEqualTo(CodeLedgerStatus.ACTIVE);
+        assertThat(secondLedger.getSourceRecordId()).isEqualTo(second.getId());
+        assertThat(recycleEntry(rule, "SO-0002")).isNull();
     }
 
     @Test
@@ -317,6 +336,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(reusableScenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(reusableScenario.moduleAlias(), "main", first.getId());
+            recordService.entity(reusableScenario.moduleAlias(), "main").purge(first.getId());
         }
 
         DynamicRecord reused = create(reusableScenario, "reused");
@@ -333,6 +353,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord discarded = create(discardedScenario, "discarded");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(discardedScenario.moduleAlias(), "main", discarded.getId());
+            recordService.entity(discardedScenario.moduleAlias(), "main").purge(discarded.getId());
         }
         DynamicRecord afterDiscard = create(discardedScenario, "after-discard");
 
@@ -405,6 +426,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(scenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(scenario.moduleAlias(), "main", first.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(first.getId());
         }
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -431,6 +453,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         DynamicRecord first = create(scenario, "first");
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             recordService.delete(scenario.moduleAlias(), "main", first.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(first.getId());
         }
 
         int count = 8;
@@ -566,7 +589,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
 
     @Test
     void dynamicCodeShouldUseInjectedOrganizationTimeZoneResolver() {
-        Scenario scenario = refreshScenario();
+        Scenario scenario = refreshScenario(true);
         CodeRule rule = saveDateRule(scenario);
 
         DynamicRecord record;
@@ -575,6 +598,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                     CurrentUser.tenantUser("user-1", "User", TENANT_ID, "org-shanghai"))) {
                 record = recordService.newRecord(scenario.moduleAlias(), "main")
                         .setValue("title", "time-zone");
+                record.setAuthOrganizationId("org-shanghai");
                 recordService.create(scenario.moduleAlias(), "main", record);
             }
         }
@@ -584,7 +608,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
-    void shouldFallbackDefaultBucketWhenOldCodeReleaseContextCannotRender() {
+    void shouldReleaseOriginalOccupationAfterRuleSourceChanges() {
         Scenario scenario = refreshScenario();
         CodeRule rule = saveLinkedRule(scenario, true);
         DynamicRecord record = create(scenario, "alpha");
@@ -597,14 +621,15 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
             ruleService.saveRuleTree(changedRule);
             recordService.delete(scenario.moduleAlias(), "main", record.getId());
+            recordService.entity(scenario.moduleAlias(), "main").purge(record.getId());
         }
 
         CodeLedgerEntry released = ledgerService.findByRuleAndValue(rule.getId(), "SO-alpha-0001");
         assertThat(released.getStatus()).isEqualTo(CodeLedgerStatus.AVAILABLE);
-        assertThat(released.getBasisKey()).isEqualTo(CodeSequenceState.DEFAULT_BUCKET);
+        assertThat(released.getBasisKey()).isEqualTo("title=alpha");
         CodeRecycleEntry recycle = recycleEntry(rule, "SO-alpha-0001");
         assertThat(recycle.getStatus()).isEqualTo(CodeRecycleStatus.AVAILABLE);
-        assertThat(recycle.getBasisKey()).isEqualTo(CodeSequenceState.DEFAULT_BUCKET);
+        assertThat(recycle.getBasisKey()).isEqualTo("title=alpha");
     }
 
     private DynamicRecord create(Scenario scenario, String title) {
@@ -647,7 +672,138 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
     }
 
-    private Scenario refreshScenario() {
+    @Test void numberingReadsFinalFormulaValuesAndBindsThePersistedValue() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        var scenario = new Scenario("crm.code_formula_" + suffix);
+        var entity = new EntityDefinition("main", "code_formula_" + suffix, "Formula Code", List.of(
+                FieldDefinition.titleField().required(), FieldDefinition.string("orderNo", "Order No").column("order_no").length(64)), Set.of(EntityCapability.REFERENCE))
+                .withFormulaRules(net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition.calculation("finalTitle", "{title} = 'FINAL'"))
+                .withBusinessCodes(java.util.Map.of("orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null)));
+        refresher.refresh(new ModuleDefinition(scenario.moduleAlias(), "Formula Code", List.of(entity)));
+        var rule = saveLinkedRule(scenario, true);
+        var record = create(scenario, "before-formula");
+        assertThat(record.getValue("orderNo")).isEqualTo("SO-FINAL-0001");
+        assertThat(recordService.select(scenario.moduleAlias(), "main", record.getId()).getValue("orderNo")).isEqualTo("SO-FINAL-0001");
+        assertThat(ledgerService.findByRuleAndValue(rule.getId(), "SO-FINAL-0001").getSourceRecordId()).isEqualTo(record.getId());
+    }
+
+    @Test void systemUpdateResolvesAndOccupiesWithinTheRecordsTenant() {
+        var scenario = refreshScenario();
+        var firstRule = saveRule(scenario, CodeMode.AUTO, true);
+        String otherTenant = UUID.randomUUID().toString();
+        var otherRule = saveRule(scenario, CodeMode.AUTO, true, true, otherTenant);
+        var first = create(scenario, "first");
+        DynamicRecord other;
+        try (var tenant = TenantContext.use(otherTenant)) {
+            other = recordService.newRecord(scenario.moduleAlias(), "main").setValue("title", "other");
+            recordService.create(scenario.moduleAlias(), "main", other);
+        }
+        var patch = recordService.newRecord(scenario.moduleAlias(), "main").setValue("title", "system-update");
+        patch.setId(first.getId()); patch.setVersion(first.getVersion());
+        recordService.updateSystem(scenario.moduleAlias(), "main", patch, "contract system update");
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            assertThat(recordService.select(scenario.moduleAlias(), "main", first.getId()).getValue("title")).isEqualTo("system-update");
+            assertThat(ledgerService.findByRuleAndValue(firstRule.getId(), "SO-0001").getSourceRecordId()).isEqualTo(first.getId());
+        }
+        try (var tenant = TenantContext.use(otherTenant)) {
+            assertThat(ledgerService.findByRuleAndValue(otherRule.getId(), "SO-0001").getSourceRecordId()).isEqualTo(other.getId());
+        }
+    }
+
+    @Test
+    void workbookImportUsesTheSameNumberingLedgerAndRollsBackRejectedManualCodes() {
+        var scenario = refreshScenario(); var rule = saveRule(scenario, CodeMode.AUTO, true);
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            var imports = new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportFacade(recordService);
+            byte[] file = new net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter().writeToBytes(
+                    new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan(List.of(
+                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan("Code IT", "main", true,
+                                    List.of(new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("relateId", "关联标识"), new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("title", "标题")),
+                                    List.of(List.of("R-1", "import-one"), List.of("R-2", "import-two"))))));
+            var plan = new net.ximatai.muyun.spring.platform.exchange.importer.BuildDynamicImportPlanCommand(scenario.moduleAlias(), "title",
+                    net.ximatai.muyun.spring.platform.exchange.importer.ImportDuplicateStrategy.ERROR, List.of());
+            var result = transactionTemplate.execute(status -> imports.importWorkbook(new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportCommand(
+                    recordService.describe(scenario.moduleAlias()), file, plan)));
+            assertThat(result.executionResult().created()).isEqualTo(2);
+            assertThat(records(scenario)).extracting(row -> row.getValue("orderNo")).containsExactlyInAnyOrder("SO-0001", "SO-0002");
+            assertThat(ledgerEntries(rule)).hasSize(2);
+            byte[] invalid = new net.ximatai.muyun.spring.platform.exchange.writer.ExcelWorkbookPlanWriter().writeToBytes(
+                    new net.ximatai.muyun.spring.platform.exchange.model.ExcelWorkbookPlan(List.of(
+                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelSheetPlan("Code IT", "main", true,
+                                    List.of(new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("relateId", "关联标识"), new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("title", "标题"),
+                                            new net.ximatai.muyun.spring.platform.exchange.model.ExcelColumnPlan("orderNo", "编号")),
+                                    List.of(List.of("R-3", "forged", "FAKE-1"))))));
+            assertThatThrownBy(() -> transactionTemplate.execute(status -> imports.importWorkbook(
+                    new net.ximatai.muyun.spring.platform.exchange.importer.DynamicImportCommand(recordService.describe(scenario.moduleAlias()), invalid, plan))))
+                    .hasMessageContaining("AUTO code field does not accept manual value");
+            assertThat(records(scenario)).hasSize(2); assertThat(ledgerEntries(rule)).hasSize(2);
+            var next = create(scenario, "after-failure"); assertThat(next.getValue("orderNo")).isEqualTo("SO-0003");
+        }
+    }
+
+    @Test
+    void dynamicFormPoliciesUseInstalledBindingsAndNeverAllocateOrExposeUnrelatedEntities() {
+        var scenario = refreshScenario(); saveRule(scenario, CodeMode.AUTO, true);
+        var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var targets = new CodeTargetCatalog(factory.getBeanProvider(org.springframework.core.ResolvableType.forClass(net.ximatai.muyun.spring.ability.CrudAbility.class)));
+        var forms = new CodeBusinessFormService(targets, Optional.of(recordService), ruleService,
+                formGeneration, new CodeBusinessTimeService(Clock.systemUTC()), new com.fasterxml.jackson.databind.ObjectMapper());
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            var states = forms.fields(scenario.moduleAlias(), new CodeBusinessFormRequest(null, java.util.Map.of("title", "draft"), null));
+            assertThat(states).singleElement().satisfies(state -> {
+                assertThat(state.fieldName()).isEqualTo("orderNo"); assertThat(state.preview()).isEqualTo("SO-0001"); assertThat(state.readOnly()).isTrue();
+            });
+            assertThatThrownBy(() -> forms.fields(scenario.moduleAlias(), new CodeBusinessFormRequest("foreign", java.util.Map.of(), null)))
+                    .isInstanceOf(PlatformException.class);
+            assertThat(create(scenario, "first").getValue("orderNo")).isEqualTo("SO-0001");
+            var childScenario = refreshChildScenario(); saveChildRuleUsingParentTitle(childScenario);
+            var child = forms.fields(childScenario.moduleAlias(), new CodeBusinessFormRequest("line", java.util.Map.of("title", "own"), java.util.Map.of("title", "PARENT")));
+            assertThat(child).singleElement().extracting(CodeBusinessFieldState::preview).isEqualTo("LN-PARENT-0001");
+        }
+    }
+    @Test
+    void childPreviewFeedsQualifiedGeneratedCodeDependenciesEvenWhenTheDraftOmitsEveryCodeKey() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String module = "crm.preview_dep_" + suffix;
+        var child = new EntityDefinition("line", "preview_line_" + suffix, "Line", List.of(
+                FieldDefinition.string("mainId", "Main").column("main_id").required(), FieldDefinition.titleField().required(),
+                FieldDefinition.string("firstNo", "First").column("first_no").length(64),
+                FieldDefinition.string("secondNo", "Second").column("second_no").length(64)), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE))
+                .withBusinessCodes(java.util.Map.of("firstNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null),
+                        "secondNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(false, null)));
+        refresher.refresh(ModuleDefinition.builder(module, "Qualified preview")
+                .entities(List.of(new EntityDefinition("main", "preview_main_" + suffix, "Main", List.of(FieldDefinition.titleField().required()), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)), child))
+                .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId").withAutoPopulate())).build());
+        try (var tenant = TenantContext.use(TENANT_ID)) {
+            for (String field : List.of("firstNo", "secondNo")) {
+                var rule = new CodeRule(); rule.setModuleAlias(module); rule.setEntityAlias("line"); rule.setFieldName(field);
+                var source = field.equals("firstNo") ? segment(CodeSegmentType.CONSTANT, "A", null)
+                        : segment(CodeSegmentType.FIELD_VALUE, null, "line.firstNo");
+                source.setSeparator("-"); rule.setSegments(List.of(source, sequenceSegment()));
+                var policy = new CodeSequencePolicy(); policy.setSequenceLength(4); rule.setSequencePolicy(policy); ruleService.saveRuleTree(rule);
+            }
+            var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+            var forms = new CodeBusinessFormService(new CodeTargetCatalog(factory.getBeanProvider(
+                    org.springframework.core.ResolvableType.forClass(net.ximatai.muyun.spring.ability.CrudAbility.class))),
+                    Optional.of(recordService), ruleService, formGeneration, new CodeBusinessTimeService(Clock.systemUTC()), new com.fasterxml.jackson.databind.ObjectMapper());
+            var draft = new java.util.LinkedHashMap<String, Object>(); draft.put("title", "line");
+            var states = forms.fields(module, new CodeBusinessFormRequest("line", draft, java.util.Map.of("title", "parent")));
+            assertThat(states).filteredOn(state -> state.fieldName().equals("secondNo")).singleElement()
+                    .extracting(CodeBusinessFieldState::preview).isEqualTo("A-0001-0001");
+            assertThat(draft).containsExactlyEntriesOf(java.util.Map.of("title", "line"));
+            var parent = recordService.newRecord(module, "main").setValue("title", "parent");
+            var line = recordService.newRecord(module, "line").setValue("title", "line"); parent.setChildren("lines", List.of(line));
+            recordService.create(module, "main", parent);
+            assertThat(line.getValue("firstNo")).isEqualTo("A-0001");
+            assertThat(line.getValue("secondNo")).isEqualTo("A-0001-0001");
+        }
+    }
+    @Autowired private CodeGenerateService formGeneration;
+
+    private Scenario refreshScenario() { return refreshScenario(false); }
+
+    private Scenario refreshScenario(boolean dataScope) { return refreshScenario(dataScope, true); }
+    private Scenario refreshScenario(boolean dataScope, boolean coding) {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String moduleAlias = "crm.code_it_" + suffix;
         String tableName = "crm_code_it_" + suffix;
@@ -659,8 +815,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                         FieldDefinition.titleField().required(),
                         FieldDefinition.string("orderNo", "Order No").column("order_no").length(64)
                 ),
-                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
-        ))));
+                dataScope ? Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN, EntityCapability.DATA_SCOPE)
+                        : Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
+        ).withBusinessCodes(coding ? java.util.Map.of("orderNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(true, null)) : java.util.Map.of()))));
         return new Scenario(moduleAlias);
     }
 
@@ -676,7 +833,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                                 mainTableName,
                                 "Code Child Main",
                                 List.of(FieldDefinition.titleField().required()),
-                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
+                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
                         ),
                         new EntityDefinition(
                                 "line",
@@ -687,8 +844,8 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
                                         FieldDefinition.titleField().required(),
                                         FieldDefinition.string("lineNo", "Line No").column("line_no").length(64)
                                 ),
-                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE)
-                        )
+                                Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
+                        ).withBusinessCodes(java.util.Map.of("lineNo", new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(false, null)))
                 ))
                 .relations(List.of(EntityRelationDefinition.child("lines", "main", "line", "mainId")
                         .withAutoPopulate()
@@ -702,6 +859,9 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     private CodeRule saveRule(Scenario scenario, CodeMode mode, boolean enabled, boolean allowRecycle) {
+        return saveRule(scenario, mode, enabled, allowRecycle, TENANT_ID);
+    }
+    private CodeRule saveRule(Scenario scenario, CodeMode mode, boolean enabled, boolean allowRecycle, String tenant) {
         CodeRule rule = new CodeRule();
         rule.setModuleAlias(scenario.moduleAlias());
         rule.setEntityAlias("main");
@@ -721,7 +881,7 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         policy.setSequenceLength(4);
         policy.setResetPolicy(CodeSequenceResetPolicy.NONE);
         rule.setSequencePolicy(policy);
-        try (TenantContext.Scope ignored = TenantContext.use(TENANT_ID)) {
+        try (TenantContext.Scope ignored = TenantContext.use(tenant)) {
             return ruleService.saveRuleTree(rule);
         }
     }
@@ -980,8 +1140,8 @@ class DynamicCodeCoordinatorRepositoryIT extends PlatformPostgresIntegrationTest
         }
 
         @Bean
-        CodeLedgerEntryService codeLedgerEntryService(CodeLedgerEntryDao ledgerEntryDao) {
-            return new CodeLedgerEntryService(ledgerEntryDao);
+        CodeLedgerEntryService codeLedgerEntryService(CodeLedgerEntryDao ledgerEntryDao, CodeRecycleEntryService recycleEntries) {
+            return new CodeLedgerEntryService(ledgerEntryDao, recycleEntries);
         }
 
         @Bean

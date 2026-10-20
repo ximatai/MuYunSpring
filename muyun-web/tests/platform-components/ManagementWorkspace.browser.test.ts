@@ -1,11 +1,13 @@
 import { mount } from '@vue/test-utils';
-import { defineComponent, h, ref } from 'vue';
+import { defineComponent, h, inject, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import ManagementWorkspace from '@/platform-components/ManagementWorkspace.vue';
 import ManagementExplorerColumn from '@/platform-components/ManagementExplorerColumn.vue';
 import RecordDetailPanel from '@/platform-components/RecordDetailPanel.vue';
 import '@/styles.css';
+import { providePageLayout } from '@/platform-components/pageLayoutContext';
+import { MANAGEMENT_EXPLORER_COLUMN_CONTEXT } from '@/platform-components/managementExplorerContext';
 import { useWorkspaceSortActivity } from '@/platform-components/managementWorkspaceContext';
 
 it('locks mouse and keyboard navigation locally and restores it when editing ends', async () => {
@@ -102,3 +104,75 @@ it('keeps detail actions visible and locks only the workspace with a pending sor
     wrapper.unmount();
   }
 });
+
+it.each([1280, 1004, 600])(
+  'fits the primary surface and preserves manual folds in a %spx host',
+  async (width) => {
+    await page.viewport(1600, 900);
+    const hostWidth = ref(width);
+    const navigator = defineComponent({
+      props: { title: String },
+      setup(props) {
+        const explorer = inject(MANAGEMENT_EXPLORER_COLUMN_CONTEXT)!;
+        return () => h('button', { onClick: explorer.collapse }, `收起${props.title}`);
+      },
+    });
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          providePageLayout('workspace');
+          return () =>
+            h('div', { style: `width:${hostWidth.value}px;height:520px` }, [
+              h(ManagementWorkspace, { explorerCount: 2 }, () => [
+                ...['租户', '模块'].map((title) =>
+                  h(ManagementExplorerColumn, { title, collapsible: true }, () => h(navigator, { title })),
+                ),
+                h(
+                  'section',
+                  { class: 'test-primary', style: 'min-width:0;min-height:0' },
+                  h('button', '新增规则'),
+                ),
+              ]),
+            ]);
+        },
+      }),
+      { attachTo: document.body },
+    );
+    try {
+      const host = wrapper.get<HTMLElement>('.management-workspace').element;
+      const primary = wrapper.get('.test-primary').element;
+      const folded = () => wrapper.findAll('.management-explorer-column--collapsed');
+      await expect.poll(() => folded().length).toBe(width >= 1144 ? 0 : width >= 900 ? 1 : 2);
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      expect(primary.getBoundingClientRect().width).toBeGreaterThanOrEqual(Math.min(560, width - 48));
+      if (width === 1004) {
+        await page.getByRole('button', { name: '收起模块', exact: true }).click();
+        await expect.poll(() => folded().length).toBe(2);
+        await expect.poll(() => primary.getBoundingClientRect().width).toBe(width - 48);
+        await page.getByRole('button', { name: '展开模块', exact: true }).click();
+        await expect.poll(() => folded().length).toBe(1);
+      }
+      if (width < 1144) {
+        await page.getByRole('button', { name: '展开租户', exact: true }).click();
+        await expect
+          .poll(() => wrapper.find('.management-explorer-column--preview-open').exists())
+          .toBe(true);
+        expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      }
+      hostWidth.value = 1280;
+      await expect.poll(() => folded().length).toBe(0);
+      await page.getByRole('button', { name: '收起租户', exact: true }).click();
+      await expect.poll(() => folded().length).toBe(1);
+      hostWidth.value = 600;
+      await expect.poll(() => folded().length).toBe(2);
+      hostWidth.value = 1280;
+      await expect.poll(() => folded().length).toBe(1);
+      expect(folded()[0]!.text()).toContain('租户');
+      await page.getByRole('button', { name: '展开租户', exact: true }).click();
+      await expect.poll(() => folded().length).toBe(0);
+      await page.getByRole('button', { name: '新增规则', exact: true }).click();
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);

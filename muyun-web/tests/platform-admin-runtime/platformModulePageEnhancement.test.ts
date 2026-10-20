@@ -9,6 +9,10 @@ import {
   platformModulePageEnhancement,
 } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
 
+import { moduleCodeCatalog } from '@/platform-admin-runtime/moduleCodeConfiguration';
+import type { ModuleContext } from '@muyun/web-core';
+import { workspaceViewContributions } from '@/platform-admin-runtime/workspaceViewContributions';
+
 describe('platform module page enhancement', () => {
   it('limits dictionary category parents to folders', () => {
     const policy = dictionaryCategoryPageEnhancement.navigator?.treeParentPolicy;
@@ -89,16 +93,58 @@ describe('platform module page enhancement', () => {
           moduleKind: 'static',
         }),
     ).toEqual({ visible: false });
-    expect(actions.map((action) => action.title)).toEqual(['审批流程', '添加到菜单', '动作', '低代码']);
+    expect(actions.map((action) => action.title)).toEqual([
+      '业务编码',
+      '审批流程',
+      '添加到菜单',
+      '动作',
+      '低代码',
+    ]);
   });
 
   it('exposes actions and the governance-backed low-code entry point in the module detail header', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
     expect(actions.map((action) => action.key)).toEqual([
+      'module-business-code',
       'module-workflow-workspace',
       'module-add-to-menu',
       'module-actions-workspace',
       'module-ui-orchestration-workspace',
     ]);
+  });
+  it('only opens code configuration for modules with actual configurable fields, including API-only modules', async () => {
+    const action = (platformModulePageEnhancement.detail?.actions ?? []).find(
+      (item) => item.key === 'module-business-code',
+    )!;
+    const module = {
+      http: {
+        request: vi.fn(async ({ path }: { path: string }) => ({
+          configurable: path.includes('api.invoice'),
+          reason: 'not-declared',
+        })),
+      },
+    } as unknown as ModuleContext<Record<string, unknown>>;
+    const stateContext = { module };
+    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: false,
+    });
+    await moduleCodeCatalog(module).refresh('api.invoice');
+    expect(action.state?.({ alias: 'api.invoice', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: true,
+    });
+    expect(action.state?.({ alias: 'platform.localization', moduleKind: 'static' }, stateContext)).toEqual({
+      visible: false,
+    });
+    expect(action.state?.({ alias: 'draft.empty', moduleKind: 'dynamic' }, stateContext)).toEqual({
+      visible: false,
+    });
+    const openWorkspaceTab = vi.fn();
+    action.run({ record: { alias: 'api.invoice', title: '接口单据' }, module, openWorkspaceTab } as never);
+    const [view, input] = openWorkspaceTab.mock.calls[0]!;
+    expect(workspaceViewContributions).toContain(view);
+    expect(view.moduleAlias).toBe('platform.code_rule');
+    expect(
+      createWorkspaceViewRegistry([view]).resolve(createWorkspaceViewDescriptor(view, input)),
+    ).toMatchObject({ input: { moduleAlias: 'api.invoice' } });
   });
 });

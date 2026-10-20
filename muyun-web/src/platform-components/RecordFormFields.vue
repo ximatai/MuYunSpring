@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useBusinessCodeForm } from './useBusinessCodeForm';
 import RecordFieldLabel from './RecordFieldLabel.vue';
 import RecordContentSourceField from './RecordContentSourceField.vue';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -6,6 +7,7 @@ import {
   UiButton,
   UiColorPicker,
   UiInput,
+  UiHelp,
   UiSelect,
   UiSwitch,
   UiTextArea,
@@ -78,6 +80,7 @@ const props = withDefaults(
      * Ordinary module forms intentionally leave this absent.
      */
     optionEntityAlias?: string;
+    codeParentRecord?: RecordFormRecord;
     contentRelation?: import('@muyun/web-core').BusinessContentRelationScope;
     fileTransferContext?: ModuleContext<unknown>;
     formSessionKey?: string | number;
@@ -104,6 +107,7 @@ const props = withDefaults(
     pickerConfigs: () => ({}),
     optionContext: undefined,
     optionEntityAlias: undefined,
+    codeParentRecord: undefined,
     fileTransferContext: undefined,
     formSessionKey: undefined,
     validationRequestKey: 0,
@@ -134,6 +138,41 @@ const resolvedFieldNames = computed(
     props.fieldNames ??
     resolveRecordFormFieldNames(props.fields, props.fallback, { exclude: props.excludeFieldNames }),
 );
+
+const codeForms = useBusinessCodeForm({
+  record: () => props.record,
+  parent: () => props.codeParentRecord,
+  context: () => props.optionContext,
+  entityAlias: () => props.optionEntityAlias,
+  fields: () => props.fields,
+  fieldNames: () => resolvedFieldNames.value,
+  mode: () => props.mode,
+  session: () => props.formSessionKey,
+  language,
+});
+function codeHint(field: RecordFormFieldState) {
+  if (field.businessCode?.trigger === 'EXPLICIT')
+    return language.t('platform.form.code.explicit', '由业务操作生成编号');
+  const policy = codeForms.policies.value.get(field.fieldName);
+  if (policy?.mode === 'MANUAL') return language.t('platform.form.code.manual', '请手工填写业务编号');
+  if (policy?.mode === 'AUTO_WITH_MANUAL_EDIT')
+    return field.required
+      ? language.t('platform.form.code.edit-existing', '可手工调整已有编号，不可清空')
+      : language.t('platform.form.code.auto-editable', '留空时自动编号，也可手工填写');
+  return language.t('platform.form.code.on-save', '保存时生成编号');
+}
+function codeStatus(field: RecordFormFieldState) {
+  if (codeForms.loading.value) return language.t('platform.form.code.loading', '正在读取编号策略…');
+  if (codeForms.error.value) return language.t('platform.form.code.unavailable', '编号策略读取失败');
+  if (codeForms.errorOf(field.fieldName))
+    return language.t('platform.form.code.unconfigured-short', '未配置编号规则');
+  return undefined;
+}
+
+function codeHasValue(field: RecordFormFieldState) {
+  const value = props.record[field.fieldName];
+  return value != null && String(value).trim() !== '';
+}
 
 const fieldStates = computed<RecordFormFieldState[]>(() =>
   resolvedFieldNames.value.map(fieldState).filter((field) => field.visible),
@@ -172,6 +211,8 @@ const formValidity = computed<RecordFormValidity>(() => {
     ...translatedErrors(editorFieldErrors.value),
   };
   for (const field of fieldStates.value) {
+    const codeError = codeForms.errorOf(field.fieldName);
+    if (codeError) errors[field.fieldName] = codeError;
     const constraintError =
       !field.readOnly && field.visible
         ? recordFormInputConstraintError(field, props.record[field.fieldName], language)
@@ -221,15 +262,17 @@ watch(referenceSelectionValues, (values) => {
 watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true, flush: 'sync' });
 
 function fieldState(fieldName: string): RecordFormFieldState {
-  return resolveRecordFormFieldState(fieldName, {
-    fields: props.fields,
-    fallback: props.fallback,
-    pickerConfigs: props.pickerConfigs,
-    placeholderOf: props.placeholderOf,
-    record: props.record,
-    mode: props.mode,
-    selectionContext: referenceSelectionContext.value,
-  });
+  return codeForms.field(
+    resolveRecordFormFieldState(fieldName, {
+      fields: props.fields,
+      fallback: props.fallback,
+      pickerConfigs: props.pickerConfigs,
+      placeholderOf: props.placeholderOf,
+      record: props.record,
+      mode: props.mode,
+      selectionContext: referenceSelectionContext.value,
+    }),
+  );
 }
 
 function optionFieldValue(fieldName: string) {
@@ -787,6 +830,8 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       class="record-form-field-host"
       :class="{
         'record-form-field-host--actions': $slots['field-actions'],
+        'record-form-field-host--code': field.businessCode && mode !== 'view',
+        'record-form-field-host--code-unlabelled': field.businessCode && mode !== 'view' && !showLabels,
         'record-form-field-full-row': field.columnSpan === 2,
       }"
       :data-page-composition-layout-key="
@@ -798,6 +843,31 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       <span v-if="$slots['field-actions']" class="record-form-field-actions"
         ><slot name="field-actions" :field="field"
       /></span>
+      <div v-if="field.businessCode && mode !== 'view'" class="record-form-code-help">
+        <UiHelp :label="`${field.label}：${language.t('platform.form.code.details', '编号说明')}`">
+          <div class="record-form-code-details">
+            <strong>{{ field.label }}</strong>
+            <span v-if="field.businessCode.primary" class="record-form-code-primary">{{
+              language.t('platform.form.code.primary', '主编码')
+            }}</span>
+            <p>{{ codeHint(field) }}</p>
+            <p v-if="codeForms.policies.value.get(field.fieldName)?.preview">
+              {{ language.t('platform.form.code.candidate', '参考编号') }}：{{
+                codeForms.policies.value.get(field.fieldName)?.preview
+              }}
+            </p>
+            <p
+              v-if="codeForms.errorOf(field.fieldName)"
+              :class="{ 'record-form-field-error': !codeForms.loading.value }"
+            >
+              {{ codeForms.errorOf(field.fieldName) }}
+            </p>
+            <UiButton v-if="codeForms.error.value" type="link" @click="codeForms.retry()">
+              {{ language.t('platform.form.retry', '重试') }}
+            </UiButton>
+          </div>
+        </UiHelp>
+      </div>
       <label
         class="record-form-field"
         :data-page-composition-layout-key="
@@ -807,6 +877,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         "
         :class="{
           'record-form-field--invalid': fieldShowsError(field),
+          'record-form-field--code': field.businessCode && mode !== 'view',
           'record-form-field-full-row': field.columnSpan === 2,
           'record-form-field--compact': compact,
           'record-form-field--validation-pulse': validationRequestKey > 0 && fieldInvalid(field),
@@ -859,6 +930,24 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
                 optionItems: optionFieldItems(field),
               })
             }}
+          </span>
+          <span
+            v-else-if="field.businessCode && field.readOnly && mode !== 'view'"
+            class="record-form-code-value"
+            :class="{
+              'record-form-field-error':
+                !codeHasValue(field) && codeStatus(field) && !codeForms.loading.value,
+            }"
+            role="status"
+          >
+            <template v-if="codeHasValue(field)">{{ record[field.fieldName] }}</template>
+            <template v-else-if="codeStatus(field)">{{ codeStatus(field) }}</template>
+            <template v-else-if="codeForms.policies.value.get(field.fieldName)?.preview"
+              >{{ language.t('platform.form.code.candidate', '参考编号') }}：{{
+                codeForms.policies.value.get(field.fieldName)?.preview
+              }}</template
+            >
+            <template v-else>{{ codeHint(field) }}</template>
           </span>
           <RecordStatusSwitch
             v-else-if="field.controlType === 'enabledStatus'"
@@ -1142,6 +1231,18 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :placeholder="field.placeholder"
             @update:value="updateField(field.fieldName, $event)"
           />
+          <div
+            v-if="
+              field.businessCode &&
+              (!field.readOnly || codeHasValue(field)) &&
+              mode !== 'view' &&
+              codeStatus(field)
+            "
+            :class="{ 'record-form-field-error': !codeForms.loading.value }"
+            role="status"
+          >
+            {{ codeStatus(field) }}
+          </div>
         </div>
       </label>
       <RecordContentSourceField
@@ -1170,8 +1271,25 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   gap: 8px;
   min-width: 0;
 }
-.record-form-field-host--actions {
+.record-form-field-host--actions,
+.record-form-field-host--code {
   position: relative;
+}
+.record-form-code-help {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  z-index: 1;
+}
+.record-form-field-host--actions > .record-form-code-help {
+  inset-inline-end: 26px;
+}
+.record-form-field--code .record-form-field-heading,
+.record-form-field-host--code-unlabelled > .record-form-field {
+  padding-inline-end: 30px;
+}
+.record-form-field-host--actions.record-form-field-host--code-unlabelled > .record-form-field {
+  padding-inline-end: 56px;
 }
 .record-form-field-host--actions > .record-form-field {
   padding-inline-end: 26px;
@@ -1303,5 +1421,24 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 }
 
 @media (max-width: 720px) {
+}
+.record-form-code-primary {
+  margin-inline-start: 6px;
+  font-size: 11px;
+  color: var(--muyun-text-muted);
+}
+.record-form-code-details {
+  max-width: min(300px, calc(100vw - 48px));
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.record-form-code-details p {
+  margin: 6px 0 0;
+}
+.record-form-code-value {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
 }
 </style>

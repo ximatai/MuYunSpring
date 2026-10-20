@@ -45,7 +45,7 @@ public class PlatformMenuContributionReconciliationTask implements PlatformBoots
                         .filter(menu -> !declaredIds.contains(menu.getId()))
                         .filter(menu -> !Boolean.FALSE.equals(menu.getEnabled()))
                         .forEach(menu -> menuService.disable(menu.getId()));
-                migrateLegacyBusinessLogTitles();
+                migrateShippedMenuTitles();
                 retireLegacySecurityAuditGroup();
             });
         }
@@ -55,8 +55,9 @@ public class PlatformMenuContributionReconciliationTask implements PlatformBoots
      * Applies this release's requested renames only to the old shipped titles. Menu titles are normally
      * operator-owned, so a locally customized title must remain untouched.
      */
-    private void migrateLegacyBusinessLogTitles() {
+    private void migrateShippedMenuTitles() {
         List.of(
+                new MenuTitleMigration("platform.menu.module.platform.code_rule", "编码规则", "业务编码"),
                 new MenuTitleMigration("platform.menu.module.iam.login_audit_log", "登录审计", "登录日志"),
                 new MenuTitleMigration("platform.menu.module.platform.business_activity_log", "业务活动日志", "操作日志"),
                 new MenuTitleMigration("platform.menu.module.platform.request_error_log", "接口异常日志", "异常日志")

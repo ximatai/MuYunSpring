@@ -69,6 +69,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     @Autowired private MetadataFieldReferenceConfigService referenceConfigs;
     @Autowired private PlatformDynamicRuntimeRefreshCoordinator refresh;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private javax.sql.DataSource mutationDataSource;
     @Autowired private PlatformModuleDefinitionCompiler definitionCompiler;
     @Autowired private DynamicSchemaService schemaService;
     @Autowired private DynamicRecordRuntime dynamicRuntime;
@@ -87,6 +88,10 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
             }
             @Override public <T> T executeStatement(java.util.function.Supplier<T> work) {
                 return statements.execute(status -> work.get());
+            }
+            @Override public void lock(String scope, String key) {
+                new org.springframework.jdbc.core.JdbcTemplate(mutationDataSource).queryForObject(
+                        "select pg_advisory_xact_lock(hashtextextended(?, 0))", Object.class, scope.length() + ":" + scope + ":" + key);
             }
         });
         reset(refresh);

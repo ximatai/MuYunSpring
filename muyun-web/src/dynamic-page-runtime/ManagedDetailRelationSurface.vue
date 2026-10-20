@@ -298,6 +298,7 @@ watch(
       :form-session-key="formSessionKey"
       :option-context="sourceContext"
       :option-entity-alias="relation.targetEntityAlias"
+      :code-parent-record="parentRecord"
       :content-relation="parentId ? { parentId, relationCode: relation.code } : undefined"
       :picker-configs="pickerConfigs"
       :disabled="runtime.saving.value"

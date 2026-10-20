@@ -198,6 +198,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (sourceType.getFieldType() != FieldType.STRING && sourceType.getFieldType() != FieldType.TEXT) {
             throw new IllegalArgumentException("reference source field must be string/text: " + sourceField.getFieldName());
         }
+        validateCodeFieldExclusion(sourceField, sourceRelation);
         validateChildForeignKeyReference(sourceField, config);
         ReferenceTarget target = resolveTarget(config, sourceField, sourceRelation);
         if (config.getCardinality() == null) {
@@ -471,6 +472,22 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private String normalizeFieldName(String value, String name) {
         String normalized = normalizeBlank(value);
         return normalized == null ? null : PlatformNameRules.requireFieldName(normalized, name);
+    }
+
+    private void validateCodeFieldExclusion(MetadataField source, ModuleMetadataRelation scopedRelation) {
+        if (source.getId() == null) return;
+        // Use the same entity locks as code activation so concurrent declarations cannot cross.
+        var affected = relationService.list(Criteria.of().eq("metadataId", source.getMetadataId()), PageRequests.all()).stream()
+                .filter(relation -> scopedRelation == null || Objects.equals(relation.getId(), scopedRelation.getId()))
+                .sorted(java.util.Comparator.comparing(ModuleMetadataRelation::getModuleAlias).thenComparing(ModuleMetadataRelation::getId)).toList();
+        for (var relation : affected) {
+            var schema = metadataService.select(relation.getMetadataId());
+            net.ximatai.muyun.spring.platform.code.CodeConfigurationLocks.lock(relation.getModuleAlias(), schema.getAlias());
+            var binding = moduleFields.getObject().findByRelationAndField(relation.getId(), source.getId());
+            if (binding != null && binding.getBusinessCodeRole() != null)
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.metadata-field-reference-config.code-field-cannot-be-reference", "Business code fields cannot become references"));
+        }
     }
 
     private void validateChildForeignKeyReference(MetadataField sourceField,

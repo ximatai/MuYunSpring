@@ -6,6 +6,296 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('shows an automatic candidate without submitting it and accepts real manual input', async () => {
+    vi.useFakeTimers();
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'documentNo',
+        {
+          fieldRef: { fieldName: 'documentNo' },
+          label: '单号',
+          valueType: 'STRING',
+          businessCode: { primary: true, trigger: 'SAVE' },
+          inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+        },
+      ],
+    ]);
+    let mode = 'AUTO';
+    const request = vi.fn(async () => [
+      {
+        fieldName: 'documentNo',
+        mode,
+        trigger: 'SAVE',
+        readOnly: mode === 'AUTO',
+        configured: true,
+        preview: 'DOC-0001',
+      },
+    ]);
+    const record = {};
+    const wrapper = mount(RecordFormFields, {
+      props: { fields, record, mode: 'create', optionContext: moduleContext('demo.document', request) },
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.text()).toContain('DOC-0001');
+      expect(wrapper.text()).not.toContain('主编码');
+      expect(await numberingDetails(wrapper)).toContain('主编码');
+      expect(wrapper.find('input').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('保存时生成编号');
+      expect(await numberingDetails(wrapper)).toContain('保存时生成编号');
+      expect(record).toEqual({});
+      expect(wrapper.emitted('update:field')).toBeUndefined();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+      mode = 'MANUAL';
+      await wrapper.setProps({ formSessionKey: 'manual' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+      expect(await numberingDetails(wrapper)).toContain('请手工填写业务编号');
+      expect(wrapper.text()).not.toContain('保存时生成编号');
+      await wrapper.get('input').setValue('HUMAN-1');
+      expect(wrapper.emitted('update:field')?.at(-1)).toEqual(['documentNo', 'HUMAN-1']);
+      mode = 'AUTO_WITH_MANUAL_EDIT';
+      await wrapper.setProps({ formSessionKey: 'editable' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(await numberingDetails(wrapper)).toContain('留空时自动编号，也可手工填写');
+    } finally {
+      wrapper.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends parent context for a child preview and ignores stale responses after a session change', async () => {
+    vi.useFakeTimers();
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'lineNo',
+        {
+          fieldRef: { fieldName: 'lineNo' },
+          label: '行号',
+          valueType: 'STRING',
+          businessCode: { primary: false, trigger: 'SAVE' },
+        },
+      ],
+    ]);
+    let firstResolve!: (value: unknown) => void;
+    const request = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            firstResolve = resolve;
+          }),
+      )
+      .mockResolvedValue([
+        {
+          fieldName: 'lineNo',
+          mode: 'AUTO',
+          trigger: 'SAVE',
+          readOnly: true,
+          configured: true,
+          preview: 'NEW-01',
+        },
+      ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        fields,
+        record: { subject: 'old' },
+        mode: 'create',
+        optionEntityAlias: 'lines',
+        codeParentRecord: { subject: 'parent' },
+        optionContext: moduleContext('demo.document', request),
+      },
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(121);
+      expect(request.mock.calls[0]?.[0]).toMatchObject({
+        path: '/demo.document/code/form-state',
+        body: { entityAlias: 'lines', parent: { subject: 'parent' } },
+      });
+      await wrapper.setProps({ record: { subject: 'new' }, formSessionKey: 'new' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.text()).toContain('NEW-01');
+      firstResolve([
+        {
+          fieldName: 'lineNo',
+          mode: 'AUTO',
+          trigger: 'SAVE',
+          readOnly: true,
+          configured: true,
+          preview: 'OLD-01',
+        },
+      ]);
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('OLD-01');
+      expect(wrapper.emitted('update:field')).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([null, 'MANUAL'])(
+    'keeps an explicit field waiting for its business action with mode %s',
+    async (mode) => {
+      vi.useFakeTimers();
+      const fields = new Map<string, RecordFormFieldDescriptor>([
+        [
+          'confirmationNo',
+          {
+            fieldRef: { fieldName: 'confirmationNo' },
+            label: '确认号',
+            businessCode: { primary: false, trigger: 'EXPLICIT' },
+            inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+          },
+        ],
+      ]);
+      const request = vi.fn(async () => [
+        {
+          fieldName: 'confirmationNo',
+          mode,
+          trigger: 'EXPLICIT',
+          readOnly: true,
+          configured: mode != null,
+          preview: null,
+        },
+      ]);
+      const wrapper = mount(RecordFormFields, {
+        props: { fields, record: {}, mode: 'create', optionContext: moduleContext('demo.document', request) },
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(121);
+        await flushPromises();
+        expect(wrapper.text().match(/由业务操作生成编号/g)).toHaveLength(1);
+        expect(wrapper.text()).not.toContain('请手工填写');
+        expect(wrapper.find('input').exists()).toBe(false);
+        expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+        expect(wrapper.emitted('update:field')).toBeUndefined();
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('keeps an existing code read-only and permits retained values after its rule expires', async () => {
+    vi.useFakeTimers();
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'documentNo',
+        {
+          fieldRef: { fieldName: 'documentNo' },
+          label: '单号',
+          businessCode: { primary: true, trigger: 'SAVE' },
+        },
+      ],
+    ]);
+    const request = vi.fn(async () => [
+      {
+        fieldName: 'documentNo',
+        mode: null,
+        trigger: 'SAVE',
+        readOnly: true,
+        configured: false,
+        preview: null,
+      },
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        fields,
+        record: { id: 'saved', documentNo: 'OLD-1' },
+        mode: 'edit',
+        optionContext: moduleContext('demo.document', request),
+      },
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.text()).toContain('OLD-1');
+      expect(wrapper.find('input').exists()).toBe(false);
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+      await wrapper.setProps({ record: {}, mode: 'create', formSessionKey: 'new' });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+    } finally {
+      wrapper.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('prevents clearing an assigned editable automatic code and blocks saves after policy load failure', async () => {
+    vi.useFakeTimers();
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'documentNo',
+        {
+          fieldRef: { fieldName: 'documentNo' },
+          label: '单号',
+          businessCode: { primary: true, trigger: 'SAVE' },
+        },
+      ],
+    ]);
+    const request = vi.fn().mockResolvedValue([
+      {
+        fieldName: 'documentNo',
+        mode: 'AUTO_WITH_MANUAL_EDIT',
+        trigger: 'SAVE',
+        readOnly: false,
+        configured: true,
+        preview: null,
+      },
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        fields,
+        record: { id: 'saved', documentNo: 'DOC-1' },
+        mode: 'edit',
+        optionContext: moduleContext('demo.document', request),
+      },
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(await numberingDetails(wrapper)).toContain('可手工调整已有编号，不可清空');
+      expect(wrapper.text()).not.toContain('留空时自动编号');
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+      await wrapper.setProps({ record: { id: 'saved', documentNo: '' } });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+      request.mockRejectedValue(new Error('Numbering unavailable'));
+      await wrapper.setProps({ record: { id: 'saved', documentNo: 'DOC-1' } });
+      await vi.advanceTimersByTimeAsync(121);
+      await flushPromises();
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+      expect(wrapper.text()).toContain('编号策略读取失败');
+      expect(await numberingDetails(wrapper)).toContain('重试');
+      expect(wrapper.get('input').element.value).toBe('DOC-1');
+      await wrapper.get('button[aria-label$="编号说明"]').trigger('click');
+      await vi.advanceTimersByTimeAsync(250);
+      await flushPromises();
+      request.mockResolvedValue([
+        { fieldName: 'documentNo', mode: 'AUTO', trigger: 'SAVE', readOnly: true, configured: true },
+      ]);
+      const retry = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>('.ant-popover:not(.ant-popover-hidden) button'),
+      ).find((button) => button.textContent?.includes('重试'));
+      expect(retry).toBeDefined();
+      retry!.click();
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('编号策略读取失败');
+      expect(wrapper.text()).toContain('DOC-1');
+      expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    } finally {
+      wrapper.unmount();
+      vi.useRealTimers();
+    }
+  });
+
   it('does not present persisted server calculations as current draft values', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -719,7 +1009,7 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['amount', '0.123456789012345678']);
   });
 
-  it('uses native date and datetime transports for executable field-control renderers', () => {
+  it('uses the platform date pickers while preserving date and UTC record transports', () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
         'deliveryDate',
@@ -745,10 +1035,12 @@ describe('RecordFormFields', () => {
 
     expect(inputs.map((input) => input.props('type'))).toEqual(['date', 'datetime-local']);
     expect(inputs[1].props('step')).toBe('1');
-    inputs[0].vm.$emit('update:value', '2026-08-21');
+    const pickers = wrapper.findAllComponents({ name: 'UiDatePicker' });
+    expect(pickers.map((picker) => picker.props('mode'))).toEqual(['date', 'datetime']);
+    pickers[0].vm.$emit('update:value', '2026-08-21');
     const localDateTime = String(inputs[1].props('value'));
     expect(localDateTime).toMatch(/^2026-08-20T\d{2}:30:00$/);
-    inputs[1].vm.$emit('update:value', '2026-08-21T11:00:37');
+    pickers[1].vm.$emit('update:value', '2026-08-21T11:00:37');
     expect(wrapper.emitted('update:field')).toContainEqual(['deliveryDate', '2026-08-21']);
     expect(wrapper.emitted('update:field')).toContainEqual([
       'scheduledAt',
@@ -1569,4 +1861,20 @@ describe('RecordFormFields', () => {
 
 function moduleContext(moduleAlias: string, request: ReturnType<typeof vi.fn>): ModuleContext<unknown> {
   return { moduleAlias, http: { request } } as never;
+}
+
+async function numberingDetails(wrapper: ReturnType<typeof mount>) {
+  const trigger = wrapper.get('button[aria-label$="编号说明"]');
+  await trigger.trigger('click');
+  await vi.advanceTimersByTimeAsync(250);
+  await flushPromises();
+  const text = Array.from(
+    document.body.querySelectorAll('.ant-popover:not(.ant-popover-hidden) .record-form-code-details'),
+  )
+    .map((element) => element.textContent)
+    .join('');
+  await trigger.trigger('click');
+  await vi.advanceTimersByTimeAsync(250);
+  await flushPromises();
+  return text;
 }

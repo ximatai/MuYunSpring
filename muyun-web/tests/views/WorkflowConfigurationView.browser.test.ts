@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { expect, it } from 'vitest';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { UiThemeProvider } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
@@ -73,6 +73,24 @@ it('aligns workflow settings and keeps creation actions visible when matching se
     expect(wrapper.get('.management-explorer-column').attributes('inert')).toBeDefined();
     const create = page.getByRole('button', { name: '创建流程草稿', exact: true });
     await expect.element(create).toBeVisible();
+    const aliasHelp = page.getByRole('button', { name: '流程编码格式说明', exact: true });
+    expect(wrapper.text()).not.toContain('小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。');
+    await aliasHelp.click();
+    await expect
+      .element(page.getByText('小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。', { exact: true }))
+      .toBeVisible();
+    await userEvent.keyboard('{Escape}');
+    const alias = page.getByRole('textbox', { name: '流程编码', exact: true });
+    await alias.fill('Invalid Code');
+    await expect.element(page.getByRole('alert')).toBeVisible();
+    await alias.fill('review_workflow');
+    await expect.poll(() => wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.get('.workflow-field-help button').element.closest('label')).toBeNull();
+    const fieldHelp = wrapper.get('.workflow-field-help').element.getBoundingClientRect();
+    const helpButton = wrapper.get('.workflow-field-help button').element.getBoundingClientRect();
+    expect(helpButton.top).toBeCloseTo(fieldHelp.top, 0);
+    expect(helpButton.right).toBeLessThanOrEqual(fieldHelp.right);
+
     await page.getByText('适用范围与匹配规则（可选）', { exact: true }).click();
     await flushPromises();
     const checkbox = wrapper.get('input[type="checkbox"]').element;

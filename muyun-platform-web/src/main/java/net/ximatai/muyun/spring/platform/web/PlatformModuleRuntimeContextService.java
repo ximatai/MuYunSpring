@@ -701,7 +701,7 @@ public class PlatformModuleRuntimeContextService {
         relationTargets.stream().filter(DynamicDetailRelationTarget::aggregateChild).forEach(target ->
                 dynamicEntityFields(target.view().targetModuleAlias(), target.entity().entityAlias(), facts).forEach(field ->
                         writeFields.put(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()), field)));
-        descriptor = ModelFieldProjection.project(descriptor, writeFields);
+        descriptor = ModelFieldProjection.project(descriptor, writeFields, facts == null ? Map.of() : ModelFieldProjection.codeFields(facts.entities(), facts.mainEntityAlias()));
         // Formula projection needs the resolved aggregate-child relation code and its child editor
         // fields. Attach them before compiling browser-visible business rules.
         descriptor = descriptor.withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));

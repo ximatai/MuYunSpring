@@ -27,7 +27,7 @@ class CodeLifecycleServiceTest {
     );
     private final CodeSequenceStateService stateService = new CodeSequenceStateService(new TestMemoryDao<>());
     private final CodeRecycleEntryService recycleService = new CodeRecycleEntryService(new TestMemoryDao<>());
-    private final CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>());
+    private final CodeLedgerEntryService ledgerService = new CodeLedgerEntryService(new TestMemoryDao<>(), recycleService);
     private final CodePreviewService previewService = new CodePreviewService(new FormulaEngine(clock), clock);
     private final CodeGenerateService generateService = new CodeGenerateService(
             ruleService,

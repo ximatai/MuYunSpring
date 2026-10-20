@@ -189,6 +189,7 @@ final class PlatformAbilityDispatcher {
     }
 
     static <T extends EntityContract> void beforeRestore(CrudAbility<T> ability, T entity) {
+        entitySaveLifecycleListener.beforeRestore(ability, entity);
         runReferenceIntegrityValidation(ability, null, entity, false);
     }
 
@@ -289,8 +290,8 @@ final class PlatformAbilityDispatcher {
         ability.afterPlatformInsert(id, entity);
     }
 
-    static <T extends EntityContract> void afterUpdate(CrudAbility<T> ability, T entity, int updated) {
-        runChildrenAfterUpdate(ability, entity, updated);
+    static <T extends EntityContract> void afterUpdate(CrudAbility<T> ability, T existing, T entity, int updated) {
+        runChildrenAfterUpdate(ability, existing, entity, updated);
         ability.afterPlatformUpdate(entity, updated);
     }
 
@@ -333,14 +334,18 @@ final class PlatformAbilityDispatcher {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static <T extends EntityContract> void runChildrenAfterInsert(CrudAbility<T> ability, String id, T entity) {
         if (ability instanceof ChildrenAbility childrenAbility) {
-            childrenAbility.afterChildrenInsert(id, entity);
+            try (var ignored = net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.open(ability, null, entity)) {
+                childrenAbility.afterChildrenInsert(id, entity);
+            }
         }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static <T extends EntityContract> void runChildrenAfterUpdate(CrudAbility<T> ability, T entity, int updated) {
+    private static <T extends EntityContract> void runChildrenAfterUpdate(CrudAbility<T> ability, T existing, T entity, int updated) {
         if (ability instanceof ChildrenAbility childrenAbility) {
-            childrenAbility.afterChildrenUpdate(entity, updated);
+            try (var ignored = net.ximatai.muyun.spring.ability.child.AggregateChildMutationContext.open(ability, existing, entity)) {
+                childrenAbility.afterChildrenUpdate(entity, updated);
+            }
         }
     }
 

@@ -16,6 +16,7 @@ export { default as UiTreeSelect } from './components/UiTreeSelect.vue';
 export type { UiTreeSelectNode } from './components/UiTreeSelect.vue';
 export { default as UiTooltip } from './components/UiTooltip.vue';
 export { default as UiPopover } from './components/UiPopover.vue';
+export { default as UiHelp } from './components/UiHelp.vue';
 export { default as UiThemeProvider } from './components/UiThemeProvider.vue';
 export { default as UiSwitch } from './components/UiSwitch.vue';
 export { default as UiMenu } from './components/UiMenu.vue';
@@ -109,3 +110,6 @@ export { useUiBlockingOverlayState } from './blockingOverlays';
 
 export { default as UiLanguageProvider } from './components/UiLanguageProvider.vue';
 export { registerUiLanguageLocales } from './languageLocales';
+
+export { default as UiDatePicker } from './components/UiDatePicker.vue';
+export type { UiDatePickerMode, UiDatePickerPrecision } from './datePickerValue';

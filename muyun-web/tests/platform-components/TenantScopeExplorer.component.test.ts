@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import TenantScopeExplorer from '@/dynamic-page-runtime/TenantScopeExplorer.vue';
+import TenantScopeExplorer from '@/platform-components/TenantScopeExplorer.vue';
 import { createHttpClient, createModuleContext } from '@muyun/web-core';
 import type { QueryListRecord } from '@muyun/platform-components';
 

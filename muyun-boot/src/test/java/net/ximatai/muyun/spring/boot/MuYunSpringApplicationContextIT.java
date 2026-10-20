@@ -1677,6 +1677,115 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void businessCodeConfigurationHttpBindsCompilesPreviewsAndGeneratesThroughTheRealSaveChain() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String application = "codedyn" + suffix, module = application + ".record";
+        installDynamicReferenceTarget(application, module, "target");
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-contract", "Code contract"));
+             var scope = TenantContext.system("prepare code field schema")) {
+            var relation = moduleMetadataRelationService.list(Criteria.of().eq("moduleAlias", module).eq("relationRole", RelationRole.MAIN), ALL).getFirst();
+            var schema = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataService.class).select(relation.getMetadataId());
+            var field = new MetadataField(); field.setFieldName("documentNo"); field.setColumnName("document_no");
+            field.setTitle("单据编码"); field.setFieldSpecAlias("string"); field.setFieldForm(MetadataFieldForm.PHYSICAL);
+            field.setFieldOwnership(MetadataFieldOwnership.BUSINESS); field.setEnabled(true);
+            var proposal = new MetadataRelationChangeSetPreviewCommand(schema.getVersion(), Map.of(), List.of(
+                    new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field)));
+            var check = metadataChangeSetPreviewService.preview(module, relation.getId(), proposal);
+            assertThat(check.valid()).withFailMessage("code field schema: %s", check.errors()).isTrue();
+            metadataChangeSetApplyService.apply(module, relation.getId(), new MetadataRelationChangeSetApplyCommand(proposal, check.proposalFingerprint()));
+        }
+        String tenant = insertActiveTenant("code_config_" + suffix);
+        openTenantApplication(tenant, application);
+        String token = issueSuperAdminSessionToken();
+        HttpHeaders headers = bearerHeaders(token); headers.set("X-MuYun-Tenant-Id", tenant);
+        try {
+            var targets = restTemplate.exchange("/platform.code_rule/targets?moduleAlias=" + module, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(targets.getStatusCode()).withFailMessage("code targets: %s", targets.getBody()).isEqualTo(HttpStatus.OK);
+            var field = java.util.stream.StreamSupport.stream(targets.getBody().get(0).path("fields").spliterator(), false)
+                    .filter(item -> item.path("fieldName").asText().equals("documentNo")).findFirst().orElseThrow();
+            var rule = new net.ximatai.muyun.spring.platform.code.CodeRule();
+            rule.setTitle("配置闭环"); rule.setModuleAlias(module); rule.setEntityAlias("target"); rule.setFieldName("documentNo");
+            rule.setFieldRole(net.ximatai.muyun.spring.platform.code.CodeFieldRole.PRIMARY); rule.setFieldTrigger(net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE); rule.setEnabled(false);
+            var literal = new net.ximatai.muyun.spring.platform.code.CodeRuleSegment();
+            literal.setSegmentType(net.ximatai.muyun.spring.platform.code.CodeSegmentType.CONSTANT); literal.setFixedValue("CFG-");
+            var sequence = new net.ximatai.muyun.spring.platform.code.CodeRuleSegment();
+            sequence.setSegmentType(net.ximatai.muyun.spring.platform.code.CodeSegmentType.SEQUENCE); sequence.setLength(4);
+            rule.setSegments(List.of(literal, sequence));
+            var policy = new net.ximatai.muyun.spring.platform.code.CodeSequencePolicy(); policy.setSequenceLength(4); rule.setSequencePolicy(policy);
+            var trial = restTemplate.exchange("/platform.code_rule/preview", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("rule", rule, "context", Map.of(), "sequenceValue", 1), headers), JsonNode.class);
+            assertThat(trial.getStatusCode()).withFailMessage("code trial: %s", trial.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(trial.getBody().path("value").asText()).isEqualTo("CFG-0001");
+            // Previewing and saving a disabled draft must not install BUSINESS_CODE on the entity.
+            var draftResponse = restTemplate.exchange("/platform.code_rule/saveTree", HttpMethod.POST,
+                    new HttpEntity<>(rule, headers), net.ximatai.muyun.spring.platform.code.CodeRule.class);
+            assertThat(draftResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+            rule = draftResponse.getBody();
+            assertThat(rule.getFieldTrigger()).isEqualTo(net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE);
+            var draftTargets = restTemplate.exchange("/platform.code_rule/targets?moduleAlias=" + module, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(java.util.stream.StreamSupport.stream(draftTargets.getBody().get(0).path("fields").spliterator(), false)
+                    .filter(item -> item.path("fieldName").asText().equals("documentNo")).findFirst().orElseThrow().path("role").isNull()).isTrue();
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-contract", "Code contract")); var scope = TenantContext.use(tenant)) {
+                var ordinary = dynamicRecordService.newRecord(module, "target").setValue("title", "草稿不影响普通业务");
+                dynamicRecordService.create(module, "target", ordinary);
+                assertThat(ordinary.getValue("documentNo")).isNull();
+            }
+            // Activation writes the shared declaration first, then validates the format. A failure rolls both back.
+            rule.setEnabled(true);
+            rule.getSegments().getFirst().setFixedValue("X".repeat(1000));
+            var invalidActivation = restTemplate.exchange("/platform.code_rule/saveTree", HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
+            assertThat(invalidActivation.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            var afterFailure = restTemplate.exchange("/platform.code_rule/targets?moduleAlias=" + module, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(java.util.stream.StreamSupport.stream(afterFailure.getBody().get(0).path("fields").spliterator(), false)
+                    .filter(item -> item.path("fieldName").asText().equals("documentNo")).findFirst().orElseThrow().path("role").isNull()).isTrue();
+            rule.getSegments().getFirst().setFixedValue("CFG-");
+            var saved = restTemplate.exchange("/platform.code_rule/saveTree", HttpMethod.POST, new HttpEntity<>(rule, headers), JsonNode.class);
+            assertThat(saved.getStatusCode()).withFailMessage("save code tree: %s", saved.getBody()).isEqualTo(HttpStatus.OK);
+            assertThat(saved.getBody().path("fieldRole").asText()).isEqualTo("PRIMARY");
+            var querySchema = restTemplate.exchange("/platform.code_rule/query/schema", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(querySchema.getStatusCode()).withFailMessage("code standard page: %s", querySchema.getBody()).isEqualTo(HttpStatus.OK);
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-contract", "Code contract"));
+                 var scope = TenantContext.use(tenant)) {
+                var record = dynamicRecordService.newRecord(module, "target").setValue("title", "配置后的真实单据");
+                dynamicRecordService.create(module, "target", record);
+                assertThat(dynamicRecordService.select(module, "target", record.getId()).getValue("documentNo")).isEqualTo("CFG-0001");
+                var ledger = applicationContext.getBean(net.ximatai.muyun.spring.platform.code.CodeLedgerEntryService.class);
+                assertThat(ledger.activeBindings(module, "target", record.getId()).getFirst().getCodeValue()).isEqualTo("CFG-0001");
+                String entryId = ledger.activeBindings(module, "target", record.getId()).getFirst().getId();
+                var inspection = restTemplate.exchange("/platform.code_rule/ops/ledgerEntry/" + entryId + "/inspect", HttpMethod.POST,
+                        new HttpEntity<>(headers), JsonNode.class);
+                assertThat(inspection.getStatusCode()).withFailMessage("code ledger inspection: %s", inspection.getBody()).isEqualTo(HttpStatus.OK);
+                assertThat(inspection.getBody().path("reason").asText()).isEqualTo("MATCHED");
+                var retained = restTemplate.exchange("/platform.code_rule/ops/ledgerEntry/" + entryId + "/release", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("reason", "consistent owner"), headers), JsonNode.class);
+                assertThat(retained.getStatusCode()).isEqualTo(HttpStatus.OK);
+                assertThat(retained.getBody().path("status").asText()).isEqualTo("ACTIVE");
+            }
+            var activeTargets = restTemplate.exchange("/platform.code_rule/targets?moduleAlias=" + module, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            var boundField = java.util.stream.StreamSupport.stream(activeTargets.getBody().get(0).path("fields").spliterator(), false)
+                    .filter(item -> item.path("fieldName").asText().equals("documentNo")).findFirst().orElseThrow();
+            Map<String, Object> binding = new java.util.LinkedHashMap<>();
+            binding.put("moduleAlias", module); binding.put("entityAlias", "target"); binding.put("fieldName", "documentNo");
+            binding.put("trigger", "SAVE"); binding.put("expectedVersion", boundField.path("bindingVersion").asInt());
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("code-contract", "Code contract")); var scope = TenantContext.system("validate code/reference exclusion")) {
+                var relation = moduleMetadataRelationService.list(Criteria.of().eq("moduleAlias", module).eq("relationRole", RelationRole.MAIN), ALL).getFirst();
+                var metadataField = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class).select(boundField.path("metadataFieldId").asText());
+                var reference = new net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig();
+                reference.setMetadataFieldId(metadataField.getId()); reference.setRelationId(relation.getId()); reference.setTargetModuleAlias(module);
+                assertThatThrownBy(() -> applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService.class).validateDraft(reference, metadataField, relation))
+                        .hasMessageContaining("Business code fields cannot become references");
+            }
+            binding.put("role", "NORMAL");
+            var removal = restTemplate.exchange("/platform.code_rule/binding", HttpMethod.POST, new HttpEntity<>(binding, headers), JsonNode.class);
+            assertThat(removal.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(removal.getBody().path("textSource").path("sourceId").asText()).isEqualTo("platform.rejection.code-configuration.active-binding");
+            binding.put("role", "PRIMARY"); binding.put("trigger", "EXPLICIT");
+            var triggerChange = restTemplate.exchange("/platform.code_rule/binding", HttpMethod.POST, new HttpEntity<>(binding, headers), JsonNode.class);
+            assertThat(triggerChange.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        } finally { userSessionService.logout(token); org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+    }
+
+    @Test
     void committedDynamicConfigurationHasQueryableActivationAndVersionBoundRetry() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String application = "actdyn" + suffix, module = application + ".record";

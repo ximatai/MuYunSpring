@@ -15,6 +15,10 @@ public interface EntitySaveLifecycleListener {
     default <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T incoming) {
     }
 
+    /** Validates platform-owned values before a retained record becomes active again. */
+    default <T extends EntityContract> void beforeRestore(CrudAbility<T> ability, T retained) {
+    }
+
     default <T extends EntityContract> void persisted(CrudAbility<T> ability, T entity) {
     }
 

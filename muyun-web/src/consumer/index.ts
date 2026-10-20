@@ -70,9 +70,11 @@ export {
   UiTree,
   UiTreeSelect,
   UiInput,
+  UiDatePicker,
   UiSwitch,
   UiTextArea,
 } from '../vue-ui-antdv/index';
+export type { UiDatePickerMode, UiDatePickerPrecision } from '../vue-ui-antdv/index';
 export { default as PlatformAdminOutlet } from './PlatformAdminOutlet.vue';
 export { default as AppWorkbenchShell } from './AppWorkbenchShell.vue';
 export { default as LoginView } from '../app/LoginView.vue';

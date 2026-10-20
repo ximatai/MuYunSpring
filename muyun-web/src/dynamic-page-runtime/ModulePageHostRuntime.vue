@@ -41,7 +41,7 @@ import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
-import TenantScopeExplorer from './TenantScopeExplorer.vue';
+import { TenantScopeExplorer } from '@muyun/platform-components';
 
 import { computed, defineComponent, ref, watch, type PropType } from 'vue';
 import { sessionViewBindings } from './sessionViewBindings';
@@ -409,10 +409,10 @@ export default defineComponent({
             @changed="refreshList"
           />
           <RecordActionBar
-            v-if="placedPageActions.length || fileActions.length"
+            v-if="enhancementActions.length || placedPageActions.length || fileActions.length"
             :context="context"
-            :actions="[...placedPageActions, ...fileActions]"
-            @action="handlePageSurfaceAction"
+            :actions="[...enhancementActions, ...placedPageActions, ...fileActions]"
+            @action="handleListSurfaceAction"
           />
           <RecordPanelButton
             v-if="context.can('sort') === true"
@@ -445,7 +445,8 @@ export default defineComponent({
             :context="context"
             action-code="create"
             icon-only
-            :title="flatManagementContent?.createTitle"
+            :disabled="!recordCreationState().ready"
+            :title="recordCreationState().message ?? flatManagementContent?.createTitle"
             @click="createRootRecord"
           />
         </template>
@@ -1096,7 +1097,7 @@ export default defineComponent({
                 action-code="create"
                 icon-only
                 :title="explorerCreateAction.title"
-                :disabled="saving || explorerCreateAction.disabled"
+                :disabled="!recordCreationState().ready || explorerCreateAction.disabled"
                 @click="handlePlacedPageAction(explorerCreateAction)"
               />
               <ModuleActionButton
@@ -1105,7 +1106,9 @@ export default defineComponent({
                 :context="context"
                 action-code="create"
                 icon-only
+                :disabled="!recordCreationState().ready"
                 :title="
+                  recordCreationState().message ??
                   runtimePage?.treeResource?.createTitle ??
                   language.t('platform.screen.ModulePageHostRuntime.create-value', '新建{value1}', {
                     value1: treeRootTitle,

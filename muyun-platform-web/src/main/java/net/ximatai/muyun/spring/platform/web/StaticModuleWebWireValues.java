@@ -76,7 +76,7 @@ final class StaticModuleWebWireValues {
         if (index + 1 < path.length) {
             adaptPath(value, path, index + 1, fieldType);
         } else if (value != null && !value.isNull()) {
-            Object wireValue = PlatformWebWireContract.responseValue(fieldType.name(), value.asText());
+            Object wireValue = PlatformWebWireContract.responseValue(fieldType.name(), value.isNumber() && fieldType == FieldValueType.DECIMAL ? value.decimalValue() : value.asText());
             if (wireValue instanceof String text) object.put(segment, text);
         }
     }

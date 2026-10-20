@@ -261,6 +261,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                     "platform.rejection.module-metadata-field.system-managed-field-cannot-override-write-rules",
                     "System managed field cannot override write rules: {value1}"), Map.of("value1", String.valueOf(field.getFieldName())));
         }
+        validateBusinessCode(moduleField, relation, metadata, field);
         validateVirtualFieldBoundary(moduleField, field);
         if (moduleField.getTextNormalization() != null
                 && moduleField.getTextNormalization() != TextNormalization.NONE) {
@@ -279,6 +280,25 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
                                 "module metadata field must be unique: {value1}.{value2}"), Map.of("value1", String.valueOf(relation.getId()), "value2", String.valueOf(field.getId()))));
         moduleField.setRelationId(relation.getId());
         moduleField.setMetadataFieldId(field.getId());
+    }
+
+    private void validateBusinessCode(ModuleMetadataField config, ModuleMetadataRelation relation, Metadata metadata, MetadataField field) {
+        if (config.getBusinessCodeRole() == null) { config.setBusinessCodeTrigger(null); return; }
+        net.ximatai.muyun.spring.platform.code.CodeConfigurationLocks.lock(relation.getModuleAlias(), metadata.getAlias());
+        if (field.getFieldForm() == MetadataFieldForm.VIRTUAL || Boolean.TRUE.equals(field.getSystemManaged())
+                || requireFieldType(field) != FieldType.STRING || field.getOwnerFieldId() != null || hasText(config.getReferenceModuleAlias())
+                || field.getFieldName().equals(relation.getForeignKey()))
+            throw new PlatformException("Business code requires a persisted business string field: " + field.getFieldName());
+        if (config.getBusinessCodeTrigger() == null) config.setBusinessCodeTrigger(net.ximatai.muyun.spring.ability.code.CodeTrigger.SAVE);
+        if (config.getBusinessCodeTrigger() == net.ximatai.muyun.spring.ability.code.CodeTrigger.EXPLICIT
+                && (Boolean.TRUE.equals(field.getRequired()) || Boolean.TRUE.equals(config.getRequiredOnInsert()) || Boolean.TRUE.equals(config.getRequiredOnUpdate())))
+            throw new PlatformException("EXPLICIT business code must allow unnumbered drafts: " + field.getFieldName());
+        if (net.ximatai.muyun.spring.ability.TransactionScopeSupport.isTransactionActive())
+            lockMutation("business-code-binding", java.util.Arrays.asList(config.getTenantId(), relation.getId()).toString());
+        if (config.getBusinessCodeRole() == net.ximatai.muyun.spring.platform.code.CodeFieldRole.PRIMARY
+                && listByRelationId(relation.getId()).stream().anyMatch(other -> !Objects.equals(other.getId(), config.getId())
+                && other.getBusinessCodeRole() == net.ximatai.muyun.spring.platform.code.CodeFieldRole.PRIMARY))
+            throw new PlatformException("Only one PRIMARY business code field is allowed");
     }
 
     private void validateChildForeignKeyReference(ModuleMetadataField moduleField,

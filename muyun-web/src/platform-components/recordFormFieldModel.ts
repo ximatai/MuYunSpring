@@ -24,6 +24,7 @@ import type { ReferencePickerColumn, ReferencePickerProvider } from './reference
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
+  businessCode?: ResolvedViewFieldDescriptor['businessCode'];
   content?: ResolvedViewFieldDescriptor['content'];
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   calculationTiming?: ResolvedViewFieldDescriptor['calculationTiming'];
@@ -250,6 +251,9 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  businessCode?: ResolvedViewFieldDescriptor['businessCode'];
+  /** Original input requirement, applied only when the server selects manual entry. */
+  businessCodeRequired?: boolean;
   content?: ResolvedViewFieldDescriptor['content'];
   calculationPending?: boolean;
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
@@ -456,7 +460,8 @@ export function resolveRecordFormFieldState(
       : options.mode === 'edit'
         ? field?.inputRequirements?.requiredOnUpdate
         : false;
-  const required = declaredRequired || (!readOnly && modelRequired === true);
+  const inputRequired = declaredRequired || (!readOnly && modelRequired === true);
+  const required = field?.businessCode ? false : inputRequired;
   const visible = evaluateUiRule(
     field?.visible,
     options.record,
@@ -475,6 +480,7 @@ export function resolveRecordFormFieldState(
       ? resolveReferencePickerPresentation(field?.fieldControl)
       : undefined;
   const baseState: RecordFormFieldState = {
+    ...(field?.businessCode ? { businessCode: field.businessCode, businessCodeRequired: inputRequired } : {}),
     ...(field?.calculationTiming ? { calculationTiming: field.calculationTiming } : {}),
     ...(readOnly &&
     field?.calculationTiming === 'ON_SAVE' &&

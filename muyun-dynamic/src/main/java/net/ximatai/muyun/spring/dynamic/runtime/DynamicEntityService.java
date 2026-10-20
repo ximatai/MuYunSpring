@@ -351,6 +351,7 @@ public class DynamicEntityService implements
         lifecycle.beforeInsert(record);
         record.formulaReport(capabilityRuntimes.formula().beforeInsert(record));
         normalizeDiscriminatedValues(record, null);
+        DynamicMutationContext.current().ifPresent(context -> context.prepareValues(record));
         validateChildPayload(record);
         record.validateCompanionsForInsert();
         validateFieldValues(record);
@@ -384,6 +385,7 @@ public class DynamicEntityService implements
             record.formulaReport(new FormulaRuntimeReport());
         }
         normalizeDiscriminatedValues(record, existing);
+        DynamicMutationContext.current().ifPresent(context -> context.prepareValues(record));
         validateChildPayload(record);
         record.validateCompanionsForUpdate();
         validateFieldValues(record);

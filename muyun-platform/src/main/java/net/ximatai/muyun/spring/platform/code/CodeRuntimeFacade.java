@@ -17,11 +17,19 @@ public class CodeRuntimeFacade {
                              CodeLedgerEntryService ledgerEntryService) {
         this.generateService = Objects.requireNonNull(generateService, "generateService must not be null");
         this.ruleService = Objects.requireNonNull(ruleService, "ruleService must not be null");
-        this.ledgerEntryService = ledgerEntryService;
+        this.ledgerEntryService = Objects.requireNonNull(ledgerEntryService, "ledgerEntryService");
     }
 
+    /** Candidate only: no sequence allocation and no record occupation. */
+    public CodePreviewResult preview(CodeRuntimeCommand command) {
+        return generateService.preview(Objects.requireNonNull(command, "command").toGenerateCommand());
+    }
+
+    @Transactional
     public CodeRuntimeResult generateOnly(CodeRuntimeCommand command) {
-        GenerateCodeResult generated = generate(command);
+        Objects.requireNonNull(command, "command");
+        ledgerEntryService.lockTarget(command.moduleAlias(), command.entityAlias(), command.fieldName());
+        GenerateCodeResult generated = generate(command.withUniquenessChecker(ledgerAwareChecker(command)));
         return CodeRuntimeResult.generated(generated, false, null);
     }
 
@@ -33,9 +41,7 @@ public class CodeRuntimeFacade {
         if (command.sourceRecordId() == null || command.sourceRecordId().isBlank()) {
             throw new PlatformException("Code issueAndBind requires sourceRecordId");
         }
-        if (ledgerEntryService == null) {
-            throw new PlatformException("Code issueAndBind requires ledgerEntryService");
-        }
+        ledgerEntryService.lockTarget(command.moduleAlias(), command.entityAlias(), command.fieldName());
         CodeLedgerEntry existing = ledgerEntryService.findActiveByTargetAndSourceRecord(
                 command.moduleAlias(),
                 command.entityAlias(),
@@ -46,8 +52,9 @@ public class CodeRuntimeFacade {
             CodeRule existingRule = ruleService.viewRuleTree(existing.getRuleId());
             return CodeRuntimeResult.bound(existing, existingRule);
         }
-        GenerateCodeResult generated = generate(command.withUniquenessChecker(ledgerAwareChecker(command)));
-        CodeRule rule = ruleService.viewRuleTree(generated.ruleId());
+        var issuance = generateService.issue(command.withUniquenessChecker(ledgerAwareChecker(command)).toGenerateCommand());
+        GenerateCodeResult generated = issuance.result();
+        CodeRule rule = issuance.rule();
         ledgerEntryService.upsertActiveBinding(
                 rule,
                 generated.value(),
@@ -71,11 +78,16 @@ public class CodeRuntimeFacade {
             if (checker != null && checker.exists(resolved, generatedValue, context)) {
                 return true;
             }
-            CodeLedgerEntry entry = ledgerEntryService.findByRuleAndValue(resolved.rule().getId(), generatedValue);
+            var staticTarget = ruleService.staticTarget(command.moduleAlias(), command.entityAlias());
+            if (staticTarget.isPresent()) {
+                var criteria = net.ximatai.muyun.database.core.orm.Criteria.of().eq(command.fieldName(), generatedValue);
+                if (command.sourceRecordId() != null) criteria.ne("id", command.sourceRecordId());
+                if (!staticTarget.get().list(criteria, new net.ximatai.muyun.database.core.orm.PageRequest(0, 1)).isEmpty()) return true;
+            }
+            CodeLedgerEntry entry = ledgerEntryService.findByTargetAndValue(command.moduleAlias(), command.entityAlias(), command.fieldName(), generatedValue);
             return entry != null
-                    && entry.getStatus() == CodeLedgerStatus.ACTIVE
-                    && (entry.getSourceRecordId() == null
-                    || !entry.getSourceRecordId().equals(command.sourceRecordId()));
+                    && (entry.getStatus() == CodeLedgerStatus.DISCARDED || entry.getStatus() == CodeLedgerStatus.ACTIVE
+                    && (entry.getSourceRecordId() == null || !entry.getSourceRecordId().equals(command.sourceRecordId())));
         };
     }
 }

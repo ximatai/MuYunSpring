@@ -6,6 +6,7 @@ import {
   DetailRelationListPanel,
   RecordDetailExtensionSection,
   RecordPanelButton,
+  RecordRelationActionButton,
   evaluateUiFormula,
   type QueryListRecord,
 } from '@muyun/platform-components';
@@ -191,10 +192,8 @@ watch(
           language.t('platform.screen.ModulePageDetailRelations.undo', '撤销')
         }}</RecordPanelButton>
       </span>
-      <RecordPanelButton
+      <RecordRelationActionButton
         v-if="relationCreateAllowed(relation)"
-        class="managed-relation-add-button"
-        type="text"
         icon-name="plus"
         :title="
           language.t('platform.screen.ModulePageDetailRelations.add-value', '新增{value1}', {
@@ -208,10 +207,8 @@ watch(
         "
         @click="requestAdd(relation.code)"
       />
-      <RecordPanelButton
+      <RecordRelationActionButton
         v-if="relationDeleteAllowed(relation) || relationCreateAllowed(relation)"
-        class="managed-relation-add-button"
-        type="text"
         danger
         icon-name="minus"
         :disabled="(selectedCounts[relation.code] ?? 0) === 0"
@@ -231,10 +228,8 @@ watch(
         "
         @click="requestRemove(relation.code)"
       />
-      <RecordPanelButton
+      <RecordRelationActionButton
         v-if="relationRecycleBinAllowed(relation)"
-        class="managed-relation-add-button"
-        type="text"
         icon-name="delete"
         :title="
           language.t('platform.screen.ModulePageDetailRelations.value-recycle-bin', '{value1}回收站', {
@@ -308,23 +303,6 @@ watch(
   font-size: 11px;
   height: 20px;
   padding: 0 2px;
-}
-
-.managed-relation-add-button :deep(.ant-btn),
-:deep(.managed-relation-add-button.ant-btn) {
-  align-items: center;
-  border-radius: 50%;
-  display: inline-flex;
-  height: 24px;
-  justify-content: center;
-  min-width: 24px;
-  padding: 0;
-  width: 24px;
-}
-
-.managed-relation-add-button :deep(.anticon),
-:deep(.managed-relation-add-button.ant-btn .anticon) {
-  font-size: 12px;
 }
 
 .module-page-detail-relations--list-expansion {

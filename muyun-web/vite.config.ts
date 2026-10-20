@@ -11,7 +11,12 @@ export function createViteConfig(mode = 'development') {
     base: normalizeWorkbenchBase(environment.VITE_MUYUN_WEB_BASE),
     plugins: [vue()],
     optimizeDeps: {
-      include: ['ant-design-vue/es/locale/en_US', 'ant-design-vue/es/locale/zh_CN'],
+      include: [
+        'ant-design-vue/es/locale/en_US',
+        'ant-design-vue/es/locale/zh_CN',
+        'ant-design-vue/es/date-picker/generatePicker',
+        'ant-design-vue/es/vc-picker/generate/dayjs',
+      ],
     },
     resolve: {
       alias: {

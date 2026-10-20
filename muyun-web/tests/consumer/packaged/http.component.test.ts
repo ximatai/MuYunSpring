@@ -7,6 +7,8 @@ import type * as Consumer from '../../../src/consumer';
 
 type ConsumerContract = Pick<
   typeof Consumer,
+  | 'UiDatePicker'
+  | 'UiLanguageProvider'
   | 'createBackendHttpClient'
   | 'configureAuthenticationRecovery'
   | 'configureModuleContext'
@@ -316,6 +318,31 @@ it('batches the shipped user online cells through their owning page transport', 
     expect(JSON.parse(String(statuses[0]?.init?.body))).toEqual({ userIds: ['user-one', 'user-two'] });
     expect(wrapper.text()).toContain('(2)');
     expect(wrapper.text()).toContain('(3)');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('ships the string date picker with the host language context and shared vendor runtime', async () => {
+  const context = sdk.createLanguageContext({ languageTag: 'en' });
+  const wrapper = mount(sdk.UiLanguageProvider, {
+    props: { context },
+    slots: {
+      default: () =>
+        Vue.h(sdk.UiDatePicker, {
+          mode: 'datetime',
+          value: '2026-10-20T14:15:37',
+          ariaLabel: 'Effective time',
+        }),
+    },
+  });
+  try {
+    expect(wrapper.get('input').element.value).toBe('2026-10-20 14:15:37');
+    expect(wrapper.get('input').attributes('aria-label')).toBe('Effective time');
+    expect(wrapper.getComponent({ name: 'ADatePicker' }).props('locale')?.lang.locale).toBe('en_US');
+    context.setLanguage('zh-CN');
+    await Vue.nextTick();
+    expect(wrapper.getComponent({ name: 'ADatePicker' }).props('locale')?.lang.locale).toBe('zh_CN');
   } finally {
     wrapper.unmount();
   }

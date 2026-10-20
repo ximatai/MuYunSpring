@@ -23,6 +23,12 @@ export interface PlatformAdminRoute {
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
   {
+    route: '/platform/code-rule',
+    moduleAlias: 'platform.code_rule',
+    component: defineAsyncComponent(() => import('../views/CodeConfigurationView.vue')),
+    layout: 'workspace',
+  },
+  {
     route: '/platform/translations',
     moduleAlias: 'platform.localization',
     component: defineAsyncComponent(() => import('../views/ConfigurationTranslationView.vue')),

@@ -4,10 +4,15 @@ import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebScope;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
-import net.ximatai.muyun.spring.web.QueryViewWeb;
-import net.ximatai.muyun.spring.web.WebSupport;
+import net.ximatai.muyun.spring.platform.web.StaticQueryViewWeb;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
+import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.platform.code.CodeConfigurationService;
+import org.springframework.web.bind.annotation.RequestParam;
 import net.ximatai.muyun.spring.platform.code.CodePreviewResult;
 import net.ximatai.muyun.spring.platform.code.CodePreviewService;
 import net.ximatai.muyun.spring.platform.code.CodeRecycleEntry;
@@ -36,13 +41,15 @@ import java.util.Map;
 
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
-@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = CodeRuleService.MODULE_ALIAS, title = "编码规则")
+@PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = CodeRuleService.MODULE_ALIAS, title = "业务编码", route = "/platform/code-rule")
 @PlatformMenu(parent = PlatformMenuGroups.BUSINESS_SUPPORT, order = 20)
 @RequestMapping({"/platform.code_rule", "/platform/code/rule"})
-public class CodeRuleWebController extends WebSupport<CodeRuleService> implements
-        QueryViewWeb<CodeRule, CodeRuleService> {
+public class CodeRuleWebController extends StaticModuleWebControllerAdapter<CodeRuleService> implements
+        StaticQueryViewWeb<CodeRule, CodeRuleService>, StaticModuleUiContributor {
 
     private final CodePreviewService previewService;
+    private final CodeConfigurationService configuration;
+    private final net.ximatai.muyun.spring.platform.code.CodeBusinessTimeService time;
     private final CodeOpsQueryService opsQueryService;
     private final CodeOpsActionService opsActionService;
 
@@ -50,13 +57,65 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
         this(previewService, null, null);
     }
 
-    @Autowired
     public CodeRuleWebController(CodePreviewService previewService,
                                  CodeOpsQueryService opsQueryService,
                                  CodeOpsActionService opsActionService) {
+        this(previewService, opsQueryService, opsActionService, null);
+    }
+
+    public CodeRuleWebController(CodePreviewService previewService, CodeOpsQueryService opsQueryService,
+                                 CodeOpsActionService opsActionService, CodeConfigurationService configuration) {
+        this(previewService, opsQueryService, opsActionService, configuration, null);
+    }
+
+    @Autowired
+    public CodeRuleWebController(CodePreviewService previewService, CodeOpsQueryService opsQueryService,
+                                 CodeOpsActionService opsActionService, CodeConfigurationService configuration,
+                                 net.ximatai.muyun.spring.platform.code.CodeBusinessTimeService time) {
+        this.time = time;
+        this.configuration = configuration;
         this.previewService = previewService;
         this.opsQueryService = opsQueryService;
         this.opsActionService = opsActionService;
+    }
+
+    @Override
+    public ModuleUiDefinition moduleUiDefinition() {
+        return ModuleUiDefinition.builder(CodeRuleService.MODULE_ALIAS)
+                .page(PageTemplates.flatManagement(page -> page
+                        .explorer(explorer -> explorer.title("编码规则").titleField("title").secondaryField("fieldName"))
+                        .detail(detail -> detail.editor(form -> form.title("编码规则")
+                                .field("title", field -> field.label("规则名称").readOnly())
+                                .field("moduleAlias", field -> field.label("所属模块").readOnly())
+                                .field("entityAlias", field -> field.label("业务对象").readOnly())
+                                .field("fieldName", field -> field.label("编码字段").readOnly())
+                                .field("mode", field -> field.label("编号方式").readOnly())
+                                .field("enabled", field -> field.label("启用状态").readOnly())))))
+                .build();
+    }
+
+    private <T> T configurationScope(java.util.function.Supplier<T> action) {
+        boolean systemActor = net.ximatai.muyun.spring.common.identity.CurrentUserContext.isSystem();
+        if (systemActor && net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().isEmpty()) return action.get();
+        return webScope(action);
+    }
+
+    @GetMapping("/targets")
+    @CustomActionEndpoint(value = "configurationQuery", title = "查询编码配置目标", level = PlatformActionLevel.LIST, dataAuth = false)
+    public List<CodeConfigurationService.Target> targets(@RequestParam(required = false) String moduleAlias) {
+        return configurationScope(() -> configuration.targets(moduleAlias));
+    }
+
+    @PostMapping("/binding")
+    @CustomActionEndpoint(value = "configureBinding", title = "配置业务编码字段", level = PlatformActionLevel.ANY, dataAuth = false)
+    public CodeConfigurationService.Target bind(@RequestBody CodeConfigurationService.BindingCommand command) {
+        return configurationScope(() -> configuration.bind(command));
+    }
+
+    @GetMapping("/rules")
+    @CustomActionEndpoint(value = "configurationQuery", title = "查询编码配置目标", level = PlatformActionLevel.LIST, dataAuth = false)
+    public List<CodeRule> rules(@RequestParam String moduleAlias, @RequestParam String entityAlias) {
+        return webScope(() -> service().selectRuleTreesByBusinessObject(moduleAlias, entityAlias));
     }
 
     @GetMapping("/viewTree/{id}")
@@ -83,13 +142,17 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
             if (normalized.ruleId() != null && !normalized.ruleId().isBlank()) {
                 rule = service().viewRuleTree(normalized.ruleId());
             }
-            return previewService.previewDraft(new PreviewCodeRuleCommand(
+            service().validateRuleDraft(rule);
+            if (rule != null && rule.getMode() == net.ximatai.muyun.spring.platform.code.CodeMode.MANUAL)
+                throw new net.ximatai.muyun.spring.common.exception.PlatformException("Manual coding has no automatic preview");
+            CodePreviewResult result = previewService.previewDraft(new PreviewCodeRuleCommand(
                     rule,
-                    normalized.context(),
+                    configuration == null ? normalized.context() : configuration.previewContext(rule, normalized.context()),
                     normalized.organizationId(),
-                    normalized.at(),
+                    time == null ? normalized.at() : time.resolveBusinessLocalDateTime(normalized.organizationId(), normalized.at()),
                     normalized.sequenceValue()
             ));
+            return configuration == null ? result : new CodePreviewResult(configuration.normalizeValue(rule, result.value()), result.segments());
         });
     }
 
@@ -142,32 +205,32 @@ public class CodeRuleWebController extends WebSupport<CodeRuleService> implement
         ));
     }
 
-    @PostMapping("/ops/recycleEntry/{id}/adjust")
-    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeRecycleEntry adjustRecycleEntry(@PathVariable String id,
+    @PostMapping("/ops/recycleEntry/{entryId}/adjust")
+    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeRecycleEntry adjustRecycleEntry(@PathVariable String entryId,
                                                @RequestBody RecycleAdjustRequest request) {
         return webScope(() -> requireOpsActionService().adjustRecycleEntry(
-                id,
+                entryId,
                 request.status(),
                 request.reason()
         ));
     }
 
-    @PostMapping("/ops/ledgerEntry/{id}/inspect")
-    @CustomActionEndpoint(value = "opsRecordQuery", title = "编码运维记录查询",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeLedgerInspection inspectLedgerEntry(@PathVariable String id) {
-        return webScope(() -> requireOpsActionService().inspectLedgerEntry(id));
+    @PostMapping("/ops/ledgerEntry/{entryId}/inspect")
+    @CustomActionEndpoint(value = "opsQuery", title = "编码运维查询",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeLedgerInspection inspectLedgerEntry(@PathVariable String entryId) {
+        return webScope(() -> requireOpsActionService().inspectLedgerEntry(entryId));
     }
 
-    @PostMapping("/ops/ledgerEntry/{id}/release")
-    @CustomActionEndpoint(value = "opsRecordManage", title = "编码运维记录管理",
-            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "id")
-    public CodeLedgerEntry releaseLedgerEntry(@PathVariable String id,
+    @PostMapping("/ops/ledgerEntry/{entryId}/release")
+    @CustomActionEndpoint(value = "opsManage", title = "编码运维管理",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public CodeLedgerEntry releaseLedgerEntry(@PathVariable String entryId,
                                               @RequestBody(required = false) ReleaseLedgerRequest request) {
         return webScope(() -> requireOpsActionService().releaseStaleLedgerEntry(
-                id,
+                entryId,
                 request == null ? null : request.reason()
         ));
     }

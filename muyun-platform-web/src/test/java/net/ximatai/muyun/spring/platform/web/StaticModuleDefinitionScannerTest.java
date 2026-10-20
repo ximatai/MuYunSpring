@@ -682,8 +682,8 @@ class StaticModuleDefinitionScannerTest {
                     "platform.code_issue_log");
             assertThat(byAlias.get("platform.code_rule").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query",
-                            "sort", "enable", "disable", "viewTree", "saveTree", "preview", "opsQuery", "opsManage",
-                            "opsRecordQuery", "opsRecordManage");
+                            "sort", "enable", "disable", "configurationQuery", "configureBinding", "viewTree", "saveTree", "preview", "opsQuery", "opsManage",
+                            "opsRecordQuery");
             assertThat(byAlias.get("platform.code_sequence_state").actions()).extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "view", "query", "adjustBaseline");
             assertThat(byAlias.get("platform.code_sequence_state").actions())

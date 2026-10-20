@@ -27,6 +27,27 @@ class PlatformPresentationResponseAdviceTest {
                 TextResources.format(translations.getOrDefault(tag, Map.of()).getOrDefault(source, source.originalText()), arguments), tag, tag, false, false));
         return new PlatformPresentationResponseAdvice(mapper, beans.getBeanProvider(TextResolver.class), beans.getBeanProvider(LanguageCatalog.class));
     }
+    @Test void projectsCodeSourceLabelsUsingSharedResourcesWithoutChangingTheirIdentity() throws Exception {
+        var source = net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy.titleSource("createdAt");
+        var target = new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Target(
+                "demo.purchase", "purchase", "采购", "STATIC", null, List.of(), List.of(
+                new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("createdAt", "Created at", "Instant", null),
+                new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("parent.createdAt", "创建时间", "Instant", null, source, "主单"),
+                new net.ximatai.muyun.spring.platform.code.CodeConfigurationService.Source("subject", "业务标题", "String", 80)), "采购管理",
+                net.ximatai.muyun.spring.platform.module.ModuleTitleView.declaredSource("demo.purchase", "采购管理"));
+        var moduleSource = target.moduleTitleSource();
+        var output = mapper.valueToTree(advice(Map.of(source, "Created at", moduleSource, "Purchasing")).project(List.of(target)));
+        assertThat(output.at("/0/moduleTitleText/languages/en/text").asText()).isEqualTo("Purchasing");
+        assertThat(output.at("/0/sources/0/title").asText()).isEqualTo("创建时间");
+        assertThat(output.at("/0/sources/0/titleText/languages/en/text").asText()).isEqualTo("Created at");
+        assertThat(output.at("/0/sources/1/fieldName").asText()).isEqualTo("parent.createdAt");
+        assertThat(output.at("/0/sources/1/ownerTitle").asText()).isEqualTo("主单");
+        assertThat(output.at("/0/sources/2/titleText").isMissingNode()).isTrue();
+        var controller = net.ximatai.muyun.spring.platform.web.code.CodeRuleWebController.class;
+        var parameter = new org.springframework.core.MethodParameter(controller.getMethod("targets", String.class), -1);
+        assertThat(advice(Map.of()).supports(parameter, org.springframework.http.converter.json.MappingJackson2HttpMessageConverter.class)).isTrue();
+    }
+
     @Test
     void statusRejectionResourcesRetainOriginalsAndFormatArgumentsOnlyOnce() throws Exception {
         var source = TextReference.code("test.match.failure", "流程匹配失败：{record}");

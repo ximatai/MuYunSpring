@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
-import {
-  CrudRecordListExplorer,
-  RecordExplorerPanel,
-  type QueryListRecord,
-} from '@muyun/platform-components';
+import CrudRecordListExplorer from './CrudRecordListExplorer.vue';
+import RecordExplorerPanel from './RecordExplorerPanel.vue';
+import type { QueryListRecord } from './RecordQueryListPanel.vue';
 
 import { ref } from 'vue';
 

@@ -1,5 +1,7 @@
 // This entry is built by the independently installed business consumer's Vite.
 export {
+  UiDatePicker,
+  UiLanguageProvider,
   createBackendHttpClient,
   configureAuthenticationRecovery,
   configureModuleContext,

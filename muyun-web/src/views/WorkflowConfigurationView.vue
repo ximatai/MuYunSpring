@@ -41,6 +41,7 @@ import {
   UiButton,
   UiActionButton,
   UiInput,
+  UiHelp,
   UiSelect,
   UiCheckbox,
   UiEmpty,
@@ -763,39 +764,56 @@ function addRoute() {
             required
             :aria-label="
               workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-name', '流程名称')
-            " /></label
-        ><label class="workflow-field"
-          ><RecordFieldLabel required>{{
-            workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
-          }}</RecordFieldLabel
-          ><UiInput
-            :disabled="busy"
-            v-model:value="newAlias"
-            required
-            :invalid="Boolean(newAlias.trim()) && !validAlias"
-            :aria-label="
-              workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
             "
-          /><small class="settings-help">{{
-            workflowLanguage.t(
-              'platform.workflow-config.alias-help',
-              '小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。',
-            )
-          }}</small></label
-        >
-        <div class="settings-wide workflow-field">
+        /></label>
+        <div class="workflow-field-help">
+          <label class="workflow-field"
+            ><RecordFieldLabel required>{{
+              workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
+            }}</RecordFieldLabel
+            ><UiInput
+              :disabled="busy"
+              v-model:value="newAlias"
+              required
+              :invalid="Boolean(newAlias.trim()) && !validAlias"
+              :aria-label="
+                workflowLanguage.t('platform.screen.WorkflowConfigurationView.workflow-code', '流程编码')
+              "
+            />
+            <small v-if="newAlias.trim() && !validAlias" class="settings-help" role="alert">{{
+              workflowLanguage.t(
+                'platform.workflow-config.alias-help',
+                '小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。',
+              )
+            }}</small></label
+          >
+          <UiHelp
+            class="workflow-field-help__trigger"
+            :label="workflowLanguage.t('platform.workflow-config.alias-help-title', '流程编码格式说明')"
+          >
+            {{
+              workflowLanguage.t(
+                'platform.workflow-config.alias-help',
+                '小写字母开头，仅含小写字母、数字和下划线，最多 63 个字符。',
+              )
+            }}
+          </UiHelp>
+        </div>
+        <div class="settings-wide workflow-approval-setting">
           <UiCheckbox :disabled="busy" v-model:checked="approvalEnabled">{{
             workflowLanguage.t(
               'platform.screen.WorkflowConfigurationView.govern-business-approval-status',
               '驱动业务审批状态',
             )
-          }}</UiCheckbox
-          ><small class="settings-help">{{
-            workflowLanguage.t(
-              'platform.workflow-config.approval-help',
-              '开启后回写业务记录的审批状态；关闭后仅编排任务流程。',
-            )
-          }}</small>
+          }}</UiCheckbox>
+          <UiHelp :label="workflowLanguage.t('platform.workflow-config.approval-help-title', '审批状态说明')">
+            {{
+              workflowLanguage.t(
+                'platform.workflow-config.approval-help',
+                '开启后回写业务记录的审批状态；关闭后仅编排任务流程。',
+              )
+            }}
+          </UiHelp>
         </div>
         <details class="settings-wide">
           <summary>
@@ -1216,6 +1234,23 @@ function addRoute() {
 }
 .settings-wide {
   grid-column: 1 / -1;
+}
+.workflow-field-help {
+  position: relative;
+  min-width: 0;
+}
+.workflow-field-help .record-field-label {
+  padding-inline-end: 30px;
+}
+.workflow-field-help__trigger {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+}
+.workflow-approval-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .settings-help {
   margin: 0;

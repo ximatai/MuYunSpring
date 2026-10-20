@@ -1335,6 +1335,21 @@ public class DynamicRecordWebController implements
         });
     }
 
+    private net.ximatai.muyun.spring.platform.code.CodeBusinessFormService codeForms;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCodeForms(net.ximatai.muyun.spring.platform.code.CodeBusinessFormService service) { codeForms = service; }
+    @Override
+    @PostMapping("/code/form-state")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public List<net.ximatai.muyun.spring.platform.code.CodeBusinessFieldState> codeFormState(
+            @RequestBody(required = false) net.ximatai.muyun.spring.platform.code.CodeBusinessFormRequest request) {
+        String module = DynamicWebRequest.moduleAlias();
+        return tenantScope(module, () -> {
+            if (codeForms == null) throw new IllegalStateException("Business code form runtime is not configured");
+            return codeForms.fields(module, request);
+        });
+    }
+
     @PostMapping("/code/preview")
     @ActionEndpoint(PlatformAction.CREATE)
     public List<CodeBusinessPreviewItem> previewCode(@PathVariable String moduleAlias,

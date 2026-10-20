@@ -51,7 +51,14 @@ public class StaticEntityDefinitionCompiler {
                 StaticTenantUniqueConstraints.resolve(modelClass),
                 sortPartitionFields(modelClass),
                 fileReferences(modelClass)
-        );
+        ).withBusinessCodes(businessCodes(modelClass));
+    }
+
+    private Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> businessCodes(Class<?> model) {
+        Map<String, net.ximatai.muyun.spring.ability.code.CodeFieldDefinition> result = new LinkedHashMap<>();
+        net.ximatai.muyun.spring.ability.code.StaticCodeFields.declarations(model).forEach((name, declaration) ->
+                result.put(name, new net.ximatai.muyun.spring.ability.code.CodeFieldDefinition(declaration.primary(), declaration.trigger())));
+        return Map.copyOf(result);
     }
 
     private Map<String, FileReferenceDefinition> fileReferences(Class<?> modelClass) {

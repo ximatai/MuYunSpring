@@ -1234,7 +1234,21 @@ export interface BusinessContentTranslationChange {
   reviewedDraftRevision?: number;
 }
 
+export interface BusinessCodeField {
+  primary: boolean;
+  trigger: 'SAVE' | 'EXPLICIT';
+}
+export interface BusinessCodeFieldState {
+  fieldName: string;
+  mode?: 'AUTO' | 'MANUAL' | 'AUTO_WITH_MANUAL_EDIT' | null;
+  trigger: 'SAVE' | 'EXPLICIT';
+  readOnly: boolean;
+  configured: boolean;
+  preview?: string | null;
+}
 export interface ResolvedViewFieldDescriptor {
+  /** Model-owned declaration; the server resolves the current numbering mode separately. */
+  businessCode?: BusinessCodeField | null;
   /** Producer-owned policy; absent means the field keeps only its original value. */
   content?: BusinessContentField | null;
   /** Computed values are previews or are unavailable until the next successful save. */

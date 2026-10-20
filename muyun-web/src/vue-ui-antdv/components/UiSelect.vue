@@ -95,6 +95,7 @@ function handleDoubleClick(event: MouseEvent) {
       :show-search="showSearch"
       :search-value="searchValue"
       :filter-option="filterOption"
+      option-filter-prop="label"
       :loading="loading"
       :show-arrow="!$slots.suffixAction"
       :aria-label="ariaLabel"
