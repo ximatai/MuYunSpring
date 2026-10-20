@@ -210,6 +210,13 @@ let instanceDirectoryRevision = 0;
 const currentInstanceId = computed(
   () => props.instanceId ?? selectedInstance.value ?? status.value?.instanceId,
 );
+// Missing published definitions are empty states; existing rounds and failures stay accessible.
+const showPanel = computed(
+  () =>
+    status.value?.displayStatus !== 'NO_WORKFLOW' ||
+    loading.value ||
+    Boolean(error.value || currentInstanceId.value || archives.value.length || recordInstances.value.length),
+);
 function instanceLabel(item: WorkflowRecordInstance) {
   return [
     workflowLanguage.t('platform.screen.WorkflowRecordPanel.current-workflow', '当前流程'),
@@ -1113,6 +1120,7 @@ async function execute() {
 </script>
 <template>
   <section
+    v-if="showPanel"
     class="workflow-record-panel"
     :aria-label="workflowLanguage.t('platform.screen.WorkflowRecordPanel.approvals-and-tasks', '审批与任务')"
   >

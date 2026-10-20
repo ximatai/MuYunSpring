@@ -1561,3 +1561,43 @@ it.each(['denied', 'failed', 'allowed'] as const)(
     }
   },
 );
+
+it.each([
+  { displayStatus: 'NO_WORKFLOW', history: 'empty', visible: false },
+  { displayStatus: 'UNSUBMITTED', history: 'empty', visible: true },
+  { displayStatus: 'MATCH_ERROR', history: 'empty', visible: true },
+  { displayStatus: 'NO_WORKFLOW', history: 'archived', visible: true },
+  { displayStatus: 'NO_WORKFLOW', history: 'failed', visible: true },
+])('shows workflow panel=$visible for $displayStatus with $history history', async (scenario) => {
+  const { wrapper, request } = fixture();
+  try {
+    await flushPromises();
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (call) => {
+      if (call.path.endsWith('/submit/status'))
+        return { displayStatus: scenario.displayStatus, errorMessage: '流程配置状态说明' };
+      if (call.path === '/workflow/history/query') {
+        if (scenario.history === 'failed') throw new Error('History unavailable');
+        return {
+          records:
+            scenario.history === 'archived' ? [{ id: 'old', versionNo: 1, instanceStatus: 'completed' }] : [],
+        };
+      }
+      return original(call);
+    });
+    await wrapper.setProps({ recordId: 'unconfigured-record' });
+    await flushPromises();
+    expect(wrapper.find('.workflow-record-panel').exists()).toBe(scenario.visible);
+    if (scenario.history === 'failed') expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+    if (scenario.history === 'archived') expect(wrapper.text()).toContain('查看流程轮次');
+    if (!scenario.visible) {
+      expect(wrapper.text()).not.toContain('流程配置状态说明');
+      request.mockImplementation(original);
+      await wrapper.setProps({ recordId: 'another-record' });
+      await flushPromises();
+      expect(wrapper.find('.workflow-record-panel').exists()).toBe(true);
+    }
+  } finally {
+    wrapper.unmount();
+  }
+});
