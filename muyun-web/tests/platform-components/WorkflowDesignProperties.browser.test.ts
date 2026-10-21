@@ -193,6 +193,12 @@ it('shows flat type cards at compact widths and switches FYI with native radio c
     );
     expect(wrapper.element.scrollWidth).toBeLessThanOrEqual(width);
   }
+  // Semantic aliases must also resolve in a nested skin without a global theme provider.
+  wrapper.element.classList.add('ui-theme-provider');
+  wrapper.element.style.setProperty('--muyun-brand-accent-base', 'rgb(150, 110, 20)');
+  await expect
+    .poll(() => getComputedStyle(wrapper.findAll('.ant-radio-button-wrapper')[3]!.element).borderColor)
+    .toBe('rgb(150, 110, 20)');
   await page.getByText('知会', { exact: true }).click();
   const patch = wrapper.emitted('update-node')![0]![0];
   expect(patch).toMatchObject({ nodeType: 'approval', approvalMode: 'notice' });

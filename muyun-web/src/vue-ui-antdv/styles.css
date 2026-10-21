@@ -22,6 +22,7 @@
   --muyun-success-border: var(--muyun-positive-border, #e3f3ec);
   --muyun-warning-text: var(--muyun-warning-base, #ed7b2f);
   --muyun-info-text: var(--muyun-info-base, #0052d9);
+  --muyun-accent-text: var(--muyun-brand-accent-base, #f5be2c);
 }
 
 :root {
