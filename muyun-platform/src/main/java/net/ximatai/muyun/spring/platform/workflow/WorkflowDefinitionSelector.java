@@ -87,6 +87,9 @@ public class WorkflowDefinitionSelector {
         for (String organizationId : scopes) {
             var candidates = definitions.stream()
                     .filter(item -> java.util.Objects.equals(item.getOrganizationId(), organizationId))
+                    // sortOrder belongs to a tenant/module partition, never a cross-tenant sequence.
+                    // Stable sorting retains each partition's list order while preferring tenant configuration.
+                    .sorted(java.util.Comparator.comparing(item -> item.getTenantId() == null))
                     .toList();
             var matched = candidates.stream().filter(item -> !Boolean.TRUE.equals(item.getDefaultDefinition()))
                     .filter(item -> conditions.matches(item.getMatchExpression(), request.moduleAlias(), request.recordId()))

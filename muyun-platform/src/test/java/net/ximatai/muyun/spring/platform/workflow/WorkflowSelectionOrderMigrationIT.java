@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowSelectionOrderMigrationIT extends PlatformPostgresIntegrationTest {
     @Test
-    void legacyPriorityPreservesGlobalAndTenantSelectionOrderExactlyOnce() throws Exception {
+    void legacyPriorityPreservesEachTenantSortPartitionExactlyOnce() throws Exception {
         String database = "migration_" + UUID.randomUUID().toString().replace("-", "");
         try (var admin = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var command = admin.createStatement()) {
@@ -39,7 +39,7 @@ class WorkflowSelectionOrderMigrationIT extends PlatformPostgresIntegrationTest 
                 try (var rows = sql.executeQuery("SELECT id || ':' || sort_order || ':' || version FROM platform_workflow_definition ORDER BY id")) {
                     while (rows.next()) orders.add(rows.getString(1));
                 }
-                assertThat(orders).containsExactly("a:400:3", "b:300:4", "c:200:5", "d:500:6", "e:100:7", "f:100:8");
+                assertThat(orders).containsExactly("a:300:3", "b:200:4", "c:100:5", "d:200:6", "e:100:7", "f:100:8");
                 // Re-running after an operator changes order must never restore the old priority.
                 sql.execute("UPDATE platform_workflow_definition SET sort_order = 900 WHERE id = 'c'");
                 sql.execute(Files.readString(script));

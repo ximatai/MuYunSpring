@@ -42,10 +42,10 @@ watch(
   },
 );
 onBeforeUnmount(() => clearTimeout(expiryTimer));
-function unavailable(notification: WebBusinessNotification) {
+function unavailable(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
   return (
     executing.value.has(notification.id) ||
-    handled.value.has(notification.id) ||
+    (action.kind === 'record' && handled.value.has(notification.id)) ||
     businessNotificationExpired(notification, now.value)
   );
 }
@@ -111,7 +111,12 @@ function shouldShowAccessory(notification: WebBusinessNotification) {
 async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
   const original = props.notifications.find((item) => item.id === notification.id);
   const originalAction = original?.actions.find((item) => item.key === action.key);
-  if (!original || !originalAction || businessNotificationExpired(original) || handled.value.has(original.id))
+  if (
+    !original ||
+    !originalAction ||
+    businessNotificationExpired(original) ||
+    (originalAction.kind === 'record' && handled.value.has(original.id))
+  )
     return;
   const key = `${notification.id}:${action.key}`;
   if (executing.value.has(notification.id)) return;
@@ -249,7 +254,7 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
                       :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
                       :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
                       :loading="executing.get(notification.id) === `${notification.id}:${action.key}`"
-                      :disabled="unavailable(notification)"
+                      :disabled="unavailable(notification, action)"
                       @click="run(notification, action)"
                     >
                       {{ action.label }}
@@ -266,7 +271,7 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
                       emphasis="secondary"
                       :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
                       :loading="executing.get(notification.id) === `${notification.id}:${action.key}`"
-                      :disabled="unavailable(notification)"
+                      :disabled="unavailable(notification, action)"
                       @click="run(notification, action)"
                     >
                       {{ action.label }}

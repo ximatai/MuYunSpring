@@ -1,6 +1,6 @@
 import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, KeepAlive, ref } from 'vue';
 import { expect, it, vi } from 'vitest';
 import {
   createLanguageContext,
@@ -422,6 +422,112 @@ it('keeps the current version and canvas together when reading another version f
     expect(selector.props('value')).toBe('draft');
     expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('nodes')[0].nodeKey).toBe('approval');
     expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('editable')).toBe(true);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('refreshes definition metadata on tab activation and realtime changes while preserving an unsaved design', async () => {
+  const visible = ref(true);
+  let definitionVersion = 1;
+  let finishSave!: () => void;
+  const request = vi.fn(async (call: HttpRequestOptions) => {
+    if (call.path.endsWith('/view/definition'))
+      return { id: 'definition', title: '流程 ' + definitionVersion, version: definitionVersion };
+    if (call.path.endsWith('/configuration-catalog'))
+      return { tasks: [], queries: [], generations: [], associations: [] };
+    if (call.path.endsWith('/versions/query'))
+      return { records: [{ id: 'draft', version: 1, versionNo: 1, publishStatus: 'draft' }] };
+    if (call.path.endsWith('/design') && call.method === 'POST') {
+      expect(call.body).toMatchObject({
+        design: { layoutJson: 'unsaved-layout', nodes: [{ title: '未保存节点名称' }] },
+      });
+      await new Promise<void>((resolve) => {
+        finishSave = resolve;
+      });
+      return { id: 'draft', version: 2, versionNo: 1, publishStatus: 'draft' };
+    }
+    if (call.path.endsWith('/design'))
+      return { nodes: [{ nodeKey: 'start', nodeType: 'start', title: '提交' }], links: [] };
+    if (call.path.endsWith('/publish')) {
+      expect(call.body).toMatchObject({ definitionVersion: 4, version: 2 });
+      return { id: 'draft', version: 3, versionNo: 1, publishStatus: 'published' };
+    }
+    return { moduleAlias: 'demo.purchase', actions: [], capabilities: [] };
+  });
+  const context = {
+    moduleAlias: 'platform.workflow.definition',
+    http: { request },
+  } as unknown as ModuleContext<unknown>;
+  const Harness = defineComponent({
+    setup: () => () =>
+      h(ModuleContextProvider, { context }, () =>
+        h(KeepAlive, null, {
+          default: () =>
+            visible.value
+              ? h(WorkflowConfigurationView, { moduleAlias: 'demo.purchase', definitionId: 'definition' })
+              : h('div'),
+        }),
+      ),
+  });
+  const wrapper = mount(Harness, {
+    global: {
+      stubs: {
+        WorkflowDiagram: true,
+        WorkflowDesignProperties: true,
+        AdaptiveHeaderActionBar: true,
+        RecordDetailDrawer: { template: '<section><slot/><slot name="operation"/></section>' },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const diagram = wrapper.findComponent({ name: 'WorkflowDiagram' });
+    diagram.vm.$emit('select', 'start');
+    await flushPromises();
+    wrapper
+      .findComponent({ name: 'WorkflowDesignProperties' })
+      .vm.$emit('update-node', { title: '未保存节点名称' });
+    diagram.vm.$emit('layout-change', 'unsaved-layout');
+    await flushPromises();
+    const nodes = diagram.props('nodes');
+    visible.value = false;
+    await flushPromises();
+    definitionVersion = 2;
+    visible.value = true;
+    await flushPromises();
+    expect(wrapper.text()).toContain('流程 2');
+    expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('nodes')).toBe(nodes);
+    expect(nodes[0].title).toBe('未保存节点名称');
+    expect(wrapper.findComponent({ name: 'WorkflowDiagram' }).props('layoutJson')).toBe('unsaved-layout');
+    definitionVersion = 3;
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'selection-updated',
+      changes: [
+        { type: 'record-updated', moduleAlias: 'platform.workflow.definition', recordId: 'definition' },
+      ],
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('流程 3');
+    expect(wrapper.get('[role="status"]').text()).toBe('未保存');
+    expect(request.mock.calls.filter(([call]) => call.path.endsWith('/design'))).toHaveLength(1);
+    wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).vm.$emit('action', { key: 'publish' });
+    await flushPromises();
+    await wrapper
+      .findAllComponents({ name: 'UiButton' })
+      .find((button) => button.text() === '确认发布')!
+      .trigger('click');
+    definitionVersion = 4;
+    await appDataChangeDispatcher.dispatch({
+      changeSetId: 'sort-updated-during-save',
+      changes: [
+        { type: 'record-updated', moduleAlias: 'platform.workflow.definition', recordId: 'definition' },
+      ],
+    });
+    await flushPromises();
+    finishSave();
+    await flushPromises();
+    expect(request.mock.calls.filter(([call]) => call.path.endsWith('/publish'))).toHaveLength(1);
   } finally {
     wrapper.unmount();
   }

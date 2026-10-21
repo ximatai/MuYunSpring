@@ -233,6 +233,67 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.workflowById(module, "record", own.getId()))).hasMessageContaining("not found");
     }
 
+    @Test void tenantOrderingNeverCompetesWithGlobalTemplateSortValues() {
+        var shared = configuration(null, "shared_order");
+        var first = configuration("read-tenant-a", "local_first");
+        var second = configuration("read-tenant-a", "local_second");
+        try (var context = TenantContext.use(null)) {
+            shared.setApprovalEnabled(true); shared.setSortOrder(200); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            first.setApprovalEnabled(true); first.setSortOrder(300); definitionService.update(first);
+            second.setApprovalEnabled(true); second.setSortOrder(400); definitionService.update(second);
+            var request = WorkflowSubmitRequest.approval(module, "record");
+            assertThat(definitionService.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("moduleAlias", module), page))
+                    .extracting(WorkflowDefinition::getId).containsExactlyInAnyOrder(first.getId(), second.getId());
+            assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+            definitionService.moveBefore(second.getId(), first.getId());
+            assertThat(definitions.findById(second.getId()).getSortOrder()).isEqualTo(150);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+            definitionService.reorder(List.of(first.getId(), second.getId()));
+            assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+            first = definitions.findById(first.getId()); second = definitions.findById(second.getId());
+            first.setDefaultDefinition(true); definitionService.update(first);
+            second.setMatchExpression("false"); definitionService.update(second);
+            // A global ordinary match outranks a tenant fallback.
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+        }
+        try (var context = TenantContext.use(null)) {
+            shared.setMatchExpression("false"); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            assertThat(selector.select(WorkflowSubmitRequest.approval(module, "record")).definition().getId()).isEqualTo(first.getId());
+        }
+        try (var context = TenantContext.use("read-tenant-b")) {
+            assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.approval(module, "record"))).hasMessageContaining("not found");
+        }
+        try (var context = TenantContext.use(null)) {
+            assertThat(definitions.findById(shared.getId()).getSortOrder()).isEqualTo(200);
+        }
+    }
+
+    @Test void organizationDistanceAndOrdinaryMatchesRemainAheadOfSourcePrecedence() {
+        var shared = configuration(null, "shared_near");
+        var local = configuration("read-tenant-a", "local_fallback");
+        try (var context = TenantContext.use(null)) {
+            shared.setApprovalEnabled(true); shared.setOrganizationId("org"); shared.setSortOrder(1);
+            definitionService.update(shared);
+        }
+        var request = WorkflowSubmitRequest.approval(module, "record").withAuthOrgId("org");
+        try (var context = TenantContext.use("read-tenant-a")) {
+            local.setApprovalEnabled(true); local.setSortOrder(900); definitionService.update(local);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+            local.setOrganizationId("org"); local.setDefaultDefinition(true); definitionService.update(local);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+        }
+        try (var context = TenantContext.use(null)) {
+            shared.setDefaultDefinition(true); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            assertThat(selector.select(request).definition().getId()).isEqualTo(local.getId());
+        }
+    }
+
     private WorkflowDefinition configuration(String tenant, String alias) {
         try (var context = TenantContext.use(tenant)) {
             var definition = new WorkflowDefinition(); definition.setApplicationAlias("test"); definition.setModuleAlias(module);

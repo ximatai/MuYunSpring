@@ -1,6 +1,6 @@
 -- Run while the application is stopped, before starting the version using list order.
--- A module-wide sequence preserves priority between global templates and tenant definitions.
--- Runtime sort commands still use the standard tenant/module partition.
+-- Preserve legacy priority within each standard tenant/module sort partition.
+-- Tenant/global selection precedence is independent of numeric sort values.
 -- Old equal-priority ambiguities become an explicit deterministic order (alias, id).
 -- Dropping the retired column makes a successful migration idempotent.
 BEGIN;
@@ -12,7 +12,7 @@ BEGIN
     LOCK TABLE public.platform_workflow_definition IN ACCESS EXCLUSIVE MODE;
     WITH ranked AS (
       SELECT id, row_number() OVER (
-        PARTITION BY module_alias
+        PARTITION BY tenant_id, module_alias
         ORDER BY coalesce(match_priority, 0) DESC, sort_order ASC NULLS LAST, alias, id
       ) * 100 AS new_order
       FROM public.platform_workflow_definition

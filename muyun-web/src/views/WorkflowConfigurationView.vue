@@ -4,7 +4,8 @@ import {
   workflowParticipantRules,
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
+import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 
 import type {
   WorkflowConfigurationCatalog,
@@ -206,8 +207,39 @@ useWorkspaceViewUnsavedState(
 onMounted(() => {
   void reload();
 });
+let metadataRevision = 0;
+let metadataRefreshPending = false;
+let disposed = false;
+onBeforeUnmount(() => {
+  disposed = true;
+  metadataRevision++;
+});
+async function refreshDefinition() {
+  if (disposed || !selected.value) return;
+  if (busy.value) {
+    metadataRefreshPending = true;
+    return;
+  }
+  const revision = ++metadataRevision;
+  try {
+    const definition = await client.view(props.definitionId);
+    if (revision === metadataRevision) selected.value = definition;
+  } catch (cause) {
+    if (revision === metadataRevision)
+      presentPlatformError(cause, { source: 'workflow-design', phase: 'load' });
+  }
+}
+onActivated(() => {
+  void refreshDefinition();
+});
+usePageDataChange({
+  moduleAlias: 'platform.workflow.definition',
+  recordId: () => props.definitionId,
+  handler: refreshDefinition,
+});
 async function run(operation: () => Promise<void>) {
   if (busy.value) return;
+  metadataRevision++;
   busy.value = true;
   try {
     await operation();
@@ -215,6 +247,10 @@ async function run(operation: () => Promise<void>) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
   } finally {
     busy.value = false;
+    if (metadataRefreshPending) {
+      metadataRefreshPending = false;
+      await refreshDefinition();
+    }
   }
 }
 async function reload() {

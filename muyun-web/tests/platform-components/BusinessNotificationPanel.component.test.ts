@@ -359,3 +359,56 @@ it('allows a persistent notification to run while an unrelated ordinary action i
     wrapper.unmount();
   }
 });
+
+it('keeps navigation available after a persistent record command completes without allowing another command', async () => {
+  const command = {
+    kind: 'record' as const,
+    key: 'accept',
+    label: '接受',
+    moduleAlias: 'demo.call',
+    recordId: 'call',
+    actionCode: 'accept',
+    dismissOnSuccess: false,
+  };
+  const navigate = {
+    kind: 'navigate' as const,
+    key: 'view',
+    label: '查看详情',
+    moduleAlias: 'demo.call',
+    recordId: 'call',
+    dismissOnSuccess: false,
+  };
+  const executeAction = vi.fn(async () => true);
+  const wrapper = mount(BusinessNotificationPanel, {
+    attachTo: document.body,
+    props: {
+      notifications: [
+        {
+          ...notification('call', false),
+          displayPolicy: 'persistent',
+          actions: [command, { ...command, key: 'decline', label: '拒绝' }, navigate],
+        },
+      ],
+      executeAction,
+    },
+  });
+  const buttons = () => [
+    ...document.querySelectorAll<HTMLButtonElement>('.business-notification-actions button'),
+  ];
+  try {
+    buttons()[0].click();
+    await Promise.resolve();
+    await nextTick();
+    expect(buttons().map((button) => button.disabled)).toEqual([true, true, false]);
+    buttons()[0].click();
+    buttons()[1].click();
+    buttons()[2].click();
+    await Promise.resolve();
+    await nextTick();
+    expect(executeAction.mock.calls).toHaveLength(2);
+    expect(wrapper.emitted('dismiss')).toBeUndefined();
+    expect(buttons()[2].disabled).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
