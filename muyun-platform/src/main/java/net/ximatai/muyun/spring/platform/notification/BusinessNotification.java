@@ -23,9 +23,29 @@ public record BusinessNotification(
         List<BusinessNotificationAction> actions,
         BusinessNotificationTone tone,
         Instant occurredAt,
+        BusinessNotificationDisplayPolicy displayPolicy,
+        Instant expiresAt,
         Map<String, TextReference> textSources,
         Map<String, Object> messageArgs
 ) {
+    public BusinessNotification(String id, String code, String title, String subtitle, String content,
+            boolean dismissible, BusinessNotificationRecipients recipients, List<BusinessNotificationAction> actions,
+            BusinessNotificationTone tone, Instant occurredAt, Map<String, TextReference> textSources,
+            Map<String, Object> messageArgs) {
+        this(id, code, title, subtitle, content, dismissible, recipients, actions, tone, occurredAt,
+                null, null, textSources, messageArgs);
+    }
+
+    public BusinessNotification withDisplayPolicy(BusinessNotificationDisplayPolicy policy) {
+        return new BusinessNotification(id, code, title, subtitle, content, dismissible, recipients, actions,
+                tone, occurredAt, policy, expiresAt, textSources, messageArgs);
+    }
+
+    public BusinessNotification withExpiresAt(Instant deadline) {
+        return new BusinessNotification(id, code, title, subtitle, content, dismissible, recipients, actions,
+                tone, occurredAt, displayPolicy, deadline, textSources, messageArgs);
+    }
+
     public BusinessNotification(String id, String code, String title, String subtitle, String content,
             boolean dismissible, BusinessNotificationRecipients recipients, List<BusinessNotificationAction> actions,
             BusinessNotificationTone tone, Instant occurredAt) {
@@ -34,7 +54,7 @@ public record BusinessNotification(
 
     public BusinessNotification withTextSources(Map<String, TextReference> sources,
                                                Map<String, Object> arguments) {
-        return new BusinessNotification(id, code, title, subtitle, content, dismissible, recipients, actions, tone, occurredAt, sources, arguments);
+        return new BusinessNotification(id, code, title, subtitle, content, dismissible, recipients, actions, tone, occurredAt, displayPolicy, expiresAt, sources, arguments);
     }
     /**
      * Keeps existing business callers source- and binary-compatible while presentation metadata is optional.

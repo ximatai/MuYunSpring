@@ -2,6 +2,7 @@
 import { useLanguageContext, type ModuleContext } from '@muyun/web-core';
 import { UiCheckbox, UiInput } from '@muyun/vue-ui-antdv';
 import { FormulaExpressionEditor, RecordPicker } from '@muyun/platform-components';
+import type { FormulaExpressionTools } from '../platform-components/formulaExpressionTools';
 import type { FormulaExpressionField } from '../platform-components/formulaExpressionTokens';
 
 defineOptions({ name: 'WorkflowSelectionFields' });
@@ -10,11 +11,10 @@ const props = defineProps<{
   organizationContext?: ModuleContext<Record<string, unknown>>;
   fields: readonly FormulaExpressionField[];
   disabled: boolean;
-  invalidPriority: boolean;
+  conditionTools?: FormulaExpressionTools;
 }>();
 const organizationId = defineModel<string>('organizationId', { required: true });
 const matchExpression = defineModel<string>('matchExpression', { required: true });
-const matchPriority = defineModel<string>('matchPriority', { required: true });
 const fallback = defineModel<boolean>('fallback', { required: true });
 </script>
 <template>
@@ -48,36 +48,23 @@ const fallback = defineModel<boolean>('fallback', { required: true });
               '当前为全局流程模板，适用于全部组织；组织选择需使用租户身份。',
             )
       }}</small></label
-    ><label class="workflow-field settings-wide"
-      >{{ language.t('platform.screen.WorkflowConfigurationView.matching-condition', '匹配条件')
-      }}<FormulaExpressionEditor
+    >
+    <div class="workflow-field settings-wide">
+      <span>{{ language.t('platform.screen.WorkflowConfigurationView.matching-condition', '匹配条件') }}</span
+      ><FormulaExpressionEditor
         :disabled="props.disabled || fallback"
         v-model:value="matchExpression"
         :fields="props.fields"
+        :tools="conditionTools"
+        boolean-result
         :placeholder="
           language.t(
             'platform.screen.WorkflowConfigurationView.leave-empty-to-match-all-records',
             '留空匹配所有记录',
           )
-        " /></label
-    ><label class="workflow-field"
-      >{{ language.t('platform.screen.WorkflowConfigurationView.priority', '优先级')
-      }}<UiInput
-        :disabled="props.disabled"
-        v-model:value="matchPriority"
-        type="number"
-        step="1"
-        :invalid="props.invalidPriority"
-        :aria-label="language.t('platform.screen.WorkflowConfigurationView.priority', '优先级')"
-      /><small class="settings-help">{{
-        props.invalidPriority
-          ? language.t(
-              'platform.workflow-config.invalid-priority',
-              '请输入 -2147483648 至 2147483647 范围内的整数。',
-            )
-          : language.t('platform.workflow-config.priority-help', '填写整数，同一组织范围内数值越大越优先。')
-      }}</small></label
-    >
+        "
+      />
+    </div>
     <div class="settings-wide workflow-field">
       <UiCheckbox :disabled="props.disabled" v-model:checked="fallback">{{
         language.t(

@@ -71,24 +71,55 @@ class WorkflowDefinitionSelectorTest {
     }
 
     @Test
-    void shouldRejectNonApprovalWorkflowWithoutDefinitionAlias() {
+    void shouldRejectNonApprovalWorkflowWithoutAnExplicitDefinition() {
         assertThatThrownBy(() -> selector.select(new WorkflowSubmitRequest(
                 "sales.contract", "c1", false, null, "user-1", null)))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("definition alias is required");
+                .hasMessageContaining("definition id or alias is required");
     }
 
     @Test
-    void shouldRejectAmbiguousApprovalDefinitionsWhenAliasIsNotProvided() {
-        WorkflowDefinition first = definition("sales.contract", "approvea", true, WorkflowDefinitionStatus.PUBLISHED);
-        WorkflowDefinition second = definition("sales.contract", "approveb", true, WorkflowDefinitionStatus.PUBLISHED);
+    void listOrderSelectsFirstMatchAndMovingAWorkflowChangesFutureSelection() {
+        var first = definition("sales.contract", "approvea", true, WorkflowDefinitionStatus.PUBLISHED);
+        var second = definition("sales.contract", "approveb", true, WorkflowDefinitionStatus.PUBLISHED);
         definitionService.insert(first);
         definitionService.insert(second);
+        versionService.insert(version(first, 1, WorkflowPublishStatus.PUBLISHED));
+        versionService.insert(version(second, 1, WorkflowPublishStatus.PUBLISHED));
+        when(nodeDao.query(any(), any(), any())).thenReturn(List.of());
+        when(linkDao.query(any(), any(), any())).thenReturn(List.of());
+        var request = WorkflowSubmitRequest.approval("sales.contract", "c1");
+        second.setMatchExpression("{amount} >"); definitionService.update(second);
+        assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+        second.setMatchExpression(null); definitionService.update(second);
+        definitionService.moveBefore(second.getId(), first.getId());
+        assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+        first.setMatchExpression("false");
+        definitionService.update(first);
+        definitionService.moveBefore(first.getId(), second.getId());
+        assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+    }
 
-        assertThatThrownBy(() -> selector.select(new WorkflowSubmitRequest(
-                "sales.contract", "c1", true, " ", "user-1", null)))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("multiple approval workflow definitions matched");
+    @Test
+    void organizationDistanceAndFallbackOutrankListOrder() {
+        var fallback = definition("sales.contract", "fallback", true, WorkflowDefinitionStatus.PUBLISHED);
+        fallback.setDefaultDefinition(true);
+        var global = definition("sales.contract", "global", true, WorkflowDefinitionStatus.PUBLISHED);
+        var local = definition("sales.contract", "local", true, WorkflowDefinitionStatus.PUBLISHED);
+        local.setOrganizationId("org");
+        for (var definition : List.of(fallback, global, local)) {
+            definitionService.insert(definition);
+            versionService.insert(version(definition, 1, WorkflowPublishStatus.PUBLISHED));
+        }
+        when(nodeDao.query(any(), any(), any())).thenReturn(List.of());
+        when(linkDao.query(any(), any(), any())).thenReturn(List.of());
+        assertThat(selector.select(WorkflowSubmitRequest.approval("sales.contract", "c1").withAuthOrgId("org"))
+                .definition().getId()).isEqualTo(local.getId());
+        assertThat(selector.select(WorkflowSubmitRequest.approval("sales.contract", "c1"))
+                .definition().getId()).isEqualTo(global.getId());
+        global.setMatchExpression("false"); definitionService.update(global);
+        assertThat(selector.select(WorkflowSubmitRequest.approval("sales.contract", "c1"))
+                .definition().getId()).isEqualTo(fallback.getId());
     }
 
     @Test
@@ -123,13 +154,53 @@ class WorkflowDefinitionSelectorTest {
         }
     }
 
+    @Test
+    void selectsAliasFreeNonApprovalDefinitionsByIdAndKeepsMatchingBoundaries() {
+        var first = definition("sales.contract", null, false, WorkflowDefinitionStatus.PUBLISHED);
+        var second = definition("sales.contract", null, false, WorkflowDefinitionStatus.PUBLISHED);
+        definitionService.insert(first); definitionService.insert(second);
+        versionService.insert(version(first, 1, WorkflowPublishStatus.PUBLISHED));
+        versionService.insert(version(second, 1, WorkflowPublishStatus.PUBLISHED));
+        when(nodeDao.query(any(), any(), any())).thenReturn(List.of());
+        when(linkDao.query(any(), any(), any())).thenReturn(List.of());
+        var request = WorkflowSubmitRequest.workflowById("sales.contract", "c1", second.getId());
+        assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+        assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.workflowById("sales.invoice", "c1", second.getId())))
+                .hasMessageContaining("not found");
+        second.setOrganizationId("org-a"); definitionService.update(second);
+        assertThatThrownBy(() -> selector.select(request)).hasMessageContaining("not found");
+        assertThat(selector.select(request.withAuthOrgId("org-a")).definition().getId()).isEqualTo(second.getId());
+        second.setMatchExpression("false"); definitionService.update(second);
+        assertThatThrownBy(() -> selector.select(request.withAuthOrgId("org-a"))).hasMessageContaining("not found");
+    }
+
+    @Test
+    void approvalSelectionDoesNotRequireAnAliasAndExplicitIdsCannotSelectDraftOrDisabledDefinitions() {
+        var definition = definition("sales.contract", null, true, WorkflowDefinitionStatus.PUBLISHED);
+        definitionService.insert(definition); versionService.insert(version(definition, 1, WorkflowPublishStatus.PUBLISHED));
+        when(nodeDao.query(any(), any(), any())).thenReturn(List.of());
+        when(linkDao.query(any(), any(), any())).thenReturn(List.of());
+        assertThat(selector.select(WorkflowSubmitRequest.approval("sales.contract", "c1")).definition().getAlias()).isNull();
+        var request = new WorkflowSubmitRequest("sales.contract", "c1", true, null, null, null, null, null, null, List.of(), null, definition.getId());
+        definition.setDefinitionStatus(WorkflowDefinitionStatus.DRAFT); definitionService.update(definition);
+        assertThatThrownBy(() -> selector.select(request)).hasMessageContaining("not found");
+        definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED); definition.setEnabled(false); definitionService.update(definition);
+        assertThatThrownBy(() -> selector.select(request)).hasMessageContaining("not found");
+        assertThatThrownBy(() -> selector.select(new WorkflowSubmitRequest("sales.contract", "c1", false, "legacy", null, null, null, null, null, List.of(), null, "id")))
+                .hasMessageContaining("not both");
+    }
+
+    private int definitionSequence;
+
     private WorkflowDefinition definition(String moduleAlias, String alias, boolean approvalEnabled,
                                           WorkflowDefinitionStatus status) {
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setApplicationAlias(moduleAlias.substring(0, moduleAlias.indexOf('.')));
         definition.setModuleAlias(moduleAlias);
         definition.setAlias(alias);
+        definition.setTitle(alias == null ? "无编码流程" : alias);
         definition.setApprovalEnabled(approvalEnabled);
+        if (!approvalEnabled) definition.setActionCode("runFlow" + (++definitionSequence));
         definition.setDefinitionStatus(status);
         definition.setEnabled(Boolean.TRUE);
         return definition;

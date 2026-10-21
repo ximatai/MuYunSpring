@@ -943,7 +943,7 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
   const language = createLanguageContext({ languageTag: 'en' });
   const moduleAlias = 'demo.entry_language';
   const activate = vi.fn();
-  const Body = defineComponent({ name: 'EntryTestBody', template: '<p>业务原值</p>' });
+  const Body = defineComponent({ name: 'EntryTestBody', props: ['context'], template: '<p>业务原值</p>' });
   configureModulePageEnhancementContributions('entry-language-test', [
     {
       id: 'entry-language-test',
@@ -956,7 +956,12 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
             title: '设置账号',
             titleKey: 'platform.entry.set-up-account',
             run({ openDrawer }) {
-              openDrawer({ title: '设置账号', titleKey: 'platform.entry.set-up-account', component: Body });
+              openDrawer({
+                title: '设置账号',
+                titleKey: 'platform.entry.set-up-account',
+                dismissal: 'dismissible',
+                component: Body,
+              });
             },
           },
         ],
@@ -980,7 +985,7 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
           ...hostStubs,
           RecordDetailDrawer: {
             name: 'RecordDetailDrawer',
-            props: ['title'],
+            props: ['title', 'open', 'dismissal'],
             template: '<aside :aria-label="title"><slot /></aside>',
           },
         },
@@ -994,6 +999,7 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
     await flushPromises();
     const drawer = wrapper.findAllComponents({ name: 'RecordDetailDrawer' }).at(-1)!;
     expect(drawer.props('title')).toBe('Set up account');
+    expect(drawer.props('dismissal')).toBe('dismissible');
     const body = wrapper.findComponent(Body).vm;
     const uid = controlSessionUid(wrapper);
     const count = request.mock.calls.length;
@@ -1008,6 +1014,24 @@ it('refreshes a declared enhancement drawer heading without reactivating the pag
     expect(controlSessionUid(wrapper)).toBe(uid);
     expect(request.mock.calls.length).toBe(count);
     expect(activate).toHaveBeenCalledTimes(activations);
+    const drawerContext = wrapper.findComponent(Body).props('context');
+    const guard = vi.fn(() => false);
+    drawerContext.setBeforeClose(guard);
+    drawerContext.setCloseBlocked(true);
+    drawer.vm.$emit('close');
+    await flushPromises();
+    expect(guard).not.toHaveBeenCalled();
+    expect(drawer.props('open')).toBe(true);
+    drawerContext.setCloseBlocked(false);
+    drawer.vm.$emit('close');
+    await flushPromises();
+    expect(guard).toHaveBeenCalledOnce();
+    expect(drawer.props('open')).toBe(true);
+    expect(wrapper.findComponent(Body).vm).toBe(body);
+    drawerContext.setBeforeClose(() => true);
+    drawer.vm.$emit('close');
+    await flushPromises();
+    expect(drawer.props('open')).toBe(false);
   } finally {
     wrapper.unmount();
     configureModulePageEnhancementContributions('entry-language-test', []);
@@ -1060,5 +1084,54 @@ it('renders and dispatches enhancement actions in an empty flat management explo
   } finally {
     wrapper.unmount();
     configureModulePageEnhancementContributions('flat-action-test', []);
+  }
+});
+
+it('refreshes extension actions on an already open module page without reloading its business session', async () => {
+  const { configureModulePageEnhancementContributions } =
+    await import('@/dynamic-page-runtime/modulePageEnhancements');
+  const moduleAlias = 'demo.live_extensions';
+  const owner = 'live-extension-test';
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path.endsWith('/context')
+      ? runtime(moduleAlias, { template: 'FLAT_MANAGEMENT' })
+      : { records: [], total: 0 },
+  );
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = mount(ModulePageHost, {
+    props: { descriptor: descriptor(moduleAlias) },
+    global: {
+      stubs: {
+        ...hostStubs,
+        StaticManagementLayout: {
+          template: '<section><slot name="explorer-actions" /><slot name="explorer" /></section>',
+        },
+        CrudRecordListExplorer: true,
+        RecordDataExchangeSurface: true,
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    const uid = controlSessionUid(wrapper);
+    const calls = request.mock.calls.length;
+    const run = vi.fn();
+    configureModulePageEnhancementContributions(owner, [
+      {
+        id: owner,
+        target: { moduleAlias },
+        list: { actions: [{ key: 'configure', title: '审批流程', run }] },
+      },
+    ]);
+    await flushPromises();
+    const action = wrapper.findAll('button').find((item) => item.text().replace(/\s+/g, '') === '审批流程');
+    expect(action).toBeDefined();
+    await action!.trigger('click');
+    expect(run).toHaveBeenCalledOnce();
+    expect(controlSessionUid(wrapper)).toBe(uid);
+    expect(request.mock.calls.length).toBe(calls);
+  } finally {
+    wrapper.unmount();
+    configureModulePageEnhancementContributions(owner, []);
   }
 });

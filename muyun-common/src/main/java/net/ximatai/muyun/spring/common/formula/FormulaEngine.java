@@ -51,6 +51,10 @@ public class FormulaEngine {
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
+    public static boolean isAggregateFunction(String name) {
+        return FormulaFunctions.isAggregate(name);
+    }
+
     public Object evaluateValue(String expression, FormulaEvaluationContext data) {
         FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
         if (parsed == null) {

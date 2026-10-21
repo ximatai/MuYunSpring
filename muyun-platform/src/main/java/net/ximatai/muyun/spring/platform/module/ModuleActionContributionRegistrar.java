@@ -139,7 +139,8 @@ public class ModuleActionContributionRegistrar {
         }
         if (contribution.bindingType() != null
                 && (contribution.bindingId() == null || contribution.bindingId().isBlank()
-                || contribution.bindingAlias() == null || contribution.bindingAlias().isBlank())) {
+                || (contribution.bindingType() != ModuleActionBindingType.WORKFLOW_DEFINITION
+                    && (contribution.bindingAlias() == null || contribution.bindingAlias().isBlank())))) {
             throw new PlatformException("module action contribution binding must not be blank: "
                     + contribution.moduleAlias() + "." + contribution.actionCode());
         }

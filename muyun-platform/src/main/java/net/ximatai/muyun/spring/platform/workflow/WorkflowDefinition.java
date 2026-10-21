@@ -23,7 +23,7 @@ public class WorkflowDefinition extends StandardEnabledSortableEntity {
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
     private String moduleAlias;
 
-    @Column(name = "alias", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Workflow alias")
+    @Column(name = "alias", type = ColumnType.VARCHAR, length = 64, comment = "Optional workflow alias for legacy integrations")
     private String alias;
 
     @Column(name = "approval_enabled", type = ColumnType.BOOLEAN, nullable = false,
@@ -43,9 +43,6 @@ public class WorkflowDefinition extends StandardEnabledSortableEntity {
 
     @Column(name = "match_expression", type = ColumnType.TEXT, comment = "Business matching condition")
     private String matchExpression;
-
-    @Column(name = "match_priority", type = ColumnType.INT, comment = "Higher value wins within organization scope")
-    private Integer matchPriority = 0;
 
     @Column(name = "default_definition", type = ColumnType.BOOLEAN, comment = "Fallback within organization scope")
     private Boolean defaultDefinition = Boolean.FALSE;

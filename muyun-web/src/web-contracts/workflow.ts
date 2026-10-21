@@ -3,14 +3,16 @@ import type { TextPresentation } from './index';
 export interface WorkflowDefinition {
   id: string;
   version: number;
-  alias: string;
+  alias?: string | null;
+  actionCode?: string | null;
   title?: string;
   definitionStatus: string;
   currentVersionNo?: number;
   approvalEnabled: boolean;
   organizationId?: string;
   matchExpression?: string;
-  matchPriority?: number;
+  sortOrder?: number;
+  tenantId?: string;
   defaultDefinition?: boolean;
 }
 export interface WorkflowVersion {
@@ -151,7 +153,7 @@ export interface WorkflowStatus {
   instanceId?: string;
   errorMessage?: string;
   errorMessageText?: TextPresentation;
-  definition?: { definitionTitle?: string; definitionAlias?: string };
+  definition?: { definitionId?: string; definitionTitle?: string; definitionAlias?: string | null };
 }
 export interface WorkflowRenderBundle {
   instance: WorkflowInstance;
@@ -278,18 +280,17 @@ export interface WorkflowConfigurationCatalog {
   associations: { id: string; title: string }[];
 }
 export interface WorkflowDefinitionSelection {
+  actionCode?: string;
   version: number;
   title: string;
   organizationId: string | null;
   matchExpression: string | null;
-  matchPriority: number;
   defaultDefinition: boolean;
 }
-export interface WorkflowDefinitionCreate extends Omit<WorkflowDefinitionSelection, 'version'> {
-  alias: string;
-  approvalEnabled: boolean;
+export type WorkflowDefinitionCreate = Omit<WorkflowDefinitionSelection, 'version' | 'actionCode'> & {
+  alias?: string | null;
   enabled: boolean;
-}
+} & ({ approvalEnabled: true; actionCode?: string } | { approvalEnabled: false; actionCode: string });
 export interface WorkflowAdminInstance {
   instanceId: string;
   moduleAlias: string;

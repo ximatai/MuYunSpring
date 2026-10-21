@@ -148,3 +148,54 @@ it('uses the consumer language for frozen labels and diagram semantics without c
   expect(chinese.nodes[0]?.x).toBe(english.nodes[0]?.x);
   expect(nodes[0]?.nodeTitle).toBe('旧审批');
 });
+
+it('projects compatible FYI nodes in both draft and frozen diagrams without changing persisted types', () => {
+  const notice = { nodeKey: 'notice', nodeType: 'approval', approvalMode: 'notice', title: '知会财务' };
+  expect(createWorkflowDiagramModel([notice], []).nodes[0]).toMatchObject({
+    type: 'notice',
+    subtitle: '知会 · 不阻塞流程',
+  });
+  expect(
+    createWorkflowDiagramModel(
+      [{ nodeKey: 'notice', nodeType: 'approval', nodeStatus: 'waiting' }],
+      [],
+      undefined,
+      JSON.stringify({ nodes: [notice], links: [] }),
+    ).nodes[0],
+  ).toMatchObject({ type: 'notice', subtitle: '知会 · 未到达' });
+  expect(notice.nodeType).toBe('approval');
+});
+
+it('lays generated branch paths out from left to right in route order, including added and nested paths', async () => {
+  const { insertWorkflowBranch, appendWorkflowBranchPath } =
+    await import('@/platform-components/workflowDesignEditing');
+  let design = insertWorkflowBranch(
+    {
+      nodes: [
+        { nodeKey: 'start', nodeType: 'start' },
+        { nodeKey: 'end', nodeType: 'end' },
+      ],
+      links: [{ routeKey: 'main', sourceNodeKey: 'start', targetNodeKey: 'end' }],
+    },
+    'main',
+    'branch',
+  );
+  const assertOrder = () => {
+    for (const nodeOrder of [design.nodes, [...design.nodes].reverse()]) {
+      const model = createWorkflowDiagramModel(nodeOrder, design.links);
+      for (const branch of design.nodes.filter((node) => node.nodeType === 'branch')) {
+        const exits = design.links.filter((route) => route.sourceNodeKey === branch.nodeKey);
+        const centers = exits.map((route) => {
+          const node = model.nodes.find((node) => node.key === route.targetNodeKey)!;
+          return node.x + node.width / 2;
+        });
+        expect(centers).toEqual([...centers].sort((a, b) => a - b));
+      }
+    }
+  };
+  assertOrder();
+  design = appendWorkflowBranchPath(design, 'branch', 'third');
+  assertOrder();
+  design = insertWorkflowBranch(design, 'branch_exit1', 'nested');
+  assertOrder();
+});

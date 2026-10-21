@@ -1,4 +1,5 @@
 import type { Component } from 'vue';
+import { modulePageEnhancementState } from './modulePageEnhancementState';
 import type {
   CurrentUser,
   TextPresentation,
@@ -413,6 +414,8 @@ export interface ModulePageDrawer {
   titleKey?: string;
   title: string;
   width?: DrawerWidth;
+  /** Outside dismissal still goes through the context close guard and busy state. */
+  dismissal?: 'explicit' | 'dismissible';
   /** The component receives only the documented ModulePageDrawerContext prop. */
   component: Component;
 }
@@ -456,6 +459,8 @@ export interface ModulePageDrawerContext {
   refreshDetailExtensions(): void;
   /** Blocks the drawer shell's close affordances while a contributed operation is in flight. */
   setCloseBlocked(blocked: boolean): void;
+  /** Registers the drawer-owned draft confirmation; all shell and programmatic close requests share it. */
+  setBeforeClose(guard?: () => boolean | Promise<boolean>): void;
   close(): void;
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */
@@ -602,9 +607,7 @@ export function createModulePageEnhancementRegistry(
   };
 }
 
-const enhancementContributionsByOwner = new Map<string, readonly ModulePageEnhancement[]>();
 const legacyApplicationOwner = 'legacy-application';
-let currentRegistry = createModulePageEnhancementRegistry([]);
 
 /**
  * Replaces one owner's contribution set while retaining every other owner.
@@ -619,8 +622,13 @@ export function configureModulePageEnhancementContributions(
 ) {
   const normalizedOwner = owner.trim();
   if (!normalizedOwner) throw new Error('模块页面增强贡献 owner 不能为空');
-  enhancementContributionsByOwner.set(normalizedOwner, enhancements);
-  currentRegistry = createModulePageEnhancementRegistry([...enhancementContributionsByOwner.values()].flat());
+  const owners = new Map(modulePageEnhancementState.owners);
+  owners.set(normalizedOwner, enhancements);
+  const registry = createModulePageEnhancementRegistry([...owners.values()].flat());
+  // Publish only a fully validated catalog, so a failed replacement cannot
+  // poison future registrations or remove other owners' working entries.
+  modulePageEnhancementState.owners = owners;
+  modulePageEnhancementState.registry.value = registry;
 }
 
 /**
@@ -634,11 +642,11 @@ export function configureModulePageEnhancements(enhancements: readonly ModulePag
 }
 
 export function resolveModulePageEnhancement(moduleAlias: string, viewCode?: string, menuId?: string) {
-  return currentRegistry.resolve(moduleAlias, viewCode, menuId);
+  return modulePageEnhancementState.registry.value?.resolve(moduleAlias, viewCode, menuId);
 }
 
 export function modulePageWorkspaceViews(): readonly ModulePageWorkspaceView<ModulePageWorkspaceViewInput>[] {
-  return currentRegistry.workspaceViews();
+  return modulePageEnhancementState.registry.value?.workspaceViews() ?? [];
 }
 
 function targetKey(moduleAlias: string, viewCode?: string, menuId?: string) {

@@ -86,6 +86,34 @@ public class WorkflowPublishFacade {
         return publish(definitionId, versionId, null);
     }
 
+    /** Restores the frozen current published version without publishing a working draft. */
+    @Transactional
+    public WorkflowDefinition enable(String definitionId, Integer expectedVersion) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition("workflow.definition",
+                net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse("system") + ":" + definitionId);
+        WorkflowDefinition definition = requireDefinition(definitionId);
+        requireExpectedVersion(definition, expectedVersion, "workflow definition");
+        if (definition.getDefinitionStatus() != WorkflowDefinitionStatus.DISABLED || definition.getCurrentVersionNo() == null) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.enable-published-only",
+                    "only a disabled workflow with a published version can be enabled"));
+        }
+        WorkflowVersion published = versionService.list(Criteria.of()
+                .eq("definitionId", definitionId)
+                .eq("versionNo", definition.getCurrentVersionNo())
+                .eq("publishStatus", WorkflowPublishStatus.PUBLISHED), new PageRequest(0, 1)).stream().findFirst().orElse(null);
+        if (published == null) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-publish.enable-published-only",
+                    "only a disabled workflow with a published version can be enabled"));
+        }
+        definition.setEnabled(true);
+        definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
+        definitionService.update(definition);
+        actionContributor.registerPublishedWorkflowAction(definition, published);
+        return definition;
+    }
+
     @Transactional
     public WorkflowDefinition disable(String definitionId) {
         return disable(definitionId, null);
@@ -108,6 +136,8 @@ public class WorkflowPublishFacade {
 
     private WorkflowDefinition changeDefinitionStatus(String definitionId, Integer expectedVersion,
                                                       WorkflowDefinitionStatus status) {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.lockMutationPartition("workflow.definition",
+                net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse("system") + ":" + definitionId);
         WorkflowDefinition definition = requireDefinition(definitionId);
         requireExpectedVersion(definition, expectedVersion, "workflow definition");
         definition.setDefinitionStatus(status);

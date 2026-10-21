@@ -204,8 +204,28 @@ class ModuleActionContributionRegistrarTest {
                 .isFalse();
     }
 
+    @Test
+    void workflowBindingsOnlyRequireIdWhileOtherBindingsStillRequireAlias() {
+        moduleService.insert(module("sales.contract"));
+        registrar.register(contribution("syncWorkflow", "def-1", "ver-1", null,
+                ModuleActionBindingType.WORKFLOW_DEFINITION, "def-1"));
+        var action = actionService.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow");
+        assertThat(action.getBindingId()).isEqualTo("def-1"); assertThat(action.getBindingAlias()).isNull();
+        assertThatThrownBy(() -> registrar.register(contribution("missingId", "def-2", "ver-1", null,
+                ModuleActionBindingType.WORKFLOW_DEFINITION, null))).hasMessageContaining("binding must not be blank");
+        assertThatThrownBy(() -> registrar.register(contribution("generation", "rule-1", "ver-1", null,
+                ModuleActionBindingType.RECORD_GENERATION_RULE, "rule-1"))).hasMessageContaining("binding must not be blank");
+    }
+
     private ModuleActionContribution contribution(String actionCode, String sourceId,
                                                   String versionId, String bindingAlias) {
+        return contribution(actionCode, sourceId, versionId, bindingAlias,
+                bindingAlias == null ? null : ModuleActionBindingType.WORKFLOW_DEFINITION,
+                bindingAlias == null ? null : sourceId);
+    }
+
+    private ModuleActionContribution contribution(String actionCode, String sourceId, String versionId,
+                                                   String bindingAlias, ModuleActionBindingType bindingType, String bindingId) {
         return new ModuleActionContribution(
                 "sales.contract",
                 null,
@@ -222,11 +242,11 @@ class ModuleActionContributionRegistrarTest {
                 null,
                 EntityActionExecutorType.SERVICE,
                 "platform.workflow",
-                bindingAlias == null ? ModuleActionSourceType.WORKFLOW_RUNTIME : ModuleActionSourceType.WORKFLOW_DEFINITION,
+                bindingType == null ? ModuleActionSourceType.WORKFLOW_RUNTIME : ModuleActionSourceType.WORKFLOW_DEFINITION,
                 sourceId,
                 versionId,
-                bindingAlias == null ? null : ModuleActionBindingType.WORKFLOW_DEFINITION,
-                bindingAlias == null ? null : sourceId,
+                bindingType,
+                bindingId,
                 bindingAlias,
                 true
         );

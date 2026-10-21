@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { workflowNodeAccent } from './workflowPresentation';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import type { Graph, Node } from '@antv/x6';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
-import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
+import { UiButton, UiSelect, UiTooltip } from '@muyun/vue-ui-antdv';
 import {
   createWorkflowDiagramModel,
   serializeWorkflowDiagramLayout,
@@ -17,6 +18,9 @@ const props = defineProps<{
   nodes: WorkflowNode[];
   routes: WorkflowRoute[];
   selectedNodeKey?: string;
+  selectedNodeKeys?: string[];
+  canUndo?: boolean;
+  canRedo?: boolean;
   selectedRouteKey?: string;
   interactive?: boolean;
   editable?: boolean;
@@ -29,6 +33,14 @@ const emit = defineEmits<{
   select: [nodeKey: string];
   selectRoute: [routeKey: string];
   layoutChange: [layoutJson: string];
+  selectionChange: [keys: string[]];
+  undo: [];
+  redo: [];
+  copy: [event: ClipboardEvent];
+  paste: [event: ClipboardEvent];
+  copyShortcut: [];
+  pasteShortcut: [];
+  deleteSelection: [];
 }>();
 const shell = ref<HTMLElement>(),
   viewport = ref<HTMLElement>(),
@@ -46,6 +58,8 @@ const model = computed(() =>
     workflowLanguage,
   ),
 );
+const startNode = computed(() => model.value.nodes.find((node) => node.type === 'start'));
+const endNode = computed(() => model.value.nodes.find((node) => node.type === 'end'));
 const focusNode = computed(
   () =>
     model.value.nodes.find((node) => node.status === 'active') ??
@@ -66,15 +80,16 @@ let graph: Graph | undefined,
   initialized = false;
 
 function nodeAttributes(node: WorkflowDiagramNode) {
-  const selected = props.selectedNodeKey === node.key;
+  const gateway = ['branch', 'converge'].includes(node.type);
+  const center = node.width / 2;
+  const typeAccent = workflowNodeAccent(node.type);
+  const selected = props.selectedNodeKey === node.key || props.selectedNodeKeys?.includes(node.key);
   const color =
     selected || node.status === 'active'
       ? 'var(--muyun-primary)'
       : node.status === 'completed'
         ? 'var(--muyun-success-text)'
-        : ['branch', 'converge'].includes(node.type)
-          ? 'var(--muyun-primary)'
-          : 'var(--muyun-border)';
+        : 'var(--muyun-border)';
   return {
     root: {
       role: props.interactive ? 'button' : 'img',
@@ -86,24 +101,48 @@ function nodeAttributes(node: WorkflowDiagramNode) {
       opacity: node.status === 'skipped' ? 0.5 : 1,
     },
     body: {
+      ...(gateway
+        ? {
+            d: `M ${center} 0 L ${node.width} ${node.height / 2} L ${center} ${node.height} L 0 ${node.height / 2} Z`,
+          }
+        : {}),
       width: node.width,
       height: node.height,
       rx: ['start', 'end'].includes(node.type) ? 30 : 10,
-      fill: node.status === 'completed' ? 'var(--muyun-success-bg)' : 'var(--muyun-surface)',
+      fill:
+        node.status === 'completed'
+          ? 'var(--muyun-success-bg)'
+          : gateway && selected
+            ? 'var(--muyun-selected)'
+            : 'var(--muyun-surface)',
       stroke: color,
       strokeWidth: selected || node.status === 'active' ? 2 : 1.3,
     },
-    accent: { x: 16, y: 20, width: 4, height: node.height - 40, rx: 2, fill: color, stroke: 'none' },
+    accent: {
+      x: 16,
+      y: 20,
+      width: 4,
+      height: node.height - 40,
+      rx: 2,
+      fill: typeAccent ?? color,
+      stroke: 'none',
+      display: gateway ? 'none' : 'block',
+    },
+    description: { text: `${node.title} ${node.subtitle}` },
     title: {
       refX: 0,
       refY: 0,
-      x: 32,
-      y: node.height === 64 ? 23 : 30,
+      x: gateway ? center : 32,
+      y: gateway ? node.height / 2 : node.height === 64 ? 23 : 30,
       text: node.title,
-      textWrap: { width: node.width - 48, height: node.height === 64 ? 22 : 40, ellipsis: true },
-      textAnchor: 'start',
+      textWrap: {
+        width: gateway ? node.width / 2 + 12 : node.width - 48,
+        height: gateway ? 22 : node.height === 64 ? 22 : 40,
+        ellipsis: true,
+      },
+      textAnchor: gateway ? 'middle' : 'start',
       textVerticalAnchor: 'middle',
-      fontSize: 14,
+      fontSize: gateway ? 13 : 14,
       fontWeight: 600,
       fontFamily: 'inherit',
       fill: 'var(--muyun-text)',
@@ -111,11 +150,13 @@ function nodeAttributes(node: WorkflowDiagramNode) {
     subtitle: {
       refX: 0,
       refY: 0,
-      x: 32,
-      y: node.height - 20,
+      x: gateway ? center : 32,
+      y: gateway ? 73 : node.height - 20,
       text: node.subtitle,
+      display: gateway ? 'none' : 'block',
+      ...(gateway ? { textWrap: { width: 104, height: 16, ellipsis: true } } : {}),
       fontSize: 11,
-      textAnchor: 'start',
+      textAnchor: gateway ? 'middle' : 'start',
       fontFamily: 'inherit',
       fill: 'var(--muyun-text-muted)',
     },
@@ -140,10 +181,11 @@ function render() {
       height: node.height,
       data: { key: node.key },
       markup: [
-        { tagName: 'rect', selector: 'body' },
+        { tagName: ['branch', 'converge'].includes(node.type) ? 'path' : 'rect', selector: 'body' },
         { tagName: 'rect', selector: 'accent' },
         { tagName: 'text', selector: 'title' },
         { tagName: 'text', selector: 'subtitle' },
+        { tagName: 'title', selector: 'description' },
       ],
       attrs: nodeAttributes(node),
       zIndex: 2,
@@ -227,6 +269,50 @@ function syncSelection() {
   });
 }
 function keyboard(event: KeyboardEvent) {
+  if (formTarget(event)) return;
+  if (
+    props.interactive &&
+    props.presentation === 'designer' &&
+    props.editable &&
+    !event.isComposing &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ['Delete', 'Backspace'].includes(event.key)
+  ) {
+    event.preventDefault();
+    if (!event.repeat) emit('deleteSelection');
+    return;
+  }
+  if (
+    props.interactive &&
+    props.presentation === 'designer' &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.isComposing
+  ) {
+    const key = event.key.toLowerCase();
+    if (key === 'c' || (key === 'v' && props.editable)) {
+      event.preventDefault();
+      if (key === 'c') emit('copyShortcut');
+      else emit('pasteShortcut');
+      return;
+    }
+    if (key === 'a') {
+      event.preventDefault();
+      emit(
+        'selectionChange',
+        props.nodes.map((node) => node.nodeKey),
+      );
+      return;
+    }
+    if (props.editable && (key === 'z' || key === 'y')) {
+      event.preventDefault();
+      if (key === 'y' || event.shiftKey) emit('redo');
+      else emit('undo');
+      return;
+    }
+  }
   if (!props.interactive || !['Enter', ' '].includes(event.key) || !(event.target instanceof Element)) return;
   const node = event.target.closest('[data-workflow-node]')?.getAttribute('data-workflow-node');
   const route = event.target.closest('[data-workflow-route]')?.getAttribute('data-workflow-route');
@@ -235,6 +321,21 @@ function keyboard(event: KeyboardEvent) {
     if (node) void selectObject('node', node);
     else if (route) void selectObject('route', route);
   }
+}
+function formTarget(event: Event) {
+  return (
+    event.target instanceof Element &&
+    Boolean(
+      event.target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"]',
+      ),
+    )
+  );
+}
+function clipboard(event: ClipboardEvent, action: 'copy' | 'paste') {
+  if (!props.interactive || props.presentation !== 'designer' || formTarget(event)) return;
+  if (action === 'copy') emit('copy', event);
+  else if (props.editable) emit('paste', event);
 }
 function locate(key?: string, preserveZoom = false) {
   const cell = key && graph?.getCellById(`node:${key}`);
@@ -245,14 +346,6 @@ function locate(key?: string, preserveZoom = false) {
 }
 function fit() {
   graph?.zoomToFit({ padding: 36, maxScale: 1, minScale: 0.15 });
-}
-function locateSelectedRoute() {
-  const cell = props.selectedRouteKey && graph?.getCellById(`route:${props.selectedRouteKey}`);
-  if (cell && graph) graph.positionPoint(cell.getBBox().center, '50%', '50%');
-}
-function locateSelection() {
-  if (props.selectedNodeKey) locate(props.selectedNodeKey, true);
-  else locateSelectedRoute();
 }
 function changeZoom(delta: number) {
   graph?.zoom(delta);
@@ -300,20 +393,23 @@ watch(
   { flush: 'post' },
 );
 watch(
-  () => [props.selectedNodeKey, props.selectedRouteKey, props.interactive, props.editable],
+  () => [
+    props.selectedNodeKey,
+    props.selectedNodeKeys,
+    props.selectedRouteKey,
+    props.interactive,
+    props.editable,
+  ],
   syncSelection,
 );
-watch(
-  () => props.selectedNodeKey,
-  (key) => {
-    if (key) locate(key);
-  },
-);
-watch(() => props.selectedRouteKey, locateSelectedRoute);
 async function selectObject(kind: 'node' | 'route', key: string) {
   if (document.fullscreenElement === shell.value) await document.exitFullscreen();
   if (kind === 'node') emit('select', key);
   else emit('selectRoute', key);
+  if (props.presentation === 'designer') {
+    await nextTick();
+    viewport.value?.focus({ preventScroll: true });
+  }
 }
 onMounted(async () => {
   document.addEventListener('fullscreenchange', fullscreenChanged);
@@ -341,8 +437,18 @@ onMounted(async () => {
       }),
       connecting: { allowBlank: false, allowLoop: false },
     });
-    graph.on('node:click', ({ node }) => {
-      if (props.interactive) void selectObject('node', node.getData<{ key: string }>().key);
+    graph.on('node:click', ({ node, e }) => {
+      if (!props.interactive) return;
+      const key = node.getData<{ key: string }>().key;
+      if (props.presentation === 'designer' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+        const selected = new Set(
+          props.selectedNodeKeys ?? (props.selectedNodeKey ? [props.selectedNodeKey] : []),
+        );
+        if (selected.has(key)) selected.delete(key);
+        else selected.add(key);
+        emit('selectionChange', [...selected]);
+        viewport.value?.focus({ preventScroll: true });
+      } else void selectObject('node', key);
     });
     graph.on('edge:click', ({ edge }) => {
       if (props.interactive) void selectObject('route', edge.getData<{ key: string }>().key);
@@ -356,7 +462,6 @@ onMounted(async () => {
         graph.resize(viewport.value.clientWidth, viewport.value.clientHeight);
         if (viewport.value.clientWidth === 0 || viewport.value.clientHeight === 0) return;
         if (!initialized) render();
-        else locateSelection();
       }
     });
     observer.observe(viewport.value);
@@ -377,37 +482,130 @@ onBeforeUnmount(() => {
 <template>
   <section
     ref="shell"
+    @keydown="keyboard"
+    @copy="clipboard($event, 'copy')"
+    @paste="clipboard($event, 'paste')"
     class="workflow-diagram"
-    :class="{ 'workflow-diagram--detail': presentation === 'detail' }"
+    :class="{
+      'workflow-diagram--detail': presentation === 'detail',
+      'workflow-diagram--designer': presentation === 'designer',
+    }"
     :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.diagram', '流程图')"
   >
+    <div v-if="$slots.actions" class="diagram-edit-tools"><slot name="actions" /></div>
     <div class="diagram-header">
       <div
         class="diagram-tools"
         role="group"
         :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.tools', '流程画布工具')"
       >
-        <UiButton size="small" :disabled="!ready" @click="fit">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
-          focusTitle
-        }}</UiButton>
-        <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
-          fullscreen
-            ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
-            : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
-        }}</UiButton>
+        <template v-if="presentation === 'designer'">
+          <UiButton
+            size="small"
+            :disabled="!editable || !canUndo"
+            :title="workflowLanguage.t('platform.workflow-config.undo-help', '撤销（Ctrl / ⌘ + Z）')"
+            @click="emit('undo')"
+            >{{ workflowLanguage.t('platform.workflow-config.undo', '撤销') }}</UiButton
+          >
+          <UiButton
+            size="small"
+            :disabled="!editable || !canRedo"
+            :title="
+              workflowLanguage.t(
+                'platform.workflow-config.redo-help',
+                '重做（Ctrl / ⌘ + Shift + Z / Ctrl + Y）',
+              )
+            "
+            @click="emit('redo')"
+            >{{ workflowLanguage.t('platform.workflow-config.redo', '重做') }}</UiButton
+          >
+        </template>
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="fit-screen"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')"
+          :disabled="!ready"
+          @click="fit"
+        />
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="minus"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')"
+          :disabled="!ready || zoom <= 15"
+          @click="changeZoom(-0.15)"
+        />
+        <UiButton class="diagram-zoom-value" size="small" :disabled="!ready" @click="actualSize"
+          >{{ zoom }}%</UiButton
+        >
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="plus"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')"
+          :disabled="!ready || zoom >= 200"
+          @click="changeZoom(0.15)"
+        />
+        <template v-if="presentation === 'designer'">
+          <UiButton
+            size="small"
+            icon-only
+            icon-name="locate-start"
+            :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-start', '定位开始节点')"
+            :title="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-start', '定位开始节点')"
+            :disabled="!ready || !startNode"
+            @click="locate(startNode?.key)"
+          />
+          <UiButton
+            size="small"
+            icon-only
+            icon-name="locate-end"
+            :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-end', '定位结束节点')"
+            :title="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-end', '定位结束节点')"
+            :disabled="!ready || !endNode"
+            @click="locate(endNode?.key)"
+          />
+        </template>
+        <UiButton
+          size="small"
+          icon-only
+          v-if="presentation !== 'designer'"
+          icon-name="locate"
+          :aria-label="focusTitle"
+          :title="focusTitle"
+          :disabled="!ready || !focusNode"
+          @click="locate(focusNode?.key)"
+        />
+        <UiButton
+          v-if="editable"
+          size="small"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')"
+          :disabled="!ready"
+          @click="autoLayout"
+          >{{ workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理') }}</UiButton
+        >
+        <UiButton
+          size="small"
+          icon-only
+          :icon-name="fullscreen ? 'fullscreen-exit' : 'fullscreen'"
+          :aria-label="
+            fullscreen
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
+              : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
+          "
+          :title="
+            fullscreen
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
+              : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
+          "
+          :disabled="!ready"
+          @click="toggleFullscreen"
+        />
       </div>
       <div class="diagram-navigation">
         <UiSelect
@@ -417,7 +615,8 @@ onBeforeUnmount(() => {
           :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
           @update:value="locate(String($event))"
         />
-        <span
+        <slot name="navigation" />
+        <span v-if="presentation !== 'designer'"
           >{{
             workflowLanguage.t(
               'platform.screen.WorkflowDiagram.pan-help',
@@ -427,6 +626,34 @@ onBeforeUnmount(() => {
             workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
           }}</span></span
         >
+        <UiTooltip
+          v-if="presentation === 'designer'"
+          :title="
+            workflowLanguage.t(
+              'platform.screen.WorkflowDiagram.pan-help',
+              '拖动空白平移 · Ctrl / ⌘ + 滚轮缩放',
+            ) +
+            (editable
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
+              : '') +
+            '\n' +
+            workflowLanguage.t(
+              'platform.workflow-config.keyboard-help',
+              '画布快捷键：Ctrl / ⌘ + Z 撤销，Shift + Z 重做，A 全选，C 复制，V 粘贴，Delete / Backspace 删除选中节点；按住 Shift 点击可多选。选择节点或路径作为粘贴位置，分支会整体复制。',
+            )
+          "
+        >
+          <UiButton
+            size="small"
+            :aria-label="
+              workflowLanguage.t(
+                'platform.screen.WorkflowDiagram.pan-help',
+                '拖动空白平移 · Ctrl / ⌘ + 滚轮缩放',
+              )
+            "
+            >?</UiButton
+          >
+        </UiTooltip>
       </div>
     </div>
     <p v-if="failed" role="alert">
@@ -437,7 +664,12 @@ onBeforeUnmount(() => {
     <p v-else-if="!nodes.length" class="diagram-empty">
       {{ workflowLanguage.t('platform.screen.WorkflowDiagram.empty', '暂无流程节点') }}
     </p>
-    <div ref="viewport" class="diagram-viewport" @keydown="keyboard">
+    <div
+      ref="viewport"
+      class="diagram-viewport"
+      :tabindex="presentation === 'designer' ? 0 : undefined"
+      :aria-label="workflowLanguage.t('platform.workflow-config.canvas-editor', '流程画布编辑区')"
+    >
       <div ref="canvas" class="diagram-canvas" />
     </div>
   </section>
@@ -462,6 +694,12 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 10px 12px;
 }
+.diagram-zoom-value {
+  width: 56px;
+  min-width: 56px;
+  flex: 0 0 56px;
+  font-variant-numeric: tabular-nums;
+}
 .diagram-navigation {
   display: flex;
   align-items: center;
@@ -478,6 +716,59 @@ onBeforeUnmount(() => {
   height: 480px;
   min-width: 0;
   background: var(--muyun-hover);
+}
+.workflow-diagram--designer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  container-type: inline-size;
+}
+.workflow-diagram--designer .diagram-viewport {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.workflow-diagram--designer .diagram-header {
+  border: 0;
+}
+.workflow-diagram--designer .diagram-tools,
+.workflow-diagram--designer .diagram-navigation,
+.diagram-edit-tools {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  border: 1px solid var(--muyun-border-subtle);
+  border-radius: 8px;
+  background: var(--muyun-surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+.diagram-edit-tools {
+  top: 12px;
+  left: 12px;
+}
+.workflow-diagram--designer .diagram-navigation {
+  top: 12px;
+  right: 12px;
+}
+.workflow-diagram--designer .diagram-tools {
+  left: 12px;
+  bottom: 12px;
+}
+@container (max-width: 640px) {
+  .workflow-diagram--designer .diagram-navigation {
+    top: 66px;
+    left: 12px;
+    right: auto;
+  }
+  .workflow-diagram--designer .diagram-locator {
+    width: 130px;
+  }
 }
 .workflow-diagram--detail .diagram-viewport {
   height: 320px;
@@ -496,10 +787,10 @@ onBeforeUnmount(() => {
   flex: 1;
   height: auto;
 }
-.diagram-viewport :deep([role='button']:focus-visible) {
+.diagram-viewport :deep([role='button']:focus) {
   outline: none;
 }
-.diagram-viewport :deep([role='button']:focus-visible > rect:first-child) {
+.diagram-viewport :deep([role='button']:focus-visible > :first-child) {
   stroke: var(--muyun-primary);
   stroke-width: 3px;
 }

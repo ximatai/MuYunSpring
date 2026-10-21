@@ -36,6 +36,7 @@ export { default as DictionarySelect } from './components/DictionarySelect.vue';
 export { default as ReferenceSelect } from './components/ReferenceSelect.vue';
 export { default as UiTable } from './components/UiTable.vue';
 export { confirmAction } from './confirm';
+export { uiOverlayLayers } from './overlayLayers';
 export {
   allowsUiDrawerOutsideDismissal,
   mayCloseUiDrawer,

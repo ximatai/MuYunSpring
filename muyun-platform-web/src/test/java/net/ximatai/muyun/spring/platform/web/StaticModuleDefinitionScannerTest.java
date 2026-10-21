@@ -1068,7 +1068,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(byAlias.get(WorkflowDefinitionService.MODULE_ALIAS).actions())
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("create", "view", "update", "delete", "query", "sort",
-                            "publishWorkflowDefinition", "disableWorkflowDefinition", "archiveWorkflowDefinition",
+                            "publishWorkflowDefinition", "enableWorkflowDefinition", "disableWorkflowDefinition", "archiveWorkflowDefinition",
                             "upgradeWorkflowDefinition", "editWorkflowDesign", "validateWorkflowDesign",
                             "configureWorkflowSelection", "viewWorkflowDesign");
             assertThat(byAlias.get(WorkflowVersionService.MODULE_ALIAS).actions())

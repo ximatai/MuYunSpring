@@ -13,13 +13,18 @@
 
 ## 验证
 
-修改前端测试或测试基础设施后，依次运行：
+按根 `AGENTS.md` 的风险分级选择验证范围；修改测试文件本身不要求跑全套。
+
+- **低风险**：纯文案、多语言、注释或文档调整，只检查相关内容；同步修改已有测试文案时，运行受影响的测试文件或用例即可。无需全量测试、类型检查、构建或消费者验证。
+- **中风险**：局部逻辑或交互调整，运行受影响的 `unit`、`component` 测试；涉及真实布局、鼠标命中或动效时运行对应 `browser` 测试。按改动需要执行类型检查、定向 lint 或格式检查。
+- **高风险**：平台公共组件或运行态契约、权限与跨模块行为、依赖、构建或测试基础设施调整，覆盖受影响的调用方；影响广泛或无法可靠界定时执行 `npm run check`。涉及消费者导出、声明、依赖或分发产物时，再执行 `npm run verify:consumer`。
+
+定向验证使用 Vitest 自带的项目、路径和用例过滤，例如：
 
 ```bash
-npm run test:unit
-npm run test:component
-npm run check
-npm run verify:consumer
+npx vitest run --project component tests/platform-admin-runtime/workflow/ModuleWorkflowDrawer.component.test.ts
 ```
+
+`npm run check` 已包含全量测试、静态检查和构建；无需在它之前重复运行全量 `test:unit`、`test:component`。前后端互不影响的改动，只验证涉及的技术栈；发现失败或影响扩大时再升级范围。
 
 测试优先验证调用方可观察的行为和稳定平台契约；没有自然红路径或边界路径时，应在测试说明中说明原因，不制造无意义断言。

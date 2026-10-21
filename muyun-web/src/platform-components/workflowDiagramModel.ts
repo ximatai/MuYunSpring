@@ -1,6 +1,6 @@
 import { graphlib, layout } from '@dagrejs/dagre';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
-import { workflowTitle, workflowNodePresentation } from './workflowPresentation';
+import { workflowTitle, workflowNodePresentation, workflowNodeKind } from './workflowPresentation';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 
 export interface WorkflowDiagramPosition {
@@ -94,36 +94,45 @@ export function createWorkflowDiagramModel(
   );
   const cards: WorkflowDiagramNode[] = nodes.map((node) => {
     const definition = definitions.get(node.nodeKey);
+    const kind = workflowNodeKind({
+      nodeType: node.nodeType,
+      approvalMode:
+        node.approvalMode ??
+        (typeof definition?.approvalMode === 'string' ? definition.approvalMode : undefined),
+    });
     const compact = ['start', 'end'].includes(node.nodeType);
+    const gateway = ['branch', 'converge'].includes(node.nodeType);
     const detail = node.nodeStatus
       ? node.nodeStatus === 'waiting' && node.nodeType !== 'converge'
         ? language.t('platform.screen.WorkflowDiagram.not-reached', '未到达')
         : workflowTitle(node.nodeStatus, language)
-      : node.nodeType === 'branch'
-        ? (node.routeMode ?? definition?.routeMode) === 'manual'
-          ? language.t('platform.screen.WorkflowDiagram.manual-single-choice', '人工单选')
-          : language.t('platform.screen.WorkflowDiagram.conditional-branch', '条件分流')
-        : node.nodeType === 'converge'
-          ? (
-              {
-                all: language.t('platform.screen.WorkflowDiagram.all-arrived', '全部到达'),
-                any: language.t('platform.screen.WorkflowDiagram.any-arrived', '任一到达'),
-                ratio: language.t('platform.screen.WorkflowDiagram.ratio-arrived', '比例到达'),
-              } as Record<string, string>
-            )[String(node.convergeMode ?? definition?.convergeMode ?? 'all')]
-          : node.approvalMode
-            ? workflowTitle(node.approvalMode, language)
-            : '';
+      : kind === 'notice'
+        ? language.t('platform.workflow-node-type.notice-canvas', '不阻塞流程')
+        : node.nodeType === 'branch'
+          ? (node.routeMode ?? definition?.routeMode) === 'manual'
+            ? language.t('platform.screen.WorkflowDiagram.manual-single-choice', '人工单选')
+            : language.t('platform.screen.WorkflowDiagram.conditional-branch', '条件分流')
+          : node.nodeType === 'converge'
+            ? (
+                {
+                  all: language.t('platform.screen.WorkflowDiagram.all-arrived', '全部到达'),
+                  any: language.t('platform.screen.WorkflowDiagram.any-arrived', '任一到达'),
+                  ratio: language.t('platform.screen.WorkflowDiagram.ratio-arrived', '比例到达'),
+                } as Record<string, string>
+              )[String(node.convergeMode ?? definition?.convergeMode ?? 'all')]
+            : node.approvalMode
+              ? workflowTitle(node.approvalMode, language)
+              : '';
     return {
       key: node.nodeKey,
       title: workflowNodePresentation(node, language).nodeTitle ?? node.nodeKey,
-      subtitle: [workflowTitle(node.nodeType, language), detail].filter(Boolean).join(' · '),
-      type: node.nodeType,
+      subtitle: [workflowTitle(kind, language), detail].filter(Boolean).join(' · '),
+      type: kind,
       status: node.nodeStatus,
       x: 0,
       y: 0,
-      width: compact ? 176 : 224,
-      height: compact ? 64 : 88,
+      width: gateway ? 144 : compact ? 176 : 224,
+      height: gateway ? 72 : compact ? 64 : 88,
     };
   });
   const keys = new Set(cards.map((node) => node.key));
@@ -150,7 +159,9 @@ export function createWorkflowDiagramModel(
   graph.setGraph({ rankdir: 'TB', nodesep: 64, ranksep: 64, marginx: 32, marginy: 32 });
   cards.forEach((node) => graph.setNode(node.key, { width: node.width, height: node.height }));
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target, {}, edge.key));
-  layout(graph);
+  // Structured branches follow outgoing route order. Dagre's equal-cost
+  // crossing sweeps may mirror these lanes, including nested branch domains.
+  layout(graph, { disableOptimalOrderHeuristic: cards.some((node) => node.type === 'branch') });
   const stored = positions(
     topology(
       nodes.map((node) => node.nodeKey),

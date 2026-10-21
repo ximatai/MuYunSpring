@@ -1607,6 +1607,7 @@ export default defineComponent({
       :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       :width="enhancementDrawer.definition.width"
+      :dismissal="enhancementDrawer.definition.dismissal ?? 'explicit'"
       @close="closeEnhancementDrawer"
       @after-close="disposeEnhancementDrawer"
     >

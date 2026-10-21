@@ -88,3 +88,18 @@ it('uses consumer language for prompts while retaining the exact business-title 
   await nextTick();
   assert.equal(updates.length, count);
 });
+
+it('raises notification confirmations without changing the standard confirmation layer', async () => {
+  let options!: Parameters<typeof Modal.confirm>[0];
+  const confirm = createConfirmAction((value) => {
+    options = value;
+    return { destroy() {}, update() {} };
+  });
+  for (const layer of ['standard', 'notification'] as const) {
+    const result = confirm({ title: '确认', layer });
+    assert.equal(options.zIndex, layer === 'notification' ? 1210 : undefined);
+    options.onCancel?.();
+    assert.equal(await result, false);
+    options.afterClose?.();
+  }
+});

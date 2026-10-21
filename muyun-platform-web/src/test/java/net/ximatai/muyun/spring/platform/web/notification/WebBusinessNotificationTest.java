@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web.notification;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.platform.notification.BusinessNotification;
+import net.ximatai.muyun.spring.platform.notification.BusinessNotificationDisplayPolicy;
 import net.ximatai.muyun.spring.platform.notification.BusinessNotificationRecipients;
 import net.ximatai.muyun.spring.platform.notification.BusinessNotificationTone;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ class WebBusinessNotificationTest {
         String json = new ObjectMapper().writeValueAsString(WebBusinessNotification.from(notification));
 
         assertThat(json).doesNotContain("recipients", "tenant-1", "organization-1", "department-1", "position-1", "user-1",
-                "tone", "occurredAt");
+                "tone", "occurredAt", "displayPolicy", "expiresAt");
     }
 
     @Test
@@ -35,5 +36,17 @@ class WebBusinessNotificationTest {
 
         assertThat(payload.tone()).isEqualTo("success");
         assertThat(payload.occurredAt()).isEqualTo(occurredAt);
+    }
+    @Test
+    void shouldRetainPersistentPolicyAndDeadlineThroughBothTextEnrichmentStages() {
+        Instant deadline = Instant.parse("2026-10-22T12:00:00Z");
+        BusinessNotification notification = new BusinessNotification("call-1", "call.invitation", "来电", null, "请确认", false,
+                BusinessNotificationRecipients.none(), List.of())
+                .withDisplayPolicy(BusinessNotificationDisplayPolicy.PERSISTENT)
+                .withExpiresAt(deadline)
+                .withTextSources(java.util.Map.of(), java.util.Map.of());
+        WebBusinessNotification payload = WebBusinessNotification.from(notification).withTextResources(java.util.Map.of());
+        assertThat(payload.displayPolicy()).isEqualTo("persistent");
+        assertThat(payload.expiresAt()).isEqualTo(deadline);
     }
 }

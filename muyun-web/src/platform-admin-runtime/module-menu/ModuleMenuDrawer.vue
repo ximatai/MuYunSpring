@@ -51,19 +51,21 @@ watch(
   [session.canSave, session.saving, session.saved, session.resultUnknown, language.revision],
   () => {
     props.context.setCloseBlocked(session.saving.value);
-    props.context.setTitleActions(
+    props.context.setOperation(
       session.saved.value || session.resultUnknown.value
-        ? []
-        : [
-            {
-              key: 'add-menu',
-              label: language.t('platform.screen.ModuleMenuDrawer.add', '添加'),
-              emphasis: 'primary',
-              disabled: !session.canSave.value,
-              loading: session.saving.value,
-              run: () => editor.value?.save(),
-            },
-          ],
+        ? undefined
+        : {
+            actions: [
+              {
+                key: 'add-menu',
+                label: language.t('platform.screen.ModuleMenuDrawer.add', '添加'),
+                emphasis: 'primary',
+                disabled: !session.canSave.value,
+                loading: session.saving.value,
+                run: () => editor.value?.save(),
+              },
+            ],
+          },
     );
   },
   { immediate: true },

@@ -114,27 +114,24 @@ defineExpose({ save });
           :loading="form.loading.value || form.updating.value"
           @update:value="form.update({ parentId: String($event ?? 'root') })"
       /></label>
-      <details>
-        <summary>{{ language.t('platform.screen.ModuleMenuEditor.more-settings', '更多设置') }}</summary>
-        <label
-          >{{ language.t('platform.screen.ModuleMenuEditor.open-mode', '打开方式')
-          }}<UiSelect
-            :value="form.openMode.value"
-            :allow-clear="false"
-            :disabled="candidateDisabled"
-            :options="[
-              {
-                value: 'tab',
-                label: language.t('platform.screen.ModuleMenuEditor.open-in-a-workbench-tab', '页签内打开'),
-              },
-              {
-                value: 'window',
-                label: language.t('platform.screen.ModuleMenuEditor.open-in-a-new-window', '新窗口打开'),
-              },
-            ]"
-            @update:value="form.update({ openMode: $event === 'window' ? 'window' : 'tab' })"
-        /></label>
-      </details>
+      <label
+        >{{ language.t('platform.screen.ModuleMenuEditor.open-mode', '打开方式')
+        }}<UiSelect
+          :value="form.openMode.value"
+          :allow-clear="false"
+          :disabled="candidateDisabled"
+          :options="[
+            {
+              value: 'tab',
+              label: language.t('platform.screen.ModuleMenuEditor.open-in-a-workbench-tab', '页签内打开'),
+            },
+            {
+              value: 'window',
+              label: language.t('platform.screen.ModuleMenuEditor.open-in-a-new-window', '新窗口打开'),
+            },
+          ]"
+          @update:value="form.update({ openMode: $event === 'window' ? 'window' : 'tab' })"
+      /></label>
       <p v-if="form.duplicate.value" class="hint">
         {{
           language.t(
@@ -226,13 +223,6 @@ defineExpose({ save });
 .module-menu-form {
   display: grid;
   gap: 20px;
-}
-summary {
-  cursor: pointer;
-  color: var(--muyun-text-muted);
-}
-details[open] summary {
-  margin-bottom: 12px;
 }
 label {
   display: grid;

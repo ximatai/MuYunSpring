@@ -20,7 +20,7 @@ import {
   WorkflowRecordPanel,
   RecordDetailPanel,
   RecordMetaSection,
-  RecordModeDrawer,
+  RecordDetailDrawer,
   RecordPanelState,
   RecordStatusSwitch,
   resolveRecordFormFields,
@@ -69,7 +69,6 @@ useModulePageUnsavedState(
   () => saving.value || togglingEnabled.value || referenceRecordDetailInteraction.value.busy,
 );
 const fields = ref(resolveRecordFormFields(undefined));
-const workspaceElement = ref<HTMLElement>();
 const {
   drawer: enhancementDrawer,
   drawerOpen: enhancementDrawerOpen,
@@ -457,7 +456,7 @@ async function toggleEnabled() {
 </script>
 
 <template>
-  <section ref="workspaceElement" class="dynamic-module-workspace-detail">
+  <section class="dynamic-module-workspace-detail">
     <RecordDetailPanel :title="title">
       <template #actions>
         <ModuleRecordDetailActions
@@ -568,7 +567,7 @@ async function toggleEnabled() {
         <RecordMetaSection v-if="showSystemInfo" :record="draft" show-sort-order />
       </template>
     </RecordDetailPanel>
-    <RecordModeDrawer
+    <RecordDetailDrawer
       v-if="enhancementDrawer"
       :open="enhancementDrawerOpen"
       :title="
@@ -577,16 +576,23 @@ async function toggleEnabled() {
           : enhancementDrawer.definition.title
       "
       :width="enhancementDrawer.definition.width"
-      :container="workspaceElement ?? null"
-      mode="view"
+      :dismissal="enhancementDrawer.definition.dismissal ?? 'explicit'"
+      :subtitle="enhancementDrawer.subtitle"
+      render-mode="inline"
       @close="closeEnhancementDrawer"
       @after-close="disposeEnhancementDrawer"
     >
       <template v-if="enhancementDrawer.titleActions.length" #title-actions>
         <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
       </template>
+      <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
+        {{ enhancementDrawer.operation.summary }}
+      </template>
+      <template v-if="enhancementDrawer.operation" #operation>
+        <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
+      </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
-    </RecordModeDrawer>
+    </RecordDetailDrawer>
     <ModuleReferenceRecordDetailBrowser
       :browser="referenceRecordDetailBrowser"
       render-mode="inline"

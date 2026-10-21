@@ -117,7 +117,7 @@ public class WorkflowSubmitFacade {
         String selectedReason = textOrNull(request.selectedReason());
         return new WorkflowSubmitRequest(moduleAlias, recordId, request.approvalRequired(),
                 request.definitionAlias(), authOrgId, operatorId, operatedAt, selectedRouteKey, selectedReason,
-                request.manualRouteSelections(), request.reason());
+                request.manualRouteSelections(), request.reason(), request.definitionId());
     }
 
     private String requireText(String value, String name) {

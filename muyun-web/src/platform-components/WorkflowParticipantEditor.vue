@@ -235,6 +235,16 @@ function title(record: RecordPickerRecord) {
   border-radius: 8px;
   padding: 12px;
 }
+.workflow-participants > legend {
+  width: auto;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  color: var(--muyun-content-section-heading-color, var(--muyun-text));
+  font-size: var(--muyun-content-section-heading-font-size, var(--muyun-font-size-section, 14px));
+  font-weight: var(--muyun-content-section-heading-font-weight, 700);
+  line-height: var(--muyun-content-section-heading-line-height, var(--muyun-line-height-section, 20px));
+}
 .participant-rule {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));

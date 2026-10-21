@@ -3,6 +3,7 @@ import { h, watch } from 'vue';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { UiConfirmOptions } from './types';
 import { registerUiBlockingOverlay } from './blockingOverlays';
+import { uiOverlayLayers } from './overlayLayers';
 
 export const confirmAction = createConfirmAction(Modal.confirm);
 
@@ -71,6 +72,7 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
         };
         modal = confirm({
           ...modalPresentation(),
+          ...(options.layer === 'notification' ? { zIndex: uiOverlayLayers.notificationConfirmation } : {}),
           okButtonProps: { danger: options.danger, disabled: Boolean(requiredText) },
           onOk: () => {
             if (!matchesRequiredText(requiredText, typedText)) {

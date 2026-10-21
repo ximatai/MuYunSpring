@@ -21,7 +21,7 @@ class WorkflowSelectionSettingsTest {
         var definitions = mock(WorkflowDefinitionService.class);
         var definition = new WorkflowDefinition(); definition.setId("definition"); definition.setVersion(4);
         definition.setAlias("purchase"); definition.setModuleAlias("demo.purchase"); definition.setApprovalEnabled(true);
-        definition.setCurrentVersionNo(2); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
+        definition.setSortOrder(120); definition.setCurrentVersionNo(2); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
         when(definitions.select("definition")).thenReturn(definition);
         var service = service(definitions);
         assertThatThrownBy(() -> service.configureSelection("definition", settings(3, "{amount} > 100")))
@@ -35,7 +35,7 @@ class WorkflowSelectionSettingsTest {
         assertThat(definition.getDefinitionStatus()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
         assertThat(definition.getOrganizationId()).isEqualTo("organization");
         assertThat(definition.getMatchExpression()).isEqualTo("{amount} > 100");
-        assertThat(definition.getMatchPriority()).isEqualTo(10);
+        assertThat(definition.getSortOrder()).isEqualTo(120);
     }
     @Test void selectionExpressionsCannotMutateBusinessAndArchivedDefinitionsCannotBeReconfigured() {
         var definitions=mock(WorkflowDefinitionService.class);
@@ -79,13 +79,31 @@ class WorkflowSelectionSettingsTest {
         assertThatCode(() -> service.save("definition", draft.getId(), draft.getVersion(),
                 new WorkflowDesignDocument(java.util.List.of(), java.util.List.of(), null))).doesNotThrowAnyException();
     }
+    @Test void draftSettingsCanRepairLegacyMissingActionCodeButPublishedIdentityCannotChange() {
+        var definitions = mock(WorkflowDefinitionService.class);
+        var definition = new WorkflowDefinition(); definition.setId("definition"); definition.setVersion(1);
+        definition.setApprovalEnabled(false); definition.setDefinitionStatus(WorkflowDefinitionStatus.DRAFT);
+        when(definitions.select("definition")).thenReturn(definition);
+        var service = service(definitions);
+        service.configureSelection("definition", new WorkflowDesignService.SelectionSettings(1,"Task",null,null,false,"runTask"));
+        assertThat(definition.getActionCode()).isEqualTo("runTask");
+        verify(definitions).update(definition);
+        clearInvocations(definitions);
+        definition.setCurrentVersionNo(1);
+        assertThatThrownBy(() -> service.configureSelection("definition",
+                new WorkflowDesignService.SelectionSettings(1,"Task",null,null,false,"anotherTask")))
+                .hasMessageContaining("已发布流程不能修改模块动作编码");
+        verify(definitions, never()).update(any());
+        assertThat(definition.getActionCode()).isEqualTo("runTask");
+    }
+
     private WorkflowVersion copy(WorkflowVersion source) {
         var copy = new WorkflowVersion(); copy.setId(source.getId()); copy.setVersion(source.getVersion());
         copy.setDefinitionId(source.getDefinitionId()); copy.setVersionNo(source.getVersionNo()); copy.setPublishStatus(source.getPublishStatus());
         return copy;
     }
     private WorkflowDesignService.SelectionSettings settings(int version,String expression) {
-        return new WorkflowDesignService.SelectionSettings(version,"Purchase","organization",expression,10,false);
+        return new WorkflowDesignService.SelectionSettings(version,"Purchase","organization",expression,false);
     }
     private WorkflowDesignService service(WorkflowDefinitionService definitions) {
         return new WorkflowDesignService(definitions,mock(WorkflowVersionService.class),mock(WorkflowNodeDefinitionDao.class),

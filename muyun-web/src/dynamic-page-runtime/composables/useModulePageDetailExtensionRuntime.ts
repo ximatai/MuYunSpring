@@ -18,6 +18,7 @@ export interface ModulePageEnhancementDrawerRuntime {
   operation?: ModulePageDrawerOperation;
   subtitle?: string;
   closeBlocked: boolean;
+  beforeClose?: () => boolean | Promise<boolean>;
 }
 
 interface Options {
@@ -70,6 +71,7 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
       operation: undefined as ModulePageDrawerOperation | undefined,
       subtitle: undefined as string | undefined,
       closeBlocked: false,
+      beforeClose: undefined as (() => boolean | Promise<boolean>) | undefined,
       context: undefined as unknown as ModulePageDrawerContext,
     };
     const drawerContext: ModulePageDrawerContext = {
@@ -83,6 +85,10 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
         if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) {
           activeDrawer.closeBlocked = blocked;
         }
+      },
+      setBeforeClose(guard) {
+        const activeDrawer = drawer.value;
+        if (activeDrawer && toRaw(activeDrawer.context) === drawerContext) activeDrawer.beforeClose = guard;
       },
       close: closeDrawer,
       reload: options.reload,
@@ -110,8 +116,24 @@ export function useModulePageDetailExtensionRuntime(options: Options) {
     drawerOpen.value = true;
   }
 
+  const pendingCloses = new WeakSet<ModulePageEnhancementDrawerRuntime>();
   function closeDrawer() {
-    if (!drawer.value?.closeBlocked) drawerOpen.value = false;
+    const activeDrawer = drawer.value;
+    if (!activeDrawer || activeDrawer.closeBlocked || pendingCloses.has(activeDrawer)) return;
+    if (!activeDrawer.beforeClose) {
+      drawerOpen.value = false;
+      return;
+    }
+    pendingCloses.add(activeDrawer);
+    void Promise.resolve()
+      .then(() => activeDrawer.beforeClose!())
+      .then((allowed) => {
+        if (allowed && drawer.value === activeDrawer && !activeDrawer.closeBlocked) drawerOpen.value = false;
+      })
+      .catch(() => {
+        /* A failed confirmation keeps the current draft open. */
+      })
+      .finally(() => pendingCloses.delete(activeDrawer));
   }
 
   /** Release the drawer body only after the panel's closing transition finishes. */

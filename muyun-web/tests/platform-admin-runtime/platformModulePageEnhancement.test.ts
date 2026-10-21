@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { tabKeyOf } from '@muyun/platform-workbench';
 import {
   createWorkspaceViewDescriptor,
   createWorkspaceViewRegistry,
@@ -8,6 +9,8 @@ import {
   platformModuleActionPageEnhancement,
   platformModulePageEnhancement,
 } from '@/platform-admin-runtime/platformModulePageEnhancement.ts';
+
+import { workflowConfigurationWorkspaceView } from '@/views/workflowConfigurationWorkspaceView';
 
 import { moduleCodeCatalog } from '@/platform-admin-runtime/moduleCodeConfiguration';
 import type { ModuleContext } from '@muyun/web-core';
@@ -100,6 +103,45 @@ describe('platform module page enhancement', () => {
       '动作',
       '低代码',
     ]);
+  });
+
+  it('identifies a workflow tab by module and definition IDs rather than display titles', () => {
+    const input = {
+      moduleAlias: 'demo.purchase',
+      definitionId: 'a',
+      moduleTitle: '采购',
+      definitionTitle: '审批',
+    };
+    const first = createWorkspaceViewDescriptor(workflowConfigurationWorkspaceView, input);
+    const renamed = createWorkspaceViewDescriptor(workflowConfigurationWorkspaceView, {
+      ...input,
+      definitionTitle: '新版审批',
+      moduleTitle: '采购单',
+    });
+    const other = createWorkspaceViewDescriptor(workflowConfigurationWorkspaceView, {
+      ...input,
+      definitionId: 'b',
+    });
+    expect(tabKeyOf(first)).toBe(tabKeyOf(renamed));
+    expect(tabKeyOf(first)).not.toBe(tabKeyOf(other));
+    expect(workflowConfigurationWorkspaceView.parse({ moduleAlias: 'demo.purchase' })).toBeUndefined();
+  });
+
+  it('opens workflow management in a standard drawer without navigating away', () => {
+    const openDrawer = vi.fn(),
+      openWorkspaceTab = vi.fn();
+    platformModulePageEnhancement
+      .detail!.actions!.find((action) => action.key === 'module-workflow-workspace')!
+      .run({ record: { alias: 'demo.purchase' }, openDrawer, openWorkspaceTab } as never);
+    expect(openDrawer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '审批流程',
+        width: 'wide',
+        dismissal: 'dismissible',
+        component: expect.anything(),
+      }),
+    );
+    expect(openWorkspaceTab).not.toHaveBeenCalled();
   });
 
   it('exposes actions and the governance-backed low-code entry point in the module detail header', () => {

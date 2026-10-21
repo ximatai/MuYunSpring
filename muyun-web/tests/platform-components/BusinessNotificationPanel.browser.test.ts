@@ -4,7 +4,14 @@ import { expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import BusinessNotificationPanel from '@/platform-components/BusinessNotificationPanel.vue';
 import RecordDetailDrawer from '@/platform-components/RecordDetailDrawer.vue';
-import { UiButton, UiModal, UiSidePanelHost, useUiBlockingOverlayState } from '@/vue-ui-antdv';
+import {
+  UiButton,
+  confirmAction,
+  UiModal,
+  UiSidePanelHost,
+  UiThemeProvider,
+  useUiBlockingOverlayState,
+} from '@/vue-ui-antdv';
 import '@/styles.css';
 
 it('keeps an overlapping reminder from intercepting a scoped drawer footer and restores it after closing', async () => {
@@ -409,4 +416,211 @@ it('keeps a compact collapsed queue from intercepting business controls and pres
   expect(wrapper.findAll('.business-notification-card')).toHaveLength(0);
   await page.getByRole('button', { name: '办理当前业务', exact: true }).click();
   expect(approve).toHaveBeenCalledTimes(2);
+});
+
+it('keeps persistent cards actionable above detail drawers, editor dialogs and nested dialogs without losing drafts', async () => {
+  await page.viewport(1280, 900);
+  const drawer = ref(false),
+    editor = ref(false),
+    nested = ref(false);
+  const drawerDraft = ref('详情中的未保存内容'),
+    editorDraft = ref('编辑中的未保存内容');
+  const counts = new Map<string, number>();
+  const notifications = ref<import('@muyun/web-contracts').WebBusinessNotification[]>([]);
+  const makeNotice = (id: string): import('@muyun/web-contracts').WebBusinessNotification => ({
+    id,
+    code: 'call',
+    title: `来电 ${id}`,
+    content: '请及时处理',
+    dismissible: false,
+    displayPolicy: 'persistent',
+    actions: [
+      {
+        kind: 'record',
+        key: 'accept',
+        label: `接听 ${id}`,
+        moduleAlias: 'demo.call',
+        recordId: id,
+        actionCode: 'accept',
+        dismissOnSuccess: false,
+      },
+    ],
+  });
+  const Harness = defineComponent({
+    setup: () => () =>
+      h(UiThemeProvider, { scope: 'global' }, () =>
+        h('div', [
+          h(UiSidePanelHost, { style: 'height:100vh' }, () =>
+            h(RecordDetailDrawer, { open: drawer.value, title: '详情草稿' }, () =>
+              h('input', {
+                'aria-label': '详情内容',
+                value: drawerDraft.value,
+                onInput: (event: Event) => (drawerDraft.value = (event.target as HTMLInputElement).value),
+              }),
+            ),
+          ),
+          h(UiModal, { open: editor.value, title: '编辑草稿', onCancel: () => (editor.value = false) }, () =>
+            h('input', {
+              'aria-label': '编辑内容',
+              value: editorDraft.value,
+              onInput: (event: Event) => (editorDraft.value = (event.target as HTMLInputElement).value),
+            }),
+          ),
+          h(
+            UiModal,
+            { open: nested.value, title: '第二层弹窗', onCancel: () => (nested.value = false) },
+            () => '二层内容',
+          ),
+          h('div', { style: 'position:fixed;inset:0;isolation:isolate;z-index:0;pointer-events:none' }, [
+            h(
+              BusinessNotificationPanel,
+              {
+                notifications: notifications.value,
+                hasAccessory: () => true,
+                executeAction: async (notice) => {
+                  counts.set(notice.id, (counts.get(notice.id) ?? 0) + 1);
+                  await new Promise((resolve) => setTimeout(resolve, 20));
+                },
+              },
+              { accessory: () => h('span', { class: 'persistent-browser-accessory' }, '附件内容') },
+            ),
+          ]),
+        ]),
+      ),
+  });
+  const wrapper = mount(Harness, {
+    attachTo: document.body,
+    global: { stubs: { transition: false, transitionGroup: false } },
+  });
+  try {
+    notifications.value = [{ ...makeNotice('ordinary'), displayPolicy: undefined }];
+    await expect.element(page.getByRole('button', { name: '接听 ordinary', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '收起提醒', exact: true }).click();
+    drawer.value = true;
+    await expect.element(page.getByRole('textbox', { name: '详情内容', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: '详情内容', exact: true }).fill('保留详情草稿');
+    for (const stage of ['drawer', 'editor', 'nested']) {
+      if (stage === 'editor') {
+        editor.value = true;
+        await page.getByRole('textbox', { name: '编辑内容', exact: true }).fill('保留编辑草稿');
+      }
+      if (stage === 'nested') nested.value = true;
+      notifications.value = [
+        { ...makeNotice('ordinary'), displayPolicy: undefined },
+        makeNotice(stage),
+        makeNotice(`${stage}-second`),
+      ];
+      await expect
+        .element(page.getByRole('button', { name: '接听 ordinary', exact: true }))
+        .not.toBeInTheDocument();
+      const action = page.getByRole('button', { name: `接听 ${stage}`, exact: true });
+      await action.click();
+      await expect.poll(() => counts.get(stage)).toBe(1);
+      await expect.element(action).toBeDisabled();
+      await expect
+        .element(page.getByRole('button', { name: `接听 ${stage}-second`, exact: true }))
+        .toBeVisible();
+      expect(document.querySelectorAll('.persistent-browser-accessory')).toHaveLength(2);
+      expect(drawer.value).toBe(true);
+      expect(drawerDraft.value).toBe('保留详情草稿');
+      expect(document.querySelector<HTMLInputElement>('input[aria-label="详情内容"]')!.value).toBe(
+        '保留详情草稿',
+      );
+      if (stage !== 'drawer') {
+        expect(editor.value).toBe(true);
+        expect(editorDraft.value).toBe('保留编辑草稿');
+        expect(document.querySelector<HTMLInputElement>('input[aria-label="编辑内容"]')!.value).toBe(
+          '保留编辑草稿',
+        );
+      }
+      if (stage === 'nested') expect(nested.value).toBe(true);
+      if (stage === 'nested')
+        await page.screenshot({ path: '../../test-results/persistent-business-notifications.png' });
+    }
+    const expired = makeNotice('expired');
+    expired.expiresAt = new Date(Date.now() - 1).toISOString();
+    notifications.value = [expired];
+    await expect.element(page.getByRole('button', { name: '接听 expired', exact: true })).toBeDisabled();
+    expect(counts.has('expired')).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('keeps a persistent notification confirmation above multiple cards without closing the editor', async () => {
+  const open = ref(true);
+  const draft = ref('未保存内容');
+  const execute = vi.fn();
+  const wrapper = mount(
+    defineComponent({
+      setup: () => () =>
+        h(UiThemeProvider, { scope: 'global' }, () => [
+          h(
+            UiModal,
+            {
+              open: open.value,
+              title: '正在编辑',
+              onCancel: () => {
+                open.value = false;
+              },
+            },
+            () => h('input', { value: draft.value, 'aria-label': '未保存草稿' }),
+          ),
+          h(BusinessNotificationPanel, {
+            notifications: Array.from({ length: 5 }, (_, i) => ({
+              id: String(i),
+              code: 'call',
+              title: '来电 ' + i,
+              content: '需要确认的业务通知',
+              displayPolicy: 'persistent' as const,
+              dismissible: false,
+              actions: [
+                {
+                  kind: 'record' as const,
+                  key: 'accept',
+                  label: '接听 ' + i,
+                  moduleAlias: 'demo.call',
+                  recordId: String(i),
+                  actionCode: 'accept',
+                  confirmation: '确认接听？',
+                  dismissOnSuccess: false,
+                },
+              ],
+            })),
+            executeAction: async () => {
+              if (!(await confirmAction({ title: '确认接听？', content: '确认操作', layer: 'notification' })))
+                return false;
+              execute();
+              return true;
+            },
+          }),
+        ]),
+    }),
+    { attachTo: document.body, global: { stubs: { transition: false, transitionGroup: false } } },
+  );
+  try {
+    await page.getByRole('button', { name: '接听 0', exact: true }).click();
+    await expect
+      .poll(() => {
+        const button = document.querySelector<HTMLButtonElement>('.ant-modal-confirm .ant-btn-primary');
+        if (!button) return false;
+        const rect = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+        );
+      })
+      .toBe(true);
+    await page
+      .getByRole('button', { name: /确.*认/ })
+      .last()
+      .click();
+    await expect.poll(() => execute.mock.calls.length).toBe(1);
+    expect(open.value).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="未保存草稿"]')!.value).toBe(
+      '未保存内容',
+    );
+  } finally {
+    document.querySelector<HTMLButtonElement>('.ant-modal-confirm .ant-btn-default')?.click();
+    wrapper.unmount();
+  }
 });

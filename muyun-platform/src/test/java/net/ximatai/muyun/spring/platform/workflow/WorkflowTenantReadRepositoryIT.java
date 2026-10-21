@@ -39,6 +39,7 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired WorkflowEventDao events;
     @Autowired WorkflowHistoryInstanceDao histories;
     @Autowired WorkflowDefinitionDao definitions;
+    @Autowired WorkflowDefinitionService definitionService;
     @Autowired WorkflowVersionDao versions;
     @Autowired WorkflowDefinitionSelector selector;
     @Autowired WorkflowConditionService conditions;
@@ -82,6 +83,26 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
 
     @AfterEach void clear() {
         PlatformAbilityRuntime.resetMutationTransactionOperator(); TenantContext.clear(); CurrentUserContext.clear();
+    }
+
+    @Test void actionIdentityValidationUsesPersistedFactsAndCanRepairLegacyDrafts() {
+        try (var context = TenantContext.use("read-tenant-a")) {
+            var draft = new WorkflowDefinition(); draft.setApplicationAlias("test"); draft.setModuleAlias(module);
+            draft.setTitle("Task"); draft.setApprovalEnabled(false);
+            assertThatThrownBy(() -> definitionService.insert(draft)).hasMessageContaining("非审批流程必须配置模块动作编码");
+            draft.setActionCode("runTask"); definitionService.insert(draft);
+            var published = definitionService.select(draft.getId()); published.setCurrentVersionNo(1);
+            definitionService.update(published);
+            var changed = definitionService.select(draft.getId()); changed.setActionCode("anotherTask");
+            assertThatThrownBy(() -> definitionService.update(changed)).hasMessageContaining("已发布流程不能修改模块动作编码");
+            assertThat(definitionService.select(draft.getId()).getActionCode()).isEqualTo("runTask");
+            var legacy = new WorkflowDefinition(); legacy.setApplicationAlias("test"); legacy.setModuleAlias(module);
+            legacy.setTenantId("read-tenant-a"); legacy.setTitle("Legacy draft"); legacy.setApprovalEnabled(false);
+            EntityLifecycle.prepareInsert(legacy, Instant.now()); definitions.insert(legacy);
+            var repaired = definitionService.select(legacy.getId()); repaired.setActionCode("repairTask");
+            definitionService.update(repaired);
+            assertThat(definitionService.select(legacy.getId()).getActionCode()).isEqualTo("repairTask");
+        }
     }
 
     @Test void selectedTenantLimitsUserAndSystemAdministratorQueriesAndRejectsForeignIds() {
@@ -153,7 +174,7 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test void submittingSharedConfigurationPersistsCallerOwnedInstanceAndChildren() {
-        var shared = configuration(null, "shared_submit");
+        var shared = configuration(null, null);
         var version = versions.query(net.ximatai.muyun.database.core.orm.Criteria.of()
                 .eq("definitionId", shared.getId()), page).getFirst();
         try (var context = TenantContext.system("prepare shared workflow topology")) {
@@ -171,7 +192,7 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         }
         String instanceId;
         try (var context = TenantContext.use("read-tenant-a")) {
-            var result = submissions.submit(WorkflowSubmitRequest.workflow(module, "shared-record", "shared_submit").withOperator("reviewer"));
+            var result = submissions.submit(WorkflowSubmitRequest.workflowById(module, "shared-record", shared.getId()).withOperator("reviewer"));
             instanceId = result.draft().instance().getId();
             assertThat(instances.findById(instanceId).getTenantId()).isEqualTo("read-tenant-a");
             assertThat(runtime.renderBundle(instanceId).instance().getTenantId()).isEqualTo("read-tenant-a");
@@ -190,10 +211,115 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    @Test void sortingPublishedDefinitionsUsesPersistentOrderAndPreservesTenantPartition() {
+        var first = configuration("read-tenant-a", "ordered_first");
+        var second = configuration("read-tenant-a", "ordered_second");
+        var foreign = configuration("read-tenant-b", "ordered_foreign");
+        try (var context = TenantContext.use("read-tenant-a")) {
+            first.setApprovalEnabled(true); first.setSortOrder(100); definitionService.update(first);
+            second.setApprovalEnabled(true); second.setSortOrder(200); definitionService.update(second);
+            var request = WorkflowSubmitRequest.approval(module, "shared-record");
+            assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+            definitionService.moveBefore(second.getId(), first.getId());
+            assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+            assertThat(definitions.findById(second.getId()).getSortOrder())
+                    .isLessThan(definitions.findById(first.getId()).getSortOrder());
+            assertThatThrownBy(() -> definitionService.moveBefore(second.getId(), foreign.getId()))
+                    .isInstanceOf(RuntimeException.class);
+        }
+        try (var context = TenantContext.use("read-tenant-b")) {
+            assertThat(definitions.findById(foreign.getId()).getVersion()).isEqualTo(foreign.getVersion());
+        }
+    }
+
+    @Test void aliasFreeDefinitionsPersistIndependentlyAndIdSelectionCannotEscapeTheCallerScope() {
+        var own = configuration("read-tenant-a", null);
+        var another = configuration("read-tenant-a", null);
+        var foreign = configuration("read-tenant-b", null);
+        var shared = configuration(null, null);
+        try (var context = TenantContext.use("read-tenant-a")) {
+            var created = new WorkflowDefinition(); created.setModuleAlias(module); created.setApplicationAlias("test"); created.setTitle("无编码流程");
+            created.setApprovalEnabled(true);
+            definitionService.insert(created);
+            var duplicateName = new WorkflowDefinition(); duplicateName.setModuleAlias(module); duplicateName.setApplicationAlias("test"); duplicateName.setTitle("无编码流程");
+            duplicateName.setApprovalEnabled(true);
+            definitionService.insert(duplicateName);
+            assertThat(definitions.findById(created.getId()).getAlias()).isNull();
+            assertThat(duplicateName.getId()).isNotEqualTo(created.getId());
+            assertThat(selector.select(WorkflowSubmitRequest.workflowById(module, "record", own.getId())).definition().getId()).isEqualTo(own.getId());
+            assertThat(selector.select(WorkflowSubmitRequest.workflowById(module, "record", another.getId())).definition().getId()).isEqualTo(another.getId());
+            assertThat(selector.select(WorkflowSubmitRequest.workflowById(module, "record", shared.getId())).definition().getId()).isEqualTo(shared.getId());
+            assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.workflowById(module, "record", foreign.getId()))).hasMessageContaining("not found");
+            assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.workflowById("test.other", "record", own.getId()))).hasMessageContaining("not found");
+        }
+        assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.workflowById(module, "record", own.getId()))).hasMessageContaining("not found");
+    }
+
+    @Test void tenantOrderingNeverCompetesWithGlobalTemplateSortValues() {
+        var shared = configuration(null, "shared_order");
+        var first = configuration("read-tenant-a", "local_first");
+        var second = configuration("read-tenant-a", "local_second");
+        try (var context = TenantContext.use(null)) {
+            shared.setApprovalEnabled(true); shared.setSortOrder(200); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            first.setApprovalEnabled(true); first.setSortOrder(300); definitionService.update(first);
+            second.setApprovalEnabled(true); second.setSortOrder(400); definitionService.update(second);
+            var request = WorkflowSubmitRequest.approval(module, "record");
+            assertThat(definitionService.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("moduleAlias", module), page))
+                    .extracting(WorkflowDefinition::getId).containsExactlyInAnyOrder(first.getId(), second.getId());
+            assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+            definitionService.moveBefore(second.getId(), first.getId());
+            assertThat(definitions.findById(second.getId()).getSortOrder()).isEqualTo(150);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(second.getId());
+            definitionService.reorder(List.of(first.getId(), second.getId()));
+            assertThat(selector.select(request).definition().getId()).isEqualTo(first.getId());
+            first = definitions.findById(first.getId()); second = definitions.findById(second.getId());
+            first.setDefaultDefinition(true); definitionService.update(first);
+            second.setMatchExpression("false"); definitionService.update(second);
+            // A global ordinary match outranks a tenant fallback.
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+        }
+        try (var context = TenantContext.use(null)) {
+            shared.setMatchExpression("false"); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            assertThat(selector.select(WorkflowSubmitRequest.approval(module, "record")).definition().getId()).isEqualTo(first.getId());
+        }
+        try (var context = TenantContext.use("read-tenant-b")) {
+            assertThatThrownBy(() -> selector.select(WorkflowSubmitRequest.approval(module, "record"))).hasMessageContaining("not found");
+        }
+        try (var context = TenantContext.use(null)) {
+            assertThat(definitions.findById(shared.getId()).getSortOrder()).isEqualTo(200);
+        }
+    }
+
+    @Test void organizationDistanceAndOrdinaryMatchesRemainAheadOfSourcePrecedence() {
+        var shared = configuration(null, "shared_near");
+        var local = configuration("read-tenant-a", "local_fallback");
+        try (var context = TenantContext.use(null)) {
+            shared.setApprovalEnabled(true); shared.setOrganizationId("org"); shared.setSortOrder(1);
+            definitionService.update(shared);
+        }
+        var request = WorkflowSubmitRequest.approval(module, "record").withAuthOrgId("org");
+        try (var context = TenantContext.use("read-tenant-a")) {
+            local.setApprovalEnabled(true); local.setSortOrder(900); definitionService.update(local);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+            local.setOrganizationId("org"); local.setDefaultDefinition(true); definitionService.update(local);
+            assertThat(selector.select(request).definition().getId()).isEqualTo(shared.getId());
+        }
+        try (var context = TenantContext.use(null)) {
+            shared.setDefaultDefinition(true); definitionService.update(shared);
+        }
+        try (var context = TenantContext.use("read-tenant-a")) {
+            assertThat(selector.select(request).definition().getId()).isEqualTo(local.getId());
+        }
+    }
+
     private WorkflowDefinition configuration(String tenant, String alias) {
         try (var context = TenantContext.use(tenant)) {
             var definition = new WorkflowDefinition(); definition.setApplicationAlias("test"); definition.setModuleAlias(module);
-            definition.setAlias(alias); definition.setTitle(alias); definition.setEnabled(true); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
+            definition.setAlias(alias); definition.setTitle(alias == null ? "无编码流程" : alias); definition.setEnabled(true); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
             definition.setApprovalEnabled(false); definition.setCurrentVersionNo(1); EntityLifecycle.prepareInsert(definition, Instant.now()); definitions.insert(definition);
             var version = new WorkflowVersion(); version.setDefinitionId(definition.getId()); version.setVersionNo(1);
             version.setPublishStatus(WorkflowPublishStatus.PUBLISHED); version.setSnapshotText("{}"); EntityLifecycle.prepareInsert(version, Instant.now()); versions.insert(version);

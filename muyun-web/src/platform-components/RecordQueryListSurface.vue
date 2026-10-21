@@ -46,6 +46,8 @@ const props = withDefaults(
     rowDraggable?: boolean;
     rowDragHandleTitle?: string;
     tableVisible?: boolean;
+    loading?: boolean;
+    emptyDescription?: string;
     conditionsVisible?: boolean;
     embedded?: boolean;
     chromeFree?: boolean;
@@ -87,6 +89,8 @@ const props = withDefaults(
     rowDraggable: false,
     rowDragHandleTitle: undefined,
     tableVisible: true,
+    loading: false,
+    emptyDescription: undefined,
     conditionsVisible: true,
     embedded: false,
     chromeFree: false,
@@ -214,6 +218,8 @@ defineSlots<{
       <UiDataTable
         v-if="tableVisible"
         class="record-query-list-table"
+        :loading="loading"
+        :empty-description="emptyDescription"
         :columns="columns"
         :rows="rows"
         :row-key="rowKey"

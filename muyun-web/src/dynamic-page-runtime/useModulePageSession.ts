@@ -37,6 +37,7 @@ import {
   createQueryScopedTreeModuleContext,
   createQueryReferencePickerProvider,
   listDetailWorkspaceMinWidth,
+  useWorkspaceDetailSurface,
   createReferenceRecordDetailBrowser,
   confirmAction,
   parentRecordConstraints,
@@ -767,7 +768,6 @@ export function useModulePageSession(
   let navigatorManagementSession = 0;
   const scopeSearchKeyword = ref('');
   const scopeReloadKey = ref(0);
-  const narrowDetailSurface = ref(false);
   const detailSurfacePreference = ref<DetailSurfacePreference | undefined>(
     normalizeDetailSurfacePreference(
       userPreferences.get(`module-page.detail-surface.${context.moduleAlias}`, undefined),
@@ -784,8 +784,6 @@ export function useModulePageSession(
   const recordOnlyClosePending = ref(false);
   const workspaceElement = ref<HTMLElement>();
   let unregisterListRefresh: (() => void) | undefined;
-  let workspaceResizeObserver: ResizeObserver | undefined;
-  let removeWorkspaceResizeFallback: (() => void) | undefined;
   let detailSurfacePreferenceRestoreRevision = 0;
   let detailSurfacePreferenceWrite = Promise.resolve();
   let listPageSizePreferenceRestoreRevision = 0;
@@ -1353,6 +1351,7 @@ export function useModulePageSession(
   const navigatorExplorerCount = computed(
     () => visibleNavigatorLevels.value.length + (navigatorExtension.value ? 1 : 0),
   );
+  const narrowDetailSurface = useWorkspaceDetailSurface(workspaceElement, listDetailMinimumWidth);
   const navigatorExtensionContext = computed<ModulePageNavigatorExtensionContext>(() => ({
     moduleAlias: context.moduleAlias,
     selectionKey: navigatorExtensionSelection.value?.key,
@@ -2280,8 +2279,6 @@ export function useModulePageSession(
     // after both descriptors have settled.
     await nextTick();
     if (disposed) return;
-    observeWorkspaceWidth();
-    updateDetailSurfaceForWorkspaceWidth();
     if (isListPage.value && !pageBootstrapError.value) {
       unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
     }
@@ -2344,33 +2341,9 @@ export function useModulePageSession(
 
   onUnmounted(() => {
     disposePageEnhancement?.();
-    workspaceResizeObserver?.disconnect();
-    removeWorkspaceResizeFallback?.();
     unregisterListRefresh?.();
     unregisterListRefresh = undefined;
   });
-
-  function observeWorkspaceWidth() {
-    if (typeof ResizeObserver !== 'undefined' && workspaceElement.value) {
-      workspaceResizeObserver = new ResizeObserver(() => updateDetailSurfaceForWorkspaceWidth());
-      workspaceResizeObserver.observe(workspaceElement.value);
-      updateDetailSurfaceForWorkspaceWidth();
-      return;
-    }
-    if (typeof window === 'undefined') return;
-    const onResize = () => updateDetailSurfaceForWorkspaceWidth();
-    window.addEventListener('resize', onResize);
-    removeWorkspaceResizeFallback = () => window.removeEventListener('resize', onResize);
-    onResize();
-  }
-
-  function updateDetailSurfaceForWorkspaceWidth() {
-    const workspaceWidth = workspaceElement.value?.getBoundingClientRect().width;
-    // A detached/hidden host has no meaningful layout width. Defer its decision
-    // until ResizeObserver (or the resize fallback) receives a real measurement.
-    if (workspaceWidth == null || workspaceWidth <= 0) return;
-    narrowDetailSurface.value = workspaceWidth < listDetailMinimumWidth.value;
-  }
 
   function handleFlatManagementLoaded(records: QueryListRecord[]) {
     loadFlatManagementRecords(records, flatManagementRecycleBin.active.value);

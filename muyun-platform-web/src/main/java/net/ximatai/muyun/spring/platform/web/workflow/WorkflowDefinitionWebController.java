@@ -67,6 +67,31 @@ public class WorkflowDefinitionWebController
             return configurationCatalog.forModule(definition.getModuleAlias()); });
     }
 
+    @org.springframework.web.bind.annotation.GetMapping("/formula-functions")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public java.util.List<net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction> formulaFunctions(
+            HttpServletRequest request) {
+        return webScope(() -> {
+            requireModule(request);
+            // Workflow facts currently expose scalar record fields, not aggregate children.
+            return net.ximatai.muyun.spring.platform.metadata.FormulaFunctionCatalog.functions().stream()
+                    .filter(function -> !net.ximatai.muyun.spring.common.formula.FormulaEngine.isAggregateFunction(function.name())).toList();
+        });
+    }
+
+    @PostMapping("/validate-condition")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public java.util.Map<String, Boolean> validateCondition(HttpServletRequest request,
+            @RequestBody ConditionValidationRequest payload) {
+        return webScope(() -> {
+            requireModule(request);
+            designs.validateSelectionExpression(payload.expression());
+            return java.util.Map.of("valid", true);
+        });
+    }
+
+    public record ConditionValidationRequest(String expression) {}
+
     @Override
     protected void appendScope(Criteria criteria, HttpServletRequest request) {
         criteria.eq("moduleAlias", moduleAlias(request));
@@ -130,6 +155,17 @@ public class WorkflowDefinitionWebController
             requireScopedRecord(request, definitionId);
             return publishFacade.publish(definitionId, versionId, publishRequest.definitionVersion(),
                     publishRequest.version(), currentOperatorIdOrNull());
+        });
+    }
+
+    @PostMapping("/{definitionId}/enable")
+    @CustomActionEndpoint(value = "enableWorkflowDefinition", title = "启用工作流定义",
+            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "definitionId")
+    public WorkflowDefinition enableDefinition(HttpServletRequest request, @PathVariable String definitionId,
+                                               @RequestBody RecordActionWebRequest actionRequest) {
+        return webScope(() -> {
+            requireScopedRecord(request, definitionId);
+            return publishFacade.enable(definitionId, actionRequest.version());
         });
     }
 

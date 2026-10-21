@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.HandlerMapping;
 
+import net.ximatai.muyun.spring.web.RecordActionWebRequest;
 import java.util.Map;
 import java.util.Optional;
 
@@ -43,8 +44,9 @@ class WorkflowConfigurationWebControllerTest {
         TenantContext.clear();
     }
 
-    @Test
-    void shouldBindWorkflowDefinitionModuleFromPathAndForceDraftOnInsert() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldBindWorkflowDefinitionModuleFromPathAndForceDraftOnInsert(boolean withAlias) throws Exception {
         WorkflowDefinitionService definitionService = mock(WorkflowDefinitionService.class);
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         WorkflowPublishFacade publishFacade = mock(WorkflowPublishFacade.class);
@@ -64,12 +66,12 @@ class WorkflowConfigurationWebControllerTest {
                                 {
                                   "applicationAlias":"other",
                                   "moduleAlias":"other.module",
-                                  "alias":"approval",
+                                  %s
                                   "title":"Approval",
                                   "definitionStatus":"PUBLISHED",
                                   "currentVersionNo":3
                                 }
-                                """))
+                                """.formatted(withAlias ? "\"alias\":\"approval\"," : "")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.applicationAlias").value("sales"))
                 .andExpect(jsonPath("$.moduleAlias").value("sales.contract"));
@@ -79,6 +81,7 @@ class WorkflowConfigurationWebControllerTest {
         assertThat(captor.getValue().getApplicationAlias()).isEqualTo("sales");
         assertThat(captor.getValue().getModuleAlias()).isEqualTo("sales.contract");
         assertThat(captor.getValue().getDefinitionStatus()).isEqualTo(WorkflowDefinitionStatus.DRAFT);
+        assertThat(captor.getValue().getAlias()).isEqualTo(withAlias ? "approval" : null);
         assertThat(captor.getValue().getCurrentVersionNo()).isNull();
     }
 
@@ -176,6 +179,54 @@ class WorkflowConfigurationWebControllerTest {
                 .andExpect(jsonPath("$.publishStatus").value("PUBLISHED"));
 
         verify(publishFacade).publish("def-1", "ver-1", 3, 2, "user-1");
+    }
+
+    @Test
+    void formulaAuthoringUsesVisibleModuleScopeAndTheSharedEngineCatalog() throws Exception {
+        var modules = mock(PlatformModuleService.class);
+        var designs = new net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService(
+                mock(WorkflowDefinitionService.class), mock(WorkflowVersionService.class),
+                mock(net.ximatai.muyun.spring.platform.workflow.WorkflowNodeDefinitionDao.class),
+                mock(net.ximatai.muyun.spring.platform.workflow.WorkflowLinkDefinitionDao.class),
+                new net.ximatai.muyun.spring.platform.workflow.WorkflowDesignCompiler(
+                        new net.ximatai.muyun.spring.platform.workflow.WorkflowConditionService((module, record) -> {
+                            throw new AssertionError("syntax validation must not read business records");
+                        })), mock(net.ximatai.muyun.spring.platform.workflow.WorkflowBusinessTaskResolver.class));
+        var controller = new WorkflowDefinitionWebController(modules, mock(WorkflowPublishFacade.class), designs);
+        when(modules.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract"));
+        var request = requestVars("sales.contract", "unused");
+        assertThat(controller.formulaFunctions(request)).extracting(net.ximatai.muyun.spring.platform.metadata.BusinessRuleFunction::name)
+                .contains("PRESENT", "ISNULL", "IN").doesNotContain("SUM", "COUNT");
+        assertThat(controller.validateCondition(request, new WorkflowDefinitionWebController.ConditionValidationRequest("{amount} > 100")))
+                .containsEntry("valid", true);
+        assertThatThrownBy(() -> controller.validateCondition(request,
+                new WorkflowDefinitionWebController.ConditionValidationRequest("{amount} = 100")))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+        assertThatThrownBy(() -> controller.validateCondition(request,
+                new WorkflowDefinitionWebController.ConditionValidationRequest("{amount} >")))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class);
+        assertThatThrownBy(() -> controller.formulaFunctions(requestVars("sales.hidden", "unused")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldEnableThroughVersionedFacadeOnlyInsideTheOwningModule() throws Exception {
+        WorkflowDefinitionService definitions = mock(WorkflowDefinitionService.class);
+        WorkflowPublishFacade publish = mock(WorkflowPublishFacade.class);
+        var controller = new WorkflowDefinitionWebController(mock(PlatformModuleService.class), publish,
+                mock(net.ximatai.muyun.spring.platform.workflow.WorkflowDesignService.class));
+        ReflectionTestUtils.setField(controller, "service", definitions);
+        when(definitions.select("def-1")).thenReturn(definition("def-1", "sales.contract", WorkflowDefinitionStatus.DISABLED));
+        when(publish.enable("def-1", 3)).thenReturn(definition("def-1", "sales.contract", WorkflowDefinitionStatus.PUBLISHED));
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(post("/platform.module/sales.contract/workflow-definitions/def-1/enable")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":3}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.definitionStatus").value("PUBLISHED"));
+        verify(publish).enable("def-1", 3);
+        assertThatThrownBy(() -> controller.enableDefinition(requestVars("sales.other", "def-1"), "def-1",
+                new RecordActionWebRequest(3)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(publish, org.mockito.Mockito.times(1)).enable("def-1", 3);
     }
 
     private WorkflowDefinition definition(String id, String moduleAlias, WorkflowDefinitionStatus status) {

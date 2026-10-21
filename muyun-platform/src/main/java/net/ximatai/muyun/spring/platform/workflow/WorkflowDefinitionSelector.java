@@ -47,17 +47,25 @@ public class WorkflowDefinitionSelector {
                 .eq("definitionStatus", WorkflowDefinitionStatus.PUBLISHED)
                 .eq("enabled", Boolean.TRUE);
         boolean hasDefinitionAlias = request.definitionAlias() != null && !request.definitionAlias().isBlank();
-        if (hasDefinitionAlias) {
+        boolean hasDefinitionId = request.definitionId() != null && !request.definitionId().isBlank();
+        if (hasDefinitionId && hasDefinitionAlias) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition-selector.choose-id-or-alias",
+                    "specify either workflow definition id or alias, not both"));
+        }
+        if (hasDefinitionId) {
+            criteria.eq("id", request.definitionId());
+        } else if (hasDefinitionAlias) {
             criteria.eq("alias", PlatformNameRules.requireIdentifier(request.definitionAlias(), "workflowAlias"));
         } else if (!request.approvalRequired()) {
             throw PlatformErrors.badRequestText(TextReference.code(
                     "platform.rejection.workflow-definition-selector.enter-a-definition-alias-for-a-workflow-without-approval",
-                    "workflow definition alias is required for non-approval workflow"));
+                    "workflow definition id or alias is required for non-approval workflow"));
         }
         String tenant = net.ximatai.muyun.spring.common.tenant.TenantContext.currentTenantId().orElse(null);
         List<WorkflowDefinition> definitions;
         try (var definitionScope = net.ximatai.muyun.spring.common.tenant.TenantContext.system("workflow published definition selection")) {
-            definitions = definitionService.list(criteria, ALL, Sort.asc("sortOrder"), Sort.asc("alias"))
+            definitions = definitionService.list(criteria, ALL, Sort.asc("sortOrder"), Sort.asc("alias"), Sort.asc("id"))
                     .stream().filter(item -> item.getTenantId() == null || java.util.Objects.equals(item.getTenantId(), tenant)).toList();
         }
         WorkflowDefinition definition = match(definitions, request);
@@ -79,18 +87,16 @@ public class WorkflowDefinitionSelector {
         for (String organizationId : scopes) {
             var candidates = definitions.stream()
                     .filter(item -> java.util.Objects.equals(item.getOrganizationId(), organizationId))
+                    // sortOrder belongs to a tenant/module partition, never a cross-tenant sequence.
+                    // Stable sorting retains each partition's list order while preferring tenant configuration.
+                    .sorted(java.util.Comparator.comparing(item -> item.getTenantId() == null))
                     .toList();
             var matched = candidates.stream().filter(item -> !Boolean.TRUE.equals(item.getDefaultDefinition()))
                     .filter(item -> conditions.matches(item.getMatchExpression(), request.moduleAlias(), request.recordId()))
-                    .toList();
-            if (matched.isEmpty()) matched = candidates.stream().filter(item -> Boolean.TRUE.equals(item.getDefaultDefinition())).toList();
-            if (matched.isEmpty()) continue;
-            int priority = matched.stream().mapToInt(item -> item.getMatchPriority() == null ? 0 : item.getMatchPriority()).max().orElse(0);
-            var winners = matched.stream().filter(item -> (item.getMatchPriority() == null ? 0 : item.getMatchPriority()) == priority).toList();
-            if (winners.size() != 1) throw PlatformErrors.badRequestText(TextReference.code(
-                    "platform.rejection.workflow-definition-selector.multiple-approval-workflows-match-review-their-matching-rules",
-                    "multiple approval workflow definitions matched: {value1}"), Map.of("value1", String.valueOf(request.moduleAlias())));
-            return winners.getFirst();
+                    .findFirst();
+            if (matched.isPresent()) return matched.get();
+            var fallback = candidates.stream().filter(item -> Boolean.TRUE.equals(item.getDefaultDefinition())).findFirst();
+            if (fallback.isPresent()) return fallback.get();
         }
         throw new PlatformException(NO_PUBLISHED_DEFINITION, 404,
                 "published workflow definition not found: " + request.moduleAlias(), null,

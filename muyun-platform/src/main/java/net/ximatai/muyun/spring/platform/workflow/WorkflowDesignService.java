@@ -59,17 +59,34 @@ public class WorkflowDesignService {
                 "platform.rejection.workflow-design.enter-a-workflow-name",
                 "流程名称不能为空"));
         compiler.validateSelectionExpression(settings.matchExpression());
+        if (settings.actionCode() != null) {
+            var actionCode = settings.actionCode().trim();
+            if (definition.getCurrentVersionNo() != null
+                    && !java.util.Objects.equals(definition.getActionCode(), actionCode))
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-definition.published-action-code-is-immutable",
+                        "已发布流程不能修改模块动作编码"));
+            definition.setActionCode(actionCode);
+        }
         definition.setTitle(settings.title().trim());
         definition.setOrganizationId(settings.organizationId() == null || settings.organizationId().isBlank() ? null : settings.organizationId().trim());
         definition.setMatchExpression(settings.matchExpression() == null || settings.matchExpression().isBlank() ? null : settings.matchExpression().trim());
-        definition.setMatchPriority(settings.matchPriority() == null ? 0 : settings.matchPriority());
         definition.setDefaultDefinition(Boolean.TRUE.equals(settings.defaultDefinition()));
         definitions.update(definition);
         return definitions.select(definitionId);
     }
 
+    public void validateSelectionExpression(String expression) {
+        compiler.validateSelectionExpression(expression);
+    }
+
     public record SelectionSettings(Integer version, String title, String organizationId, String matchExpression,
-                                    Integer matchPriority, Boolean defaultDefinition) {}
+                                    Boolean defaultDefinition, String actionCode) {
+        public SelectionSettings(Integer version, String title, String organizationId, String matchExpression,
+                                 Boolean defaultDefinition) {
+            this(version, title, organizationId, matchExpression, defaultDefinition, null);
+        }
+    }
 
     @Transactional
     public WorkflowVersion save(String definitionId, String versionId, Integer expectedVersion,

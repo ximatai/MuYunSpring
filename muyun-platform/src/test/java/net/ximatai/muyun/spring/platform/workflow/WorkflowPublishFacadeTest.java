@@ -42,10 +42,12 @@ class WorkflowPublishFacadeTest {
             new WorkflowModuleActionContributor(new ModuleActionContributionRegistrar(actionService), moduleService, actionService),
             nodeDefinitionDao, designs, compiler);
 
-    @Test
-    void shouldPublishWorkflowVersionAndContributeModuleAction() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldPublishWorkflowVersionAndContributeModuleAction(boolean withAlias) {
         moduleService.insert(module("sales.contract"));
         WorkflowDefinition definition = definition();
+        if (!withAlias) definition.setAlias(null);
         definitionService.insert(definition);
         WorkflowVersion version = version(definition.getId(), 1, WorkflowPublishStatus.DRAFT);
         versionService.insert(version);
@@ -65,7 +67,9 @@ class WorkflowPublishFacadeTest {
         assertThat(action).isNotNull();
         assertThat(action.getCategory()).isEqualTo(EntityActionCategory.WORKFLOW);
         assertThat(action.getBindingType()).isEqualTo(ModuleActionBindingType.WORKFLOW_DEFINITION);
-        assertThat(action.getBindingAlias()).isEqualTo("sync");
+        assertThat(action.getBindingAlias()).isEqualTo(withAlias ? "sync" : null);
+        assertThat(action.getBindingId()).isEqualTo(definition.getId());
+        assertThat(publishedDefinition.getAlias()).isEqualTo(withAlias ? "sync" : null);
     }
 
     @Test
@@ -113,10 +117,12 @@ class WorkflowPublishFacadeTest {
                 .hasMessageContaining("overtime durations are only supported on approval nodes");
     }
 
-    @Test
-    void shouldPublishApprovalWorkflowRuntimeActionsWithoutSubmitWorkflowAction() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldPublishApprovalWorkflowRuntimeActionsWithoutSubmitWorkflowAction(boolean withAlias) {
         moduleService.insert(module("sales.contract"));
         WorkflowDefinition definition = definition();
+        if (!withAlias) definition.setAlias(null);
         definition.setApprovalEnabled(true);
         definition.setActionCode(null);
         definitionService.insert(definition);
@@ -189,6 +195,49 @@ class WorkflowPublishFacadeTest {
         PlatformModuleAction action = actionService.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow");
         assertThat(publishedDefinition.getDefinitionStatus()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
         assertThat(action.getEnabled()).isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void enablingRestoresOnlyTheCurrentPublishedVersionAndItsActions(boolean approval) {
+        moduleService.insert(module("sales.contract"));
+        WorkflowDefinition definition = definition();
+        definition.setAlias(null);
+        definition.setApprovalEnabled(approval);
+        if (approval) definition.setActionCode(null);
+        definitionService.insert(definition);
+        WorkflowVersion published = version(definition.getId(), 1, WorkflowPublishStatus.DRAFT);
+        versionService.insert(published);
+        graph(published.getId());
+        facade.publish(definition.getId(), published.getId());
+        WorkflowVersion working = version(definition.getId(), 2, WorkflowPublishStatus.DRAFT);
+        working.setId("working-draft");
+        versionService.insert(working);
+        var disabled = facade.disable(definition.getId());
+        String snapshot = versionService.select(published.getId()).getSnapshotText();
+
+        assertThatThrownBy(() -> facade.enable(definition.getId(), disabled.getVersion() - 1))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.OptimisticLockException.class);
+        var enabled = facade.enable(definition.getId(), disabled.getVersion());
+
+        assertThat(enabled.getDefinitionStatus()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
+        assertThat(enabled.getEnabled()).isTrue();
+        assertThat(enabled.getCurrentVersionNo()).isEqualTo(1);
+        assertThat(versionService.select(working.getId()).getPublishStatus()).isEqualTo(WorkflowPublishStatus.DRAFT);
+        assertThat(versionService.select(published.getId()).getSnapshotText()).isEqualTo(snapshot);
+        assertThat(actionService.findByModuleAliasAndActionCode("sales.contract", approval ? "approve" : "syncWorkflow").getEnabled()).isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WorkflowDefinitionStatus.class, names = {"DRAFT", "ARCHIVED", "DISABLED"})
+    void enablingCannotBypassPublicationOrRestoreAnArchive(WorkflowDefinitionStatus status) {
+        WorkflowDefinition definition = definition();
+        definition.setDefinitionStatus(status);
+        definition.setCurrentVersionNo(1);
+        definitionService.insert(definition);
+        assertThatThrownBy(() -> facade.enable(definition.getId(), definition.getVersion()))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("published version");
+        assertThat(definitionService.select(definition.getId()).getDefinitionStatus()).isEqualTo(status);
     }
 
     private WorkflowDefinition definition() {
