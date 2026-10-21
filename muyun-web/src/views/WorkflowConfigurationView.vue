@@ -589,7 +589,19 @@ function pasteText(text: string, target: string) {
     `copy_${crypto.randomUUID().replaceAll('-', '')}`,
   );
   design.value = pasted.design;
-  selectNodes(pasted.keys);
+  if (pasted.reconfigureSelectorKeys.length) {
+    const names = pasted.reconfigureSelectorKeys
+      .map((key) => pasted.design.nodes.find((node) => node.nodeKey === key)?.title ?? key)
+      .join('、');
+    showInfoMessage(
+      workflowLanguage.t(
+        'platform.workflow-config.paste-reconfigure-selectors',
+        '已粘贴，以下人工分支需要重新配置选择来源：{names}。',
+        { names },
+      ),
+    );
+    selectNode(pasted.reconfigureSelectorKeys[0]);
+  } else selectNodes(pasted.keys);
 }
 function pasteSelection(event: ClipboardEvent) {
   if (!editable.value || !event.clipboardData) return;

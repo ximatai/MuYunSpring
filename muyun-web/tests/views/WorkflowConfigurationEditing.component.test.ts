@@ -225,3 +225,32 @@ it('retains existing path selection during unrelated history changes and filters
     wrapper.unmount();
   }
 });
+
+it('explains manual selector reconfiguration and opens the pasted branch properties', async () => {
+  const { wrapper, graph } = await fixture();
+  try {
+    const source = insertWorkflowBranch(createWorkflowDesign(false), 'route_2', 'manual');
+    Object.assign(source.nodes.find((node) => node.nodeKey === 'manual')!, {
+      routeMode: 'manual',
+      selectorNodeKey: 'approval',
+    });
+    graph.vm.$emit('select', 'approval');
+    await flushPromises();
+    graph.vm.$emit('paste', {
+      clipboardData: { getData: () => copyWorkflowFragment(source, ['manual']) },
+      preventDefault() {},
+    });
+    await flushPromises();
+    const branch = graph
+      .props('nodes')
+      .find(
+        (node: { nodeKey: string; nodeType: string }) =>
+          node.nodeKey.startsWith('copy_') && node.nodeType === 'branch',
+      );
+    expect(showInfoMessage).toHaveBeenCalledWith(expect.stringContaining('需要重新配置选择来源'));
+    expect(graph.props('selectedNodeKey')).toBe(branch.nodeKey);
+    expect(wrapper.findComponent({ name: 'RecordAdaptiveDetailPanel' }).attributes('open')).toBe('true');
+  } finally {
+    wrapper.unmount();
+  }
+});

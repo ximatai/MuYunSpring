@@ -190,6 +190,8 @@ class WorkflowDefinitionSelectorTest {
                 .hasMessageContaining("not both");
     }
 
+    private int definitionSequence;
+
     private WorkflowDefinition definition(String moduleAlias, String alias, boolean approvalEnabled,
                                           WorkflowDefinitionStatus status) {
         WorkflowDefinition definition = new WorkflowDefinition();
@@ -198,6 +200,7 @@ class WorkflowDefinitionSelectorTest {
         definition.setAlias(alias);
         definition.setTitle(alias == null ? "无编码流程" : alias);
         definition.setApprovalEnabled(approvalEnabled);
+        if (!approvalEnabled) definition.setActionCode("runFlow" + (++definitionSequence));
         definition.setDefinitionStatus(status);
         definition.setEnabled(Boolean.TRUE);
         return definition;

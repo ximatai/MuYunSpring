@@ -73,3 +73,28 @@ it('rejects partial, disconnected or malformed selections and unsafe clipboard g
   const pasted = pasteWorkflowFragment(source, 'route_1', copied, 'copy').design;
   expect(() => pasteWorkflowFragment(pasted, 'route_1', copied, 'copy')).toThrow();
 });
+
+it('reports manual branches whose external selection source must be reconfigured without binding to unrelated pasted nodes', () => {
+  const source = insertWorkflowBranch(createWorkflowDesign(false), 'route_2', 'manual');
+  Object.assign(source.nodes.find((node) => node.nodeKey === 'manual')!, {
+    routeMode: 'manual',
+    selectorNodeKey: 'approval',
+  });
+  const pasted = pasteWorkflowFragment(
+    source,
+    'manual_next',
+    copyWorkflowFragment(source, ['manual']),
+    'copy',
+  );
+  const branch = pasted.design.nodes.find((node) => node.nodeKey === 'copy_n0')!;
+  expect(branch.routeMode).toBe('manual');
+  expect(branch.selectorNodeKey).toBeUndefined();
+  expect(pasted.reconfigureSelectorKeys).toEqual([branch.nodeKey]);
+  const entire = pasteWorkflowFragment(
+    source,
+    'route_1',
+    copyWorkflowFragment(source, ['approval', 'manual']),
+    'all',
+  );
+  expect(entire.reconfigureSelectorKeys).toEqual([]);
+});

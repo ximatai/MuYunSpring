@@ -122,7 +122,7 @@ export function pasteWorkflowFragment(
   routeKey: string,
   text: string,
   prefix: string,
-): { design: WorkflowDesign; keys: string[] } {
+): { design: WorkflowDesign; keys: string[]; reconfigureSelectorKeys: string[] } {
   if (text.length > 1_000_000) throw new Error('流程片段过大');
   let fragment: Fragment;
   try {
@@ -185,5 +185,8 @@ export function pasteWorkflowFragment(
       ],
     },
     keys: nodes.map((node) => node.nodeKey),
+    reconfigureSelectorKeys: nodes
+      .filter((node) => node.nodeType === 'branch' && node.routeMode === 'manual' && !node.selectorNodeKey)
+      .map((node) => node.nodeKey),
   };
 }

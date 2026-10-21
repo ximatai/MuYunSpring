@@ -85,6 +85,26 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         PlatformAbilityRuntime.resetMutationTransactionOperator(); TenantContext.clear(); CurrentUserContext.clear();
     }
 
+    @Test void actionIdentityValidationUsesPersistedFactsAndCanRepairLegacyDrafts() {
+        try (var context = TenantContext.use("read-tenant-a")) {
+            var draft = new WorkflowDefinition(); draft.setApplicationAlias("test"); draft.setModuleAlias(module);
+            draft.setTitle("Task"); draft.setApprovalEnabled(false);
+            assertThatThrownBy(() -> definitionService.insert(draft)).hasMessageContaining("非审批流程必须配置模块动作编码");
+            draft.setActionCode("runTask"); definitionService.insert(draft);
+            var published = definitionService.select(draft.getId()); published.setCurrentVersionNo(1);
+            definitionService.update(published);
+            var changed = definitionService.select(draft.getId()); changed.setActionCode("anotherTask");
+            assertThatThrownBy(() -> definitionService.update(changed)).hasMessageContaining("已发布流程不能修改模块动作编码");
+            assertThat(definitionService.select(draft.getId()).getActionCode()).isEqualTo("runTask");
+            var legacy = new WorkflowDefinition(); legacy.setApplicationAlias("test"); legacy.setModuleAlias(module);
+            legacy.setTenantId("read-tenant-a"); legacy.setTitle("Legacy draft"); legacy.setApprovalEnabled(false);
+            EntityLifecycle.prepareInsert(legacy, Instant.now()); definitions.insert(legacy);
+            var repaired = definitionService.select(legacy.getId()); repaired.setActionCode("repairTask");
+            definitionService.update(repaired);
+            assertThat(definitionService.select(legacy.getId()).getActionCode()).isEqualTo("repairTask");
+        }
+    }
+
     @Test void selectedTenantLimitsUserAndSystemAdministratorQueriesAndRejectsForeignIds() {
         try (var principal = CurrentUserContext.use(CurrentUser.systemUser("reviewer", "admin"));
              var context = TenantContext.use("read-tenant-a")) {

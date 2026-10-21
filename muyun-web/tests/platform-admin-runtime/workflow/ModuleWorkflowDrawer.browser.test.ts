@@ -90,6 +90,9 @@ it('uses the standard drawer and keeps draft actions fixed at the bottom while f
     await page.getByText('适用范围与匹配规则（可选）', { exact: true }).click();
     await page.getByRole('button', { name: '公式辅助', exact: true }).click();
     await flushPromises();
+    await page.getByText('驱动业务审批状态', { exact: true }).click();
+    await page.getByRole('textbox', { name: '模块动作编码', exact: true }).fill('syncData');
+    await expect.element(page.getByRole('textbox', { name: '模块动作编码', exact: true })).toBeVisible();
     const create = page.getByRole('button', { name: '创建流程草稿', exact: true });
     await expect.element(create).toBeVisible();
     const button = wrapper

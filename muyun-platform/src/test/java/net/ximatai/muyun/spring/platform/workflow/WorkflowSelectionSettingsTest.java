@@ -79,6 +79,24 @@ class WorkflowSelectionSettingsTest {
         assertThatCode(() -> service.save("definition", draft.getId(), draft.getVersion(),
                 new WorkflowDesignDocument(java.util.List.of(), java.util.List.of(), null))).doesNotThrowAnyException();
     }
+    @Test void draftSettingsCanRepairLegacyMissingActionCodeButPublishedIdentityCannotChange() {
+        var definitions = mock(WorkflowDefinitionService.class);
+        var definition = new WorkflowDefinition(); definition.setId("definition"); definition.setVersion(1);
+        definition.setApprovalEnabled(false); definition.setDefinitionStatus(WorkflowDefinitionStatus.DRAFT);
+        when(definitions.select("definition")).thenReturn(definition);
+        var service = service(definitions);
+        service.configureSelection("definition", new WorkflowDesignService.SelectionSettings(1,"Task",null,null,false,"runTask"));
+        assertThat(definition.getActionCode()).isEqualTo("runTask");
+        verify(definitions).update(definition);
+        clearInvocations(definitions);
+        definition.setCurrentVersionNo(1);
+        assertThatThrownBy(() -> service.configureSelection("definition",
+                new WorkflowDesignService.SelectionSettings(1,"Task",null,null,false,"anotherTask")))
+                .hasMessageContaining("已发布流程不能修改模块动作编码");
+        verify(definitions, never()).update(any());
+        assertThat(definition.getActionCode()).isEqualTo("runTask");
+    }
+
     private WorkflowVersion copy(WorkflowVersion source) {
         var copy = new WorkflowVersion(); copy.setId(source.getId()); copy.setVersion(source.getVersion());
         copy.setDefinitionId(source.getDefinitionId()); copy.setVersionNo(source.getVersionNo()); copy.setPublishStatus(source.getPublishStatus());

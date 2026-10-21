@@ -29,7 +29,7 @@
 | `POST` | `/platform.module/{moduleAlias}/workflow-definitions/{definitionId}/disable`                      | 停用工作流定义，并禁用已贡献动作。                                                         |
 | `POST` | `/platform.module/{moduleAlias}/workflow-definitions/{definitionId}/archive`                      | 归档工作流定义，并禁用已贡献动作。                                                         |
 
-新增定义的 `alias` 可省略或为空，服务端不自动生成；显式提供时沿用既有格式与唯一性校验。前端配置仅填写名称和相关业务设置，定义及版本始终通过 ID 定位。
+新增定义的 `alias` 可省略或为空，服务端不自动生成；显式提供时沿用既有格式与唯一性校验。`approvalEnabled=false` 时创建必须显式提供 `actionCode`（小写字母开头，后续可含字母、数字、下划线，最多64位）；审批流程无需该字段。`actionCode` 是模块动作身份，不是流程别名，首次发布后不可修改。定义及版本始终通过 ID 定位。
 
 普通定义维护只面向草稿；发布、停用和归档必须走发布门面，避免绕过动作贡献和状态同步。
 
@@ -44,7 +44,7 @@
 | POST | `/sort/{id}` | 标准排序，提交 `{previousId}` 或 `{nextId}`；需排序权限，同租户、同模块内移动，对后续提交生效。 |
 | GET | `/formula-functions` | 返回共用公式函数目录中的标量函数说明；需定义查询权限及可见模块。 |
 | POST | `/validate-condition` | 提交 `{expression}`，使用服务端公式引擎校验语法并禁止字段赋值；不读取业务记录，不替代运行时布尔结果判定。 |
-| POST | `/{definitionId}/selection` | 按定义版本调整名称、组织、条件和默认兜底，仅影响以后提交。 |
+| POST | `/{definitionId}/selection` | 按定义版本调整名称、组织、条件和默认兜底；未发布草稿可附带 `actionCode` 修复或修改动作编码，发布后的编码保持不变。 |
 
 发布版本不可改写。重复启用已发布版本保留原快照；新增版本不影响已经启动的实例。
 

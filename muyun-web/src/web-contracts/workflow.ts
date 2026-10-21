@@ -4,6 +4,7 @@ export interface WorkflowDefinition {
   id: string;
   version: number;
   alias?: string | null;
+  actionCode?: string | null;
   title?: string;
   definitionStatus: string;
   currentVersionNo?: number;
@@ -279,17 +280,17 @@ export interface WorkflowConfigurationCatalog {
   associations: { id: string; title: string }[];
 }
 export interface WorkflowDefinitionSelection {
+  actionCode?: string;
   version: number;
   title: string;
   organizationId: string | null;
   matchExpression: string | null;
   defaultDefinition: boolean;
 }
-export interface WorkflowDefinitionCreate extends Omit<WorkflowDefinitionSelection, 'version'> {
+export type WorkflowDefinitionCreate = Omit<WorkflowDefinitionSelection, 'version' | 'actionCode'> & {
   alias?: string | null;
-  approvalEnabled: boolean;
   enabled: boolean;
-}
+} & ({ approvalEnabled: true; actionCode?: string } | { approvalEnabled: false; actionCode: string });
 export interface WorkflowAdminInstance {
   instanceId: string;
   moduleAlias: string;

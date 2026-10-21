@@ -536,3 +536,66 @@ describe('module workflow management drawer', () => {
     },
   );
 });
+
+it('requires and submits an explicit module action code for non-approval workflow creation', async () => {
+  const t = setup();
+  try {
+    await flushPromises();
+    await t.button('新建流程').trigger('click');
+    t.input('流程名称').vm.$emit('update:value', '数据同步');
+    t.wrapper.findComponent({ name: 'WorkflowDefinitionSettings' }).vm.$emit('update:approvalEnabled', false);
+    await flushPromises();
+    expect(t.input('模块动作编码').exists()).toBe(true);
+    expect(t.button('创建流程草稿').props('disabled')).toBe(true);
+    await t.wrapper.get('form').trigger('submit');
+    expect(t.request.mock.calls.some(([call]) => call.path.endsWith('/insert'))).toBe(false);
+    t.input('模块动作编码').vm.$emit('update:value', 'Invalid action');
+    await flushPromises();
+    expect(t.button('创建流程草稿').props('disabled')).toBe(true);
+    t.input('模块动作编码').vm.$emit('update:value', 'syncData');
+    await flushPromises();
+    await t.button('创建流程草稿').trigger('click');
+    await flushPromises();
+    expect(t.request.mock.calls.find(([call]) => call.path.endsWith('/insert'))![0].body).toMatchObject({
+      approvalEnabled: false,
+      actionCode: 'syncData',
+      title: '数据同步',
+    });
+  } finally {
+    t.wrapper.unmount();
+  }
+});
+
+it.each([false, true])(
+  'repairs draft action identity and locks it after first publication: published=%s',
+  async (published) => {
+    const t = setup({
+      records: [
+        {
+          ...definition,
+          approvalEnabled: false,
+          actionCode: published ? 'syncData' : null,
+          currentVersionNo: published ? 1 : undefined,
+          definitionStatus: published ? 'published' : 'draft',
+        },
+      ],
+    });
+    try {
+      await flushPromises();
+      await t.button('设置').trigger('click');
+      await flushPromises();
+      expect(t.input('模块动作编码').props('disabled')).toBe(published);
+      if (!published) {
+        t.input('模块动作编码').vm.$emit('update:value', 'syncData');
+        await flushPromises();
+        await t.button('保存').trigger('click');
+        await flushPromises();
+        expect(
+          t.request.mock.calls.find(([call]) => call.path.endsWith('/selection'))![0].body,
+        ).toMatchObject({ actionCode: 'syncData' });
+      }
+    } finally {
+      t.wrapper.unmount();
+    }
+  },
+);

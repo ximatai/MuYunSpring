@@ -7,11 +7,13 @@ const props = defineProps<{
   configuration: ReturnType<typeof useWorkflowConfigurationContext>;
   creating: boolean;
   busy: boolean;
+  actionCodeLocked?: boolean;
 }>();
 const { language: workflowLanguage, fields, organizationContext, conditionTools } = props.configuration;
 const emit = defineEmits<{ submit: [] }>();
 const newTitle = defineModel<string>('title', { required: true });
 const approvalEnabled = defineModel<boolean>('approvalEnabled', { required: true });
+const actionCode = defineModel<string>('actionCode', { required: true });
 const organizationId = defineModel<string>('organizationId', { required: true });
 const matchExpression = defineModel<string>('matchExpression', { required: true });
 const fallback = defineModel<boolean>('fallback', { required: true });
@@ -54,6 +56,24 @@ const fallback = defineModel<boolean>('fallback', { required: true });
         }}
       </UiHelp>
     </div>
+    <label v-if="!approvalEnabled" class="workflow-field settings-wide">
+      <RecordFieldLabel required>{{
+        workflowLanguage.t('platform.workflow-config.action-code', '模块动作编码')
+      }}</RecordFieldLabel>
+      <UiInput
+        v-model:value="actionCode"
+        required
+        :disabled="busy || actionCodeLocked"
+        :invalid="!!actionCode.trim() && !/^[a-z][A-Za-z0-9_]{0,63}$/.test(actionCode.trim())"
+        :aria-label="workflowLanguage.t('platform.workflow-config.action-code', '模块动作编码')"
+      />
+      <span class="settings-help">{{
+        workflowLanguage.t(
+          'platform.workflow-config.action-code-help',
+          '用于流程启动动作，以小写字母开头，可含字母、数字、下划线，最多64位；发布后不能修改。',
+        )
+      }}</span>
+    </label>
     <details class="settings-wide" :open="!creating">
       <summary>
         {{ workflowLanguage.t('platform.workflow-config.optional-matching', '适用范围与匹配规则（可选）') }}

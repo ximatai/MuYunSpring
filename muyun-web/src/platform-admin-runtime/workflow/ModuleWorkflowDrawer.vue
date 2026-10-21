@@ -50,11 +50,16 @@ const keyword = ref(''),
   error = ref<() => string>();
 const title = ref(''),
   approvalEnabled = ref(true),
+  actionCode = ref(''),
   organizationId = ref(''),
   matchExpression = ref(''),
   fallback = ref(false);
 const canSort = computed(() => definitionContext.can?.('sort') === true);
-const valid = computed(() => !!title.value.trim());
+const valid = computed(
+  () =>
+    !!title.value.trim() &&
+    (approvalEnabled.value || /^[a-z][A-Za-z0-9_]{0,63}$/.test(actionCode.value.trim())),
+);
 let alive = true;
 onBeforeUnmount(() => {
   alive = false;
@@ -66,7 +71,7 @@ useWorkspaceViewUnsavedState(
   () => busy.value,
 );
 watch(
-  [title, approvalEnabled, organizationId, matchExpression, fallback],
+  [title, approvalEnabled, actionCode, organizationId, matchExpression, fallback],
   () => {
     if (editing.value) dirty.value = true;
   },
@@ -146,6 +151,7 @@ function edit(record?: WorkflowDefinition) {
   selected.value = record;
   title.value = record?.title ?? '';
   approvalEnabled.value = record?.approvalEnabled ?? true;
+  actionCode.value = record?.actionCode ?? '';
   organizationId.value = record?.organizationId ?? '';
   matchExpression.value = record?.matchExpression ?? '';
   fallback.value = record?.defaultDefinition ?? false;
@@ -184,11 +190,14 @@ async function save() {
       organizationId: organizationId.value || null,
       matchExpression: matchExpression.value || null,
       defaultDefinition: fallback.value,
+      ...(!approvalEnabled.value ? { actionCode: actionCode.value.trim() } : {}),
     };
     const saved = creating.value
       ? await client.create({
           ...settings,
-          approvalEnabled: approvalEnabled.value,
+          ...(approvalEnabled.value
+            ? { approvalEnabled: true as const }
+            : { approvalEnabled: false as const, actionCode: actionCode.value.trim() }),
           enabled: true,
         })
       : await client.saveSelection(selected.value!.id, { ...settings, version: selected.value!.version });
@@ -361,6 +370,8 @@ async function sort(event: { dragRecord: { id?: unknown }; dropRecord: { id?: un
       :busy="busy"
       v-model:title="title"
       v-model:approval-enabled="approvalEnabled"
+      v-model:action-code="actionCode"
+      :action-code-locked="!creating && selected?.currentVersionNo != null"
       v-model:organization-id="organizationId"
       v-model:match-expression="matchExpression"
       v-model:fallback="fallback"

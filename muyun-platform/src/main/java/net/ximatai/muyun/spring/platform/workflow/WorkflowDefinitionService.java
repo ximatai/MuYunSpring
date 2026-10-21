@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
 import org.springframework.stereotype.Service;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
+import net.ximatai.muyun.spring.common.i18n.TextReference;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -58,6 +60,14 @@ public class WorkflowDefinitionService extends AbstractAbilityService<WorkflowDe
     @Override
     public void beforeUpdate(WorkflowDefinition definition) {
         normalizeAndValidate(definition);
+        if (definition.getId() != null) {
+            var stored = select(definition.getId());
+            if (stored != null && stored.getCurrentVersionNo() != null
+                    && !java.util.Objects.equals(stored.getActionCode(), definition.getActionCode()))
+                throw PlatformErrors.badRequestText(TextReference.code(
+                        "platform.rejection.workflow-definition.published-action-code-is-immutable",
+                        "已发布流程不能修改模块动作编码"));
+        }
     }
 
     private void normalizeAndValidate(WorkflowDefinition definition) {
@@ -74,6 +84,10 @@ public class WorkflowDefinitionService extends AbstractAbilityService<WorkflowDe
         if (definition.getActionCode() != null) {
             definition.setActionCode(PlatformNameRules.requireActionCode(definition.getActionCode(), "actionCode"));
         }
+        if (!Boolean.TRUE.equals(definition.getApprovalEnabled()) && definition.getActionCode() == null)
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition.action-code-required",
+                    "非审批流程必须配置模块动作编码"));
         if (definition.getDefinitionStatus() == null) {
             definition.setDefinitionStatus(WorkflowDefinitionStatus.DRAFT);
         }
