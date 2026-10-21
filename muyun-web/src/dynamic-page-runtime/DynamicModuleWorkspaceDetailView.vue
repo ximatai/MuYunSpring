@@ -576,6 +576,7 @@ async function toggleEnabled() {
           : enhancementDrawer.definition.title
       "
       :width="enhancementDrawer.definition.width"
+      :dismissal="enhancementDrawer.definition.dismissal ?? 'explicit'"
       :subtitle="enhancementDrawer.subtitle"
       render-mode="inline"
       @close="closeEnhancementDrawer"

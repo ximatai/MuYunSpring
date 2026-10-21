@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { expect, it } from 'vitest';
-import { page } from 'vitest/browser';
+import { expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { UiThemeProvider, UiSidePanelHost } from '@muyun/vue-ui-antdv';
 import { ModuleContextProvider, type ModuleContext, type HttpRequestOptions } from '@muyun/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
@@ -101,8 +101,8 @@ it('uses the whole workspace for one definition and keeps design actions inside 
     expect(wrapper.find('[role="status"]').exists()).toBe(false);
     await page.getByRole('button', { name: '提交 开始', exact: true }).click();
     await page.getByRole('button', { name: '关闭', exact: true }).click();
-    await page.getByRole('button', { name: '添加节点 / 连线', exact: false }).click();
-    await page.getByRole('menuitem', { name: '插入审批节点', exact: true }).click();
+    await page.getByRole('button', { name: '添加节点 / 分支', exact: false }).click();
+    await page.getByRole('menuitem', { name: '插入节点', exact: true }).click();
     await expect.poll(() => wrapper.findComponent({ name: 'WorkflowDiagram' }).props('nodes').length).toBe(4);
     expect(wrapper.findComponent({ name: 'RecordAdaptiveDetailPanel' }).props('open')).toBe(true);
     expect(wrapper.get('[role="status"]').text()).toBe('未保存');
@@ -135,6 +135,16 @@ it('uses the whole workspace for one definition and keeps design actions inside 
         `input identity at ${width}`,
       ).toBe(true);
       expect(input.value).toBe('尚未保存的节点配置');
+      const footer = document.querySelector('.configuration-property-operations')!;
+      const footerButtons = footer.querySelectorAll('button');
+      expect(footerButtons[0].textContent).toContain('删除节点');
+      const left = footerButtons[0].getBoundingClientRect();
+      const right = footerButtons[1].getBoundingClientRect();
+      const footerBounds = footer.getBoundingClientRect();
+      expect(left.left).toBeCloseTo(footerBounds.left, 0);
+      expect(right.right).toBeCloseTo(footerBounds.right, 0);
+      expect(left.top).toBeCloseTo(right.top, 0);
+      expect(properties.findAll('button').some((button) => button.text().includes('删除并连接'))).toBe(false);
       expect(wrapper.get('.diagram-canvas').element === graph, `graph instance at ${width}`).toBe(true);
       await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
       const after = wrapper.get('[data-workflow-node="start"]').element.getBoundingClientRect();
@@ -148,6 +158,108 @@ it('uses the whole workspace for one definition and keeps design actions inside 
         );
       }
     }
+    await page.getByRole('button', { name: '删除节点', exact: true }).click();
+    await expect.poll(() => wrapper.findComponent({ name: 'WorkflowDiagram' }).props('nodes').length).toBe(3);
+    wrapper.findComponent({ name: 'WorkflowDiagram' }).vm.$emit('select', 'start');
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('button', { name: '添加节点 / 分支', exact: false }).click();
+    expect(await page.getByRole('menuitem', { name: '添加连线', exact: true }).all()).toHaveLength(0);
+    await page.getByRole('menuitem', { name: '添加分支', exact: true }).click();
+    const diagram = wrapper.findComponent({ name: 'WorkflowDiagram' });
+    await expect.poll(() => diagram.props('nodes').length).toBe(7);
+    const branch = diagram.props('nodes').find((item: { nodeType: string }) => item.nodeType === 'branch');
+    await page.getByRole('button', { name: '增加分支路径', exact: true }).click();
+    await expect.poll(() => diagram.props('nodes').length).toBe(8);
+    const exits = diagram
+      .props('routes')
+      .filter((item: { sourceNodeKey: string }) => item.sourceNodeKey === branch.nodeKey);
+    expect(exits).toHaveLength(3);
+    for (const exit of exits) {
+      expect(
+        diagram
+          .props('routes')
+          .some(
+            (item: { sourceNodeKey: string; targetNodeKey: string }) =>
+              item.sourceNodeKey === exit.targetNodeKey && item.targetNodeKey === branch.convergeNodeKey,
+          ),
+      ).toBe(true);
+    }
+    await page.getByRole('button', { name: '配置出口：路径1', exact: true }).click();
+    const routeProperties = wrapper.findComponent({ name: 'WorkflowDesignProperties' });
+    expect(
+      routeProperties.findAllComponents({ name: 'UiSelect' }).every((select) => select.props('disabled')),
+    ).toBe(true);
+    expect(document.querySelector('.configuration-property-operations')!.textContent).not.toContain('删除');
+    const canvas = wrapper.get('.diagram-viewport').element as HTMLElement;
+    canvas.focus();
+    await userEvent.keyboard('{Control>}a{/Control}');
+    await expect.poll(() => diagram.props('selectedNodeKeys').length).toBe(8);
+    let copiedText = '';
+    const write = vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(async (text) => {
+      copiedText = text;
+    });
+    const read = vi.spyOn(navigator.clipboard, 'readText').mockImplementation(async () => copiedText);
+    try {
+      await userEvent.keyboard('{Control>}c{/Control}');
+      expect(write).toHaveBeenCalledOnce();
+      expect(JSON.parse(copiedText).kind).toBe('muyun.workflow.fragment');
+      await userEvent.keyboard('{Control>}v{/Control}');
+      expect(read).toHaveBeenCalledOnce();
+    } finally {
+      write.mockRestore();
+      read.mockRestore();
+    }
+    await expect.poll(() => diagram.props('nodes').length).toBe(14);
+    expect(new Set(diagram.props('nodes').map((node: { nodeKey: string }) => node.nodeKey)).size).toBe(14);
+    canvas.focus();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(8);
+    await userEvent.keyboard('{Control>}y{/Control}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(14);
+    await userEvent.keyboard('{Meta>}z{/Meta}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(8);
+    await userEvent.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(14);
+    await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+    diagram.vm.$emit('select', 'approval');
+    await flushPromises();
+    const name = page.getByRole('textbox', { name: '节点名称', exact: true });
+    await name.fill('只编辑字段');
+    const selection = diagram.props('selectedNodeKeys');
+    await userEvent.keyboard('{Control>}a{/Control}');
+    expect(diagram.props('selectedNodeKeys')).toEqual(selection);
+    expect(diagram.props('nodes')).toHaveLength(14);
+    await userEvent.keyboard('{Backspace}');
+    expect(diagram.props('nodes')).toHaveLength(14);
+    canvas.focus();
+    await userEvent.keyboard('{Delete}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(13);
+    diagram.vm.$emit('select', branch.nodeKey);
+    await flushPromises();
+    canvas.focus();
+    await userEvent.keyboard('{Delete}');
+    await expect.element(page.getByText('删除整个分支？', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /取\s*消/ }).click();
+    expect(diagram.props('nodes')).toHaveLength(13);
+    canvas.focus();
+    await userEvent.keyboard('{Backspace}');
+    await page.getByRole('button', { name: '删除分支', exact: true }).click();
+    await expect.poll(() => diagram.props('nodes').length).toBe(8);
+    canvas.focus();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(13);
+    await userEvent.keyboard('{Control>}z{/Control}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(14);
+    diagram.vm.$emit('select', 'start');
+    await flushPromises();
+    canvas.focus();
+    await userEvent.keyboard('{Delete}');
+    expect(diagram.props('nodes')).toHaveLength(14);
+    diagram.vm.$emit('select', 'approval');
+    await flushPromises();
+    canvas.focus();
+    await userEvent.keyboard('{Backspace}');
+    await expect.poll(() => diagram.props('nodes').length).toBe(13);
   } finally {
     wrapper.unmount();
   }

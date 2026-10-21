@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { workflowNodeAccent } from './workflowPresentation';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import type { Graph, Node } from '@antv/x6';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
@@ -17,6 +18,9 @@ const props = defineProps<{
   nodes: WorkflowNode[];
   routes: WorkflowRoute[];
   selectedNodeKey?: string;
+  selectedNodeKeys?: string[];
+  canUndo?: boolean;
+  canRedo?: boolean;
   selectedRouteKey?: string;
   interactive?: boolean;
   editable?: boolean;
@@ -29,6 +33,14 @@ const emit = defineEmits<{
   select: [nodeKey: string];
   selectRoute: [routeKey: string];
   layoutChange: [layoutJson: string];
+  selectionChange: [keys: string[]];
+  undo: [];
+  redo: [];
+  copy: [event: ClipboardEvent];
+  paste: [event: ClipboardEvent];
+  copyShortcut: [];
+  pasteShortcut: [];
+  deleteSelection: [];
 }>();
 const shell = ref<HTMLElement>(),
   viewport = ref<HTMLElement>(),
@@ -68,15 +80,16 @@ let graph: Graph | undefined,
   initialized = false;
 
 function nodeAttributes(node: WorkflowDiagramNode) {
-  const selected = props.selectedNodeKey === node.key;
+  const gateway = ['branch', 'converge'].includes(node.type);
+  const center = node.width / 2;
+  const typeAccent = workflowNodeAccent(node.type);
+  const selected = props.selectedNodeKey === node.key || props.selectedNodeKeys?.includes(node.key);
   const color =
     selected || node.status === 'active'
       ? 'var(--muyun-primary)'
       : node.status === 'completed'
         ? 'var(--muyun-success-text)'
-        : ['branch', 'converge'].includes(node.type)
-          ? 'var(--muyun-primary)'
-          : 'var(--muyun-border)';
+        : 'var(--muyun-border)';
   return {
     root: {
       role: props.interactive ? 'button' : 'img',
@@ -88,24 +101,48 @@ function nodeAttributes(node: WorkflowDiagramNode) {
       opacity: node.status === 'skipped' ? 0.5 : 1,
     },
     body: {
+      ...(gateway
+        ? {
+            d: `M ${center} 0 L ${node.width} ${node.height / 2} L ${center} ${node.height} L 0 ${node.height / 2} Z`,
+          }
+        : {}),
       width: node.width,
       height: node.height,
       rx: ['start', 'end'].includes(node.type) ? 30 : 10,
-      fill: node.status === 'completed' ? 'var(--muyun-success-bg)' : 'var(--muyun-surface)',
+      fill:
+        node.status === 'completed'
+          ? 'var(--muyun-success-bg)'
+          : gateway && selected
+            ? 'var(--muyun-selected)'
+            : 'var(--muyun-surface)',
       stroke: color,
       strokeWidth: selected || node.status === 'active' ? 2 : 1.3,
     },
-    accent: { x: 16, y: 20, width: 4, height: node.height - 40, rx: 2, fill: color, stroke: 'none' },
+    accent: {
+      x: 16,
+      y: 20,
+      width: 4,
+      height: node.height - 40,
+      rx: 2,
+      fill: typeAccent ?? color,
+      stroke: 'none',
+      display: gateway ? 'none' : 'block',
+    },
+    description: { text: `${node.title} ${node.subtitle}` },
     title: {
       refX: 0,
       refY: 0,
-      x: 32,
-      y: node.height === 64 ? 23 : 30,
+      x: gateway ? center : 32,
+      y: gateway ? node.height / 2 : node.height === 64 ? 23 : 30,
       text: node.title,
-      textWrap: { width: node.width - 48, height: node.height === 64 ? 22 : 40, ellipsis: true },
-      textAnchor: 'start',
+      textWrap: {
+        width: gateway ? node.width / 2 + 12 : node.width - 48,
+        height: gateway ? 22 : node.height === 64 ? 22 : 40,
+        ellipsis: true,
+      },
+      textAnchor: gateway ? 'middle' : 'start',
       textVerticalAnchor: 'middle',
-      fontSize: 14,
+      fontSize: gateway ? 13 : 14,
       fontWeight: 600,
       fontFamily: 'inherit',
       fill: 'var(--muyun-text)',
@@ -113,11 +150,13 @@ function nodeAttributes(node: WorkflowDiagramNode) {
     subtitle: {
       refX: 0,
       refY: 0,
-      x: 32,
-      y: node.height - 20,
+      x: gateway ? center : 32,
+      y: gateway ? 73 : node.height - 20,
       text: node.subtitle,
+      display: gateway ? 'none' : 'block',
+      ...(gateway ? { textWrap: { width: 104, height: 16, ellipsis: true } } : {}),
       fontSize: 11,
-      textAnchor: 'start',
+      textAnchor: gateway ? 'middle' : 'start',
       fontFamily: 'inherit',
       fill: 'var(--muyun-text-muted)',
     },
@@ -142,10 +181,11 @@ function render() {
       height: node.height,
       data: { key: node.key },
       markup: [
-        { tagName: 'rect', selector: 'body' },
+        { tagName: ['branch', 'converge'].includes(node.type) ? 'path' : 'rect', selector: 'body' },
         { tagName: 'rect', selector: 'accent' },
         { tagName: 'text', selector: 'title' },
         { tagName: 'text', selector: 'subtitle' },
+        { tagName: 'title', selector: 'description' },
       ],
       attrs: nodeAttributes(node),
       zIndex: 2,
@@ -229,6 +269,50 @@ function syncSelection() {
   });
 }
 function keyboard(event: KeyboardEvent) {
+  if (formTarget(event)) return;
+  if (
+    props.interactive &&
+    props.presentation === 'designer' &&
+    props.editable &&
+    !event.isComposing &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ['Delete', 'Backspace'].includes(event.key)
+  ) {
+    event.preventDefault();
+    if (!event.repeat) emit('deleteSelection');
+    return;
+  }
+  if (
+    props.interactive &&
+    props.presentation === 'designer' &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.isComposing
+  ) {
+    const key = event.key.toLowerCase();
+    if (key === 'c' || (key === 'v' && props.editable)) {
+      event.preventDefault();
+      if (key === 'c') emit('copyShortcut');
+      else emit('pasteShortcut');
+      return;
+    }
+    if (key === 'a') {
+      event.preventDefault();
+      emit(
+        'selectionChange',
+        props.nodes.map((node) => node.nodeKey),
+      );
+      return;
+    }
+    if (props.editable && (key === 'z' || key === 'y')) {
+      event.preventDefault();
+      if (key === 'y' || event.shiftKey) emit('redo');
+      else emit('undo');
+      return;
+    }
+  }
   if (!props.interactive || !['Enter', ' '].includes(event.key) || !(event.target instanceof Element)) return;
   const node = event.target.closest('[data-workflow-node]')?.getAttribute('data-workflow-node');
   const route = event.target.closest('[data-workflow-route]')?.getAttribute('data-workflow-route');
@@ -237,6 +321,21 @@ function keyboard(event: KeyboardEvent) {
     if (node) void selectObject('node', node);
     else if (route) void selectObject('route', route);
   }
+}
+function formTarget(event: Event) {
+  return (
+    event.target instanceof Element &&
+    Boolean(
+      event.target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"]',
+      ),
+    )
+  );
+}
+function clipboard(event: ClipboardEvent, action: 'copy' | 'paste') {
+  if (!props.interactive || props.presentation !== 'designer' || formTarget(event)) return;
+  if (action === 'copy') emit('copy', event);
+  else if (props.editable) emit('paste', event);
 }
 function locate(key?: string, preserveZoom = false) {
   const cell = key && graph?.getCellById(`node:${key}`);
@@ -294,13 +393,23 @@ watch(
   { flush: 'post' },
 );
 watch(
-  () => [props.selectedNodeKey, props.selectedRouteKey, props.interactive, props.editable],
+  () => [
+    props.selectedNodeKey,
+    props.selectedNodeKeys,
+    props.selectedRouteKey,
+    props.interactive,
+    props.editable,
+  ],
   syncSelection,
 );
 async function selectObject(kind: 'node' | 'route', key: string) {
   if (document.fullscreenElement === shell.value) await document.exitFullscreen();
   if (kind === 'node') emit('select', key);
   else emit('selectRoute', key);
+  if (props.presentation === 'designer') {
+    await nextTick();
+    viewport.value?.focus({ preventScroll: true });
+  }
 }
 onMounted(async () => {
   document.addEventListener('fullscreenchange', fullscreenChanged);
@@ -328,8 +437,18 @@ onMounted(async () => {
       }),
       connecting: { allowBlank: false, allowLoop: false },
     });
-    graph.on('node:click', ({ node }) => {
-      if (props.interactive) void selectObject('node', node.getData<{ key: string }>().key);
+    graph.on('node:click', ({ node, e }) => {
+      if (!props.interactive) return;
+      const key = node.getData<{ key: string }>().key;
+      if (props.presentation === 'designer' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+        const selected = new Set(
+          props.selectedNodeKeys ?? (props.selectedNodeKey ? [props.selectedNodeKey] : []),
+        );
+        if (selected.has(key)) selected.delete(key);
+        else selected.add(key);
+        emit('selectionChange', [...selected]);
+        viewport.value?.focus({ preventScroll: true });
+      } else void selectObject('node', key);
     });
     graph.on('edge:click', ({ edge }) => {
       if (props.interactive) void selectObject('route', edge.getData<{ key: string }>().key);
@@ -363,6 +482,9 @@ onBeforeUnmount(() => {
 <template>
   <section
     ref="shell"
+    @keydown="keyboard"
+    @copy="clipboard($event, 'copy')"
+    @paste="clipboard($event, 'paste')"
     class="workflow-diagram"
     :class="{
       'workflow-diagram--detail': presentation === 'detail',
@@ -377,6 +499,27 @@ onBeforeUnmount(() => {
         role="group"
         :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.tools', '流程画布工具')"
       >
+        <template v-if="presentation === 'designer'">
+          <UiButton
+            size="small"
+            :disabled="!editable || !canUndo"
+            :title="workflowLanguage.t('platform.workflow-config.undo-help', '撤销（Ctrl / ⌘ + Z）')"
+            @click="emit('undo')"
+            >{{ workflowLanguage.t('platform.workflow-config.undo', '撤销') }}</UiButton
+          >
+          <UiButton
+            size="small"
+            :disabled="!editable || !canRedo"
+            :title="
+              workflowLanguage.t(
+                'platform.workflow-config.redo-help',
+                '重做（Ctrl / ⌘ + Shift + Z / Ctrl + Y）',
+              )
+            "
+            @click="emit('redo')"
+            >{{ workflowLanguage.t('platform.workflow-config.redo', '重做') }}</UiButton
+          >
+        </template>
         <UiButton
           size="small"
           icon-only
@@ -492,7 +635,12 @@ onBeforeUnmount(() => {
             ) +
             (editable
               ? workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
-              : '')
+              : '') +
+            '\n' +
+            workflowLanguage.t(
+              'platform.workflow-config.keyboard-help',
+              '画布快捷键：Ctrl / ⌘ + Z 撤销，Shift + Z 重做，A 全选，C 复制，V 粘贴，Delete / Backspace 删除选中节点；按住 Shift 点击可多选。选择节点或路径作为粘贴位置，分支会整体复制。',
+            )
           "
         >
           <UiButton
@@ -516,7 +664,12 @@ onBeforeUnmount(() => {
     <p v-else-if="!nodes.length" class="diagram-empty">
       {{ workflowLanguage.t('platform.screen.WorkflowDiagram.empty', '暂无流程节点') }}
     </p>
-    <div ref="viewport" class="diagram-viewport" @keydown="keyboard">
+    <div
+      ref="viewport"
+      class="diagram-viewport"
+      :tabindex="presentation === 'designer' ? 0 : undefined"
+      :aria-label="workflowLanguage.t('platform.workflow-config.canvas-editor', '流程画布编辑区')"
+    >
       <div ref="canvas" class="diagram-canvas" />
     </div>
   </section>
@@ -634,10 +787,10 @@ onBeforeUnmount(() => {
   flex: 1;
   height: auto;
 }
-.diagram-viewport :deep([role='button']:focus-visible) {
+.diagram-viewport :deep([role='button']:focus) {
   outline: none;
 }
-.diagram-viewport :deep([role='button']:focus-visible > rect:first-child) {
+.diagram-viewport :deep([role='button']:focus-visible > :first-child) {
   stroke: var(--muyun-primary);
   stroke-width: 3px;
 }

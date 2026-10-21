@@ -4,7 +4,9 @@ import {
   workflowParticipantRules,
   hasWorkflowParticipants,
 } from '../platform-components/workflowParticipantPolicy';
-import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useWorkflowDesignHistory } from '../platform-components/useWorkflowDesignHistory';
+import { copyWorkflowFragment, pasteWorkflowFragment } from '../platform-components/workflowDesignClipboard';
 import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 
 import type {
@@ -38,6 +40,7 @@ import {
   UiSpin,
   confirmAction,
   showSuccessMessage,
+  showInfoMessage,
   uiDrawerWidths,
 } from '@muyun/vue-ui-antdv';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
@@ -111,33 +114,41 @@ const configurationActions = computed(() => [
     disabled: !selected.value || busy.value || dirty.value,
   },
 ]);
-const insertionActions = computed(() => [
-  {
-    key: 'node',
-    title: workflowLanguage.t(
-      'platform.screen.WorkflowConfigurationView.insert-approval-node',
-      '插入审批节点',
-    ),
-    disabled: !editable.value,
-  },
-  {
-    key: 'branch',
-    title: workflowLanguage.t(
-      'platform.screen.WorkflowConfigurationView.insert-branch-and-convergence',
-      '插入分支与汇聚',
-    ),
-    disabled: !editable.value,
-  },
-  {
-    key: 'route',
-    title: workflowLanguage.t('platform.screen.WorkflowConfigurationView.add-link', '添加连线'),
-    disabled: !editable.value,
-  },
-]);
+const insertionActions = computed(() =>
+  node.value?.nodeType === 'branch'
+    ? [
+        {
+          key: 'path',
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowDesignProperties.add-branch-route',
+            '增加分支路径',
+          ),
+          disabled: !editable.value,
+        },
+      ]
+    : [
+        {
+          key: 'node',
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowConfigurationView.insert-approval-node',
+            '插入节点',
+          ),
+          disabled: !editable.value || !insertionRoute(),
+        },
+        {
+          key: 'branch',
+          title: workflowLanguage.t(
+            'platform.screen.WorkflowConfigurationView.insert-branch-and-convergence',
+            '添加分支',
+          ),
+          disabled: !editable.value || !insertionRoute(),
+        },
+      ],
+);
 function insertElement(key: string) {
   if (key === 'node') addNode();
   else if (key === 'branch') addBranch();
-  else if (key === 'route') addRoute();
+  else if (key === 'path') appendBranchPath();
 }
 function configurationAction(key: string) {
   if (key === 'save') void save();
@@ -183,12 +194,33 @@ const selected = ref<WorkflowDefinition>(),
 const design = ref<WorkflowDesign>({ nodes: [], links: [] });
 const selectedNodeKey = ref(''),
   selectedRouteKey = ref('');
-const busy = ref(false),
-  dirty = ref(false);
+const busy = ref(false);
+const history = useWorkflowDesignHistory(design);
+const dirty = history.dirty;
+const selectedNodeKeys = ref<string[]>([]);
 const frozen = computed(() => ['published', 'archived'].includes(version.value?.publishStatus ?? ''));
 const editable = computed(() => version.value?.publishStatus === 'draft' && !busy.value);
 const node = computed(() => design.value.nodes.find((item) => item.nodeKey === selectedNodeKey.value));
 const route = computed(() => design.value.links.find((item) => item.routeKey === selectedRouteKey.value));
+const deleting = ref(false);
+const canDeleteSelection = computed(
+  () =>
+    editable.value &&
+    !deleting.value &&
+    selectedNodeKeys.value.length === 1 &&
+    node.value != null &&
+    !['start', 'end', 'converge'].includes(node.value.nodeType),
+);
+async function deleteSelection() {
+  if (!canDeleteSelection.value) return;
+  deleting.value = true;
+  try {
+    if (node.value?.nodeType === 'branch') await deleteBranch();
+    else removeNode();
+  } finally {
+    deleting.value = false;
+  }
+}
 function branchConvergenceSummary(branch: WorkflowNode) {
   const convergence = design.value.nodes.find((item) => item.nodeKey === branch.convergeNodeKey);
   const labels: Record<string, string> = {
@@ -271,8 +303,8 @@ async function reload() {
       catalog.value = nextCatalog;
       versions.value = nextVersions;
       version.value = latest;
-      design.value = nextDesign;
-      dirty.value = initialize;
+      history.reset(nextDesign, initialize ? { nodes: [], links: [] } : nextDesign);
+      selectedNodeKeys.value = [];
       selectedNodeKey.value = '';
       selectedRouteKey.value = '';
       propertyOpen.value = false;
@@ -285,8 +317,8 @@ async function reload() {
 async function loadVersion(next: WorkflowVersion) {
   const nextDesign = await client.design(selected.value!.id, next.id);
   version.value = next;
-  design.value = nextDesign;
-  dirty.value = false;
+  history.reset(nextDesign);
+  selectedNodeKeys.value = [];
   selectedNodeKey.value = design.value.nodes[0]?.nodeKey ?? '';
   selectedRouteKey.value = '';
   propertyOpen.value = false;
@@ -306,7 +338,7 @@ async function save() {
       design.value,
     );
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
-    dirty.value = false;
+    history.markSaved();
     showSuccessMessage(workflowLanguage.t('platform.workflow-config.draft-saved', '流程草稿已保存'));
   });
 }
@@ -350,7 +382,7 @@ async function publish() {
     );
     versions.value = versions.value.map((item) => (item.id === version.value!.id ? version.value! : item));
     selected.value = await client.view(selected.value!.id);
-    dirty.value = false;
+    history.markSaved();
     publishReviewOpen.value = false;
     showSuccessMessage(
       workflowLanguage.t('platform.workflow-config.published', '流程已发布，后续新申请使用该版本'),
@@ -366,17 +398,20 @@ async function upgrade() {
     await loadVersion(next);
     if (!design.value.nodes.length) {
       design.value = createWorkflowDesign(selected.value!.approvalEnabled);
-      dirty.value = true;
       selectNode('approval');
     }
   });
 }
 function selectNode(key: string) {
+  if (!design.value.nodes.some((item) => item.nodeKey === key)) key = '';
+  selectedNodeKeys.value = key ? [key] : [];
   selectedNodeKey.value = key;
   selectedRouteKey.value = '';
   propertyOpen.value = Boolean(key);
 }
 function selectRoute(key: string) {
+  if (!design.value.links.some((item) => item.routeKey === key)) key = '';
+  selectedNodeKeys.value = [];
   selectedRouteKey.value = key;
   selectedNodeKey.value = '';
   propertyOpen.value = Boolean(key);
@@ -384,18 +419,20 @@ function selectRoute(key: string) {
 function updateLayout(layoutJson: string) {
   if (!editable.value || design.value.layoutJson === layoutJson) return;
   design.value = { ...design.value, layoutJson };
-  dirty.value = true;
 }
 function updateNode(patch: Partial<WorkflowNode>) {
   if (node.value && editable.value) {
-    Object.assign(node.value, patch);
-    dirty.value = true;
+    design.value = {
+      ...design.value,
+      nodes: design.value.nodes.map((item) =>
+        item.nodeKey === selectedNodeKey.value ? { ...item, ...patch } : item,
+      ),
+    };
   }
 }
 function updateRoute(patch: Partial<WorkflowRoute>) {
   if (route.value && editable.value) {
     design.value = updateWorkflowRoute(design.value, route.value.routeKey, patch);
-    dirty.value = true;
   }
 }
 function insertionRoute() {
@@ -407,7 +444,6 @@ function addBranch() {
   const key = `branch_${Date.now().toString(36)}`;
   try {
     design.value = insertWorkflowBranch(design.value, insertionRoute(), key);
-    dirty.value = true;
     selectNode(key);
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
@@ -421,7 +457,6 @@ function appendBranchPath() {
       selectedNodeKey.value,
       `path_${Date.now().toString(36)}`,
     );
-    dirty.value = true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
   }
@@ -429,6 +464,7 @@ function appendBranchPath() {
 async function deleteBranch() {
   if (!editable.value) return;
   try {
+    const isCurrent = history.checkpoint();
     const next = removeWorkflowBranch(design.value, selectedNodeKey.value);
     if (
       !(await confirmAction(
@@ -446,8 +482,8 @@ async function deleteBranch() {
       ))
     )
       return;
+    if (!mayApplyAsyncEdit(isCurrent)) return;
     design.value = next;
-    dirty.value = true;
     selectedNodeKey.value = '';
     propertyOpen.value = false;
   } catch (cause) {
@@ -465,7 +501,6 @@ function addNode() {
       route ?? '',
       createWorkflowApprovalNode(key, '新审批节点'),
     );
-    dirty.value = true;
     selectNode(key);
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
@@ -475,35 +510,117 @@ function removeNode() {
   if (!editable.value) return;
   try {
     design.value = removeWorkflowNode(design.value, selectedNodeKey.value);
-    dirty.value = true;
     selectedNodeKey.value = '';
     propertyOpen.value = false;
   } catch (cause) {
     presentPlatformError(cause, { source: 'workflow-design', phase: 'validation' });
   }
 }
-function removeRoute() {
-  if (!editable.value) return;
-  design.value.links = design.value.links.filter((item) => item.routeKey !== selectedRouteKey.value);
+
+function selectNodes(keys: string[]) {
+  const available = new Set(design.value.nodes.map((item) => item.nodeKey));
+  keys = [...new Set(keys)].filter((key) => available.has(key));
+  selectedNodeKeys.value = keys;
+  selectedNodeKey.value = keys.length === 1 ? keys[0] : '';
   selectedRouteKey.value = '';
-  dirty.value = true;
+  propertyOpen.value = false;
 }
-function addRoute() {
+watch(
+  () =>
+    [
+      design.value.nodes.map((item) => item.nodeKey),
+      design.value.links.map((item) => item.routeKey),
+    ] as const,
+  ([nodes, routes]) => {
+    const availableNodes = new Set(nodes);
+    selectedNodeKeys.value = selectedNodeKeys.value.filter((key) => availableNodes.has(key));
+    if (selectedNodeKey.value && !availableNodes.has(selectedNodeKey.value)) {
+      selectedNodeKey.value = '';
+      propertyOpen.value = false;
+    }
+    if (selectedRouteKey.value && !routes.includes(selectedRouteKey.value)) {
+      selectedRouteKey.value = '';
+      propertyOpen.value = false;
+    }
+  },
+  { flush: 'sync' },
+);
+function mayApplyAsyncEdit(isCurrent: () => boolean) {
+  if (disposed) return false;
+  if (editable.value && isCurrent()) return true;
+  showInfoMessage(
+    workflowLanguage.t('platform.workflow-config.stale-edit', '流程已变更，本次操作未应用，请重新操作。'),
+  );
+  return false;
+}
+function undo() {
+  if (editable.value) history.undo();
+}
+function redo() {
+  if (editable.value) history.redo();
+}
+function copySelection(event: ClipboardEvent) {
+  if (!event.clipboardData) return;
+  try {
+    const text = copyWorkflowFragment(design.value, selectedNodeKeys.value);
+    event.clipboardData.setData('text/plain', text);
+    event.preventDefault();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+  }
+}
+function pasteTarget() {
+  const join = node.value?.nodeType === 'branch' ? node.value.convergeNodeKey : undefined;
+  return (
+    insertionRoute() ||
+    (join ? design.value.links.find((link) => link.sourceNodeKey === join)?.routeKey : undefined) ||
+    design.value.links.find((link) =>
+      design.value.nodes.some((item) => item.nodeKey === link.targetNodeKey && item.nodeType === 'end'),
+    )?.routeKey ||
+    ''
+  );
+}
+function pasteText(text: string, target: string) {
+  if (!editable.value || !text.includes('muyun.workflow.fragment')) return;
+  const pasted = pasteWorkflowFragment(
+    design.value,
+    target,
+    text,
+    `copy_${crypto.randomUUID().replaceAll('-', '')}`,
+  );
+  design.value = pasted.design;
+  selectNodes(pasted.keys);
+}
+function pasteSelection(event: ClipboardEvent) {
+  if (!editable.value || !event.clipboardData) return;
+  const text = event.clipboardData.getData('text/plain');
+  if (!text.includes('muyun.workflow.fragment')) return;
+  event.preventDefault();
+  try {
+    pasteText(text, pasteTarget());
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+  }
+}
+async function copyShortcut() {
+  try {
+    if (!navigator.clipboard) throw new Error('当前浏览器不支持访问剪贴板');
+    await navigator.clipboard.writeText(copyWorkflowFragment(design.value, selectedNodeKeys.value));
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+  }
+}
+async function pasteShortcut() {
   if (!editable.value) return;
-  const first = design.value.nodes[0],
-    last = design.value.nodes.find((item) => item.nodeType === 'end');
-  if (!first || !last) return;
-  const key = `route_${Date.now().toString(36)}`;
-  design.value.links.push({
-    routeKey: key,
-    sourceNodeKey: node.value?.nodeKey ?? first.nodeKey,
-    targetNodeKey: last.nodeKey,
-    title: '新路径',
-  });
-  selectedRouteKey.value = key;
-  selectedNodeKey.value = '';
-  propertyOpen.value = true;
-  dirty.value = true;
+  const isCurrent = history.checkpoint();
+  const target = pasteTarget();
+  try {
+    if (!navigator.clipboard) throw new Error('当前浏览器不支持访问剪贴板');
+    const text = await navigator.clipboard.readText();
+    if (text.includes('muyun.workflow.fragment') && mayApplyAsyncEdit(isCurrent)) pasteText(text, target);
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'workflow-design', phase: 'action' });
+  }
 }
 </script>
 <template>
@@ -580,6 +697,17 @@ function addRoute() {
             :nodes="design.nodes"
             :routes="design.links"
             :selected-node-key="selectedNodeKey"
+            :selected-node-keys="selectedNodeKeys"
+            :can-undo="history.canUndo.value"
+            :can-redo="history.canRedo.value"
+            @undo="undo"
+            @redo="redo"
+            @selection-change="selectNodes"
+            @copy="copySelection"
+            @copy-shortcut="copyShortcut"
+            @paste-shortcut="pasteShortcut"
+            @delete-selection="deleteSelection"
+            @paste="pasteSelection"
             :selected-route-key="selectedRouteKey"
             :layout-json="design.layoutJson"
             :editable="editable"
@@ -592,7 +720,7 @@ function addRoute() {
             <template #actions>
               <UiDropdown :items="insertionActions" align="start" @select="insertElement">
                 <UiButton icon-name="plus" :disabled="!editable">{{
-                  workflowLanguage.t('platform.workflow-config.add-element', '添加节点 / 连线')
+                  workflowLanguage.t('platform.workflow-config.add-element', '添加节点 / 分支')
                 }}</UiButton>
               </UiDropdown>
             </template>
@@ -640,19 +768,36 @@ function addRoute() {
               @update-node="updateNode"
               @update-route="updateRoute"
               @select-route="selectRoute"
-              @remove-node="removeNode"
-              @remove-route="removeRoute"
               @append-branch-path="appendBranchPath"
-              @delete-branch="deleteBranch"
             />
-            <template #operation
-              ><UiButton :disabled="busy" @click="propertyOpen = false">{{
-                workflowLanguage.t(
-                  'platform.screen.WorkflowConfigurationView.finish-configuration',
-                  '完成配置',
-                )
-              }}</UiButton></template
-            >
+            <template #operation>
+              <div class="configuration-property-operations">
+                <UiButton
+                  v-if="node?.nodeType === 'branch'"
+                  danger
+                  :disabled="!canDeleteSelection"
+                  @click="deleteSelection"
+                  >{{
+                    workflowLanguage.t(
+                      'platform.screen.WorkflowDesignProperties.delete-entire-branch',
+                      '删除整个分支',
+                    )
+                  }}</UiButton
+                >
+                <UiButton v-else-if="node" danger :disabled="!canDeleteSelection" @click="deleteSelection">{{
+                  workflowLanguage.t(
+                    'platform.screen.WorkflowDesignProperties.delete-and-reconnect-adjacent-nodes',
+                    '删除节点',
+                  )
+                }}</UiButton>
+                <UiButton :disabled="busy" @click="propertyOpen = false">{{
+                  workflowLanguage.t(
+                    'platform.screen.WorkflowConfigurationView.finish-configuration',
+                    '完成配置',
+                  )
+                }}</UiButton>
+              </div>
+            </template>
           </RecordAdaptiveDetailPanel>
         </div>
       </template>
@@ -874,6 +1019,16 @@ function addRoute() {
 .configuration-design :deep(.workflow-diagram) {
   flex: 1;
   min-width: 0;
+}
+.configuration-property-operations {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.configuration-property-operations > :last-child {
+  margin-inline-start: auto;
 }
 .configuration-route-locator {
   width: 160px;

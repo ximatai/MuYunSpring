@@ -507,3 +507,28 @@ function workspaceView(type: string, moduleAlias = 'crm.customer') {
     parse: () => ({}),
   };
 }
+
+it('rejects conflicting owner replacements atomically and permits later independent registrations', () => {
+  const action = (id: string, key: string) => ({
+    id,
+    target: { moduleAlias: 'demo.atomic_registry' },
+    detail: { actions: [{ key, title: key, run() {} }] },
+  });
+  try {
+    configureModulePageEnhancementContributions('atomic-a', [action('atomic-a', 'first')]);
+    configureModulePageEnhancementContributions('atomic-b', [action('atomic-b', 'second')]);
+    expect(() =>
+      configureModulePageEnhancementContributions('atomic-b', [action('atomic-a', 'broken')]),
+    ).toThrow();
+    expect(
+      resolveModulePageEnhancement('demo.atomic_registry')?.detail?.actions?.map((item) => item.key),
+    ).toEqual(['first', 'second']);
+    configureModulePageEnhancementContributions('atomic-c', [action('atomic-c', 'third')]);
+    expect(
+      resolveModulePageEnhancement('demo.atomic_registry')?.detail?.actions?.map((item) => item.key),
+    ).toEqual(['first', 'second', 'third']);
+  } finally {
+    for (const owner of ['atomic-a', 'atomic-b', 'atomic-c'])
+      configureModulePageEnhancementContributions(owner, []);
+  }
+});

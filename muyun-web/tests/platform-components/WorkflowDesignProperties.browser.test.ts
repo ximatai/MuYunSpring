@@ -149,3 +149,61 @@ it('keeps every node type and route in one column at compact drawer content widt
     wrapper.unmount();
   }
 });
+
+it('shows flat type cards at compact widths and switches FYI with native radio controls', async () => {
+  const design: WorkflowDesign = {
+    nodes: [{ nodeKey: 'review', nodeType: 'approval', title: '审批', approvalMode: 'all' }],
+    links: [],
+  };
+  const wrapper = mount(WorkflowDesignProperties, {
+    attachTo: document.body,
+    props: {
+      design,
+      nodeKey: 'review',
+      routeKey: '',
+      editable: true,
+      http: {
+        async request<T>() {
+          return {} as T;
+        },
+      },
+      moduleAlias: 'demo.purchase',
+      fields: [],
+      actions: [],
+      catalog: { tasks: [], queries: [], generations: [], associations: [] },
+    },
+    global: { stubs: { WorkflowParticipantEditor: true } },
+  });
+  for (const width of [384, 288]) {
+    wrapper.element.setAttribute('style', `width:${width}px`);
+    await expect.element(page.getByRole('radiogroup', { name: '节点类型' })).toBeVisible();
+    const options = wrapper.findAll('.ant-radio-button-wrapper');
+    expect(options).toHaveLength(4);
+    expect(options.map((option) => getComputedStyle(option.element).borderColor)).toEqual([
+      'rgb(0, 82, 217)',
+      'rgb(0, 168, 112)',
+      'rgb(237, 123, 47)',
+      'rgb(245, 190, 44)',
+    ]);
+    expect(options[1]!.element.getBoundingClientRect().left).toBeGreaterThan(
+      options[0]!.element.getBoundingClientRect().left,
+    );
+    expect(options[2]!.element.getBoundingClientRect().top).toBeGreaterThan(
+      options[0]!.element.getBoundingClientRect().top,
+    );
+    expect(wrapper.element.scrollWidth).toBeLessThanOrEqual(width);
+  }
+  await page.getByText('知会', { exact: true }).click();
+  const patch = wrapper.emitted('update-node')![0]![0];
+  expect(patch).toMatchObject({ nodeType: 'approval', approvalMode: 'notice' });
+  await wrapper.setProps({ design: { nodes: [{ ...design.nodes[0]!, ...(patch as object) }], links: [] } });
+  await expect.element(page.getByRole('radio', { name: /^知会/ })).toBeChecked();
+  const selected = wrapper.get('.ant-radio-button-wrapper-checked').element;
+  expect(getComputedStyle(selected).borderColor).toBe('rgb(0, 168, 112)');
+  expect(getComputedStyle(selected).boxShadow).not.toBe('none');
+  expect(getComputedStyle(selected).backgroundColor).not.toBe('rgb(255, 255, 255)');
+  expect(wrapper.text()).not.toContain('审批规则');
+  await wrapper.setProps({ editable: false });
+  await expect.element(page.getByRole('radio', { name: /^审批/ })).toBeDisabled();
+  wrapper.unmount();
+});

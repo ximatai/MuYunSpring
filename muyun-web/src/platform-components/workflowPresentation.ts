@@ -38,7 +38,7 @@ const titles: Record<string, string> = {
   any: '任一通过',
   all: '全部通过',
   ratio: '比例通过',
-  notice: '通知',
+  notice: '知会',
   manual: '手动选择',
   auto: '条件选择',
   approval_completed: '审批完成',
@@ -107,6 +107,23 @@ export function workflowNodePresentation<T extends WorkflowNode>(node: T, langua
     ...node,
     nodeTitle: presentationLabel(node.nodeTitle ?? node.title ?? node.nodeKey, node.nodeTitleText, language),
   };
+}
+
+/** Node cards and the canvas share categorical type colors; runtime state has its own styling. */
+export function workflowNodeAccent(kind: string): string | undefined {
+  return (
+    {
+      approval: 'var(--muyun-info-text)',
+      notice: 'var(--muyun-success-text)',
+      task: 'var(--muyun-warning-text)',
+      milestone: 'var(--muyun-brand-accent-base, #F5BE2C)',
+    } as Record<string, string>
+  )[kind];
+}
+
+/** Configuration and rendering share one presentation of the legacy non-blocking approval mode. */
+export function workflowNodeKind(node: Pick<WorkflowNode, 'nodeType' | 'approvalMode'>): string {
+  return node.nodeType === 'approval' && node.approvalMode === 'notice' ? 'notice' : node.nodeType;
 }
 
 export function sameWorkflowTextSource(

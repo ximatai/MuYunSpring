@@ -32,7 +32,7 @@ provideRecordSurfaceActivity(() => props.open);
     :style="{ width: `${resolveUiDrawerWidth(width)}px` }"
     :aria-label="title"
   />
-  <UiSidePanel :open="open && !docked" :width="width" force-render @close="emit('close')">
+  <UiSidePanel :open="open && !docked" :width="width" force-render :autofocus="false" @close="emit('close')">
     <div ref="drawerHost" class="record-adaptive-detail__drawer" />
   </UiSidePanel>
   <Teleport v-if="target" :to="target">

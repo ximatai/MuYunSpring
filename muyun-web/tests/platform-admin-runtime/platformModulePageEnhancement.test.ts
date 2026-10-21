@@ -134,7 +134,12 @@ describe('platform module page enhancement', () => {
       .detail!.actions!.find((action) => action.key === 'module-workflow-workspace')!
       .run({ record: { alias: 'demo.purchase' }, openDrawer, openWorkspaceTab } as never);
     expect(openDrawer).toHaveBeenCalledWith(
-      expect.objectContaining({ title: '审批流程', width: 'wide', component: expect.anything() }),
+      expect.objectContaining({
+        title: '审批流程',
+        width: 'wide',
+        dismissal: 'dismissible',
+        component: expect.anything(),
+      }),
     );
     expect(openWorkspaceTab).not.toHaveBeenCalled();
   });

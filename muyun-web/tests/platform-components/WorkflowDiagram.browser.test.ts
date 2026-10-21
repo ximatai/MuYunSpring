@@ -217,3 +217,143 @@ it('locates the start and end independently from the designer toolbar without ch
     wrapper.unmount();
   }
 });
+
+it('scopes designer shortcuts to the canvas, supports multi-selection, and guards read-only mutation commands', async () => {
+  await page.viewport(1000, 800);
+  const wrapper = fixture({
+    interactive: true,
+    editable: true,
+    presentation: 'designer',
+    canUndo: true,
+    canRedo: true,
+    selectedNodeKeys: ['approval'],
+  });
+  wrapper.element.setAttribute('style', 'height:600px;width:960px');
+  try {
+    await expect.poll(() => wrapper.find('[data-workflow-node="approval"]').exists()).toBe(true);
+    await page.getByRole('button', { name: '提交 开始', exact: true }).click({ modifiers: ['Shift'] });
+    expect(wrapper.emitted('selectionChange')?.at(-1)).toEqual([['approval', 'start']]);
+    const canvas = wrapper.get('.diagram-viewport').element as HTMLElement;
+    canvas.focus();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(wrapper.emitted('undo')).toHaveLength(1);
+    await userEvent.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    expect(wrapper.emitted('redo')).toHaveLength(1);
+    await userEvent.keyboard('{Delete}');
+    await userEvent.keyboard('{Backspace}');
+    expect(wrapper.emitted('deleteSelection')).toHaveLength(2);
+    await wrapper.setProps({ editable: false });
+    canvas.focus();
+    await userEvent.keyboard('{Delete}');
+    await userEvent.keyboard('{Backspace}');
+    expect(wrapper.emitted('deleteSelection')).toHaveLength(2);
+    await userEvent.keyboard('{Meta>}z{/Meta}');
+    await userEvent.keyboard('{Control>}y{/Control}');
+    canvas.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: new DataTransfer() }));
+    expect(wrapper.emitted('undo')).toHaveLength(1);
+    expect(wrapper.emitted('redo')).toHaveLength(1);
+    expect(wrapper.emitted('paste')).toBeUndefined();
+    await userEvent.keyboard('{Meta>}a{/Meta}');
+    expect(wrapper.emitted('selectionChange')?.at(-1)).toEqual([['start', 'approval', 'end']]);
+    const outside = document.createElement('textarea');
+    document.body.append(outside);
+    outside.focus();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(wrapper.emitted('undo')).toHaveLength(1);
+    outside.remove();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('renders compact gateways without redundant decoration and keeps pointer and keyboard focus on the diamond', async () => {
+  await page.viewport(1100, 850);
+  const wrapper = fixture({
+    nodes: [
+      nodes[0],
+      { nodeKey: 'branch', nodeType: 'branch', title: '条件分支', routeMode: 'auto' },
+      nodes[1],
+      { nodeKey: 'join', nodeType: 'converge', title: '分支汇聚', convergeMode: 'all' },
+      nodes[2],
+    ],
+    routes: [
+      { routeKey: 'a', sourceNodeKey: 'start', targetNodeKey: 'branch' },
+      { routeKey: 'b', sourceNodeKey: 'branch', targetNodeKey: 'approval' },
+      { routeKey: 'c', sourceNodeKey: 'approval', targetNodeKey: 'join' },
+      { routeKey: 'd', sourceNodeKey: 'join', targetNodeKey: 'end' },
+    ],
+    interactive: true,
+    editable: true,
+    presentation: 'designer',
+  });
+  wrapper.element.setAttribute('style', 'height:760px;width:1050px');
+  try {
+    await expect.poll(() => wrapper.find('[data-workflow-node="branch"] path').exists()).toBe(true);
+    await page.getByRole('button', { name: '全图', exact: true }).click();
+    const branch = wrapper.get('[data-workflow-node="branch"]');
+    const join = wrapper.get('[data-workflow-node="join"]');
+    expect(branch.findAll('path')).toHaveLength(1);
+    expect(join.findAll('path')).toHaveLength(1);
+    expect(branch.findAll('path')[0].attributes('d')).toBe('M 72 0 L 144 36 L 72 72 L 0 36 Z');
+    expect(wrapper.get('[data-workflow-node="approval"]').findAll('path')).toHaveLength(0);
+    expect(branch.get('title').text()).toContain('条件分流');
+    expect(join.get('title').text()).toContain('全部到达');
+    const pointerFocus: string[] = [];
+    branch.element.addEventListener('focus', () =>
+      pointerFocus.push(getComputedStyle(branch.element).outlineStyle),
+    );
+    await page.getByRole('button', { name: /^条件分支 / }).click();
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['branch']);
+    expect(pointerFocus).toEqual(['none']);
+    (join.element as unknown as SVGElement).focus();
+    expect(getComputedStyle(join.element).outlineStyle).toBe('none');
+    await userEvent.keyboard('{Enter}');
+    expect(wrapper.emitted('select')?.at(-1)).toEqual(['join']);
+    await wrapper.setProps({ selectedNodeKey: 'branch' });
+    expect(branch.findAll('path')[0].attributes('stroke-width')).toBe('2');
+    expect(getComputedStyle(branch.findAll('path')[0].element).fill).toBe('rgb(236, 242, 254)');
+    for (const node of [branch, join]) {
+      const body = node.findAll('path')[0].element.getBoundingClientRect();
+      for (const text of node.findAll('text')) {
+        if (getComputedStyle(text.element).display === 'none') continue;
+        const bounds = text.element.getBoundingClientRect();
+        expect(bounds.left).toBeGreaterThanOrEqual(body.left);
+        expect(bounds.right).toBeLessThanOrEqual(body.right);
+        expect(bounds.top).toBeGreaterThanOrEqual(body.top);
+        expect(bounds.bottom).toBeLessThanOrEqual(body.bottom);
+      }
+    }
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('distinguishes task types by accent color without replacing selection or runtime status styling', async () => {
+  await page.viewport(1100, 850);
+  const typedNodes = [
+    { nodeKey: 'review', nodeType: 'approval', title: '审批', approvalMode: 'all' },
+    { nodeKey: 'fyi', nodeType: 'approval', title: '知会', approvalMode: 'notice' },
+    { nodeKey: 'business', nodeType: 'task', title: '业务任务', nodeStatus: 'active' },
+    { nodeKey: 'done', nodeType: 'milestone', title: '里程碑', nodeStatus: 'completed' },
+  ];
+  const wrapper = fixture({ nodes: typedNodes, routes: [], interactive: true });
+  wrapper.element.setAttribute('style', 'height:500px;width:1050px');
+  try {
+    await expect.poll(() => wrapper.find('[data-workflow-node="fyi"] rect').exists()).toBe(true);
+    const node = (key: string) => wrapper.get(`[data-workflow-node="${key}"]`);
+    const accent = (key: string) => getComputedStyle(node(key).findAll('rect')[1].element).fill;
+    const colors = typedNodes.map((item) => accent(item.nodeKey));
+    expect(new Set(colors).size).toBe(4);
+    expect(node('fyi').attributes('aria-label')).toContain('知会');
+    expect(getComputedStyle(node('business').findAll('rect')[0].element).stroke).toBe('rgb(0, 82, 217)');
+    expect(getComputedStyle(node('done').findAll('rect')[0].element).fill).toBe('rgb(237, 249, 245)');
+    await wrapper.setProps({ selectedNodeKey: 'fyi' });
+    expect(getComputedStyle(node('fyi').findAll('rect')[0].element).stroke).toBe('rgb(0, 82, 217)');
+    expect(typedNodes.map((item) => accent(item.nodeKey))).toEqual(colors);
+    await wrapper.setProps({ nodes: typedNodes.map((item) => ({ ...item, nodeStatus: 'skipped' })) });
+    expect(getComputedStyle(node('fyi').element).opacity).toBe('0.5');
+    expect(typedNodes.map((item) => accent(item.nodeKey))).toEqual(colors);
+  } finally {
+    wrapper.unmount();
+  }
+});

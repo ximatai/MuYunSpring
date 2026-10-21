@@ -9,11 +9,15 @@ import type {
   WorkflowRoute,
   WorkflowConfigurationCatalog,
 } from '@muyun/web-contracts';
-import { UiButton, UiInput, UiSelect, UiCheckbox } from '@muyun/vue-ui-antdv';
+import { UiButton, UiInput, UiSelect, UiCheckbox, UiRadioGroup } from '@muyun/vue-ui-antdv';
 import WorkflowParticipantEditor from './WorkflowParticipantEditor.vue';
 import WorkflowBusinessTaskEditor from './WorkflowBusinessTaskEditor.vue';
 import FormulaExpressionEditor from './FormulaExpressionEditor.vue';
-import { workflowTitle as localizedWorkflowTitle } from './workflowPresentation';
+import {
+  workflowNodeAccent,
+  workflowNodeKind,
+  workflowTitle as localizedWorkflowTitle,
+} from './workflowPresentation';
 
 const workflowLanguage = useLanguageContext();
 function workflowTitle(value?: string) {
@@ -36,10 +40,7 @@ const emit = defineEmits<{
   'update-node': [patch: Partial<WorkflowNode>];
   'update-route': [patch: Partial<WorkflowRoute>];
   'select-route': [key: string];
-  'remove-node': [];
-  'remove-route': [];
   'append-branch-path': [];
-  'delete-branch': [];
 }>();
 const node = computed(() => props.design.nodes.find((item) => item.nodeKey === props.nodeKey));
 const route = computed(() => props.design.links.find((item) => item.routeKey === props.routeKey));
@@ -49,10 +50,44 @@ function updateNode(patch: Partial<WorkflowNode>) {
 function updateRoute(patch: Partial<WorkflowRoute>) {
   if (props.editable) emit('update-route', patch);
 }
-const typeOptions = ['approval', 'task', 'milestone'].map((value) => ({
-  value,
-  label: workflowTitle(value),
-}));
+const nodeKind = computed(() => (node.value ? workflowNodeKind(node.value) : ''));
+const typeOptions = computed(() =>
+  ['approval', 'notice', 'task', 'milestone'].map((value) => ({
+    value,
+    label: workflowTitle(value),
+    color: workflowNodeAccent(value),
+    description: workflowLanguage.t(
+      `platform.workflow-node-type.${value}-description`,
+      {
+        approval: '由参与人审批',
+        notice: '知会参与人，流程继续',
+        task: '执行业务任务',
+        milestone: '标记审批完成',
+      }[value] ?? '',
+    ),
+  })),
+);
+function changeType(value: string) {
+  if (!props.editable || !node.value || value === nodeKind.value) return;
+  if (!['approval', 'notice', 'task', 'milestone'].includes(value)) return;
+  updateNode({
+    nodeType: value === 'notice' ? 'approval' : value,
+    approvalMode: value === 'notice' ? 'notice' : value === 'approval' ? 'all' : undefined,
+    approvalRatio: undefined,
+    autoApproveSameUser: false,
+    allowReject: value === 'approval',
+    requireRejectReason: value === 'approval',
+    allowRejectReturnToMe: value === 'approval',
+    allowRollback: value === 'approval',
+    requireRollbackReason: value === 'approval',
+    allowAddSign: value === 'approval',
+    warningDurationMinutes: undefined,
+    overtimeDurationMinutes: undefined,
+    taskDefinitionId: value === 'task' ? node.value.taskDefinitionId : undefined,
+    nodeConfigText: value === 'task' ? node.value.nodeConfigText : undefined,
+    milestoneType: value === 'milestone' ? 'approval_completed' : undefined,
+  });
+}
 const nodeOptions = computed(() =>
   props.design.nodes.map((item) => ({ value: item.nodeKey, label: item.title ?? item.nodeKey })),
 );
@@ -64,7 +99,7 @@ const routeSource = computed(() =>
 );
 const selectorNodeOptions = computed(() =>
   props.design.nodes
-    .filter((item) => ['start', 'approval', 'task'].includes(item.nodeType))
+    .filter((item) => ['start', 'approval', 'task'].includes(workflowNodeKind(item)))
     .map((item) => ({ value: item.nodeKey, label: item.title ?? item.nodeKey })),
 );
 </script>
@@ -72,18 +107,19 @@ const selectorNodeOptions = computed(() =>
   <div v-if="node" class="property-form">
     <label class="workflow-field"
       >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-name', '节点名称')
-      }}<UiInput
-        :value="node.title"
-        :disabled="!editable"
-        @update:value="updateNode({ title: $event })" /></label
-    ><label class="workflow-field" v-if="['approval', 'task', 'milestone'].includes(node.nodeType)"
-      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-type', '节点类型')
-      }}<UiSelect
-        :value="node.nodeType"
+      }}<UiInput :value="node.title" :disabled="!editable" @update:value="updateNode({ title: $event })"
+    /></label>
+    <div v-if="['approval', 'task', 'milestone'].includes(node.nodeType)" class="workflow-field">
+      <span>{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-type', '节点类型') }}</span>
+      <UiRadioGroup
+        appearance="cards"
+        :value="nodeKind"
         :options="typeOptions"
         :disabled="!editable"
-        @update:value="updateNode({ nodeType: String($event) })"
-    /></label>
+        :aria-label="workflowLanguage.t('platform.screen.WorkflowDesignProperties.node-type', '节点类型')"
+        @update:value="changeType"
+      />
+    </div>
     <WorkflowParticipantEditor
       v-if="['approval', 'task'].includes(node.nodeType)"
       :value="node.participantPolicyText"
@@ -92,13 +128,21 @@ const selectorNodeOptions = computed(() =>
       :disabled="!editable"
       @update:value="updateNode({ participantPolicyText: $event })"
     />
-    <template v-if="node.nodeType === 'approval'"
+    <p v-if="nodeKind === 'notice'">
+      {{
+        workflowLanguage.t(
+          'platform.workflow-node-type.notice-help',
+          '参与人收到知会后可标记已阅，流程不会等待。',
+        )
+      }}
+    </p>
+    <template v-if="nodeKind === 'approval'"
       ><label class="workflow-field"
         >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.approval-rule', '审批规则')
         }}<UiSelect
           :value="node.approvalMode"
           :options="
-            ['all', 'any', 'ratio', 'notice'].map((value) => ({
+            ['all', 'any', 'ratio'].map((value) => ({
               value,
               label: workflowTitle(value),
             }))
@@ -220,8 +264,7 @@ const selectorNodeOptions = computed(() =>
               (option) => design.nodes.find((item) => item.nodeKey === option.value)?.nodeType === 'converge',
             )
           "
-          :disabled="!editable"
-          @update:value="updateNode({ convergeNodeKey: String($event) })" /></label
+          :disabled="true" /></label
       ><label class="workflow-field" v-if="node.routeMode === 'manual'"
         >{{
           workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-selector-node', '路径选择节点')
@@ -269,10 +312,7 @@ const selectorNodeOptions = computed(() =>
         }}</span>
       </div>
       <UiButton :disabled="!editable" @click="emit('append-branch-path')">{{
-        workflowLanguage.t('platform.screen.WorkflowDesignProperties.add-branch-route', '追加分支出口')
-      }}</UiButton>
-      <UiButton danger :disabled="!editable" @click="emit('delete-branch')">{{
-        workflowLanguage.t('platform.screen.WorkflowDesignProperties.delete-entire-branch', '删除整个分支')
+        workflowLanguage.t('platform.screen.WorkflowDesignProperties.add-branch-route', '增加分支路径')
       }}</UiButton>
     </template>
     <template v-if="node.nodeType === 'converge'"
@@ -349,17 +389,6 @@ const selectorNodeOptions = computed(() =>
         @update:value="updateNode({ nodeConfigText: $event })"
       />
     </template>
-    <UiButton
-      danger
-      :disabled="!editable || ['start', 'end', 'branch', 'converge'].includes(node.nodeType)"
-      @click="emit('remove-node')"
-      >{{
-        workflowLanguage.t(
-          'platform.screen.WorkflowDesignProperties.delete-and-reconnect-adjacent-nodes',
-          '删除并连接前后节点',
-        )
-      }}</UiButton
-    >
   </div>
   <div v-if="route" class="property-form">
     <label class="workflow-field"
@@ -370,18 +399,10 @@ const selectorNodeOptions = computed(() =>
         @update:value="updateRoute({ title: $event })" /></label
     ><label class="workflow-field"
       >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.source', '起点')
-      }}<UiSelect
-        :value="route.sourceNodeKey"
-        :options="nodeOptions"
-        :disabled="!editable"
-        @update:value="updateRoute({ sourceNodeKey: String($event) })" /></label
+      }}<UiSelect :value="route.sourceNodeKey" :options="nodeOptions" :disabled="true" /></label
     ><label class="workflow-field"
       >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.target', '终点')
-      }}<UiSelect
-        :value="route.targetNodeKey"
-        :options="nodeOptions"
-        :disabled="!editable"
-        @update:value="updateRoute({ targetNodeKey: String($event) })"
+      }}<UiSelect :value="route.targetNodeKey" :options="nodeOptions" :disabled="true"
     /></label>
     <div class="workflow-field" v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute">
       <span>{{
@@ -418,9 +439,6 @@ const selectorNodeOptions = computed(() =>
             )
       }}
     </p>
-    <UiButton danger :disabled="!editable" @click="emit('remove-route')">{{
-      workflowLanguage.t('platform.screen.WorkflowDesignProperties.delete-link', '删除连线')
-    }}</UiButton>
   </div>
 </template>
 <style scoped>

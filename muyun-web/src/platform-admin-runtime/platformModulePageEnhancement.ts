@@ -74,6 +74,7 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
             title: '审批流程',
             titleKey: 'platform.screen.WorkflowConfigurationView.approval-workflow',
             width: 'wide',
+            dismissal: 'dismissible',
             component: ModuleWorkflowDrawer,
           });
         },
