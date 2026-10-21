@@ -239,8 +239,10 @@ class WorkflowTenantReadRepositoryIT extends PlatformPostgresIntegrationTest {
         var shared = configuration(null, null);
         try (var context = TenantContext.use("read-tenant-a")) {
             var created = new WorkflowDefinition(); created.setModuleAlias(module); created.setApplicationAlias("test"); created.setTitle("无编码流程");
+            created.setApprovalEnabled(true);
             definitionService.insert(created);
             var duplicateName = new WorkflowDefinition(); duplicateName.setModuleAlias(module); duplicateName.setApplicationAlias("test"); duplicateName.setTitle("无编码流程");
+            duplicateName.setApprovalEnabled(true);
             definitionService.insert(duplicateName);
             assertThat(definitions.findById(created.getId()).getAlias()).isNull();
             assertThat(duplicateName.getId()).isNotEqualTo(created.getId());

@@ -116,7 +116,7 @@ export function workflowNodeAccent(kind: string): string | undefined {
       approval: 'var(--muyun-info-text)',
       notice: 'var(--muyun-success-text)',
       task: 'var(--muyun-warning-text)',
-      milestone: 'var(--muyun-brand-accent-base, #F5BE2C)',
+      milestone: 'var(--muyun-brand-accent-base)',
     } as Record<string, string>
   )[kind];
 }
