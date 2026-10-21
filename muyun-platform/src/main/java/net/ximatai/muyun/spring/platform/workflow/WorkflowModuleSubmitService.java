@@ -32,6 +32,23 @@ public class WorkflowModuleSubmitService {
                 .withManualRouteSelections(manualRouteSelections));
     }
 
+    /** ID-based workflow entry; alias-based overloads remain available for existing business code. */
+    public WorkflowSubmitResult submitWorkflowById(String moduleAlias, String recordId, String definitionId) {
+        return submitFacade.submit(WorkflowSubmitRequest.workflowById(moduleAlias, recordId, definitionId));
+    }
+
+    public WorkflowSubmitResult submitWorkflowById(String moduleAlias, String recordId, String definitionId,
+                                                   String selectedRouteKey, String selectedReason) {
+        return submitFacade.submit(WorkflowSubmitRequest.workflowById(moduleAlias, recordId, definitionId)
+                .withSelectedRoute(selectedRouteKey, selectedReason));
+    }
+
+    public WorkflowSubmitResult submitWorkflowById(String moduleAlias, String recordId, String definitionId,
+                                                   List<WorkflowManualRouteSelection> manualRouteSelections) {
+        return submitFacade.submit(WorkflowSubmitRequest.workflowById(moduleAlias, recordId, definitionId)
+                .withManualRouteSelections(manualRouteSelections));
+    }
+
     public WorkflowSubmitResult submitWorkflow(String moduleAlias, String recordId, String definitionAlias) {
         return submitFacade.submit(WorkflowSubmitRequest.workflow(moduleAlias, recordId, definitionAlias));
     }

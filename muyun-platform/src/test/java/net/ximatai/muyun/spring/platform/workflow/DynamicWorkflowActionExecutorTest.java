@@ -272,6 +272,29 @@ class DynamicWorkflowActionExecutorTest {
         org.mockito.Mockito.verifyNoInteractions(taskActionFacade);
     }
 
+    @Test
+    void acceptsExplicitDefinitionIdAndRejectsAmbiguousSelection() {
+        executor.execute(context("submitWorkflow", "record-1"), DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("definitionId", "id-1", "reason", "start")));
+        verify(submitService).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-1", "id-1").withReason("start"));
+        assertThatThrownBy(() -> executor.execute(context("submitWorkflow", "record-1"), DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("definitionId", "id-1", "definitionAlias", "other"))))
+                .hasMessageContaining("not both");
+    }
+
+    @Test
+    void boundIdentityDoesNotDependOnAliasAndCannotBeOverriddenByPayload() {
+        var action = new PlatformModuleAction(); action.setBindingType(ModuleActionBindingType.WORKFLOW_DEFINITION);
+        action.setBindingId("bound-id"); action.setBindingAlias("legacy-name");
+        when(actionService.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow")).thenReturn(action);
+        executor.execute(context("syncWorkflow", "record-1"), DynamicActionExecutionRequest.id("record-1")
+                .withPayload(Map.of("definitionId", "foreign-id", "definitionAlias", "other")));
+        verify(submitService).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-1", "bound-id"));
+        action.setBindingAlias(null);
+        executor.execute(context("syncWorkflow", "record-2"), DynamicActionExecutionRequest.id("record-2"));
+        verify(submitService).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-2", "bound-id"));
+    }
+
     private DynamicActionExecutionContext context(String actionCode, String recordId) {
         return context(actionCode, recordId, "manager-1");
     }

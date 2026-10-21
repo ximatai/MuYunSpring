@@ -32,6 +32,11 @@ it('selects real SVG nodes and routes, supports keyboard selection and keeps zoo
   target.focus();
   await userEvent.keyboard('{Enter}');
   expect(wrapper.emitted('select')?.at(-1)).toEqual(['start']);
+  const zoomWidth = wrapper.get('.diagram-zoom-value').element.getBoundingClientRect().width;
+  await page.getByRole('button', { name: '缩小', exact: true }).click();
+  await expect.element(page.getByRole('button', { name: '85%', exact: true })).toBeVisible();
+  expect(wrapper.get('.diagram-zoom-value').element.getBoundingClientRect().width).toBe(zoomWidth);
+  await page.getByRole('button', { name: '85%', exact: true }).click();
   await page.getByRole('button', { name: /^放\s*大$/, exact: true }).click();
   await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '115%', exact: true }).click();
@@ -130,29 +135,85 @@ it('preserves the selected node and user zoom when saving or resizing its worksp
   await expect.poll(() => wrapper.find('[data-workflow-node="approval"]').exists()).toBe(true);
   await page.getByRole('button', { name: /^放\s*大$/, exact: true }).click();
   await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+  const before = wrapper.get('[data-workflow-node="start"]').element.getBoundingClientRect();
+  const viewportBefore = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
   await wrapper.setProps({ editable: false });
   await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
   wrapper.element.setAttribute('style', 'width:760px');
   await expect.poll(() => (wrapper.get('.diagram-canvas').element as HTMLElement).style.width).toBe('758px');
   await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
-  const node = wrapper.get('[data-workflow-node="approval"]').element.getBoundingClientRect();
-  const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
-  expect(node.left).toBeGreaterThan(viewport.left);
-  expect(node.right).toBeLessThan(viewport.right);
-  expect(node.top).toBeGreaterThan(viewport.top);
-  expect(node.bottom).toBeLessThan(viewport.bottom);
+  const after = wrapper.get('[data-workflow-node="start"]').element.getBoundingClientRect();
+  const viewportAfter = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+  expect(after.left - viewportAfter.left).toBeCloseTo(before.left - viewportBefore.left, 0);
+  expect(after.top - viewportAfter.top).toBeCloseTo(before.top - viewportBefore.top, 0);
+  expect(after.width).toBeCloseTo(before.width, 0);
 });
 
-it('keeps the selected route centered when its property drawer narrows the canvas', async () => {
+it('preserves the viewport when a selected route property drawer narrows the canvas', async () => {
   await page.viewport(1920, 1080);
   const wrapper = fixture({ interactive: true, selectedRouteKey: 'in' });
   wrapper.element.setAttribute('style', 'width:1400px');
   await expect.poll(() => wrapper.find('[data-workflow-route="in"]').exists()).toBe(true);
+  const before = wrapper.get('[data-workflow-route="in"]').element.getBoundingClientRect();
+  const viewportBefore = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
   wrapper.element.setAttribute('style', 'width:640px');
   await expect.poll(() => (wrapper.get('.diagram-canvas').element as HTMLElement).style.width).toBe('638px');
   const route = wrapper.get('[data-workflow-route="in"]').element.getBoundingClientRect();
-  const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
-  expect((route.left + route.right) / 2).toBeCloseTo((viewport.left + viewport.right) / 2, 0);
-  // SVG labels and arrowheads extend beyond the edge geometry used for centering.
-  expect(Math.abs((route.top + route.bottom - viewport.top - viewport.bottom) / 2)).toBeLessThan(12);
+  const viewportAfter = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+  expect(route.left - viewportAfter.left).toBeCloseTo(before.left - viewportBefore.left, 0);
+  expect(route.top - viewportAfter.top).toBeCloseTo(before.top - viewportBefore.top, 0);
+});
+
+it('selects clicked nodes and routes without changing the user zoom or pan', async () => {
+  await page.viewport(1280, 804);
+  const wrapper = fixture({
+    interactive: true,
+    onSelect: (key: string) => void wrapper.setProps({ selectedNodeKey: key, selectedRouteKey: '' }),
+    onSelectRoute: (key: string) => void wrapper.setProps({ selectedNodeKey: '', selectedRouteKey: key }),
+  });
+  wrapper.element.setAttribute('style', 'width:900px');
+  try {
+    await expect.poll(() => wrapper.find('[data-workflow-node="start"]').exists()).toBe(true);
+    await page.getByRole('button', { name: /^放\s*大$/, exact: true }).click();
+    await commands.workflowCanvasDrag('.diagram-viewport', 70, -60, { x: 12, y: 20 });
+    const before = wrapper.get('[data-workflow-node="start"]').element.getBoundingClientRect();
+    await page.getByRole('button', { name: '提交 开始', exact: true }).click();
+    await expect.poll(() => wrapper.props('selectedNodeKey')).toBe('start');
+    await page.getByRole('button', { name: '路径：进入审批', exact: true }).click();
+    await expect.poll(() => wrapper.props('selectedRouteKey')).toBe('in');
+    await expect.element(page.getByRole('button', { name: '115%', exact: true })).toBeVisible();
+    const after = wrapper.get('[data-workflow-node="start"]').element.getBoundingClientRect();
+    expect(after.left).toBeCloseTo(before.left, 0);
+    expect(after.top).toBeCloseTo(before.top, 0);
+    expect(after.width).toBeCloseTo(before.width, 0);
+    expect(wrapper.emitted('layoutChange')).toBeUndefined();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('locates the start and end independently from the designer toolbar without changing the draft', async () => {
+  await page.viewport(1280, 804);
+  const wrapper = fixture({ interactive: true, editable: true, presentation: 'designer' });
+  wrapper.element.setAttribute('style', 'width:900px;height:600px');
+  try {
+    await expect.poll(() => wrapper.find('[data-workflow-node="end"]').exists()).toBe(true);
+    for (const [name, key] of [
+      ['定位结束节点', 'end'],
+      ['定位开始节点', 'start'],
+    ]) {
+      await page.getByRole('button', { name, exact: true }).click();
+      const bounds = wrapper.get(`[data-workflow-node="${key}"]`).element.getBoundingClientRect();
+      const viewport = wrapper.get('.diagram-viewport').element.getBoundingClientRect();
+      expect((bounds.left + bounds.right) / 2).toBeCloseTo((viewport.left + viewport.right) / 2, 0);
+      expect((bounds.top + bounds.bottom) / 2).toBeCloseTo((viewport.top + viewport.bottom) / 2, 0);
+    }
+    expect(wrapper.findAll('button').find((button) => button.text() === '自动整理')).toBeDefined();
+    expect(wrapper.emitted('layoutChange')).toBeUndefined();
+    expect(wrapper.emitted('select')).toBeUndefined();
+    await wrapper.setProps({ nodes: nodes.filter((node) => node.nodeType !== 'end'), routes: [] });
+    await expect.element(page.getByRole('button', { name: '定位结束节点', exact: true })).toBeDisabled();
+  } finally {
+    wrapper.unmount();
+  }
 });

@@ -21,7 +21,7 @@ class WorkflowSelectionSettingsTest {
         var definitions = mock(WorkflowDefinitionService.class);
         var definition = new WorkflowDefinition(); definition.setId("definition"); definition.setVersion(4);
         definition.setAlias("purchase"); definition.setModuleAlias("demo.purchase"); definition.setApprovalEnabled(true);
-        definition.setCurrentVersionNo(2); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
+        definition.setSortOrder(120); definition.setCurrentVersionNo(2); definition.setDefinitionStatus(WorkflowDefinitionStatus.PUBLISHED);
         when(definitions.select("definition")).thenReturn(definition);
         var service = service(definitions);
         assertThatThrownBy(() -> service.configureSelection("definition", settings(3, "{amount} > 100")))
@@ -35,7 +35,7 @@ class WorkflowSelectionSettingsTest {
         assertThat(definition.getDefinitionStatus()).isEqualTo(WorkflowDefinitionStatus.PUBLISHED);
         assertThat(definition.getOrganizationId()).isEqualTo("organization");
         assertThat(definition.getMatchExpression()).isEqualTo("{amount} > 100");
-        assertThat(definition.getMatchPriority()).isEqualTo(10);
+        assertThat(definition.getSortOrder()).isEqualTo(120);
     }
     @Test void selectionExpressionsCannotMutateBusinessAndArchivedDefinitionsCannotBeReconfigured() {
         var definitions=mock(WorkflowDefinitionService.class);
@@ -85,7 +85,7 @@ class WorkflowSelectionSettingsTest {
         return copy;
     }
     private WorkflowDesignService.SelectionSettings settings(int version,String expression) {
-        return new WorkflowDesignService.SelectionSettings(version,"Purchase","organization",expression,10,false);
+        return new WorkflowDesignService.SelectionSettings(version,"Purchase","organization",expression,false);
     }
     private WorkflowDesignService service(WorkflowDefinitionService definitions) {
         return new WorkflowDesignService(definitions,mock(WorkflowVersionService.class),mock(WorkflowNodeDefinitionDao.class),

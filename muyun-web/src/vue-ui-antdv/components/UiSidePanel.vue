@@ -17,6 +17,8 @@ defineOptions({ name: 'UiSidePanel', inheritAttrs: false });
 const props = withDefaults(
   defineProps<{
     open: boolean;
+    /** Keep a transfer target mounted when an adaptive detail surface is docked. */
+    forceRender?: boolean;
     /** Inline surfaces stay in their owning workspace. */
     renderMode?: 'inline' | 'portal';
     width?: UiDrawerWidth;
@@ -28,6 +30,7 @@ const props = withDefaults(
   }>(),
   {
     width: 'standard',
+    forceRender: false,
     renderMode: 'portal',
     dismissal: undefined,
     closeOnOutside: false,
@@ -92,6 +95,7 @@ async function requestOutsideClose() {
 <template>
   <ADrawer
     :open="visibleOpen"
+    :force-render="forceRender"
     placement="right"
     :width="resolvedWidth"
     :get-container="container"

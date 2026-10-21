@@ -31,7 +31,7 @@ public class WorkflowDefinitionService extends AbstractAbilityService<WorkflowDe
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, WorkflowDefinition.class, java.util.List.of("id", "applicationAlias", "moduleAlias", "alias", "approvalEnabled", "organizationId", "matchExpression", "matchPriority", "defaultDefinition", "actionCode", "definitionStatus", "currentVersionNo", "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, WorkflowDefinition.class, java.util.List.of("id", "applicationAlias", "moduleAlias", "alias", "approvalEnabled", "organizationId", "matchExpression", "defaultDefinition", "actionCode", "definitionStatus", "currentVersionNo", "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
@@ -63,7 +63,8 @@ public class WorkflowDefinitionService extends AbstractAbilityService<WorkflowDe
     private void normalizeAndValidate(WorkflowDefinition definition) {
         definition.setApplicationAlias(PlatformNameRules.requireApplicationAlias(definition.getApplicationAlias()));
         definition.setModuleAlias(PlatformNameRules.requireModuleAlias(definition.getModuleAlias()));
-        definition.setAlias(PlatformNameRules.requireIdentifier(definition.getAlias(), "workflowAlias"));
+        definition.setAlias(definition.getAlias() == null || definition.getAlias().isBlank()
+                ? null : PlatformNameRules.requireIdentifier(definition.getAlias(), "workflowAlias"));
         if (definition.getApprovalEnabled() == null) {
             definition.setApprovalEnabled(Boolean.FALSE);
         }
@@ -83,9 +84,11 @@ public class WorkflowDefinitionService extends AbstractAbilityService<WorkflowDe
                             .eq("actionCode", definition.getActionCode()),
                     "workflow actionCode must be unique within module: " + definition.getActionCode());
         }
-        rejectDuplicate(definition, Criteria.of()
-                        .eq("moduleAlias", definition.getModuleAlias())
-                        .eq("alias", definition.getAlias()),
-                "workflowAlias must be unique within module: " + definition.getAlias());
+        if (definition.getAlias() != null) {
+            rejectDuplicate(definition, Criteria.of()
+                            .eq("moduleAlias", definition.getModuleAlias())
+                            .eq("alias", definition.getAlias()),
+                    "workflowAlias must be unique within module: " + definition.getAlias());
+        }
     }
 }

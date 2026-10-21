@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { FormulaExpressionTools } from './formulaExpressionTools';
 import { computed, ref, watch } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import FormulaExpressionEditor from './FormulaExpressionEditor.vue';
@@ -7,6 +8,7 @@ import { UiButton, UiInput, UiTextArea, UiSelect, UiCheckbox } from '@muyun/vue-
 defineOptions({ name: 'WorkflowBusinessTaskEditor' });
 const language = useLanguageContext();
 const props = defineProps<{
+  conditionTools?: FormulaExpressionTools;
   value?: string;
   moduleAlias: string;
   disabled?: boolean;
@@ -212,11 +214,13 @@ function changeKind(check: Check, kind: string) {
             :disabled="disabled"
             @update:value="changeKind(check, String($event))"
         /></label>
-        <label class="workflow-field" v-if="check.checkKind === 'FORMULA'"
-          ><RecordFieldLabel required>{{
+        <div class="workflow-field" v-if="check.checkKind === 'FORMULA'">
+          <RecordFieldLabel required>{{
             language.t('platform.workflow-task-editor.field-formula', '业务字段公式')
           }}</RecordFieldLabel
           ><FormulaExpressionEditor
+            :tools="conditionTools"
+            boolean-result
             :value="check.expression ?? ''"
             :fields="fields ?? []"
             :disabled="disabled"
@@ -227,7 +231,8 @@ function changeKind(check: Check, kind: string) {
               check.expression = $event;
               save();
             "
-        /></label>
+          />
+        </div>
         <template v-else>
           <template v-if="check.checkKind === 'QUERY_EXISTS'">
             <p v-if="!catalog?.queries.length">

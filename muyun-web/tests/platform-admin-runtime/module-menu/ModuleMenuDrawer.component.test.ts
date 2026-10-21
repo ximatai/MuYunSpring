@@ -85,6 +85,7 @@ function setup(
     refreshDetailExtensions: vi.fn(),
     setCloseBlocked: vi.fn(),
     setTitleActions: vi.fn(),
+    setOperation: vi.fn(),
   };
   const wrapper = mount(
     defineComponent({
@@ -97,7 +98,7 @@ function setup(
     }),
   );
   const save = async () => {
-    const actions = context.setTitleActions.mock.lastCall![0];
+    const actions = context.setOperation.mock.lastCall![0].actions;
     expect(actions[0].disabled).toBe(false);
     await actions[0].run();
     await flushPromises();
@@ -110,7 +111,9 @@ describe('adding a module menu', () => {
     const test = setup(kind);
     await flushPromises();
     expect(test.wrapper.text()).not.toContain('菜单方案');
-    expect(test.wrapper.find('details').attributes('open')).toBeUndefined();
+    expect(test.wrapper.find('details').exists()).toBe(false);
+    expect(test.wrapper.text()).toContain('打开方式');
+    expect(test.context.setTitleActions).not.toHaveBeenCalled();
     expect(test.wrapper.findComponent(UiInput).props('value')).toBe('客户');
     await test.save();
     expect(test.request).toHaveBeenCalledWith(
@@ -132,7 +135,7 @@ describe('adding a module menu', () => {
   it('blocks a module without a published or declared page and explains the missing configuration', async () => {
     const test = setup('dynamic', { entry: { uiDescriptor: null } });
     await flushPromises();
-    expect(test.context.setTitleActions.mock.lastCall![0][0].disabled).toBe(true);
+    expect(test.context.setOperation.mock.lastCall![0].actions[0].disabled).toBe(true);
     expect(test.wrapper.text()).toContain('尚无可用业务页面');
     expect(test.request.mock.calls.some(([call]) => call.path.endsWith('/insert'))).toBe(false);
     test.wrapper.unmount();
@@ -166,7 +169,7 @@ describe('adding a module menu', () => {
     const test = setup('dynamic', { transportLoss: true });
     await flushPromises();
     await test.save();
-    expect(test.context.setTitleActions.mock.lastCall![0]).toEqual([]);
+    expect(test.context.setOperation.mock.lastCall![0]).toBeUndefined();
     expect(test.wrapper.text()).toContain('查询保存结果');
     await test.wrapper
       .findAll('button')
@@ -183,7 +186,7 @@ describe('adding a module menu', () => {
     await flushPromises();
     await test.save();
     expect(test.wrapper.text()).toContain('无需重复添加');
-    expect(test.context.setTitleActions.mock.lastCall![0]).toEqual([]);
+    expect(test.context.setOperation.mock.lastCall![0]).toBeUndefined();
     expect(test.request.mock.calls.filter(([call]) => call.path.endsWith('/insert'))).toHaveLength(1);
     test.wrapper.unmount();
   });

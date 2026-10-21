@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { useModulePageDetailExtensionRuntime } from '@/dynamic-page-runtime/composables/useModulePageDetailExtensionRuntime.ts';
@@ -40,6 +41,46 @@ describe('module page detail extension runtime', () => {
     expect(source).toMatch(/@after-close="disposeEnhancementDrawer"/);
     expect(source).toMatch(/:context="sectionContext\(record\)"/);
     expect(source).toMatch(/<RecordDetailFields[\s\S]*:file-transfer-context="context"/);
+  });
+
+  it('confirms dirty drawer closing once and never closes a replacement drawer after a delayed answer', async () => {
+    const runtime = useModulePageDetailExtensionRuntime({
+      module: {} as never,
+      scope: () => undefined,
+      refreshList: () => {},
+      reload: () => {},
+      closeDetail: () => {},
+    });
+    runtime.openDrawer({ title: '配置', component: {} });
+    let finish!: (allowed: boolean) => void;
+    const guard = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const context = runtime.drawer.value!.context;
+    context.setBeforeClose(guard);
+    runtime.closeDrawer();
+    runtime.closeDrawer();
+    await Promise.resolve();
+    expect(guard).toHaveBeenCalledOnce();
+    finish(false);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runtime.drawerOpen.value).toBe(true);
+    runtime.closeDrawer();
+    await Promise.resolve();
+    runtime.openDrawer({ title: '另一抽屉', component: {} });
+    context.setBeforeClose(() => true);
+    finish(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runtime.drawerOpen.value).toBe(true);
+    expect(runtime.drawer.value!.definition.title).toBe('另一抽屉');
+    const next = runtime.drawer.value!.context;
+    next.setBeforeClose(() => true);
+    runtime.closeDrawer();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runtime.drawerOpen.value).toBe(false);
   });
 
   it('publishes a monotonic section refresh fact for both static and dynamic detail shells', () => {
@@ -89,6 +130,7 @@ describe('module page detail extension runtime', () => {
 
     const context = runtime.recordViewContext({ id: 'record-a' });
     expect('setCloseBlocked' in context).toBe(false);
+    expect('setBeforeClose' in context).toBe(false);
     expect('setTitleActions' in context).toBe(false);
     expect('setOperation' in context).toBe(false);
     expect('setSubtitle' in context).toBe(false);

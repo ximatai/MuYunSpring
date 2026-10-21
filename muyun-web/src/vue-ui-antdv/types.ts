@@ -136,6 +136,8 @@ export interface UiTreeDropEvent {
 export type UiTreeChangeReason = 'interaction' | 'filter' | 'reset';
 
 export interface UiConfirmOptions {
+  /** Use the notification layer when the confirmation originates from a persistent notification. */
+  layer?: 'standard' | 'notification';
   title: string;
   content?: string;
   details?: { title: string; lines: readonly string[] };

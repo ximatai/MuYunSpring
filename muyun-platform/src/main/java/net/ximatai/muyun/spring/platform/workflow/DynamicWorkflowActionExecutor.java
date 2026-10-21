@@ -64,7 +64,7 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
             case ACTION_SUBMIT_APPROVAL -> DynamicActionResultBody.refreshed(
                     submitApproval(context, request));
             case ACTION_SUBMIT_WORKFLOW -> DynamicActionResultBody.refreshed(
-                    submitWorkflow(context, request, workflowDefinitionAlias(context, request)));
+                    submitService.submit(submission(workflowSubmission(context, request), request)));
             case ACTION_TASK_ACTION -> DynamicActionResultBody.refreshed(taskActionFacade.execute(
                     requireText(payload(request, "taskActionCode"), TextReference.code(
                             "platform.rejection.dynamic-workflow-action-executor.enter-a-task-action-code",
@@ -82,10 +82,9 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
     private DynamicActionResultBody executeBoundWorkflowAction(DynamicActionExecutionContext context,
                                                               DynamicActionExecutionRequest request,
                                                               String workflowAction) {
-        String definitionAlias = boundWorkflowDefinitionAlias(context);
-        if (definitionAlias != null) {
-            return DynamicActionResultBody.refreshed(
-                    submitWorkflow(context, request, definitionAlias));
+        WorkflowSubmitRequest bound = boundWorkflowSubmission(context, request);
+        if (bound != null) {
+            return DynamicActionResultBody.refreshed(submitService.submit(submission(bound, request)));
         }
         if (!WorkflowActionPolicyService.RUNTIME_RECORD_ACTION_CODES.contains(workflowAction)) {
             throw PlatformErrors.badRequestText(TextReference.code(
@@ -105,13 +104,6 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                 moduleAlias(context), recordId(context, request)), request));
     }
 
-    private WorkflowSubmitResult submitWorkflow(DynamicActionExecutionContext context,
-                                                DynamicActionExecutionRequest request,
-                                                String definitionAlias) {
-        return submitService.submit(submission(WorkflowSubmitRequest.workflow(
-                moduleAlias(context), recordId(context, request), definitionAlias), request));
-    }
-
     private WorkflowSubmitRequest submission(WorkflowSubmitRequest submit, DynamicActionExecutionRequest request) {
         var selections = manualRouteSelections(request);
         return (selections.isEmpty()
@@ -119,28 +111,38 @@ public class DynamicWorkflowActionExecutor implements DynamicActionExecutor {
                 : submit.withManualRouteSelections(selections)).withReason(text(payload(request, "reason"), null));
     }
 
-    private String workflowDefinitionAlias(DynamicActionExecutionContext context,
-                                           DynamicActionExecutionRequest request) {
-        String definitionAlias = text(payload(request, "definitionAlias"), null);
-        if (definitionAlias != null) {
-            return definitionAlias;
+    private WorkflowSubmitRequest workflowSubmission(DynamicActionExecutionContext context,
+                                                     DynamicActionExecutionRequest request) {
+        WorkflowSubmitRequest bound = boundWorkflowSubmission(context, request);
+        if (bound != null) return bound;
+        String id = text(payload(request, "definitionId"), null);
+        String alias = text(payload(request, "definitionAlias"), null);
+        if (id != null && alias != null) {
+            throw PlatformErrors.badRequestText(TextReference.code(
+                    "platform.rejection.workflow-definition-selector.choose-id-or-alias",
+                    "specify either workflow definition id or alias, not both"));
         }
-        return requireText(boundWorkflowDefinitionAlias(context), TextReference.code(
-                "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-definition",
-                "workflow definition alias must not be blank"));
+        if (id != null) return WorkflowSubmitRequest.workflowById(moduleAlias(context), recordId(context, request), id);
+        return WorkflowSubmitRequest.workflow(moduleAlias(context), recordId(context, request),
+                requireText(alias, TextReference.code(
+                        "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-definition",
+                        "workflow definition id or alias must not be blank")));
     }
 
-    private String boundWorkflowDefinitionAlias(DynamicActionExecutionContext context) {
+    private WorkflowSubmitRequest boundWorkflowSubmission(DynamicActionExecutionContext context,
+                                                          DynamicActionExecutionRequest request) {
         String moduleAlias = text(context == null ? null : context.moduleAlias(), null);
         String actionCode = text(context == null ? null : context.actionCode(), null);
-        if (moduleAlias == null || actionCode == null) {
-            return null;
-        }
+        if (moduleAlias == null || actionCode == null) return null;
         PlatformModuleAction action = actionService.findByModuleAliasAndActionCode(moduleAlias, actionCode);
-        if (action == null || action.getBindingType() != ModuleActionBindingType.WORKFLOW_DEFINITION) {
-            return null;
-        }
-        return text(action.getBindingAlias(), null);
+        if (action == null || action.getBindingType() != ModuleActionBindingType.WORKFLOW_DEFINITION) return null;
+        String id = text(action.getBindingId(), null);
+        if (id != null) return WorkflowSubmitRequest.workflowById(moduleAlias, recordId(context, request), id);
+        // Legacy alias-only bindings remain readable; new contributions always bind by ID.
+        return WorkflowSubmitRequest.workflow(moduleAlias, recordId(context, request),
+                requireText(action.getBindingAlias(), TextReference.code(
+                        "platform.rejection.dynamic-workflow-action-executor.select-a-workflow-definition",
+                        "workflow definition id or alias must not be blank")));
     }
 
     private WorkflowTaskActionRequest taskRequest(DynamicActionExecutionContext context, DynamicActionExecutionRequest request) {

@@ -149,6 +149,10 @@ export interface WebBusinessNotification {
   content: string;
   dismissible: boolean;
   actions: WebBusinessNotificationAction[];
+  /** Persistent cards remain above ordinary overlays and outside the collapsible queue. */
+  displayPolicy?: 'standard' | 'persistent';
+  /** Optional absolute action deadline, in ISO-8601 format. */
+  expiresAt?: string;
   /** Optional standard card accent. Omit it to use the neutral platform presentation. */
   tone?: WebBusinessNotificationTone;
   /** The business fact's occurrence time, displayed in the workbench time zone when supplied. */

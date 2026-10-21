@@ -1,4 +1,5 @@
 export {};
+export type { FormulaExpressionTools } from './formulaExpressionTools';
 export type { QuerySettlementController } from './querySettlementController';
 export { default as FormulaExpressionEditor } from './FormulaExpressionEditor.vue';
 export type { FormulaExpressionField, FormulaExpressionFunction } from './formulaExpressionTokens';
@@ -368,3 +369,6 @@ export { default as WorkflowDesignProperties } from './WorkflowDesignProperties.
 export { default as RecordDataExchangeSurface } from './RecordDataExchangeSurface.vue';
 
 export { default as TenantScopeExplorer } from './TenantScopeExplorer.vue';
+
+export { useWorkspaceDetailSurface } from './useWorkspaceDetailSurface';
+export { default as RecordAdaptiveDetailPanel } from './RecordAdaptiveDetailPanel.vue';

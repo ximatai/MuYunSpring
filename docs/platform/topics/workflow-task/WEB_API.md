@@ -29,6 +29,8 @@
 | `POST` | `/platform.module/{moduleAlias}/workflow-definitions/{definitionId}/disable`                      | 停用工作流定义，并禁用已贡献动作。                                                         |
 | `POST` | `/platform.module/{moduleAlias}/workflow-definitions/{definitionId}/archive`                      | 归档工作流定义，并禁用已贡献动作。                                                         |
 
+新增定义的 `alias` 可省略或为空，服务端不自动生成；显式提供时沿用既有格式与唯一性校验。前端配置仅填写名称和相关业务设置，定义及版本始终通过 ID 定位。
+
 普通定义维护只面向草稿；发布、停用和归档必须走发布门面，避免绕过动作贡献和状态同步。
 
 聚合设计入口（以下路径均相对定义配置根路径）：
@@ -39,7 +41,10 @@
 | GET | `/{definitionId}/versions/{versionId}/design` | 读取语义节点、连线和布局。 |
 | POST | `/{definitionId}/versions/{versionId}/design` | 整体保存草稿，提交 `{version, design}`。 |
 | POST | `/{definitionId}/versions/{versionId}/validate` | 校验 DAG、分支汇聚、参与人和业务任务完成策略。 |
-| POST | `/{definitionId}/selection` | 按定义版本调整名称、组织、条件、优先级和默认兜底，仅影响以后提交。 |
+| POST | `/sort/{id}` | 标准排序，提交 `{previousId}` 或 `{nextId}`；需排序权限，同租户、同模块内移动，对后续提交生效。 |
+| GET | `/formula-functions` | 返回共用公式函数目录中的标量函数说明；需定义查询权限及可见模块。 |
+| POST | `/validate-condition` | 提交 `{expression}`，使用服务端公式引擎校验语法并禁止字段赋值；不读取业务记录，不替代运行时布尔结果判定。 |
+| POST | `/{definitionId}/selection` | 按定义版本调整名称、组织、条件和默认兜底，仅影响以后提交。 |
 
 发布版本不可改写。重复启用已发布版本保留原快照；新增版本不影响已经启动的实例。
 
@@ -235,3 +240,9 @@
 流程提交、实例动作、任务动作和运维办理入口均使用标准变更回执。运行事件持久化及审批摘要写入在业务事务内记录所属业务的投影变化，事务回滚时不发布；工作流客户端解包回执 data 后维持原有的业务返回契约。
 
 运维当前实例支持按流程状态筛选。所有未归档实例均可在管理查询权限下读取图谱和审计；仅运行中实例提供当前待办与强制办理。终止后的失联实例可继续执行管理重置并归档，管理重置不会恢复已缺失或已删除的业务记录。
+
+## 非审批流程启动
+
+动态模块的标准动作执行入口使用 `platform.workflow` 执行器。通用 `submitWorkflow` 请求可提供 `definitionId`，兼容既有 `definitionAlias`，两者互斥。由已发布流程贡献的动作优先使用登记的绑定 ID，不接受请求体替换；历史仅有别名的绑定继续兼容。流程 ID 不能绕过模块、租户、组织、匹配条件及发布状态检查，动作权限仍由标准执行入口校验。静态服务通过 `WorkflowModuleSubmitService.submitWorkflowById` 接入，既有 `submitWorkflow` 别名入口保留。
+
+流程定义支持 `POST /platform.module/{moduleAlias}/workflow-definitions/{definitionId}/enable`，请求携带当前记录 `version`，动作权限为 `enableWorkflowDefinition`。仅恢复已有当前发布版本的停用流程；草稿、归档及缺失发布版本均拒绝，不会发布工作草稿。

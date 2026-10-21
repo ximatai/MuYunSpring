@@ -4,6 +4,7 @@ import { moduleActionManagementWorkspaceView } from '../views/moduleActionManage
 import { workflowConfigurationWorkspaceView } from '../views/workflowConfigurationWorkspaceView';
 import { codeConfigurationWorkspaceView } from '../views/codeConfigurationWorkspaceView';
 import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
+import ModuleWorkflowDrawer from './workflow/ModuleWorkflowDrawer.vue';
 import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
 import { activateModuleCodeCatalog, canConfigureModuleCodes } from './moduleCodeConfiguration';
@@ -68,10 +69,13 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
         title: '审批流程',
         titleKey: 'platform.screen.WorkflowConfigurationView.approval-workflow',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
-        run({ record, openWorkspaceTab }) {
-          const moduleAlias = moduleAliasOf(record);
-          if (moduleAlias)
-            openWorkspaceTab(workflowWorkspaceView, { moduleAlias, moduleTitle: titleOf(record) });
+        run({ openDrawer }) {
+          openDrawer({
+            title: '审批流程',
+            titleKey: 'platform.screen.WorkflowConfigurationView.approval-workflow',
+            width: 'wide',
+            component: ModuleWorkflowDrawer,
+          });
         },
       },
       {

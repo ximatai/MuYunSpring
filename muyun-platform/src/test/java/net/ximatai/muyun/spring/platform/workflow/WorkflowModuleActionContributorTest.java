@@ -45,6 +45,15 @@ class WorkflowModuleActionContributorTest {
     }
 
     @Test
+    void nonApprovalActionRetainsItsActionCodeWhenTheWorkflowHasNoAlias() {
+        var definition = definition(false); definition.setAlias(null);
+        var contribution = contributor.contribution(definition, version());
+        assertThat(contribution.actionCode()).isEqualTo("syncWorkflow");
+        assertThat(contribution.bindingId()).isEqualTo("def-1");
+        assertThat(contribution.bindingAlias()).isNull();
+    }
+
+    @Test
     void shouldNotContributeActionForApprovalWorkflow() {
         assertThat(contributor.contribution(definition(true), version())).isNull();
     }

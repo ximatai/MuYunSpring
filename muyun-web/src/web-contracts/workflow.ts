@@ -3,14 +3,15 @@ import type { TextPresentation } from './index';
 export interface WorkflowDefinition {
   id: string;
   version: number;
-  alias: string;
+  alias?: string | null;
   title?: string;
   definitionStatus: string;
   currentVersionNo?: number;
   approvalEnabled: boolean;
   organizationId?: string;
   matchExpression?: string;
-  matchPriority?: number;
+  sortOrder?: number;
+  tenantId?: string;
   defaultDefinition?: boolean;
 }
 export interface WorkflowVersion {
@@ -151,7 +152,7 @@ export interface WorkflowStatus {
   instanceId?: string;
   errorMessage?: string;
   errorMessageText?: TextPresentation;
-  definition?: { definitionTitle?: string; definitionAlias?: string };
+  definition?: { definitionId?: string; definitionTitle?: string; definitionAlias?: string | null };
 }
 export interface WorkflowRenderBundle {
   instance: WorkflowInstance;
@@ -282,11 +283,10 @@ export interface WorkflowDefinitionSelection {
   title: string;
   organizationId: string | null;
   matchExpression: string | null;
-  matchPriority: number;
   defaultDefinition: boolean;
 }
 export interface WorkflowDefinitionCreate extends Omit<WorkflowDefinitionSelection, 'version'> {
-  alias: string;
+  alias?: string | null;
   approvalEnabled: boolean;
   enabled: boolean;
 }

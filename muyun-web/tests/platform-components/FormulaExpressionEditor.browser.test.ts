@@ -181,3 +181,41 @@ it('moves a visual token inside the editor without inserting its display label',
     wrapper.unmount();
   }
 });
+
+it('inserts a field from the shared palette at the saved caret and keeps tools inside a narrow panel', async () => {
+  await page.viewport(420, 700);
+  const value = ref('true');
+  const Fixture = defineComponent({
+    setup: () => () =>
+      h('div', { style: 'width: 280px' }, [
+        h(FormulaExpressionEditor, {
+          value: value.value,
+          fields: [{ name: 'amount', label: '金额' }],
+          booleanResult: true,
+          tools: { loadFunctions: async () => [], validate: async () => {} },
+          'onUpdate:value': (next: string) => {
+            value.value = next;
+          },
+        }),
+      ]),
+  });
+  const wrapper = mount(Fixture, { attachTo: document.body });
+  try {
+    const editor = wrapper.findComponent(FormulaExpressionEditor);
+    await nextTick();
+    editor.vm.focusSelection(0, 4);
+    await userEvent.click(page.getByRole('button', { name: '公式辅助', exact: true }));
+    const fieldSelect = wrapper.findAll('.ant-select-selector')[0]!.element;
+    await userEvent.click(page.elementLocator(fieldSelect));
+    await userEvent.click(page.getByText('金额', { exact: true }));
+    await expect.poll(() => value.value).toBe('{amount}');
+    expect(editor.vm.selection()).toEqual({ start: 8, end: 8 });
+    await userEvent.click(page.getByRole('button', { name: '校验公式', exact: true }));
+    await expect.poll(() => wrapper.text()).toContain('语法校验通过');
+    const bounds = editor.element.getBoundingClientRect();
+    expect(bounds.width).toBeLessThanOrEqual(280);
+    expect((editor.element as HTMLElement).scrollWidth).toBeLessThanOrEqual(281);
+  } finally {
+    wrapper.unmount();
+  }
+});

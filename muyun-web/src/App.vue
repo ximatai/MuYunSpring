@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { executeBusinessNotificationRecordAction } from './app/executeBusinessNotificationRecordAction';
 import {
   computed,
   defineAsyncComponent,
@@ -51,6 +52,7 @@ import {
   createMenuClient,
   createLoginContextClient,
   invokeBusinessNotificationRecordAction,
+  businessNotificationExpired,
   provideModuleContextConfig,
   StaleAssistantInvocationError,
   userPreferences,
@@ -961,31 +963,37 @@ async function executeBusinessNotificationAction(
   action: WebBusinessNotificationAction,
 ) {
   try {
+    if (businessNotificationExpired(notification)) return false;
     if (action.kind === 'navigate') {
       handleOpenPage(
         businessNotificationPageDescriptor(action, platformAdminRouteResolveOptions, startup.value?.menus),
       );
     } else {
-      if (action.confirmation) {
-        const confirmed = await confirmAction(
-          {
-            title: action.label,
-            content: action.confirmation,
-            danger: action.danger,
-          },
-          platformLanguageContext,
-        );
-        if (!confirmed) return;
-      }
-      await invokeBusinessNotificationRecordAction(createBackendHttpClient(), action);
+      const completed = await executeBusinessNotificationRecordAction(action, {
+        current: () => businessNotifications.value.find((item) => item.id === notification.id),
+        confirm: () =>
+          confirmAction(
+            {
+              title: action.label,
+              content: action.confirmation ?? '',
+              danger: action.danger,
+              layer: notification.displayPolicy === 'persistent' ? 'notification' : 'standard',
+            },
+            platformLanguageContext,
+          ),
+        invoke: () => invokeBusinessNotificationRecordAction(createBackendHttpClient(), action),
+      });
+      if (!completed) return false;
       presentPlatformSuccess(
         platformLanguageContext.t('platform.screen.App.operation-completed', '操作完成'),
         { source: 'business-notification', phase: 'action' },
       );
     }
     if (action.dismissOnSuccess) dismissBusinessNotification(notification.id);
+    return true;
   } catch (cause) {
     presentPlatformError(cause, { source: 'business-notification', phase: 'action' });
+    return false;
   }
 }
 

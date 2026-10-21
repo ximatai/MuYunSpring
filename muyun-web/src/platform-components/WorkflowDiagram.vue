@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
 import type { Graph, Node } from '@antv/x6';
 import type { WorkflowNode, WorkflowRoute } from '@muyun/web-contracts';
-import { UiButton, UiSelect } from '@muyun/vue-ui-antdv';
+import { UiButton, UiSelect, UiTooltip } from '@muyun/vue-ui-antdv';
 import {
   createWorkflowDiagramModel,
   serializeWorkflowDiagramLayout,
@@ -46,6 +46,8 @@ const model = computed(() =>
     workflowLanguage,
   ),
 );
+const startNode = computed(() => model.value.nodes.find((node) => node.type === 'start'));
+const endNode = computed(() => model.value.nodes.find((node) => node.type === 'end'));
 const focusNode = computed(
   () =>
     model.value.nodes.find((node) => node.status === 'active') ??
@@ -246,14 +248,6 @@ function locate(key?: string, preserveZoom = false) {
 function fit() {
   graph?.zoomToFit({ padding: 36, maxScale: 1, minScale: 0.15 });
 }
-function locateSelectedRoute() {
-  const cell = props.selectedRouteKey && graph?.getCellById(`route:${props.selectedRouteKey}`);
-  if (cell && graph) graph.positionPoint(cell.getBBox().center, '50%', '50%');
-}
-function locateSelection() {
-  if (props.selectedNodeKey) locate(props.selectedNodeKey, true);
-  else locateSelectedRoute();
-}
 function changeZoom(delta: number) {
   graph?.zoom(delta);
 }
@@ -303,13 +297,6 @@ watch(
   () => [props.selectedNodeKey, props.selectedRouteKey, props.interactive, props.editable],
   syncSelection,
 );
-watch(
-  () => props.selectedNodeKey,
-  (key) => {
-    if (key) locate(key);
-  },
-);
-watch(() => props.selectedRouteKey, locateSelectedRoute);
 async function selectObject(kind: 'node' | 'route', key: string) {
   if (document.fullscreenElement === shell.value) await document.exitFullscreen();
   if (kind === 'node') emit('select', key);
@@ -356,7 +343,6 @@ onMounted(async () => {
         graph.resize(viewport.value.clientWidth, viewport.value.clientHeight);
         if (viewport.value.clientWidth === 0 || viewport.value.clientHeight === 0) return;
         if (!initialized) render();
-        else locateSelection();
       }
     });
     observer.observe(viewport.value);
@@ -378,36 +364,105 @@ onBeforeUnmount(() => {
   <section
     ref="shell"
     class="workflow-diagram"
-    :class="{ 'workflow-diagram--detail': presentation === 'detail' }"
+    :class="{
+      'workflow-diagram--detail': presentation === 'detail',
+      'workflow-diagram--designer': presentation === 'designer',
+    }"
     :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.diagram', '流程图')"
   >
+    <div v-if="$slots.actions" class="diagram-edit-tools"><slot name="actions" /></div>
     <div class="diagram-header">
       <div
         class="diagram-tools"
         role="group"
         :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.tools', '流程画布工具')"
       >
-        <UiButton size="small" :disabled="!ready" @click="fit">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom <= 15" @click="changeZoom(-0.15)">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready" @click="actualSize">{{ zoom }}%</UiButton>
-        <UiButton size="small" :disabled="!ready || zoom >= 200" @click="changeZoom(0.15)">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready || !focusNode" @click="locate(focusNode?.key)">{{
-          focusTitle
-        }}</UiButton>
-        <UiButton v-if="editable" size="small" :disabled="!ready" @click="autoLayout">{{
-          workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')
-        }}</UiButton>
-        <UiButton size="small" :disabled="!ready" @click="toggleFullscreen">{{
-          fullscreen
-            ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
-            : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
-        }}</UiButton>
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="fit-screen"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.fit', '全图')"
+          :disabled="!ready"
+          @click="fit"
+        />
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="minus"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-out', '缩小')"
+          :disabled="!ready || zoom <= 15"
+          @click="changeZoom(-0.15)"
+        />
+        <UiButton class="diagram-zoom-value" size="small" :disabled="!ready" @click="actualSize"
+          >{{ zoom }}%</UiButton
+        >
+        <UiButton
+          size="small"
+          icon-only
+          icon-name="plus"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.zoom-in', '放大')"
+          :disabled="!ready || zoom >= 200"
+          @click="changeZoom(0.15)"
+        />
+        <template v-if="presentation === 'designer'">
+          <UiButton
+            size="small"
+            icon-only
+            icon-name="locate-start"
+            :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-start', '定位开始节点')"
+            :title="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-start', '定位开始节点')"
+            :disabled="!ready || !startNode"
+            @click="locate(startNode?.key)"
+          />
+          <UiButton
+            size="small"
+            icon-only
+            icon-name="locate-end"
+            :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-end', '定位结束节点')"
+            :title="workflowLanguage.t('platform.screen.WorkflowDiagram.locate-end', '定位结束节点')"
+            :disabled="!ready || !endNode"
+            @click="locate(endNode?.key)"
+          />
+        </template>
+        <UiButton
+          size="small"
+          icon-only
+          v-if="presentation !== 'designer'"
+          icon-name="locate"
+          :aria-label="focusTitle"
+          :title="focusTitle"
+          :disabled="!ready || !focusNode"
+          @click="locate(focusNode?.key)"
+        />
+        <UiButton
+          v-if="editable"
+          size="small"
+          :aria-label="workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')"
+          :title="workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理')"
+          :disabled="!ready"
+          @click="autoLayout"
+          >{{ workflowLanguage.t('platform.screen.WorkflowDiagram.auto-layout', '自动整理') }}</UiButton
+        >
+        <UiButton
+          size="small"
+          icon-only
+          :icon-name="fullscreen ? 'fullscreen-exit' : 'fullscreen'"
+          :aria-label="
+            fullscreen
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
+              : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
+          "
+          :title="
+            fullscreen
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.exit-fullscreen', '退出全屏')
+              : workflowLanguage.t('platform.screen.WorkflowDiagram.fullscreen', '全屏')
+          "
+          :disabled="!ready"
+          @click="toggleFullscreen"
+        />
       </div>
       <div class="diagram-navigation">
         <UiSelect
@@ -417,7 +472,8 @@ onBeforeUnmount(() => {
           :options="model.nodes.map((node) => ({ value: node.key, label: node.title }))"
           @update:value="locate(String($event))"
         />
-        <span
+        <slot name="navigation" />
+        <span v-if="presentation !== 'designer'"
           >{{
             workflowLanguage.t(
               'platform.screen.WorkflowDiagram.pan-help',
@@ -427,6 +483,29 @@ onBeforeUnmount(() => {
             workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
           }}</span></span
         >
+        <UiTooltip
+          v-if="presentation === 'designer'"
+          :title="
+            workflowLanguage.t(
+              'platform.screen.WorkflowDiagram.pan-help',
+              '拖动空白平移 · Ctrl / ⌘ + 滚轮缩放',
+            ) +
+            (editable
+              ? workflowLanguage.t('platform.screen.WorkflowDiagram.drag-help', ' · 拖动节点调整布局')
+              : '')
+          "
+        >
+          <UiButton
+            size="small"
+            :aria-label="
+              workflowLanguage.t(
+                'platform.screen.WorkflowDiagram.pan-help',
+                '拖动空白平移 · Ctrl / ⌘ + 滚轮缩放',
+              )
+            "
+            >?</UiButton
+          >
+        </UiTooltip>
       </div>
     </div>
     <p v-if="failed" role="alert">
@@ -462,6 +541,12 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 10px 12px;
 }
+.diagram-zoom-value {
+  width: 56px;
+  min-width: 56px;
+  flex: 0 0 56px;
+  font-variant-numeric: tabular-nums;
+}
 .diagram-navigation {
   display: flex;
   align-items: center;
@@ -478,6 +563,59 @@ onBeforeUnmount(() => {
   height: 480px;
   min-width: 0;
   background: var(--muyun-hover);
+}
+.workflow-diagram--designer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  container-type: inline-size;
+}
+.workflow-diagram--designer .diagram-viewport {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.workflow-diagram--designer .diagram-header {
+  border: 0;
+}
+.workflow-diagram--designer .diagram-tools,
+.workflow-diagram--designer .diagram-navigation,
+.diagram-edit-tools {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  border: 1px solid var(--muyun-border-subtle);
+  border-radius: 8px;
+  background: var(--muyun-surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+.diagram-edit-tools {
+  top: 12px;
+  left: 12px;
+}
+.workflow-diagram--designer .diagram-navigation {
+  top: 12px;
+  right: 12px;
+}
+.workflow-diagram--designer .diagram-tools {
+  left: 12px;
+  bottom: 12px;
+}
+@container (max-width: 640px) {
+  .workflow-diagram--designer .diagram-navigation {
+    top: 66px;
+    left: 12px;
+    right: auto;
+  }
+  .workflow-diagram--designer .diagram-locator {
+    width: 130px;
+  }
 }
 .workflow-diagram--detail .diagram-viewport {
   height: 320px;

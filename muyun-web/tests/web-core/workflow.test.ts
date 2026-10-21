@@ -1,8 +1,23 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { createWorkflowClient, refreshWorkflowRecordActions } from '@/web-core/workflow';
+import {
+  createWorkflowClient,
+  createWorkflowDefinitionClient,
+  refreshWorkflowRecordActions,
+} from '@/web-core/workflow';
 import type { HttpClient } from '@/web-core/http';
 
 describe('workflow client public contracts', () => {
+  it('restores a disabled workflow through its scoped versioned enable command', async () => {
+    const data = { id: 'flow/one', version: 4, definitionStatus: 'published' };
+    const request = vi.fn(async () => ({ data, changeSetId: 'enabled', changes: [] }));
+    const client = createWorkflowDefinitionClient({ request } as unknown as HttpClient, 'demo.purchase');
+    expect(await client.changeStatus('flow/one', 'enable', 3)).toEqual(data);
+    expect(request).toHaveBeenCalledExactlyOnceWith({
+      method: 'POST',
+      path: '/platform.module/demo.purchase/workflow-definitions/flow%2Fone/enable',
+      body: { version: 3 },
+    });
+  });
   it('reads a bounded record-owned workflow directory independently of approval submission', async () => {
     const response = { records: [{ id: 'workflow' }], total: 21, pageNum: 2, pageSize: 20, pages: 2 };
     const request = vi.fn(async () => response);

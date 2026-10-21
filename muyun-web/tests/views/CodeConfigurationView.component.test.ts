@@ -450,9 +450,12 @@ describe('CodeConfigurationView', () => {
       source: 'DYNAMIC',
       fields: [{ fieldName: 'documentNo', title: '单据编码', metadataFieldId: 'field' }],
     };
-    request.mockImplementation(async ({ path, body }) =>
-      path.includes('/targets') ? [dynamic] : path.includes('/rules?') ? [] : { ...body, id: 'draft-rule' },
-    );
+    request.mockImplementation(async ({ path, body }) => {
+      if (path.includes('/targets')) return [dynamic];
+      if (path.includes('/rules?')) return [];
+      if (path.endsWith('/preview')) return { value: 'NO-0001', segments: [] };
+      return { ...body, id: 'draft-rule' };
+    });
     const wrapper = wrapperOf();
     try {
       await flushPromises();

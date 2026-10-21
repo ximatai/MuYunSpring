@@ -160,6 +160,24 @@ export function createWorkflowDefinitionClient(http: HttpClient, moduleAlias: st
   const version = (id: string, versionId: string) =>
     `${definition(id)}/versions/${encodeURIComponent(versionId)}`;
   return {
+    formulaFunctions: () =>
+      get<
+        {
+          name: string;
+          title: string;
+          description: string;
+          example: string;
+          parameters: { name: string; description: string }[];
+        }[]
+      >(`${base}/formula-functions`),
+    validateCondition: async (expression: string) => {
+      await post(`${base}/validate-condition`, { expression });
+    },
+    sort: (id: string, targetId: string, position: -1 | 1) =>
+      post(
+        `${base}/sort/${encodeURIComponent(id)}`,
+        position === -1 ? { nextId: targetId } : { previousId: targetId },
+      ),
     catalog: (id: string) =>
       http.request<WorkflowConfigurationCatalog>({ path: `${definition(id)}/configuration-catalog` }),
     query: async () =>
@@ -188,7 +206,7 @@ export function createWorkflowDefinitionClient(http: HttpClient, moduleAlias: st
         definitionVersion,
         version: expectedVersion,
       }),
-    changeStatus: (id: string, action: 'disable' | 'archive', expectedVersion: number) =>
+    changeStatus: (id: string, action: 'enable' | 'disable' | 'archive', expectedVersion: number) =>
       post<WorkflowDefinition>(`${definition(id)}/${action}`, { version: expectedVersion }),
   };
 }

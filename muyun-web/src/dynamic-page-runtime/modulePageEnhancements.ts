@@ -456,6 +456,8 @@ export interface ModulePageDrawerContext {
   refreshDetailExtensions(): void;
   /** Blocks the drawer shell's close affordances while a contributed operation is in flight. */
   setCloseBlocked(blocked: boolean): void;
+  /** Registers the drawer-owned draft confirmation; all shell and programmatic close requests share it. */
+  setBeforeClose(guard?: () => boolean | Promise<boolean>): void;
   close(): void;
   reload(): void;
   /** Replaces contextual actions beside the drawer title; actions are cleared with the drawer. */

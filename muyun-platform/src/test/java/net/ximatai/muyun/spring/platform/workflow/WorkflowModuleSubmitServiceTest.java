@@ -42,5 +42,15 @@ class WorkflowModuleSubmitServiceTest {
 
         verify(submitFacade).submit(WorkflowSubmitRequest.workflow("sales.contract", "record-1", "sync")
                 .withSelectedRoute("leftRoute", "choose left"));
+    }    @Test
+    void idEntrySupportsDirectSubmissionAndBothRouteSelectionForms() {
+        var route = new WorkflowManualRouteSelection("branch", "route", "reason");
+        service.submitWorkflowById("sales.contract", "record-1", "definition-id");
+        verify(submitFacade).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-1", "definition-id"));
+        service.submitWorkflowById("sales.contract", "record-1", "definition-id", "left", "choose left");
+        verify(submitFacade).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-1", "definition-id").withSelectedRoute("left", "choose left"));
+        service.submitWorkflowById("sales.contract", "record-1", "definition-id", java.util.List.of(route));
+        verify(submitFacade).submit(WorkflowSubmitRequest.workflowById("sales.contract", "record-1", "definition-id").withManualRouteSelections(java.util.List.of(route)));
     }
+
 }

@@ -62,14 +62,17 @@ public class WorkflowDesignService {
         definition.setTitle(settings.title().trim());
         definition.setOrganizationId(settings.organizationId() == null || settings.organizationId().isBlank() ? null : settings.organizationId().trim());
         definition.setMatchExpression(settings.matchExpression() == null || settings.matchExpression().isBlank() ? null : settings.matchExpression().trim());
-        definition.setMatchPriority(settings.matchPriority() == null ? 0 : settings.matchPriority());
         definition.setDefaultDefinition(Boolean.TRUE.equals(settings.defaultDefinition()));
         definitions.update(definition);
         return definitions.select(definitionId);
     }
 
+    public void validateSelectionExpression(String expression) {
+        compiler.validateSelectionExpression(expression);
+    }
+
     public record SelectionSettings(Integer version, String title, String organizationId, String matchExpression,
-                                    Integer matchPriority, Boolean defaultDefinition) {}
+                                    Boolean defaultDefinition) {}
 
     @Transactional
     public WorkflowVersion save(String definitionId, String versionId, Integer expectedVersion,

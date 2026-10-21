@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ExternalLink, Pin, PinOff, Sparkles } from 'lucide-vue-next';
+import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Pin, PinOff, Shrink, Sparkles } from 'lucide-vue-next';
 import {
   AppstoreOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  AimOutlined,
+  PartitionOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
   GlobalOutlined,
   BellOutlined,
   CheckOutlined,
@@ -38,6 +44,15 @@ defineOptions({ name: 'UiIcon', inheritAttrs: false });
 
 export type UiIconName =
   | 'app'
+  | 'fit-screen'
+  | 'locate-start'
+  | 'locate-end'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'locate'
+  | 'layout'
+  | 'fullscreen'
+  | 'fullscreen-exit'
   | 'language'
   | 'assistant'
   | 'check'
@@ -80,6 +95,15 @@ const props = defineProps<{
 const icons = {
   user: UserOutlined,
   app: AppstoreOutlined,
+  'fit-screen': Shrink,
+  'locate-start': ArrowUpToLine,
+  'locate-end': ArrowDownToLine,
+  'zoom-in': ZoomInOutlined,
+  'zoom-out': ZoomOutOutlined,
+  locate: AimOutlined,
+  layout: PartitionOutlined,
+  fullscreen: FullscreenOutlined,
+  'fullscreen-exit': FullscreenExitOutlined,
   language: GlobalOutlined,
   assistant: Sparkles,
   check: CheckOutlined,
@@ -115,7 +139,15 @@ const icons = {
   'swap-vertical': SwapOutlined,
 } as const;
 
-const lucideIconNames = new Set<UiIconName>(['assistant', 'open-in-new', 'pin', 'pin-off']);
+const lucideIconNames = new Set<UiIconName>([
+  'assistant',
+  'open-in-new',
+  'pin',
+  'pin-off',
+  'fit-screen',
+  'locate-start',
+  'locate-end',
+]);
 
 const icon = computed(() => icons[props.name]);
 const iconRotate = computed(() => (props.name === 'swap-vertical' ? 90 : undefined));

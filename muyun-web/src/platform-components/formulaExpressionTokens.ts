@@ -9,6 +9,8 @@ export interface FormulaExpressionField {
 }
 
 export interface FormulaExpressionFunction {
+  signature?: string;
+  example?: string;
   name: string;
   title?: string;
   description?: string;

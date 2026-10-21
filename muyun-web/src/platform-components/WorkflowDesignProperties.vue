@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { FormulaExpressionTools } from './formulaExpressionTools';
 import { useLanguageContext } from '@muyun/web-core';
 import { computed } from 'vue';
 import type { HttpClient } from '@muyun/web-core';
@@ -20,6 +21,7 @@ function workflowTitle(value?: string) {
 }
 defineOptions({ name: 'WorkflowDesignProperties' });
 const props = defineProps<{
+  conditionTools?: FormulaExpressionTools;
   design: WorkflowDesign;
   nodeKey: string;
   routeKey: string;
@@ -334,6 +336,7 @@ const selectorNodeOptions = computed(() =>
           @update:value="updateNode({ taskDefinitionId: $event ? String($event) : undefined })"
       /></label>
       <WorkflowBusinessTaskEditor
+        :condition-tools="conditionTools"
         class="property-section"
         :key="node.nodeKey"
         :value="node.nodeConfigText"
@@ -378,15 +381,22 @@ const selectorNodeOptions = computed(() =>
         :value="route.targetNodeKey"
         :options="nodeOptions"
         :disabled="!editable"
-        @update:value="updateRoute({ targetNodeKey: String($event) })" /></label
-    ><label class="workflow-field" v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute"
-      >{{ workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-condition', '出口条件')
-      }}<FormulaExpressionEditor
+        @update:value="updateRoute({ targetNodeKey: String($event) })"
+    /></label>
+    <div class="workflow-field" v-if="routeSource?.nodeType === 'branch' && !route.defaultRoute">
+      <span>{{
+        workflowLanguage.t('platform.screen.WorkflowDesignProperties.route-condition', '出口条件')
+      }}</span
+      ><FormulaExpressionEditor
+        :tools="conditionTools"
+        boolean-result
         :fields="fields"
         :value="route.conditionExpression ?? ''"
         :disabled="!editable"
-        @update:value="updateRoute({ conditionExpression: $event })" /></label
-    ><UiCheckbox
+        @update:value="updateRoute({ conditionExpression: $event })"
+      />
+    </div>
+    <UiCheckbox
       v-if="routeSource?.nodeType === 'branch'"
       :checked="route.defaultRoute"
       :disabled="!editable"
@@ -417,9 +427,17 @@ const selectorNodeOptions = computed(() =>
 .property-form {
   display: grid;
   align-items: start;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  max-width: 850px;
+  min-width: 0;
+}
+.property-form :deep(.participant-rule),
+.property-form :deep(.formula-expression-editor__tools) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.property-form > *,
+.workflow-field {
+  min-width: 0;
 }
 .property-section,
 .branch-exit {
