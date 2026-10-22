@@ -6,6 +6,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 
+/**
+ * Explicit business-code operations sharing the standard numbering and occupation rules.
+ *
+ * <p>Ordinary business saves should use model code declarations and their Service lifecycle.
+ * This facade does not persist the source business record. A domain operation combining
+ * numbering and a business write must retain that Service's normal mutation chain and
+ * declare the encompassing transaction.</p>
+ */
 @Service
 public class CodeRuntimeFacade {
     private final CodeGenerateService generateService;
@@ -20,11 +28,18 @@ public class CodeRuntimeFacade {
         this.ledgerEntryService = Objects.requireNonNull(ledgerEntryService, "ledgerEntryService");
     }
 
-    /** Candidate only: no sequence allocation and no record occupation. */
+    /**
+     * Renders a candidate without allocating a sequence or occupying the value.
+     * The candidate is not a reservation and may differ from a later generated value.
+     */
     public CodePreviewResult preview(CodeRuntimeCommand command) {
         return generateService.preview(Objects.requireNonNull(command, "command").toGenerateCommand());
     }
 
+    /**
+     * Allocates a code under the configured numbering policy without binding a source record.
+     * Unlike preview, this operation can advance sequence state; it does not save business data.
+     */
     @Transactional
     public CodeRuntimeResult generateOnly(CodeRuntimeCommand command) {
         Objects.requireNonNull(command, "command");
@@ -33,6 +48,11 @@ public class CodeRuntimeFacade {
         return CodeRuntimeResult.generated(generated, false, null);
     }
 
+    /**
+     * Returns an existing active binding for the target and source record, or issues and binds one.
+     * Requires a nonblank source-record ID. Binding updates the occupation ledger, not the source
+     * record; the caller owns any encompassing domain transaction and normal business save.
+     */
     @Transactional
     public CodeRuntimeResult issueAndBind(CodeRuntimeCommand command) {
         if (command == null) {
