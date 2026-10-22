@@ -6,6 +6,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Internal context assembly for the dynamic adapter of the shared code lifecycle.
+ * Business callers save through the dynamic record facade rather than assembling this context.
+ *
+ * @hidden
+ */
 public class DynamicCodeContextBuilder {
     public Map<String, Object> recordContext(DynamicRecord record) {
         if (record == null) {

@@ -10,7 +10,12 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Compiles only proven ONE-reference page paths; it deliberately has no query capability. */
+/**
+ * Compiles only proven ONE-reference page paths; it deliberately has no query capability.
+ * Internal page compilation; business modules declare paths in the UI definition DSL.
+ *
+ * @hidden
+ */
 public final class PageReferencePathCompiler {
     public static final int MAX_HOPS = RelationProjectionPlanningOptions.DEFAULT_MAX_JOIN_DEPTH;
 

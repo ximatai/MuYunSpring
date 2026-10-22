@@ -18,7 +18,7 @@ import java.util.Set;
 /**
  * The single catalog for metadata-level dynamic field-capability declarations.
  *
- * <p>A non-null {@link Metadata#getCapabilityDeclarations()} is authoritative. Null is a deliberately
+ * <p>A non-null {@code Metadata.getCapabilityDeclarations()} is authoritative. Null is a deliberately
  * bounded legacy state, read by the resolver only until that metadata is first governed.</p>
  */
 public final class MetadataCapabilityCatalog {

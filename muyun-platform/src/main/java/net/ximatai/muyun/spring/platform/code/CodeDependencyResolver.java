@@ -6,6 +6,12 @@ import java.util.Set;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import java.util.stream.Collectors;
 
+/**
+ * Internal code-rule dependency ordering and change detection.
+ * Model declarations and the standard save lifecycle own linked-code updates.
+ *
+ * @hidden
+ */
 public class CodeDependencyResolver {
     private final FormulaEngine formulas = new FormulaEngine();
     private static final Set<CodeSegmentType> SOURCE_DEPENDENCY_SEGMENT_TYPES = Set.of(

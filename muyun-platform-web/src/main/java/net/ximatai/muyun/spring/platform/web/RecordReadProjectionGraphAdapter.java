@@ -4,6 +4,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+/**
+ * Internal conversion from a compiled read projection to its planning graph.
+ * Business modules declare output fields through the UI definition DSL.
+ *
+ * @hidden
+ */
 public final class RecordReadProjectionGraphAdapter {
     private static final String ROOT_NODE_ID = "root";
 

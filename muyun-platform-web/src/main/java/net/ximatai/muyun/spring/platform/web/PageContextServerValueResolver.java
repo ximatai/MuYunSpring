@@ -10,6 +10,11 @@ import java.util.Optional;
  *
  * <p>Additional sources are intentionally not guessed here: route and form-field context need
  * their own authenticated transport contracts before they can participate in a mutation policy.</p>
+ *
+ * <p>Internal execution support for declared page-context bindings. Business modules declare
+ * those bindings in the UI definition rather than resolving request authority themselves.</p>
+ *
+ * @hidden
  */
 public final class PageContextServerValueResolver {
     private PageContextServerValueResolver() {

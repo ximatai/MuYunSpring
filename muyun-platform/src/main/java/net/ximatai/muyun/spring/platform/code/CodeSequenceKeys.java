@@ -8,6 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Internal sequence-bucket key construction shared by numbering decisions.
+ * Business callers use {@link CodeRuntimeFacade} rather than constructing ledger keys.
+ *
+ * @hidden
+ */
 public class CodeSequenceKeys {
     private final CodePreviewService previewService;
     private final Clock clock;

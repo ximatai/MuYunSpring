@@ -5,6 +5,8 @@ MuYunSpring 将平台基础能力、Web 交付和 Spring Boot 自动装配发布
 `muyun-boot` 不属于公共运行时发布面。
 
 公共发布范围以 `build.gradle.kts` 的 `publicArtifactProjectNames` 为准，模块职责见[命名与边界](architecture/NAMING_AND_BOUNDARIES.md)。
+
+发布模块中的 Java `public` 类型不全是业务扩展点。推荐接入入口、协议类型、内部协作者及源码/Javadoc 的保留规则见 [Java 接入 API 与 Javadoc 边界](architecture/JAVA_API_BOUNDARY.md)。
 BOM 不包含 Java 类，但承担版本约束；Starter 承担运行时依赖与自动装配。是否公开发布应依据消费契约，不按源码数量裁剪。
 
 正式发布保持统一版本与完整依赖闭包。日常联调优先使用本地消费者仓库，积累稳定改动后再发布正式版本，
