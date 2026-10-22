@@ -18,62 +18,76 @@ import { inspectPublication } from "./maven-publication-report.mjs";
 import { waitForPublication } from "./wait-maven-central.mjs";
 import { readVersionState } from "./version-lib.mjs";
 
-test("real Gradle release graph has one gated upload after complete bundle validation", () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const tag = `v${readVersionState(root).gradle.replace(/-SNAPSHOT$/, "")}`;
-  const graph = execFileSync(
-    "./gradlew",
-    [
-      "publishReleaseToSonatype",
-      "-Pmuyun.mavenCentralRelease=true",
-      `-Prelease.tag=${tag}`,
-      "--dry-run",
-      "--console=plain",
-    ],
-    {
-      cwd: root,
-      encoding: "utf8",
-      timeout: 120000,
-      env: {
-        ...process.env,
-        SONATYPE_TOKEN: "",
-        SONATYPE_PASSWORD: "",
-        SIGNING_KEY_ID: "",
-        SIGNING_SECRET_KEY: "",
-        SIGNING_SECRET_KEY_BASE64: "",
-        SIGNING_PASSWORD: "",
-      },
-    },
-  );
-  const tasks = graph
-    .split(/\r?\n/)
-    .filter((line) => line.endsWith(" SKIPPED"))
-    .map((line) => line.slice(0, -" SKIPPED".length));
-  assert.equal(
-    tasks.filter((task) => task.endsWith(":2.uploadDeploymentDir")).length,
-    1,
-  );
-  const upload = tasks.indexOf(":2.uploadDeploymentDir");
-  for (const gate of [
-    ":verifyReleaseCredentials",
-    ":verifyReleaseTagVersion",
-    ":verifyMavenCentralReleaseMode",
-    ":verifyMavenCentralBundle",
-  ])
-    assert.ok(
-      tasks.indexOf(gate) >= 0 && tasks.indexOf(gate) < upload,
-      `Missing pre-upload gate: ${gate}`,
+for (const entry of ["publishReleaseToSonatype", "publishToSonatype"]) {
+  test(`real Gradle ${entry} graph has one gated upload followed by platform orchestration`, (t) => {
+    const root = fileURLToPath(new URL("../", import.meta.url));
+    const tag = `v${readVersionState(root).gradle.replace(/-SNAPSHOT$/, "")}`;
+    const temp = mkdtempSync(join(tmpdir(), "muyun-release-graph-"));
+    t.after(() => rmSync(temp, { recursive: true, force: true }));
+    const init = join(temp, "verify-alias.gradle");
+    writeFileSync(
+      init,
+      `gradle.projectsEvaluated {
+    assert gradle.rootProject.tasks.getByName('publishToSonatype').actions.empty : 'Legacy plugin polling must be retired'
+    assert gradle.rootProject.tasks.getByName('publishReleaseToSonatype').commandLine.last() == '--publish' : 'Standard release must enable validated-deployment publication'
+  }`,
     );
-  assert.ok(tasks.indexOf(":publishToSonatype") > upload);
-  assert.ok(
-    tasks.indexOf(":publishReleaseToSonatype") >
-      tasks.indexOf(":publishToSonatype"),
-  );
-  assert.ok(
-    !tasks.includes(":bundleMavenCentralRelease"),
-    "The uploader packages the validated directory; no preview ZIP is needed",
-  );
-});
+    const graph = execFileSync(
+      "./gradlew",
+      [
+        entry,
+        "-Pmuyun.mavenCentralRelease=true",
+        `-Prelease.tag=${tag}`,
+        "--dry-run",
+        "--console=plain",
+        "--init-script",
+        init,
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 120000,
+        env: {
+          ...process.env,
+          SONATYPE_TOKEN: "",
+          SONATYPE_PASSWORD: "",
+          SIGNING_KEY_ID: "",
+          SIGNING_SECRET_KEY: "",
+          SIGNING_SECRET_KEY_BASE64: "",
+          SIGNING_PASSWORD: "",
+        },
+      },
+    );
+    const tasks = graph
+      .split(/\r?\n/)
+      .filter((line) => line.endsWith(" SKIPPED"))
+      .map((line) => line.slice(0, -" SKIPPED".length));
+    assert.equal(
+      tasks.filter((task) => task.endsWith(":2.uploadDeploymentDir")).length,
+      1,
+    );
+    const upload = tasks.indexOf(":2.uploadDeploymentDir");
+    for (const gate of [
+      ":verifyReleaseCredentials",
+      ":verifyReleaseTagVersion",
+      ":verifyMavenCentralReleaseMode",
+      ":verifyMavenCentralBundle",
+    ])
+      assert.ok(
+        tasks.indexOf(gate) >= 0 && tasks.indexOf(gate) < upload,
+        `Missing pre-upload gate: ${gate}`,
+      );
+    const platformPublish = tasks.indexOf(":publishReleaseToSonatype");
+    assert.ok(platformPublish > upload);
+    if (entry === "publishToSonatype")
+      assert.ok(tasks.indexOf(":publishToSonatype") > platformPublish);
+    else assert.ok(!tasks.includes(":publishToSonatype"));
+    assert.ok(
+      !tasks.includes(":bundleMavenCentralRelease"),
+      "The uploader packages the validated directory; no preview ZIP is needed",
+    );
+  });
+}
 
 function publication(t, signed = true) {
   const repository = mkdtempSync(join(tmpdir(), "muyun-publication-"));
@@ -256,7 +270,7 @@ function polling(states) {
         time += 10;
       },
       log: () => {},
-      fetchStatus: async (url, options) => {
+      fetchRequest: async (url, options) => {
         calls.push({ url, ...options });
         const state = states.shift();
         if (state instanceof Error) throw state;
@@ -276,7 +290,7 @@ function polling(states) {
 }
 
 test("final success requires PUBLISHED, using the same authenticated deployment for every poll", async () => {
-  const { options, calls } = polling(["VALIDATED", "PUBLISHING", "PUBLISHED"]);
+  const { options, calls } = polling(["VALIDATING", "PUBLISHING", "PUBLISHED"]);
   await waitForPublication(options);
   assert.equal(calls.length, 3);
   assert.ok(
@@ -301,6 +315,150 @@ test("temporary reads retry without uploading", async () => {
   await waitForPublication(options);
   assert.equal(calls.length, 4);
   assert.ok(calls.every((call) => call.url.includes("/status?")));
+});
+
+for (const failure of [
+  new TypeError("terminated"),
+  new DOMException("body timed out", "TimeoutError"),
+]) {
+  test(`temporary response body failure retries the same deployment: ${failure.name}`, async () => {
+    const { options, calls } = polling(["PUBLISHED", "PUBLISHED"]);
+    const fetchRequest = options.fetchRequest;
+    options.fetchRequest = async (...args) => {
+      const response = await fetchRequest(...args);
+      if (calls.length === 1)
+        response.json = async () => {
+          throw failure;
+        };
+      return response;
+    };
+    await waitForPublication(options);
+    assert.equal(calls.length, 2);
+    assert.ok(
+      calls.every((call) => call.url.endsWith(`/status?id=${deploymentId}`)),
+    );
+  });
+}
+
+test("malformed status JSON fails closed without publishing", async () => {
+  const { options, calls } = polling(["PUBLISHED"]);
+  const fetchRequest = options.fetchRequest;
+  options.fetchRequest = async (...args) => {
+    const response = await fetchRequest(...args);
+    response.json = async () => {
+      throw new SyntaxError("invalid JSON");
+    };
+    return response;
+  };
+  await assert.rejects(
+    waitForPublication({ ...options, publish: true }),
+    /Invalid Maven Central status response/,
+  );
+  assert.equal(calls.length, 1);
+});
+
+test("read-only recovery explains how to resume a VALIDATED deployment without writing", async () => {
+  const { options, calls } = polling(["VALIDATED"]);
+  await assert.rejects(
+    waitForPublication(options),
+    /Portal or resume with --publish.*do not re-upload/,
+  );
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.includes("/status?"));
+});
+
+test("a status body completing after the deadline cannot trigger publication", async () => {
+  const { options, calls } = polling(["VALIDATED"]);
+  let time = 0;
+  options.now = () => time;
+  const fetchRequest = options.fetchRequest;
+  options.fetchRequest = async (...args) => {
+    const response = await fetchRequest(...args);
+    const json = response.json;
+    response.json = async () => {
+      time = options.timeoutMs;
+      return json();
+    };
+    return response;
+  };
+  await assert.rejects(
+    waitForPublication({ ...options, publish: true }),
+    /Timed out/,
+  );
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.includes("/status?"));
+});
+
+for (const acknowledgement of [
+  204,
+  new TypeError("lost acknowledgement"),
+  503,
+  409,
+  429,
+]) {
+  test(`upload-complete orchestration retries status then publishes the existing deployment once (${String(acknowledgement)})`, async () => {
+    const { options, calls } = polling([
+      new TypeError("first status failed"),
+      "VALIDATING",
+      "VALIDATED",
+      "VALIDATED",
+      "PUBLISHING",
+      "PUBLISHED",
+    ]);
+    const fetchRequest = options.fetchRequest;
+    options.fetchRequest = async (url, request) => {
+      if (!url.includes("/deployment/")) return fetchRequest(url, request);
+      calls.push({ url, ...request });
+      if (acknowledgement instanceof Error) throw acknowledgement;
+      return { status: acknowledgement };
+    };
+    await waitForPublication({ ...options, publish: true });
+    assert.equal(
+      calls.filter((call) => call.url.endsWith(`/deployment/${deploymentId}`))
+        .length,
+      1,
+    );
+    assert.ok(calls.every((call) => !call.url.includes("/upload")));
+  });
+}
+
+for (const code of [401, 403]) {
+  test(`publication permission failure ${code} is not retried`, async () => {
+    const { options, calls } = polling(["VALIDATED"]);
+    const fetchRequest = options.fetchRequest;
+    options.fetchRequest = async (url, request) => {
+      if (!url.includes("/deployment/")) return fetchRequest(url, request);
+      calls.push({ url, ...request });
+      return { status: code };
+    };
+    await assert.rejects(
+      waitForPublication({ ...options, publish: true }),
+      /Maven Central publish rejected/,
+    );
+    assert.equal(calls.length, 2);
+  });
+}
+
+test("an unconfirmed publication remaining VALIDATED times out without posting again", async () => {
+  const { options, calls } = polling([]);
+  options.fetchRequest = async (url, request) => {
+    calls.push({ url, ...request });
+    return url.includes("/deployment/")
+      ? { status: 503 }
+      : {
+          ok: true,
+          status: 200,
+          json: async () => ({ deploymentId, deploymentState: "VALIDATED" }),
+        };
+  };
+  await assert.rejects(
+    waitForPublication({ ...options, publish: true }),
+    /last state: VALIDATED.*do not re-upload/,
+  );
+  assert.equal(
+    calls.filter((call) => call.url.includes("/deployment/")).length,
+    1,
+  );
 });
 
 for (const state of [

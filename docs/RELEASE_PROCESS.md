@@ -97,15 +97,26 @@ tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。发布�
 Maven Central 与 npm 都发布成功才代表一次完整发布。Maven Central 的索引可见性检查保留为发布后的轻量人工验证，
 不阻塞 Release workflow。
 
-部署状态 `PUBLISHING` 只表示正在分发，不视为 Maven 发布完成。上传与校验完成后，最终状态检查最多等待 15 分钟到达 `PUBLISHED`；
-临时状态查询故障只重试已有 deployment，不重复上传。若超时或 npm 阶段失败，应先查 Portal 和 registry，
-不得直接重跑整条发布。Release CI 会留存 deployment ID；恢复时可用同一凭据只读等待原部署：
+插件只负责单次打包上传；平台脚本统一承接上传后的校验、发布和最终状态等待，合计最多 15 分钟。
+`publishToSonatype` 保留为标准平台发布任务的兼容入口，不再执行插件自身的轮询。
+部署状态 `PUBLISHING` 只表示正在分发，到达 `PUBLISHED` 才视为 Maven 发布完成。状态请求及响应体读取的临时故障
+只重试已有 deployment；身份不符、权限错误、非法响应和失败终态直接中止。若超时或 npm 阶段失败，
+应先查 Portal 和 registry，不得直接重跑整条发布。Release CI 会留存 deployment ID；可用同一凭据只读等待原部署：
 
 ```bash
 node scripts/wait-maven-central.mjs <deployment-id-file>
 ```
 
-该命令读取 `SONATYPE_TOKEN` 与 `SONATYPE_PASSWORD`，不会创建、发布或删除 deployment。
+该命令读取 `SONATYPE_TOKEN` 与 `SONATYPE_PASSWORD`，默认只读。若原部署停在 `VALIDATED`，会提示恢复操作，
+此时可在 Portal 发布原部署，或显式启用发布模式：
+
+```bash
+node scripts/wait-maven-central.mjs <deployment-id-file> --publish
+```
+
+正式 Gradle 发布任务使用此模式：确认 `VALIDATED` 后，只对同一 deployment 提交一次发布。
+发布回执丢失或暂时失败时，继续查询原部署状态，不盲目重试发布请求；若仍无法确认，超时后由人工核实并恢复。
+恢复命令不上传、不创建或删除 deployment；已处于 `PUBLISHING` 或 `PUBLISHED` 时不会再次提交发布。
 
 `muyun.mavenCentralRelease` 是正式发布意图，只允许在 Maven Central staging 和上传步骤启用。签名 staging 会强制
 校验 release tag 和完整 PGP 签名材料，并将构件写入各公共模块的 `build/repo`；远程上传还会额外校验 Sonatype

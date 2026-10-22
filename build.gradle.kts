@@ -252,11 +252,18 @@ tasks.named("2.uploadDeploymentDir") {
 tasks.register<Exec>("publishReleaseToSonatype") {
     group = "publishing"
     description = "Publishes all public MuYunSpring artifacts to Maven Central through Sonatype."
-    dependsOn("publishToSonatype")
+    dependsOn("2.uploadDeploymentDir")
     environment("SONATYPE_TOKEN", releaseValue("sonatype.token", "SONATYPE_TOKEN").orEmpty())
     environment("SONATYPE_PASSWORD", releaseValue("sonatype.password", "SONATYPE_PASSWORD").orEmpty())
     commandLine("node", "scripts/wait-maven-central.mjs",
-        layout.buildDirectory.file("sonayUploader/uploaderId").get().asFile.path)
+        layout.buildDirectory.file("sonayUploader/uploaderId").get().asFile.path, "--publish")
+}
+
+// Keep the plugin's familiar entry point, but retire its unbounded status/publish loop.
+tasks.named("publishToSonatype") {
+    actions.clear()
+    setDependsOn(listOf("publishReleaseToSonatype"))
+    description = "Compatibility alias for the bounded platform release flow."
 }
 
 val releaseModeVerification = tasks.named("verifyMavenCentralReleaseMode")
