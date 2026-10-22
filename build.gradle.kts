@@ -12,8 +12,9 @@ import org.gradle.api.tasks.TaskAction
 plugins {
     alias(libs.plugins.spring.boot) apply false
     alias(libs.plugins.spring.dependency.management) apply false
+    `maven-publish`
     signing
-    id("io.github.jeadyx.sonatype-uploader") version "2.8" apply false
+    id("io.github.jeadyx.sonatype-uploader") version "2.8"
     java
 }
 
@@ -159,13 +160,24 @@ tasks.register<VerifyReleaseTagVersionTask>("verifyReleaseTagVersion") {
     effectiveVersionInput.set(effectiveVersion)
 }
 
-tasks.register("stageMavenCentralRelease") {
+val centralRepository = layout.buildDirectory.dir("maven-central/repository")
+val centralCoordinates = project.group.toString().replace('.', '/')
+
+tasks.register<Sync>("stageMavenCentralRelease") {
     group = "publishing"
     description = "Stages signed public artifacts for Maven Central without uploading them."
     dependsOn("verifyMavenCentralReleaseMode")
     dependsOn("verifyReleaseSigningCredentials")
     dependsOn("verifyReleaseTagVersion")
     dependsOn(publicArtifactProjectNames.map { ":$it:publishAllPublicationsToSonatypeStagingRepository" })
+    into(centralRepository)
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    publicArtifactProjectNames.forEach { artifact ->
+        val coordinate = "$centralCoordinates/$artifact/${project.version}"
+        from(project(":$artifact").layout.buildDirectory.dir("repo/$coordinate")) {
+            into(coordinate)
+        }
+    }
 }
 
 tasks.register("publishReleaseToLocalRepository") {
@@ -194,47 +206,69 @@ tasks.register<Exec>("verifyMavenCentralConsumer") {
     commandLine("bash", "scripts/verify-maven-central-consumer.sh")
 }
 
-tasks.register("publishReleaseToSonatype") {
+tasks.register<Exec>("reportMavenPublication") {
+    group = "publishing"
+    description = "Reports the current unsigned Maven consumer publication without contacting a registry."
+    dependsOn("publishReleaseToConsumerRepository")
+    commandLine("node", "scripts/maven-publication-report.mjs",
+        layout.buildDirectory.dir("consumer-repo").get().asFile.path,
+        project.group.toString(), project.version.toString(), publicArtifactProjectNames.joinToString(","),
+        "unsigned", layout.buildDirectory.file("maven-publication-report.json").get().asFile.path)
+}
+
+tasks.register<Exec>("verifyMavenCentralBundle") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Verifies the complete signed release inventory and reports its publishing usage."
+    dependsOn("stageMavenCentralRelease")
+    commandLine("node", "scripts/maven-publication-report.mjs",
+        centralRepository.get().asFile.path,
+        project.group.toString(), project.version.toString(), publicArtifactProjectNames.joinToString(","),
+        "signed", layout.buildDirectory.file("maven-central/report.json").get().asFile.path)
+}
+
+tasks.register<Zip>("bundleMavenCentralRelease") {
+    group = "publishing"
+    description = "Creates an inspectable signed release bundle without contacting Maven Central."
+    dependsOn("verifyMavenCentralBundle")
+    from(centralRepository)
+    destinationDirectory.set(layout.buildDirectory.dir("maven-central"))
+    archiveFileName.set("MuYunSpring-${project.version}.zip")
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+extensions.configure<io.github.jeadyx.UploaderExtension> {
+    repositoryPath = centralRepository.get().asFile.path
+    bundleName = "MuYunSpring-${project.version}"
+    tokenName = releaseValue("sonatype.token", "SONATYPE_TOKEN").orEmpty()
+    tokenPasswd = releaseValue("sonatype.password", "SONATYPE_PASSWORD").orEmpty()
+}
+
+tasks.named("2.uploadDeploymentDir") {
+    dependsOn("verifyMavenCentralReleaseMode", "verifyReleaseCredentials", "verifyReleaseTagVersion")
+    dependsOn("verifyMavenCentralBundle")
+}
+
+tasks.register<Exec>("publishReleaseToSonatype") {
     group = "publishing"
     description = "Publishes all public MuYunSpring artifacts to Maven Central through Sonatype."
-    dependsOn("verifyMavenCentralReleaseMode")
-    dependsOn("verifyReleaseCredentials")
-    dependsOn("verifyReleaseTagVersion")
-    dependsOn(publicArtifactProjectNames.map { ":$it:publishToSonatype" })
-    doFirst { requireReleaseCredentials() }
+    dependsOn("2.uploadDeploymentDir")
+    environment("SONATYPE_TOKEN", releaseValue("sonatype.token", "SONATYPE_TOKEN").orEmpty())
+    environment("SONATYPE_PASSWORD", releaseValue("sonatype.password", "SONATYPE_PASSWORD").orEmpty())
+    commandLine("node", "scripts/wait-maven-central.mjs",
+        layout.buildDirectory.file("sonayUploader/uploaderId").get().asFile.path, "--publish")
+}
+
+// Keep the plugin's familiar entry point, but retire its unbounded status/publish loop.
+tasks.named("publishToSonatype") {
+    actions.clear()
+    setDependsOn(listOf("publishReleaseToSonatype"))
+    description = "Compatibility alias for the bounded platform release flow."
 }
 
 val releaseModeVerification = tasks.named("verifyMavenCentralReleaseMode")
 val releaseTagVerification = tasks.named("verifyReleaseTagVersion")
-val releaseCredentialVerification = tasks.named("verifyReleaseCredentials")
 val releaseSigningCredentialVerification = tasks.named("verifyReleaseSigningCredentials")
-gradle.projectsEvaluated {
-    publicArtifactProjectNames.forEach { projectName ->
-        val artifactProject = project(":$projectName")
-        artifactProject.tasks.named("publishToSonatype") {
-            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
-        }
-        artifactProject.tasks.named("2.uploadDeploymentDir") {
-            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
-        }
-    }
-
-    // The Sonatype Portal uploader creates and polls a deployment per module. Running any part
-    // of that upload-to-publish flow concurrently can race the Portal API and produce transient
-    // 404 responses, so the final remote publishing phase is deliberately serialized.
-    publicArtifactProjectNames.zipWithNext().forEach { (precedingProjectName, projectName) ->
-        val precedingProject = project(":$precedingProjectName")
-        val artifactProject = project(":$projectName")
-
-        artifactProject.tasks.named("2.uploadDeploymentDir") {
-            mustRunAfter(precedingProject.tasks.named("publishToSonatype"))
-        }
-        artifactProject.tasks.named("publishToSonatype") {
-            mustRunAfter(precedingProject.tasks.named("publishToSonatype"))
-        }
-    }
-}
-
 val testcontainersVersion = libs.versions.testcontainers.get()
 
 subprojects {
@@ -295,7 +329,6 @@ subprojects {
 configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
     apply(plugin = "maven-publish")
     apply(plugin = "signing")
-    apply(plugin = "io.github.jeadyx.sonatype-uploader")
 
     plugins.withId("java") {
         extensions.configure<JavaPluginExtension> {
@@ -374,12 +407,6 @@ configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
             }
         }
 
-        extensions.configure<io.github.jeadyx.UploaderExtension> {
-            repositoryPath = layout.buildDirectory.dir("repo").get().asFile.path
-            tokenName = releaseValue("sonatype.token", "SONATYPE_TOKEN").orEmpty()
-            tokenPasswd = releaseValue("sonatype.password", "SONATYPE_PASSWORD").orEmpty()
-        }
-
         tasks.withType<Javadoc>().configureEach {
             val options = options as StandardJavadocDocletOptions
             options.addStringOption("Xdoclint:none", "-quiet")
@@ -390,13 +417,6 @@ configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
                 it.name == "publishAllPublicationsToSonatypeStagingRepository"
         }.configureEach {
             dependsOn(releaseModeVerification, releaseTagVerification, releaseSigningCredentialVerification)
-        }
-        tasks.matching { it.name == "publishToSonatype" }.configureEach {
-            dependsOn("publishAllPublicationsToSonatypeStagingRepository")
-        }
-        tasks.matching { it.name == "1.createDeploymentDir" || it.name == "2.uploadDeploymentDir" }.configureEach {
-            dependsOn("publishAllPublicationsToSonatypeStagingRepository")
-            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
         }
     }
 }

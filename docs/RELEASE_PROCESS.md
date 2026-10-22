@@ -4,6 +4,30 @@ MuYunSpring 将平台基础能力、Web 交付和 Spring Boot 自动装配发布
 `muyun-spring-bom` 统一版本，并依赖 `muyun-spring-boot-starter` 启动平台；`muyun-demo*` 与
 `muyun-boot` 不属于公共运行时发布面。
 
+公共发布范围以 `build.gradle.kts` 的 `publicArtifactProjectNames` 为准，模块职责见[命名与边界](architecture/NAMING_AND_BOUNDARIES.md)。
+BOM 不包含 Java 类，但承担版本约束；Starter 承担运行时依赖与自动装配。是否公开发布应依据消费契约，不按源码数量裁剪。
+
+正式发布保持统一版本与完整依赖闭包。日常联调优先使用本地消费者仓库，积累稳定改动后再发布正式版本，
+避免仅为文档或中间状态发版；紧急修复可独立发布。不为配额合并领域模块、删除必需构件或引入模块独立版本。
+
+## 发布用量与统一 bundle
+
+Maven Central 按组织统计发布次数、文件数和体积。根发布任务将所有公开模块的本次版本目录汇集到
+`build/maven-central/repository`，通过一次部署上传；模块坐标、依赖、源码、Javadoc、Gradle 元数据、签名和校验和保持不变。
+仓库级 `maven-metadata.xml` 及其校验文件、历史版本不进入 bundle。
+合并部署主要减少发布次数，不能消除文件数和体积配额；具体阈值及组织余量仍以 Sonatype Usage Center 为准。
+
+无凭据的本地盘点：
+
+```bash
+./gradlew reportMavenPublication
+```
+
+该任务复用本地 Maven 发布，检查当前版本各模块的产物与校验和，输出模块级文件数、未压缩体积以及
+`build/maven-publication-report.json`。无签名盘点不代表正式发布用量，
+正式报告由签名后的 bundle 生成，写入 `build/maven-central/report.json`，并由 Release CI 留存。
+报告不硬编码组织配额，不代替在线 Usage Center，也不阻断必要的紧急发布。
+
 ## 本地消费者验证
 
 在框架仓库执行：
@@ -66,24 +90,47 @@ tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。发布�
 1. 校验三处开发版本完全一致、年份正确、tag 匹配，并校验发布凭据。
 2. 清理工作区。
 3. 执行 `verifyAll`、本地 Maven 消费者验证、npm 消费者验证和 npm publish dry-run。
-4. 执行 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`。
+4. 执行 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`，以单个 bundle 上传并等待部署状态到达 `PUBLISHED`。
 5. 从 npm 消费者验证生成的 staging 包发布同一 tag 对应的 npm 包。
 6. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
 
 Maven Central 与 npm 都发布成功才代表一次完整发布。Maven Central 的索引可见性检查保留为发布后的轻量人工验证，
 不阻塞 Release workflow。
 
-`muyun.mavenCentralRelease` 是正式发布意图，只允许在 Maven Central staging 和上传步骤启用。签名 staging 会强制
-校验 release tag 和完整 PGP 签名材料，并将构件写入各公共模块的 `build/repo`；远程上传还会额外校验 Sonatype
-凭据。需要只生成签名 staging、不执行上传时，使用：
+插件只负责单次打包上传；平台脚本统一承接上传后的校验、发布和最终状态等待，合计最多 15 分钟。
+`publishToSonatype` 保留为标准平台发布任务的兼容入口，不再执行插件自身的轮询。
+部署状态 `PUBLISHING` 只表示正在分发，到达 `PUBLISHED` 才视为 Maven 发布完成。状态请求及响应体读取的临时故障
+只重试已有 deployment；身份不符、权限错误、非法响应和失败终态直接中止。若超时或 npm 阶段失败，
+应先查 Portal 和 registry，不得直接重跑整条发布。Release CI 会留存 deployment ID；可用同一凭据只读等待原部署：
 
 ```bash
-./gradlew stageMavenCentralRelease \
+node scripts/wait-maven-central.mjs <deployment-id-file>
+```
+
+该命令读取 `SONATYPE_TOKEN` 与 `SONATYPE_PASSWORD`，默认只读。若原部署停在 `VALIDATED`，会提示恢复操作，
+此时可在 Portal 发布原部署，或显式启用发布模式：
+
+```bash
+node scripts/wait-maven-central.mjs <deployment-id-file> --publish
+```
+
+正式 Gradle 发布任务使用此模式：确认 `VALIDATED` 后，只对同一 deployment 提交一次发布。
+发布回执丢失或暂时失败时，继续查询原部署状态，不盲目重试发布请求；若仍无法确认，超时后由人工核实并恢复。
+恢复命令不上传、不创建或删除 deployment；已处于 `PUBLISHING` 或 `PUBLISHED` 时不会再次提交发布。
+
+`muyun.mavenCentralRelease` 是正式发布意图，只允许在 Maven Central staging 和上传步骤启用。签名 staging 会强制
+校验 release tag 和完整 PGP 签名材料，并将构件写入各公共模块的 `build/repo`；远程上传还会额外校验 Sonatype
+凭据。需要离线验证签名产物并生成预览 ZIP、不执行上传时，使用：
+
+```bash
+./gradlew bundleMavenCentralRelease \
   -Pmuyun.mavenCentralRelease=true \
   -Prelease.tag=v<version>
 ```
 
-`publishReleaseToLocalRepository` 暂时保留为 `stageMavenCentralRelease` 的兼容别名。`build/repo` 属于正式发布 staging，
+该任务检查附件完整性、校验和与未知文件，生成 `build/maven-central/MuYunSpring-<version>.zip`。
+正式上传由既有插件直接从同一已验证目录打包，不依赖预览 ZIP。
+`stageMavenCentralRelease` 只生成签名 staging，`publishReleaseToLocalRepository` 保留为其兼容别名。`build/repo` 属于正式发布 staging，
 不是普通开发消费仓库；本地依赖供应应使用 Maven Local 或 `build/consumer-repo`。Release workflow 只在凭据预检和
 对应 registry 的最终发布步骤注入秘密，常规测试与消费者验证不得接触发布私钥或 token。
 
