@@ -65,6 +65,9 @@ export function useTenantScopeController(
     }
     initialScopeLoaded.value = true;
   }
+  function refreshTenantScope() {
+    tenantScopeReloadKey.value += 1;
+  }
   function setRequired(next: boolean) {
     businessRequired.value = next;
   }
@@ -122,6 +125,7 @@ export function useTenantScopeController(
     tenantScopeExplorerCount,
     changeTenantScope,
     handleTenantScopeLoaded,
+    refreshTenantScope,
     waitForInitialScope,
     setRequired,
   };

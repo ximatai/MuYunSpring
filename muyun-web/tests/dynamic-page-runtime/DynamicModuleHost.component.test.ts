@@ -1,3 +1,4 @@
+import * as errorFeedback from '@/platform-components/platformErrorFeedback';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +16,7 @@ import {
   createAssistantSurfaceRegistry,
   createLanguageContext,
   codeOperationErrorMessage,
+  normalizeError,
   provideLanguageContext,
 } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
@@ -37,6 +39,7 @@ describe('ModulePageHost', () => {
     config.global.stubs.ModulePageBusinessSession = false;
     config.global.stubs.ModulePageHostSession = false;
     config.global.stubs.ModulePageHostRuntime = false;
+    config.global.stubs.ModulePageTenantNavigator = false;
     config.global.stubs.ModuleHttpProvider = false;
   });
 
@@ -45,7 +48,89 @@ describe('ModulePageHost', () => {
     delete config.global.stubs.ModulePageBusinessSession;
     delete config.global.stubs.ModulePageHostSession;
     delete config.global.stubs.ModulePageHostRuntime;
+    delete config.global.stubs.ModulePageTenantNavigator;
     delete config.global.stubs.ModuleHttpProvider;
+  });
+
+  it('retains a rejected draft and displays server feedback locally until the draft changes', async () => {
+    const requests: string[] = [];
+    const globalFeedback = vi.spyOn(errorFeedback, 'presentPlatformError').mockImplementation(normalizeError);
+    let writeGate: Promise<void> | undefined;
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request.method + ' ' + new URL(request.url).pathname);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'demo.contract',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { moduleAlias: 'demo.contract', page: page() },
+        });
+      if (request.method === 'POST' && request.url.endsWith('/demo.contract/insert')) {
+        await writeGate;
+        return Response.json(
+          {
+            code: 'VALIDATION_FAILED',
+            message: '合同金额超出允许范围',
+            traceId: 'save-rejection',
+            targets: [{ kind: 'field', fieldName: 'amount' }],
+          },
+          { status: 422 },
+        );
+      }
+      throw new Error(`Unexpected request: ${request.method} ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.contract', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: { ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' } },
+      },
+    });
+    try {
+      await flushPromises();
+      wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      session.editingRecord!.amount = 99;
+      const originalDraft = session.editingRecord;
+      await session.saveRecord();
+      expect(session.recordSaveError?.message).toBe('合同金额超出允许范围');
+      expect(session.recordSaveError?.targets[0].fieldName).toBe('amount');
+      expect(session.editingRecord).toBe(originalDraft);
+      expect(session.editingRecord!.amount).toBe(99);
+      expect(session.editorMode).toBe('create');
+      expect(session.recordSaveNeedsCheck).toBe(false);
+      expect(globalFeedback).not.toHaveBeenCalled();
+      expect(requests.filter((request) => request === 'POST /demo.contract/insert')).toHaveLength(1);
+      session.editingRecord!.amount = 10;
+      expect(session.recordSaveError).toBeUndefined();
+      let finishWrite!: () => void;
+      writeGate = new Promise<void>((resolve) => {
+        finishWrite = resolve;
+      });
+      const pendingSave = session.saveRecord();
+      await flushPromises();
+      expect(session.saving).toBe(true);
+      session.editingRecord!.amount = 11;
+      finishWrite();
+      await pendingSave;
+      expect(session.recordSaveError).toBeUndefined();
+      expect(session.editingRecord!.amount).toBe(11);
+    } finally {
+      wrapper.unmount();
+      globalFeedback.mockRestore();
+    }
   });
 
   it('preserves reading intent through the page-owned query adapter', async () => {

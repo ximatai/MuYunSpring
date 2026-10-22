@@ -6,12 +6,21 @@ import type {
   MetadataFieldPropertyChangeSetPayload,
 } from './metadataModelEditSession';
 import {
+  metadataChangeSetIssueMessage,
   applyMetadataModelChangeSet,
   previewMetadataModelChangeSet,
   type MetadataChangeSetPreview,
+  type MetadataChangeSetIssue,
 } from './metadataModelChangeSetClient';
 
-export class MetadataChangeSetPrecheckError extends OperationUsageError {}
+export class MetadataChangeSetPrecheckError extends OperationUsageError {
+  constructor(
+    message: ConstructorParameters<typeof OperationUsageError>[0],
+    readonly issues: readonly MetadataChangeSetIssue[] = [],
+  ) {
+    super(message);
+  }
+}
 
 /** Both page and conversation confirm the same immutable, server-validated change set. */
 export async function prepareMetadataChangeSetSubmission(
@@ -40,7 +49,10 @@ export async function prepareMetadataChangeSetSubmission(
   requireCurrent();
   if (preview.errors.length)
     throw new MetadataChangeSetPrecheckError(
-      preview.errors.map((issue) => issue.message).join(language.t('platform.list.clause-separator', '；')),
+      preview.errors
+        .map((issue) => metadataChangeSetIssueMessage(issue, language))
+        .join(language.t('platform.list.clause-separator', '；')),
+      preview.errors,
     );
   if (!preview.proposalFingerprint)
     throw new MetadataChangeSetPrecheckError(
@@ -66,7 +78,7 @@ export async function prepareMetadataChangeSetSubmission(
       ),
       ...preview.warnings.map((item) =>
         language.t('platform.screen.metadataChangeSetSubmission.warning-value', '注意：{value1}', {
-          value1: item.message,
+          value1: metadataChangeSetIssueMessage(item, language),
         }),
       ),
       ...preview.fieldImpacts
@@ -192,7 +204,7 @@ function metadataChangeConfirmationLines(
   return [
     ...preview.warnings.map((item) =>
       language.t('platform.screen.metadataChangeSetSubmission.warning-value', '注意：{value1}', {
-        value1: item.message,
+        value1: metadataChangeSetIssueMessage(item, language),
       }),
     ),
     ...preview.fieldImpacts.map((item) =>

@@ -177,3 +177,49 @@ it('projects declared detail section headings without replacing their business b
   expect(context.reload).not.toHaveBeenCalled();
   wrapper.unmount();
 });
+
+it('locates a rejected child row without assigning its error to a same-named main field', async () => {
+  const { AppError } = await import('@/web-core');
+  const record = { id: 'order-1', amount: 99 };
+  const wrapper = mount(ModulePageRecordContent, {
+    props: {
+      context: { abilities: { has: () => false } } as never,
+      mode: 'edit',
+      record,
+      detailDisplayFields: new Map(),
+      formFields: new Map([['amount', { fieldRef: { fieldName: 'amount' }, label: '订单金额' }]]),
+      formSessionKey: 1,
+      validationRequestKey: 0,
+      pickerConfigs: {},
+      saveError: new AppError('明细金额超出范围', {
+        status: 422,
+        targets: [{ kind: 'field', fieldName: 'amount', relationAlias: 'items', rowIndex: 0 }],
+      }),
+      relations: [
+        {
+          code: 'items',
+          title: '订单明细',
+          embeddedField: 'items',
+          listProjection: {
+            fields: [{ fieldName: 'amount', title: '金额' }],
+          },
+        },
+      ] as never,
+      relationsAvailable: false,
+      relationReloadKey: 0,
+      showSystemInfo: false,
+      extensionSections: [],
+      detailSectionContext: () => ({}) as never,
+    },
+    global: { stubs: { RecordFormSurface: true, ModulePageDetailRelations: true } },
+  });
+  try {
+    expect(wrapper.get('[role="alert"]').text()).toContain('订单明细第 1 行：金额');
+    expect(wrapper.findComponent({ name: 'RecordFormSurface' }).props('serverErrors')).toEqual({});
+    expect(record.amount).toBe(99);
+    await wrapper.setProps({ saveError: undefined });
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});

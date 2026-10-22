@@ -1,3 +1,4 @@
+import { metadataChangeSetIssueMessage } from './metadataModelChangeSetClient';
 import { codeOperationErrorMessage } from '@muyun/web-core';
 import { platformLanguageContext, type LanguageContext } from '@muyun/web-core';
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
@@ -966,11 +967,11 @@ function previewMetadataDraftCapability(adapter: MetadataGovernanceAssistantAdap
       const details = [
         ...preview.errors.map((issue) => ({
           kind: language.t('platform.screen.metadataGovernanceAssistantSurface.errors', '错误'),
-          text: issue.message,
+          text: metadataChangeSetIssueMessage(issue, language),
         })),
         ...preview.warnings.map((issue) => ({
           kind: language.t('platform.screen.metadataGovernanceAssistantSurface.warnings', '警告'),
-          text: issue.message,
+          text: metadataChangeSetIssueMessage(issue, language),
         })),
         ...preview.fieldImpacts.map((impact) => ({
           kind: language.t('platform.screen.metadataGovernanceAssistantSurface.field-impacts', '字段影响'),

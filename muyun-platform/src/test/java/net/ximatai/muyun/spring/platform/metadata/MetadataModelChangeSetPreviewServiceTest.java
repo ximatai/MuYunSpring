@@ -29,6 +29,11 @@ class MetadataModelChangeSetPreviewServiceTest {
 
         assertThat(preview.valid()).isFalse();
         assertThat(preview.errors()).extracting(MetadataChangeSetValidationIssue::code).contains("INVALID_RELATION_ORDER");
+        assertThat(preview.errors()).singleElement().satisfies(issue -> {
+            assertThat(issue.subject()).isEqualTo("metadata-main");
+            assertThat(issue.textSource().sourceId()).isEqualTo("platform.metadata.diagnostic.incomplete-sibling-order");
+            assertThat(issue.message()).isEqualTo(issue.textSource().originalText());
+        });
     }
 
     @Test

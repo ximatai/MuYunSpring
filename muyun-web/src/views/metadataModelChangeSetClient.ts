@@ -1,4 +1,10 @@
-import type { HttpClient } from '@muyun/web-core';
+import {
+  platformLanguageContext,
+  textReferenceMatchesOriginal,
+  type LanguageContext,
+  type HttpClient,
+} from '@muyun/web-core';
+import type { TextReference } from '@muyun/web-contracts';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 
 export type MetadataChangeSetIssue = {
@@ -6,7 +12,20 @@ export type MetadataChangeSetIssue = {
   code: string;
   subject: string;
   message: string;
+  textSource?: TextReference | null;
+  messageArgs?: Record<string, unknown>;
 };
+
+/** Translate only explicitly declared, version-matched originals; technical diagnostics stay intact. */
+export function metadataChangeSetIssueMessage(
+  issue: MetadataChangeSetIssue,
+  language: LanguageContext = platformLanguageContext,
+): string {
+  const source = issue.textSource;
+  return source?.sourceKind === 'CODE' && textReferenceMatchesOriginal(source, source.originalText)
+    ? language.t(source.sourceId, source.originalText, issue.messageArgs)
+    : issue.message;
+}
 
 export type MetadataChangeSetPreview = {
   proposalFingerprint: string;

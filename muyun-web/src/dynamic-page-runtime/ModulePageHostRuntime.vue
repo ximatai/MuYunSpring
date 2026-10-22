@@ -41,7 +41,7 @@ import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
-import { TenantScopeExplorer } from '@muyun/platform-components';
+import ModulePageTenantNavigator from './ModulePageTenantNavigator.vue';
 
 import { computed, defineComponent, ref, watch, type PropType } from 'vue';
 import { sessionViewBindings } from './sessionViewBindings';
@@ -86,7 +86,7 @@ export default defineComponent({
     },
     NavigatorManagementEditor,
     PageNavigatorExplorer,
-    TenantScopeExplorer,
+    ModulePageTenantNavigator,
   },
   props: {
     session: { type: Object as PropType<ModulePageSessionView>, required: true },
@@ -163,11 +163,6 @@ export default defineComponent({
       tenantScopeExplorerVisible: props.tenantController.tenantScopeExplorerVisible,
       tenantScopeExplorerCount: props.tenantController.tenantScopeExplorerCount,
       tenantScopeContext: props.tenantController.tenantScopeContext,
-      tenantScopeId: props.tenantController.selectedId,
-      tenantScopeReloadKey: props.tenantController.tenantScopeReloadKey,
-      tenantSwitchBlocked: props.tenantController.blocked,
-      handleTenantScopeLoaded: props.tenantController.handleTenantScopeLoaded,
-      changeTenantScope: props.tenantController.changeTenantScope,
     };
   },
 });
@@ -179,22 +174,7 @@ export default defineComponent({
     class="module-tenant-recovery-workspace"
     :explorer-count="tenantScopeExplorerCount"
   >
-    <ManagementExplorerColumn
-      collapsible
-      :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
-      :has-selection="Boolean(tenantScopeId)"
-    >
-      <TenantScopeExplorer
-        :context="tenantScopeContext"
-        :selected-id="tenantScopeId || undefined"
-        :reload-key="tenantScopeReloadKey"
-        :disabled="tenantSwitchBlocked"
-        @refresh="tenantScopeReloadKey += 1"
-        @loaded="handleTenantScopeLoaded"
-        @select="changeTenantScope($event)"
-        @deselect="changeTenantScope(undefined)"
-      />
-    </ManagementExplorerColumn>
+    <ModulePageTenantNavigator column :controller="tenantController" />
     <ModulePageBusinessState :pending="pending" :error="businessError" @retry="retryBusinessSession" />
   </ManagementWorkspace>
   <section
@@ -275,16 +255,9 @@ export default defineComponent({
       @refresh="businessVisible && flatManagementRecycleBin.refresh()"
     >
       <template #navigator="{ index }">
-        <TenantScopeExplorer
+        <ModulePageTenantNavigator
           v-if="tenantScopeExplorerVisible && tenantScopeContext && index === 0"
-          :context="tenantScopeContext"
-          :selected-id="tenantScopeId || undefined"
-          :reload-key="tenantScopeReloadKey"
-          :disabled="tenantSwitchBlocked"
-          @refresh="tenantScopeReloadKey += 1"
-          @loaded="handleTenantScopeLoaded"
-          @select="changeTenantScope($event)"
-          @deselect="changeTenantScope(undefined)"
+          :controller="tenantController"
         />
         <template v-if="businessVisible">
           <component
@@ -572,6 +545,7 @@ export default defineComponent({
           "
         />
         <ModulePageRecordContent
+          :save-error="recordSaveError"
           :ref="bindWorkflowPanel"
           @workflow-interaction-change="updateWorkflowInteraction"
           @workflow-changed="handleWorkflowChanged"
@@ -623,24 +597,12 @@ export default defineComponent({
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
     >
-      <ManagementExplorerColumn
+      <ModulePageTenantNavigator
         v-if="tenantScopeExplorerVisible && tenantScopeContext"
         :key="'tenant-scope'"
-        collapsible
-        :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
-        :has-selection="Boolean(tenantScopeId)"
-      >
-        <TenantScopeExplorer
-          :context="tenantScopeContext"
-          :selected-id="tenantScopeId || undefined"
-          :reload-key="tenantScopeReloadKey"
-          :disabled="tenantSwitchBlocked"
-          @refresh="tenantScopeReloadKey += 1"
-          @loaded="handleTenantScopeLoaded"
-          @select="changeTenantScope($event)"
-          @deselect="changeTenantScope(undefined)"
-        />
-      </ManagementExplorerColumn>
+        column
+        :controller="tenantController"
+      />
       <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
         <template v-if="businessVisible">
           <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
@@ -885,6 +847,7 @@ export default defineComponent({
             "
           />
           <ModulePageRecordContent
+            :save-error="recordSaveError"
             :ref="bindWorkflowPanel"
             @workflow-interaction-change="updateWorkflowInteraction"
             @workflow-changed="handleWorkflowChanged"
@@ -935,24 +898,12 @@ export default defineComponent({
       :editing="editorMode !== 'view' || workflowInteraction.editing"
       :explorer-count="navigatorExplorerCount + tenantScopeExplorerCount + 1"
     >
-      <ManagementExplorerColumn
+      <ModulePageTenantNavigator
         v-if="tenantScopeExplorerVisible && tenantScopeContext"
         :key="'tenant-scope'"
-        collapsible
-        :title="language.t('platform.screen.ModulePageHostRuntime.tenant', '租户')"
-        :has-selection="Boolean(tenantScopeId)"
-      >
-        <TenantScopeExplorer
-          :context="tenantScopeContext"
-          :selected-id="tenantScopeId || undefined"
-          :reload-key="tenantScopeReloadKey"
-          :disabled="tenantSwitchBlocked"
-          @refresh="tenantScopeReloadKey += 1"
-          @loaded="handleTenantScopeLoaded"
-          @select="changeTenantScope($event)"
-          @deselect="changeTenantScope(undefined)"
-        />
-      </ManagementExplorerColumn>
+        column
+        :controller="tenantController"
+      />
       <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">
         <template v-if="businessVisible">
           <component :is="navigatorExtension.component" :context="navigatorExtensionContext" />
@@ -1514,6 +1465,7 @@ export default defineComponent({
               :context="recordViewContext(editingRecord)"
             />
             <ModulePageRecordContent
+              :save-error="recordSaveError"
               :ref="bindWorkflowPanel"
               @workflow-interaction-change="updateWorkflowInteraction"
               @workflow-changed="handleWorkflowChanged"
@@ -1548,6 +1500,7 @@ export default defineComponent({
         </template>
         <template #form>
           <ModulePageRecordContent
+            :save-error="recordSaveError"
             :ref="bindWorkflowPanel"
             @workflow-interaction-change="updateWorkflowInteraction"
             @workflow-changed="handleWorkflowChanged"
