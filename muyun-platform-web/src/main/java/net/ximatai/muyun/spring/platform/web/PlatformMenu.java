@@ -7,9 +7,11 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.annotation.Repeatable;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
+@Repeatable(PlatformMenus.class)
 public @interface PlatformMenu {
     String id() default "";
 
@@ -31,4 +33,11 @@ public @interface PlatformMenu {
     MenuOpenMode openMode() default MenuOpenMode.TAB;
 
     boolean enabled() default true;
+
+    String defaultUiConfigId() default "";
+
+    String defaultQueryTemplateId() default "";
+
+    /** Server-owned entry parameters; business policies validate their meaning and fixed scope. */
+    String entryParamsJson() default "";
 }

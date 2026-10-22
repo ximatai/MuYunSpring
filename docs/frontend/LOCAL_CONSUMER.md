@@ -1,5 +1,7 @@
 # 前端本地消费者验证
 
+只读聚合、具名业务视图与展示组件支持清单见[只读业务投影与同源多入口](READONLY_BUSINESS_VIEWS.md)。普通投影优先使用公开读取工作区，定制展示再组合标准组件，不依赖内部模块运行器。
+
 MuYunSpring 前端提供两条本机接入路径：日常联调使用链接后的生成包，交付验证安装 tarball。两者都只消费公开包，不为业务 App 配置 `src/` 内部 alias；这样既保留快速反馈，也不让本机开发绕过 `exports`、声明文件、样式或 peer dependencies 契约。
 
 当前首个应用交付包是 `@ximatai/muyun-web-app`。它交付 Workbench 壳、菜单/页签导航、标准模块运行器、平台 HTTP/session/menu client、平台业务组件，以及可直接打开的平台管理页；业务应用仍自行拥有业务页面和路由组合。

@@ -23,6 +23,35 @@ describe('QueryCriteriaComposer', () => {
     });
   }
 
+  it('validates the combined request budget before applying an otherwise valid draft', async () => {
+    const wrapper = mountComposer();
+    await wrapper.setProps({
+      conjuncts: Array.from({ length: 49 }, () => ({
+        kind: 'CONDITION' as const,
+        fieldName: 'status',
+        operator: 'EQ' as const,
+        values: ['OPEN'],
+      })),
+    });
+    wrapper.findComponent(QueryCriteriaGroupEditor).vm.$emit('update:group', {
+      kind: 'GROUP',
+      id: 1,
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', id: 2, fieldName: 'status', operator: 'EQ', values: ['OPEN'] }],
+    });
+    await wrapper.vm.$nextTick();
+    (wrapper.vm as unknown as { apply: () => void }).apply();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('apply')).toBeUndefined();
+    expect(wrapper.findComponent(QueryCriteriaGroupEditor).props('validationErrors')).toMatchObject({
+      1: '最多支持 50 个条件和括号组',
+    });
+    await wrapper.setProps({ conjuncts: [] });
+    (wrapper.vm as unknown as { apply: () => void }).apply();
+    expect(wrapper.emitted('apply')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it('keeps an incomplete condition in place and identifies its row instead of widening the query', async () => {
     const wrapper = mountComposer();
     wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).vm.$emit('update:group', {

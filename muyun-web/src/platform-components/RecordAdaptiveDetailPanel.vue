@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useLanguageContext } from '@muyun/web-core';
-import { UiActionButton, UiSidePanel, resolveUiDrawerWidth, type UiDrawerWidth } from '@muyun/vue-ui-antdv';
+import {
+  UiActionButton,
+  UiSidePanel,
+  resolveUiDrawerWidth,
+  type UiDrawerWidth,
+  type UiDrawerDismissal,
+} from '@muyun/vue-ui-antdv';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import { provideRecordSurfaceActivity } from './recordSurfaceActivity';
 
@@ -13,8 +19,9 @@ const props = withDefaults(
     docked: boolean;
     title: string;
     width?: UiDrawerWidth;
+    dismissal?: UiDrawerDismissal;
   }>(),
-  { width: 'standard' },
+  { width: 'standard', dismissal: undefined },
 );
 const emit = defineEmits<{ close: [] }>();
 const language = useLanguageContext();
@@ -26,13 +33,20 @@ provideRecordSurfaceActivity(() => props.open);
 
 <template>
   <aside
-    ref="dockHost"
     v-show="open && docked"
+    ref="dockHost"
     class="record-adaptive-detail__dock"
     :style="{ width: `${resolveUiDrawerWidth(width)}px` }"
     :aria-label="title"
   />
-  <UiSidePanel :open="open && !docked" :width="width" force-render :autofocus="false" @close="emit('close')">
+  <UiSidePanel
+    :open="open && !docked"
+    :width="width"
+    :dismissal="dismissal"
+    force-render
+    :autofocus="false"
+    @close="emit('close')"
+  >
     <div ref="drawerHost" class="record-adaptive-detail__drawer" />
   </UiSidePanel>
   <Teleport v-if="target" :to="target">

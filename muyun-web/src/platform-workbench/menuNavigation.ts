@@ -125,7 +125,12 @@ export function resolvePageDescriptor(
         title: options.title,
         layout: businessRouteLayoutsOf({ route: businessRoute }, options),
         menuId: target.menuId,
-        target: { route: businessRoute, moduleAlias: target.moduleAlias },
+        target: {
+          route: businessRoute,
+          moduleAlias: target.moduleAlias,
+          defaultUiConfigId: target.defaultUiConfigId,
+          defaultQueryTemplateId: target.defaultQueryTemplateId,
+        },
         params: target.query,
         entryParamsJson: target.entryParamsJson,
         tabPolicy: { identity: target.menuId ? 'by-menu' : 'by-target', closable: true, cacheable: true },

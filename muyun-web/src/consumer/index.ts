@@ -59,9 +59,8 @@ export type {
   ModulePageWorkspaceView,
   ModulePageWorkspaceViewInput,
 } from '../dynamic-page-runtime/modulePageEnhancements';
-// The standard module runner and its list/drawer/form components are shipped
-// behind PlatformAdminOutlet.  Keeping them out of this entry preserves their
-// freedom to evolve without making each implementation detail an App contract.
+// Full module orchestration and mutation sessions stay behind PlatformAdminOutlet.
+// The read-only workspace and supported presentation compositors below are separate App contracts.
 export {
   UiButton,
   UiDropdown,
@@ -150,3 +149,31 @@ export type {
 
 export { UiLanguageProvider, registerUiLanguageLocales } from '../vue-ui-antdv';
 export { default as LanguageSelector } from '../platform-workbench/LanguageSelector.vue';
+
+// Specialized business pages compose the same surfaces as the standard module runner.
+export {
+  ManagementWorkspace,
+  RecordQueryListSurface,
+  RecordQueryListCell,
+  RecordDetailPanel,
+  RecordDetailFields,
+  RecordDetailExtensionSection,
+  useWorkspaceDetailSurface,
+  listDetailWorkspaceMinWidth,
+  resolveRecordQueryListColumns,
+  resolveRecordDetailFields,
+} from '../platform-components/index';
+export type { RecordFormFieldFallback } from '../platform-components/index';
+export type {
+  QueryListRecord,
+  RecordQueryListColumn,
+  RecordFormFieldDescriptor,
+} from '../platform-components/index';
+export type { UiDataTableColumn, UiDataTableRecord, UiDataTableSelection } from '../vue-ui-antdv/index';
+export { UiSelect, UiEmpty, UiError } from '../vue-ui-antdv/index';
+
+export { default as ReadonlyRecordWorkspace } from '../platform-components/ReadonlyRecordWorkspace.vue';
+
+// Cached business pages read their own restored route/descriptor, independently of the active tab.
+export { usePageDescriptor, usePageRoute } from '../app/pageRouteContext';
+export type { PageRoute } from '../app/pageRouteContext';

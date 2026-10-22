@@ -559,7 +559,8 @@ function changePage(nextPage: number) {
 }
 
 function canSelect(id: ReferencePickerId) {
-  if (externalIds.value.includes(id)) return true;
+  // Persisted history may be retained, but removing it does not grant permission to select it again.
+  if (externalIds.value.includes(id) && draftIds.value.includes(id)) return true;
   const candidate = candidatesById.value.get(id);
   if (!candidate || candidate.disabled || candidate.unavailable) return false;
   return (
@@ -572,7 +573,7 @@ function canSelect(id: ReferencePickerId) {
 
 function updateDraft(ids: ReferencePickerId[]) {
   const next = normalizeReferencePickerIds(ids, props.multiple).filter((id) => {
-    if (externalIds.value.includes(id)) return true;
+    if (externalIds.value.includes(id) && draftIds.value.includes(id)) return true;
     const candidate = candidatesById.value.get(id);
     return Boolean(candidate && !candidate.disabled && !candidate.unavailable);
   });

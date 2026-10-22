@@ -769,11 +769,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
     }
 
     private void addMenuAction(Map<String, StaticModuleActionDefinition> actions, Class<?> beanClass) {
-        PlatformMenu menu = AnnotationUtils.findAnnotation(beanClass, PlatformMenu.class);
-        if (menu == null) return;
-        if (menu.accessMode() == net.ximatai.muyun.spring.common.platform.ActionAccessMode.ANONYMOUS_ALLOWED) {
-            throw new IllegalStateException("Module menu requires an authenticated user: " + beanClass.getName());
-        }
+        var menus = PlatformMenuDeclarations.of(beanClass);
+        if (menus.isEmpty()) return;
+        PlatformMenu menu = menus.getFirst();
         var action = PlatformAction.MENU;
         boolean loginRequired = menu.accessMode() == net.ximatai.muyun.spring.common.platform.ActionAccessMode.LOGIN_REQUIRED;
         actions.putIfAbsent(action.code(), new StaticModuleActionDefinition(action.code(), action.permissionActionCode(),

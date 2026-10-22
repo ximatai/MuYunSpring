@@ -11,6 +11,7 @@ import type {
 } from '@muyun/web-contracts';
 
 import QueryCriteriaGroupEditor from './QueryCriteriaGroupEditor.vue';
+import { conjoinQueryCriteria, queryCriteriaComplexityMessage } from './queryCriteria';
 import type {
   QueryCriteriaConditionDraft,
   QueryCriteriaDraftNode,
@@ -36,6 +37,8 @@ const props = defineProps<{
   referencePickerOf?: (field: QuerySchemaField) => ReferencePickerConfig | undefined;
   disabled: boolean;
   composition: 'FLAT_AND' | 'TREE';
+  /** Other conditions in the final request share the server's complexity budget. */
+  conjuncts?: QueryCriteriaNode[];
   /** Fields already owned by a persistent control on a flat query surface. */
   excludedFieldNames?: string[];
 }>();
@@ -83,6 +86,11 @@ function apply() {
   }
   validateDraftComplexity(root.value, 1, errors, { count: 0 });
   const result = resolveGroup(root.value, true, errors);
+  const complexity = queryCriteriaComplexityMessage(
+    conjoinQueryCriteria([...(props.conjuncts ?? []), result]),
+    language,
+  );
+  if (complexity) errors[root.value.id] = () => complexity;
   if (Object.keys(errors).length > 0 || !result) {
     validationErrorFacts.value = errors;
     emit(

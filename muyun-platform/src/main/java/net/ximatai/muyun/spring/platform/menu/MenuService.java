@@ -395,8 +395,11 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         if (menu.getPageMode() == null) {
             menu.setPageMode(MenuPageMode.LIST);
         }
-        validateDefaultUiConfig(menu, moduleAlias);
-        validateDefaultQueryTemplate(menu, moduleAlias);
+        // References belong to the menu scheme, including system operators editing a tenant scheme.
+        try (TenantContext.Scope ignored = TenantContext.use(menu.getTenantId())) {
+            validateDefaultUiConfig(menu, moduleAlias);
+            validateDefaultQueryTemplate(menu, moduleAlias);
+        }
     }
 
     private PlatformModule requireModuleEntry(Menu menu) {
@@ -419,7 +422,7 @@ public class MenuService extends AbstractAbilityService<Menu> implements
                     requireBlank(menu.getExternalUrl(), TextReference.code(
                             "platform.rejection.menu.route-url-denied",
                             "Route menu cannot have externalUrl"));
-                    clearLowCodeEntry(menu);
+                    clearModulePresentation(menu);
                     return;
                 }
                 menu.setRoute(null);
@@ -429,21 +432,21 @@ public class MenuService extends AbstractAbilityService<Menu> implements
             case ROUTE -> {
                 menu.setRoute(module.getEntryRoute());
                 menu.setExternalUrl(null);
-                clearLowCodeEntry(menu);
+                clearModulePresentation(menu);
             }
             case LINK -> {
                 menu.setRoute(null);
                 menu.setExternalUrl(module.getEntryExternalUrl());
-                clearLowCodeEntry(menu);
+                clearModulePresentation(menu);
+                menu.setEntryParamsJson(null);
             }
         }
     }
 
-    private void clearLowCodeEntry(Menu menu) {
+    private void clearModulePresentation(Menu menu) {
         menu.setPageMode(null);
         menu.setDefaultUiConfigId(null);
         menu.setDefaultQueryTemplateId(null);
-        menu.setEntryParamsJson(null);
     }
 
     private void validateDefaultUiConfig(Menu menu, String moduleAlias) {
@@ -454,9 +457,10 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         if (uiConfigService == null || uiSetService == null) {
             return;
         }
-        PlatformUiConfig uiConfig = uiConfigService.requireUiConfig(menu.getDefaultUiConfigId());
-        PlatformUiSet uiSet = uiSetService.requireUiSet(uiConfig.getUiSetId());
-        if (!Objects.equals(uiSet.getModuleAlias(), moduleAlias)) {
+        PlatformUiConfig uiConfig = uiConfigService.requireVisibleUiConfig(menu.getDefaultUiConfigId());
+        PlatformUiSet uiSet = uiSetService.requireVisibleUiSet(uiConfig.getUiSetId());
+        if (!Objects.equals(uiConfig.getTenantId(), uiSet.getTenantId())
+                || !Objects.equals(uiSet.getModuleAlias(), moduleAlias)) {
             throw BusinessExceptions.warningText("platform.menu.default-ui-module-mismatch", TextReference.code(
                     "platform.rejection.menu.menu-default-ui-config-must-belong-to-module",
                     "Menu default UI config must belong to module: {value1}"), Map.of("value1", String.valueOf(moduleAlias)));
@@ -487,7 +491,7 @@ public class MenuService extends AbstractAbilityService<Menu> implements
         if (queryTemplateService == null) {
             return;
         }
-        PlatformQueryTemplate template = queryTemplateService.requireQueryTemplate(menu.getDefaultQueryTemplateId());
+        PlatformQueryTemplate template = queryTemplateService.requireVisibleQueryTemplate(menu.getDefaultQueryTemplateId());
         if (!Objects.equals(template.getModuleAlias(), moduleAlias)) {
             throw BusinessExceptions.warningText("platform.menu.default-query-module-mismatch", TextReference.code(
                     "platform.rejection.menu.menu-default-query-template-must-belong-to-module",

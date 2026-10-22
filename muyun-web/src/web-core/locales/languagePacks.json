@@ -3654,7 +3654,9 @@
       "platform.workflow-manager.fallback": "兜底流程",
       "platform.workflow-manager.all-records": "全部记录",
       "platform.workflow-manager.publish-to-enable": "请进入编排发布流程后启用",
-      "platform.workflow-config.enable-confirm": "启用此流程？"
+      "platform.workflow-config.enable-confirm": "启用此流程？",
+      "platform.read-view.refresh": "刷新",
+      "platform.read-view.empty": "暂无符合条件的记录"
     }
   },
   "en": {
@@ -7313,7 +7315,9 @@
       "platform.workflow-manager.fallback": "Fallback workflow",
       "platform.workflow-manager.all-records": "All records",
       "platform.workflow-manager.publish-to-enable": "Publish the workflow in the designer before enabling it",
-      "platform.workflow-config.enable-confirm": "Enable this workflow?"
+      "platform.workflow-config.enable-confirm": "Enable this workflow?",
+      "platform.read-view.refresh": "Refresh",
+      "platform.read-view.empty": "No matching records"
     }
   },
   "fr": {
@@ -7417,7 +7421,9 @@
       "platform.screen.WorkflowConfigurationView.save-draft": "Enregistrer le brouillon",
       "platform.screen.WorkflowConfigurationView.disable": "Désactiver",
       "platform.screen.WorkflowRecordPanel.business-records": "Enregistrements métier",
-      "platform.form.required-marker": "Obligatoire"
+      "platform.form.required-marker": "Obligatoire",
+      "platform.read-view.refresh": "Actualiser",
+      "platform.read-view.empty": "Aucun enregistrement correspondant"
     }
   }
 }

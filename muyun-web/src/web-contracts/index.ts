@@ -685,6 +685,9 @@ export interface PageDescriptorBase<
 }
 
 export interface RoutePageTarget {
+  /** Preserved module-menu presentation defaults for a custom business page. */
+  defaultUiConfigId?: string;
+  defaultQueryTemplateId?: string;
   route?: string;
   routeName?: string;
   pageKey?: string;

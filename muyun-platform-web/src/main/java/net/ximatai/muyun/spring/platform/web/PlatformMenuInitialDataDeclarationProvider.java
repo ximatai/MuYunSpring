@@ -59,18 +59,21 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
 
     private List<MenuContribution> menuContributions() {
         List<MenuContribution> contributions = new ArrayList<>();
-        for (String beanName : applicationContext.getBeanNamesForAnnotation(PlatformMenu.class)) {
+        var beanNames = new java.util.LinkedHashSet<>(List.of(applicationContext.getBeanNamesForAnnotation(PlatformMenu.class)));
+        beanNames.addAll(List.of(applicationContext.getBeanNamesForAnnotation(PlatformMenus.class)));
+        var ids = new java.util.HashSet<String>();
+        for (String beanName : beanNames) {
             Object bean = applicationContext.getBean(beanName);
             Class<?> beanClass = AopUtils.getTargetClass(bean);
-            PlatformMenu menu = AnnotationUtils.findAnnotation(beanClass, PlatformMenu.class);
-            if (menu == null) {
-                continue;
-            }
             PlatformStaticModule module = AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class);
             if (module == null) {
                 throw new IllegalStateException("@PlatformMenu requires @PlatformStaticModule: " + beanClass.getName());
             }
-            contributions.add(new MenuContribution(module, menu));
+            for (var menu : PlatformMenuDeclarations.of(beanClass)) {
+                if (!ids.add(menuId(module, menu)))
+                    throw new IllegalStateException("Duplicate contributed menu id: " + menuId(module, menu));
+                contributions.add(new MenuContribution(module, menu));
+            }
         }
         return contributions;
     }
@@ -85,6 +88,11 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
         String route = redirectsToCanonicalModule ? "" : module.route().trim();
         String externalUrl = redirectsToCanonicalModule ? "" : module.externalUrl().trim();
         validateModuleEntry(module, route, externalUrl);
+        if ((!route.isBlank() || !externalUrl.isBlank())
+                && (!menu.defaultUiConfigId().isBlank() || !menu.defaultQueryTemplateId().isBlank()))
+            throw new IllegalStateException("Default UI/query configuration requires a standard module entry: " + menuId);
+        if (!externalUrl.isBlank() && !menu.entryParamsJson().isBlank())
+            throw new IllegalStateException("Business entry parameters require a local module entry: " + menuId);
         desired.setOpenMode(menu.openMode());
         desired.setParentId(menu.parent());
         desired.setTitle(menu.title().isBlank() ? module.title() : menu.title().trim());
@@ -93,6 +101,9 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
         desired.setRoute(route.isBlank() ? null : route);
         desired.setExternalUrl(externalUrl.isBlank() ? null : externalUrl);
         desired.setPageMode(route.isBlank() && externalUrl.isBlank() ? MenuPageMode.LIST : null);
+        desired.setDefaultUiConfigId(optional(menu.defaultUiConfigId()));
+        desired.setDefaultQueryTemplateId(optional(menu.defaultQueryTemplateId()));
+        desired.setEntryParamsJson(optional(menu.entryParamsJson()));
         desired.setEnabled(menu.enabled());
         desired.setSortOrder(menu.order());
         return InitialDataDeclaration.reconcileManaged(menuService, desired);
@@ -110,8 +121,10 @@ public class PlatformMenuInitialDataDeclarationProvider implements InitialDataDe
     }
 
     private String menuId(PlatformStaticModule module, PlatformMenu menu) {
-        return menu.id().isBlank() ? moduleMenuId(module.alias()) : menu.id();
+        return menu.id().isBlank() ? moduleMenuId(module.alias()) : menu.id().trim();
     }
+
+    private String optional(String value) { return value.isBlank() ? null : value.trim(); }
 
     private record MenuContribution(PlatformStaticModule module, PlatformMenu menu) {
     }

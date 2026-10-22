@@ -3666,7 +3666,7 @@ class DynamicRecordWebControllerTest {
                 List.of(template, overrideTemplate), List.of()));
         Criteria templateCriteria = Criteria.of().eq("region", "north");
         Criteria manualCriteria = Criteria.of().eq("customerType", "VIP");
-        when(queryItemService.compile(eq("customer-region"), any())).thenReturn(templateCriteria);
+        when(queryItemService.compileVisiblePublished(eq("customer-region"), any())).thenReturn(templateCriteria);
         when(service.queryCriteria(eq("crm.customer"), eq("customer"), any())).thenReturn(manualCriteria);
         when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
                 .thenReturn(new DynamicReferenceResolveResponse(
@@ -3702,7 +3702,7 @@ class DynamicRecordWebControllerTest {
         assertThat(request.getValue().criteria().isEmpty()).isFalse();
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> externalValues = ArgumentCaptor.forClass(Map.class);
-        verify(queryItemService).compile(eq("customer-region"), externalValues.capture());
+        verify(queryItemService).compileVisiblePublished(eq("customer-region"), externalValues.capture());
         assertThat(externalValues.getValue()).containsEntry("region", "north");
         verify(service).queryCriteria(eq("crm.customer"), eq("customer"), any());
     }
@@ -3727,7 +3727,7 @@ class DynamicRecordWebControllerTest {
         when(snapshotService.snapshot("crm.customer")).thenReturn(new PlatformPageConfigSnapshot(
                 "crm.customer", List.of(), List.of(), List.of(), List.of(template), List.of()));
         Criteria templateCriteria = Criteria.of().eq("region", "north");
-        when(queryItemService.compile(eq("customer-region"), any())).thenReturn(templateCriteria);
+        when(queryItemService.compileVisiblePublished(eq("customer-region"), any())).thenReturn(templateCriteria);
         when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
                 .thenReturn(new DynamicReferenceResolveResponse(
                         DynamicReferenceResolveStatus.OK,
@@ -3751,7 +3751,7 @@ class DynamicRecordWebControllerTest {
         ArgumentCaptor<DynamicReferenceResolveRequest> request = ArgumentCaptor.forClass(DynamicReferenceResolveRequest.class);
         verify(service).resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), request.capture());
         assertThat(request.getValue().criteria()).isSameAs(templateCriteria);
-        verify(queryItemService).compile(eq("customer-region"), any());
+        verify(queryItemService).compileVisiblePublished(eq("customer-region"), any());
     }
 
     @Test

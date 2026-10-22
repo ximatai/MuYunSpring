@@ -93,6 +93,17 @@ public class PlatformUiSetService extends AbstractAbilityService<PlatformUiSet> 
         }
     }
 
+    /** Resolves a page-consumption reference without granting access through the editing API. */
+    public PlatformUiSet requireVisibleUiSet(String id) {
+        PlatformUiSet uiSet = PlatformPageConfigReadScope.findVisible(this, id);
+        if (uiSet == null) {
+            throw BusinessExceptions.warningText("platform.ui-set.not-found", TextReference.code(
+                    "platform.rejection.platform-ui-set.ui-set-requires-existing-config",
+                    "UI set requires existing config: {value1}"), Map.of("value1", String.valueOf(id)));
+        }
+        return uiSet;
+    }
+
     public PlatformUiSet requireUiSet(String id) {
         PlatformUiSet uiSet = id == null || id.isBlank() ? null : select(id);
         if (uiSet == null) {
