@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.i18n.*;
 import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.platform.localization.ConfigurationTextSources;
 import net.ximatai.muyun.spring.platform.menu.Menu;
+import net.ximatai.muyun.spring.platform.metadata.*;
 import net.ximatai.muyun.spring.platform.workflow.*;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -81,6 +82,43 @@ class PlatformPresentationResponseAdviceTest {
         assertThat(mapper.valueToTree(projection.project(stale)).has("errorMessageText")).isFalse();
         assertThat(projection.project(WorkflowSubmitStatusView.matchError("sales.order", "record-1", "custom failure")))
                 .isInstanceOf(WorkflowSubmitStatusView.class);
+    }
+
+    @Test void projectsNestedChangeSetAndPublishDiagnosticsWhileKeepingUnverifiedOriginals() throws Exception {
+        var source = TextReference.code("test.metadata.warning", "字段 {title} 有 {count} 条数据");
+        var arguments = Map.<String, Object>of("title", "Cost {count}", "count", 7);
+        var issue = MetadataChangeSetValidationIssue.declared(MetadataChangeSetValidationIssue.Severity.WARNING,
+                "FIELD_DATA", "amount", source, arguments);
+        var stale = new TextReference(TextReference.SourceKind.CODE, source.sourceId(), "stale", source.originalText());
+        var errors = List.of(
+                new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.ERROR,
+                        "STALE", "amount", issue.message(), stale, arguments),
+                new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.ERROR,
+                        "CHANGED", "amount", "custom diagnostic", source, arguments),
+                new MetadataChangeSetValidationIssue(MetadataChangeSetValidationIssue.Severity.ERROR,
+                        "EXTERNAL", "amount", "external {count}"));
+        var relation = new MetadataRelationChangeSetPreview("demo.test", "main", "metadata", 1,
+                java.util.Set.of(), List.of(), List.of(), List.of(issue), errors, "relation-fingerprint");
+        var preview = new MetadataModelChangeSetPreview("demo.test", List.of(relation), List.of(issue), errors, "fingerprint", null);
+        var published = new MetadataModelChangeSetPublishResult(preview, List.of(), List.of("demo.test"));
+        var projection = advice(Map.of(source, "Field {title} has {count} records"));
+        var before = mapper.valueToTree(published);
+        var output = mapper.valueToTree(projection.project(published));
+        for (String prefix : List.of("/validatedPreview", "/validatedPreview/relationPreviews/0")) {
+            assertThat(output.at(prefix + "/warnings/0/message").asText()).isEqualTo(issue.message());
+            assertThat(output.at(prefix + "/warnings/0/messageText/languages/en/text").asText())
+                    .isEqualTo("Field Cost {count} has 7 records");
+            assertThat(output.at(prefix + "/errors/0/messageText").isMissingNode()).isTrue();
+            assertThat(output.at(prefix + "/errors/1/messageText").isMissingNode()).isTrue();
+            assertThat(output.at(prefix + "/errors/2/messageText").isMissingNode()).isTrue();
+            assertThat(output.at(prefix + "/errors/2/message").asText()).isEqualTo("external {count}");
+        }
+        var after = mapper.valueToTree(published);
+        assertThat(after).isEqualTo(before);
+        var method = PlatformMetadataModelChangeSetWebController.class.getMethod("apply", jakarta.servlet.http.HttpServletRequest.class,
+                MetadataModelChangeSetApplyCommand.class);
+        assertThat(projection.supports(new org.springframework.core.MethodParameter(method, -1),
+                org.springframework.http.converter.json.MappingJackson2HttpMessageConverter.class)).isTrue();
     }
 
     @org.springframework.web.bind.annotation.RestController

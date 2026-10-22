@@ -1,34 +1,53 @@
 import { expect, it } from 'vitest';
 import { createLanguageContext, codeOperationErrorMessage } from '@/web-core';
+import type { TextPresentation } from '@/web-contracts';
 import { metadataChangeSetIssueMessage } from '@/views/metadataModelChangeSetClient';
 
-it('uses the same declared diagnostic in both languages without changing subject, code or literal arguments', () => {
+it('consumes backend-only diagnostic resources in either language without changing diagnostic facts', () => {
   const language = createLanguageContext({ languageTag: 'en' });
-  const original = '字段“{title}”已有 {count} 条业务数据；目标字段规格不在当前规格声明的数据安全转换范围内。';
-  const text = codeOperationErrorMessage(
-    language,
-    'platform.metadata.diagnostic.field-spec-change-with-data',
-    original,
-    { title: 'Cost {count}', count: 7 },
-  );
+  const original = 'Field spec requires existing type: {value1}';
+  const key = 'platform.rejection.field-spec.field-spec-requires-existing-type';
+  const args = { value1: 'retired_spec' };
+  const source = codeOperationErrorMessage(language, key, original, args).source;
+  const messageText: TextPresentation = {
+    source,
+    languages: {
+      en: {
+        text: 'Field spec requires existing type: retired_spec',
+        requestedTag: 'en',
+        resourceTag: 'en',
+        missing: false,
+        fallback: false,
+      },
+      'zh-CN': {
+        text: '字段规格不存在：retired_spec',
+        requestedTag: 'zh-CN',
+        resourceTag: 'zh-CN',
+        missing: false,
+        fallback: false,
+      },
+    },
+  };
   const issue = {
     severity: 'ERROR',
-    code: 'FIELD_SPEC_CHANGE_WITH_DATA',
+    code: 'INVALID_FIELD_DRAFT',
     subject: 'amount',
-    message: 'original diagnostic',
-    textSource: text.source,
-    messageArgs: text.args,
+    message: 'Field spec requires existing type: retired_spec',
+    textSource: source,
+    messageArgs: args,
+    messageText,
   };
-  expect(metadataChangeSetIssueMessage(issue, language)).toContain(
-    'Cost {count}” already has 7 business records',
-  );
+  expect(metadataChangeSetIssueMessage(issue, language)).toBe(issue.message);
   language.setLanguage('zh-CN');
-  expect(metadataChangeSetIssueMessage(issue, language)).toContain('Cost {count}”已有 7 条');
+  expect(language.resolve(key).missing).toBe(true);
+  expect(metadataChangeSetIssueMessage(issue, language)).toBe('字段规格不存在：retired_spec');
   expect(issue.subject).toBe('amount');
-  expect(issue.message).toBe('original diagnostic');
+  expect(issue.code).toBe('INVALID_FIELD_DRAFT');
+  expect(issue.message).toBe('Field spec requires existing type: retired_spec');
+  expect(issue.messageArgs).toEqual(args);
 });
 
-it('keeps undeclared, external and mismatched-version diagnostics as original text', () => {
+it('keeps diagnostics without a verified server presentation as original text', () => {
   const language = createLanguageContext({ languageTag: 'en' });
   const issue = {
     severity: 'ERROR',
@@ -37,15 +56,7 @@ it('keeps undeclared, external and mismatched-version diagnostics as original te
     message: 'external {diagnostic}',
   };
   expect(metadataChangeSetIssueMessage(issue, language)).toBe(issue.message);
-  const source = codeOperationErrorMessage(
-    language,
-    'platform.metadata.diagnostic.stale-field-version',
-    '字段版本已变化，请重新载入后预检。',
-  ).source;
-  expect(
-    metadataChangeSetIssueMessage({ ...issue, textSource: { ...source, sourceVersion: 'stale' } }, language),
-  ).toBe(issue.message);
-  expect(
-    metadataChangeSetIssueMessage({ ...issue, textSource: { ...source, sourceKind: 'CONFIG' } }, language),
-  ).toBe(issue.message);
+  const source = codeOperationErrorMessage(language, 'platform.form.required', '请填写{label}').source;
+  expect(metadataChangeSetIssueMessage({ ...issue, textSource: source }, language)).toBe(issue.message);
+  expect(metadataChangeSetIssueMessage({ ...issue, messageText: null }, language)).toBe(issue.message);
 });

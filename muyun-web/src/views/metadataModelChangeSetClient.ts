@@ -1,10 +1,10 @@
 import {
   platformLanguageContext,
-  textReferenceMatchesOriginal,
+  presentationLabel,
   type LanguageContext,
   type HttpClient,
 } from '@muyun/web-core';
-import type { TextReference } from '@muyun/web-contracts';
+import type { TextPresentation, TextReference } from '@muyun/web-contracts';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 
 export type MetadataChangeSetIssue = {
@@ -13,18 +13,16 @@ export type MetadataChangeSetIssue = {
   subject: string;
   message: string;
   textSource?: TextReference | null;
+  messageText?: TextPresentation | null;
   messageArgs?: Record<string, unknown>;
 };
 
-/** Translate only explicitly declared, version-matched originals; technical diagnostics stay intact. */
+/** Consume server-owned display resources; diagnostics without a verified projection retain their original. */
 export function metadataChangeSetIssueMessage(
   issue: MetadataChangeSetIssue,
   language: LanguageContext = platformLanguageContext,
 ): string {
-  const source = issue.textSource;
-  return source?.sourceKind === 'CODE' && textReferenceMatchesOriginal(source, source.originalText)
-    ? language.t(source.sourceId, source.originalText, issue.messageArgs)
-    : issue.message;
+  return presentationLabel(issue.message, issue.messageText ?? undefined, language);
 }
 
 export type MetadataChangeSetPreview = {
