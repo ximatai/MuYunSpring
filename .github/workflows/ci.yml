@@ -57,6 +57,7 @@ jobs:
             case "$file" in
               .github/workflows/ci.yml | .github/workflows/release.yml | .github/workflows/version-rollover.yml | \
               scripts/version.mjs | scripts/version-lib.mjs | scripts/version.test.mjs | \
+              scripts/maven-publication* | scripts/wait-maven-central.mjs | \
               build.gradle | build.gradle.kts | settings.gradle | settings.gradle.kts | gradle.properties | \
               gradle/* | gradlew | gradlew.bat | \
               muyun-common/* | muyun-ability/* | muyun-dynamic/* | \
@@ -102,6 +103,16 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Set up Node.js for publication verification
+        if: needs.changes.outputs.backend == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: muyun-web/.nvmrc
+
+      - name: Test release tooling
+        if: needs.changes.outputs.backend == 'true'
+        run: node --test scripts/*.test.mjs
+
       - name: Run tests
         if: needs.changes.outputs.backend == 'true'
         run: ./gradlew verifyAll --configuration-cache --no-daemon --stacktrace
@@ -114,7 +125,7 @@ jobs:
           SIGNING_SECRET_KEY_BASE64: ""
           SIGNING_PASSWORD: ""
         run: |
-          ./gradlew publishReleaseToConsumerRepository --configuration-cache --no-daemon --stacktrace
+          ./gradlew reportMavenPublication --configuration-cache --no-daemon --stacktrace
           if find build/consumer-repo -type f -name '*.asc' -print -quit | grep -q .; then
             echo "Local consumer repository must not contain Maven Central signatures." >&2
             exit 1
